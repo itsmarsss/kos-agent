@@ -16,6 +16,7 @@ export * from "./risk/index.js";
 export * from "./agent/index.js";
 export * from "./channels/index.js";
 export * from "./sandbox/index.js";
+export * from "./memory/index.js";
 
 export function version(): string {
   return KOS_VERSION;
