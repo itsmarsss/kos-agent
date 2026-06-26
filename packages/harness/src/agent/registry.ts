@@ -1,4 +1,5 @@
 import type { ToolDef } from "../models/types.js";
+import { classifyRisk, SAFE, type RiskAssessment, type ToolRisk } from "../risk/tiers.js";
 
 /**
  * Executes a tool call. Receives the parsed input object and returns a string
@@ -12,6 +13,7 @@ export type ToolHandler = (
 export interface RegisteredTool {
   def: ToolDef;
   handler: ToolHandler;
+  risk: ToolRisk;
 }
 
 export interface ToolExecution {
@@ -27,11 +29,21 @@ export interface ToolExecution {
 export class ToolRegistry {
   private readonly tools = new Map<string, RegisteredTool>();
 
-  register(def: ToolDef, handler: ToolHandler): void {
+  register(def: ToolDef, handler: ToolHandler, risk: ToolRisk = SAFE): void {
     if (this.tools.has(def.name)) {
       throw new Error(`tool already registered: ${def.name}`);
     }
-    this.tools.set(def.name, { def, handler });
+    this.tools.set(def.name, { def, handler, risk });
+  }
+
+  /**
+   * Compute the risk tier for a prospective tool call. Unknown tools are risky
+   * by default, so an unrecognized call never runs unguarded.
+   */
+  classify(name: string, input: Record<string, unknown>): RiskAssessment {
+    const tool = this.tools.get(name);
+    if (!tool) return { tier: "risky", escalated: false };
+    return classifyRisk(tool.risk, input);
   }
 
   has(name: string): boolean {
