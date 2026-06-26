@@ -25,7 +25,8 @@ workspace/
 *.log
 logs/
 
-# Editor / OS
+# Editor / OS / tooling
+.claude/
 .DS_Store
 .idea/
 .vscode/
