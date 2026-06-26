@@ -10,6 +10,8 @@ import { KOS_VERSION } from "@kos/shared";
 
 export { JailError, resolvePath } from "./jail/index.js";
 export { Workspace, openDatabase, DB_FILENAME, type Db } from "./store/index.js";
+export { SecretsRegistry } from "./secrets/index.js";
+export * from "./models/index.js";
 
 export function version(): string {
   return KOS_VERSION;
