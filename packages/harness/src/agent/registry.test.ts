@@ -48,4 +48,28 @@ describe("ToolRegistry", () => {
     expect(res.isError).toBe(true);
     expect(res.content).toMatch(/boom/);
   });
+
+  it("classifies a tool as safe by default", () => {
+    const reg = new ToolRegistry();
+    reg.register(echoDef, () => "x");
+    expect(reg.classify("echo", {})).toEqual({ tier: "safe", escalated: false });
+  });
+
+  it("applies a tool's risk floor and escalation", () => {
+    const reg = new ToolRegistry();
+    reg.register(echoDef, () => "x", {
+      floor: "safe",
+      escalate: (i) => i.msg === "danger",
+    });
+    expect(reg.classify("echo", { msg: "ok" }).tier).toBe("safe");
+    expect(reg.classify("echo", { msg: "danger" })).toEqual({
+      tier: "risky",
+      escalated: true,
+    });
+  });
+
+  it("classifies an unknown tool as risky", () => {
+    const reg = new ToolRegistry();
+    expect(reg.classify("missing", {}).tier).toBe("risky");
+  });
 });
