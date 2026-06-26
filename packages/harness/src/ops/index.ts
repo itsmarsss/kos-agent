@@ -17,3 +17,10 @@ export {
   type PendingAction,
 } from "./approvals.js";
 export { PersistentKillSwitch } from "./killswitch.js";
+export { WorkQueue } from "./queue.js";
+export {
+  WorkspaceBackup,
+  type BackupAuthor,
+  type Snapshot,
+} from "./backup.js";
+export { withRetry, type RetryPolicy } from "./policy.js";
