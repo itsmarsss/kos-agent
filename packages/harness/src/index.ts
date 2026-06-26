@@ -19,6 +19,7 @@ export * from "./channels/index.js";
 export * from "./sandbox/index.js";
 export * from "./memory/index.js";
 export * from "./systems/index.js";
+export * from "./cron/index.js";
 
 export function version(): string {
   return KOS_VERSION;
