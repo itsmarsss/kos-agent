@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "@kos/shared": "workspace:*",
-    "better-sqlite3": "^11.7.0"
+    "@anthropic-ai/sdk": "^0.106.0",
+    "better-sqlite3": "^11.7.0",
+    "openai": "^6.10.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12"
