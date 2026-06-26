@@ -7,3 +7,19 @@ export {
 } from "./salience.js";
 export { FactsStore, type Fact } from "./facts.js";
 export { MemoryWriter, type SalienceConfirmer } from "./writer.js";
+export {
+  HashingEmbeddingProvider,
+  OpenAIEmbeddingProvider,
+  type EmbeddingProvider,
+  type OpenAIEmbeddingOptions,
+} from "./embeddings.js";
+export {
+  EpisodicStore,
+  type Episode,
+  type EpisodeHit,
+} from "./episodic.js";
+export {
+  MemoryRetriever,
+  type Recall,
+  type RecallOptions,
+} from "./retriever.js";
