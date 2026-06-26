@@ -12,7 +12,7 @@ build/
 .env.*
 !.env.example
 *.key
-secrets/
+/secrets/
 
 # KOS workspace - the agent's owned data, not source
 workspace/
