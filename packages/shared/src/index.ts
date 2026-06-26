@@ -7,3 +7,12 @@
  */
 
 export const KOS_VERSION = "0.0.0";
+
+export {
+  capabilityKey,
+  type CapabilityKind,
+  type CapabilityRef,
+  type ModuleManifest,
+  type NeededCapability,
+  type ProvidedCapability,
+} from "./module.js";
