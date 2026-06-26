@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Secrets - never commit (see KOS.md Secrets section)
+.env
+.env.*
+!.env.example
+*.key
+secrets/
+
+# KOS workspace - the agent's owned data, not source
+workspace/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+
+# Logs
+*.log
+logs/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Project docs and state - local only, not tracked
+KOS.md
+CLAUDE.md
+dev/
