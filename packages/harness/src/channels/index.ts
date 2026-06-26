@@ -18,6 +18,14 @@ export {
   type SentMessage,
 } from "./memory.js";
 export {
+  DiscordAdapter,
+  approvalCustomIds,
+  parseApprovalCustomId,
+  APPROVE_PREFIX,
+  DENY_PREFIX,
+  type DiscordAdapterOptions,
+} from "./discord.js";
+export {
   ChannelRuntime,
   createAgentTurnHandler,
   type AgentTurnOptions,
