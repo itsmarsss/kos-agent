@@ -13,6 +13,7 @@ export { Workspace, openDatabase, DB_FILENAME, type Db } from "./store/index.js"
 export { SecretsRegistry } from "./secrets/index.js";
 export * from "./models/index.js";
 export * from "./agent/index.js";
+export * from "./channels/index.js";
 
 export function version(): string {
   return KOS_VERSION;
