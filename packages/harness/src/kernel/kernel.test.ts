@@ -146,4 +146,27 @@ describe("Kernel", () => {
     const res = await kernel.handleMessage("anything");
     expect(res.halted).toBe(true);
   });
+
+  it("runs a scheduled actions job through the guarded path", async () => {
+    const sent: string[] = [];
+    kernel = await boot(stubInference([]), async (t) => {
+      sent.push(t);
+    });
+    const job = kernel.crons.create({
+      name: "ping",
+      schedule: "0 0 1 1 *",
+      type: "actions",
+      actions: [{ tool: "notify", args: { text: "scheduled hi" } }],
+    });
+    kernel.startCron();
+    // fire directly rather than waiting for the cron tick
+    const sched = (kernel as unknown as { scheduler: { fire: (j: typeof job) => Promise<unknown> } }).scheduler;
+    await sched.fire(job);
+    await kernel.queue.drain();
+    expect(sent).toEqual(["scheduled hi"]);
+    expect(kernel.runs.recent().some((r) => r.kind === "cron" && r.status === "ok")).toBe(
+      true,
+    );
+    kernel.stopCron();
+  });
 });

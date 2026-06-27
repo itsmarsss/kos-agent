@@ -1,5 +1,7 @@
 import { runAgent, type Inference } from "../agent/loop.js";
 import { ToolRegistry } from "../agent/registry.js";
+import { runCronJob } from "../cron/executor.js";
+import { CronScheduler } from "../cron/scheduler.js";
 import { CronStore } from "../cron/store.js";
 import { createDefaultRouter } from "../models/router.js";
 import {
@@ -80,6 +82,7 @@ export class Kernel {
 
   private readonly inference: Inference;
   private readonly system: string;
+  private scheduler?: CronScheduler;
 
   private constructor(args: {
     workspace: Workspace;
@@ -211,14 +214,7 @@ export class Kernel {
     return this.queue.enqueue(async () => {
       const runId = this.runs.start("chat");
       try {
-        const tools = new GuardedTools({
-          registry: this.registry,
-          secrets: this.secrets,
-          audit: this.audit,
-          approvals: this.approvals,
-          userId: opts.userId ?? this.profile.ownerId,
-          ...(opts.scopeTags ? { scopeTags: opts.scopeTags } : {}),
-        });
+        const tools = this.guardedTools(opts);
         const result = await runAgent(this.inference, tools, text, {
           system: this.system,
         });
@@ -235,7 +231,64 @@ export class Kernel {
     });
   }
 
+  /** Build the guarded tool path (scoped, secret-injected, approval-gated). */
+  private guardedTools(opts: { scopeTags?: string[]; userId?: string } = {}): GuardedTools {
+    return new GuardedTools({
+      registry: this.registry,
+      secrets: this.secrets,
+      audit: this.audit,
+      approvals: this.approvals,
+      userId: opts.userId ?? this.profile.ownerId,
+      ...(opts.scopeTags ? { scopeTags: opts.scopeTags } : {}),
+    });
+  }
+
+  /**
+   * Start the in-process cron scheduler. Each fire runs serially through the
+   * work queue with a runs-log entry, executes via the guarded tool path (so
+   * risky scheduled actions queue for approval), and respects the kill switch
+   * and the self-prompt rate limit (both enforced by the scheduler).
+   */
+  startCron(): void {
+    this.scheduler = new CronScheduler(
+      this.crons,
+      (job) =>
+        this.queue.enqueue(async () => {
+          const runId = this.runs.start("cron", String(job.id));
+          try {
+            const result = await runCronJob(job, {
+              db: this.workspace.db,
+              tools: this.guardedTools(),
+              inference: this.inference,
+            });
+            this.runs.finish(runId, result.ran ? "ok" : "skipped");
+            return result;
+          } catch (err) {
+            this.runs.finish(
+              runId,
+              "error",
+              err instanceof Error ? err.message : String(err),
+            );
+            throw err;
+          }
+        }),
+      { killSwitch: this.killSwitch },
+    );
+    this.scheduler.start();
+  }
+
+  /** Reload scheduled jobs from the store (after create/delete). */
+  reloadCron(): void {
+    this.scheduler?.reload();
+  }
+
+  stopCron(): void {
+    this.scheduler?.stop();
+    this.scheduler = undefined;
+  }
+
   close(): void {
+    this.stopCron();
     this.workspace.close();
   }
 }
