@@ -16,6 +16,7 @@ import { RunsLog } from "../ops/runs.js";
 import { WorkQueue } from "../ops/queue.js";
 import { WorkspaceBackup } from "../ops/backup.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
+import { SkillPromoter, type PromoteInput, type PromoteOutcome } from "../skills/promote.js";
 import { Workspace } from "../store/workspace.js";
 import { InstanceConfig } from "../systems/config.js";
 import { ProjectManifest } from "../systems/manifest.js";
@@ -73,6 +74,7 @@ export class Kernel {
   readonly killSwitch: PersistentKillSwitch;
   readonly queue: WorkQueue;
   readonly backup: WorkspaceBackup;
+  readonly promoter: SkillPromoter;
   readonly profile: Profile;
   readonly loadReport: LoadReport;
 
@@ -93,6 +95,7 @@ export class Kernel {
     killSwitch: PersistentKillSwitch;
     queue: WorkQueue;
     backup: WorkspaceBackup;
+    promoter: SkillPromoter;
     profile: Profile;
     loadReport: LoadReport;
     inference: Inference;
@@ -111,6 +114,7 @@ export class Kernel {
     this.killSwitch = args.killSwitch;
     this.queue = args.queue;
     this.backup = args.backup;
+    this.promoter = args.promoter;
     this.profile = args.profile;
     this.loadReport = args.loadReport;
     this.inference = args.inference;
@@ -133,6 +137,11 @@ export class Kernel {
     const killSwitch = new PersistentKillSwitch(workspace.db);
     const queue = new WorkQueue();
     const backup = new WorkspaceBackup(workspace.root);
+    const promoter = new SkillPromoter({
+      workspaceRoot: workspace.root,
+      backup,
+      approvals,
+    });
 
     const services: ModuleServices = {
       workspace,
@@ -170,11 +179,21 @@ export class Kernel {
       killSwitch,
       queue,
       backup,
+      promoter,
       profile,
       loadReport,
       inference,
       system: options.system ?? DEFAULT_SYSTEM,
     });
+  }
+
+  /**
+   * Self-improvement entry point: sandbox-test an agent-written skill, then
+   * auto-commit it if safe or queue it for approval if risky. Delegates to the
+   * SkillPromoter, which owns the sandbox/backup/approval wiring.
+   */
+  promoteSkill(input: PromoteInput): Promise<PromoteOutcome> {
+    return this.promoter.promote(input);
   }
 
   /**
