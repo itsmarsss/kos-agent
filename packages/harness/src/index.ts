@@ -21,6 +21,7 @@ export * from "./memory/index.js";
 export * from "./systems/index.js";
 export * from "./cron/index.js";
 export * from "./ops/index.js";
+export * from "./tools/index.js";
 
 export function version(): string {
   return KOS_VERSION;
