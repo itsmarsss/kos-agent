@@ -16,3 +16,25 @@ export {
   type NeededCapability,
   type ProvidedCapability,
 } from "./module.js";
+
+export type {
+  BaseWidget,
+  CardWidget,
+  ChartKind,
+  ChartWidget,
+  CustomHtmlWidget,
+  FormWidget,
+  ListWidget,
+  MarkdownWidget,
+  MutationTarget,
+  PageSpec,
+  StatWidget,
+  TableWidget,
+  Widget,
+  WidgetType,
+} from "./pagespec.js";
+export {
+  isReadOnlyQuery,
+  isValidPageSpec,
+  validatePageSpec,
+} from "./pagespec-validate.js";
