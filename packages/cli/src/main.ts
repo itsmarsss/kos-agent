@@ -6,6 +6,7 @@ import { createInterface } from "node:readline/promises";
 import { Kernel } from "@kos/harness";
 
 import { OFFLINE_COMMANDS, parseArgs, runCommand, statusLine } from "./commands.js";
+import { runDiscord } from "./discord.js";
 
 function workspaceDir(flag: string | boolean | undefined): string {
   if (typeof flag === "string") return flag;
@@ -62,7 +63,14 @@ async function repl(kernel: Kernel): Promise<void> {
 
 async function main(): Promise<void> {
   const { command, rest, flags } = parseArgs(process.argv.slice(2));
-  const kernel = await bootKernel(workspaceDir(flags.workspace));
+  const rootDir = workspaceDir(flags.workspace);
+
+  if (command === "discord") {
+    await runDiscord({ rootDir, allowedHosts: allowedHosts() });
+    return; // long-running; shuts down on SIGINT
+  }
+
+  const kernel = await bootKernel(rootDir);
 
   if (command === "chat") {
     await repl(kernel);

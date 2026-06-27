@@ -1,7 +1,7 @@
 import type { ToolBox } from "../agent/loop.js";
 import type { ToolExecution, ToolRegistry } from "../agent/registry.js";
 import type { AuditLog } from "../ops/audit.js";
-import type { ApprovalQueue } from "../ops/approvals.js";
+import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import { injectSecrets } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 
@@ -13,6 +13,8 @@ export interface GuardedToolsDeps {
   userId?: string;
   /** Active scope tags for which tools the model is offered. */
   scopeTags?: string[];
+  /** Notified when a risky call is queued, so a channel can prompt for approval. */
+  onQueued?: (action: PendingAction) => void;
 }
 
 /**
@@ -47,6 +49,7 @@ export class GuardedTools implements ToolBox {
         reason: assessment.escalated ? "argument escalation" : "risky tool",
         ...(userId ? { userId } : {}),
       });
+      this.deps.onQueued?.(action);
       return {
         content: `queued for approval (pending #${action.id}); not executed`,
         isError: false,
