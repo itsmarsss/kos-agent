@@ -48,7 +48,14 @@ describe("Kernel", () => {
   it("boots with first-party tool modules loaded", async () => {
     kernel = await boot(stubInference([]));
     expect(kernel.loadReport.failed).toEqual([]);
-    for (const t of ["files.read", "sql", "notify", "http.fetch", "search.grep"]) {
+    for (const t of [
+      "files.read",
+      "sql",
+      "notify",
+      "http.fetch",
+      "search.grep",
+      "cron.schedule",
+    ]) {
       expect(kernel.registry.has(t)).toBe(true);
     }
     expect(kernel.profile.name).toBe("Kenny");
