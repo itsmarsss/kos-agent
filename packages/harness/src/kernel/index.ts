@@ -13,3 +13,9 @@ export {
   type KernelOptions,
 } from "./kernel.js";
 export { connectChannel, type ConnectChannelOptions } from "./channel.js";
+export {
+  createDashboardServer,
+  handleApiRequest,
+  type ApiRequest,
+  type ApiResponse,
+} from "./server.js";

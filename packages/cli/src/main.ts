@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 
-import { Kernel } from "@kos/harness";
+import { Kernel, createDashboardServer } from "@kos/harness";
 
 import { OFFLINE_COMMANDS, parseArgs, runCommand, statusLine } from "./commands.js";
 import { runDiscord } from "./discord.js";
@@ -68,6 +68,25 @@ async function main(): Promise<void> {
   if (command === "discord") {
     await runDiscord({ rootDir, allowedHosts: allowedHosts() });
     return; // long-running; shuts down on SIGINT
+  }
+
+  if (command === "serve") {
+    const kernel = await bootKernel(rootDir);
+    kernel.startCron();
+    const port = Number(flags.port ?? process.env.KOS_PORT ?? 4317);
+    const server = createDashboardServer(kernel);
+    server.listen(port, () => {
+      console.log(`KOS dashboard API on http://localhost:${port}`);
+      console.log(`workspace: ${kernel.workspace.root}`);
+    });
+    const shutdown = (): void => {
+      server.close();
+      kernel.close();
+      process.exit(0);
+    };
+    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", shutdown);
+    return; // long-running
   }
 
   const kernel = await bootKernel(rootDir);
