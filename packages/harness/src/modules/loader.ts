@@ -2,7 +2,7 @@ import { capabilityKey, type ModuleManifest } from "@kos/shared";
 
 import type { ToolDef } from "../models/types.js";
 import type { ToolRisk } from "../risk/tiers.js";
-import type { ToolHandler, ToolRegistry } from "../agent/registry.js";
+import type { ToolHandler, ToolMeta, ToolRegistry } from "../agent/registry.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import type { Db } from "../store/db.js";
 import type { Workspace } from "../store/workspace.js";
@@ -28,7 +28,12 @@ export interface ModuleServices {
  * stays agnostic so it can drive modules that need no services.
  */
 export interface ModuleContext {
-  registerTool(def: ToolDef, handler: ToolHandler, risk?: ToolRisk): void;
+  registerTool(
+    def: ToolDef,
+    handler: ToolHandler,
+    risk?: ToolRisk,
+    meta?: ToolMeta,
+  ): void;
   services?: ModuleServices;
 }
 
@@ -62,7 +67,8 @@ export function toolRegistryContext(
   services?: ModuleServices,
 ): ModuleContext {
   return {
-    registerTool: (def, handler, risk) => registry.register(def, handler, risk),
+    registerTool: (def, handler, risk, meta) =>
+      registry.register(def, handler, risk, meta),
     ...(services ? { services } : {}),
   };
 }
