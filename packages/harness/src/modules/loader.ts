@@ -3,16 +3,41 @@ import { capabilityKey, type ModuleManifest } from "@kos/shared";
 import type { ToolDef } from "../models/types.js";
 import type { ToolRisk } from "../risk/tiers.js";
 import type { ToolHandler, ToolRegistry } from "../agent/registry.js";
+import type { SecretsRegistry } from "../secrets/secrets.js";
+import type { Db } from "../store/db.js";
+import type { Workspace } from "../store/workspace.js";
 import { satisfies } from "./semver.js";
 
 /**
+ * Kernel services a module composes through. Modules never import each other or
+ * the kernel internals; they reach the shared workspace, db, secrets, and the
+ * notify channel through this bag, handed to them at activation.
+ */
+export interface ModuleServices {
+  workspace: Workspace;
+  db: Db;
+  secrets: SecretsRegistry;
+  /** Send a message to the owner via the active channel adapter, if wired. */
+  notify?: (text: string) => Promise<void>;
+}
+
+/**
  * The surfaces a module composes through, handed to it at activation. Modules
- * contribute capabilities here; they never import each other. Starts with tools
- * (the most-used surface); widgets, providers, and channels register the same
- * way as those contracts move behind the module system.
+ * contribute capabilities here; they never import each other. `services` is
+ * present when the host wires it (always, for tool modules); the loader itself
+ * stays agnostic so it can drive modules that need no services.
  */
 export interface ModuleContext {
   registerTool(def: ToolDef, handler: ToolHandler, risk?: ToolRisk): void;
+  services?: ModuleServices;
+}
+
+/** Assert the host provided kernel services; for modules that require them. */
+export function requireServices(ctx: ModuleContext): ModuleServices {
+  if (!ctx.services) {
+    throw new Error("module requires kernel services but none were provided");
+  }
+  return ctx.services;
 }
 
 /** A loadable module: its declared manifest plus an activation function. */
@@ -31,10 +56,14 @@ export interface LoadReport {
   failed: ModuleFailure[];
 }
 
-/** Build a module context backed by a ToolRegistry. */
-export function toolRegistryContext(registry: ToolRegistry): ModuleContext {
+/** Build a module context backed by a ToolRegistry, with optional services. */
+export function toolRegistryContext(
+  registry: ToolRegistry,
+  services?: ModuleServices,
+): ModuleContext {
   return {
     registerTool: (def, handler, risk) => registry.register(def, handler, risk),
+    ...(services ? { services } : {}),
   };
 }
 
