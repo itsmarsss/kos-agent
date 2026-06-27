@@ -1,14 +1,11 @@
 /**
  * @kos/ui
  *
- * The fixed React shell, widget library, and page-spec renderer. The agent
- * authors pages as JSON specs; this package renders them from a fixed set of
- * widgets behind per-page and per-widget error boundaries. Built at the UI
- * step of the KOS.md build order.
+ * The fixed React shell (dashboard) plus the widget library and page-spec
+ * renderer. The agent authors pages as JSON specs; PageRenderer renders them
+ * from a fixed widget set behind per-page and per-widget error boundaries.
  */
-
-import { KOS_VERSION } from "@kos/shared";
-
-export function version(): string {
-  return KOS_VERSION;
-}
+export { App } from "./App.js";
+export { PageRenderer, type PageRendererProps } from "./widgets/PageRenderer.js";
+export { ErrorBoundary } from "./widgets/ErrorBoundary.js";
+export { widgetRenderer, type Row, type WidgetProps } from "./widgets/widgets.js";
