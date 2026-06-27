@@ -1,5 +1,4 @@
-import { runAgent, type Inference } from "../agent/loop.js";
-import type { ToolRegistry } from "../agent/registry.js";
+import { runAgent, type Inference, type ToolBox } from "../agent/loop.js";
 import type { Db } from "../store/db.js";
 import { evaluateCondition, queryScope } from "./conditions.js";
 import { template, templateArgs } from "./templating.js";
@@ -18,7 +17,8 @@ export type CronExecResult =
 
 export interface CronExecutorDeps {
   db: Db;
-  registry: ToolRegistry;
+  /** Tool execution path (guarded in the kernel, so risky actions queue). */
+  tools: ToolBox;
   /** Required for self_prompt jobs. */
   inference?: Inference;
   /** Assemble the system context for a self_prompt (manifest + salient memory). */
@@ -44,7 +44,7 @@ export async function runCronJob(
     const results: CronActionResult[] = [];
     for (const action of job.actions ?? []) {
       const args = templateArgs(action.args, scope);
-      const r = await deps.registry.execute(action.tool, args);
+      const r = await deps.tools.execute(action.tool, args);
       results.push({ tool: action.tool, content: r.content, isError: r.isError });
     }
     return { ran: true, type: "actions", results };
@@ -55,7 +55,7 @@ export async function runCronJob(
   }
   const prompt = template(job.prompt ?? "", scope);
   const system = deps.buildSystem?.(job);
-  const result = await runAgent(deps.inference, deps.registry, prompt, {
+  const result = await runAgent(deps.inference, deps.tools, prompt, {
     task: "reasoning",
     ...(system ? { system } : {}),
     ...(deps.maxIterations ? { maxIterations: deps.maxIterations } : {}),
