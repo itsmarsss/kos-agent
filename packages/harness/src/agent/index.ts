@@ -11,4 +11,5 @@ export {
   type AgentOptions,
   type AgentResult,
   type Inference,
+  type ToolBox,
 } from "./loop.js";
