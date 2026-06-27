@@ -63,7 +63,7 @@ describe("runCronJob", () => {
         condition: { test: "total > 200" },
         actions: [{ tool: "notify", args: { text: "you spent {total}" } }],
       }),
-      { db: ws.db, registry },
+      { db: ws.db, tools: registry },
     );
     expect(res.ran).toBe(true);
     expect(sent).toEqual(["you spent 250"]);
@@ -77,7 +77,7 @@ describe("runCronJob", () => {
         condition: { test: "total > 9999" },
         actions: [{ tool: "notify", args: { text: "x" } }],
       }),
-      { db: ws.db, registry },
+      { db: ws.db, tools: registry },
     );
     expect(res).toEqual({ ran: false, reason: "condition" });
     expect(sent).toEqual([]);
@@ -96,7 +96,7 @@ describe("runCronJob", () => {
     };
     const res = await runCronJob(
       job({ type: "self_prompt", prompt: "review {total}", query: "SELECT 5 AS total" }),
-      { db: ws.db, registry, inference },
+      { db: ws.db, tools: registry, inference },
     );
     expect(res).toEqual({ ran: true, type: "self_prompt", finalText: "reviewed" });
   });
@@ -105,7 +105,7 @@ describe("runCronJob", () => {
     await expect(
       runCronJob(job({ type: "self_prompt", prompt: "x" }), {
         db: ws.db,
-        registry,
+        tools: registry,
       }),
     ).rejects.toThrow(/requires an inference/);
   });

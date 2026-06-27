@@ -5,13 +5,24 @@ import type {
   ModelMessage,
   ModelResponse,
   StopReason,
+  ToolDef,
 } from "../models/types.js";
 import { textOf, toolUsesOf } from "../models/types.js";
-import type { ToolRegistry } from "./registry.js";
+import type { ToolExecution } from "./registry.js";
 
 /** Anything that can run inference for a task (the ModelRouter satisfies this). */
 export interface Inference {
   generate(task: Task, req: GenerateRequest): Promise<ModelResponse>;
+}
+
+/**
+ * What the loop needs from a tool source: the defs to offer the model and an
+ * execute path. ToolRegistry satisfies this directly; the kernel passes a
+ * guarded wrapper (secret injection + audit + approval gate) that also does.
+ */
+export interface ToolBox {
+  defs(): ToolDef[];
+  execute(name: string, input: Record<string, unknown>): Promise<ToolExecution>;
 }
 
 export interface AgentOptions {
@@ -43,13 +54,13 @@ const DEFAULT_MAX_ITERATIONS = 10;
  */
 export async function runAgent(
   inference: Inference,
-  registry: ToolRegistry,
+  tools_: ToolBox,
   input: string | ModelMessage[],
   options: AgentOptions = {},
 ): Promise<AgentResult> {
   const task = options.task ?? "reasoning";
   const maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
-  const tools = registry.defs();
+  const tools = tools_.defs();
 
   const messages: ModelMessage[] =
     typeof input === "string"
@@ -82,7 +93,7 @@ export async function runAgent(
 
     const results: ContentBlock[] = [];
     for (const call of toolUses) {
-      const { content, isError } = await registry.execute(call.name, call.input);
+      const { content, isError } = await tools_.execute(call.name, call.input);
       results.push({
         type: "tool_result",
         toolUseId: call.id,

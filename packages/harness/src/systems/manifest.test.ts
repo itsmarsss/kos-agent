@@ -59,4 +59,32 @@ describe("ProjectManifest", () => {
     const p = manifest.createProject({ name: "Budget", type: "budget" });
     expect(manifest.tableName(p.slug, "tx")).toBe("budget_tx");
   });
+
+  it("allows multiple instances of a multi-instance module", () => {
+    manifest.createProject({ name: "Household 2026", type: "budget", module: "budget" });
+    manifest.createProject({ name: "Side Biz", type: "budget", module: "budget" });
+    expect(manifest.listByModule("budget")).toHaveLength(2);
+  });
+
+  it("rejects a second instance of a single-instance module", () => {
+    manifest.createProject({
+      name: "Discord Formatter",
+      type: "tool",
+      module: "discord-fmt",
+      instancing: "single",
+    });
+    expect(() =>
+      manifest.createProject({
+        name: "Discord Formatter 2",
+        type: "tool",
+        module: "discord-fmt",
+        instancing: "single",
+      }),
+    ).toThrow(/single-instance/);
+  });
+
+  it("treats projects without a module as embedded (null module)", () => {
+    const p = manifest.createProject({ name: "Ad Hoc", type: "notes" });
+    expect(p.module).toBeNull();
+  });
 });
