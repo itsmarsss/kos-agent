@@ -22,6 +22,7 @@ export * from "./systems/index.js";
 export * from "./cron/index.js";
 export * from "./ops/index.js";
 export * from "./tools/index.js";
+export * from "./widgets/index.js";
 export * from "./kernel/index.js";
 
 export function version(): string {
