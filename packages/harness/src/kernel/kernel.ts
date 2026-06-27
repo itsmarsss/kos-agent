@@ -17,6 +17,7 @@ import { PersistentKillSwitch } from "../ops/killswitch.js";
 import { RunsLog } from "../ops/runs.js";
 import { WorkQueue } from "../ops/queue.js";
 import { WorkspaceBackup } from "../ops/backup.js";
+import { injectSecrets } from "../secrets/inject.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { SkillPromoter, type PromoteInput, type PromoteOutcome } from "../skills/promote.js";
 import { Workspace } from "../store/workspace.js";
@@ -229,6 +230,44 @@ export class Kernel {
         throw err;
       }
     });
+  }
+
+  /**
+   * Approve a pending risky action and execute it now: inject secrets, run the
+   * tool, and audit it. This is what closes the approval loop, turning a queued
+   * action into a real effect once the owner says yes.
+   */
+  async approve(
+    id: number,
+    decidedBy?: string,
+  ): Promise<{ ok: boolean; message: string; isError?: boolean }> {
+    const action = this.approvals.get(id);
+    if (!action || action.status !== "pending") {
+      return { ok: false, message: `no pending action #${id}` };
+    }
+    this.approvals.approve(id, decidedBy ?? this.profile.ownerId);
+    const stored = JSON.parse(action.args) as Record<string, unknown>;
+    const result = await this.registry.execute(
+      action.tool,
+      injectSecrets(stored, this.secrets),
+    );
+    this.audit.record({
+      tool: action.tool,
+      args: stored,
+      result: result.content,
+      isError: result.isError,
+      riskTier: "risky",
+      userId: decidedBy ?? this.profile.ownerId,
+    });
+    return { ok: true, message: result.content, isError: result.isError };
+  }
+
+  /** Deny a pending action; it is never executed. */
+  deny(id: number, decidedBy?: string): { ok: boolean; message: string } {
+    const denied = this.approvals.deny(id, decidedBy ?? this.profile.ownerId);
+    return denied
+      ? { ok: true, message: `denied #${id}` }
+      : { ok: false, message: `no pending action #${id}` };
   }
 
   /** Build the guarded tool path (scoped, secret-injected, approval-gated). */
