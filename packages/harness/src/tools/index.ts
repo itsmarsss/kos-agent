@@ -11,3 +11,4 @@ export {
   defineSearchTools,
   type SearchModuleOptions,
 } from "./search.js";
+export { cronModule } from "./cron.js";

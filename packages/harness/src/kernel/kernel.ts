@@ -22,6 +22,7 @@ import { ProjectManifest } from "../systems/manifest.js";
 import { Migrator } from "../systems/migrate.js";
 import { createHttpModule } from "../tools/http.js";
 import { createSearchModule } from "../tools/search.js";
+import { cronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
 import { notifyModule } from "../tools/notify.js";
 import { sqlModule } from "../tools/sql.js";
@@ -144,6 +145,7 @@ export class Kernel {
       filesModule,
       sqlModule,
       notifyModule,
+      cronModule,
       createHttpModule({ allowedHosts: options.allowedHosts ?? [] }),
       createSearchModule(),
       ...(options.extraModules ?? []),
