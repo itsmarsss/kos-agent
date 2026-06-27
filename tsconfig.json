@@ -3,7 +3,6 @@
   "references": [
     { "path": "./packages/shared" },
     { "path": "./packages/harness" },
-    { "path": "./packages/cli" },
-    { "path": "./packages/ui" }
+    { "path": "./packages/cli" }
   ]
 }
