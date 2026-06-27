@@ -12,7 +12,7 @@ import {
   type ModuleServices,
 } from "../modules/loader.js";
 import { AuditLog } from "../ops/audit.js";
-import { ApprovalQueue } from "../ops/approvals.js";
+import { ApprovalQueue, type PendingAction } from "../ops/approvals.js";
 import { PersistentKillSwitch } from "../ops/killswitch.js";
 import { RunsLog } from "../ops/runs.js";
 import { WorkQueue } from "../ops/queue.js";
@@ -46,6 +46,8 @@ export interface KernelOptions {
   allowedHosts?: string[];
   profileOverrides?: Partial<Profile>;
   system?: string;
+  /** Notified when a risky action is queued (e.g. to render Discord buttons). */
+  onApprovalRequested?: (action: PendingAction) => void;
 }
 
 export interface HandleResult {
@@ -83,6 +85,7 @@ export class Kernel {
 
   private readonly inference: Inference;
   private readonly system: string;
+  private readonly onApprovalRequested?: (action: PendingAction) => void;
   private scheduler?: CronScheduler;
 
   private constructor(args: {
@@ -104,6 +107,7 @@ export class Kernel {
     loadReport: LoadReport;
     inference: Inference;
     system: string;
+    onApprovalRequested?: (action: PendingAction) => void;
   }) {
     this.workspace = args.workspace;
     this.secrets = args.secrets;
@@ -123,6 +127,7 @@ export class Kernel {
     this.loadReport = args.loadReport;
     this.inference = args.inference;
     this.system = args.system;
+    this.onApprovalRequested = args.onApprovalRequested;
   }
 
   static async boot(options: KernelOptions): Promise<Kernel> {
@@ -188,6 +193,9 @@ export class Kernel {
       loadReport,
       inference,
       system: options.system ?? DEFAULT_SYSTEM,
+      ...(options.onApprovalRequested
+        ? { onApprovalRequested: options.onApprovalRequested }
+        : {}),
     });
   }
 
@@ -279,6 +287,9 @@ export class Kernel {
       approvals: this.approvals,
       userId: opts.userId ?? this.profile.ownerId,
       ...(opts.scopeTags ? { scopeTags: opts.scopeTags } : {}),
+      ...(this.onApprovalRequested
+        ? { onQueued: this.onApprovalRequested }
+        : {}),
     });
   }
 
