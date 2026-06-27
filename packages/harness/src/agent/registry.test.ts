@@ -72,4 +72,43 @@ describe("ToolRegistry", () => {
     const reg = new ToolRegistry();
     expect(reg.classify("missing", {}).tier).toBe("risky");
   });
+
+  it("scopedDefs returns global tools plus active-scope tools", () => {
+    const reg = new ToolRegistry();
+    reg.register(
+      { name: "notify", description: "g", inputSchema: { type: "object" } },
+      () => "x",
+    ); // global (no tags)
+    reg.register(
+      { name: "budget.add", description: "b", inputSchema: { type: "object" } },
+      () => "x",
+      undefined,
+      { tags: ["budget"] },
+    );
+    reg.register(
+      { name: "diet.log", description: "d", inputSchema: { type: "object" } },
+      () => "x",
+      undefined,
+      { tags: ["diet"] },
+    );
+
+    const names = (defs: { name: string }[]) => defs.map((d) => d.name).sort();
+    expect(names(reg.scopedDefs())).toEqual(["notify"]); // only globals by default
+    expect(names(reg.scopedDefs({ tags: ["budget"] }))).toEqual([
+      "budget.add",
+      "notify",
+    ]);
+    expect(reg.defs()).toHaveLength(3); // full set still available
+  });
+
+  it("scopedDefs honors a limit", () => {
+    const reg = new ToolRegistry();
+    for (let i = 0; i < 5; i++) {
+      reg.register(
+        { name: `t${i}`, description: "x", inputSchema: { type: "object" } },
+        () => "x",
+      );
+    }
+    expect(reg.scopedDefs({ limit: 2 })).toHaveLength(2);
+  });
 });
