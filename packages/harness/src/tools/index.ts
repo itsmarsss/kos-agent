@@ -6,3 +6,8 @@ export {
   type FetchImpl,
   type HttpModuleOptions,
 } from "./http.js";
+export {
+  createSearchModule,
+  defineSearchTools,
+  type SearchModuleOptions,
+} from "./search.js";
