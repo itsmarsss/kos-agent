@@ -12,3 +12,4 @@ export {
   type HandleResult,
   type KernelOptions,
 } from "./kernel.js";
+export { connectChannel, type ConnectChannelOptions } from "./channel.js";
