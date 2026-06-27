@@ -7,9 +7,11 @@ export {
 export {
   ProjectManifest,
   type CreateProjectInput,
+  type Instancing,
   type Project,
   type ProjectStatus,
 } from "./manifest.js";
+export { InstanceConfig } from "./config.js";
 export {
   Migrator,
   buildMigrationSql,
