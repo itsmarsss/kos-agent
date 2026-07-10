@@ -5,6 +5,8 @@ export interface Status {
   queueDepth: number;
   crons: number;
   pendingApprovals: number;
+  projects?: number;
+  pages?: number;
 }
 
 export interface PendingAction {
@@ -46,6 +48,20 @@ export interface AuditRecord {
   createdAt: number;
 }
 
+export interface PageSummary {
+  id: string;
+  projectSlug: string;
+  title: string;
+  path: string;
+  updatedAt: number;
+}
+
+export interface PagePayload {
+  record: PageSummary;
+  spec: import("@kos/shared").PageSpec;
+  data: Record<number, Record<string, unknown>[]>;
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path);
   if (!res.ok) throw new Error(`${path}: ${res.status}`);
@@ -69,6 +85,12 @@ export const api = {
   crons: () => get<CronJob[]>("/api/crons"),
   failed: () => get<RunRecord[]>("/api/failed"),
   activity: () => get<{ tools: AuditRecord[]; runs: RunRecord[] }>("/api/activity"),
+  pages: (project?: string) =>
+    get<PageSummary[]>(
+      project ? `/api/pages?project=${encodeURIComponent(project)}` : "/api/pages",
+    ),
+  page: (id: string) => get<PagePayload>(`/api/pages/${encodeURIComponent(id)}`),
+  memory: () => get<{ facts: unknown[] }>("/api/memory"),
   approve: (id: number) => post("/api/approve", { id }),
   deny: (id: number) => post("/api/deny", { id }),
   setKill: (halted: boolean) => post<Status>("/api/kill", { halted }),

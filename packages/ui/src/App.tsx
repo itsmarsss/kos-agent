@@ -3,12 +3,15 @@ import { useCallback, useEffect, useState } from "react";
 import {
   api,
   type CronJob,
+  type PagePayload,
+  type PageSummary,
   type PendingAction,
   type Project,
   type RunRecord,
   type Status,
 } from "./api.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
+import { PageRenderer } from "./widgets/PageRenderer.js";
 
 /**
  * The dashboard: the one fixed page the developer owns (the trunk). It shows the
@@ -22,22 +25,28 @@ export function App(): React.ReactElement {
   const [projects, setProjects] = useState<Project[]>([]);
   const [crons, setCrons] = useState<CronJob[]>([]);
   const [failed, setFailed] = useState<RunRecord[]>([]);
+  const [pages, setPages] = useState<PageSummary[]>([]);
   const [prompt, setPrompt] = useState("");
   const [reply, setReply] = useState("");
+  const [view, setView] = useState<"home" | "page">("home");
+  const [activePage, setActivePage] = useState<PagePayload | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const [s, a, p, c, f] = await Promise.all([
+    const [s, a, p, c, f, pg] = await Promise.all([
       api.status(),
       api.approvals(),
       api.projects(),
       api.crons(),
       api.failed(),
+      api.pages(),
     ]);
     setStatus(s);
     setApprovals(a);
     setProjects(p);
     setCrons(c);
     setFailed(f);
+    setPages(pg);
   }, []);
 
   useEffect(() => {
@@ -45,6 +54,31 @@ export function App(): React.ReactElement {
     const t = setInterval(() => void refresh(), 5000);
     return () => clearInterval(t);
   }, [refresh]);
+
+  // Hash routing: #/page/<id>
+  useEffect(() => {
+    const sync = (): void => {
+      const hash = window.location.hash.replace(/^#/, "");
+      const m = hash.match(/^\/page\/([^/]+)$/);
+      if (m?.[1]) {
+        setView("page");
+        setPageError(null);
+        void api
+          .page(decodeURIComponent(m[1]))
+          .then((payload) => setActivePage(payload))
+          .catch((err: unknown) => {
+            setActivePage(null);
+            setPageError(err instanceof Error ? err.message : String(err));
+          });
+      } else {
+        setView("home");
+        setActivePage(null);
+      }
+    };
+    sync();
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
 
   const decide = async (id: number, approved: boolean): Promise<void> => {
     await (approved ? api.approve(id) : api.deny(id));
@@ -64,6 +98,35 @@ export function App(): React.ReactElement {
     setPrompt("");
     await refresh();
   };
+
+  const openPage = (id: string): void => {
+    window.location.hash = `#/page/${encodeURIComponent(id)}`;
+  };
+
+  if (view === "page") {
+    return (
+      <ErrorBoundary label="page">
+        <main className="kos-dashboard">
+          <p>
+            <a
+              href="#/"
+              onClick={(e) => {
+                e.preventDefault();
+                window.location.hash = "";
+              }}
+            >
+              ← Dashboard
+            </a>
+          </p>
+          {pageError && <p role="alert">{pageError}</p>}
+          {activePage && (
+            <PageRenderer spec={activePage.spec} data={activePage.data} />
+          )}
+          {!activePage && !pageError && <p>Loading page…</p>}
+        </main>
+      </ErrorBoundary>
+    );
+  }
 
   return (
     <ErrorBoundary label="dashboard">
@@ -91,8 +154,12 @@ export function App(): React.ReactElement {
               <code>
                 #{a.id} {a.tool} {a.args}
               </code>
-              <button onClick={() => void decide(a.id, true)}>Approve</button>
-              <button onClick={() => void decide(a.id, false)}>Deny</button>
+              <button type="button" onClick={() => void decide(a.id, true)}>
+                Approve
+              </button>
+              <button type="button" onClick={() => void decide(a.id, false)}>
+                Deny
+              </button>
             </div>
           ))}
         </section>
@@ -104,6 +171,33 @@ export function App(): React.ReactElement {
             {projects.map((p) => (
               <li key={p.slug}>
                 {p.name} <em>({p.type})</em> — {p.status}
+                {pages
+                  .filter((pg) => pg.projectSlug === p.slug)
+                  .map((pg) => (
+                    <button
+                      key={pg.id}
+                      type="button"
+                      className="kos-link-btn"
+                      onClick={() => openPage(pg.id)}
+                    >
+                      {pg.title}
+                    </button>
+                  ))}
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section>
+          <h2>Pages</h2>
+          {pages.length === 0 && <p>No agent pages yet.</p>}
+          <ul>
+            {pages.map((pg) => (
+              <li key={pg.id}>
+                <button type="button" onClick={() => openPage(pg.id)}>
+                  {pg.title}
+                </button>{" "}
+                <em>({pg.projectSlug})</em>
               </li>
             ))}
           </ul>
@@ -115,6 +209,7 @@ export function App(): React.ReactElement {
             {crons.map((c) => (
               <li key={c.id}>
                 {c.name} [{c.schedule}] {c.type}
+                {!c.enabled ? " (disabled)" : ""}
               </li>
             ))}
           </ul>
@@ -134,7 +229,7 @@ export function App(): React.ReactElement {
 
         <section className="kos-controls">
           <h2>Controls</h2>
-          <button onClick={() => void toggleKill()}>
+          <button type="button" onClick={() => void toggleKill()}>
             {status?.halted ? "Resume" : "Halt"}
           </button>
           <div className="kos-prompt">
@@ -146,7 +241,9 @@ export function App(): React.ReactElement {
                 if (e.key === "Enter") void send();
               }}
             />
-            <button onClick={() => void send()}>Send</button>
+            <button type="button" onClick={() => void send()}>
+              Send
+            </button>
           </div>
           {reply && <p className="kos-reply">{reply}</p>}
         </section>

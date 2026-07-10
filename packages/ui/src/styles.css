@@ -1,0 +1,82 @@
+:root {
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+  color: #0f172a;
+  background: #f8fafc;
+  line-height: 1.45;
+}
+
+body {
+  margin: 0;
+}
+
+.kos-dashboard {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.kos-status-strip {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 1rem;
+  background: #e2e8f0;
+  border-radius: 8px;
+  margin-bottom: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.kos-approval {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.kos-controls input {
+  min-width: 16rem;
+  padding: 0.4rem 0.6rem;
+}
+
+button,
+.kos-link-btn {
+  cursor: pointer;
+  margin-right: 0.35rem;
+}
+
+.kos-page {
+  display: grid;
+  gap: 1rem;
+}
+
+.kos-widget {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}
+
+.kos-stat-value {
+  font-size: 1.75rem;
+  font-weight: 600;
+}
+
+.kos-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.kos-table th,
+.kos-table td {
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+}
+
+.kos-reply {
+  white-space: pre-wrap;
+  background: #fff;
+  border-left: 3px solid #334155;
+  padding: 0.5rem 0.75rem;
+}
