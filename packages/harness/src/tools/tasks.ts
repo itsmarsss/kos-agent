@@ -1,6 +1,6 @@
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
-import { projectTable } from "../systems/identifiers.js";
+import { projectTable, slugify } from "../systems/identifiers.js";
 
 /**
  * First-party multi-instance tasks module. Blueprint = this module; each
@@ -59,7 +59,7 @@ function defineTasksTools(ctx: ModuleContext): void {
     {
       name: "tasks.create_list",
       description:
-        "Create a new tasks list instance (multi-instance module). Optionally installs a simple page-spec for the dashboard.",
+        "Create a new tasks list (or return it if the name already exists). Returns JSON with slug — use that slug as instance for tasks.add/list/complete. Do not call create_list again for the same name.",
       inputSchema: {
         type: "object",
         properties: {
@@ -71,8 +71,27 @@ function defineTasksTools(ctx: ModuleContext): void {
       },
     },
     (input) => {
+      const name = str(input, "name");
+      const wantPage = input.withPage !== false;
+      // Idempotent: same display name or slug returns the existing list.
+      const existing = manifest
+        .list()
+        .find(
+          (p) =>
+            p.module === "tasks" &&
+            (p.name.toLowerCase() === name.toLowerCase() ||
+              p.slug === slugify(name)),
+        );
+      if (existing) {
+        ensureInstanceSchema(ctx, existing.slug);
+        if (wantPage && pages && pages.list(existing.slug).length === 0) {
+          writeTasksPage(pages, existing.slug, existing.name);
+        }
+        return JSON.stringify({ ...existing, alreadyExisted: true });
+      }
+
       const project = manifest.createProject({
-        name: str(input, "name"),
+        name,
         type: "tasks",
         module: "tasks",
         instancing: "multi",
@@ -81,30 +100,8 @@ function defineTasksTools(ctx: ModuleContext): void {
           : {}),
       });
       ensureInstanceSchema(ctx, project.slug);
-      const table = itemsTable(project.slug);
-      if (input.withPage !== false && pages) {
-        // page ids must match ^[a-z][a-z0-9_-]*$
-        const pageId = `tasks_${project.slug}`.replace(/[^a-z0-9_-]/gi, "_").toLowerCase();
-        pages.write(project.slug, {
-          id: pageId,
-          title: project.name,
-          widgets: [
-            {
-              type: "stat",
-              label: "Open",
-              query: `SELECT COUNT(*) AS n FROM ${table} WHERE done = 0`,
-            },
-            {
-              type: "table",
-              title: "Items",
-              query: `SELECT id, title, done, created_at FROM ${table} ORDER BY done ASC, id DESC`,
-            },
-            {
-              type: "markdown",
-              content: `Add items via chat: tasks.add with instance="${project.slug}".`,
-            },
-          ],
-        });
+      if (wantPage && pages) {
+        writeTasksPage(pages, project.slug, project.name);
       }
       return JSON.stringify(project);
     },
@@ -115,11 +112,12 @@ function defineTasksTools(ctx: ModuleContext): void {
   ctx.registerTool(
     {
       name: "tasks.add",
-      description: "Add a task item to a list instance (project slug).",
+      description:
+        "Add a task item to an existing list. instance = project slug (e.g. tonight from create_list). Safe; no approval needed.",
       inputSchema: {
         type: "object",
         properties: {
-          instance: { type: "string", description: "project slug" },
+          instance: { type: "string", description: "project slug from create_list" },
           title: { type: "string" },
         },
         required: ["instance", "title"],
@@ -145,7 +143,8 @@ function defineTasksTools(ctx: ModuleContext): void {
   ctx.registerTool(
     {
       name: "tasks.list",
-      description: "List items in a tasks instance.",
+      description:
+        "List items in a tasks instance by project slug (e.g. tonight). Safe; no approval.",
       inputSchema: {
         type: "object",
         properties: {
@@ -204,6 +203,35 @@ function defineTasksTools(ctx: ModuleContext): void {
     { floor: "safe" },
     { tags: ["tasks"] },
   );
+}
+
+function writeTasksPage(
+  pages: NonNullable<ReturnType<typeof requireServices>["pages"]>,
+  slug: string,
+  title: string,
+): void {
+  const table = itemsTable(slug);
+  const pageId = `tasks_${slug}`.replace(/[^a-z0-9_-]/gi, "_").toLowerCase();
+  pages.write(slug, {
+    id: pageId,
+    title,
+    widgets: [
+      {
+        type: "stat",
+        label: "Open",
+        query: `SELECT COUNT(*) AS n FROM ${table} WHERE done = 0`,
+      },
+      {
+        type: "table",
+        title: "Items",
+        query: `SELECT id, title, done, created_at FROM ${table} ORDER BY done ASC, id DESC`,
+      },
+      {
+        type: "markdown",
+        content: `Add items via chat: tasks.add with instance="${slug}".`,
+      },
+    ],
+  });
 }
 
 export const tasksModule: KosModule = {

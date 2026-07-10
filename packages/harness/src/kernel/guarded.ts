@@ -63,7 +63,12 @@ export class GuardedTools implements ToolBox {
       });
       this.deps.onQueued?.(action);
       return {
-        content: `queued for approval (pending #${action.id}); not executed`,
+        content: [
+          `queued for approval (pending #${action.id}); not executed.`,
+          `Tell the user to approve #${action.id}.`,
+          "Do not re-call this tool until you receive an approval result.",
+          "After approval the harness will resume you with the result; continue the plan then.",
+        ].join(" "),
         isError: false,
       };
     }

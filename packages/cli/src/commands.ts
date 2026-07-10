@@ -99,13 +99,14 @@ export async function runCommand(
       const id = Number(rest[0]);
       if (!Number.isInteger(id)) return "usage: approve <id>";
       const res = await kernel.approve(id);
-      return res.message;
+      return res.reply ?? res.message;
     }
 
     case "deny": {
       const id = Number(rest[0]);
       if (!Number.isInteger(id)) return "usage: deny <id>";
-      return kernel.deny(id).message;
+      const res = await kernel.deny(id);
+      return res.reply ?? res.message;
     }
 
     case "halt":

@@ -46,7 +46,7 @@ import { tasksModule } from "../tools/tasks.js";
 import { assembleSystemPrompt, inferScopeTags } from "./context.js";
 import { GuardedTools } from "./guarded.js";
 import { ensureProfile, type Profile } from "./profile.js";
-import { SessionStore } from "./session.js";
+import { SessionStore, primarySessionId } from "./session.js";
 
 export interface KernelOptions {
   rootDir: string;
@@ -74,7 +74,7 @@ export interface HandleResult {
 }
 
 const DEFAULT_SYSTEM =
-  "You are KOS, a personal assistant operating inside a sandboxed workspace. Use the available tools to help. Risky actions are queued for the owner's approval.";
+  "You are KOS, a personal assistant operating inside a sandboxed workspace. Use the available tools to help. Risky actions are queued for owner approval — tell the user the pending id, then wait; when approval results arrive (as a System message), continue the plan without repeating completed creates. Prefer short checklist-style replies when the user asks. For tasks: create_list once, then tasks.add/list/complete with the returned slug as instance.";
 
 const DEFAULT_BACKUP_CRON = "0 3 * * *";
 
@@ -370,13 +370,18 @@ export class Kernel {
   }
 
   /**
-   * Approve a pending risky action, execute it, and optionally notify the owner
-   * so the approval loop is closed with a visible result.
+   * Approve a pending risky action, execute it, resume the agent so it can
+   * finish the plan, and notify the owner with the continuation reply.
    */
   async approve(
     id: number,
     decidedBy?: string,
-  ): Promise<{ ok: boolean; message: string; isError?: boolean }> {
+  ): Promise<{
+    ok: boolean;
+    message: string;
+    isError?: boolean;
+    reply?: string;
+  }> {
     const action = this.approvals.get(id);
     if (!action || action.status !== "pending") {
       return { ok: false, message: `no pending action #${id}` };
@@ -395,20 +400,65 @@ export class Kernel {
       riskTier: "risky",
       userId: decidedBy ?? this.profile.ownerId,
     });
-    const summary = result.isError
-      ? `Approved #${id} (${action.tool}) failed: ${result.content}`
-      : `Approved #${id} (${action.tool}) ok: ${result.content.slice(0, 400)}`;
-    if (this.notify) {
-      void this.notify(summary).catch(() => undefined);
+
+    const userId = decidedBy ?? this.profile.ownerId;
+    const sessionId = primarySessionId(this.profile.ownerId);
+    const outcome = result.isError ? "FAILED" : "SUCCEEDED";
+    const resumePrompt = [
+      `System: the owner approved pending action #${id}.`,
+      `tool=${action.tool}`,
+      `outcome=${outcome}`,
+      `result=${result.content}`,
+      "Continue the owner's prior request now.",
+      "Do not re-create resources that already exist (use slugs/ids from result).",
+      "If this was tasks.create_list, use tasks.add / tasks.list with the returned slug as instance.",
+      "Prefer short checklist-style replies.",
+    ].join(" ");
+
+    let reply: string | undefined;
+    try {
+      const cont = await this.handleMessage(resumePrompt, {
+        sessionId,
+        userId,
+      });
+      reply = cont.reply;
+    } catch (err) {
+      reply = `Approved #${id} but resume failed: ${err instanceof Error ? err.message : String(err)}`;
     }
-    return { ok: true, message: result.content, isError: result.isError };
+
+    // Channel/CLI deliver `reply` to the owner (avoid double-notify here).
+    return {
+      ok: true,
+      message: result.content,
+      isError: result.isError,
+      ...(reply !== undefined ? { reply } : {}),
+    };
   }
 
-  deny(id: number, decidedBy?: string): { ok: boolean; message: string } {
+  async deny(
+    id: number,
+    decidedBy?: string,
+  ): Promise<{ ok: boolean; message: string; reply?: string }> {
     const denied = this.approvals.deny(id, decidedBy ?? this.profile.ownerId);
-    return denied
-      ? { ok: true, message: `denied #${id}` }
-      : { ok: false, message: `no pending action #${id}` };
+    if (!denied) {
+      return { ok: false, message: `no pending action #${id}` };
+    }
+    const sessionId = primarySessionId(this.profile.ownerId);
+    let reply: string | undefined;
+    try {
+      const cont = await this.handleMessage(
+        `System: the owner denied pending action #${id}. Acknowledge briefly and ask how to proceed without that action.`,
+        { sessionId, userId: decidedBy ?? this.profile.ownerId },
+      );
+      reply = cont.reply;
+    } catch {
+      reply = `Denied #${id}.`;
+    }
+    return {
+      ok: true,
+      message: `denied #${id}`,
+      ...(reply !== undefined ? { reply } : {}),
+    };
   }
 
   clearSession(sessionId: string): void {
