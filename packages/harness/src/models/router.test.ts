@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import { SecretsRegistry } from "../secrets/secrets.js";
 import type { ModelSpec, Provider } from "./provider.js";
-import { ModelRouter, type RoutingTable } from "./router.js";
+import {
+  DEFAULT_ROUTING,
+  ModelRouter,
+  OPENAI_ROUTING,
+  createDefaultRouter,
+  routingForSecrets,
+  type RoutingTable,
+} from "./router.js";
 import type { GenerateRequest, ModelResponse } from "./types.js";
 
 class MockProvider implements Provider {
@@ -73,5 +80,33 @@ describe("ModelRouter", () => {
     await expect(router.generate("reasoning", req)).rejects.toThrow(
       /secret not found/,
     );
+  });
+});
+
+describe("routingForSecrets", () => {
+  it("prefers Anthropic when its key is present", () => {
+    const secrets = new SecretsRegistry({ anthropic: "a", openai: "o" });
+    expect(routingForSecrets(secrets)).toBe(DEFAULT_ROUTING);
+  });
+
+  it("falls back to OpenAI when only openai is present", () => {
+    const secrets = new SecretsRegistry({ openai: "o" });
+    expect(routingForSecrets(secrets)).toBe(OPENAI_ROUTING);
+  });
+
+  it("defaults to Anthropic routing when no keys are set", () => {
+    expect(routingForSecrets(new SecretsRegistry())).toBe(DEFAULT_ROUTING);
+  });
+});
+
+describe("createDefaultRouter", () => {
+  it("routes through OpenAI when only OPENAI_API_KEY is available", async () => {
+    const secrets = SecretsRegistry.fromEnv({
+      OPENAI_API_KEY: "sk-oai",
+    } as NodeJS.ProcessEnv);
+    const router = createDefaultRouter(secrets);
+    // Live call is not made: we only assert the routing table choice.
+    expect(routingForSecrets(secrets).reasoning.provider).toBe("openai");
+    expect(router).toBeInstanceOf(ModelRouter);
   });
 });

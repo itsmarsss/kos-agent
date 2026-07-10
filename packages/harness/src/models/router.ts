@@ -30,6 +30,28 @@ export const DEFAULT_ROUTING: RoutingTable = {
   },
 };
 
+/** OpenAI-only table used when Anthropic is not configured. */
+export const OPENAI_ROUTING: RoutingTable = {
+  reasoning: {
+    provider: "openai",
+    spec: { model: "gpt-4o" },
+  },
+  cheap: {
+    provider: "openai",
+    spec: { model: "gpt-4o-mini" },
+  },
+};
+
+/**
+ * Pick a routing table from available secrets. Prefer Anthropic when its key
+ * is present; otherwise fall back to OpenAI so a single-provider .env works.
+ */
+export function routingForSecrets(secrets: SecretsRegistry): RoutingTable {
+  if (secrets.has("anthropic")) return DEFAULT_ROUTING;
+  if (secrets.has("openai")) return OPENAI_ROUTING;
+  return DEFAULT_ROUTING;
+}
+
 /**
  * The single inference entry point. Everything in KOS calls the router, never a
  * provider directly, so the host/provider decision stays a config change.
@@ -56,14 +78,17 @@ export class ModelRouter {
   }
 }
 
-/** Wire the default router: Anthropic + OpenAI providers, default routing. */
+/**
+ * Wire the default router: Anthropic + OpenAI providers. When `routing` is
+ * omitted, pick Anthropic or OpenAI based on which API keys are present.
+ */
 export function createDefaultRouter(
   secrets: SecretsRegistry,
-  routing: RoutingTable = DEFAULT_ROUTING,
+  routing?: RoutingTable,
 ): ModelRouter {
   return new ModelRouter(
     [new AnthropicProvider(), new OpenAIProvider()],
-    routing,
+    routing ?? routingForSecrets(secrets),
     secrets,
   );
 }
