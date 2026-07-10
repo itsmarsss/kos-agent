@@ -7,6 +7,10 @@ const apiTarget = process.env.KOS_API ?? "http://localhost:4317";
 // backend so there is no CORS or port juggling.
 export default defineConfig({
   plugins: [react()],
+  build: {
+    outDir: "dist",
+    emptyOutDir: true,
+  },
   server: {
     proxy: {
       "/api": { target: apiTarget, changeOrigin: true },
