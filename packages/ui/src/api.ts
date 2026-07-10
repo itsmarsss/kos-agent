@@ -26,6 +26,7 @@ export interface Project {
   type: string;
   status: string;
   lastTouchedAt: number;
+  module?: string | null;
 }
 
 export interface CronJob {
@@ -65,19 +66,28 @@ export interface PagePayload {
   data: Record<number, Record<string, unknown>[]>;
 }
 
+export interface FactRow {
+  key: string;
+  value: string;
+  kind: string;
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path);
   if (!res.ok) throw new Error(`${path}: ${res.status}`);
   return (await res.json()) as T;
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
+async function post<T>(path: string, body: unknown = {}): Promise<T> {
   const res = await fetch(path, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`${path}: ${res.status}`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`${path}: ${res.status} ${text}`);
+  }
   return (await res.json()) as T;
 }
 
@@ -87,15 +97,27 @@ export const api = {
   projects: () => get<Project[]>("/api/projects"),
   crons: () => get<CronJob[]>("/api/crons"),
   failed: () => get<RunRecord[]>("/api/failed"),
-  activity: () => get<{ tools: AuditRecord[]; runs: RunRecord[] }>("/api/activity"),
+  activity: () =>
+    get<{ tools: AuditRecord[]; runs: RunRecord[] }>("/api/activity"),
   pages: (project?: string) =>
     get<PageSummary[]>(
       project ? `/api/pages?project=${encodeURIComponent(project)}` : "/api/pages",
     ),
   page: (id: string) => get<PagePayload>(`/api/pages/${encodeURIComponent(id)}`),
-  memory: () => get<{ facts: unknown[] }>("/api/memory"),
-  approve: (id: number) => post("/api/approve", { id }),
-  deny: (id: number) => post("/api/deny", { id }),
+  memory: () => get<{ facts: FactRow[] }>("/api/memory"),
+  approve: (id: number) =>
+    post<{ ok: boolean; message: string; reply?: string }>("/api/approve", {
+      id,
+    }),
+  deny: (id: number) =>
+    post<{ ok: boolean; message: string; reply?: string }>("/api/deny", { id }),
   setKill: (halted: boolean) => post<Status>("/api/kill", { halted }),
   message: (text: string) => post<{ reply: string }>("/api/message", { text }),
+  snapshot: (message?: string) =>
+    post<{ sha: string | null }>("/api/snapshot", message ? { message } : {}),
+  clear: (sessionId?: string) =>
+    post<{ cleared: string }>(
+      "/api/clear",
+      sessionId ? { sessionId } : {},
+    ),
 };
