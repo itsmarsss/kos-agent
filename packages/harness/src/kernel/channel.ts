@@ -40,10 +40,21 @@ export function connectChannel(
 
   adapter.onApproval(async (decision) => {
     const id = Number(decision.id);
-    const result = decision.approved
-      ? (await kernel.approve(id)).message
-      : kernel.deny(id).message;
-    await adapter.send(options.ownerRecipientId, { text: result });
+    // approve/deny execute + resume the agent; send one user-facing reply.
+    if (decision.approved) {
+      const res = await kernel.approve(id);
+      const text =
+        res.reply ??
+        (res.isError
+          ? `Approved #${id} failed: ${res.message}`
+          : `Approved #${id}.`);
+      await adapter.send(options.ownerRecipientId, { text });
+    } else {
+      const res = await kernel.deny(id);
+      await adapter.send(options.ownerRecipientId, {
+        text: res.reply ?? res.message,
+      });
+    }
   });
 
   return runtime;

@@ -174,6 +174,44 @@ describe("Kernel", () => {
     expect(res.halted).toBe(true);
   });
 
+  it("resumes the agent after approving a queued action", async () => {
+    kernel = await boot(
+      stubInference([
+        {
+          content: [
+            {
+              type: "tool_use",
+              id: "t1",
+              name: "sql",
+              input: { sql: "DELETE FROM x" },
+            },
+          ],
+          stopReason: "tool_use",
+          usage: { inputTokens: 0, outputTokens: 0 },
+          model: "stub",
+        },
+        {
+          content: [{ type: "text", text: "queued it" }],
+          stopReason: "end_turn",
+          usage: { inputTokens: 0, outputTokens: 0 },
+          model: "stub",
+        },
+        // resume after approve
+        {
+          content: [{ type: "text", text: "continued after approve" }],
+          stopReason: "end_turn",
+          usage: { inputTokens: 0, outputTokens: 0 },
+          model: "stub",
+        },
+      ]),
+    );
+    await kernel.handleMessage("delete stuff");
+    const pending = kernel.approvals.pending()[0]!;
+    const res = await kernel.approve(pending.id);
+    expect(res.ok).toBe(true);
+    expect(res.reply).toBe("continued after approve");
+  });
+
   it("runs a scheduled actions job through the guarded path", async () => {
     const sent: string[] = [];
     kernel = await boot(stubInference([]), async (t) => {

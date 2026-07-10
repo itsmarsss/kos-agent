@@ -206,7 +206,7 @@ export async function handleApiRequest(
   if (method === "POST" && path === "/api/deny") {
     const id = Number(body.id);
     if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
-    return ok(kernel.deny(id));
+    return ok(await kernel.deny(id));
   }
 
   if (method === "POST" && path === "/api/kill") {
