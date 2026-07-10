@@ -1,0 +1,25 @@
+# KOS container jail. Workspace is the only host path the agent can see.
+# Secrets stay in a host env file (never inside the workspace).
+
+services:
+  kos:
+    build: .
+    container_name: kos
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4317:4317"
+    env_file:
+      - .env
+    environment:
+      KOS_WORKSPACE: /workspace
+      KOS_HOST: "0.0.0.0"
+      KOS_PORT: "4317"
+      # Set KOS_DASHBOARD_TOKEN in .env if you publish the port beyond loopback.
+    volumes:
+      - ${KOS_HOST_WORKSPACE:-./workspace}:/workspace
+    # No docker.sock, no host network, no privileged.
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp
