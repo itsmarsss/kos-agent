@@ -21,12 +21,15 @@ export interface PendingAction {
 }
 
 export interface Project {
+  id?: number;
   slug: string;
   name: string;
   type: string;
   status: string;
-  lastTouchedAt: number;
+  description?: string | null;
   module?: string | null;
+  lastTouchedAt: number;
+  createdAt?: number;
 }
 
 export interface CronJob {
@@ -35,6 +38,13 @@ export interface CronJob {
   schedule: string;
   type: string;
   enabled: boolean;
+  query?: string | null;
+  condition?: { test: string } | null;
+  actions?: Array<{ tool: string; args: Record<string, unknown> }> | null;
+  prompt?: string | null;
+  projectSlug?: string | null;
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 export interface RunRecord {
@@ -43,12 +53,19 @@ export interface RunRecord {
   status: string;
   error: string | null;
   startedAt: number;
+  ref?: string | null;
+  finishedAt?: number | null;
+  durationMs?: number | null;
 }
 
 export interface AuditRecord {
   id: number;
   tool: string;
+  args: string;
+  result: string;
   isError: boolean;
+  riskTier?: string | null;
+  userId?: string | null;
   createdAt: number;
 }
 
@@ -67,9 +84,13 @@ export interface PagePayload {
 }
 
 export interface FactRow {
+  id?: number;
   key: string;
   value: string;
   kind: string;
+  source?: string | null;
+  updatedAt?: number;
+  createdAt?: number;
 }
 
 async function get<T>(path: string): Promise<T> {
