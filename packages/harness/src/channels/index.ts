@@ -6,6 +6,7 @@ export type {
   InboundMessage,
   MessageHandler,
   OutboundMessage,
+  TurnPresence,
 } from "./types.js";
 export {
   SingleOwnerMapping,
@@ -21,6 +22,7 @@ export {
   DiscordAdapter,
   approvalCustomIds,
   parseApprovalCustomId,
+  chunkText,
   APPROVE_PREFIX,
   DENY_PREFIX,
   type DiscordAdapterOptions,

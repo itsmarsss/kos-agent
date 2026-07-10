@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
+import { summarizeAction } from "@kos/shared";
 
 import {
   api,
+  type AuditRecord,
   type CronJob,
   type PagePayload,
   type PageSummary,
@@ -13,11 +15,17 @@ import {
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { PageRenderer } from "./widgets/PageRenderer.js";
 
+function timeAgo(ts: number): string {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
 /**
- * The dashboard: the one fixed page the developer owns (the trunk). It shows the
- * state of KOS plus controls, never project content (that lives in agent-built
- * pages). Status strip, pending approvals, projects index, recent activity,
- * upcoming crons, failed runs, and controls (kill switch + prompt box).
+ * Control-tower dashboard: status, approvals, projects, pages, crons, failures,
+ * prompt box. Project content lives one click away on agent page specs.
  */
 export function App(): React.ReactElement {
   const [status, setStatus] = useState<Status | null>(null);
@@ -26,20 +34,23 @@ export function App(): React.ReactElement {
   const [crons, setCrons] = useState<CronJob[]>([]);
   const [failed, setFailed] = useState<RunRecord[]>([]);
   const [pages, setPages] = useState<PageSummary[]>([]);
+  const [activity, setActivity] = useState<AuditRecord[]>([]);
   const [prompt, setPrompt] = useState("");
   const [reply, setReply] = useState("");
+  const [sending, setSending] = useState(false);
   const [view, setView] = useState<"home" | "page">("home");
   const [activePage, setActivePage] = useState<PagePayload | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const [s, a, p, c, f, pg] = await Promise.all([
+    const [s, a, p, c, f, pg, act] = await Promise.all([
       api.status(),
       api.approvals(),
       api.projects(),
       api.crons(),
       api.failed(),
       api.pages(),
+      api.activity().catch(() => ({ tools: [] as AuditRecord[], runs: [] })),
     ]);
     setStatus(s);
     setApprovals(a);
@@ -47,15 +58,15 @@ export function App(): React.ReactElement {
     setCrons(c);
     setFailed(f);
     setPages(pg);
+    setActivity(act.tools.slice(0, 12));
   }, []);
 
   useEffect(() => {
     void refresh();
-    const t = setInterval(() => void refresh(), 5000);
+    const t = setInterval(() => void refresh(), 4000);
     return () => clearInterval(t);
   }, [refresh]);
 
-  // Hash routing: #/page/<id>
   useEffect(() => {
     const sync = (): void => {
       const hash = window.location.hash.replace(/^#/, "");
@@ -92,11 +103,18 @@ export function App(): React.ReactElement {
   };
 
   const send = async (): Promise<void> => {
-    if (prompt.trim() === "") return;
-    const res = await api.message(prompt);
-    setReply(res.reply);
-    setPrompt("");
-    await refresh();
+    if (prompt.trim() === "" || sending) return;
+    setSending(true);
+    try {
+      const res = await api.message(prompt);
+      setReply(res.reply);
+      setPrompt("");
+      await refresh();
+    } catch (err) {
+      setReply(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSending(false);
+    }
   };
 
   const openPage = (id: string): void => {
@@ -107,146 +125,245 @@ export function App(): React.ReactElement {
     return (
       <ErrorBoundary label="page">
         <main className="kos-dashboard">
-          <p>
-            <a
-              href="#/"
-              onClick={(e) => {
-                e.preventDefault();
-                window.location.hash = "";
-              }}
-            >
-              ← Dashboard
-            </a>
-          </p>
-          {pageError && <p role="alert">{pageError}</p>}
+          <a
+            className="kos-back"
+            href="#/"
+            onClick={(e) => {
+              e.preventDefault();
+              window.location.hash = "";
+            }}
+          >
+            ← Dashboard
+          </a>
+          {pageError && (
+            <p className="kos-page-invalid" role="alert">
+              {pageError}
+            </p>
+          )}
           {activePage && (
             <PageRenderer spec={activePage.spec} data={activePage.data} />
           )}
-          {!activePage && !pageError && <p>Loading page…</p>}
+          {!activePage && !pageError && <p className="kos-empty">Loading page…</p>}
         </main>
       </ErrorBoundary>
     );
   }
 
+  const running = status && !status.halted;
+  const discordOn = status?.discord === true;
+
   return (
     <ErrorBoundary label="dashboard">
       <main className="kos-dashboard">
-        <h1>K-OS</h1>
+        <header className="kos-header">
+          <div className="kos-brand">
+            <h1>
+              K<span>-OS</span>
+            </h1>
+            <p>Control tower · one workspace, many channels</p>
+          </div>
+          <button
+            type="button"
+            className={`kos-btn ${status?.halted ? "kos-btn--ok" : "kos-btn--danger"}`}
+            onClick={() => void toggleKill()}
+          >
+            {status?.halted ? "Resume" : "Halt"}
+          </button>
+        </header>
 
-        <section className="kos-status-strip">
-          {status ? (
+        <section className="kos-status-strip" aria-label="Status">
+          {!status && <span className="kos-pill">loading…</span>}
+          {status && (
             <>
-              <span>{status.halted ? "HALTED" : "running"}</span>
-              <span>queue {status.queueDepth}</span>
-              <span>crons {status.crons}</span>
-              <span>pending {status.pendingApprovals}</span>
+              <span className={`kos-pill ${running ? "kos-pill--ok" : "kos-pill--danger"}`}>
+                {status.halted ? "HALTED" : "running"}
+              </span>
+              <span className={`kos-pill ${discordOn ? "kos-pill--ok" : ""}`}>
+                discord {discordOn ? "on" : "off"}
+              </span>
+              <span className="kos-pill">
+                <strong>queue</strong> {status.queueDepth}
+              </span>
+              <span className="kos-pill">
+                <strong>crons</strong> {status.crons}
+              </span>
+              <span
+                className={`kos-pill ${status.pendingApprovals > 0 ? "kos-pill--warn" : ""}`}
+              >
+                <strong>pending</strong> {status.pendingApprovals}
+              </span>
+              <span className="kos-pill">
+                <strong>projects</strong> {status.projects ?? projects.length}
+              </span>
             </>
-          ) : (
-            <span>loading…</span>
           )}
         </section>
 
-        <section>
-          <h2>Pending approvals</h2>
-          {approvals.length === 0 && <p>None.</p>}
-          {approvals.map((a) => (
-            <div key={a.id} className="kos-approval">
-              <code>
-                #{a.id} {a.tool} {a.args}
-              </code>
-              <button type="button" onClick={() => void decide(a.id, true)}>
-                Approve
-              </button>
-              <button type="button" onClick={() => void decide(a.id, false)}>
-                Deny
+        <div className="kos-grid">
+          <section className="kos-card kos-card--wide">
+            <h2>Pending approvals</h2>
+            {approvals.length === 0 && <p className="kos-empty">None right now.</p>}
+            {approvals.map((a) => (
+              <div key={a.id} className="kos-approval">
+                <div className="kos-approval-head">
+                  <span className="kos-approval-title">
+                    {summarizeAction(a.tool, a.args)}
+                  </span>
+                  <span className="kos-mono kos-meta">#{a.id}</span>
+                </div>
+                <div className="kos-meta">
+                  <span className="kos-mono">{a.tool}</span>
+                  {a.reason ? ` · ${a.reason}` : ""}
+                  {a.requestedAt ? ` · ${timeAgo(a.requestedAt)}` : ""}
+                </div>
+                <div className="kos-approval-actions">
+                  <button
+                    type="button"
+                    className="kos-btn kos-btn--ok"
+                    onClick={() => void decide(a.id, true)}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    className="kos-btn kos-btn--danger"
+                    onClick={() => void decide(a.id, false)}
+                  >
+                    Deny
+                  </button>
+                </div>
+              </div>
+            ))}
+          </section>
+
+          <section className="kos-card">
+            <h2>Projects</h2>
+            {projects.length === 0 && <p className="kos-empty">No projects yet.</p>}
+            <ul className="kos-list">
+              {projects.map((p) => {
+                const linked = pages.filter((pg) => pg.projectSlug === p.slug);
+                return (
+                  <li key={p.slug}>
+                    <div>
+                      <div>{p.name}</div>
+                      <div className="kos-meta">
+                        {p.type} · {p.status}
+                        {linked.length > 0 && (
+                          <>
+                            {" · "}
+                            {linked.map((pg) => (
+                              <button
+                                key={pg.id}
+                                type="button"
+                                className="kos-link-btn"
+                                onClick={() => openPage(pg.id)}
+                              >
+                                {pg.title}
+                              </button>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <span className="kos-mono kos-meta">{p.slug}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+
+          <section className="kos-card">
+            <h2>Pages</h2>
+            {pages.length === 0 && <p className="kos-empty">No agent pages yet.</p>}
+            <ul className="kos-list">
+              {pages.map((pg) => (
+                <li key={pg.id}>
+                  <button
+                    type="button"
+                    className="kos-link-btn"
+                    onClick={() => openPage(pg.id)}
+                  >
+                    {pg.title}
+                  </button>
+                  <span className="kos-meta">{pg.projectSlug}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="kos-card">
+            <h2>Crons</h2>
+            {crons.length === 0 && <p className="kos-empty">No scheduled jobs.</p>}
+            <ul className="kos-list">
+              {crons.map((c) => (
+                <li key={c.id}>
+                  <div>
+                    <div>{c.name}</div>
+                    <div className="kos-meta kos-mono">
+                      {c.schedule} · {c.type}
+                      {!c.enabled ? " · disabled" : ""}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="kos-card">
+            <h2>Failed runs</h2>
+            {failed.length === 0 && <p className="kos-empty">None.</p>}
+            <ul className="kos-list">
+              {failed.map((r) => (
+                <li key={r.id}>
+                  <div>
+                    <div>{r.kind}</div>
+                    <div className="kos-meta">{r.error}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="kos-card kos-card--wide">
+            <h2>Recent tool calls</h2>
+            {activity.length === 0 && <p className="kos-empty">Quiet so far.</p>}
+            <ul className="kos-list">
+              {activity.map((t) => (
+                <li key={t.id}>
+                  <div>
+                    <span className="kos-mono">{t.tool}</span>
+                    {t.isError ? (
+                      <span className="kos-meta"> · error</span>
+                    ) : null}
+                  </div>
+                  <span className="kos-meta">{timeAgo(t.createdAt)}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className={`kos-card kos-card--wide ${sending ? "kos-sending" : ""}`}>
+            <h2>Message KOS</h2>
+            <div className="kos-prompt">
+              <input
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="Same session as Discord…"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void send();
+                }}
+              />
+              <button
+                type="button"
+                className="kos-btn kos-btn--primary"
+                onClick={() => void send()}
+              >
+                {sending ? "…" : "Send"}
               </button>
             </div>
-          ))}
-        </section>
-
-        <section>
-          <h2>Projects</h2>
-          {projects.length === 0 && <p>No projects yet.</p>}
-          <ul>
-            {projects.map((p) => (
-              <li key={p.slug}>
-                {p.name} <em>({p.type})</em> — {p.status}
-                {pages
-                  .filter((pg) => pg.projectSlug === p.slug)
-                  .map((pg) => (
-                    <button
-                      key={pg.id}
-                      type="button"
-                      className="kos-link-btn"
-                      onClick={() => openPage(pg.id)}
-                    >
-                      {pg.title}
-                    </button>
-                  ))}
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section>
-          <h2>Pages</h2>
-          {pages.length === 0 && <p>No agent pages yet.</p>}
-          <ul>
-            {pages.map((pg) => (
-              <li key={pg.id}>
-                <button type="button" onClick={() => openPage(pg.id)}>
-                  {pg.title}
-                </button>{" "}
-                <em>({pg.projectSlug})</em>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section>
-          <h2>Upcoming crons</h2>
-          <ul>
-            {crons.map((c) => (
-              <li key={c.id}>
-                {c.name} [{c.schedule}] {c.type}
-                {!c.enabled ? " (disabled)" : ""}
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section>
-          <h2>Failed runs</h2>
-          {failed.length === 0 && <p>None.</p>}
-          <ul>
-            {failed.map((r) => (
-              <li key={r.id}>
-                {r.kind}: {r.error}
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section className="kos-controls">
-          <h2>Controls</h2>
-          <button type="button" onClick={() => void toggleKill()}>
-            {status?.halted ? "Resume" : "Halt"}
-          </button>
-          <div className="kos-prompt">
-            <input
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Message KOS…"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void send();
-              }}
-            />
-            <button type="button" onClick={() => void send()}>
-              Send
-            </button>
-          </div>
-          {reply && <p className="kos-reply">{reply}</p>}
-        </section>
+            {reply && <p className="kos-reply">{reply}</p>}
+          </section>
+        </div>
       </main>
     </ErrorBoundary>
   );

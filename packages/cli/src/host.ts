@@ -77,7 +77,10 @@ export async function runHost(options: HostOptions): Promise<void> {
             if (!adapter) return;
             void adapter.requestApproval(creds.ownerId, {
               id: String(action.id),
-              text: `Approve ${action.tool}? ${action.args}`,
+              text: `Approve ${action.tool}?`,
+              tool: action.tool,
+              args: action.args,
+              reason: action.reason,
             });
           },
         }

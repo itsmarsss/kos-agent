@@ -1,7 +1,7 @@
 import { runAgent, type Inference } from "../agent/loop.js";
 import type { ToolRegistry } from "../agent/registry.js";
 import { SingleOwnerMapping, type UserMapping } from "./identity.js";
-import type { ChannelAdapter, InboundMessage } from "./types.js";
+import type { ChannelAdapter, InboundMessage, TurnPresence } from "./types.js";
 
 export interface TurnContext {
   userId: string;
@@ -23,8 +23,7 @@ export interface ChannelRuntimeOptions {
 
 /**
  * Binds a channel adapter to a turn handler: inbound message -> resolve user ->
- * run the turn -> send the reply. Channel-agnostic, so any adapter (memory,
- * Discord, SMS) drives the same agent path.
+ * run the turn -> send (or complete presence). Channel-agnostic.
  */
 export class ChannelRuntime {
   private readonly adapter: ChannelAdapter;
@@ -51,18 +50,32 @@ export class ChannelRuntime {
 
   private async dispatch(msg: InboundMessage): Promise<void> {
     const userId = this.identity.resolve(msg.channel, msg.senderId);
-    let reply: string;
+    let presence: TurnPresence | undefined;
     try {
-      reply = await this.handleTurn({
+      presence = await this.adapter.acknowledge?.(msg);
+    } catch {
+      presence = undefined;
+    }
+
+    try {
+      const reply = await this.handleTurn({
         userId,
         channel: msg.channel,
         senderId: msg.senderId,
         text: msg.text,
       });
+      if (presence) {
+        await presence.complete(reply || "(no reply)");
+      } else {
+        await this.adapter.send(msg.senderId, { text: reply || "(no reply)" });
+      }
     } catch {
-      reply = this.errorReply;
+      if (presence) {
+        await presence.fail(this.errorReply);
+      } else {
+        await this.adapter.send(msg.senderId, { text: this.errorReply });
+      }
     }
-    await this.adapter.send(msg.senderId, { text: reply });
   }
 }
 
@@ -73,8 +86,7 @@ export interface AgentTurnOptions {
 
 /**
  * Build a TurnHandler that runs the agent loop for each message and returns the
- * agent's final text. Turns are currently stateless (one message in, one reply
- * out); cross-turn context comes with the memory and context-policy steps.
+ * agent's final text.
  */
 export function createAgentTurnHandler(
   inference: Inference,

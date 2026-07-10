@@ -7,6 +7,9 @@ export interface Status {
   pendingApprovals: number;
   projects?: number;
   pages?: number;
+  discord?: boolean;
+  pid?: number;
+  workspace?: string;
 }
 
 export interface PendingAction {

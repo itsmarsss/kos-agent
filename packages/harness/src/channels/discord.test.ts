@@ -4,6 +4,7 @@ import {
   APPROVE_PREFIX,
   DENY_PREFIX,
   approvalCustomIds,
+  chunkText,
   parseApprovalCustomId,
 } from "./discord.js";
 
@@ -35,5 +36,17 @@ describe("discord approval customId codec", () => {
       id: "a:b:c",
       approved: true,
     });
+  });
+});
+
+describe("chunkText", () => {
+  it("leaves short text alone", () => {
+    expect(chunkText("hi", 10)).toEqual(["hi"]);
+  });
+
+  it("splits long text on newlines when possible", () => {
+    const chunks = chunkText("aaaa\nbbbb\ncccc", 6);
+    expect(chunks.join("").replace(/\n/g, "").length).toBe(12);
+    expect(chunks.every((c) => c.length <= 6)).toBe(true);
   });
 });
