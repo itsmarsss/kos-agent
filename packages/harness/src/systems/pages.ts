@@ -1,0 +1,169 @@
+import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+import {
+  isValidPageSpec,
+  validatePageSpec,
+  type PageSpec,
+} from "@kos/shared";
+
+import type { Db } from "../store/db.js";
+import type { Workspace } from "../store/workspace.js";
+import type { ProjectManifest } from "./manifest.js";
+
+/**
+ * Agent-authored page specs: validated JSON stored under the project folder
+ * and indexed in SQLite so the dashboard can list and render them.
+ */
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS pages (
+  id TEXT PRIMARY KEY,
+  project_slug TEXT NOT NULL,
+  title TEXT NOT NULL,
+  path TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+`;
+
+export interface PageRecord {
+  id: string;
+  projectSlug: string;
+  title: string;
+  path: string;
+  updatedAt: number;
+}
+
+export class PageStore {
+  constructor(
+    private readonly db: Db,
+    private readonly workspace: Workspace,
+    private readonly manifest: ProjectManifest,
+    private readonly now: () => number = Date.now,
+  ) {
+    this.db.exec(SCHEMA);
+  }
+
+  private filePath(projectSlug: string, pageId: string): string {
+    return join("projects", projectSlug, "pages", `${pageId}.json`);
+  }
+
+  list(projectSlug?: string): PageRecord[] {
+    const rows = projectSlug
+      ? (this.db
+          .prepare(
+            `SELECT id, project_slug, title, path, updated_at FROM pages
+             WHERE project_slug = ? ORDER BY title`,
+          )
+          .all(projectSlug) as Array<{
+          id: string;
+          project_slug: string;
+          title: string;
+          path: string;
+          updated_at: number;
+        }>)
+      : (this.db
+          .prepare(
+            `SELECT id, project_slug, title, path, updated_at FROM pages
+             ORDER BY project_slug, title`,
+          )
+          .all() as Array<{
+          id: string;
+          project_slug: string;
+          title: string;
+          path: string;
+          updated_at: number;
+        }>);
+    return rows.map((r) => ({
+      id: r.id,
+      projectSlug: r.project_slug,
+      title: r.title,
+      path: r.path,
+      updatedAt: r.updated_at,
+    }));
+  }
+
+  get(id: string): { record: PageRecord; spec: PageSpec } | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT id, project_slug, title, path, updated_at FROM pages WHERE id = ?`,
+      )
+      .get(id) as
+      | {
+          id: string;
+          project_slug: string;
+          title: string;
+          path: string;
+          updated_at: number;
+        }
+      | undefined;
+    if (!row) return undefined;
+    const abs = this.workspace.resolve(row.path);
+    if (!existsSync(abs)) return undefined;
+    const spec = JSON.parse(readFileSync(abs, "utf8")) as PageSpec;
+    return {
+      record: {
+        id: row.id,
+        projectSlug: row.project_slug,
+        title: row.title,
+        path: row.path,
+        updatedAt: row.updated_at,
+      },
+      spec,
+    };
+  }
+
+  /**
+   * Validate and write a page spec. page id must match the spec id. Project
+   * must already exist in the manifest.
+   */
+  write(projectSlug: string, spec: unknown): PageRecord {
+    if (!this.manifest.get(projectSlug)) {
+      throw new Error(`unknown project: ${projectSlug}`);
+    }
+    const errors = validatePageSpec(spec as PageSpec);
+    if (errors.length > 0 || !isValidPageSpec(spec as PageSpec)) {
+      throw new Error(`invalid page spec: ${errors.join("; ") || "failed validation"}`);
+    }
+    const page = spec as PageSpec;
+    const rel = this.filePath(projectSlug, page.id);
+    const abs = this.workspace.resolve(rel);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, JSON.stringify(page, null, 2));
+    const ts = this.now();
+    this.db
+      .prepare(
+        `INSERT INTO pages (id, project_slug, title, path, updated_at)
+         VALUES (@id, @projectSlug, @title, @path, @ts)
+         ON CONFLICT(id) DO UPDATE SET
+           project_slug = excluded.project_slug,
+           title = excluded.title,
+           path = excluded.path,
+           updated_at = excluded.updated_at`,
+      )
+      .run({
+        id: page.id,
+        projectSlug,
+        title: page.title,
+        path: rel,
+        ts,
+      });
+    this.manifest.touchProject(projectSlug);
+    return {
+      id: page.id,
+      projectSlug,
+      title: page.title,
+      path: rel,
+      updatedAt: ts,
+    };
+  }
+
+  remove(id: string): boolean {
+    const got = this.get(id);
+    if (!got) return false;
+    const abs = this.workspace.resolve(got.record.path);
+    if (existsSync(abs)) unlinkSync(abs);
+    this.db.prepare(`DELETE FROM pages WHERE id = ?`).run(id);
+    return true;
+  }
+}
