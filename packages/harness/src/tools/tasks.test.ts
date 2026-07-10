@@ -76,4 +76,23 @@ describe("tasksModule", () => {
     expect(pages.list("errands").length).toBe(1);
     expect(manifest.listByModule("tasks")).toHaveLength(1);
   });
+
+  it("create_list is idempotent for the same name", async () => {
+    const a = await registry.execute("tasks.create_list", {
+      name: "Tonight",
+      withPage: true,
+    });
+    const b = await registry.execute("tasks.create_list", {
+      name: "Tonight",
+      withPage: true,
+    });
+    expect(a.isError).toBe(false);
+    expect(b.isError).toBe(false);
+    const pa = JSON.parse(a.content) as { slug: string; alreadyExisted?: boolean };
+    const pb = JSON.parse(b.content) as { slug: string; alreadyExisted?: boolean };
+    expect(pa.slug).toBe("tonight");
+    expect(pb.slug).toBe("tonight");
+    expect(pb.alreadyExisted).toBe(true);
+    expect(manifest.listByModule("tasks")).toHaveLength(1);
+  });
 });
