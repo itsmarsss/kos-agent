@@ -840,3 +840,130 @@ textarea {
   gap: 0.5rem;
   align-items: center;
 }
+
+.insp-foot {
+  margin-top: auto;
+  padding: 0.65rem 0.9rem;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+/* —— primary nav —— */
+.ops-nav-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+}
+
+.ops-nav-link {
+  color: var(--muted);
+  text-decoration: none;
+  padding: 0.3rem 0.55rem;
+  border-radius: 6px;
+  font-size: 0.88rem;
+}
+
+.ops-nav-link:hover {
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+.ops-nav-link.is-active {
+  color: var(--text);
+  background: var(--accent-dim);
+}
+
+.ops-path--metric {
+  grid-column: span 2;
+  max-width: none;
+  justify-self: stretch;
+}
+
+/* —— list pages —— */
+.list-page {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.75rem 0.85rem 1rem;
+  min-height: 60vh;
+}
+
+.list-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.list-title {
+  margin: 0;
+  font-size: 1.2rem;
+  letter-spacing: -0.02em;
+}
+
+.list-head-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.list-search {
+  border: 1px solid var(--line);
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 0.35rem 0.55rem;
+  min-width: 12rem;
+}
+
+.list-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.list-filter-group {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.list-check {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.list-meta {
+  font-size: 0.8rem;
+}
+
+.list-table {
+  max-height: none;
+  flex: 1;
+}
+
+.ops-select,
+.ops-textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+  color: var(--text);
+}
+
+.ops-textarea {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  resize: vertical;
+}

@@ -14,6 +14,8 @@ import {
   type Status,
 } from "./api.js";
 import { Inspector, type InspectTarget } from "./Inspector.js";
+import { ListPage } from "./ListPage.js";
+import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { PageRenderer } from "./widgets/PageRenderer.js";
 
@@ -32,14 +34,15 @@ function preview(text: string, n = 48): string {
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
 
-/**
- * Ops dashboard: console + inventory previews; click any row to inspect fully.
- */
 export function App(): React.ReactElement {
+  const [route, setRoute] = useState<Route>(() =>
+    parseRoute(window.location.hash),
+  );
   const [status, setStatus] = useState<Status | null>(null);
   const [approvals, setApprovals] = useState<PendingAction[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [crons, setCrons] = useState<CronJob[]>([]);
+  const [runs, setRuns] = useState<RunRecord[]>([]);
   const [failed, setFailed] = useState<RunRecord[]>([]);
   const [pages, setPages] = useState<PageSummary[]>([]);
   const [activity, setActivity] = useState<AuditRecord[]>([]);
@@ -51,10 +54,10 @@ export function App(): React.ReactElement {
   const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast>(null);
-  const [view, setView] = useState<"home" | "page">("home");
   const [activePage, setActivePage] = useState<PagePayload | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
-  const [filter, setFilter] = useState("");
+  const [runsFailedOnly, setRunsFailedOnly] = useState(false);
+  const [cronFilter, setCronFilter] = useState<"all" | "on" | "off">("all");
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
 
   const flash = (kind: "ok" | "err", text: string): void => {
@@ -63,15 +66,16 @@ export function App(): React.ReactElement {
   };
 
   const refresh = useCallback(async () => {
-    const [s, a, p, c, f, pg, act, mem] = await Promise.all([
+    const [s, a, p, c, f, pg, act, mem, r] = await Promise.all([
       api.status(),
       api.approvals(),
       api.projects(),
       api.crons(),
-      api.failed(),
+      api.failed(100),
       api.pages(),
-      api.activity().catch(() => ({ tools: [] as AuditRecord[], runs: [] })),
-      api.memory().catch(() => ({ facts: [] as FactRow[] })),
+      api.activity(200),
+      api.memory(300),
+      api.runs(200, false),
     ]);
     setStatus(s);
     setApprovals(a);
@@ -79,33 +83,30 @@ export function App(): React.ReactElement {
     setCrons(c);
     setFailed(f);
     setPages(pg);
-    setActivity(act.tools.slice(0, 40));
-    setFacts((mem.facts ?? []).slice(0, 30));
+    setActivity(act.tools);
+    setFacts(mem.facts ?? []);
+    setRuns(r);
   }, []);
 
   useEffect(() => {
     void refresh();
-    const t = setInterval(() => void refresh(), 4000);
+    const t = setInterval(() => void refresh(), 5000);
     return () => clearInterval(t);
   }, [refresh]);
 
   useEffect(() => {
     const sync = (): void => {
-      const hash = window.location.hash.replace(/^#/, "");
-      const m = hash.match(/^\/page\/([^/]+)$/);
-      if (m?.[1]) {
-        setView("page");
+      const next = parseRoute(window.location.hash);
+      setRoute(next);
+      if (next.name === "page") {
         setPageError(null);
+        setActivePage(null);
         void api
-          .page(decodeURIComponent(m[1]))
+          .page(next.id)
           .then((payload) => setActivePage(payload))
           .catch((err: unknown) => {
-            setActivePage(null);
             setPageError(err instanceof Error ? err.message : String(err));
           });
-      } else {
-        setView("home");
-        setActivePage(null);
       }
     };
     sync();
@@ -123,25 +124,20 @@ export function App(): React.ReactElement {
     return map;
   }, [pages]);
 
-  const filteredProjects = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    if (!q) return projects;
-    return projects.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.slug.toLowerCase().includes(q) ||
-        p.type.toLowerCase().includes(q) ||
-        (p.module ?? "").toLowerCase().includes(q),
-    );
-  }, [projects, filter]);
+  const go = (r: Route): void => {
+    window.location.hash = hrefFor(r);
+  };
+
+  const openPage = (id: string): void => {
+    setInspect(null);
+    go({ name: "page", id });
+  };
 
   const decide = async (id: number, approved: boolean): Promise<void> => {
     setBusy(approved ? `approving #${id}` : `denying #${id}`);
     try {
       const res = await (approved ? api.approve(id) : api.deny(id));
-      if (res.reply) {
-        setThread((t) => [...t, { role: "kos", text: res.reply! }]);
-      }
+      if (res.reply) setThread((t) => [...t, { role: "kos", text: res.reply! }]);
       flash("ok", approved ? `Approved #${id}` : `Denied #${id}`);
       await refresh();
     } catch (err) {
@@ -169,10 +165,7 @@ export function App(): React.ReactElement {
     setBusy("snapshot");
     try {
       const res = await api.snapshot("dashboard snapshot");
-      flash(
-        "ok",
-        res.sha ? `Snapshot ${res.sha.slice(0, 10)}` : "Nothing to snapshot",
-      );
+      flash("ok", res.sha ? `Snapshot ${res.sha.slice(0, 10)}` : "Nothing to snapshot");
     } catch (err) {
       flash("err", err instanceof Error ? err.message : String(err));
     } finally {
@@ -223,42 +216,20 @@ export function App(): React.ReactElement {
     }
   };
 
-  const openPage = (id: string): void => {
-    setInspect(null);
-    window.location.hash = `#/page/${encodeURIComponent(id)}`;
-  };
+  const inspectKey =
+    inspect == null
+      ? "none"
+      : inspect.kind === "tool"
+        ? `tool-${inspect.data.id}`
+        : inspect.kind === "cron"
+          ? `cron-${inspect.data.id}`
+          : inspect.kind === "run"
+            ? `run-${inspect.data.id}`
+            : inspect.kind === "fact"
+              ? `fact-${inspect.data.key}`
+              : `project-${inspect.data.slug}`;
 
-  if (view === "page") {
-    return (
-      <ErrorBoundary label="page">
-        <main className="ops">
-          <a
-            className="ops-back"
-            href="#/"
-            onClick={(e) => {
-              e.preventDefault();
-              window.location.hash = "";
-            }}
-          >
-            ← Back to ops
-          </a>
-          {pageError && (
-            <p className="ops-alert ops-alert--err" role="alert">
-              {pageError}
-            </p>
-          )}
-          {activePage && (
-            <PageRenderer spec={activePage.spec} data={activePage.data} />
-          )}
-          {!activePage && !pageError && <p className="ops-muted">Loading…</p>}
-        </main>
-      </ErrorBoundary>
-    );
-  }
-
-  const running = status && !status.halted;
-
-  return (
+  const shell = (body: React.ReactNode): React.ReactElement => (
     <ErrorBoundary label="dashboard">
       <main className="ops">
         {toast && (
@@ -266,11 +237,37 @@ export function App(): React.ReactElement {
             {toast.text}
           </div>
         )}
-
         <Inspector
+          key={inspectKey}
           target={inspect}
           onClose={() => setInspect(null)}
           onOpenPage={openPage}
+          onSaved={() => void refresh()}
+          onSetProjectStatus={async (slug, st) => {
+            await api.setProjectStatus(slug, st);
+            flash("ok", `Project ${slug} → ${st}`);
+            await refresh();
+          }}
+          onToggleCron={async (id, enabled) => {
+            await api.setCronEnabled(id, enabled);
+            flash("ok", enabled ? `Cron #${id} enabled` : `Cron #${id} disabled`);
+            await refresh();
+          }}
+          onDeleteCron={async (id) => {
+            await api.deleteCron(id);
+            flash("ok", `Deleted cron #${id}`);
+            await refresh();
+          }}
+          onSaveFact={async (key, value, kind) => {
+            await api.saveMemory(key, value, kind);
+            flash("ok", `Saved ${key}`);
+            await refresh();
+          }}
+          onDeleteFact={async (key) => {
+            await api.deleteMemory(key);
+            flash("ok", `Deleted ${key}`);
+            await refresh();
+          }}
         />
 
         <header className="ops-top">
@@ -278,14 +275,22 @@ export function App(): React.ReactElement {
             <div className="ops-logo">
               K<span>-OS</span>
             </div>
-            <button
-              type="button"
-              className="ops-path"
-              title="Copy workspace path"
-              onClick={() => void copyWorkspace()}
-            >
-              {status?.workspace ?? "…"}
-            </button>
+            <nav className="ops-nav-main" aria-label="Primary">
+              {NAV.map((item) => {
+                const active =
+                  route.name === item.route.name ||
+                  (item.route.name === "home" && route.name === "page");
+                return (
+                  <a
+                    key={item.label}
+                    href={hrefFor(item.route)}
+                    className={`ops-nav-link ${active ? "is-active" : ""}`}
+                  >
+                    {item.label}
+                  </a>
+                );
+              })}
+            </nav>
           </div>
           <div className="ops-top-actions">
             {busy && <span className="ops-busy">{busy}…</span>}
@@ -312,7 +317,7 @@ export function App(): React.ReactElement {
           <Metric
             label="State"
             value={status ? (status.halted ? "HALTED" : "running") : "…"}
-            tone={running ? "ok" : status?.halted ? "danger" : "muted"}
+            tone={status && !status.halted ? "ok" : status?.halted ? "danger" : "muted"}
           />
           <Metric
             label="Discord"
@@ -325,307 +330,627 @@ export function App(): React.ReactElement {
             value={String(status?.pendingApprovals ?? "–")}
             tone={(status?.pendingApprovals ?? 0) > 0 ? "warn" : "muted"}
           />
-          <Metric label="Crons" value={String(status?.crons ?? "–")} />
+          <Metric label="Crons" value={String(crons.length)} />
           <Metric label="Projects" value={String(projects.length)} />
-          <Metric label="PID" value={status?.pid ? String(status.pid) : "–"} />
+          <button type="button" className="ops-path ops-path--metric" onClick={() => void copyWorkspace()}>
+            {status?.workspace ?? "workspace"}
+          </button>
         </div>
 
-        {approvals.length > 0 && (
-          <section className="ops-approvals" aria-label="Pending approvals">
-            <div className="ops-section-head">
-              <h2>Approvals</h2>
-              <span className="ops-badge ops-badge--warn">{approvals.length}</span>
-            </div>
-            {approvals.map((a) => (
-              <div key={a.id} className="ops-approval-row">
-                <div className="ops-approval-main">
-                  <div className="ops-approval-title">
-                    <span className="ops-mono">#{a.id}</span>{" "}
-                    {summarizeAction(a.tool, a.args)}
-                  </div>
-                  <div className="ops-muted">
-                    <span className="ops-mono">{a.tool}</span>
-                    {a.reason ? ` · ${a.reason}` : ""}
-                    {a.requestedAt ? ` · ${timeAgo(a.requestedAt)} ago` : ""}
-                  </div>
+        {body}
+      </main>
+    </ErrorBoundary>
+  );
+
+  // —— agent page ——
+  if (route.name === "page") {
+    return shell(
+      <>
+        <a
+          className="ops-back"
+          href="#/"
+          onClick={(e) => {
+            e.preventDefault();
+            go({ name: "home" });
+          }}
+        >
+          ← Ops
+        </a>
+        {pageError && (
+          <p className="ops-alert ops-alert--err" role="alert">
+            {pageError}
+          </p>
+        )}
+        {activePage && (
+          <PageRenderer spec={activePage.spec} data={activePage.data} />
+        )}
+        {!activePage && !pageError && <p className="ops-muted">Loading…</p>}
+      </>,
+    );
+  }
+
+  // —— list pages ——
+  if (route.name === "projects") {
+    return shell(
+      <ListPage
+        title="Projects"
+        subtitle="All workspace projects and linked pages"
+        rows={projects}
+        rowKey={(p) => p.slug}
+        empty="No projects match"
+        onRowClick={(p) =>
+          setInspect({
+            kind: "project",
+            data: p,
+            pages: pagesByProject.get(p.slug) ?? [],
+          })
+        }
+        columns={[
+          {
+            key: "name",
+            header: "Name",
+            searchText: (p) => `${p.name} ${p.slug}`,
+            render: (p) => (
+              <div>
+                <div className="ops-nav-title">{p.name}</div>
+                <div className="ops-mono ops-muted">{p.slug}</div>
+              </div>
+            ),
+          },
+          {
+            key: "type",
+            header: "Type",
+            searchText: (p) => p.type,
+            render: (p) => p.type,
+          },
+          {
+            key: "module",
+            header: "Module",
+            searchText: (p) => p.module ?? "",
+            render: (p) => (
+              <span className="ops-mono">{p.module ?? "—"}</span>
+            ),
+          },
+          {
+            key: "status",
+            header: "Status",
+            searchText: (p) => p.status,
+            render: (p) => (
+              <span className={`ops-status ops-status--${p.status}`}>
+                {p.status}
+              </span>
+            ),
+          },
+          {
+            key: "pages",
+            header: "Pages",
+            render: (p) => {
+              const linked = pagesByProject.get(p.slug) ?? [];
+              if (linked.length === 0) return <span className="ops-muted">—</span>;
+              return (
+                <span className="ops-page-chips">
+                  {linked.map((pg) => (
+                    <span
+                      key={pg.id}
+                      className="ops-chip"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openPage(pg.id);
+                      }}
+                      role="link"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.stopPropagation();
+                          openPage(pg.id);
+                        }
+                      }}
+                    >
+                      {pg.title}
+                    </span>
+                  ))}
+                </span>
+              );
+            },
+          },
+          {
+            key: "touched",
+            header: "Touched",
+            render: (p) => (
+              <span className="ops-muted">{timeAgo(p.lastTouchedAt)}</span>
+            ),
+          },
+        ]}
+      />,
+    );
+  }
+
+  if (route.name === "tools") {
+    return shell(
+      <ListPage
+        title="Tool calls"
+        subtitle="Audit log · click a row for args and result"
+        rows={activity}
+        rowKey={(t) => t.id}
+        empty="No tool calls yet"
+        onRowClick={(t) => setInspect({ kind: "tool", data: t })}
+        columns={[
+          {
+            key: "tool",
+            header: "Tool",
+            width: "18%",
+            searchText: (t) => t.tool,
+            render: (t) => <span className="ops-mono">{t.tool}</span>,
+          },
+          {
+            key: "preview",
+            header: "Preview",
+            searchText: (t) => summarizeAction(t.tool, t.args),
+            render: (t) => preview(summarizeAction(t.tool, t.args), 64),
+          },
+          {
+            key: "status",
+            header: "Status",
+            width: "10%",
+            searchText: (t) => (t.isError ? "error" : "ok"),
+            render: (t) =>
+              t.isError ? (
+                <span className="ops-tag ops-tag--danger">error</span>
+              ) : (
+                <span className="ops-tag ops-tag--ok">ok</span>
+              ),
+          },
+          {
+            key: "when",
+            header: "When",
+            width: "10%",
+            render: (t) => (
+              <span className="ops-muted">{timeAgo(t.createdAt)}</span>
+            ),
+          },
+        ]}
+      />,
+    );
+  }
+
+  if (route.name === "crons") {
+    const rows = crons.filter((c) => {
+      if (cronFilter === "on") return c.enabled;
+      if (cronFilter === "off") return !c.enabled;
+      return true;
+    });
+    return shell(
+      <ListPage
+        title="Crons"
+        subtitle="Scheduled jobs · enable/disable/delete in the drawer"
+        rows={rows}
+        rowKey={(c) => c.id}
+        empty="No crons match"
+        onRowClick={(c) => setInspect({ kind: "cron", data: c })}
+        filters={
+          <div className="list-filter-group">
+            {(["all", "on", "off"] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                className={`ops-btn ${cronFilter === f ? "ops-btn--primary" : ""}`}
+                onClick={() => setCronFilter(f)}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        }
+        columns={[
+          {
+            key: "name",
+            header: "Name",
+            searchText: (c) => c.name,
+            render: (c) => c.name,
+          },
+          {
+            key: "schedule",
+            header: "Schedule",
+            searchText: (c) => c.schedule,
+            render: (c) => <span className="ops-mono">{c.schedule}</span>,
+          },
+          {
+            key: "type",
+            header: "Type",
+            searchText: (c) => c.type,
+            render: (c) => c.type,
+          },
+          {
+            key: "enabled",
+            header: "Enabled",
+            searchText: (c) => (c.enabled ? "on" : "off"),
+            render: (c) =>
+              c.enabled ? (
+                <span className="ops-tag ops-tag--ok">on</span>
+              ) : (
+                <span className="ops-tag ops-tag--muted">off</span>
+              ),
+          },
+          {
+            key: "project",
+            header: "Project",
+            searchText: (c) => c.projectSlug ?? "",
+            render: (c) => (
+              <span className="ops-mono ops-muted">{c.projectSlug ?? "—"}</span>
+            ),
+          },
+        ]}
+      />,
+    );
+  }
+
+  if (route.name === "memory") {
+    return shell(
+      <ListPage
+        title="Memory"
+        subtitle="Durable facts · edit or delete in the drawer"
+        rows={facts}
+        rowKey={(f) => f.key}
+        empty="No facts yet"
+        onRowClick={(f) => setInspect({ kind: "fact", data: f })}
+        columns={[
+          {
+            key: "key",
+            header: "Key",
+            width: "22%",
+            searchText: (f) => f.key,
+            render: (f) => <span className="ops-mono">{f.key}</span>,
+          },
+          {
+            key: "value",
+            header: "Value",
+            searchText: (f) => f.value,
+            render: (f) => preview(f.value, 80),
+          },
+          {
+            key: "kind",
+            header: "Kind",
+            width: "12%",
+            searchText: (f) => f.kind,
+            render: (f) => f.kind,
+          },
+          {
+            key: "updated",
+            header: "Updated",
+            width: "12%",
+            render: (f) => (
+              <span className="ops-muted">
+                {f.updatedAt ? timeAgo(f.updatedAt) : "—"}
+              </span>
+            ),
+          },
+        ]}
+      />,
+    );
+  }
+
+  if (route.name === "runs") {
+    const source = runsFailedOnly ? failed : runs;
+    return shell(
+      <ListPage
+        title="Runs"
+        subtitle="Job / chat run log"
+        rows={source}
+        rowKey={(r) => r.id}
+        empty="No runs"
+        onRowClick={(r) => setInspect({ kind: "run", data: r })}
+        filters={
+          <label className="list-check">
+            <input
+              type="checkbox"
+              checked={runsFailedOnly}
+              onChange={(e) => setRunsFailedOnly(e.target.checked)}
+            />
+            Failures only
+          </label>
+        }
+        columns={[
+          {
+            key: "id",
+            header: "ID",
+            width: "8%",
+            render: (r) => <span className="ops-mono">#{r.id}</span>,
+          },
+          {
+            key: "kind",
+            header: "Kind",
+            searchText: (r) => r.kind,
+            render: (r) => r.kind,
+          },
+          {
+            key: "status",
+            header: "Status",
+            searchText: (r) => r.status,
+            render: (r) => (
+              <span
+                className={`ops-tag ${r.status === "error" ? "ops-tag--danger" : r.status === "ok" ? "ops-tag--ok" : "ops-tag--muted"}`}
+              >
+                {r.status}
+              </span>
+            ),
+          },
+          {
+            key: "error",
+            header: "Error",
+            searchText: (r) => r.error ?? "",
+            render: (r) => (
+              <span className="ops-muted">{preview(r.error ?? "—", 56)}</span>
+            ),
+          },
+          {
+            key: "when",
+            header: "When",
+            render: (r) => (
+              <span className="ops-muted">{timeAgo(r.startedAt)}</span>
+            ),
+          },
+        ]}
+      />,
+    );
+  }
+
+  // —— home ops ——
+  const homeProjects = projects.slice(0, 6);
+  const homeTools = activity.slice(0, 8);
+  const homeCrons = crons.slice(0, 6);
+  const homeFacts = facts.slice(0, 6);
+  const homeFailed = failed.slice(0, 5);
+
+  return shell(
+    <>
+      {approvals.length > 0 && (
+        <section className="ops-approvals" aria-label="Pending approvals">
+          <div className="ops-section-head">
+            <h2>Approvals</h2>
+            <span className="ops-badge ops-badge--warn">{approvals.length}</span>
+          </div>
+          {approvals.map((a) => (
+            <div key={a.id} className="ops-approval-row">
+              <div className="ops-approval-main">
+                <div className="ops-approval-title">
+                  <span className="ops-mono">#{a.id}</span>{" "}
+                  {summarizeAction(a.tool, a.args)}
                 </div>
-                <div className="ops-approval-btns">
-                  <button
-                    type="button"
-                    className="ops-btn ops-btn--ok"
-                    onClick={() => void decide(a.id, true)}
-                  >
-                    Approve
-                  </button>
-                  <button
-                    type="button"
-                    className="ops-btn ops-btn--danger"
-                    onClick={() => void decide(a.id, false)}
-                  >
-                    Deny
-                  </button>
+                <div className="ops-muted">
+                  <span className="ops-mono">{a.tool}</span>
+                  {a.reason ? ` · ${a.reason}` : ""}
                 </div>
               </div>
-            ))}
-          </section>
-        )}
-
-        <div className="ops-split">
-          <section className="ops-console" aria-label="Console">
-            <div className="ops-section-head">
-              <h2>Console</h2>
-              <span className="ops-muted">same session as Discord</span>
-            </div>
-
-            <div className="ops-thread" aria-live="polite">
-              {thread.length === 0 && (
-                <p className="ops-muted ops-thread-empty">
-                  Message KOS here. Click rows in tools / sidebar to inspect details.
-                </p>
-              )}
-              {thread.map((m, i) => (
-                <div
-                  key={i}
-                  className={`ops-msg ops-msg--${m.role === "you" ? "you" : "kos"}`}
-                >
-                  <div className="ops-msg-role">
-                    {m.role === "you" ? "You" : "KOS"}
-                  </div>
-                  <div className="ops-msg-body">{m.text}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className={`ops-composer ${sending ? "is-busy" : ""}`}>
-              <textarea
-                value={prompt}
-                rows={3}
-                placeholder="Ask KOS to list tonight, add a task, snapshot, …"
-                onChange={(e) => setPrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                    e.preventDefault();
-                    void send();
-                  }
-                }}
-              />
-              <div className="ops-composer-bar">
-                <span className="ops-muted">⌘/Ctrl+Enter to send</span>
+              <div className="ops-approval-btns">
                 <button
                   type="button"
-                  className="ops-btn ops-btn--primary"
-                  onClick={() => void send()}
-                  disabled={sending}
+                  className="ops-btn ops-btn--ok"
+                  onClick={() => void decide(a.id, true)}
                 >
-                  {sending ? "Sending…" : "Send"}
+                  Approve
+                </button>
+                <button
+                  type="button"
+                  className="ops-btn ops-btn--danger"
+                  onClick={() => void decide(a.id, false)}
+                >
+                  Deny
                 </button>
               </div>
             </div>
+          ))}
+        </section>
+      )}
 
-            <div className="ops-section-head ops-section-head--sub">
-              <h2>Recent tools</h2>
-              <span className="ops-muted">click to inspect</span>
-            </div>
-            <div className="ops-table-wrap">
-              <table className="ops-table">
-                <thead>
-                  <tr>
-                    <th>Tool</th>
-                    <th>Preview</th>
-                    <th>Status</th>
-                    <th>When</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activity.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="ops-muted">
-                        No tool calls yet
-                      </td>
-                    </tr>
-                  )}
-                  {activity.map((t) => (
-                    <tr
-                      key={t.id}
-                      className="ops-row-click"
-                      onClick={() => setInspect({ kind: "tool", data: t })}
-                    >
-                      <td className="ops-mono">{t.tool}</td>
-                      <td className="ops-muted">
-                        {preview(summarizeAction(t.tool, t.args), 42)}
-                      </td>
-                      <td>
-                        {t.isError ? (
-                          <span className="ops-tag ops-tag--danger">error</span>
-                        ) : (
-                          <span className="ops-tag ops-tag--ok">ok</span>
-                        )}
-                      </td>
-                      <td className="ops-muted">{timeAgo(t.createdAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          <aside className="ops-side" aria-label="Inventory">
-            <section className="ops-panel">
-              <div className="ops-section-head">
-                <h2>Projects</h2>
-                <input
-                  className="ops-filter"
-                  value={filter}
-                  onChange={(e) => setFilter(e.target.value)}
-                  placeholder="Filter…"
-                  aria-label="Filter projects"
-                />
-              </div>
-              {filteredProjects.length === 0 && (
-                <p className="ops-muted">No projects.</p>
-              )}
-              <ul className="ops-nav">
-                {filteredProjects.map((p) => {
-                  const linked = pagesByProject.get(p.slug) ?? [];
-                  return (
-                    <li key={p.slug} className="ops-project">
-                      <button
-                        type="button"
-                        className="ops-project-btn"
-                        onClick={() =>
-                          setInspect({
-                            kind: "project",
-                            data: p,
-                            pages: linked,
-                          })
-                        }
-                      >
-                        <div className="ops-project-top">
-                          <span className="ops-nav-title">{p.name}</span>
-                          <span className={`ops-status ops-status--${p.status}`}>
-                            {p.status}
-                          </span>
-                        </div>
-                        <div className="ops-muted">
-                          <span className="ops-mono">{p.slug}</span>
-                          {" · "}
-                          {p.type}
-                          {p.module ? ` · ${p.module}` : ""}
-                          {" · "}
-                          {timeAgo(p.lastTouchedAt)} ago
-                        </div>
-                        {linked.length > 0 && (
-                          <div className="ops-page-chips">
-                            {linked.map((pg) => (
-                              <span
-                                key={pg.id}
-                                className="ops-chip"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openPage(pg.id);
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    e.stopPropagation();
-                                    openPage(pg.id);
-                                  }
-                                }}
-                                role="link"
-                                tabIndex={0}
-                              >
-                                {pg.title}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-
-            <section className="ops-panel">
-              <div className="ops-section-head">
-                <h2>Crons</h2>
-                <span className="ops-muted">click</span>
-              </div>
-              {crons.length === 0 && <p className="ops-muted">None scheduled.</p>}
-              <ul className="ops-dense">
-                {crons.map((c) => (
-                  <li key={c.id}>
-                    <button
-                      type="button"
-                      className="ops-dense-btn"
-                      onClick={() => setInspect({ kind: "cron", data: c })}
-                    >
-                      <span>
-                        {c.name}
-                        {!c.enabled ? (
-                          <span className="ops-tag ops-tag--muted"> off</span>
-                        ) : null}
-                      </span>
-                      <span className="ops-mono ops-muted">{c.schedule}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-
-            <section className="ops-panel">
-              <div className="ops-section-head">
-                <h2>Memory</h2>
-                <span className="ops-muted">click</span>
-              </div>
-              {facts.length === 0 && (
-                <p className="ops-muted">No durable facts yet.</p>
-              )}
-              <ul className="ops-dense">
-                {facts.map((f, i) => (
-                  <li key={`${f.key}-${i}`}>
-                    <button
-                      type="button"
-                      className="ops-dense-btn"
-                      onClick={() => setInspect({ kind: "fact", data: f })}
-                    >
-                      <span className="ops-mono">{f.key}</span>
-                      <span className="ops-muted">{preview(f.value, 36)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-
-            {failed.length > 0 && (
-              <section className="ops-panel ops-panel--danger">
-                <div className="ops-section-head">
-                  <h2>Failed runs</h2>
-                  <span className="ops-badge ops-badge--danger">
-                    {failed.length}
-                  </span>
-                </div>
-                <ul className="ops-dense">
-                  {failed.map((r) => (
-                    <li key={r.id}>
-                      <button
-                        type="button"
-                        className="ops-dense-btn"
-                        onClick={() => setInspect({ kind: "run", data: r })}
-                      >
-                        <span>{r.kind}</span>
-                        <span className="ops-muted">
-                          {preview(r.error ?? "error", 36)}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
+      <div className="ops-split">
+        <section className="ops-console" aria-label="Console">
+          <div className="ops-section-head">
+            <h2>Console</h2>
+            <span className="ops-muted">same session as Discord</span>
+          </div>
+          <div className="ops-thread" aria-live="polite">
+            {thread.length === 0 && (
+              <p className="ops-muted ops-thread-empty">
+                Message KOS here. Use the nav for full lists (Projects, Tools, …).
+              </p>
             )}
-          </aside>
-        </div>
-      </main>
-    </ErrorBoundary>
+            {thread.map((m, i) => (
+              <div
+                key={i}
+                className={`ops-msg ops-msg--${m.role === "you" ? "you" : "kos"}`}
+              >
+                <div className="ops-msg-role">
+                  {m.role === "you" ? "You" : "KOS"}
+                </div>
+                <div className="ops-msg-body">{m.text}</div>
+              </div>
+            ))}
+          </div>
+          <div className={`ops-composer ${sending ? "is-busy" : ""}`}>
+            <textarea
+              value={prompt}
+              rows={3}
+              placeholder="Ask KOS…"
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
+            />
+            <div className="ops-composer-bar">
+              <span className="ops-muted">⌘/Ctrl+Enter</span>
+              <button
+                type="button"
+                className="ops-btn ops-btn--primary"
+                onClick={() => void send()}
+                disabled={sending}
+              >
+                {sending ? "Sending…" : "Send"}
+              </button>
+            </div>
+          </div>
+
+          <div className="ops-section-head ops-section-head--sub">
+            <h2>Recent tools</h2>
+            <a className="ops-link" href="#/tools">
+              View all →
+            </a>
+          </div>
+          <div className="ops-table-wrap">
+            <table className="ops-table">
+              <thead>
+                <tr>
+                  <th>Tool</th>
+                  <th>Preview</th>
+                  <th>When</th>
+                </tr>
+              </thead>
+              <tbody>
+                {homeTools.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="ops-muted">
+                      No tool calls yet
+                    </td>
+                  </tr>
+                )}
+                {homeTools.map((t) => (
+                  <tr
+                    key={t.id}
+                    className="ops-row-click"
+                    onClick={() => setInspect({ kind: "tool", data: t })}
+                  >
+                    <td className="ops-mono">{t.tool}</td>
+                    <td className="ops-muted">
+                      {preview(summarizeAction(t.tool, t.args), 40)}
+                    </td>
+                    <td className="ops-muted">{timeAgo(t.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <aside className="ops-side">
+          <PreviewPanel
+            title="Projects"
+            href="#/projects"
+            empty={homeProjects.length === 0}
+          >
+            <ul className="ops-dense">
+              {homeProjects.map((p) => (
+                <li key={p.slug}>
+                  <button
+                    type="button"
+                    className="ops-dense-btn"
+                    onClick={() =>
+                      setInspect({
+                        kind: "project",
+                        data: p,
+                        pages: pagesByProject.get(p.slug) ?? [],
+                      })
+                    }
+                  >
+                    <span>{p.name}</span>
+                    <span className={`ops-status ops-status--${p.status}`}>
+                      {p.status}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </PreviewPanel>
+
+          <PreviewPanel title="Crons" href="#/crons" empty={homeCrons.length === 0}>
+            <ul className="ops-dense">
+              {homeCrons.map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    className="ops-dense-btn"
+                    onClick={() => setInspect({ kind: "cron", data: c })}
+                  >
+                    <span>{c.name}</span>
+                    <span className="ops-mono ops-muted">{c.schedule}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </PreviewPanel>
+
+          <PreviewPanel
+            title="Memory"
+            href="#/memory"
+            empty={homeFacts.length === 0}
+          >
+            <ul className="ops-dense">
+              {homeFacts.map((f) => (
+                <li key={f.key}>
+                  <button
+                    type="button"
+                    className="ops-dense-btn"
+                    onClick={() => setInspect({ kind: "fact", data: f })}
+                  >
+                    <span className="ops-mono">{f.key}</span>
+                    <span className="ops-muted">{preview(f.value, 28)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </PreviewPanel>
+
+          {homeFailed.length > 0 && (
+            <PreviewPanel
+              title="Failed runs"
+              href="#/runs"
+              empty={false}
+              danger
+            >
+              <ul className="ops-dense">
+                {homeFailed.map((r) => (
+                  <li key={r.id}>
+                    <button
+                      type="button"
+                      className="ops-dense-btn"
+                      onClick={() => setInspect({ kind: "run", data: r })}
+                    >
+                      <span>{r.kind}</span>
+                      <span className="ops-muted">
+                        {preview(r.error ?? "", 28)}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </PreviewPanel>
+          )}
+        </aside>
+      </div>
+    </>,
+  );
+}
+
+function PreviewPanel(props: {
+  title: string;
+  href: string;
+  empty: boolean;
+  danger?: boolean;
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <section
+      className={`ops-panel ${props.danger ? "ops-panel--danger" : ""}`}
+    >
+      <div className="ops-section-head">
+        <h2>{props.title}</h2>
+        <a className="ops-link" href={props.href}>
+          View all →
+        </a>
+      </div>
+      {props.empty ? <p className="ops-muted">None.</p> : props.children}
+    </section>
   );
 }
 
