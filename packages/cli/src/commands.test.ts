@@ -85,7 +85,9 @@ describe("runCommand", () => {
 
   it("lists crons after scheduling one", async () => {
     kernel.crons.create({ name: "j", schedule: "0 0 1 1 *", type: "actions" });
-    expect(await runCommand(kernel, "crons", [])).toMatch(/#1 j/);
+    const out = await runCommand(kernel, "crons", []);
+    expect(out).toMatch(/kos\.backup/);
+    expect(out).toMatch(/\bj\b/);
   });
 
   it("snapshots the workspace", async () => {
