@@ -11,8 +11,14 @@ export interface GuardedToolsDeps {
   audit: AuditLog;
   approvals: ApprovalQueue;
   userId?: string;
-  /** Active scope tags for which tools the model is offered. */
+  /**
+   * Active scope tags. When set (non-empty), tagged tools are filtered to the
+   * intersection plus all untagged (global) tools. When omitted/empty, every
+   * registered tool is offered (scoping is advisory, never a hard lock-out).
+   */
   scopeTags?: string[];
+  /** Cap tools offered to the model (default unlimited). */
+  toolLimit?: number;
   /** Notified when a risky call is queued, so a channel can prompt for approval. */
   onQueued?: (action: PendingAction) => void;
 }
@@ -23,15 +29,21 @@ export interface GuardedToolsDeps {
  *  2. queues risky calls for approval and returns without executing,
  *  3. injects `{{secret:name}}` references at call time (model never sees keys),
  *  4. executes safe calls and records a redacted audit entry.
- * The model is offered only scoped tools, not the whole registry.
+ * The model is offered scoped tools when tags are active.
  */
 export class GuardedTools implements ToolBox {
   constructor(private readonly deps: GuardedToolsDeps) {}
 
   defs(): ReturnType<ToolRegistry["defs"]> {
-    return this.deps.registry.scopedDefs(
-      this.deps.scopeTags ? { tags: this.deps.scopeTags } : {},
-    );
+    const { registry, scopeTags, toolLimit } = this.deps;
+    if (!scopeTags || scopeTags.length === 0) {
+      const all = registry.defs();
+      return toolLimit !== undefined ? all.slice(0, toolLimit) : all;
+    }
+    return registry.scopedDefs({
+      tags: scopeTags,
+      ...(toolLimit !== undefined ? { limit: toolLimit } : {}),
+    });
   }
 
   async execute(
