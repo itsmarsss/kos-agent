@@ -12,10 +12,23 @@ export interface DiscordOptions {
  * Discord user id, for outbound notify and approval prompts).
  */
 export async function runDiscord(options: DiscordOptions): Promise<void> {
-  const token = process.env.KOS_SECRET_DISCORD;
-  const ownerId = process.env.KOS_OWNER_DISCORD;
-  if (!token) throw new Error("KOS_SECRET_DISCORD (bot token) is not set");
-  if (!ownerId) throw new Error("KOS_OWNER_DISCORD (owner user id) is not set");
+  // Prefer the KOS-prefixed name; accept common aliases from a plain .env.
+  const token =
+    process.env.KOS_SECRET_DISCORD ??
+    process.env.DISCORD_TOKEN ??
+    process.env.DISCORD_BOT_TOKEN;
+  const ownerId =
+    process.env.KOS_OWNER_DISCORD ?? process.env.DISCORD_OWNER_ID;
+  if (!token) {
+    throw new Error(
+      "Discord bot token not set (KOS_SECRET_DISCORD or DISCORD_TOKEN)",
+    );
+  }
+  if (!ownerId) {
+    throw new Error(
+      "Discord owner id not set (KOS_OWNER_DISCORD or DISCORD_OWNER_ID)",
+    );
+  }
 
   const adapter = new DiscordAdapter({ token });
 
