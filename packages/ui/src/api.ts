@@ -1,4 +1,4 @@
-/** Typed client for the KOS dashboard API (see harness server.ts). */
+/** Typed client for the KOS dashboard API. */
 
 export interface Status {
   halted: boolean;
@@ -116,16 +116,36 @@ export const api = {
   status: () => get<Status>("/api/status"),
   approvals: () => get<PendingAction[]>("/api/approvals"),
   projects: () => get<Project[]>("/api/projects"),
+  setProjectStatus: (slug: string, status: string) =>
+    post<Project>("/api/projects/status", { slug, status }),
   crons: () => get<CronJob[]>("/api/crons"),
-  failed: () => get<RunRecord[]>("/api/failed"),
-  activity: () =>
-    get<{ tools: AuditRecord[]; runs: RunRecord[] }>("/api/activity"),
+  setCronEnabled: (id: number, enabled: boolean) =>
+    post<{ id: number; enabled: boolean }>("/api/crons/enable", {
+      id,
+      enabled,
+    }),
+  deleteCron: (id: number) =>
+    post<{ id: number; removed: boolean }>("/api/crons/delete", { id }),
+  failed: (limit = 100) => get<RunRecord[]>(`/api/failed?limit=${limit}`),
+  runs: (limit = 100, failedOnly = false) =>
+    get<RunRecord[]>(
+      `/api/runs?limit=${limit}${failedOnly ? "&failed=1" : ""}`,
+    ),
+  activity: (limit = 100) =>
+    get<{ tools: AuditRecord[]; runs: RunRecord[] }>(
+      `/api/activity?limit=${limit}`,
+    ),
   pages: (project?: string) =>
     get<PageSummary[]>(
       project ? `/api/pages?project=${encodeURIComponent(project)}` : "/api/pages",
     ),
   page: (id: string) => get<PagePayload>(`/api/pages/${encodeURIComponent(id)}`),
-  memory: () => get<{ facts: FactRow[] }>("/api/memory"),
+  memory: (limit = 200) =>
+    get<{ facts: FactRow[] }>(`/api/memory?limit=${limit}`),
+  saveMemory: (key: string, value: string, kind: "fact" | "preference" = "fact") =>
+    post<FactRow>("/api/memory", { key, value, kind }),
+  deleteMemory: (key: string) =>
+    post<{ key: string; removed: boolean }>("/api/memory/delete", { key }),
   approve: (id: number) =>
     post<{ ok: boolean; message: string; reply?: string }>("/api/approve", {
       id,

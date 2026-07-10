@@ -72,6 +72,49 @@ describe("handleApiRequest", () => {
     expect(res.body).toMatchObject({ reply: "hi", halted: false });
   });
 
+  it("supports memory upsert/delete and cron enable", async () => {
+    const put = await handleApiRequest(kernel, {
+      method: "POST",
+      path: "/api/memory",
+      body: { key: "tz", value: "UTC", kind: "preference" },
+    });
+    expect(put.status).toBe(200);
+    expect((put.body as { key: string }).key).toBe("tz");
+
+    const mem = await handleApiRequest(kernel, {
+      method: "GET",
+      path: "/api/memory",
+      url: "/api/memory?limit=50",
+    });
+    expect(
+      ((mem.body as { facts: Array<{ key: string }> }).facts).some(
+        (f) => f.key === "tz",
+      ),
+    ).toBe(true);
+
+    const job = kernel.crons.create({
+      name: "t",
+      schedule: "0 0 1 1 *",
+      type: "actions",
+    });
+    await handleApiRequest(kernel, {
+      method: "POST",
+      path: "/api/crons/enable",
+      body: { id: job.id, enabled: false },
+    });
+    expect(kernel.crons.list().find((j) => j.id === job.id)?.enabled).toBe(
+      false,
+    );
+
+    kernel.manifest.createProject({ name: "P", type: "x" });
+    const st = await handleApiRequest(kernel, {
+      method: "POST",
+      path: "/api/projects/status",
+      body: { slug: "p", status: "dormant" },
+    });
+    expect((st.body as { status: string }).status).toBe("dormant");
+  });
+
   it("exposes health, clear, and custom sessionId", async () => {
     const health = await handleApiRequest(
       kernel,
