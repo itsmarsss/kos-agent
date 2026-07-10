@@ -109,9 +109,10 @@ export async function handleApiRequest(
   }
 
   if (method === "GET" && path === "/api/activity") {
+    const limit = clampLimit(queryParams(req.url).get("limit"), 100);
     return ok({
-      tools: kernel.audit.recent(20),
-      runs: kernel.runs.recent(20),
+      tools: kernel.audit.recent(limit),
+      runs: kernel.runs.recent(limit),
     });
   }
 
@@ -119,8 +120,64 @@ export async function handleApiRequest(
     return ok(kernel.crons.list());
   }
 
+  if (method === "POST" && path === "/api/crons/enable") {
+    const id = Number(body.id);
+    if (!Number.isInteger(id)) {
+      return { status: 400, body: { error: "id required" } };
+    }
+    const enabled = body.enabled !== false;
+    kernel.crons.setEnabled(id, enabled);
+    kernel.reloadCron();
+    return ok({ id, enabled });
+  }
+
+  if (method === "POST" && path === "/api/crons/delete") {
+    const id = Number(body.id);
+    if (!Number.isInteger(id)) {
+      return { status: 400, body: { error: "id required" } };
+    }
+    const removed = kernel.crons.delete(id);
+    if (removed) kernel.reloadCron();
+    return ok({ id, removed });
+  }
+
+  if (method === "GET" && path === "/api/runs") {
+    const limit = clampLimit(queryParams(req.url).get("limit"), 100);
+    const onlyFailed = queryParams(req.url).get("failed") === "1";
+    return ok(
+      onlyFailed ? kernel.runs.failures(limit) : kernel.runs.recent(limit),
+    );
+  }
+
   if (method === "GET" && path === "/api/failed") {
-    return ok(kernel.runs.failures(20));
+    const limit = clampLimit(queryParams(req.url).get("limit"), 100);
+    return ok(kernel.runs.failures(limit));
+  }
+
+  if (method === "POST" && path === "/api/projects/status") {
+    const slug = typeof body.slug === "string" ? body.slug : "";
+    const status = typeof body.status === "string" ? body.status : "";
+    const allowed = new Set([
+      "born",
+      "active",
+      "dormant",
+      "done",
+      "archived",
+    ]);
+    if (!slug || !allowed.has(status)) {
+      return {
+        status: 400,
+        body: { error: "slug and valid status required" },
+      };
+    }
+    if (!kernel.manifest.get(slug)) {
+      return { status: 404, body: { error: "project not found" } };
+    }
+    kernel.manifest.setStatus(
+      slug,
+      status as "born" | "active" | "dormant" | "done" | "archived",
+    );
+    return ok(kernel.manifest.get(slug));
   }
 
   if (method === "GET" && path === "/api/pages") {
@@ -249,7 +306,32 @@ export async function handleApiRequest(
   }
 
   if (method === "GET" && path === "/api/memory") {
-    return ok({ facts: kernel.facts.all(kernel.profile.ownerId).slice(0, 20) });
+    const limit = clampLimit(queryParams(req.url).get("limit"), 200);
+    return ok({
+      facts: kernel.facts.all(kernel.profile.ownerId).slice(0, limit),
+    });
+  }
+
+  if (method === "POST" && path === "/api/memory") {
+    const key = typeof body.key === "string" ? body.key.trim() : "";
+    const value = typeof body.value === "string" ? body.value : "";
+    const kind = body.kind === "preference" ? "preference" : "fact";
+    if (!key || value === "") {
+      return { status: 400, body: { error: "key and value required" } };
+    }
+    kernel.facts.upsert(
+      kernel.profile.ownerId,
+      { key, value, kind },
+      "dashboard",
+    );
+    return ok(kernel.facts.get(kernel.profile.ownerId, key));
+  }
+
+  if (method === "POST" && path === "/api/memory/delete") {
+    const key = typeof body.key === "string" ? body.key : "";
+    if (!key) return { status: 400, body: { error: "key required" } };
+    const removed = kernel.facts.delete(kernel.profile.ownerId, key);
+    return ok({ key, removed });
   }
 
   return { status: 404, body: { error: "not found" } };
@@ -272,11 +354,19 @@ function header(
   return v;
 }
 
+function queryParams(url?: string): URLSearchParams {
+  if (!url || !url.includes("?")) return new URLSearchParams();
+  return new URLSearchParams(url.slice(url.indexOf("?") + 1));
+}
+
 function projectFromUrl(url?: string): string | undefined {
-  if (!url) return undefined;
-  const q = url.includes("?") ? url.slice(url.indexOf("?") + 1) : "";
-  const params = new URLSearchParams(q);
-  return params.get("project") ?? undefined;
+  return queryParams(url).get("project") ?? undefined;
+}
+
+function clampLimit(raw: string | null, fallback: number): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(500, Math.max(1, Math.floor(n)));
 }
 
 async function loadPageData(
