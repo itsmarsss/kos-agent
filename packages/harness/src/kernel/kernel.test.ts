@@ -73,8 +73,35 @@ describe("Kernel", () => {
       ]),
     );
     const res = await kernel.handleMessage("hi");
-    expect(res).toEqual({ reply: "hello there", halted: false });
+    expect(res.reply).toBe("hello there");
+    expect(res.halted).toBe(false);
+    expect(res.sessionId).toBeTruthy();
     expect(kernel.runs.recent()[0]?.status).toBe("ok");
+  });
+
+  it("loads systems and tasks modules and keeps session history", async () => {
+    kernel = await boot(
+      stubInference([
+        {
+          content: [{ type: "text", text: "first" }],
+          stopReason: "end_turn",
+          usage: { inputTokens: 0, outputTokens: 0 },
+          model: "stub",
+        },
+        {
+          content: [{ type: "text", text: "second" }],
+          stopReason: "end_turn",
+          usage: { inputTokens: 0, outputTokens: 0 },
+          model: "stub",
+        },
+      ]),
+    );
+    expect(kernel.registry.has("systems.project_create")).toBe(true);
+    expect(kernel.registry.has("tasks.add")).toBe(true);
+    expect(kernel.crons.list().some((j) => j.name === "kos.backup")).toBe(true);
+    await kernel.handleMessage("hi");
+    await kernel.handleMessage("again");
+    expect(kernel.sessions.get("chat:owner").length).toBeGreaterThanOrEqual(2);
   });
 
   it("executes a safe tool call end to end (files.write then notify)", async () => {
