@@ -2,6 +2,7 @@ import { ChannelRuntime } from "../channels/runtime.js";
 import type { ChannelAdapter } from "../channels/types.js";
 import type { UserMapping } from "../channels/identity.js";
 import type { Kernel } from "./kernel.js";
+import { primarySessionId } from "./session.js";
 
 export interface ConnectChannelOptions {
   /** Channel-native id of the owner, for outbound notify + approval prompts. */
@@ -30,7 +31,8 @@ export function connectChannel(
     handleTurn: async (ctx) => {
       const res = await kernel.handleMessage(ctx.text, {
         userId: ctx.userId,
-        sessionId: `channel:${ctx.userId}`,
+        // Same primary session as the CLI so Discord and kos share history.
+        sessionId: primarySessionId(ctx.userId),
       });
       return res.reply || "(no reply)";
     },
