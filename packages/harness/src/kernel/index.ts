@@ -18,6 +18,7 @@ export {
   handleApiRequest,
   type ApiRequest,
   type ApiResponse,
+  type DashboardServerOptions,
 } from "./server.js";
 export { SessionStore, type SessionStoreOptions } from "./session.js";
 export {

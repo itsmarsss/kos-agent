@@ -85,4 +85,42 @@ describe("handleApiRequest", () => {
     expect((await handleApiRequest(kernel, { method: "POST", path: "/api/message", body: {} })).status).toBe(400);
     expect((await handleApiRequest(kernel, { method: "GET", path: "/nope" })).status).toBe(404);
   });
+
+  it("serves page specs with display data and enforces token on mutations", async () => {
+    const project = kernel.manifest.createProject({ name: "Demo", type: "tracker" });
+    kernel.pages.write(project.slug, {
+      id: "overview",
+      title: "Overview",
+      widgets: [{ type: "stat", label: "N", query: "SELECT 1 AS n" }],
+    });
+    const page = await handleApiRequest(kernel, {
+      method: "GET",
+      path: "/api/pages/overview",
+    });
+    expect(page.status).toBe(200);
+    expect(page.body).toMatchObject({
+      spec: { id: "overview" },
+      data: { 0: [{ n: 1 }] },
+    });
+
+    const denied = await handleApiRequest(
+      kernel,
+      { method: "POST", path: "/api/kill", body: { halted: true } },
+      { token: "secret" },
+    );
+    expect(denied.status).toBe(401);
+
+    const allowed = await handleApiRequest(
+      kernel,
+      {
+        method: "POST",
+        path: "/api/kill",
+        body: { halted: true },
+        headers: { authorization: "Bearer secret" },
+      },
+      { token: "secret" },
+    );
+    expect(allowed.status).toBe(200);
+    expect(kernel.killSwitch.halted).toBe(true);
+  });
 });
