@@ -13,6 +13,7 @@ import {
   type RunRecord,
   type Status,
 } from "./api.js";
+import { Inspector, type InspectTarget } from "./Inspector.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { PageRenderer } from "./widgets/PageRenderer.js";
 
@@ -24,10 +25,15 @@ function timeAgo(ts: number): string {
   return `${Math.floor(s / 86400)}d`;
 }
 
+function preview(text: string, n = 48): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  return t.length <= n ? t : `${t.slice(0, n - 1)}…`;
+}
+
 type Toast = { kind: "ok" | "err"; text: string } | null;
 
 /**
- * Practical ops dashboard: console first, approvals interrupt, sidebar tools.
+ * Ops dashboard: console + inventory previews; click any row to inspect fully.
  */
 export function App(): React.ReactElement {
   const [status, setStatus] = useState<Status | null>(null);
@@ -39,9 +45,9 @@ export function App(): React.ReactElement {
   const [activity, setActivity] = useState<AuditRecord[]>([]);
   const [facts, setFacts] = useState<FactRow[]>([]);
   const [prompt, setPrompt] = useState("");
-  const [thread, setThread] = useState<Array<{ role: "you" | "kos"; text: string }>>(
-    [],
-  );
+  const [thread, setThread] = useState<
+    Array<{ role: "you" | "kos"; text: string }>
+  >([]);
   const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast>(null);
@@ -49,6 +55,7 @@ export function App(): React.ReactElement {
   const [activePage, setActivePage] = useState<PagePayload | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [inspect, setInspect] = useState<InspectTarget | null>(null);
 
   const flash = (kind: "ok" | "err", text: string): void => {
     setToast({ kind, text });
@@ -72,8 +79,8 @@ export function App(): React.ReactElement {
     setCrons(c);
     setFailed(f);
     setPages(pg);
-    setActivity(act.tools.slice(0, 25));
-    setFacts((mem.facts ?? []).slice(0, 12));
+    setActivity(act.tools.slice(0, 40));
+    setFacts((mem.facts ?? []).slice(0, 30));
   }, []);
 
   useEffect(() => {
@@ -123,7 +130,8 @@ export function App(): React.ReactElement {
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.slug.toLowerCase().includes(q) ||
-        p.type.toLowerCase().includes(q),
+        p.type.toLowerCase().includes(q) ||
+        (p.module ?? "").toLowerCase().includes(q),
     );
   }, [projects, filter]);
 
@@ -216,6 +224,7 @@ export function App(): React.ReactElement {
   };
 
   const openPage = (id: string): void => {
+    setInspect(null);
     window.location.hash = `#/page/${encodeURIComponent(id)}`;
   };
 
@@ -253,15 +262,17 @@ export function App(): React.ReactElement {
     <ErrorBoundary label="dashboard">
       <main className="ops">
         {toast && (
-          <div
-            className={`ops-toast ops-toast--${toast.kind}`}
-            role="status"
-          >
+          <div className={`ops-toast ops-toast--${toast.kind}`} role="status">
             {toast.text}
           </div>
         )}
 
-        {/* Top bar: identity + global tools */}
+        <Inspector
+          target={inspect}
+          onClose={() => setInspect(null)}
+          onOpenPage={openPage}
+        />
+
         <header className="ops-top">
           <div className="ops-top-left">
             <div className="ops-logo">
@@ -278,25 +289,13 @@ export function App(): React.ReactElement {
           </div>
           <div className="ops-top-actions">
             {busy && <span className="ops-busy">{busy}…</span>}
-            <button
-              type="button"
-              className="ops-btn"
-              onClick={() => void refresh()}
-            >
+            <button type="button" className="ops-btn" onClick={() => void refresh()}>
               Refresh
             </button>
-            <button
-              type="button"
-              className="ops-btn"
-              onClick={() => void doSnapshot()}
-            >
+            <button type="button" className="ops-btn" onClick={() => void doSnapshot()}>
               Snapshot
             </button>
-            <button
-              type="button"
-              className="ops-btn"
-              onClick={() => void doClear()}
-            >
+            <button type="button" className="ops-btn" onClick={() => void doClear()}>
               Clear chat
             </button>
             <button
@@ -309,7 +308,6 @@ export function App(): React.ReactElement {
           </div>
         </header>
 
-        {/* Status metrics — scannable, not decorative */}
         <div className="ops-metrics" aria-label="Status">
           <Metric
             label="State"
@@ -332,7 +330,6 @@ export function App(): React.ReactElement {
           <Metric label="PID" value={status?.pid ? String(status.pid) : "–"} />
         </div>
 
-        {/* Approvals interrupt — only when needed */}
         {approvals.length > 0 && (
           <section className="ops-approvals" aria-label="Pending approvals">
             <div className="ops-section-head">
@@ -373,7 +370,6 @@ export function App(): React.ReactElement {
           </section>
         )}
 
-        {/* Main split: console | inventory */}
         <div className="ops-split">
           <section className="ops-console" aria-label="Console">
             <div className="ops-section-head">
@@ -384,7 +380,7 @@ export function App(): React.ReactElement {
             <div className="ops-thread" aria-live="polite">
               {thread.length === 0 && (
                 <p className="ops-muted ops-thread-empty">
-                  Message KOS here. Approvals and status update live while the host runs.
+                  Message KOS here. Click rows in tools / sidebar to inspect details.
                 </p>
               )}
               {thread.map((m, i) => (
@@ -392,7 +388,9 @@ export function App(): React.ReactElement {
                   key={i}
                   className={`ops-msg ops-msg--${m.role === "you" ? "you" : "kos"}`}
                 >
-                  <div className="ops-msg-role">{m.role === "you" ? "You" : "KOS"}</div>
+                  <div className="ops-msg-role">
+                    {m.role === "you" ? "You" : "KOS"}
+                  </div>
                   <div className="ops-msg-body">{m.text}</div>
                 </div>
               ))}
@@ -426,12 +424,14 @@ export function App(): React.ReactElement {
 
             <div className="ops-section-head ops-section-head--sub">
               <h2>Recent tools</h2>
+              <span className="ops-muted">click to inspect</span>
             </div>
             <div className="ops-table-wrap">
               <table className="ops-table">
                 <thead>
                   <tr>
                     <th>Tool</th>
+                    <th>Preview</th>
                     <th>Status</th>
                     <th>When</th>
                   </tr>
@@ -439,14 +439,21 @@ export function App(): React.ReactElement {
                 <tbody>
                   {activity.length === 0 && (
                     <tr>
-                      <td colSpan={3} className="ops-muted">
+                      <td colSpan={4} className="ops-muted">
                         No tool calls yet
                       </td>
                     </tr>
                   )}
                   {activity.map((t) => (
-                    <tr key={t.id}>
+                    <tr
+                      key={t.id}
+                      className="ops-row-click"
+                      onClick={() => setInspect({ kind: "tool", data: t })}
+                    >
                       <td className="ops-mono">{t.tool}</td>
+                      <td className="ops-muted">
+                        {preview(summarizeAction(t.tool, t.args), 42)}
+                      </td>
                       <td>
                         {t.isError ? (
                           <span className="ops-tag ops-tag--danger">error</span>
@@ -481,31 +488,57 @@ export function App(): React.ReactElement {
                 {filteredProjects.map((p) => {
                   const linked = pagesByProject.get(p.slug) ?? [];
                   return (
-                    <li key={p.slug}>
-                      <div className="ops-nav-row">
-                        <div>
-                          <div className="ops-nav-title">{p.name}</div>
-                          <div className="ops-muted">
-                            <span className="ops-mono">{p.slug}</span> · {p.type} ·{" "}
+                    <li key={p.slug} className="ops-project">
+                      <button
+                        type="button"
+                        className="ops-project-btn"
+                        onClick={() =>
+                          setInspect({
+                            kind: "project",
+                            data: p,
+                            pages: linked,
+                          })
+                        }
+                      >
+                        <div className="ops-project-top">
+                          <span className="ops-nav-title">{p.name}</span>
+                          <span className={`ops-status ops-status--${p.status}`}>
                             {p.status}
-                          </div>
+                          </span>
                         </div>
-                      </div>
-                      {linked.length > 0 && (
-                        <ul className="ops-nav-sub">
-                          {linked.map((pg) => (
-                            <li key={pg.id}>
-                              <button
-                                type="button"
-                                className="ops-link"
-                                onClick={() => openPage(pg.id)}
+                        <div className="ops-muted">
+                          <span className="ops-mono">{p.slug}</span>
+                          {" · "}
+                          {p.type}
+                          {p.module ? ` · ${p.module}` : ""}
+                          {" · "}
+                          {timeAgo(p.lastTouchedAt)} ago
+                        </div>
+                        {linked.length > 0 && (
+                          <div className="ops-page-chips">
+                            {linked.map((pg) => (
+                              <span
+                                key={pg.id}
+                                className="ops-chip"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openPage(pg.id);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.stopPropagation();
+                                    openPage(pg.id);
+                                  }
+                                }}
+                                role="link"
+                                tabIndex={0}
                               >
                                 {pg.title}
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </button>
                     </li>
                   );
                 })}
@@ -515,16 +548,25 @@ export function App(): React.ReactElement {
             <section className="ops-panel">
               <div className="ops-section-head">
                 <h2>Crons</h2>
+                <span className="ops-muted">click</span>
               </div>
               {crons.length === 0 && <p className="ops-muted">None scheduled.</p>}
               <ul className="ops-dense">
                 {crons.map((c) => (
                   <li key={c.id}>
-                    <span>{c.name}</span>
-                    <span className="ops-mono ops-muted">
-                      {c.schedule}
-                      {!c.enabled ? " off" : ""}
-                    </span>
+                    <button
+                      type="button"
+                      className="ops-dense-btn"
+                      onClick={() => setInspect({ kind: "cron", data: c })}
+                    >
+                      <span>
+                        {c.name}
+                        {!c.enabled ? (
+                          <span className="ops-tag ops-tag--muted"> off</span>
+                        ) : null}
+                      </span>
+                      <span className="ops-mono ops-muted">{c.schedule}</span>
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -533,15 +575,22 @@ export function App(): React.ReactElement {
             <section className="ops-panel">
               <div className="ops-section-head">
                 <h2>Memory</h2>
+                <span className="ops-muted">click</span>
               </div>
-              {facts.length === 0 && <p className="ops-muted">No durable facts yet.</p>}
+              {facts.length === 0 && (
+                <p className="ops-muted">No durable facts yet.</p>
+              )}
               <ul className="ops-dense">
                 {facts.map((f, i) => (
                   <li key={`${f.key}-${i}`}>
-                    <span className="ops-mono">{f.key}</span>
-                    <span className="ops-muted" title={f.value}>
-                      {f.value.length > 40 ? `${f.value.slice(0, 40)}…` : f.value}
-                    </span>
+                    <button
+                      type="button"
+                      className="ops-dense-btn"
+                      onClick={() => setInspect({ kind: "fact", data: f })}
+                    >
+                      <span className="ops-mono">{f.key}</span>
+                      <span className="ops-muted">{preview(f.value, 36)}</span>
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -551,15 +600,23 @@ export function App(): React.ReactElement {
               <section className="ops-panel ops-panel--danger">
                 <div className="ops-section-head">
                   <h2>Failed runs</h2>
-                  <span className="ops-badge ops-badge--danger">{failed.length}</span>
+                  <span className="ops-badge ops-badge--danger">
+                    {failed.length}
+                  </span>
                 </div>
                 <ul className="ops-dense">
                   {failed.map((r) => (
                     <li key={r.id}>
-                      <span>{r.kind}</span>
-                      <span className="ops-muted" title={r.error ?? ""}>
-                        {(r.error ?? "").slice(0, 48)}
-                      </span>
+                      <button
+                        type="button"
+                        className="ops-dense-btn"
+                        onClick={() => setInspect({ kind: "run", data: r })}
+                      >
+                        <span>{r.kind}</span>
+                        <span className="ops-muted">
+                          {preview(r.error ?? "error", 36)}
+                        </span>
+                      </button>
                     </li>
                   ))}
                 </ul>
