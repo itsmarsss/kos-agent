@@ -36,16 +36,28 @@ export function parseArgs(argv: string[]): ParsedArgs {
 const HELP = `kos commands:
   chat                 interactive REPL (default)
   once <message>       run one message and print the reply
-  status               crons, queue depth, kill switch, pending, last backup
+  status               crons, queue depth, kill switch, pending approvals
   approvals            list pending risky actions
   approve <id>         approve and execute a pending action
   deny <id>            deny a pending action
   halt | resume        engage / release the kill switch
   crons                list scheduled jobs
   snapshot [message]   git-snapshot the workspace
+  clear                clear the current chat session history
+  memory               peek recent durable facts
+  pages                list agent-authored page specs
+  doctor               preflight checks (build, env, workspace)
+  serve [--port N]     dashboard API + static UI (default 4317)
+  discord              Discord bot (needs bot token + owner id)
   help                 this help
 
-In the REPL, prefix any command with '/' (e.g. /status). Plain text is a message.`;
+Flags:
+  --workspace <path>   workspace root (default ~/kos-workspace or KOS_WORKSPACE)
+  --host <addr>        serve bind address (default 127.0.0.1)
+  --port <n>           serve port (default 4317 or KOS_PORT)
+
+In the REPL, prefix any command with '/' (e.g. /status). Plain text is a message.
+Chat needs ANTHROPIC_API_KEY or OPENAI_API_KEY in .env.`;
 
 export function statusLine(kernel: Kernel): string {
   const crons = kernel.crons.list().length;
@@ -55,6 +67,8 @@ export function statusLine(kernel: Kernel): string {
     `queue depth: ${kernel.queue.depth}`,
     `crons: ${crons}`,
     `pending approvals: ${pending}`,
+    `projects: ${kernel.manifest.list().length}`,
+    `pages: ${kernel.pages.list().length}`,
   ].join(" | ");
 }
 
@@ -114,6 +128,26 @@ export async function runCommand(
       return sha ? `snapshot ${sha.slice(0, 10)}` : "nothing to snapshot";
     }
 
+    case "clear": {
+      const sessionId = rest[0] ?? `chat:${kernel.profile.ownerId}`;
+      kernel.clearSession(sessionId);
+      return `cleared session ${sessionId}`;
+    }
+
+    case "memory": {
+      const facts = kernel.facts.all(kernel.profile.ownerId).slice(0, 20);
+      if (facts.length === 0) return "no durable facts yet";
+      return facts.map((f) => `(${f.kind}) ${f.key}: ${f.value}`).join("\n");
+    }
+
+    case "pages": {
+      const list = kernel.pages.list();
+      if (list.length === 0) return "no pages";
+      return list
+        .map((p) => `${p.id} [${p.projectSlug}] ${p.title}`)
+        .join("\n");
+    }
+
     default:
       return `unknown command: ${command}\n${HELP}`;
   }
@@ -130,4 +164,8 @@ export const OFFLINE_COMMANDS = new Set([
   "resume",
   "crons",
   "snapshot",
+  "clear",
+  "memory",
+  "pages",
+  "doctor",
 ]);
