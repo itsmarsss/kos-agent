@@ -7,6 +7,11 @@ import type { ModelMessage } from "../models/types.js";
  * the agent loop can re-enter with prior context without dumping forever.
  */
 
+/** Shared multi-modal session for the owner (CLI, Discord, dashboard). */
+export function primarySessionId(ownerId = "owner"): string {
+  return `primary:${ownerId}`;
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS chat_sessions (
   id TEXT PRIMARY KEY,

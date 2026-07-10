@@ -19,8 +19,13 @@ export {
   type ApiRequest,
   type ApiResponse,
   type DashboardServerOptions,
+  type DaemonMeta,
 } from "./server.js";
-export { SessionStore, type SessionStoreOptions } from "./session.js";
+export {
+  SessionStore,
+  primarySessionId,
+  type SessionStoreOptions,
+} from "./session.js";
 export {
   assembleSystemPrompt,
   inferScopeTags,

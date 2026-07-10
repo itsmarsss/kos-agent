@@ -72,6 +72,28 @@ describe("handleApiRequest", () => {
     expect(res.body).toMatchObject({ reply: "hi", halted: false });
   });
 
+  it("exposes health, clear, and custom sessionId", async () => {
+    const health = await handleApiRequest(
+      kernel,
+      { method: "GET", path: "/api/health" },
+      { meta: { discord: true, pid: 42 } },
+    );
+    expect(health.body).toMatchObject({ ok: true, discord: true, pid: 42 });
+
+    await handleApiRequest(kernel, {
+      method: "POST",
+      path: "/api/message",
+      body: { text: "remember me", sessionId: "primary:owner" },
+    });
+    const cleared = await handleApiRequest(kernel, {
+      method: "POST",
+      path: "/api/clear",
+      body: { sessionId: "primary:owner" },
+    });
+    expect(cleared.body).toMatchObject({ cleared: "primary:owner" });
+    expect(kernel.sessions.get("primary:owner")).toEqual([]);
+  });
+
   it("exposes projects, crons, activity, failed", async () => {
     kernel.manifest.createProject({ name: "Budget", type: "budget" });
     kernel.crons.create({ name: "j", schedule: "0 0 1 1 *", type: "actions" });
