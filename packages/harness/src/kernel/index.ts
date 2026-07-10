@@ -20,3 +20,8 @@ export {
   type ApiResponse,
 } from "./server.js";
 export { SessionStore, type SessionStoreOptions } from "./session.js";
+export {
+  assembleSystemPrompt,
+  inferScopeTags,
+  type ContextParts,
+} from "./context.js";
