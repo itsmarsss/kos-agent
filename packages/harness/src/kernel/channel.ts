@@ -28,7 +28,10 @@ export function connectChannel(
     adapter,
     ...(options.identity ? { identity: options.identity } : {}),
     handleTurn: async (ctx) => {
-      const res = await kernel.handleMessage(ctx.text, { userId: ctx.userId });
+      const res = await kernel.handleMessage(ctx.text, {
+        userId: ctx.userId,
+        sessionId: `channel:${ctx.userId}`,
+      });
       return res.reply || "(no reply)";
     },
   });
