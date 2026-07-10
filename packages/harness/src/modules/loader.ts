@@ -6,6 +6,9 @@ import type { ToolHandler, ToolMeta, ToolRegistry } from "../agent/registry.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import type { Db } from "../store/db.js";
 import type { Workspace } from "../store/workspace.js";
+import type { ProjectManifest } from "../systems/manifest.js";
+import type { Migrator } from "../systems/migrate.js";
+import type { PageStore } from "../systems/pages.js";
 import { satisfies } from "./semver.js";
 
 /**
@@ -19,6 +22,12 @@ export interface ModuleServices {
   secrets: SecretsRegistry;
   /** Send a message to the owner via the active channel adapter, if wired. */
   notify?: (text: string) => Promise<void>;
+  /** Project manifest (systems/tasks modules). */
+  manifest?: ProjectManifest;
+  /** Guarded schema migrator. */
+  migrator?: Migrator;
+  /** Page-spec store for dashboard pages. */
+  pages?: PageStore;
 }
 
 /**
