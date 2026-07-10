@@ -7,6 +7,7 @@ import type { PageSpec, Widget } from "@kos/shared";
 import { runDisplayQuery } from "../systems/display.js";
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
+import { primarySessionId } from "./session.js";
 
 export interface ApiRequest {
   method: string;
@@ -23,6 +24,16 @@ export interface ApiResponse {
   headers?: Record<string, string>;
 }
 
+export interface DaemonMeta {
+  /** Process id of the multi-modal host (kos start). */
+  pid?: number;
+  /** Discord adapter is connected. */
+  discord?: boolean;
+  /** Cron scheduler is running. */
+  cron?: boolean;
+  workspace?: string;
+}
+
 export interface DashboardServerOptions {
   /** Directory of built UI assets (vite dist). When set, non-/api paths are served. */
   staticDir?: string;
@@ -33,6 +44,8 @@ export interface DashboardServerOptions {
   token?: string;
   /** Bind policy hint for logs; enforcement is host-level. Default loopback. */
   host?: string;
+  /** Hosted-mode metadata for /api/health and /api/status (daemon). */
+  meta?: DaemonMeta;
 }
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -63,6 +76,16 @@ export async function handleApiRequest(
     }
   }
 
+  if (method === "GET" && path === "/api/health") {
+    return ok({
+      ok: true,
+      pid: options.meta?.pid ?? process.pid,
+      discord: options.meta?.discord === true,
+      cron: options.meta?.cron !== false,
+      workspace: options.meta?.workspace ?? kernel.workspace.root,
+    });
+  }
+
   if (method === "GET" && path === "/api/status") {
     return ok({
       halted: kernel.killSwitch.halted,
@@ -71,6 +94,9 @@ export async function handleApiRequest(
       pendingApprovals: kernel.approvals.pending().length,
       projects: kernel.manifest.list().length,
       pages: kernel.pages.list().length,
+      discord: options.meta?.discord === true,
+      pid: options.meta?.pid ?? process.pid,
+      workspace: options.meta?.workspace ?? kernel.workspace.root,
     });
   }
 
@@ -192,7 +218,34 @@ export async function handleApiRequest(
   if (method === "POST" && path === "/api/message") {
     const text = typeof body.text === "string" ? body.text : "";
     if (text === "") return { status: 400, body: { error: "text required" } };
-    return ok(await kernel.handleMessage(text, { sessionId: "dashboard:owner" }));
+    const sessionId =
+      typeof body.sessionId === "string" && body.sessionId.length > 0
+        ? body.sessionId
+        : primarySessionId(kernel.profile.ownerId);
+    const userId =
+      typeof body.userId === "string" && body.userId.length > 0
+        ? body.userId
+        : kernel.profile.ownerId;
+    return ok(await kernel.handleMessage(text, { sessionId, userId }));
+  }
+
+  if (method === "POST" && path === "/api/clear") {
+    const sessionId =
+      typeof body.sessionId === "string" && body.sessionId.length > 0
+        ? body.sessionId
+        : primarySessionId(kernel.profile.ownerId);
+    kernel.clearSession(sessionId);
+    return ok({ cleared: sessionId });
+  }
+
+  if (method === "POST" && path === "/api/snapshot") {
+    await kernel.backup.ensureRepo();
+    const message =
+      typeof body.message === "string" && body.message.length > 0
+        ? body.message
+        : undefined;
+    const sha = await kernel.backup.snapshot(message);
+    return ok({ sha });
   }
 
   if (method === "GET" && path === "/api/memory") {
