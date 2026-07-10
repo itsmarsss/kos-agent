@@ -19,7 +19,9 @@ export { OpenAIProvider } from "./providers/openai.js";
 export {
   ModelRouter,
   DEFAULT_ROUTING,
+  OPENAI_ROUTING,
   createDefaultRouter,
+  routingForSecrets,
   type Route,
   type RoutingTable,
   type Task,
