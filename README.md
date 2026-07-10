@@ -40,23 +40,35 @@ KOS_HOST=127.0.0.1
 KOS_PORT=4317
 ```
 
-## Run
+## Run (multi-modal host)
+
+One background process owns the Kernel, Discord, cron, and dashboard API.
+CLI attaches to it so DMs and `kos` share the same session and memory.
 
 ```bash
-pnpm kos                # interactive REPL
-pnpm kos once "hi"      # one-shot chat (session + memory)
-pnpm kos status
-pnpm kos memory
-pnpm kos pages
-pnpm kos doctor
-pnpm serve              # dashboard API + static UI on 127.0.0.1:4317
-pnpm kos discord
+# 1. Start the host (detaches; Discord if token+owner are in .env)
+pnpm start
+# or: node packages/cli/dist/main.js start
+
+# 2. Attach CLI (same brain as Discord)
+pnpm kos
+# or: pnpm kos once "hi"
+
+# 3. Stop when done
+pnpm stop
 ```
 
-Also: `node packages/cli/dist/main.js <cmd>`.
+Also:
 
-Workspace defaults to `~/kos-workspace`. Chat keeps multi-turn history,
-loads salient memory into context, and writes durable facts on the way out.
+```bash
+pnpm kos status | memory | pages | doctor
+pnpm start --foreground    # keep host in this terminal
+pnpm start --no-discord    # API + cron only
+kos discord                # host foreground, require Discord creds
+```
+
+Workspace defaults to `~/kos-workspace`. Session id is `primary:owner` for
+CLI and Discord. Facts/memory are shared either way.
 
 ### Dashboard
 
