@@ -18,4 +18,16 @@ export {
   handleApiRequest,
   type ApiRequest,
   type ApiResponse,
+  type DashboardServerOptions,
+  type DaemonMeta,
 } from "./server.js";
+export {
+  SessionStore,
+  primarySessionId,
+  type SessionStoreOptions,
+} from "./session.js";
+export {
+  assembleSystemPrompt,
+  inferScopeTags,
+  type ContextParts,
+} from "./context.js";

@@ -12,3 +12,5 @@ export {
   type SearchModuleOptions,
 } from "./search.js";
 export { cronModule } from "./cron.js";
+export { systemsModule } from "./systems.js";
+export { tasksModule } from "./tasks.js";

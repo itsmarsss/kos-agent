@@ -1,4 +1,4 @@
-import type { Kernel } from "@kos/harness";
+import { primarySessionId, type Kernel } from "@kos/harness";
 
 /**
  * CLI command dispatch, kept separate from IO so it is testable. Each command
@@ -34,18 +34,32 @@ export function parseArgs(argv: string[]): ParsedArgs {
 }
 
 const HELP = `kos commands:
-  chat                 interactive REPL (default)
-  once <message>       run one message and print the reply
-  status               crons, queue depth, kill switch, pending, last backup
-  approvals            list pending risky actions
-  approve <id>         approve and execute a pending action
-  deny <id>            deny a pending action
-  halt | resume        engage / release the kill switch
-  crons                list scheduled jobs
-  snapshot [message]   git-snapshot the workspace
-  help                 this help
+  start [--foreground] multi-modal host (API + cron + Discord if configured)
+  stop                 stop the background host
+  chat                 REPL (attaches to host if running; default)
+  once <message>       one message (via host if running)
+  status               crons, queue, kill switch, pending, host info
+  approvals | approve | deny | halt | resume
+  crons | snapshot | clear | memory | pages
+  doctor               preflight checks
+  serve                alias: host in foreground (API; Discord optional)
+  discord              alias: host in foreground, require Discord
+  help
 
-In the REPL, prefix any command with '/' (e.g. /status). Plain text is a message.`;
+Flags:
+  --workspace <path>   workspace (default ~/kos-workspace or KOS_WORKSPACE)
+  --host <addr>        host bind (default 127.0.0.1)
+  --port <n>           host port (default 4317 or KOS_PORT)
+  --foreground / --fg  keep host in this terminal
+  --no-discord         start host without Discord
+  --discord            require Discord credentials
+
+Typical flow:
+  kos start            # background host + Discord if .env set
+  kos                  # attach REPL (same session as Discord DMs)
+  kos stop
+
+Chat needs ANTHROPIC_API_KEY or OPENAI_API_KEY in .env.`;
 
 export function statusLine(kernel: Kernel): string {
   const crons = kernel.crons.list().length;
@@ -55,6 +69,8 @@ export function statusLine(kernel: Kernel): string {
     `queue depth: ${kernel.queue.depth}`,
     `crons: ${crons}`,
     `pending approvals: ${pending}`,
+    `projects: ${kernel.manifest.list().length}`,
+    `pages: ${kernel.pages.list().length}`,
   ].join(" | ");
 }
 
@@ -83,13 +99,14 @@ export async function runCommand(
       const id = Number(rest[0]);
       if (!Number.isInteger(id)) return "usage: approve <id>";
       const res = await kernel.approve(id);
-      return res.message;
+      return res.reply ?? res.message;
     }
 
     case "deny": {
       const id = Number(rest[0]);
       if (!Number.isInteger(id)) return "usage: deny <id>";
-      return kernel.deny(id).message;
+      const res = await kernel.deny(id);
+      return res.reply ?? res.message;
     }
 
     case "halt":
@@ -114,6 +131,26 @@ export async function runCommand(
       return sha ? `snapshot ${sha.slice(0, 10)}` : "nothing to snapshot";
     }
 
+    case "clear": {
+      const sessionId = rest[0] ?? primarySessionId(kernel.profile.ownerId);
+      kernel.clearSession(sessionId);
+      return `cleared session ${sessionId}`;
+    }
+
+    case "memory": {
+      const facts = kernel.facts.all(kernel.profile.ownerId).slice(0, 20);
+      if (facts.length === 0) return "no durable facts yet";
+      return facts.map((f) => `(${f.kind}) ${f.key}: ${f.value}`).join("\n");
+    }
+
+    case "pages": {
+      const list = kernel.pages.list();
+      if (list.length === 0) return "no pages";
+      return list
+        .map((p) => `${p.id} [${p.projectSlug}] ${p.title}`)
+        .join("\n");
+    }
+
     default:
       return `unknown command: ${command}\n${HELP}`;
   }
@@ -130,4 +167,8 @@ export const OFFLINE_COMMANDS = new Set([
   "resume",
   "crons",
   "snapshot",
+  "clear",
+  "memory",
+  "pages",
+  "doctor",
 ]);

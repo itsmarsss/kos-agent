@@ -1,10 +1,15 @@
-/** Typed client for the KOS dashboard API (see harness server.ts). */
+/** Typed client for the KOS dashboard API. */
 
 export interface Status {
   halted: boolean;
   queueDepth: number;
   crons: number;
   pendingApprovals: number;
+  projects?: number;
+  pages?: number;
+  discord?: boolean;
+  pid?: number;
+  workspace?: string;
 }
 
 export interface PendingAction {
@@ -16,11 +21,15 @@ export interface PendingAction {
 }
 
 export interface Project {
+  id?: number;
   slug: string;
   name: string;
   type: string;
   status: string;
+  description?: string | null;
+  module?: string | null;
   lastTouchedAt: number;
+  createdAt?: number;
 }
 
 export interface CronJob {
@@ -29,6 +38,13 @@ export interface CronJob {
   schedule: string;
   type: string;
   enabled: boolean;
+  query?: string | null;
+  condition?: { test: string } | null;
+  actions?: Array<{ tool: string; args: Record<string, unknown> }> | null;
+  prompt?: string | null;
+  projectSlug?: string | null;
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 export interface RunRecord {
@@ -37,13 +53,44 @@ export interface RunRecord {
   status: string;
   error: string | null;
   startedAt: number;
+  ref?: string | null;
+  finishedAt?: number | null;
+  durationMs?: number | null;
 }
 
 export interface AuditRecord {
   id: number;
   tool: string;
+  args: string;
+  result: string;
   isError: boolean;
+  riskTier?: string | null;
+  userId?: string | null;
   createdAt: number;
+}
+
+export interface PageSummary {
+  id: string;
+  projectSlug: string;
+  title: string;
+  path: string;
+  updatedAt: number;
+}
+
+export interface PagePayload {
+  record: PageSummary;
+  spec: import("@kos/shared").PageSpec;
+  data: Record<number, Record<string, unknown>[]>;
+}
+
+export interface FactRow {
+  id?: number;
+  key: string;
+  value: string;
+  kind: string;
+  source?: string | null;
+  updatedAt?: number;
+  createdAt?: number;
 }
 
 async function get<T>(path: string): Promise<T> {
@@ -52,13 +99,16 @@ async function get<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
+async function post<T>(path: string, body: unknown = {}): Promise<T> {
   const res = await fetch(path, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`${path}: ${res.status}`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`${path}: ${res.status} ${text}`);
+  }
   return (await res.json()) as T;
 }
 
@@ -66,11 +116,49 @@ export const api = {
   status: () => get<Status>("/api/status"),
   approvals: () => get<PendingAction[]>("/api/approvals"),
   projects: () => get<Project[]>("/api/projects"),
+  setProjectStatus: (slug: string, status: string) =>
+    post<Project>("/api/projects/status", { slug, status }),
   crons: () => get<CronJob[]>("/api/crons"),
-  failed: () => get<RunRecord[]>("/api/failed"),
-  activity: () => get<{ tools: AuditRecord[]; runs: RunRecord[] }>("/api/activity"),
-  approve: (id: number) => post("/api/approve", { id }),
-  deny: (id: number) => post("/api/deny", { id }),
+  setCronEnabled: (id: number, enabled: boolean) =>
+    post<{ id: number; enabled: boolean }>("/api/crons/enable", {
+      id,
+      enabled,
+    }),
+  deleteCron: (id: number) =>
+    post<{ id: number; removed: boolean }>("/api/crons/delete", { id }),
+  failed: (limit = 100) => get<RunRecord[]>(`/api/failed?limit=${limit}`),
+  runs: (limit = 100, failedOnly = false) =>
+    get<RunRecord[]>(
+      `/api/runs?limit=${limit}${failedOnly ? "&failed=1" : ""}`,
+    ),
+  activity: (limit = 100) =>
+    get<{ tools: AuditRecord[]; runs: RunRecord[] }>(
+      `/api/activity?limit=${limit}`,
+    ),
+  pages: (project?: string) =>
+    get<PageSummary[]>(
+      project ? `/api/pages?project=${encodeURIComponent(project)}` : "/api/pages",
+    ),
+  page: (id: string) => get<PagePayload>(`/api/pages/${encodeURIComponent(id)}`),
+  memory: (limit = 200) =>
+    get<{ facts: FactRow[] }>(`/api/memory?limit=${limit}`),
+  saveMemory: (key: string, value: string, kind: "fact" | "preference" = "fact") =>
+    post<FactRow>("/api/memory", { key, value, kind }),
+  deleteMemory: (key: string) =>
+    post<{ key: string; removed: boolean }>("/api/memory/delete", { key }),
+  approve: (id: number) =>
+    post<{ ok: boolean; message: string; reply?: string }>("/api/approve", {
+      id,
+    }),
+  deny: (id: number) =>
+    post<{ ok: boolean; message: string; reply?: string }>("/api/deny", { id }),
   setKill: (halted: boolean) => post<Status>("/api/kill", { halted }),
   message: (text: string) => post<{ reply: string }>("/api/message", { text }),
+  snapshot: (message?: string) =>
+    post<{ sha: string | null }>("/api/snapshot", message ? { message } : {}),
+  clear: (sessionId?: string) =>
+    post<{ cleared: string }>(
+      "/api/clear",
+      sessionId ? { sessionId } : {},
+    ),
 };

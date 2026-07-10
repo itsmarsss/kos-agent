@@ -72,6 +72,71 @@ describe("handleApiRequest", () => {
     expect(res.body).toMatchObject({ reply: "hi", halted: false });
   });
 
+  it("supports memory upsert/delete and cron enable", async () => {
+    const put = await handleApiRequest(kernel, {
+      method: "POST",
+      path: "/api/memory",
+      body: { key: "tz", value: "UTC", kind: "preference" },
+    });
+    expect(put.status).toBe(200);
+    expect((put.body as { key: string }).key).toBe("tz");
+
+    const mem = await handleApiRequest(kernel, {
+      method: "GET",
+      path: "/api/memory",
+      url: "/api/memory?limit=50",
+    });
+    expect(
+      ((mem.body as { facts: Array<{ key: string }> }).facts).some(
+        (f) => f.key === "tz",
+      ),
+    ).toBe(true);
+
+    const job = kernel.crons.create({
+      name: "t",
+      schedule: "0 0 1 1 *",
+      type: "actions",
+    });
+    await handleApiRequest(kernel, {
+      method: "POST",
+      path: "/api/crons/enable",
+      body: { id: job.id, enabled: false },
+    });
+    expect(kernel.crons.list().find((j) => j.id === job.id)?.enabled).toBe(
+      false,
+    );
+
+    kernel.manifest.createProject({ name: "P", type: "x" });
+    const st = await handleApiRequest(kernel, {
+      method: "POST",
+      path: "/api/projects/status",
+      body: { slug: "p", status: "dormant" },
+    });
+    expect((st.body as { status: string }).status).toBe("dormant");
+  });
+
+  it("exposes health, clear, and custom sessionId", async () => {
+    const health = await handleApiRequest(
+      kernel,
+      { method: "GET", path: "/api/health" },
+      { meta: { discord: true, pid: 42 } },
+    );
+    expect(health.body).toMatchObject({ ok: true, discord: true, pid: 42 });
+
+    await handleApiRequest(kernel, {
+      method: "POST",
+      path: "/api/message",
+      body: { text: "remember me", sessionId: "primary:owner" },
+    });
+    const cleared = await handleApiRequest(kernel, {
+      method: "POST",
+      path: "/api/clear",
+      body: { sessionId: "primary:owner" },
+    });
+    expect(cleared.body).toMatchObject({ cleared: "primary:owner" });
+    expect(kernel.sessions.get("primary:owner")).toEqual([]);
+  });
+
   it("exposes projects, crons, activity, failed", async () => {
     kernel.manifest.createProject({ name: "Budget", type: "budget" });
     kernel.crons.create({ name: "j", schedule: "0 0 1 1 *", type: "actions" });
@@ -84,5 +149,43 @@ describe("handleApiRequest", () => {
   it("validates and 404s", async () => {
     expect((await handleApiRequest(kernel, { method: "POST", path: "/api/message", body: {} })).status).toBe(400);
     expect((await handleApiRequest(kernel, { method: "GET", path: "/nope" })).status).toBe(404);
+  });
+
+  it("serves page specs with display data and enforces token on mutations", async () => {
+    const project = kernel.manifest.createProject({ name: "Demo", type: "tracker" });
+    kernel.pages.write(project.slug, {
+      id: "overview",
+      title: "Overview",
+      widgets: [{ type: "stat", label: "N", query: "SELECT 1 AS n" }],
+    });
+    const page = await handleApiRequest(kernel, {
+      method: "GET",
+      path: "/api/pages/overview",
+    });
+    expect(page.status).toBe(200);
+    expect(page.body).toMatchObject({
+      spec: { id: "overview" },
+      data: { 0: [{ n: 1 }] },
+    });
+
+    const denied = await handleApiRequest(
+      kernel,
+      { method: "POST", path: "/api/kill", body: { halted: true } },
+      { token: "secret" },
+    );
+    expect(denied.status).toBe(401);
+
+    const allowed = await handleApiRequest(
+      kernel,
+      {
+        method: "POST",
+        path: "/api/kill",
+        body: { halted: true },
+        headers: { authorization: "Bearer secret" },
+      },
+      { token: "secret" },
+    );
+    expect(allowed.status).toBe(200);
+    expect(kernel.killSwitch.halted).toBe(true);
   });
 });

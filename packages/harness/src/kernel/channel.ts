@@ -2,6 +2,7 @@ import { ChannelRuntime } from "../channels/runtime.js";
 import type { ChannelAdapter } from "../channels/types.js";
 import type { UserMapping } from "../channels/identity.js";
 import type { Kernel } from "./kernel.js";
+import { primarySessionId } from "./session.js";
 
 export interface ConnectChannelOptions {
   /** Channel-native id of the owner, for outbound notify + approval prompts. */
@@ -28,17 +29,32 @@ export function connectChannel(
     adapter,
     ...(options.identity ? { identity: options.identity } : {}),
     handleTurn: async (ctx) => {
-      const res = await kernel.handleMessage(ctx.text, { userId: ctx.userId });
+      const res = await kernel.handleMessage(ctx.text, {
+        userId: ctx.userId,
+        // Same primary session as the CLI so Discord and kos share history.
+        sessionId: primarySessionId(ctx.userId),
+      });
       return res.reply || "(no reply)";
     },
   });
 
   adapter.onApproval(async (decision) => {
     const id = Number(decision.id);
-    const result = decision.approved
-      ? (await kernel.approve(id)).message
-      : kernel.deny(id).message;
-    await adapter.send(options.ownerRecipientId, { text: result });
+    // approve/deny execute + resume the agent; send one user-facing reply.
+    if (decision.approved) {
+      const res = await kernel.approve(id);
+      const text =
+        res.reply ??
+        (res.isError
+          ? `Approved #${id} failed: ${res.message}`
+          : `Approved #${id}.`);
+      await adapter.send(options.ownerRecipientId, { text });
+    } else {
+      const res = await kernel.deny(id);
+      await adapter.send(options.ownerRecipientId, {
+        text: res.reply ?? res.message,
+      });
+    }
   });
 
   return runtime;

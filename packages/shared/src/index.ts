@@ -38,3 +38,9 @@ export {
   isValidPageSpec,
   validatePageSpec,
 } from "./pagespec-validate.js";
+
+export {
+  detailLines,
+  formatApprovalPrompt,
+  summarizeAction,
+} from "./format-action.js";
