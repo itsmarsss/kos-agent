@@ -1,4 +1,4 @@
-import type { Kernel } from "@kos/harness";
+import { primarySessionId, type Kernel } from "@kos/harness";
 
 /**
  * CLI command dispatch, kept separate from IO so it is testable. Each command
@@ -34,29 +34,31 @@ export function parseArgs(argv: string[]): ParsedArgs {
 }
 
 const HELP = `kos commands:
-  chat                 interactive REPL (default)
-  once <message>       run one message and print the reply
-  status               crons, queue depth, kill switch, pending approvals
-  approvals            list pending risky actions
-  approve <id>         approve and execute a pending action
-  deny <id>            deny a pending action
-  halt | resume        engage / release the kill switch
-  crons                list scheduled jobs
-  snapshot [message]   git-snapshot the workspace
-  clear                clear the current chat session history
-  memory               peek recent durable facts
-  pages                list agent-authored page specs
-  doctor               preflight checks (build, env, workspace)
-  serve [--port N]     dashboard API + static UI (default 4317)
-  discord              Discord bot (needs bot token + owner id)
-  help                 this help
+  start [--foreground] multi-modal host (API + cron + Discord if configured)
+  stop                 stop the background host
+  chat                 REPL (attaches to host if running; default)
+  once <message>       one message (via host if running)
+  status               crons, queue, kill switch, pending, host info
+  approvals | approve | deny | halt | resume
+  crons | snapshot | clear | memory | pages
+  doctor               preflight checks
+  serve                alias: host in foreground (API; Discord optional)
+  discord              alias: host in foreground, require Discord
+  help
 
 Flags:
-  --workspace <path>   workspace root (default ~/kos-workspace or KOS_WORKSPACE)
-  --host <addr>        serve bind address (default 127.0.0.1)
-  --port <n>           serve port (default 4317 or KOS_PORT)
+  --workspace <path>   workspace (default ~/kos-workspace or KOS_WORKSPACE)
+  --host <addr>        host bind (default 127.0.0.1)
+  --port <n>           host port (default 4317 or KOS_PORT)
+  --foreground / --fg  keep host in this terminal
+  --no-discord         start host without Discord
+  --discord            require Discord credentials
 
-In the REPL, prefix any command with '/' (e.g. /status). Plain text is a message.
+Typical flow:
+  kos start            # background host + Discord if .env set
+  kos                  # attach REPL (same session as Discord DMs)
+  kos stop
+
 Chat needs ANTHROPIC_API_KEY or OPENAI_API_KEY in .env.`;
 
 export function statusLine(kernel: Kernel): string {
@@ -129,7 +131,7 @@ export async function runCommand(
     }
 
     case "clear": {
-      const sessionId = rest[0] ?? `chat:${kernel.profile.ownerId}`;
+      const sessionId = rest[0] ?? primarySessionId(kernel.profile.ownerId);
       kernel.clearSession(sessionId);
       return `cleared session ${sessionId}`;
     }
