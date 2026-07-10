@@ -19,3 +19,9 @@ export {
   type ColumnDef,
   type MigrationRecord,
 } from "./migrate.js";
+export { PageStore, type PageRecord } from "./pages.js";
+export {
+  runDisplayQuery,
+  type DisplayQueryOptions,
+  type DisplayQueryResult,
+} from "./display.js";
