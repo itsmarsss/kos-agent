@@ -13,6 +13,18 @@ const DEFAULT_MAX_TOKENS = 16000;
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
+/**
+ * OpenAI function names must match ^[a-zA-Z0-9_-]+$. KOS tools use dotted
+ * names (files.read). Encode dots for the wire; decode on the way back.
+ */
+export function toOpenAIToolName(name: string): string {
+  return name.replace(/\./g, "__");
+}
+
+export function fromOpenAIToolName(name: string): string {
+  return name.replace(/__/g, ".");
+}
+
 /** Map one internal message to one or more OpenAI chat messages. */
 function toChatMessages(message: ModelMessage): ChatMessage[] {
   const text = message.content
@@ -28,7 +40,10 @@ function toChatMessages(message: ModelMessage): ChatMessage[] {
         return {
           id: t.id,
           type: "function" as const,
-          function: { name: t.name, arguments: JSON.stringify(t.input) },
+          function: {
+            name: toOpenAIToolName(t.name),
+            arguments: JSON.stringify(t.input),
+          },
         };
       });
     const msg: OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam = {
@@ -66,13 +81,12 @@ export function toOpenAITools(
   return tools.map((t) => ({
     type: "function",
     function: {
-      name: t.name,
+      name: toOpenAIToolName(t.name),
       description: t.description,
       parameters: t.inputSchema,
     },
   }));
 }
-
 export function buildOpenAIParams(
   req: GenerateRequest,
   spec: ModelSpec,
@@ -121,7 +135,12 @@ export function fromOpenAIResponse(
     } catch {
       input = { _raw: call.function.arguments };
     }
-    content.push({ type: "tool_use", id: call.id, name: call.function.name, input });
+    content.push({
+      type: "tool_use",
+      id: call.id,
+      name: fromOpenAIToolName(call.function.name),
+      input,
+    });
   }
   return {
     content,
