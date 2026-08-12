@@ -297,6 +297,12 @@ export class Kernel {
       sessionId?: string;
       /** Skip session history for this turn only. */
       noSession?: boolean;
+      /**
+       * Who this turn came from. "system" marks harness-generated turns (an
+       * approval resume, say) so they are not mistaken for owner speech by the
+       * memory salience pass.
+       */
+      origin?: "owner" | "system";
     } = {},
   ): Promise<HandleResult> {
     if (this.killSwitch.halted) {
@@ -342,15 +348,22 @@ export class Kernel {
         });
 
         if (useSession) {
-          this.sessions.appendTurn(sessionId, text, result.messages);
+          // Persist the loop's own message list so tool calls and their results
+          // survive into the next turn, not just the final text.
+          this.sessions.record(sessionId, result.messages);
         }
 
-        // Memory write path (salience) + episodic note for the exchange.
-        void this.memoryWriter.ingest(userId, text, "chat").catch(() => undefined);
-        void this.storeEpisode(
-          userId,
-          `user: ${text}\nassistant: ${result.finalText.slice(0, 500)}`,
-        ).catch(() => undefined);
+        // Memory write path (salience) + episodic note for the exchange. Only
+        // owner turns are remembered; harness-generated turns are plumbing.
+        if (opts.origin !== "system") {
+          void this.memoryWriter
+            .ingest(userId, text, "chat")
+            .catch(() => undefined);
+          void this.storeEpisode(
+            userId,
+            `user: ${text}\nassistant: ${result.finalText.slice(0, 500)}`,
+          ).catch(() => undefined);
+        }
 
         this.runs.finish(runId, "ok");
         return {
@@ -420,6 +433,7 @@ export class Kernel {
       const cont = await this.handleMessage(resumePrompt, {
         sessionId,
         userId,
+        origin: "system",
       });
       reply = cont.reply;
     } catch (err) {
@@ -448,7 +462,11 @@ export class Kernel {
     try {
       const cont = await this.handleMessage(
         `System: the owner denied pending action #${id}. Acknowledge briefly and ask how to proceed without that action.`,
-        { sessionId, userId: decidedBy ?? this.profile.ownerId },
+        {
+          sessionId,
+          userId: decidedBy ?? this.profile.ownerId,
+          origin: "system",
+        },
       );
       reply = cont.reply;
     } catch {
