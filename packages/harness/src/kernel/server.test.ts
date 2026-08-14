@@ -188,4 +188,207 @@ describe("handleApiRequest", () => {
     expect(allowed.status).toBe(200);
     expect(kernel.killSwitch.halted).toBe(true);
   });
+
+  it("reports per-widget query errors instead of empty data", async () => {
+    const project = kernel.manifest.createProject({ name: "Broken", type: "x" });
+    kernel.pages.write(project.slug, {
+      id: "broken",
+      title: "Broken",
+      widgets: [
+        { type: "stat", label: "N", query: "SELECT 1 AS n" },
+        { type: "table", query: "SELECT * FROM no_such_table" },
+      ],
+    });
+    const page = await handleApiRequest(kernel, {
+      method: "GET",
+      path: "/api/pages/broken",
+    });
+    const body = page.body as {
+      data: Record<number, unknown[]>;
+      errors: Record<number, string>;
+    };
+    expect(body.data[0]).toEqual([{ n: 1 }]);
+    expect(body.errors[0]).toBeUndefined();
+    expect(body.data[1]).toEqual([]);
+    expect(body.errors[1]).toContain("no_such_table");
+  });
+
+  describe("token auth", () => {
+    it("applies a configured token to reads as well as writes", async () => {
+      for (const path of ["/api/memory", "/api/projects", "/api/activity"]) {
+        const denied = await handleApiRequest(
+          kernel,
+          { method: "GET", path },
+          { token: "secret" },
+        );
+        expect(denied.status).toBe(401);
+
+        const allowed = await handleApiRequest(
+          kernel,
+          { method: "GET", path, headers: { "x-kos-token": "secret" } },
+          { token: "secret" },
+        );
+        expect(allowed.status).toBe(200);
+      }
+    });
+
+    it("leaves the no-token loopback case open", async () => {
+      const res = await handleApiRequest(kernel, {
+        method: "GET",
+        path: "/api/memory",
+      });
+      expect(res.status).toBe(200);
+      const write = await handleApiRequest(kernel, {
+        method: "POST",
+        path: "/api/memory",
+        body: { key: "tz", value: "UTC" },
+      });
+      expect(write.status).toBe(200);
+    });
+  });
+
+  describe("/api/mutate", () => {
+    beforeEach(() => {
+      kernel.workspace.db.exec(
+        `CREATE TABLE tasks (id INTEGER PRIMARY KEY, title TEXT, done INTEGER DEFAULT 0);
+         CREATE TABLE secrets_vault (id INTEGER PRIMARY KEY, token TEXT);
+         INSERT INTO secrets_vault (id, token) VALUES (1, 'keep me');`,
+      );
+      const project = kernel.manifest.createProject({ name: "Tasks", type: "tracker" });
+      kernel.pages.write(project.slug, {
+        id: "tasks",
+        title: "Tasks",
+        widgets: [
+          { type: "stat", label: "N", query: "SELECT COUNT(*) AS n FROM tasks" },
+          {
+            type: "form",
+            title: "Add",
+            mutate: { table: "tasks", columns: ["title"], allow: ["insert"] },
+          },
+          {
+            type: "list",
+            query: "SELECT id, title FROM tasks",
+            mutate: { table: "tasks", columns: ["done"], allow: ["update", "delete"] },
+          },
+          { type: "card", query: "SELECT id, title FROM tasks" },
+        ],
+      });
+    });
+
+    const mutate = (body: Record<string, unknown>) =>
+      handleApiRequest(kernel, { method: "POST", path: "/api/mutate", body });
+
+    it("resolves the target from the stored spec", async () => {
+      const res = await mutate({
+        pageId: "tasks",
+        widgetIndex: 1,
+        op: "insert",
+        values: { title: "write tests" },
+      });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ changes: 1 });
+      const rows = kernel.workspace.db
+        .prepare("SELECT title FROM tasks")
+        .all() as Array<{ title: string }>;
+      expect(rows).toEqual([{ title: "write tests" }]);
+    });
+
+    it("ignores a table and columns supplied by the caller", async () => {
+      const res = await mutate({
+        pageId: "tasks",
+        widgetIndex: 1,
+        op: "insert",
+        table: "secrets_vault",
+        columns: ["token"],
+        allow: ["insert", "update", "delete"],
+        values: { token: "stolen" },
+      });
+      expect(res.status).toBe(400);
+      expect((res.body as { error: string }).error).toContain("not editable");
+      const rows = kernel.workspace.db
+        .prepare("SELECT token FROM secrets_vault")
+        .all() as Array<{ token: string }>;
+      expect(rows).toEqual([{ token: "keep me" }]);
+    });
+
+    it("rejects an op the widget did not declare", async () => {
+      const res = await mutate({
+        pageId: "tasks",
+        widgetIndex: 1,
+        op: "delete",
+        key: { column: "id", value: 1 },
+      });
+      expect(res.status).toBe(400);
+      expect((res.body as { error: string }).error).toContain("op not allowed");
+    });
+
+    it("rejects a column the widget did not declare", async () => {
+      kernel.workspace.db.prepare("INSERT INTO tasks (title) VALUES ('a')").run();
+      const res = await mutate({
+        pageId: "tasks",
+        widgetIndex: 2,
+        op: "update",
+        key: { column: "id", value: 1 },
+        values: { title: "renamed" },
+      });
+      expect(res.status).toBe(400);
+      expect((res.body as { error: string }).error).toContain("not editable");
+    });
+
+    it("rejects an unknown page or widget index", async () => {
+      const noPage = await mutate({
+        pageId: "nope",
+        widgetIndex: 0,
+        op: "insert",
+        values: { title: "x" },
+      });
+      expect(noPage.status).toBe(404);
+
+      const noWidget = await mutate({
+        pageId: "tasks",
+        widgetIndex: 9,
+        op: "insert",
+        values: { title: "x" },
+      });
+      expect(noWidget.status).toBe(404);
+
+      const missing = await mutate({ op: "insert", values: { title: "x" } });
+      expect(missing.status).toBe(400);
+    });
+
+    it("rejects a widget that is not write-capable", async () => {
+      const res = await mutate({
+        pageId: "tasks",
+        widgetIndex: 0,
+        op: "insert",
+        values: { title: "x" },
+      });
+      expect(res.status).toBe(403);
+      expect((res.body as { error: string }).error).toContain("not write-capable");
+    });
+
+    it("rejects a write-capable widget that declares no target", async () => {
+      const res = await mutate({
+        pageId: "tasks",
+        widgetIndex: 3,
+        op: "insert",
+        values: { title: "x" },
+      });
+      expect(res.status).toBe(403);
+      expect((res.body as { error: string }).error).toContain(
+        "no mutation target",
+      );
+    });
+
+    it("requires a key for update and delete", async () => {
+      const res = await mutate({
+        pageId: "tasks",
+        widgetIndex: 2,
+        op: "update",
+        values: { done: 1 },
+      });
+      expect(res.status).toBe(400);
+      expect((res.body as { error: string }).error).toContain("key required");
+    });
+  });
 });
