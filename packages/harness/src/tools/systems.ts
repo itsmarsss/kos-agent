@@ -1,5 +1,6 @@
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
+import { migrationEscalation } from "../risk/rules.js";
 import type { ChangeSpec } from "../systems/migrate.js";
 import type { CreateProjectInput } from "../systems/manifest.js";
 
@@ -84,7 +85,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
     {
       name: "systems.migrate",
       description:
-        "Apply a guarded schema change to a project. Ops: create_table, add_column, drop_column, rename_column, rename_table, create_index. Tables are namespaced to the project slug automatically. Never use raw DDL via sql.",
+        "Apply a guarded schema change to a project. Ops: create_table, add_column, drop_column, rename_column, rename_table, create_index. Tables are namespaced to the project slug automatically. Additive ops (create_table, add_column, create_index) apply immediately; drop_column, rename_column, and rename_table need owner approval. Never use raw DDL via sql.",
       inputSchema: {
         type: "object",
         properties: {
@@ -111,7 +112,9 @@ function defineSystemsTools(ctx: ModuleContext): void {
         sql: record.sql,
       });
     },
-    { floor: "risky" },
+    // Risk is tool plus arguments: additive schema changes are safe, and
+    // destructive or unclassifiable ones escalate to the approval queue.
+    { floor: "safe", escalate: migrationEscalation },
     { tags: ["systems"] },
   );
 

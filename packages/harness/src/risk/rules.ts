@@ -50,6 +50,37 @@ export function domainAllowlistEscalation(allowed: string[]): Escalation {
   };
 }
 
+/**
+ * Migrate ops that only add to a project's own namespaced schema. They destroy
+ * no existing data and no existing identifier, and the timed git snapshots
+ * already cover undo, so they run at the safe floor. Every other op (drop,
+ * rename) loses data or breaks references that queries and page specs hold, so
+ * it stays risky. The migrator namespaces every table to the project slug, so
+ * an additive op cannot reach another project's tables.
+ */
+const ADDITIVE_MIGRATE_OPS = new Set([
+  "create_table",
+  "add_column",
+  "create_index",
+]);
+
+/**
+ * True only for a changeSpec positively identified as an additive op. Anything
+ * malformed, missing, or unrecognized is not additive, so new ops added to
+ * ChangeSpec are risky until classified here on purpose.
+ */
+export function isAdditiveMigration(spec: unknown): boolean {
+  if (typeof spec !== "object" || spec === null || Array.isArray(spec)) {
+    return false;
+  }
+  const op = (spec as { op?: unknown }).op;
+  return typeof op === "string" && ADDITIVE_MIGRATE_OPS.has(op);
+}
+
+/** Escalate a migrate whose spec is not a known additive schema change. */
+export const migrationEscalation: Escalation = (input) =>
+  !isAdditiveMigration(input.spec);
+
 function normalizeSlashes(p: string): string {
   return p.replace(/\\/g, "/").replace(/\/+$/, "");
 }
