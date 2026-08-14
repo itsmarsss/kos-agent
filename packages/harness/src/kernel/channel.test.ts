@@ -4,11 +4,13 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { Inference } from "../agent/loop.js";
+import { AllowlistMapping } from "../channels/identity.js";
 import { InMemoryAdapter } from "../channels/memory.js";
 import type { ModelResponse } from "../models/types.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { connectChannel } from "./channel.js";
 import { Kernel } from "./kernel.js";
+import { primarySessionId } from "./session.js";
 
 function stub(script: ModelResponse[]): Inference {
   const q = [...script];
@@ -36,7 +38,10 @@ describe("connectChannel", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  async function boot(inference: Inference): Promise<void> {
+  async function boot(
+    inference: Inference,
+    identity?: AllowlistMapping,
+  ): Promise<void> {
     root = mkdtempSync(join(tmpdir(), "kos-chan-"));
     adapter = new InMemoryAdapter();
     kernel = await Kernel.boot({
@@ -50,8 +55,35 @@ describe("connectChannel", () => {
         });
       },
     });
-    const runtime = connectChannel(adapter, kernel, { ownerRecipientId: "owner" });
+    const runtime = connectChannel(adapter, kernel, {
+      ownerRecipientId: "owner",
+      ...(identity ? { identity } : {}),
+    });
     await runtime.start();
+  }
+
+  function riskyScript(): ModelResponse[] {
+    return [
+      {
+        content: [
+          {
+            type: "tool_use",
+            id: "t1",
+            name: "files.rm",
+            input: { path: "projects/important.txt" },
+          },
+        ],
+        stopReason: "tool_use",
+        usage: { inputTokens: 0, outputTokens: 0 },
+        model: "stub",
+      },
+      {
+        content: [{ type: "text", text: "queued" }],
+        stopReason: "end_turn",
+        usage: { inputTokens: 0, outputTokens: 0 },
+        model: "stub",
+      },
+    ];
   }
 
   it("turns an inbound message into a reply", async () => {
@@ -70,29 +102,7 @@ describe("connectChannel", () => {
   });
 
   it("surfaces a risky tool call as an approval prompt, then executes on approve", async () => {
-    await boot(
-      stub([
-        {
-          content: [
-            {
-              type: "tool_use",
-              id: "t1",
-              name: "files.rm",
-              input: { path: "projects/important.txt" },
-            },
-          ],
-          stopReason: "tool_use",
-          usage: { inputTokens: 0, outputTokens: 0 },
-          model: "stub",
-        },
-        {
-          content: [{ type: "text", text: "queued" }],
-          stopReason: "end_turn",
-          usage: { inputTokens: 0, outputTokens: 0 },
-          model: "stub",
-        },
-      ]),
-    );
+    await boot(stub(riskyScript()));
     await adapter.receive({ channel: "memory", senderId: "u1", text: "delete it" });
 
     // a prompt was sent to the owner with the pending id
@@ -102,6 +112,52 @@ describe("connectChannel", () => {
 
     // owner approves -> action resolves
     await adapter.decide({ id: pendingId, approved: true, deciderId: "owner" });
+    expect(kernel.approvals.pending()).toHaveLength(0);
+  });
+
+  it("never runs the kernel for an unmapped sender", async () => {
+    await boot(
+      stub([]),
+      new AllowlistMapping([{ channel: "memory", senderId: "owner-dm" }]),
+    );
+    await adapter.receive({
+      channel: "memory",
+      senderId: "stranger",
+      text: "read my notes",
+    });
+
+    expect(adapter.sent).toEqual([]);
+    // nothing reached the kernel: no reply, no session history
+    expect(
+      kernel.sessions.get(primarySessionId(kernel.profile.ownerId)),
+    ).toEqual([]);
+  });
+
+  it("leaves a pending action queued when an unmapped sender approves", async () => {
+    await boot(
+      stub(riskyScript()),
+      new AllowlistMapping([{ channel: "memory", senderId: "owner-dm" }]),
+    );
+    await adapter.receive({
+      channel: "memory",
+      senderId: "owner-dm",
+      text: "delete it",
+    });
+    const pendingId = adapter.approvalsRequested[0]!.req.id;
+    expect(kernel.approvals.pending()).toHaveLength(1);
+
+    await adapter.decide({
+      id: pendingId,
+      approved: true,
+      deciderId: "stranger",
+    });
+    expect(kernel.approvals.pending()).toHaveLength(1);
+
+    await adapter.decide({
+      id: pendingId,
+      approved: true,
+      deciderId: "owner-dm",
+    });
     expect(kernel.approvals.pending()).toHaveLength(0);
   });
 });

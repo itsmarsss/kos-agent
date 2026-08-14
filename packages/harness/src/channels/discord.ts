@@ -6,6 +6,7 @@ import {
   EmbedBuilder,
   Events,
   GatewayIntentBits,
+  MessageFlags,
   Partials,
   type Interaction,
   type Message,
@@ -22,6 +23,7 @@ import type {
   InboundMessage,
   MessageHandler,
   OutboundMessage,
+  SenderAuthorizer,
   TurnPresence,
 } from "./types.js";
 
@@ -83,6 +85,11 @@ export interface DiscordAdapterOptions {
 /**
  * Discord channel adapter. DMs become turns with live presence (reaction +
  * editable status embed). Approvals use embeds + native buttons.
+ *
+ * Discord is a public surface: anyone can DM the bot or click a button on a
+ * prompt they can see. The adapter asks the injected authorizer (backed by the
+ * identity mapping) before it touches anything, so it enforces the gate without
+ * knowing who the owner is.
  */
 export class DiscordAdapter implements ChannelAdapter {
   readonly name = "discord";
@@ -90,6 +97,11 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly token: string;
   private messageHandler?: MessageHandler;
   private approvalHandler?: ApprovalHandler;
+  private isAuthorized: SenderAuthorizer = () => true;
+
+  setAuthorizer(isAuthorized: SenderAuthorizer): void {
+    this.isAuthorized = isAuthorized;
+  }
 
   constructor(options: DiscordAdapterOptions) {
     this.token = options.token;
@@ -107,53 +119,78 @@ export class DiscordAdapter implements ChannelAdapter {
 
   async start(): Promise<void> {
     this.client.on(Events.MessageCreate, (message: Message) => {
-      if (message.author.bot) return;
-      // Only DMs for now (personal agent).
-      if (message.guild) return;
-      void this.messageHandler?.({
-        channel: this.name,
-        senderId: message.author.id,
-        text: message.content,
-        native: message,
-      });
+      void this.receiveMessage(message);
     });
 
     this.client.on(Events.InteractionCreate, (interaction: Interaction) => {
-      if (!interaction.isButton()) return;
-      const decision = parseApprovalCustomId(interaction.customId);
-      if (!decision) return;
-      void (async () => {
-        try {
-          await interaction.update({
-            content: decision.approved
-              ? "Working on that…"
-              : "Denied.",
-            embeds: decision.approved
-              ? [
-                  new EmbedBuilder()
-                    .setColor(COLOR_WORKING)
-                    .setTitle(decision.approved ? "Approved" : "Denied")
-                    .setDescription(
-                      decision.approved
-                        ? `Running pending \`#${decision.id}\`…`
-                        : `Pending \`#${decision.id}\` was denied.`,
-                    ),
-                ]
-              : [],
-            components: [],
-          });
-        } catch {
-          // interaction may already be acknowledged
-        }
-        await this.approvalHandler?.({
-          id: decision.id,
-          approved: decision.approved,
-          deciderId: interaction.user.id,
-        });
-      })();
+      void this.receiveInteraction(interaction);
     });
 
     await this.client.login(this.token);
+  }
+
+  /** Gateway MessageCreate handler. Internal; separated for tests. */
+  async receiveMessage(message: Message): Promise<void> {
+    if (message.author.bot) return;
+    // Only DMs for now (personal agent).
+    if (message.guild) return;
+    if (!this.isAuthorized(message.author.id)) {
+      // Log for the owner, stay silent to the sender.
+      console.warn(`[discord] ignored DM from unknown sender ${message.author.id}`);
+      return;
+    }
+    await this.messageHandler?.({
+      channel: this.name,
+      senderId: message.author.id,
+      text: message.content,
+      native: message,
+    });
+  }
+
+  /** Gateway InteractionCreate handler. Internal; separated for tests. */
+  async receiveInteraction(interaction: Interaction): Promise<void> {
+    if (!interaction.isButton()) return;
+    const decision = parseApprovalCustomId(interaction.customId);
+    if (!decision) return;
+
+    if (!this.isAuthorized(interaction.user.id)) {
+      // Leave the prompt intact (still approvable by the owner) and say nothing
+      // about the action behind it.
+      console.warn(
+        `[discord] ignored approval click on #${decision.id} from unknown sender ${interaction.user.id}`,
+      );
+      try {
+        await interaction.reply({
+          content: "Not authorized.",
+          flags: MessageFlags.Ephemeral,
+        });
+      } catch {
+        // interaction may already be acknowledged
+      }
+      return;
+    }
+
+    try {
+      await interaction.update({
+        content: decision.approved ? "Working on that…" : "Denied.",
+        embeds: decision.approved
+          ? [
+              new EmbedBuilder()
+                .setColor(COLOR_WORKING)
+                .setTitle("Approved")
+                .setDescription(`Running pending \`#${decision.id}\`…`),
+            ]
+          : [],
+        components: [],
+      });
+    } catch {
+      // interaction may already be acknowledged
+    }
+    await this.approvalHandler?.({
+      id: decision.id,
+      approved: decision.approved,
+      deciderId: interaction.user.id,
+    });
   }
 
   async stop(): Promise<void> {
