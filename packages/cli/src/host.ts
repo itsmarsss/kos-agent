@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  AllowlistMapping,
   ChannelRuntime,
   DiscordAdapter,
   Kernel,
@@ -138,6 +139,13 @@ export async function runHost(options: HostOptions): Promise<void> {
     adapter = new DiscordAdapter({ token: creds.token });
     runtime = connectChannel(adapter, kernel, {
       ownerRecipientId: creds.ownerId,
+      // The sender->user table, seeded from config: only the configured Discord
+      // account maps to a KOS user, so every other DM and button click is
+      // dropped. Multi-user is more rows here, not a code change.
+      identity: new AllowlistMapping(
+        [{ channel: adapter.name, senderId: creds.ownerId }],
+        kernel.profile.ownerId,
+      ),
     });
     await runtime.start();
     meta.discord = true;

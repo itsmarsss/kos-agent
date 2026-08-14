@@ -58,6 +58,12 @@ export type ApprovalHandler = (
 ) => Promise<void> | void;
 
 /**
+ * Is this channel-native sender allowed to talk to KOS? The runtime derives it
+ * from the identity mapping; adapters only ask, never decide.
+ */
+export type SenderAuthorizer = (senderId: string) => boolean;
+
+/**
  * A messaging surface. `requestApproval` renders an approve/deny prompt (native
  * buttons on Discord, a text reply elsewhere); the decision arrives via
  * `onApproval`. Adapters are started and stopped by the harness.
@@ -75,4 +81,10 @@ export interface ChannelAdapter {
    * the runtime can show progress and edit the final reply in place.
    */
   acknowledge?(msg: InboundMessage): Promise<TurnPresence | undefined>;
+  /**
+   * Optional: receive the authorization predicate at start, so a surface with
+   * native UI (Discord buttons) can refuse an unauthorized sender before it
+   * mutates any state. The runtime enforces the same check regardless.
+   */
+  setAuthorizer?(isAuthorized: SenderAuthorizer): void;
 }
