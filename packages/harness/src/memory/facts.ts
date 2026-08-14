@@ -37,6 +37,40 @@ interface Row {
   updated_at: number;
 }
 
+/**
+ * Words carrying no retrieval signal. Kept deliberately short: this filters
+ * question scaffolding ("what did I say my X was again"), not vocabulary.
+ */
+const STOPWORDS = new Set([
+  "the", "and", "for", "you", "your", "yours", "was", "were", "are", "did",
+  "does", "do", "done", "have", "has", "had", "with", "that", "this", "these",
+  "those", "what", "when", "where", "which", "who", "whom", "why", "how",
+  "can", "could", "would", "should", "will", "shall", "may", "might", "must",
+  "about", "again", "just", "from", "into", "than", "then", "them", "they",
+  "there", "here", "some", "any", "all", "not", "but", "our", "out", "get",
+  "got", "tell", "told", "say", "said", "please", "thanks", "hey", "now",
+]);
+
+const MIN_TOKEN_LENGTH = 3;
+const MAX_TOKENS = 12;
+
+/**
+ * Split a message into retrieval tokens: lowercase alphanumerics, stopwords
+ * and very short words dropped, deduped, capped so one long message cannot
+ * match everything.
+ */
+export function tokenize(text: string): string[] {
+  const raw = text.toLowerCase().match(/[a-z0-9][a-z0-9'_-]*/g) ?? [];
+  const seen = new Set<string>();
+  for (const token of raw) {
+    if (token.length < MIN_TOKEN_LENGTH) continue;
+    if (STOPWORDS.has(token)) continue;
+    seen.add(token);
+    if (seen.size >= MAX_TOKENS) break;
+  }
+  return [...seen];
+}
+
 function toFact(row: Row): Fact {
   return {
     id: row.id,
@@ -98,17 +132,40 @@ export class FactsStore {
     return rows.map(toFact);
   }
 
-  /** Exact/substring search over keys and values (structured-first retrieval). */
+  /**
+   * Keyword search over keys and values: the cheap, exact tier of retrieval.
+   *
+   * The query is a whole user message, so it is tokenized rather than matched
+   * as one substring. Matching the raw sentence with LIKE effectively never
+   * hits, which silently empties this tier and pushes every recall onto the
+   * vector fallback. Facts are per-user and small, so scoring in code buys
+   * better ranking than SQL can express here.
+   */
   search(userId: string, query: string, limit = 20): Fact[] {
-    const like = `%${query}%`;
-    const rows = this.db
-      .prepare(
-        `SELECT * FROM memory_facts
-         WHERE user_id = ? AND (key LIKE ? OR value LIKE ?)
-         ORDER BY updated_at DESC LIMIT ?`,
-      )
-      .all(userId, like, like, limit) as Row[];
-    return rows.map(toFact);
+    const tokens = tokenize(query);
+    const all = this.all(userId); // already ordered by updated_at DESC
+    if (tokens.length === 0) return all.slice(0, limit);
+
+    const needle = query.trim().toLowerCase();
+    const scored: { fact: Fact; score: number }[] = [];
+    for (const fact of all) {
+      const key = fact.key.toLowerCase();
+      const value = fact.value.toLowerCase();
+      let score = 0;
+      for (const token of tokens) {
+        // A hit on the key is a stronger signal than one buried in the value.
+        if (key.includes(token)) score += 2;
+        else if (value.includes(token)) score += 1;
+      }
+      // Whole-phrase containment stays the strongest signal when it happens.
+      if (needle && (key.includes(needle) || value.includes(needle))) score += 5;
+      if (score > 0) scored.push({ fact, score });
+    }
+
+    scored.sort(
+      (a, b) => b.score - a.score || b.fact.updatedAt - a.fact.updatedAt,
+    );
+    return scored.slice(0, limit).map((s) => s.fact);
   }
 
   delete(userId: string, key: string): boolean {

@@ -6,6 +6,7 @@ import { CronStore } from "../cron/store.js";
 import {
   FactsStore,
   HashingEmbeddingProvider,
+  LlmSalienceConfirmer,
   MemoryRetriever,
   MemoryWriter,
   OpenAIEmbeddingProvider,
@@ -215,7 +216,6 @@ export class Kernel {
     const facts = new FactsStore(workspace.db);
     const embedder = pickEmbedder(secrets);
     const episodic = new EpisodicStore(workspace.db, embedder.dimension);
-    const memoryWriter = new MemoryWriter(facts);
     const memoryRetriever = new MemoryRetriever(facts, episodic, embedder);
 
     const services: ModuleServices = {
@@ -246,6 +246,13 @@ export class Kernel {
 
     const inference =
       options.inference ?? createDefaultRouter(secrets);
+
+    // Hybrid salience: heuristics decide outright, the cheap model confirms and
+    // structures whatever they only flag as "maybe".
+    const memoryWriter = new MemoryWriter(
+      facts,
+      new LlmSalienceConfirmer(inference),
+    );
 
     return new Kernel({
       workspace,
@@ -355,14 +362,10 @@ export class Kernel {
 
         // Memory write path (salience) + episodic note for the exchange. Only
         // owner turns are remembered; harness-generated turns are plumbing.
+        // Awaited so a write cannot be lost when the process exits right after
+        // a reply, and so failures surface in the runs log instead of vanishing.
         if (opts.origin !== "system") {
-          void this.memoryWriter
-            .ingest(userId, text, "chat")
-            .catch(() => undefined);
-          void this.storeEpisode(
-            userId,
-            `user: ${text}\nassistant: ${result.finalText.slice(0, 500)}`,
-          ).catch(() => undefined);
+          await this.rememberExchange(userId, text, result.finalText);
         }
 
         this.runs.finish(runId, "ok");
@@ -481,6 +484,43 @@ export class Kernel {
 
   clearSession(sessionId: string): void {
     this.sessions.clear(sessionId);
+  }
+
+  /**
+   * Persist what this exchange is worth remembering. Memory is best-effort: a
+   * failed write must never fail the user's turn, but it must not be invisible
+   * either, so each failure is logged as its own run.
+   */
+  private async rememberExchange(
+    userId: string,
+    text: string,
+    finalText: string,
+  ): Promise<void> {
+    const record = async (
+      label: string,
+      write: () => Promise<unknown>,
+    ): Promise<void> => {
+      try {
+        await write();
+      } catch (err) {
+        const runId = this.runs.start(label);
+        this.runs.finish(
+          runId,
+          "error",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    };
+
+    await record("memory.facts", () =>
+      this.memoryWriter.ingest(userId, text, "chat"),
+    );
+    await record("memory.episodic", () =>
+      this.storeEpisode(
+        userId,
+        `user: ${text}\nassistant: ${finalText.slice(0, 500)}`,
+      ),
+    );
   }
 
   private async storeEpisode(userId: string, text: string): Promise<void> {
