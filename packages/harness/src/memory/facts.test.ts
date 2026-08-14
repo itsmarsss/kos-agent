@@ -65,3 +65,52 @@ describe("FactsStore", () => {
     expect(facts.delete("u1", "k")).toBe(false);
   });
 });
+
+describe("FactsStore.search keyword recall", () => {
+  let root: string;
+  let ws: Workspace;
+  let facts: FactsStore;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-facts-kw-"));
+    ws = Workspace.open(root);
+    facts = new FactsStore(ws.db);
+    facts.upsert("u1", { key: "timezone", value: "America/New_York", kind: "fact" });
+    facts.upsert("u1", { key: "employer", value: "Acme Robotics", kind: "fact" });
+    facts.upsert("u1", { key: "coffee_order", value: "oat flat white", kind: "preference" });
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("matches a fact from a full sentence, not just an exact substring", () => {
+    // The regression: the whole message used to be one LIKE pattern, so this
+    // matched nothing and the structured tier was always empty.
+    const hits = facts.search("u1", "wait what timezone am I in again?");
+    expect(hits.map((f) => f.key)).toContain("timezone");
+  });
+
+  it("ranks a key hit above a value-only hit", () => {
+    facts.upsert("u1", { key: "commute", value: "timezone aware scheduling", kind: "fact" });
+    const hits = facts.search("u1", "tell me about my timezone");
+    expect(hits[0]?.key).toBe("timezone");
+  });
+
+  it("ignores stopword-only queries rather than matching everything", () => {
+    const hits = facts.search("u1", "what did you say that was");
+    expect(hits.length).toBeLessThanOrEqual(3);
+  });
+
+  it("returns nothing when no token matches", () => {
+    expect(facts.search("u1", "quantum chromodynamics")).toEqual([]);
+  });
+
+  it("scopes results to the requesting user", () => {
+    facts.upsert("u2", { key: "timezone", value: "Europe/Berlin", kind: "fact" });
+    const hits = facts.search("u1", "timezone");
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.value).toBe("America/New_York");
+  });
+});
