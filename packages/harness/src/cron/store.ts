@@ -1,3 +1,5 @@
+import { isReadOnlyQuery } from "@kos/shared";
+
 import type { Db } from "../store/db.js";
 import type {
   CreateCronInput,
@@ -70,6 +72,12 @@ export class CronStore {
   }
 
   create(input: CreateCronInput): CronJob {
+    // A job's query is the variable scope, so it must be a read. Rejecting it
+    // here means a write can never be stored in that field and quietly execute
+    // on every tick at 3am, long after the owner approved "a query".
+    if (input.query && !isReadOnlyQuery(input.query)) {
+      throw new Error("cron query must be a single read-only SELECT/WITH");
+    }
     const ts = this.now();
     const info = this.db
       .prepare(
