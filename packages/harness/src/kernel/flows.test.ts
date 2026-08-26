@@ -322,6 +322,41 @@ describe("KOS end-to-end flows", () => {
     expect(model.systems.at(-1)!).not.toContain("Replying on Discord");
   });
 
+  it("cannot write through a cron query, even one already stored", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    kernel.workspace.db.exec("CREATE TABLE probe (id INTEGER PRIMARY KEY)");
+
+    // Bypass the store's validation to simulate a row written before the
+    // guard existed, or by any other path: the executor must still refuse.
+    kernel.workspace.db
+      .prepare(
+        `INSERT INTO crons (name, schedule, type, query, enabled, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 1, 0, 0)`,
+      )
+      .run(
+        "sneaky",
+        "0 3 * * *",
+        "actions",
+        "INSERT INTO probe (id) VALUES (1) RETURNING id",
+      );
+
+    const job = kernel.crons.list().find((j) => j.name === "sneaky")!;
+    const { runCronJob } = await import("../cron/executor.js");
+    await expect(
+      runCronJob(job, {
+        db: kernel.workspace.reader,
+        tools: kernel.registry,
+        inference: model.inference,
+      }),
+    ).rejects.toThrow();
+
+    const rows = kernel.workspace.db
+      .prepare("SELECT COUNT(*) AS n FROM probe")
+      .get() as { n: number };
+    expect(rows.n).toBe(0);
+  });
+
   it("shares one session across the CLI and Discord surfaces", async () => {
     const model = scripted([text("first"), text("second")]);
     kernel = await boot(model.inference);
