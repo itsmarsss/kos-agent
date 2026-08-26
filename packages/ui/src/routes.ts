@@ -34,11 +34,16 @@ export function hrefFor(route: Route): string {
   }
 }
 
+/**
+ * Primary nav. Labels name what you would go looking for, not the table the
+ * data happens to live in: "Ops / Tools / Runs" told you nothing unless you
+ * had read the source.
+ */
 export const NAV: Array<{ route: Route; label: string }> = [
-  { route: { name: "home" }, label: "Ops" },
+  { route: { name: "home" }, label: "Home" },
   { route: { name: "projects" }, label: "Projects" },
-  { route: { name: "tools" }, label: "Tools" },
-  { route: { name: "crons" }, label: "Crons" },
-  { route: { name: "memory" }, label: "Memory" },
+  { route: { name: "crons" }, label: "Schedule" },
+  { route: { name: "memory" }, label: "What it knows" },
+  { route: { name: "tools" }, label: "Activity" },
   { route: { name: "runs" }, label: "Runs" },
 ];
