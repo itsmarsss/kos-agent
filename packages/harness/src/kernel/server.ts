@@ -210,7 +210,7 @@ export async function handleApiRequest(
     const sql = typeof body.sql === "string" ? body.sql : "";
     if (!sql) return { status: 400, body: { error: "sql required" } };
     try {
-      return ok(runDisplayQuery(kernel.workspace.db, sql));
+      return ok(runDisplayQuery(kernel.workspace.reader, sql));
     } catch (err) {
       return {
         status: 400,
@@ -401,7 +401,7 @@ async function loadPageData(kernel: Kernel, spec: PageSpec): Promise<PageData> {
     const w = spec.widgets[i] as Widget & { query?: string };
     if (typeof w.query === "string" && w.query.trim()) {
       try {
-        data[i] = runDisplayQuery(kernel.workspace.db, w.query).rows;
+        data[i] = runDisplayQuery(kernel.workspace.reader, w.query).rows;
       } catch (err) {
         // An empty result and a broken query must not look the same.
         data[i] = [];
