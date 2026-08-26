@@ -840,26 +840,38 @@ export function App(): React.ReactElement {
             empty={homeProjects.length === 0}
           >
             <ul className="ops-dense">
-              {homeProjects.map((p) => (
-                <li key={p.slug}>
-                  <button
-                    type="button"
-                    className="ops-dense-btn"
-                    onClick={() =>
-                      setInspect({
-                        kind: "project",
-                        data: p,
-                        pages: pagesByProject.get(p.slug) ?? [],
-                      })
-                    }
-                  >
-                    <span>{p.name}</span>
-                    <span className={`ops-status ops-status--${p.status}`}>
-                      {p.status}
-                    </span>
-                  </button>
-                </li>
-              ))}
+              {homeProjects.map((p) => {
+                const pages = pagesByProject.get(p.slug) ?? [];
+                return (
+                  <li key={p.slug}>
+                    <button
+                      type="button"
+                      className="ops-dense-btn"
+                      onClick={() =>
+                        setInspect({ kind: "project", data: p, pages })
+                      }
+                    >
+                      <span>{p.name}</span>
+                      <span className={`ops-status ops-status--${p.status}`}>
+                        {p.status}
+                      </span>
+                    </button>
+                    {pages.length > 0 && (
+                      <div className="ops-dense-pages">
+                        {pages.map((pg) => (
+                          <a
+                            key={pg.id}
+                            className="ops-page-chip"
+                            href={hrefFor({ name: "page", id: pg.id })}
+                          >
+                            {pg.title}
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </PreviewPanel>
 

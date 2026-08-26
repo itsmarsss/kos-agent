@@ -20,6 +20,7 @@ const WIDGET_TYPES: WidgetType[] = [
 const CHART_KINDS = ["line", "bar", "area", "pie"];
 const QUERY_WIDGETS: WidgetType[] = ["stat", "table", "chart", "list", "card"];
 const ID_RE = /^[a-z][a-z0-9_-]*$/i;
+const SPANS = ["quarter", "third", "half", "full"];
 
 /** A statement is read-only if it is a single SELECT/WITH with no write verbs. */
 export function isReadOnlyQuery(sql: string): boolean {
@@ -49,6 +50,9 @@ function validateWidget(widget: Widget, index: number, errors: string[]): void {
   if (!WIDGET_TYPES.includes(widget.type)) {
     errors.push(`${where}: unknown widget type "${widget.type}"`);
     return;
+  }
+  if (widget.span !== undefined && !SPANS.includes(widget.span)) {
+    errors.push(`${where}: span must be one of ${SPANS.join(", ")}`);
   }
 
   if (QUERY_WIDGETS.includes(widget.type)) {

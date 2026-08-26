@@ -112,6 +112,41 @@ describe("chart widget", () => {
     });
   }
 
+  it("gives each widget a layout cell, defaulting by type", () => {
+    const { container } = render(
+      <PageRenderer
+        spec={{
+          id: "p",
+          title: "P",
+          widgets: [
+            { type: "stat", label: "Spent", query: "SELECT 1" },
+            { type: "table", query: "SELECT 1" },
+          ],
+        }}
+        data={{}}
+      />,
+    );
+    // A stat is a tile; a table needs the row. Stacking both full width is
+    // what turned a short page into several screens of scrolling.
+    expect(container.querySelector(".kos-cell--quarter")).toBeTruthy();
+    expect(container.querySelector(".kos-cell--full")).toBeTruthy();
+  });
+
+  it("lets the spec override the default width", () => {
+    const { container } = render(
+      <PageRenderer
+        spec={{
+          id: "p",
+          title: "P",
+          widgets: [{ type: "stat", label: "Spent", query: "SELECT 1", span: "half" }],
+        }}
+        data={{}}
+      />,
+    );
+    expect(container.querySelector(".kos-cell--half")).toBeTruthy();
+    expect(container.querySelector(".kos-cell--quarter")).toBeNull();
+  });
+
   it("shows a failed display query instead of an empty widget", () => {
     render(
       <PageRenderer
