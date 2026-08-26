@@ -5,6 +5,7 @@ import { CronScheduler } from "../cron/scheduler.js";
 import { CronStore } from "../cron/store.js";
 import {
   FactsStore,
+  CohereEmbeddingProvider,
   HashingEmbeddingProvider,
   LlmSalienceConfirmer,
   MemoryRetriever,
@@ -79,12 +80,25 @@ const DEFAULT_SYSTEM =
 
 const DEFAULT_BACKUP_CRON = "0 3 * * *";
 
+/**
+ * Pick the embedding provider from available secrets. Cohere is here so an
+ * Anthropic-only .env still gets real semantic recall; the hashing provider is
+ * a lexical last resort, not a semantic one, and callers say so.
+ */
 function pickEmbedder(secrets: SecretsRegistry): EmbeddingProvider {
-  const key = secrets.get("openai");
-  if (key) {
+  const openai = secrets.get("openai");
+  if (openai) {
     return new OpenAIEmbeddingProvider({
-      apiKey: key,
+      apiKey: openai,
       model: "text-embedding-3-small",
+      dimension: 256,
+    });
+  }
+  const cohere = secrets.get("cohere");
+  if (cohere) {
+    return new CohereEmbeddingProvider({
+      apiKey: cohere,
+      model: "embed-english-v3.0",
       dimension: 256,
     });
   }
@@ -222,7 +236,12 @@ export class Kernel {
     const sessions = new SessionStore(workspace.db);
     const facts = new FactsStore(workspace.db);
     const embedder = pickEmbedder(secrets);
-    const episodic = new EpisodicStore(workspace.db, embedder.dimension);
+    const episodic = new EpisodicStore(
+      workspace.db,
+      embedder.dimension,
+      Date.now,
+      embedder.name,
+    );
     const memoryRetriever = new MemoryRetriever(facts, episodic, embedder);
 
     const services: ModuleServices = {
