@@ -310,7 +310,6 @@ textarea {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 0.65rem 0.75rem 0.75rem;
-  min-height: 520px;
 }
 
 .ops-section-head {
@@ -357,8 +356,8 @@ textarea {
 /* —— thread —— */
 .ops-thread {
   flex: 1;
-  min-height: 220px;
-  max-height: 360px;
+  min-height: 0;
+  max-height: 46vh;
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -603,8 +602,47 @@ textarea {
 /* agent pages (keep usable) */
 .kos-page {
   display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 0.75rem;
   margin-top: 0.5rem;
+  align-items: start;
+}
+
+.kos-page > h1 {
+  grid-column: 1 / -1;
+}
+
+/* Widget widths. Below 900px everything goes full width: a quarter-width
+   tile on a phone is unreadable, and a table needs the whole row anyway. */
+.kos-cell {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+@media (min-width: 900px) {
+  .kos-cell--quarter { grid-column: span 3; }
+  .kos-cell--third { grid-column: span 4; }
+  .kos-cell--half { grid-column: span 6; }
+  .kos-cell--full { grid-column: 1 / -1; }
+}
+
+.kos-cell > * {
+  height: 100%;
+}
+
+/* A stat is a tile: its value is the point, so let it breathe without
+   claiming a whole row. */
+.kos-cell--quarter .kos-stat,
+.kos-cell--third .kos-stat {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 5.5rem;
+}
+
+/* Cap chart height so a page stays scannable; the SVG scales to fit. */
+.kos-chart-svg {
+  max-height: 320px;
 }
 
 .kos-page h1 {
@@ -1267,7 +1305,6 @@ textarea {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 0.75rem 0.85rem 1rem;
-  min-height: 60vh;
 }
 
 .list-head {
@@ -1348,4 +1385,51 @@ textarea {
 .kos-widget-failed {
   border: 1px solid var(--line);
   border-left: 3px solid var(--danger, #d9534f);
+}
+
+
+/* An empty console is the common case on a fresh load; it should not claim
+   the biggest block on the page just to say nothing. */
+.ops-thread:has(.ops-thread-empty) {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.ops-thread-empty {
+  margin: 0;
+  padding: 0.35rem 0;
+}
+
+/* Workspace path: show the tail, which is the part that identifies it, and
+   keep the whole thing available on hover. */
+.ops-path {
+  direction: rtl;
+  text-align: left;
+}
+
+.ops-path > span {
+  direction: ltr;
+  unicode-bidi: embed;
+}
+
+/* Page links on a home project row, so the landing screen reaches the pages
+   the agent built rather than dead-ending at a name. */
+.ops-dense-pages {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.ops-page-chip {
+  font-size: 0.72rem;
+  border: 1px solid var(--line-strong, var(--line));
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.ops-page-chip:hover {
+  background: var(--panel-2, rgba(255, 255, 255, 0.04));
 }
