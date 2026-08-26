@@ -27,6 +27,7 @@ function str(input: Record<string, unknown>, key: string): string {
  * Exact grep via ripgrep, jailed to the workspace. The optional `path` arg is
  * resolved through the jail, so the search can never read outside the root.
  * ripgrep exits 1 with no matches, which is a normal empty result, not an error.
+ * A missing binary becomes an actionable message rather than a raw spawn ENOENT.
  */
 async function grep(
   ws: Workspace,
@@ -44,8 +45,13 @@ async function grep(
     );
     return stdout.trim() || "(no matches)";
   } catch (err) {
-    const e = err as { code?: number; stdout?: string };
+    const e = err as { code?: number | string; stdout?: string };
     if (e.code === 1) return "(no matches)"; // ripgrep: no matches found
+    if (e.code === "ENOENT") {
+      throw new Error(
+        `ripgrep (rg) not found on PATH; install it or set rgPath (tried: ${rgPath})`,
+      );
+    }
     throw err;
   }
 }

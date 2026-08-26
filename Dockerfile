@@ -17,7 +17,11 @@ ENV KOS_WORKSPACE=/workspace
 ENV KOS_HOST=0.0.0.0
 ENV KOS_PORT=4317
 
+# ripgrep backs the search.grep tool; without it search is dead inside the jail.
 RUN corepack enable \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends ripgrep \
+  && rm -rf /var/lib/apt/lists/* \
   && useradd --system --create-home --uid 10001 kos \
   && mkdir -p /workspace \
   && chown -R kos:kos /workspace

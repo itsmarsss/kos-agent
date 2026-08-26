@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { accessSync, constants, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
@@ -10,6 +10,27 @@ import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { createSearchModule } from "./search.js";
+
+/**
+ * Resolve a real rg binary without a shell, so a shell alias cannot fake a hit.
+ * Grep tests inject this path and skip when the machine has no ripgrep.
+ */
+function findRipgrep(): string | undefined {
+  const name = process.platform === "win32" ? "rg.exe" : "rg";
+  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+    if (!dir) continue;
+    const candidate = join(dir, name);
+    try {
+      accessSync(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      // not here; keep looking
+    }
+  }
+  return undefined;
+}
+
+const rgPath = findRipgrep();
 
 describe("search module", () => {
   let root: string;
@@ -36,21 +57,31 @@ describe("search module", () => {
     return registry;
   }
 
-  it("greps literal text and reports line numbers", async () => {
+  it.skipIf(!rgPath)("greps literal text and reports line numbers", async () => {
     writeFileSync(join(ws.root, "notes.txt"), "alpha\nbeta needle\ngamma\n");
-    const registry = await load();
+    const registry = await load(createSearchModule({ rgPath }));
     const res = await registry.execute("search.grep", { pattern: "needle" });
     expect(res.isError).toBe(false);
     expect(res.content).toMatch(/notes\.txt/);
     expect(res.content).toMatch(/2:/);
   });
 
-  it("returns a clean empty result for no matches", async () => {
+  it.skipIf(!rgPath)("returns a clean empty result for no matches", async () => {
     writeFileSync(join(ws.root, "x.txt"), "nothing here");
-    const registry = await load();
+    const registry = await load(createSearchModule({ rgPath }));
     const res = await registry.execute("search.grep", { pattern: "zzzmissing" });
     expect(res.isError).toBe(false);
     expect(res.content).toBe("(no matches)");
+  });
+
+  it("reports an actionable error when the rg binary is missing", async () => {
+    const registry = await load(
+      createSearchModule({ rgPath: join(root, "no-such-rg") }),
+    );
+    const res = await registry.execute("search.grep", { pattern: "needle" });
+    expect(res.isError).toBe(true);
+    expect(res.content).toMatch(/ripgrep \(rg\) not found on PATH/);
+    expect(res.content).toMatch(/set rgPath/);
   });
 
   it("only registers grep when no embedder is wired", async () => {
