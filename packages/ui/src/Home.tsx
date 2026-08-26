@@ -65,21 +65,34 @@ export function Home({
 }: HomeProps): ReactElement {
   const [headlines, setHeadlines] = useState<Record<string, Headline | null>>({});
 
+  // Which pages to summarise, as a stable string. The dashboard re-polls every
+  // five seconds and hands back fresh array and Map identities each time; keying
+  // the effect on those would refetch every project's page, and run every one of
+  // their queries, on every tick.
+  const wanted = projects
+    .map((p) => ({ slug: p.slug, page: pagesByProject.get(p.slug)?.[0] }))
+    .filter((x): x is { slug: string; page: PageSummary } => Boolean(x.page));
+  const key = wanted.map((w) => `${w.slug}:${w.page.id}`).join("|");
+
   useEffect(() => {
     let cancelled = false;
-    const wanted = projects
-      .map((p) => ({ slug: p.slug, page: pagesByProject.get(p.slug)?.[0] }))
-      .filter((x): x is { slug: string; page: PageSummary } => Boolean(x.page));
+    const targets = key
+      .split("|")
+      .filter(Boolean)
+      .map((pair) => {
+        const [slug, ...rest] = pair.split(":");
+        return { slug: slug ?? "", pageId: rest.join(":") };
+      });
 
     void Promise.all(
-      wanted.map(async (w) => [w.slug, await headlineFor(w.page.id)] as const),
+      targets.map(async (t) => [t.slug, await headlineFor(t.pageId)] as const),
     ).then((entries) => {
       if (!cancelled) setHeadlines(Object.fromEntries(entries));
     });
     return () => {
       cancelled = true;
     };
-  }, [projects, pagesByProject]);
+  }, [key]);
 
   if (projects.length === 0) {
     return (

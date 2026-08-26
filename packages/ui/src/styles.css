@@ -41,7 +41,7 @@
   font-family: var(--font);
   color: var(--text);
   background: var(--bg);
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.45;
 }
 
@@ -108,7 +108,7 @@ textarea {
 .ops-logo {
   font-weight: 700;
   letter-spacing: -0.03em;
-  font-size: 1.1rem;
+  font-size: 1.125rem;
   white-space: nowrap;
 }
 
@@ -123,7 +123,7 @@ textarea {
   padding: 0.3rem 0.55rem;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   max-width: min(48vw, 420px);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -145,7 +145,7 @@ textarea {
 
 .ops-busy {
   color: var(--warn);
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-family: var(--mono);
 }
 
@@ -164,7 +164,7 @@ textarea {
 }
 
 .ops-metric-label {
-  font-size: 0.68rem;
+  font-size: 0.8125rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--faint);
@@ -172,7 +172,7 @@ textarea {
 
 .ops-metric-value {
   font-family: var(--mono);
-  font-size: 0.95rem;
+  font-size: 1rem;
   font-weight: 500;
   margin-top: 0.1rem;
 }
@@ -198,7 +198,7 @@ textarea {
   border-radius: 6px;
   padding: 0.35rem 0.65rem;
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .ops-btn:hover {
@@ -242,7 +242,7 @@ textarea {
   color: var(--accent);
   cursor: pointer;
   padding: 0;
-  font-size: 0.88rem;
+  font-size: 0.9375rem;
 }
 
 .ops-link:hover {
@@ -321,7 +321,7 @@ textarea {
 
 .ops-section-head h2 {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -334,7 +334,7 @@ textarea {
 
 .ops-badge {
   font-family: var(--mono);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   padding: 0.1rem 0.4rem;
   border-radius: 999px;
   background: var(--panel-2);
@@ -384,7 +384,7 @@ textarea {
 }
 
 .ops-msg-role {
-  font-size: 0.68rem;
+  font-size: 0.8125rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--faint);
@@ -433,7 +433,7 @@ textarea {
 .ops-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
 }
 
 .ops-table th,
@@ -449,13 +449,13 @@ textarea {
   background: var(--panel-2);
   color: var(--faint);
   font-weight: 500;
-  font-size: 0.7rem;
+  font-size: 0.8125rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
 .ops-tag {
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
   font-family: var(--mono);
   padding: 0.05rem 0.35rem;
   border-radius: 4px;
@@ -490,7 +490,7 @@ textarea {
   background: var(--bg);
   border-radius: 5px;
   padding: 0.2rem 0.4rem;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
 }
 
 .ops-nav,
@@ -534,7 +534,7 @@ textarea {
   display: flex;
   justify-content: space-between;
   gap: 0.5rem;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .ops-dense li span:last-child {
@@ -548,7 +548,7 @@ textarea {
 /* —— misc —— */
 .ops-muted {
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .ops-mono {
@@ -559,7 +559,7 @@ textarea {
 .ops-back {
   color: var(--muted);
   text-decoration: none;
-  font-size: 0.9rem;
+  font-size: 0.9375rem;
 }
 
 .ops-back:hover {
@@ -586,7 +586,7 @@ textarea {
   border: 1px solid var(--line);
   background: var(--panel-2);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  font-size: 0.88rem;
+  font-size: 0.9375rem;
   max-width: 20rem;
 }
 
@@ -642,7 +642,7 @@ textarea {
 
 /* Cap chart height so a page stays scannable; the SVG scales to fit. */
 .kos-chart-svg {
-  max-height: 320px;
+  max-height: 360px;
 }
 
 .kos-page h1 {
@@ -659,11 +659,11 @@ textarea {
 
 .kos-stat-label {
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .kos-stat-value {
-  font-size: 1.6rem;
+  font-size: 1.75rem;
   font-weight: 650;
   margin-top: 0.15rem;
 }
@@ -671,7 +671,7 @@ textarea {
 .kos-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.88rem;
+  font-size: 0.9375rem;
 }
 
 .kos-table th,
@@ -684,12 +684,12 @@ textarea {
 .kos-table th {
   color: var(--faint);
   font-weight: 500;
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
   text-transform: uppercase;
 }
 
 .kos-widget-title {
-  font-size: 0.9rem;
+  font-size: 0.9375rem;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--text);
@@ -714,17 +714,17 @@ textarea {
 .kos-empty,
 .kos-note {
   color: var(--faint);
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .kos-ok {
   color: var(--ok);
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .kos-error {
   color: var(--danger);
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 /* —— agent-page controls —— */
@@ -735,7 +735,7 @@ textarea {
   border-radius: 6px;
   padding: 0.3rem 0.6rem;
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .kos-btn:hover {
@@ -789,7 +789,7 @@ textarea {
 }
 
 .kos-field-label {
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--faint);
@@ -843,7 +843,7 @@ textarea {
 
 .kos-list-meta {
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   white-space: nowrap;
 }
 
@@ -884,7 +884,7 @@ textarea {
   display: flex;
   justify-content: space-between;
   gap: 0.5rem;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .kos-card-key {
@@ -993,7 +993,7 @@ textarea {
   flex-wrap: wrap;
   gap: 0.15rem 0.85rem;
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: 0.875rem;
 }
 
 .kos-chart-legend li {
@@ -1017,7 +1017,7 @@ textarea {
 
 .kos-chart-data {
   margin-top: 0.5rem;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .kos-chart-data summary {
@@ -1097,7 +1097,7 @@ textarea {
 }
 
 .ops-status {
-  font-size: 0.68rem;
+  font-size: 0.8125rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   padding: 0.1rem 0.35rem;
@@ -1128,7 +1128,7 @@ textarea {
 }
 
 .ops-chip {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   padding: 0.1rem 0.4rem;
   border-radius: 999px;
   border: 1px solid var(--line-strong);
@@ -1190,7 +1190,7 @@ textarea {
 }
 
 .insp-kicker {
-  font-size: 0.68rem;
+  font-size: 0.8125rem;
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: var(--faint);
@@ -1198,7 +1198,7 @@ textarea {
 
 .insp-title {
   margin: 0.15rem 0 0.1rem;
-  font-size: 1.05rem;
+  font-size: 1.125rem;
   font-weight: 650;
   word-break: break-word;
 }
@@ -1218,7 +1218,7 @@ textarea {
 }
 
 .insp-label {
-  font-size: 0.68rem;
+  font-size: 0.8125rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--faint);
@@ -1231,7 +1231,7 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 6px;
   font-family: var(--mono);
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 280px;
@@ -1276,7 +1276,7 @@ textarea {
   text-decoration: none;
   padding: 0.3rem 0.55rem;
   border-radius: 6px;
-  font-size: 0.88rem;
+  font-size: 0.9375rem;
 }
 
 .ops-nav-link:hover {
@@ -1316,7 +1316,7 @@ textarea {
 
 .list-title {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 1.25rem;
   letter-spacing: -0.02em;
 }
 
@@ -1352,11 +1352,11 @@ textarea {
   align-items: center;
   gap: 0.35rem;
   color: var(--muted);
-  font-size: 0.88rem;
+  font-size: 0.9375rem;
 }
 
 .list-meta {
-  font-size: 0.8rem;
+  font-size: 0.875rem;
 }
 
 .list-table {
@@ -1376,7 +1376,7 @@ textarea {
 
 .ops-textarea {
   font-family: var(--mono);
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   resize: vertical;
 }
 
@@ -1420,7 +1420,7 @@ textarea {
 }
 
 .ops-page-chip {
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
   border: 1px solid var(--line-strong, var(--line));
   border-radius: 999px;
   padding: 0.05rem 0.45rem;
@@ -1451,7 +1451,7 @@ textarea {
 }
 
 .ops {
-  max-width: 1120px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 0 1.25rem 4rem;
 }
@@ -1475,7 +1475,7 @@ textarea {
 
 .brand {
   font-weight: 700;
-  font-size: 1.05rem;
+  font-size: 1.125rem;
   letter-spacing: -0.02em;
   color: var(--text);
   text-decoration: none;
@@ -1495,7 +1495,7 @@ textarea {
   border-radius: 999px;
   color: var(--muted);
   text-decoration: none;
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
   white-space: nowrap;
 }
 .tab:hover { color: var(--text); background: var(--panel); }
@@ -1505,7 +1505,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -1526,7 +1526,7 @@ textarea {
   border-radius: var(--r-sm);
   padding: 0.4rem 0.75rem;
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.12s, border-color 0.12s;
@@ -1549,7 +1549,7 @@ textarea {
 
 .btn kbd {
   font: inherit;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   opacity: 0.7;
   margin-left: 0.3rem;
 }
@@ -1563,7 +1563,7 @@ textarea {
   right: 0;
   top: calc(100% + 0.35rem);
   z-index: 40;
-  min-width: 200px;
+  min-width: 13rem;
   display: flex;
   flex-direction: column;
   background: var(--panel-2);
@@ -1578,7 +1578,7 @@ textarea {
   border: 0;
   color: var(--text);
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   padding: 0.45rem 0.6rem;
   border-radius: var(--r-sm);
   cursor: pointer;
@@ -1598,7 +1598,7 @@ textarea {
   border: 1px solid rgba(230, 184, 77, 0.28);
   color: var(--text);
   text-decoration: none;
-  font-size: 0.9rem;
+  font-size: 0.9375rem;
 }
 .attention-go { margin-left: auto; color: var(--warn); font-weight: 600; }
 
@@ -1625,8 +1625,8 @@ textarea {
 .approval:first-of-type { border-top: 0; padding-top: 0; }
 .approval-main { min-width: 0; flex: 1; }
 .approval-title { font-weight: 500; }
-.approval-meta { font-size: 0.8rem; color: var(--faint); margin-top: 0.15rem; }
-.approval-meta code { font-family: var(--mono); font-size: 0.78rem; }
+.approval-meta { font-size: 0.875rem; color: var(--faint); margin-top: 0.15rem; }
+.approval-meta code { font-family: var(--mono); font-size: 0.8125rem; }
 .approval-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
 
 /* —— home —— */
@@ -1636,12 +1636,12 @@ textarea {
   justify-content: space-between;
   margin-bottom: 1rem;
 }
-.home-head h1 { margin: 0; font-size: 1.4rem; letter-spacing: -0.02em; }
-.home-count { color: var(--faint); font-size: 0.85rem; }
+.home-head h1 { margin: 0; font-size: 1.375rem; letter-spacing: -0.02em; }
+.home-count { color: var(--faint); font-size: 0.875rem; }
 
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(265px, 1fr));
   gap: 0.85rem;
 }
 
@@ -1651,7 +1651,7 @@ textarea {
   gap: 0.9rem;
   text-align: left;
   padding: 1rem 1.1rem 0.9rem;
-  min-height: 148px;
+  min-height: 10rem;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
@@ -1680,25 +1680,25 @@ textarea {
 
 .card-figure { margin-top: auto; display: flex; flex-direction: column; gap: 0.1rem; }
 .card-value {
-  font-size: 1.6rem;
+  font-size: 1.75rem;
   font-weight: 600;
   letter-spacing: -0.03em;
   line-height: 1.1;
 }
-.card-label { font-size: 0.8rem; color: var(--muted); }
+.card-label { font-size: 0.875rem; color: var(--muted); }
 .card-figure--none .card-label { text-transform: capitalize; }
 .card-foot {
   display: flex;
   justify-content: space-between;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: var(--faint);
   border-top: 1px solid var(--line);
   padding-top: 0.6rem;
 }
-.card-hint { font-size: 0.75rem; color: var(--accent); }
+.card-hint { font-size: 0.8125rem; color: var(--accent); }
 
 .home-empty { text-align: center; padding: 5rem 1rem; }
-.home-empty h1 { margin: 0 0 0.4rem; font-size: 1.3rem; }
+.home-empty h1 { margin: 0 0 0.4rem; font-size: 1.25rem; }
 .home-empty p { color: var(--muted); margin: 0; }
 
 /* —— lately —— */
@@ -1709,8 +1709,8 @@ textarea {
   justify-content: space-between;
   margin-bottom: 0.5rem;
 }
-.lately-head h2 { margin: 0; font-size: 0.95rem; font-weight: 600; }
-.link { color: var(--accent); text-decoration: none; font-size: 0.82rem; }
+.lately-head h2 { margin: 0; font-size: 1rem; font-weight: 600; }
+.link { color: var(--accent); text-decoration: none; font-size: 0.875rem; }
 .link:hover { text-decoration: underline; }
 
 .feed { list-style: none; margin: 0; padding: 0; }
@@ -1730,9 +1730,9 @@ textarea {
 }
 .feed-item > button:hover { background: var(--panel); }
 .feed-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.feed-detail { color: var(--faint); font-size: 0.8rem; }
+.feed-detail { color: var(--faint); font-size: 0.875rem; }
 .feed-detail code { font-family: var(--mono); }
-.feed-when { color: var(--faint); font-size: 0.78rem; width: 4.5rem; text-align: right; flex-shrink: 0; }
+.feed-when { color: var(--faint); font-size: 0.8125rem; width: 4.5rem; text-align: right; flex-shrink: 0; }
 .feed-item--bad .feed-what { color: var(--danger); }
 .feed-empty { color: var(--faint); padding: 0.6rem 0.25rem; }
 
@@ -1746,7 +1746,7 @@ textarea {
 .sheet {
   position: fixed;
   top: 0; right: 0; bottom: 0;
-  width: min(460px, 100vw);
+  width: min(520px, 100vw);
   z-index: 51;
   display: flex;
   flex-direction: column;
@@ -1762,7 +1762,7 @@ textarea {
   padding: 0.9rem 1rem;
   border-bottom: 1px solid var(--line);
 }
-.sheet-sub { display: block; font-size: 0.75rem; color: var(--faint); }
+.sheet-sub { display: block; font-size: 0.8125rem; color: var(--faint); }
 .sheet-head-actions { display: flex; gap: 0.25rem; }
 
 .sheet-thread {
@@ -1773,13 +1773,13 @@ textarea {
   flex-direction: column;
   gap: 0.6rem;
 }
-.sheet-empty { color: var(--faint); font-size: 0.88rem; margin: 0; }
+.sheet-empty { color: var(--faint); font-size: 0.9375rem; margin: 0; }
 
 .bubble {
   max-width: 88%;
   padding: 0.55rem 0.75rem;
   border-radius: var(--r-md);
-  font-size: 0.9rem;
+  font-size: 0.9375rem;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -1797,7 +1797,7 @@ textarea {
   border-radius: var(--r-sm);
   padding: 0.55rem 0.65rem;
   font: inherit;
-  font-size: 0.9rem;
+  font-size: 0.9375rem;
 }
 .sheet-composer textarea:focus { outline: none; border-color: var(--accent); }
 .sheet-composer-bar {
@@ -1806,7 +1806,7 @@ textarea {
   justify-content: space-between;
   margin-top: 0.5rem;
 }
-.hint { color: var(--faint); font-size: 0.78rem; }
+.hint { color: var(--faint); font-size: 0.8125rem; }
 
 @media (max-width: 640px) {
   .topbar { flex-wrap: wrap; }
