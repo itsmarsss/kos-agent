@@ -15,7 +15,10 @@ import {
 } from "./api.js";
 import { Inspector, type InspectTarget } from "./Inspector.js";
 import { ListPage } from "./ListPage.js";
+import { AnimatePresence, m } from "motion/react";
+
 import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
+import { ease, listItem, spring } from "./motion.js";
 import { Home } from "./Home.js";
 import { ChatPanel } from "./ChatPanel.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
@@ -247,11 +250,21 @@ export function App(): React.ReactElement {
   const shell = (body: React.ReactNode): React.ReactElement => (
     <ErrorBoundary label="dashboard">
       <main className="ops">
-        {toast && (
-          <div className={`ops-toast ops-toast--${toast.kind}`} role="status">
-            {toast.text}
-          </div>
-        )}
+        <AnimatePresence>
+          {toast && (
+            <m.div
+              key={toast.text}
+              className={`ops-toast ops-toast--${toast.kind}`}
+              role="status"
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={spring}
+            >
+              {toast.text}
+            </m.div>
+          )}
+        </AnimatePresence>
         <Inspector
           key={inspectKey}
           target={inspect}
@@ -337,13 +350,22 @@ export function App(): React.ReactElement {
           </div>
         </header>
 
-        {approvals.length > 0 && route.name !== "home" && (
-          <a className="attention" href="#/">
-            <strong>{approvals.length}</strong>
-            {approvals.length === 1 ? " action needs you" : " actions need you"}
-            <span className="attention-go">Review →</span>
-          </a>
-        )}
+        <AnimatePresence initial={false}>
+          {approvals.length > 0 && route.name !== "home" && (
+            <m.a
+              className="attention"
+              href="#/"
+              initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+              animate={{ opacity: 1, height: "auto", marginBottom: 16 }}
+              exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+              transition={ease}
+            >
+              <strong>{approvals.length}</strong>
+              {approvals.length === 1 ? " action needs you" : " actions need you"}
+              <span className="attention-go">Review →</span>
+            </m.a>
+          )}
+        </AnimatePresence>
 
         {body}
 
@@ -717,15 +739,33 @@ export function App(): React.ReactElement {
 
   return shell(
     <>
+      <AnimatePresence initial={false}>
       {approvals.length > 0 && (
-        <section className="needs-you" aria-label="Pending approvals">
+        <m.section
+          className="needs-you"
+          aria-label="Pending approvals"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0, height: 0, marginBottom: 0, overflow: "hidden" }}
+          transition={ease}
+        >
           <h2>
             {approvals.length === 1
               ? "1 action needs you"
               : `${approvals.length} actions need you`}
           </h2>
+          <AnimatePresence initial={false}>
           {approvals.map((a) => (
-            <div key={a.id} className="approval">
+            <m.div
+              key={a.id}
+              className="approval"
+              layout
+              variants={listItem}
+              initial="hidden"
+              animate="show"
+              exit="exit"
+              transition={ease}
+            >
               <div className="approval-main">
                 <div className="approval-title">
                   {summarizeAction(a.tool, a.args)}
@@ -751,10 +791,12 @@ export function App(): React.ReactElement {
                   Deny
                 </button>
               </div>
-            </div>
+            </m.div>
           ))}
-        </section>
+          </AnimatePresence>
+        </m.section>
       )}
+      </AnimatePresence>
 
       <Home
         projects={projects}
