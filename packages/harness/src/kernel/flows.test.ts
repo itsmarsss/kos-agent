@@ -276,6 +276,41 @@ describe("KOS end-to-end flows", () => {
     expect(facts.some((f) => f.value.includes("pending action"))).toBe(false);
   });
 
+  it("gives an unattended self_prompt cron the same context as a chat turn", async () => {
+    const model = scripted([text("Noted."), text("Checked the budget.")]);
+    kernel = await boot(model.inference);
+
+    await kernel.handleMessage("my timezone is America/New_York");
+    kernel.manifest.createProject({ name: "Budget 2026", type: "budget" });
+
+    const job = kernel.crons.create({
+      name: "weekly-review",
+      schedule: "0 9 * * 1",
+      type: "self_prompt",
+      prompt: "review my timezone and spending",
+      enabled: true,
+    });
+
+    const { runCronJob } = await import("../cron/executor.js");
+    await runCronJob(job, {
+      db: kernel.workspace.db,
+      tools: kernel.registry,
+      inference: model.inference,
+      buildSystem: (j) =>
+        (kernel as unknown as {
+          cronSystemPrompt(j: typeof job): Promise<string>;
+        }).cronSystemPrompt(j),
+    });
+
+    // Unattended runs used to get no system prompt at all: no identity, no
+    // manifest, no memory.
+    const prompt = model.systems.at(-1)!;
+    expect(prompt).toContain("Projects (manifest)");
+    expect(prompt).toContain("budget_2026");
+    expect(prompt).toContain("America/New_York");
+    expect(prompt).toContain("running unattended");
+  });
+
   it("shares one session across the CLI and Discord surfaces", async () => {
     const model = scripted([text("first"), text("second")]);
     kernel = await boot(model.inference);
