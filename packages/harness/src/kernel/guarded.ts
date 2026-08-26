@@ -36,10 +36,18 @@ export class GuardedTools implements ToolBox {
 
   defs(): ReturnType<ToolRegistry["defs"]> {
     const { registry, scopeTags, toolLimit } = this.deps;
-    if (!scopeTags || scopeTags.length === 0) {
-      const all = registry.defs();
+    const all = registry.defs();
+
+    // Scoping exists for the many-modules case. While every tool still fits
+    // under the cap, narrowing only makes the offered set change shape from
+    // turn to turn as the scope inference reads a different message, which
+    // reads to the model as capabilities appearing and vanishing mid-task.
+    const fitsWithoutScoping =
+      toolLimit === undefined || registry.size <= toolLimit;
+    if (fitsWithoutScoping || !scopeTags || scopeTags.length === 0) {
       return toolLimit !== undefined ? all.slice(0, toolLimit) : all;
     }
+
     return registry.scopedDefs({
       tags: scopeTags,
       ...(toolLimit !== undefined ? { limit: toolLimit } : {}),

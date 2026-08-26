@@ -9,7 +9,7 @@ import { ApprovalQueue } from "../ops/approvals.js";
 import { RISKY } from "../risk/tiers.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
-import { GuardedTools } from "./guarded.js";
+import { GuardedTools, type GuardedToolsDeps } from "./guarded.js";
 
 describe("GuardedTools", () => {
   let root: string;
@@ -92,5 +92,51 @@ describe("GuardedTools", () => {
       "budget.add",
       "global",
     ]);
+  });
+});
+
+describe("GuardedTools tool scoping", () => {
+  function registryWith(count: number): ToolRegistry {
+    const registry = new ToolRegistry();
+    for (let i = 0; i < count; i++) {
+      registry.register(
+        { name: `t${i}`, description: "d", inputSchema: { type: "object" } },
+        () => "ok",
+        { floor: "safe" },
+        // Tag every tool so scoping would narrow hard if it engaged.
+        { tags: [i % 2 === 0 ? "even" : "odd"] },
+      );
+    }
+    return registry;
+  }
+
+  function guarded(registry: ToolRegistry, opts: Partial<GuardedToolsDeps> = {}) {
+    return new GuardedTools({
+      registry,
+      secrets: new SecretsRegistry(),
+      audit: { record: () => undefined } as unknown as AuditLog,
+      approvals: { enqueue: () => ({ id: 1 }) } as unknown as ApprovalQueue,
+      ...opts,
+    } as GuardedToolsDeps);
+  }
+
+  it("does not narrow while every tool fits under the cap", () => {
+    // The flicker: scope inferred from one message would drop half the tools
+    // on a follow-up that happened to match a different keyword.
+    const registry = registryWith(10);
+    const defs = guarded(registry, { toolLimit: 48, scopeTags: ["even"] }).defs();
+    expect(defs).toHaveLength(10);
+  });
+
+  it("narrows by tag once the registry exceeds the cap", () => {
+    const registry = registryWith(20);
+    const defs = guarded(registry, { toolLimit: 8, scopeTags: ["even"] }).defs();
+    expect(defs.length).toBeLessThanOrEqual(8);
+    expect(defs.every((d) => Number(d.name.slice(1)) % 2 === 0)).toBe(true);
+  });
+
+  it("offers everything when no scope is active", () => {
+    const registry = registryWith(5);
+    expect(guarded(registry).defs()).toHaveLength(5);
   });
 });
