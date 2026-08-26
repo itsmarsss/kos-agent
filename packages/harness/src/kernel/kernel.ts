@@ -3,6 +3,7 @@ import { ToolRegistry } from "../agent/registry.js";
 import { runCronJob } from "../cron/executor.js";
 import { CronScheduler } from "../cron/scheduler.js";
 import { CronStore } from "../cron/store.js";
+import type { CronJob } from "../cron/types.js";
 import {
   FactsStore,
   CohereEmbeddingProvider,
@@ -514,6 +515,31 @@ export class Kernel {
     this.sessionScope.delete(sessionId);
   }
 
+  /**
+   * Context for a self_prompt cron run: the same profile, manifest, and salient
+   * memory a chat turn gets. Unattended jobs previously ran with no system
+   * prompt at all, so the agent woke with no identity and no project context.
+   */
+  private async cronSystemPrompt(job: CronJob): Promise<string> {
+    const query = job.prompt ?? job.name;
+    const recall = await this.memoryRetriever.recall(this.profile.ownerId, query, {
+      factLimit: 10,
+      episodeLimit: 4,
+    });
+    return assembleSystemPrompt({
+      baseSystem: this.system,
+      profile: this.profile,
+      projects: this.manifest.list(),
+      recall,
+      extra: [
+        "## Scheduled run",
+        `You are running unattended as cron job "${job.name}".`,
+        "There is no one to ask, so do not ask questions.",
+        "Risky actions still queue for approval; say what you queued and stop.",
+      ].join("\n"),
+    });
+  }
+
   /** Union this turn's inferred tags into the session's running scope. */
   private accumulateScope(sessionId: string, inferred: string[]): string[] {
     const existing = this.sessionScope.get(sessionId) ?? new Set<string>();
@@ -600,6 +626,7 @@ export class Kernel {
               db: this.workspace.db,
               tools: this.guardedTools(),
               inference: this.inference,
+              buildSystem: (j) => this.cronSystemPrompt(j),
             });
             this.runs.finish(runId, result.ran ? "ok" : "skipped");
             return result;
