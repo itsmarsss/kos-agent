@@ -77,6 +77,11 @@ export class ToolRegistry {
     return this.tools.get(name);
   }
 
+  /** How many tools are registered. */
+  get size(): number {
+    return this.tools.size;
+  }
+
   /** All tool definitions, for passing to the model. */
   defs(): ToolDef[] {
     return [...this.tools.values()].map((t) => t.def);
