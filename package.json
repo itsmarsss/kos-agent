@@ -2,6 +2,7 @@
   "name": "kos",
   "version": "0.0.0",
   "private": true,
+  "packageManager": "pnpm@9.15.4",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -12,7 +13,7 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b",
-    "test": "vitest run --passWithNoTests --exclude '**/.claude/**'",
+    "test": "vitest run --passWithNoTests",
     "lint": "eslint .",
     "kos": "node packages/cli/dist/main.js",
     "start": "node packages/cli/dist/main.js start",
@@ -31,6 +32,9 @@
     "vitest": "^2.1.8"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "better-sqlite3"]
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "better-sqlite3"
+    ]
   }
 }
