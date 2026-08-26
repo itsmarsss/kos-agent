@@ -45,6 +45,33 @@ describe("Kernel", () => {
     });
   }
 
+  it("offers a stable tool set across turns regardless of wording", async () => {
+    // The flicker: scope was inferred from the latest message alone, so a
+    // follow-up matching no keyword changed which tools the model could see.
+    const offered: string[][] = [];
+    const inference: Inference = {
+      async generate(_t, req: GenerateRequest): Promise<ModelResponse> {
+        offered.push((req.tools ?? []).map((t) => t.name).sort());
+        return {
+          content: [{ type: "text", text: "ok" }],
+          stopReason: "end_turn",
+          usage: { inputTokens: 0, outputTokens: 0 },
+          model: "stub",
+        };
+      },
+    };
+    kernel = await boot(inference);
+
+    await kernel.handleMessage("build me a budget tracker page");
+    await kernel.handleMessage("add groceries for forty dollars");
+    await kernel.handleMessage("thanks");
+
+    expect(offered).toHaveLength(3);
+    expect(offered[0]!.length).toBeGreaterThan(0);
+    expect(offered[1]).toEqual(offered[0]);
+    expect(offered[2]).toEqual(offered[0]);
+  });
+
   it("boots with first-party tool modules loaded", async () => {
     kernel = await boot(stubInference([]));
     expect(kernel.loadReport.failed).toEqual([]);

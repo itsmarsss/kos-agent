@@ -129,6 +129,13 @@ export class Kernel {
   private readonly embedder: EmbeddingProvider;
   private readonly episodic: EpisodicStore;
   private scheduler?: CronScheduler;
+  /**
+   * Scope tags accumulated per session. Inference reads only the latest
+   * message, so a follow-up that happens to match no keyword would otherwise
+   * drop the tools the conversation has been using. Scope only ever grows
+   * within a session; clearing the session clears it.
+   */
+  private readonly sessionScope = new Map<string, Set<string>>();
 
   private constructor(args: {
     workspace: Workspace;
@@ -323,9 +330,10 @@ export class Kernel {
       const runId = this.runs.start("chat");
       try {
         const inferred = opts.scopeTags ?? inferScopeTags(text);
+        const scopeTags = this.accumulateScope(sessionId, inferred);
         const tools = this.guardedTools({
           userId,
-          ...(inferred.length ? { scopeTags: inferred } : {}),
+          ...(scopeTags.length ? { scopeTags } : {}),
         });
 
         const recall = await this.memoryRetriever.recall(userId, text, {
@@ -484,6 +492,15 @@ export class Kernel {
 
   clearSession(sessionId: string): void {
     this.sessions.clear(sessionId);
+    this.sessionScope.delete(sessionId);
+  }
+
+  /** Union this turn's inferred tags into the session's running scope. */
+  private accumulateScope(sessionId: string, inferred: string[]): string[] {
+    const existing = this.sessionScope.get(sessionId) ?? new Set<string>();
+    for (const tag of inferred) existing.add(tag);
+    this.sessionScope.set(sessionId, existing);
+    return [...existing];
   }
 
   /**
