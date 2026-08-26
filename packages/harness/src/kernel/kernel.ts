@@ -635,7 +635,11 @@ export class Kernel {
               return { ran: true, results: [] };
             }
             const result = await runCronJob(job, {
-              db: this.workspace.db,
+              // The job's query and condition are reads that build the
+              // variable scope, so they run on the read-only handle. Writes
+              // belong in the job's actions, which go through the guarded
+              // tool path and its risk tiers.
+              db: this.workspace.reader,
               tools: this.guardedTools(),
               inference: this.inference,
               buildSystem: (j) => this.cronSystemPrompt(j),
