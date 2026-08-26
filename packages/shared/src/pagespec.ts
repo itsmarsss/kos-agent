@@ -28,10 +28,18 @@ export interface MutationTarget {
   allow?: ("insert" | "update" | "delete")[];
 }
 
+/**
+ * How much of the page row a widget occupies. The agent chooses the shape of
+ * its own page; when it says nothing, the renderer picks a sane default from
+ * the widget type (a stat is a tile, a chart wants room).
+ */
+export type WidgetSpan = "quarter" | "third" | "half" | "full";
+
 export interface BaseWidget {
   type: WidgetType;
   id?: string;
   title?: string;
+  span?: WidgetSpan;
 }
 
 export interface StatWidget extends BaseWidget {

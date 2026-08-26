@@ -106,3 +106,33 @@ describe("validatePageSpec", () => {
     ).toBe(true);
   });
 });
+
+describe("widget span", () => {
+  const page = (w: unknown) => ({
+    id: "p",
+    title: "P",
+    widgets: [w],
+  }) as unknown as PageSpec;
+
+  it("accepts each supported span", () => {
+    for (const span of ["quarter", "third", "half", "full"]) {
+      const errors = validatePageSpec(
+        page({ type: "stat", label: "n", query: "SELECT 1", span }),
+      );
+      expect(errors).toEqual([]);
+    }
+  });
+
+  it("treats span as optional", () => {
+    expect(
+      validatePageSpec(page({ type: "stat", label: "n", query: "SELECT 1" })),
+    ).toEqual([]);
+  });
+
+  it("rejects an unknown span", () => {
+    const errors = validatePageSpec(
+      page({ type: "stat", label: "n", query: "SELECT 1", span: "enormous" }),
+    );
+    expect(errors.join(" ")).toMatch(/span must be one of/);
+  });
+});

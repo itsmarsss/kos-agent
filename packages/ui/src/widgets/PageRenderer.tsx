@@ -51,6 +51,26 @@ async function defaultRefresh(pageId: string, widgetIndex: number): Promise<Row[
   return payload.data[widgetIndex] ?? [];
 }
 
+/**
+ * Default width per widget type. A stat is a few words and reads as a tile;
+ * a chart or table needs the full row to be legible. Stacking everything full
+ * width turns a five-widget page into three screens of scrolling.
+ */
+const DEFAULT_SPAN: Record<string, string> = {
+  stat: "quarter",
+  form: "half",
+  markdown: "half",
+  list: "half",
+  card: "full",
+  table: "full",
+  chart: "full",
+  custom_html: "full",
+};
+
+function spanOf(widget: { type: string; span?: string }): string {
+  return widget.span ?? DEFAULT_SPAN[widget.type] ?? "full";
+}
+
 /** Stable identity so the default never looks like fresh data every render. */
 const NO_DATA: Record<number, Row[]> = {};
 const NO_ERRORS: Record<number, string> = {};
@@ -120,7 +140,8 @@ export function PageRenderer({
         const Renderer = widgetRenderer(widget.type);
         const failed = errors[i];
         return (
-          <ErrorBoundary key={i} label={widget.title ?? widget.type}>
+          <div className={`kos-cell kos-cell--${spanOf(widget)}`} key={i}>
+          <ErrorBoundary label={widget.title ?? widget.type}>
             {failed ? (
               <div className="kos-widget kos-widget-failed" role="alert">
                 <div className="kos-widget-title">
@@ -136,6 +157,7 @@ export function PageRenderer({
               />
             )}
           </ErrorBoundary>
+          </div>
         );
       })}
     </div>
