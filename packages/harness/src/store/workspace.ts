@@ -2,7 +2,7 @@ import { mkdirSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { resolvePath } from "../jail/resolvePath.js";
-import { openDatabase, type Db } from "./db.js";
+import { openDatabase, openReadOnlyDatabase, type Db } from "./db.js";
 
 /** The single SQLite file at the workspace root. */
 export const DB_FILENAME = "kos.sqlite";
@@ -17,9 +17,24 @@ export class Workspace {
   readonly root: string;
   readonly db: Db;
 
+  /** Opened on first use; display queries never need it until a page renders. */
+  private readerDb?: Db;
+
   private constructor(root: string, db: Db) {
     this.root = root;
     this.db = db;
+  }
+
+  /**
+   * A read-only handle on the same database, for rendering agent-authored
+   * page specs. Separate from `db` so the UI read path physically cannot
+   * write, whatever the spec's query says.
+   */
+  get reader(): Db {
+    if (!this.readerDb) {
+      this.readerDb = openReadOnlyDatabase(resolvePath(this.root, DB_FILENAME));
+    }
+    return this.readerDb;
   }
 
   /**
@@ -41,6 +56,8 @@ export class Workspace {
   }
 
   close(): void {
+    this.readerDb?.close();
+    this.readerDb = undefined;
     this.db.close();
   }
 }
