@@ -50,3 +50,43 @@ describe("EpisodicStore", () => {
     expect(() => store.add("u1", "x", [1, 2, 3])).toThrow(/dimension/);
   });
 });
+
+describe("EpisodicStore provider isolation", () => {
+  let root: string;
+  let ws: Workspace;
+  const embedder = new HashingEmbeddingProvider(128);
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-episodic-prov-"));
+    ws = Workspace.open(root);
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  async function store(provider: string): Promise<EpisodicStore> {
+    return new EpisodicStore(ws.db, 128, Date.now, provider);
+  }
+
+  it("does not recall vectors written by a different provider", async () => {
+    // Adding an API key later must not turn every existing vector into noise
+    // in the results: two providers' vector spaces are not comparable.
+    const openai = await store("openai");
+    const [v] = await embedder.embed(["the cat sat on the mat"]);
+    openai.add("u1", "the cat sat on the mat", v!);
+    expect(openai.search("u1", v!, 5)).toHaveLength(1);
+
+    const cohere = await store("cohere");
+    expect(cohere.search("u1", v!, 5)).toHaveLength(0);
+  });
+
+  it("recalls its own provider's vectors", async () => {
+    const cohere = await store("cohere");
+    const [v] = await embedder.embed(["hello there"]);
+    cohere.add("u1", "hello there", v!);
+    const again = await store("cohere");
+    expect(again.search("u1", v!, 5)).toHaveLength(1);
+  });
+});

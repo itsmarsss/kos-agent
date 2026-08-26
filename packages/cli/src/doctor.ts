@@ -108,6 +108,22 @@ export async function runDoctor(options: DoctorOptions): Promise<string> {
     "ANTHROPIC_API_KEY or OPENAI_API_KEY",
   );
 
+  // Semantic recall needs a real embedder. Without one KOS falls back to
+  // lexical hashing, which still runs but is not semantic, so say so plainly
+  // rather than letting it look like working vector search.
+  const embedKey = secrets.has("openai")
+    ? "openai"
+    : secrets.has("cohere")
+      ? "cohere"
+      : null;
+  check(
+    embedKey !== null,
+    "semantic memory",
+    embedKey
+      ? `embeddings via ${embedKey}`
+      : "no OPENAI_API_KEY or KOS_SECRET_COHERE; episodic recall falls back to lexical hashing, not semantic",
+  );
+
   const ws = options.workspace || join(homedir(), "kos-workspace");
   try {
     // Ensure parent is creatable / workspace openable via Kernel.boot.
