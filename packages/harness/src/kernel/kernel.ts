@@ -47,7 +47,11 @@ import { notifyModule } from "../tools/notify.js";
 import { sqlModule } from "../tools/sql.js";
 import { systemsModule } from "../tools/systems.js";
 import { tasksModule } from "../tools/tasks.js";
-import { assembleSystemPrompt, inferScopeTags } from "./context.js";
+import {
+  assembleSystemPrompt,
+  channelGuidance,
+  inferScopeTags,
+} from "./context.js";
 import { GuardedTools } from "./guarded.js";
 import { ensureProfile, type Profile } from "./profile.js";
 import { SessionStore, primarySessionId } from "./session.js";
@@ -339,6 +343,8 @@ export class Kernel {
        * memory salience pass.
        */
       origin?: "owner" | "system";
+      /** Surface this turn arrived on, so the reply can be shaped for it. */
+      channel?: string;
     } = {},
   ): Promise<HandleResult> {
     if (this.killSwitch.halted) {
@@ -363,11 +369,13 @@ export class Kernel {
           episodeLimit: 4,
           minFactsBeforeVector: 2,
         });
+        const formatting = channelGuidance(opts.channel);
         const system = assembleSystemPrompt({
           baseSystem: this.system,
           profile: this.profile,
           projects: this.manifest.list(),
           recall,
+          ...(formatting ? { extra: formatting } : {}),
         });
 
         let input: string | ModelMessage[] = text;
