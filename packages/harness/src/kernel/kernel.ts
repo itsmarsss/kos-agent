@@ -444,17 +444,29 @@ export class Kernel {
     }
     this.approvals.approve(id, decidedBy ?? this.profile.ownerId);
     const stored = JSON.parse(action.args) as Record<string, unknown>;
-    const result = await this.registry.execute(
-      action.tool,
-      injectSecrets(stored, this.secrets),
-    );
-    this.audit.record({
-      tool: action.tool,
-      args: stored,
-      result: result.content,
-      isError: result.isError,
-      riskTier: "risky",
-      userId: decidedBy ?? this.profile.ownerId,
+
+    // Approvals arrive whenever the owner taps a button, so the execution has
+    // to join the serial queue like any other job. Running it inline races
+    // whatever is already in flight: two git snapshots in one repo, or a cron
+    // job's read-modify-write interleaved across an await.
+    //
+    // Only the execution is enqueued. The resume turn below goes through
+    // handleMessage, which enqueues itself; nesting would wait on a chain that
+    // includes this very task and deadlock.
+    const result = await this.queue.enqueue(async () => {
+      const r = await this.registry.execute(
+        action.tool,
+        injectSecrets(stored, this.secrets),
+      );
+      this.audit.record({
+        tool: action.tool,
+        args: stored,
+        result: r.content,
+        isError: r.isError,
+        riskTier: "risky",
+        userId: decidedBy ?? this.profile.ownerId,
+      });
+      return r;
     });
 
     const userId = decidedBy ?? this.profile.ownerId;
