@@ -81,6 +81,35 @@ export interface PagePayload {
   record: PageSummary;
   spec: import("@kos/shared").PageSpec;
   data: Record<number, Record<string, unknown>[]>;
+  /** Per-widget display-query failures, keyed by widget index. */
+  errors?: Record<number, string>;
+}
+
+/** The guarded mutation path shared by every write-capable widget. */
+export type MutateOp = "insert" | "update" | "delete";
+
+/** Identifies the row an update/delete targets. */
+export interface MutateKey {
+  column: string;
+  value: unknown;
+}
+
+/**
+ * A widget mutation request. The server resolves the target table and the
+ * editable columns from the stored page spec, so the client never sends them:
+ * a widget can only ever mutate what its own spec declared.
+ */
+export interface MutateRequest {
+  pageId: string;
+  widgetIndex: number;
+  op: MutateOp;
+  values?: Record<string, unknown>;
+  key?: MutateKey;
+}
+
+export interface MutateResult {
+  ok: boolean;
+  changes?: number;
 }
 
 export interface FactRow {
@@ -140,6 +169,7 @@ export const api = {
       project ? `/api/pages?project=${encodeURIComponent(project)}` : "/api/pages",
     ),
   page: (id: string) => get<PagePayload>(`/api/pages/${encodeURIComponent(id)}`),
+  mutate: (req: MutateRequest) => post<MutateResult>("/api/mutate", req),
   memory: (limit = 200) =>
     get<{ facts: FactRow[] }>(`/api/memory?limit=${limit}`),
   saveMemory: (key: string, value: string, kind: "fact" | "preference" = "fact") =>
