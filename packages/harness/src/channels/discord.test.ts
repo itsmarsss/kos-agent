@@ -139,3 +139,56 @@ describe("chunkText", () => {
     expect(chunks.every((c) => c.length <= 6)).toBe(true);
   });
 });
+
+describe("chunkText formatting safety", () => {
+  it("keeps a short reply as a single chunk", () => {
+    expect(chunkText("just a line")).toEqual(["just a line"]);
+  });
+
+  it("never splits a fenced code block open", () => {
+    const body = Array.from({ length: 80 }, (_, i) => `line ${i} of the query`);
+    const reply = ["Here is the query:", "```sql", ...body, "```"].join("\n");
+    const chunks = chunkText(reply, 400);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      // Every chunk must have balanced fences, or Discord renders the rest of
+      // the conversation as code.
+      const fences = (chunk.match(/^\s*```/gm) ?? []).length;
+      expect(fences % 2).toBe(0);
+    }
+  });
+
+  it("reopens the block with the same language after a split", () => {
+    const body = Array.from({ length: 60 }, (_, i) => `select ${i};`);
+    const chunks = chunkText(["```sql", ...body, "```"].join("\n"), 300);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks.slice(1)) {
+      expect(chunk.startsWith("```sql")).toBe(true);
+    }
+  });
+
+  it("splits plain prose on line boundaries", () => {
+    const reply = Array.from({ length: 50 }, (_, i) => `sentence ${i}`).join("\n");
+    const chunks = chunkText(reply, 200);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) expect(chunk.length).toBeLessThanOrEqual(200);
+    expect(chunks.join("\n")).toContain("sentence 49");
+  });
+
+  it("breaks a single oversized line rather than exceeding the limit", () => {
+    const chunks = chunkText("x".repeat(1000), 100);
+    for (const chunk of chunks) expect(chunk.length).toBeLessThanOrEqual(100);
+    expect(chunks.join("").length).toBe(1000);
+  });
+
+  it("preserves markdown structure across a split", () => {
+    const reply = [
+      "## Spending",
+      ...Array.from({ length: 40 }, (_, i) => `- item ${i}`),
+    ].join("\n");
+    const chunks = chunkText(reply, 250);
+    expect(chunks[0]).toContain("## Spending");
+    expect(chunks.join("\n")).toContain("- item 39");
+  });
+});

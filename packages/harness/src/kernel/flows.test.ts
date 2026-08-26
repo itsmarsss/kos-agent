@@ -311,6 +311,17 @@ describe("KOS end-to-end flows", () => {
     expect(prompt).toContain("running unattended");
   });
 
+  it("tells the model how to format when the turn came from Discord", async () => {
+    const model = scripted([text("**done**")]);
+    kernel = await boot(model.inference);
+
+    await kernel.handleMessage("what did I spend", { channel: "discord" });
+    expect(model.systems.at(-1)!).toContain("Replying on Discord");
+
+    await kernel.handleMessage("and now from the CLI");
+    expect(model.systems.at(-1)!).not.toContain("Replying on Discord");
+  });
+
   it("shares one session across the CLI and Discord surfaces", async () => {
     const model = scripted([text("first"), text("second")]);
     kernel = await boot(model.inference);
