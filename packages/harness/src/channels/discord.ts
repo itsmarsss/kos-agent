@@ -6,6 +6,7 @@ import {
   EmbedBuilder,
   Events,
   GatewayIntentBits,
+  MessageFlags,
   Partials,
   type Interaction,
   type Message,
@@ -22,6 +23,7 @@ import type {
   InboundMessage,
   MessageHandler,
   OutboundMessage,
+  SenderAuthorizer,
   TurnPresence,
 } from "./types.js";
 
@@ -32,7 +34,6 @@ const REACT_WORKING = "⏳";
 const REACT_DONE = "✅";
 const REACT_FAIL = "❌";
 const COLOR_WORKING = 0x6366f1;
-const COLOR_OK = 0x22c55e;
 const COLOR_FAIL = 0xef4444;
 const COLOR_APPROVE = 0xf59e0b;
 
@@ -60,19 +61,54 @@ export function parseApprovalCustomId(
   return null;
 }
 
-/** Split long replies so Discord's 2000-char / embed limits are respected. */
+const FENCE = /^\s*```(\w*)\s*$/;
+
+/**
+ * Split long replies to Discord's message limit without breaking formatting.
+ *
+ * Splits on line boundaries, and tracks fenced code blocks: a chunk that ends
+ * mid-fence is closed and the next chunk reopens with the same language. A
+ * naive split leaves a dangling ``` that swallows the rest of the reply as
+ * code, which is exactly the case a long answer with a query in it hits.
+ */
 export function chunkText(text: string, max = 1900): string[] {
   if (text.length <= max) return [text];
+
   const chunks: string[] = [];
-  let rest = text;
-  while (rest.length > max) {
-    let cut = rest.lastIndexOf("\n", max);
-    if (cut < max / 2) cut = max;
-    chunks.push(rest.slice(0, cut));
-    rest = rest.slice(cut).replace(/^\n+/, "");
+  const lines = text.split("\n");
+  let current: string[] = [];
+  let length = 0;
+  let fenceLang: string | null = null;
+
+  const flush = (): void => {
+    if (current.length === 0) return;
+    const body = fenceLang === null ? current : [...current, "```"];
+    chunks.push(body.join("\n"));
+    current = fenceLang === null ? [] : [`\`\`\`${fenceLang}`];
+    length = current.reduce((n, l) => n + l.length + 1, 0);
+  };
+
+  for (const rawLine of lines) {
+    // A single line longer than the budget still has to be broken somewhere.
+    const pieces =
+      rawLine.length <= max
+        ? [rawLine]
+        : (rawLine.match(new RegExp(`.{1,${max}}`, "g")) ?? [rawLine]);
+
+    for (const line of pieces) {
+      if (length + line.length + 1 > max) flush();
+      current.push(line);
+      length += line.length + 1;
+
+      const fence = FENCE.exec(line);
+      if (fence) fenceLang = fenceLang === null ? (fence[1] ?? "") : null;
+    }
   }
-  if (rest) chunks.push(rest);
-  return chunks;
+
+  if (current.length > 0 && current.join("").trim() !== "```") {
+    chunks.push(fenceLang === null ? current.join("\n") : [...current, "```"].join("\n"));
+  }
+  return chunks.filter((c) => c.trim() !== "");
 }
 
 export interface DiscordAdapterOptions {
@@ -83,6 +119,11 @@ export interface DiscordAdapterOptions {
 /**
  * Discord channel adapter. DMs become turns with live presence (reaction +
  * editable status embed). Approvals use embeds + native buttons.
+ *
+ * Discord is a public surface: anyone can DM the bot or click a button on a
+ * prompt they can see. The adapter asks the injected authorizer (backed by the
+ * identity mapping) before it touches anything, so it enforces the gate without
+ * knowing who the owner is.
  */
 export class DiscordAdapter implements ChannelAdapter {
   readonly name = "discord";
@@ -90,6 +131,11 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly token: string;
   private messageHandler?: MessageHandler;
   private approvalHandler?: ApprovalHandler;
+  private isAuthorized: SenderAuthorizer = () => true;
+
+  setAuthorizer(isAuthorized: SenderAuthorizer): void {
+    this.isAuthorized = isAuthorized;
+  }
 
   constructor(options: DiscordAdapterOptions) {
     this.token = options.token;
@@ -107,53 +153,78 @@ export class DiscordAdapter implements ChannelAdapter {
 
   async start(): Promise<void> {
     this.client.on(Events.MessageCreate, (message: Message) => {
-      if (message.author.bot) return;
-      // Only DMs for now (personal agent).
-      if (message.guild) return;
-      void this.messageHandler?.({
-        channel: this.name,
-        senderId: message.author.id,
-        text: message.content,
-        native: message,
-      });
+      void this.receiveMessage(message);
     });
 
     this.client.on(Events.InteractionCreate, (interaction: Interaction) => {
-      if (!interaction.isButton()) return;
-      const decision = parseApprovalCustomId(interaction.customId);
-      if (!decision) return;
-      void (async () => {
-        try {
-          await interaction.update({
-            content: decision.approved
-              ? "Working on that…"
-              : "Denied.",
-            embeds: decision.approved
-              ? [
-                  new EmbedBuilder()
-                    .setColor(COLOR_WORKING)
-                    .setTitle(decision.approved ? "Approved" : "Denied")
-                    .setDescription(
-                      decision.approved
-                        ? `Running pending \`#${decision.id}\`…`
-                        : `Pending \`#${decision.id}\` was denied.`,
-                    ),
-                ]
-              : [],
-            components: [],
-          });
-        } catch {
-          // interaction may already be acknowledged
-        }
-        await this.approvalHandler?.({
-          id: decision.id,
-          approved: decision.approved,
-          deciderId: interaction.user.id,
-        });
-      })();
+      void this.receiveInteraction(interaction);
     });
 
     await this.client.login(this.token);
+  }
+
+  /** Gateway MessageCreate handler. Internal; separated for tests. */
+  async receiveMessage(message: Message): Promise<void> {
+    if (message.author.bot) return;
+    // Only DMs for now (personal agent).
+    if (message.guild) return;
+    if (!this.isAuthorized(message.author.id)) {
+      // Log for the owner, stay silent to the sender.
+      console.warn(`[discord] ignored DM from unknown sender ${message.author.id}`);
+      return;
+    }
+    await this.messageHandler?.({
+      channel: this.name,
+      senderId: message.author.id,
+      text: message.content,
+      native: message,
+    });
+  }
+
+  /** Gateway InteractionCreate handler. Internal; separated for tests. */
+  async receiveInteraction(interaction: Interaction): Promise<void> {
+    if (!interaction.isButton()) return;
+    const decision = parseApprovalCustomId(interaction.customId);
+    if (!decision) return;
+
+    if (!this.isAuthorized(interaction.user.id)) {
+      // Leave the prompt intact (still approvable by the owner) and say nothing
+      // about the action behind it.
+      console.warn(
+        `[discord] ignored approval click on #${decision.id} from unknown sender ${interaction.user.id}`,
+      );
+      try {
+        await interaction.reply({
+          content: "Not authorized.",
+          flags: MessageFlags.Ephemeral,
+        });
+      } catch {
+        // interaction may already be acknowledged
+      }
+      return;
+    }
+
+    try {
+      await interaction.update({
+        content: decision.approved ? "Working on that…" : "Denied.",
+        embeds: decision.approved
+          ? [
+              new EmbedBuilder()
+                .setColor(COLOR_WORKING)
+                .setTitle("Approved")
+                .setDescription(`Running pending \`#${decision.id}\`…`),
+            ]
+          : [],
+        components: [],
+      });
+    } catch {
+      // interaction may already be acknowledged
+    }
+    await this.approvalHandler?.({
+      id: decision.id,
+      approved: decision.approved,
+      deciderId: interaction.user.id,
+    });
   }
 
   async stop(): Promise<void> {
@@ -237,17 +308,16 @@ export class DiscordAdapter implements ChannelAdapter {
       },
       complete: async (reply: string) => {
         await swapReact(REACT_WORKING, REACT_DONE);
-        const chunks = chunkText(reply, 4000);
+        // The reply lands as ordinary message content, not an embed, so the
+        // model owns the presentation: headings, lists, code blocks and the
+        // rest render as written instead of being flattened into one
+        // description field under a fixed title.
+        const chunks = chunkText(reply);
         try {
           await statusMsg.edit({
-            embeds: [
-              new EmbedBuilder()
-                .setColor(COLOR_OK)
-                .setTitle("KOS")
-                .setDescription(chunks[0] || "(no reply)"),
-            ],
+            content: chunks[0] || "(no reply)",
+            embeds: [],
           });
-          // Overflow as plain follow-ups (embeds are size-capped).
           for (let i = 1; i < chunks.length; i++) {
             await this.send(msg.senderId, { text: chunks[i]! });
           }
@@ -258,7 +328,10 @@ export class DiscordAdapter implements ChannelAdapter {
       fail: async (err: string) => {
         await swapReact(REACT_WORKING, REACT_FAIL);
         try {
+          // Failures keep the embed: that is the harness speaking about a
+          // broken turn, not the agent presenting work.
           await statusMsg.edit({
+            content: "",
             embeds: [
               new EmbedBuilder()
                 .setColor(COLOR_FAIL)

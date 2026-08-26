@@ -1,13 +1,36 @@
+import { execFile } from "node:child_process";
 import { existsSync, accessSync, constants } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import { Kernel, SecretsRegistry } from "@kos/harness";
+
+const exec = promisify(execFile);
 
 export interface DoctorOptions {
   workspace: string;
   envPath?: string;
+}
+
+/** Resolve an executable on PATH without a shell, so aliases cannot fake a hit. */
+function resolveOnPath(bin: string): string | undefined {
+  const names =
+    process.platform === "win32" ? [`${bin}.exe`, `${bin}.cmd`] : [bin];
+  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+    if (!dir) continue;
+    for (const name of names) {
+      const candidate = join(dir, name);
+      try {
+        accessSync(candidate, constants.X_OK);
+        return candidate;
+      } catch {
+        // not here; keep looking
+      }
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -28,6 +51,26 @@ export async function runDoctor(options: DoctorOptions): Promise<string> {
 
   const major = Number(process.versions.node.split(".")[0]);
   check(major >= 20, "node >= 20", process.versions.node);
+
+  // search.grep shells out to ripgrep; without it exact search is dead.
+  const rgPath = resolveOnPath("rg");
+  if (rgPath) {
+    let detail = rgPath;
+    try {
+      const { stdout } = await exec(rgPath, ["--version"]);
+      const version = stdout.split("\n")[0]?.trim();
+      if (version) detail = `${rgPath}, ${version}`;
+    } catch {
+      // path resolved but version probe failed; the path alone is enough detail
+    }
+    check(true, "ripgrep (search.grep)", detail);
+  } else {
+    check(
+      false,
+      "ripgrep (search.grep)",
+      "rg not found on PATH; install ripgrep (apt-get install ripgrep, brew install ripgrep)",
+    );
+  }
 
   const here = dirname(fileURLToPath(import.meta.url));
   // packages/cli/dist -> repo root
@@ -63,6 +106,22 @@ export async function runDoctor(options: DoctorOptions): Promise<string> {
     secrets.has("anthropic") || secrets.has("openai"),
     "model API key",
     "ANTHROPIC_API_KEY or OPENAI_API_KEY",
+  );
+
+  // Semantic recall needs a real embedder. Without one KOS falls back to
+  // lexical hashing, which still runs but is not semantic, so say so plainly
+  // rather than letting it look like working vector search.
+  const embedKey = secrets.has("openai")
+    ? "openai"
+    : secrets.has("cohere")
+      ? "cohere"
+      : null;
+  check(
+    embedKey !== null,
+    "semantic memory",
+    embedKey
+      ? `embeddings via ${embedKey}`
+      : "no OPENAI_API_KEY or KOS_SECRET_COHERE; episodic recall falls back to lexical hashing, not semantic",
   );
 
   const ws = options.workspace || join(homedir(), "kos-workspace");

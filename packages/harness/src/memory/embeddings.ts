@@ -4,10 +4,26 @@ import OpenAI from "openai";
  * Embedding provider, modular like the model router: swappable local or cloud,
  * keys via the secrets system. Vectors feed the sqlite-vec episodic store.
  */
+/**
+ * Whether these texts are being stored or used as a search query. Some
+ * providers (Cohere) embed the two asymmetrically and lose accuracy if the
+ * distinction is dropped; providers that do not care ignore it.
+ */
+export type EmbedMode = "document" | "query";
+
 export interface EmbeddingProvider {
   readonly name: string;
   readonly dimension: number;
-  embed(texts: string[]): Promise<number[][]>;
+  embed(texts: string[], mode?: EmbedMode): Promise<number[][]>;
+}
+
+/**
+ * True when the provider is a real semantic embedder. The hashing fallback is
+ * lexical, so callers can tell the user rather than implying semantic recall
+ * that is not there.
+ */
+export function isSemantic(provider: EmbeddingProvider): boolean {
+  return provider.name !== "hashing";
 }
 
 /**
@@ -70,5 +86,60 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
       dimensions: this.options.dimension,
     });
     return res.data.map((d) => d.embedding);
+  }
+}
+
+export interface CohereEmbeddingOptions {
+  apiKey: string;
+  /** Embedding model id, e.g. "embed-english-v3.0". */
+  model: string;
+  dimension: number;
+  /** Injectable for tests; defaults to global fetch. */
+  fetchImpl?: typeof fetch;
+}
+
+const COHERE_ENDPOINT = "https://api.cohere.com/v2/embed";
+
+/**
+ * Cloud embeddings via Cohere. Present so an Anthropic-only .env still gets
+ * real semantic recall instead of silently falling back to lexical hashing.
+ */
+export class CohereEmbeddingProvider implements EmbeddingProvider {
+  readonly name = "cohere";
+
+  constructor(private readonly options: CohereEmbeddingOptions) {}
+
+  get dimension(): number {
+    return this.options.dimension;
+  }
+
+  async embed(texts: string[], mode: EmbedMode = "document"): Promise<number[][]> {
+    if (texts.length === 0) return [];
+    const doFetch = this.options.fetchImpl ?? fetch;
+    const res = await doFetch(COHERE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${this.options.apiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: this.options.model,
+        texts,
+        input_type: mode === "query" ? "search_query" : "search_document",
+        embedding_types: ["float"],
+        output_dimension: this.options.dimension,
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`cohere embed failed: ${res.status} ${await res.text()}`);
+    }
+    const body = (await res.json()) as {
+      embeddings?: { float?: number[][] };
+    };
+    const vectors = body.embeddings?.float;
+    if (!Array.isArray(vectors)) {
+      throw new Error("cohere embed returned no float embeddings");
+    }
+    return vectors;
   }
 }

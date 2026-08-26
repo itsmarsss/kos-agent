@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { assembleSystemPrompt, inferScopeTags } from "./context.js";
+import {
+  assembleSystemPrompt,
+  channelGuidance,
+  inferScopeTags,
+} from "./context.js";
 import { DEFAULT_PROFILE } from "./profile.js";
 
 describe("assembleSystemPrompt", () => {
@@ -51,5 +55,25 @@ describe("inferScopeTags", () => {
     expect(inferScopeTags("create a task list")).toEqual(
       expect.arrayContaining(["tasks", "systems"]),
     );
+  });
+});
+
+describe("channelGuidance", () => {
+  it("describes Discord formatting so the model can choose a shape", () => {
+    const g = channelGuidance("discord")!;
+    expect(g).toContain("headings");
+    expect(g).toContain("fenced code blocks");
+    // No table syntax exists on Discord; the model must be told, not left to
+    // emit a markdown table that renders as garbage.
+    expect(g).toContain("no table syntax");
+  });
+
+  it("tells the model to match format to the answer", () => {
+    expect(channelGuidance("discord")).toMatch(/one-line question gets one line/);
+  });
+
+  it("returns nothing for surfaces with no special guidance", () => {
+    expect(channelGuidance("cli")).toBeUndefined();
+    expect(channelGuidance(undefined)).toBeUndefined();
   });
 });

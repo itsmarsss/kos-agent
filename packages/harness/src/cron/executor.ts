@@ -22,7 +22,7 @@ export interface CronExecutorDeps {
   /** Required for self_prompt jobs. */
   inference?: Inference;
   /** Assemble the system context for a self_prompt (manifest + salient memory). */
-  buildSystem?: (job: CronJob) => string | undefined;
+  buildSystem?: (job: CronJob) => string | undefined | Promise<string | undefined>;
   maxIterations?: number;
 }
 
@@ -54,7 +54,7 @@ export async function runCronJob(
     throw new Error("self_prompt cron requires an inference provider");
   }
   const prompt = template(job.prompt ?? "", scope);
-  const system = deps.buildSystem?.(job);
+  const system = await deps.buildSystem?.(job);
   const result = await runAgent(deps.inference, deps.tools, prompt, {
     task: "reasoning",
     ...(system ? { system } : {}),

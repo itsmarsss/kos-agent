@@ -3,9 +3,12 @@ import { ToolRegistry } from "../agent/registry.js";
 import { runCronJob } from "../cron/executor.js";
 import { CronScheduler } from "../cron/scheduler.js";
 import { CronStore } from "../cron/store.js";
+import type { CronJob } from "../cron/types.js";
 import {
   FactsStore,
+  CohereEmbeddingProvider,
   HashingEmbeddingProvider,
+  LlmSalienceConfirmer,
   MemoryRetriever,
   MemoryWriter,
   OpenAIEmbeddingProvider,
@@ -37,13 +40,19 @@ import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
 import { createHttpModule } from "../tools/http.js";
 import { createSearchModule } from "../tools/search.js";
+import { exportModule } from "../tools/export.js";
+import { createSkillsModule } from "../tools/skills.js";
 import { cronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
 import { notifyModule } from "../tools/notify.js";
 import { sqlModule } from "../tools/sql.js";
 import { systemsModule } from "../tools/systems.js";
 import { tasksModule } from "../tools/tasks.js";
-import { assembleSystemPrompt, inferScopeTags } from "./context.js";
+import {
+  assembleSystemPrompt,
+  channelGuidance,
+  inferScopeTags,
+} from "./context.js";
 import { GuardedTools } from "./guarded.js";
 import { ensureProfile, type Profile } from "./profile.js";
 import { SessionStore, primarySessionId } from "./session.js";
@@ -78,12 +87,25 @@ const DEFAULT_SYSTEM =
 
 const DEFAULT_BACKUP_CRON = "0 3 * * *";
 
+/**
+ * Pick the embedding provider from available secrets. Cohere is here so an
+ * Anthropic-only .env still gets real semantic recall; the hashing provider is
+ * a lexical last resort, not a semantic one, and callers say so.
+ */
 function pickEmbedder(secrets: SecretsRegistry): EmbeddingProvider {
-  const key = secrets.get("openai");
-  if (key) {
+  const openai = secrets.get("openai");
+  if (openai) {
     return new OpenAIEmbeddingProvider({
-      apiKey: key,
+      apiKey: openai,
       model: "text-embedding-3-small",
+      dimension: 256,
+    });
+  }
+  const cohere = secrets.get("cohere");
+  if (cohere) {
+    return new CohereEmbeddingProvider({
+      apiKey: cohere,
+      model: "embed-english-v3.0",
       dimension: 256,
     });
   }
@@ -128,6 +150,13 @@ export class Kernel {
   private readonly embedder: EmbeddingProvider;
   private readonly episodic: EpisodicStore;
   private scheduler?: CronScheduler;
+  /**
+   * Scope tags accumulated per session. Inference reads only the latest
+   * message, so a follow-up that happens to match no keyword would otherwise
+   * drop the tools the conversation has been using. Scope only ever grows
+   * within a session; clearing the session clears it.
+   */
+  private readonly sessionScope = new Map<string, Set<string>>();
 
   private constructor(args: {
     workspace: Workspace;
@@ -214,8 +243,12 @@ export class Kernel {
     const sessions = new SessionStore(workspace.db);
     const facts = new FactsStore(workspace.db);
     const embedder = pickEmbedder(secrets);
-    const episodic = new EpisodicStore(workspace.db, embedder.dimension);
-    const memoryWriter = new MemoryWriter(facts);
+    const episodic = new EpisodicStore(
+      workspace.db,
+      embedder.dimension,
+      Date.now,
+      embedder.name,
+    );
     const memoryRetriever = new MemoryRetriever(facts, episodic, embedder);
 
     const services: ModuleServices = {
@@ -237,6 +270,8 @@ export class Kernel {
       createSearchModule(),
       systemsModule,
       tasksModule,
+      exportModule,
+      createSkillsModule(promoter),
       ...(options.extraModules ?? []),
     ];
     const loader = new ModuleLoader(toolRegistryContext(registry, services));
@@ -246,6 +281,13 @@ export class Kernel {
 
     const inference =
       options.inference ?? createDefaultRouter(secrets);
+
+    // Hybrid salience: heuristics decide outright, the cheap model confirms and
+    // structures whatever they only flag as "maybe".
+    const memoryWriter = new MemoryWriter(
+      facts,
+      new LlmSalienceConfirmer(inference),
+    );
 
     return new Kernel({
       workspace,
@@ -297,6 +339,14 @@ export class Kernel {
       sessionId?: string;
       /** Skip session history for this turn only. */
       noSession?: boolean;
+      /**
+       * Who this turn came from. "system" marks harness-generated turns (an
+       * approval resume, say) so they are not mistaken for owner speech by the
+       * memory salience pass.
+       */
+      origin?: "owner" | "system";
+      /** Surface this turn arrived on, so the reply can be shaped for it. */
+      channel?: string;
     } = {},
   ): Promise<HandleResult> {
     if (this.killSwitch.halted) {
@@ -310,9 +360,10 @@ export class Kernel {
       const runId = this.runs.start("chat");
       try {
         const inferred = opts.scopeTags ?? inferScopeTags(text);
+        const scopeTags = this.accumulateScope(sessionId, inferred);
         const tools = this.guardedTools({
           userId,
-          ...(inferred.length ? { scopeTags: inferred } : {}),
+          ...(scopeTags.length ? { scopeTags } : {}),
         });
 
         const recall = await this.memoryRetriever.recall(userId, text, {
@@ -320,11 +371,13 @@ export class Kernel {
           episodeLimit: 4,
           minFactsBeforeVector: 2,
         });
+        const formatting = channelGuidance(opts.channel);
         const system = assembleSystemPrompt({
           baseSystem: this.system,
           profile: this.profile,
           projects: this.manifest.list(),
           recall,
+          ...(formatting ? { extra: formatting } : {}),
         });
 
         let input: string | ModelMessage[] = text;
@@ -342,15 +395,18 @@ export class Kernel {
         });
 
         if (useSession) {
-          this.sessions.appendTurn(sessionId, text, result.messages);
+          // Persist the loop's own message list so tool calls and their results
+          // survive into the next turn, not just the final text.
+          this.sessions.record(sessionId, result.messages);
         }
 
-        // Memory write path (salience) + episodic note for the exchange.
-        void this.memoryWriter.ingest(userId, text, "chat").catch(() => undefined);
-        void this.storeEpisode(
-          userId,
-          `user: ${text}\nassistant: ${result.finalText.slice(0, 500)}`,
-        ).catch(() => undefined);
+        // Memory write path (salience) + episodic note for the exchange. Only
+        // owner turns are remembered; harness-generated turns are plumbing.
+        // Awaited so a write cannot be lost when the process exits right after
+        // a reply, and so failures surface in the runs log instead of vanishing.
+        if (opts.origin !== "system") {
+          await this.rememberExchange(userId, text, result.finalText);
+        }
 
         this.runs.finish(runId, "ok");
         return {
@@ -388,17 +444,29 @@ export class Kernel {
     }
     this.approvals.approve(id, decidedBy ?? this.profile.ownerId);
     const stored = JSON.parse(action.args) as Record<string, unknown>;
-    const result = await this.registry.execute(
-      action.tool,
-      injectSecrets(stored, this.secrets),
-    );
-    this.audit.record({
-      tool: action.tool,
-      args: stored,
-      result: result.content,
-      isError: result.isError,
-      riskTier: "risky",
-      userId: decidedBy ?? this.profile.ownerId,
+
+    // Approvals arrive whenever the owner taps a button, so the execution has
+    // to join the serial queue like any other job. Running it inline races
+    // whatever is already in flight: two git snapshots in one repo, or a cron
+    // job's read-modify-write interleaved across an await.
+    //
+    // Only the execution is enqueued. The resume turn below goes through
+    // handleMessage, which enqueues itself; nesting would wait on a chain that
+    // includes this very task and deadlock.
+    const result = await this.queue.enqueue(async () => {
+      const r = await this.registry.execute(
+        action.tool,
+        injectSecrets(stored, this.secrets),
+      );
+      this.audit.record({
+        tool: action.tool,
+        args: stored,
+        result: r.content,
+        isError: r.isError,
+        riskTier: "risky",
+        userId: decidedBy ?? this.profile.ownerId,
+      });
+      return r;
     });
 
     const userId = decidedBy ?? this.profile.ownerId;
@@ -420,6 +488,7 @@ export class Kernel {
       const cont = await this.handleMessage(resumePrompt, {
         sessionId,
         userId,
+        origin: "system",
       });
       reply = cont.reply;
     } catch (err) {
@@ -448,7 +517,11 @@ export class Kernel {
     try {
       const cont = await this.handleMessage(
         `System: the owner denied pending action #${id}. Acknowledge briefly and ask how to proceed without that action.`,
-        { sessionId, userId: decidedBy ?? this.profile.ownerId },
+        {
+          sessionId,
+          userId: decidedBy ?? this.profile.ownerId,
+          origin: "system",
+        },
       );
       reply = cont.reply;
     } catch {
@@ -463,6 +536,77 @@ export class Kernel {
 
   clearSession(sessionId: string): void {
     this.sessions.clear(sessionId);
+    this.sessionScope.delete(sessionId);
+  }
+
+  /**
+   * Context for a self_prompt cron run: the same profile, manifest, and salient
+   * memory a chat turn gets. Unattended jobs previously ran with no system
+   * prompt at all, so the agent woke with no identity and no project context.
+   */
+  private async cronSystemPrompt(job: CronJob): Promise<string> {
+    const query = job.prompt ?? job.name;
+    const recall = await this.memoryRetriever.recall(this.profile.ownerId, query, {
+      factLimit: 10,
+      episodeLimit: 4,
+    });
+    return assembleSystemPrompt({
+      baseSystem: this.system,
+      profile: this.profile,
+      projects: this.manifest.list(),
+      recall,
+      extra: [
+        "## Scheduled run",
+        `You are running unattended as cron job "${job.name}".`,
+        "There is no one to ask, so do not ask questions.",
+        "Risky actions still queue for approval; say what you queued and stop.",
+      ].join("\n"),
+    });
+  }
+
+  /** Union this turn's inferred tags into the session's running scope. */
+  private accumulateScope(sessionId: string, inferred: string[]): string[] {
+    const existing = this.sessionScope.get(sessionId) ?? new Set<string>();
+    for (const tag of inferred) existing.add(tag);
+    this.sessionScope.set(sessionId, existing);
+    return [...existing];
+  }
+
+  /**
+   * Persist what this exchange is worth remembering. Memory is best-effort: a
+   * failed write must never fail the user's turn, but it must not be invisible
+   * either, so each failure is logged as its own run.
+   */
+  private async rememberExchange(
+    userId: string,
+    text: string,
+    finalText: string,
+  ): Promise<void> {
+    const record = async (
+      label: string,
+      write: () => Promise<unknown>,
+    ): Promise<void> => {
+      try {
+        await write();
+      } catch (err) {
+        const runId = this.runs.start(label);
+        this.runs.finish(
+          runId,
+          "error",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    };
+
+    await record("memory.facts", () =>
+      this.memoryWriter.ingest(userId, text, "chat"),
+    );
+    await record("memory.episodic", () =>
+      this.storeEpisode(
+        userId,
+        `user: ${text}\nassistant: ${finalText.slice(0, 500)}`,
+      ),
+    );
   }
 
   private async storeEpisode(userId: string, text: string): Promise<void> {
@@ -503,9 +647,14 @@ export class Kernel {
               return { ran: true, results: [] };
             }
             const result = await runCronJob(job, {
-              db: this.workspace.db,
+              // The job's query and condition are reads that build the
+              // variable scope, so they run on the read-only handle. Writes
+              // belong in the job's actions, which go through the guarded
+              // tool path and its risk tiers.
+              db: this.workspace.reader,
               tools: this.guardedTools(),
               inference: this.inference,
+              buildSystem: (j) => this.cronSystemPrompt(j),
             });
             this.runs.finish(runId, result.ran ? "ok" : "skipped");
             return result;

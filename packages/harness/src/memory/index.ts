@@ -7,9 +7,14 @@ export {
 } from "./salience.js";
 export { FactsStore, type Fact } from "./facts.js";
 export { MemoryWriter, type SalienceConfirmer } from "./writer.js";
+export { LlmSalienceConfirmer, parseConfirmerReply } from "./confirmer.js";
 export {
+  CohereEmbeddingProvider,
   HashingEmbeddingProvider,
   OpenAIEmbeddingProvider,
+  isSemantic,
+  type CohereEmbeddingOptions,
+  type EmbedMode,
   type EmbeddingProvider,
   type OpenAIEmbeddingOptions,
 } from "./embeddings.js";

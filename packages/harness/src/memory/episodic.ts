@@ -31,10 +31,19 @@ function toBlob(vec: number[]): Buffer {
  * rowid. This is the vector fallback tier, consulted after the structured store.
  */
 export class EpisodicStore {
+  /** vec0 bakes the dimension into the table, so each one gets its own. */
+  private readonly vecTable: string;
+
   constructor(
     private readonly db: Db,
     readonly dimension: number,
     private readonly now: () => number = Date.now,
+    /**
+     * Which embedder produced these vectors. Two providers' vectors are not
+     * comparable, so recall is filtered to the active provider: adding an API
+     * key later must not turn every existing vector into noise in the results.
+     */
+    private readonly provider: string = "unknown",
   ) {
     sqliteVec.load(db);
     db.exec(`
@@ -45,8 +54,16 @@ export class EpisodicStore {
         created_at INTEGER NOT NULL
       );
     `);
+    // Older workspaces predate provenance; backfill the column in place.
+    const columns = db
+      .prepare(`PRAGMA table_info(memory_events)`)
+      .all() as { name: string }[];
+    if (!columns.some((c) => c.name === "provider")) {
+      db.exec(`ALTER TABLE memory_events ADD COLUMN provider TEXT`);
+    }
+    this.vecTable = `memory_vec_${dimension}`;
     db.exec(
-      `CREATE VIRTUAL TABLE IF NOT EXISTS memory_vec USING vec0(embedding float[${dimension}])`,
+      `CREATE VIRTUAL TABLE IF NOT EXISTS ${this.vecTable} USING vec0(embedding float[${dimension}])`,
     );
   }
 
@@ -55,13 +72,14 @@ export class EpisodicStore {
     const ts = this.now();
     const info = this.db
       .prepare(
-        `INSERT INTO memory_events (user_id, text, created_at) VALUES (?, ?, ?)`,
+        `INSERT INTO memory_events (user_id, text, created_at, provider)
+         VALUES (?, ?, ?, ?)`,
       )
-      .run(userId, text, ts);
+      .run(userId, text, ts, this.provider);
     const id = Number(info.lastInsertRowid);
     // vec0 requires the rowid bound as a BigInt and the vector as a float blob.
     this.db
-      .prepare(`INSERT INTO memory_vec (rowid, embedding) VALUES (?, ?)`)
+      .prepare(`INSERT INTO ${this.vecTable} (rowid, embedding) VALUES (?, ?)`)
       .run(BigInt(id), toBlob(embedding));
     return id;
   }
@@ -75,7 +93,7 @@ export class EpisodicStore {
     this.assertDimension(embedding);
     const candidates = this.db
       .prepare(
-        `SELECT rowid, distance FROM memory_vec
+        `SELECT rowid, distance FROM ${this.vecTable}
          WHERE embedding MATCH ? ORDER BY distance LIMIT ?`,
       )
       .all(toBlob(embedding), k * 4) as { rowid: number; distance: number }[];
@@ -83,8 +101,11 @@ export class EpisodicStore {
     const getEvent = this.db.prepare(`SELECT * FROM memory_events WHERE id = ?`);
     const hits: EpisodeHit[] = [];
     for (const c of candidates) {
-      const row = getEvent.get(c.rowid) as EventRow | undefined;
-      if (row && row.user_id === userId) {
+      const row = getEvent.get(c.rowid) as (EventRow & { provider?: string }) | undefined;
+      // Cross-provider vectors are not comparable, so they are not candidates.
+      const sameProvider =
+        row?.provider == null || row.provider === this.provider;
+      if (row && row.user_id === userId && sameProvider) {
         hits.push({
           id: row.id,
           userId: row.user_id,

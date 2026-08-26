@@ -15,7 +15,12 @@ import {
 } from "./api.js";
 import { Inspector, type InspectTarget } from "./Inspector.js";
 import { ListPage } from "./ListPage.js";
+import { AnimatePresence, m } from "motion/react";
+
 import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
+import { ease, listItem, spring } from "./motion.js";
+import { Home } from "./Home.js";
+import { ChatPanel } from "./ChatPanel.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { PageRenderer } from "./widgets/PageRenderer.js";
 
@@ -59,6 +64,7 @@ export function App(): React.ReactElement {
   const [runsFailedOnly, setRunsFailedOnly] = useState(false);
   const [cronFilter, setCronFilter] = useState<"all" | "on" | "off">("all");
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
 
   const flash = (kind: "ok" | "err", text: string): void => {
     setToast({ kind, text });
@@ -93,6 +99,18 @@ export function App(): React.ReactElement {
     const t = setInterval(() => void refresh(), 5000);
     return () => clearInterval(t);
   }, [refresh]);
+
+  // Chat is summoned, not resident. Cmd-K is the one shortcut worth having.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setChatOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     const sync = (): void => {
@@ -232,11 +250,21 @@ export function App(): React.ReactElement {
   const shell = (body: React.ReactNode): React.ReactElement => (
     <ErrorBoundary label="dashboard">
       <main className="ops">
-        {toast && (
-          <div className={`ops-toast ops-toast--${toast.kind}`} role="status">
-            {toast.text}
-          </div>
-        )}
+        <AnimatePresence>
+          {toast && (
+            <m.div
+              key={toast.text}
+              className={`ops-toast ops-toast--${toast.kind}`}
+              role="status"
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={spring}
+            >
+              {toast.text}
+            </m.div>
+          )}
+        </AnimatePresence>
         <Inspector
           key={inspectKey}
           target={inspect}
@@ -270,12 +298,12 @@ export function App(): React.ReactElement {
           }}
         />
 
-        <header className="ops-top">
-          <div className="ops-top-left">
-            <div className="ops-logo">
+        <header className="topbar">
+          <div className="topbar-left">
+            <a className="brand" href="#/">
               K<span>-OS</span>
-            </div>
-            <nav className="ops-nav-main" aria-label="Primary">
+            </a>
+            <nav className="tabs" aria-label="Primary">
               {NAV.map((item) => {
                 const active =
                   route.name === item.route.name ||
@@ -284,7 +312,7 @@ export function App(): React.ReactElement {
                   <a
                     key={item.label}
                     href={hrefFor(item.route)}
-                    className={`ops-nav-link ${active ? "is-active" : ""}`}
+                    className={`tab ${active ? "is-active" : ""}`}
                   >
                     {item.label}
                   </a>
@@ -292,52 +320,65 @@ export function App(): React.ReactElement {
               })}
             </nav>
           </div>
-          <div className="ops-top-actions">
-            {busy && <span className="ops-busy">{busy}…</span>}
-            <button type="button" className="ops-btn" onClick={() => void refresh()}>
-              Refresh
-            </button>
-            <button type="button" className="ops-btn" onClick={() => void doSnapshot()}>
-              Snapshot
-            </button>
-            <button type="button" className="ops-btn" onClick={() => void doClear()}>
-              Clear chat
-            </button>
+          <div className="topbar-right">
+            {busy && <span className="hint">{busy}…</span>}
+            <span
+              className={`health ${status?.halted ? "health--halted" : "health--ok"}`}
+              title={status?.workspace ?? ""}
+            >
+              <span className="health-dot" />
+              {status?.halted ? "Halted" : "Running"}
+            </span>
             <button
               type="button"
-              className={`ops-btn ${status?.halted ? "ops-btn--ok" : "ops-btn--danger"}`}
-              onClick={() => void toggleKill()}
+              className="btn btn--primary"
+              onClick={() => setChatOpen(true)}
             >
-              {status?.halted ? "Resume" : "Halt"}
+              Ask KOS <kbd>⌘K</kbd>
             </button>
+            <details className="menu">
+              <summary className="btn btn--ghost" aria-label="More">⋯</summary>
+              <div className="menu-body">
+                <button type="button" onClick={() => void refresh()}>Refresh</button>
+                <button type="button" onClick={() => void doSnapshot()}>Snapshot now</button>
+                <button type="button" onClick={() => void copyWorkspace()}>Copy workspace path</button>
+                <button type="button" className="is-danger" onClick={() => void toggleKill()}>
+                  {status?.halted ? "Resume KOS" : "Halt KOS"}
+                </button>
+              </div>
+            </details>
           </div>
         </header>
 
-        <div className="ops-metrics" aria-label="Status">
-          <Metric
-            label="State"
-            value={status ? (status.halted ? "HALTED" : "running") : "…"}
-            tone={status && !status.halted ? "ok" : status?.halted ? "danger" : "muted"}
-          />
-          <Metric
-            label="Discord"
-            value={status?.discord ? "on" : "off"}
-            tone={status?.discord ? "ok" : "muted"}
-          />
-          <Metric label="Queue" value={String(status?.queueDepth ?? "–")} />
-          <Metric
-            label="Pending"
-            value={String(status?.pendingApprovals ?? "–")}
-            tone={(status?.pendingApprovals ?? 0) > 0 ? "warn" : "muted"}
-          />
-          <Metric label="Crons" value={String(crons.length)} />
-          <Metric label="Projects" value={String(projects.length)} />
-          <button type="button" className="ops-path ops-path--metric" onClick={() => void copyWorkspace()}>
-            {status?.workspace ?? "workspace"}
-          </button>
-        </div>
+        <AnimatePresence initial={false}>
+          {approvals.length > 0 && route.name !== "home" && (
+            <m.a
+              className="attention"
+              href="#/"
+              initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+              animate={{ opacity: 1, height: "auto", marginBottom: 16 }}
+              exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+              transition={ease}
+            >
+              <strong>{approvals.length}</strong>
+              {approvals.length === 1 ? " action needs you" : " actions need you"}
+              <span className="attention-go">Review →</span>
+            </m.a>
+          )}
+        </AnimatePresence>
 
         {body}
+
+        <ChatPanel
+          open={chatOpen}
+          thread={thread}
+          prompt={prompt}
+          sending={sending}
+          onPrompt={setPrompt}
+          onSend={() => void send()}
+          onClose={() => setChatOpen(false)}
+          onClear={() => void doClear()}
+        />
       </main>
     </ErrorBoundary>
   );
@@ -354,7 +395,7 @@ export function App(): React.ReactElement {
             go({ name: "home" });
           }}
         >
-          ← Ops
+          ← Home
         </a>
         {pageError && (
           <p className="ops-alert ops-alert--err" role="alert">
@@ -374,7 +415,7 @@ export function App(): React.ReactElement {
     return shell(
       <ListPage
         title="Projects"
-        subtitle="All workspace projects and linked pages"
+        subtitle="Everything KOS is tracking for you, and the pages it built."
         rows={projects}
         rowKey={(p) => p.slug}
         empty="No projects match"
@@ -468,8 +509,8 @@ export function App(): React.ReactElement {
   if (route.name === "tools") {
     return shell(
       <ListPage
-        title="Tool calls"
-        subtitle="Audit log · click a row for args and result"
+        title="Activity"
+        subtitle="Every tool KOS has run. Click a row for the arguments and result."
         rows={activity}
         rowKey={(t) => t.id}
         empty="No tool calls yet"
@@ -521,8 +562,8 @@ export function App(): React.ReactElement {
     });
     return shell(
       <ListPage
-        title="Crons"
-        subtitle="Scheduled jobs · enable/disable/delete in the drawer"
+        title="Schedule"
+        subtitle="Jobs KOS runs on its own. Click a row to turn one off or delete it."
         rows={rows}
         rowKey={(c) => c.id}
         empty="No crons match"
@@ -587,8 +628,8 @@ export function App(): React.ReactElement {
   if (route.name === "memory") {
     return shell(
       <ListPage
-        title="Memory"
-        subtitle="Durable facts · edit or delete in the drawer"
+        title="What it knows"
+        subtitle="Durable facts KOS has learned about you. Click a row to edit or forget one."
         rows={facts}
         rowKey={(f) => f.key}
         empty="No facts yet"
@@ -634,7 +675,7 @@ export function App(): React.ReactElement {
     return shell(
       <ListPage
         title="Runs"
-        subtitle="Job / chat run log"
+        subtitle="Every chat turn and scheduled job, with failures surfaced."
         rows={source}
         rowKey={(r) => r.id}
         empty="No runs"
@@ -694,275 +735,112 @@ export function App(): React.ReactElement {
     );
   }
 
-  // —— home ops ——
-  const homeProjects = projects.slice(0, 6);
-  const homeTools = activity.slice(0, 8);
-  const homeCrons = crons.slice(0, 6);
-  const homeFacts = facts.slice(0, 6);
   const homeFailed = failed.slice(0, 5);
 
   return shell(
     <>
+      <AnimatePresence initial={false}>
       {approvals.length > 0 && (
-        <section className="ops-approvals" aria-label="Pending approvals">
-          <div className="ops-section-head">
-            <h2>Approvals</h2>
-            <span className="ops-badge ops-badge--warn">{approvals.length}</span>
-          </div>
+        <m.section
+          className="needs-you"
+          aria-label="Pending approvals"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0, height: 0, marginBottom: 0, overflow: "hidden" }}
+          transition={ease}
+        >
+          <h2>
+            {approvals.length === 1
+              ? "1 action needs you"
+              : `${approvals.length} actions need you`}
+          </h2>
+          <AnimatePresence initial={false}>
           {approvals.map((a) => (
-            <div key={a.id} className="ops-approval-row">
-              <div className="ops-approval-main">
-                <div className="ops-approval-title">
-                  <span className="ops-mono">#{a.id}</span>{" "}
+            <m.div
+              key={a.id}
+              className="approval"
+              layout
+              variants={listItem}
+              initial="hidden"
+              animate="show"
+              exit="exit"
+              transition={ease}
+            >
+              <div className="approval-main">
+                <div className="approval-title">
                   {summarizeAction(a.tool, a.args)}
                 </div>
-                <div className="ops-muted">
-                  <span className="ops-mono">{a.tool}</span>
-                  {a.reason ? ` · ${a.reason}` : ""}
+                <div className="approval-meta">
+                  <code>{a.tool}</code>
+                  {a.reason ? <span> · {a.reason}</span> : null}
                 </div>
               </div>
-              <div className="ops-approval-btns">
+              <div className="approval-actions">
                 <button
                   type="button"
-                  className="ops-btn ops-btn--ok"
+                  className="btn btn--ok"
                   onClick={() => void decide(a.id, true)}
                 >
                   Approve
                 </button>
                 <button
                   type="button"
-                  className="ops-btn ops-btn--danger"
+                  className="btn btn--danger-ghost"
                   onClick={() => void decide(a.id, false)}
                 >
                   Deny
                 </button>
               </div>
-            </div>
+            </m.div>
           ))}
-        </section>
+          </AnimatePresence>
+        </m.section>
       )}
+      </AnimatePresence>
 
-      <div className="ops-split">
-        <section className="ops-console" aria-label="Console">
-          <div className="ops-section-head">
-            <h2>Console</h2>
-            <span className="ops-muted">same session as Discord</span>
-          </div>
-          <div className="ops-thread" aria-live="polite">
-            {thread.length === 0 && (
-              <p className="ops-muted ops-thread-empty">
-                Message KOS here. Use the nav for full lists (Projects, Tools, …).
-              </p>
-            )}
-            {thread.map((m, i) => (
-              <div
-                key={i}
-                className={`ops-msg ops-msg--${m.role === "you" ? "you" : "kos"}`}
-              >
-                <div className="ops-msg-role">
-                  {m.role === "you" ? "You" : "KOS"}
-                </div>
-                <div className="ops-msg-body">{m.text}</div>
-              </div>
-            ))}
-          </div>
-          <div className={`ops-composer ${sending ? "is-busy" : ""}`}>
-            <textarea
-              value={prompt}
-              rows={3}
-              placeholder="Ask KOS…"
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault();
-                  void send();
-                }
-              }}
-            />
-            <div className="ops-composer-bar">
-              <span className="ops-muted">⌘/Ctrl+Enter</span>
-              <button
-                type="button"
-                className="ops-btn ops-btn--primary"
-                onClick={() => void send()}
-                disabled={sending}
-              >
-                {sending ? "Sending…" : "Send"}
+      <Home
+        projects={projects}
+        pagesByProject={pagesByProject}
+        onInspect={(project, pages) =>
+          setInspect({ kind: "project", data: project, pages })
+        }
+      />
+
+      <section className="lately" aria-label="Recent activity">
+        <div className="lately-head">
+          <h2>Lately</h2>
+          <a className="link" href="#/runs">
+            All activity →
+          </a>
+        </div>
+        <ul className="feed">
+          {homeFailed.slice(0, 2).map((r) => (
+            <li key={`f${r.id}`} className="feed-item feed-item--bad">
+              <button type="button" onClick={() => setInspect({ kind: "run", data: r })}>
+                <span className="feed-what">{r.kind} run failed</span>
+                <span className="feed-detail">{preview(r.error ?? "", 60)}</span>
+                <span className="feed-when">{timeAgo(r.startedAt)}</span>
               </button>
-            </div>
-          </div>
-
-          <div className="ops-section-head ops-section-head--sub">
-            <h2>Recent tools</h2>
-            <a className="ops-link" href="#/tools">
-              View all →
-            </a>
-          </div>
-          <div className="ops-table-wrap">
-            <table className="ops-table">
-              <thead>
-                <tr>
-                  <th>Tool</th>
-                  <th>Preview</th>
-                  <th>When</th>
-                </tr>
-              </thead>
-              <tbody>
-                {homeTools.length === 0 && (
-                  <tr>
-                    <td colSpan={3} className="ops-muted">
-                      No tool calls yet
-                    </td>
-                  </tr>
-                )}
-                {homeTools.map((t) => (
-                  <tr
-                    key={t.id}
-                    className="ops-row-click"
-                    onClick={() => setInspect({ kind: "tool", data: t })}
-                  >
-                    <td className="ops-mono">{t.tool}</td>
-                    <td className="ops-muted">
-                      {preview(summarizeAction(t.tool, t.args), 40)}
-                    </td>
-                    <td className="ops-muted">{timeAgo(t.createdAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <aside className="ops-side">
-          <PreviewPanel
-            title="Projects"
-            href="#/projects"
-            empty={homeProjects.length === 0}
-          >
-            <ul className="ops-dense">
-              {homeProjects.map((p) => (
-                <li key={p.slug}>
-                  <button
-                    type="button"
-                    className="ops-dense-btn"
-                    onClick={() =>
-                      setInspect({
-                        kind: "project",
-                        data: p,
-                        pages: pagesByProject.get(p.slug) ?? [],
-                      })
-                    }
-                  >
-                    <span>{p.name}</span>
-                    <span className={`ops-status ops-status--${p.status}`}>
-                      {p.status}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </PreviewPanel>
-
-          <PreviewPanel title="Crons" href="#/crons" empty={homeCrons.length === 0}>
-            <ul className="ops-dense">
-              {homeCrons.map((c) => (
-                <li key={c.id}>
-                  <button
-                    type="button"
-                    className="ops-dense-btn"
-                    onClick={() => setInspect({ kind: "cron", data: c })}
-                  >
-                    <span>{c.name}</span>
-                    <span className="ops-mono ops-muted">{c.schedule}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </PreviewPanel>
-
-          <PreviewPanel
-            title="Memory"
-            href="#/memory"
-            empty={homeFacts.length === 0}
-          >
-            <ul className="ops-dense">
-              {homeFacts.map((f) => (
-                <li key={f.key}>
-                  <button
-                    type="button"
-                    className="ops-dense-btn"
-                    onClick={() => setInspect({ kind: "fact", data: f })}
-                  >
-                    <span className="ops-mono">{f.key}</span>
-                    <span className="ops-muted">{preview(f.value, 28)}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </PreviewPanel>
-
-          {homeFailed.length > 0 && (
-            <PreviewPanel
-              title="Failed runs"
-              href="#/runs"
-              empty={false}
-              danger
-            >
-              <ul className="ops-dense">
-                {homeFailed.map((r) => (
-                  <li key={r.id}>
-                    <button
-                      type="button"
-                      className="ops-dense-btn"
-                      onClick={() => setInspect({ kind: "run", data: r })}
-                    >
-                      <span>{r.kind}</span>
-                      <span className="ops-muted">
-                        {preview(r.error ?? "", 28)}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </PreviewPanel>
+            </li>
+          ))}
+          {activity.slice(0, 6).map((t) => (
+            <li key={t.id} className="feed-item">
+              <button type="button" onClick={() => setInspect({ kind: "tool", data: t })}>
+                <span className="feed-what">{summarizeAction(t.tool, t.args)}</span>
+                <span className="feed-detail">
+                  <code>{t.tool}</code>
+                </span>
+                <span className="feed-when">{timeAgo(t.createdAt)}</span>
+              </button>
+            </li>
+          ))}
+          {activity.length === 0 && homeFailed.length === 0 && (
+            <li className="feed-empty">Nothing yet.</li>
           )}
-        </aside>
-      </div>
+        </ul>
+      </section>
     </>,
   );
 }
 
-function PreviewPanel(props: {
-  title: string;
-  href: string;
-  empty: boolean;
-  danger?: boolean;
-  children: React.ReactNode;
-}): React.ReactElement {
-  return (
-    <section
-      className={`ops-panel ${props.danger ? "ops-panel--danger" : ""}`}
-    >
-      <div className="ops-section-head">
-        <h2>{props.title}</h2>
-        <a className="ops-link" href={props.href}>
-          View all →
-        </a>
-      </div>
-      {props.empty ? <p className="ops-muted">None.</p> : props.children}
-    </section>
-  );
-}
 
-function Metric(props: {
-  label: string;
-  value: string;
-  tone?: "ok" | "warn" | "danger" | "muted";
-}): React.ReactElement {
-  return (
-    <div className={`ops-metric ops-metric--${props.tone ?? "muted"}`}>
-      <div className="ops-metric-label">{props.label}</div>
-      <div className="ops-metric-value">{props.value}</div>
-    </div>
-  );
-}

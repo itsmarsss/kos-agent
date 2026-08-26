@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve, sep } from "node:path";
 
-import type { PageSpec, Widget } from "@kos/shared";
+import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
 import { runDisplayQuery } from "../systems/display.js";
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
@@ -38,17 +38,25 @@ export interface DashboardServerOptions {
   /** Directory of built UI assets (vite dist). When set, non-/api paths are served. */
   staticDir?: string;
   /**
-   * Optional bearer/token for mutating API routes. When set, requests must send
-   * `Authorization: Bearer <token>` or `x-kos-token: <token>`.
+   * Optional bearer/token for every API route, reads included. When set,
+   * requests must send `Authorization: Bearer <token>` or `x-kos-token: <token>`.
    */
   token?: string;
   /** Bind policy hint for logs; enforcement is host-level. Default loopback. */
   host?: string;
   /** Hosted-mode metadata for /api/health and /api/status (daemon). */
   meta?: DaemonMeta;
+  /**
+   * Explicit cross-origin allowlist. The dashboard is same-origin (the server
+   * serves the built UI itself), so this is empty by default and no CORS
+   * headers are sent; a wildcard would let any page in the browser reach the
+   * loopback daemon.
+   */
+  allowedOrigins?: string[];
 }
 
-const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+/** Widget types that may carry a guarded mutation target. */
+const WRITE_CAPABLE = new Set(["list", "card", "form"]);
 
 /**
  * The dashboard backend as a pure request handler (no socket), so it is
@@ -70,10 +78,10 @@ export async function handleApiRequest(
     return { status: 204, body: null };
   }
 
-  if (options.token && !SAFE_METHODS.has(method)) {
-    if (!authorized(req, options.token)) {
-      return { status: 401, body: { error: "unauthorized" } };
-    }
+  // A configured token guards every route. Reads leak workspace state just as
+  // surely as writes change it. With no token the server is loopback-only.
+  if (options.token && !authorized(req, options.token)) {
+    return { status: 401, body: { error: "unauthorized" } };
   }
 
   if (method === "GET" && path === "/api/health") {
@@ -194,15 +202,15 @@ export async function handleApiRequest(
     const id = decodeURIComponent(path.slice("/api/pages/".length));
     const got = kernel.pages.get(id);
     if (!got) return { status: 404, body: { error: "page not found" } };
-    const data = await loadPageData(kernel, got.spec);
-    return ok({ record: got.record, spec: got.spec, data });
+    const { data, errors } = await loadPageData(kernel, got.spec);
+    return ok({ record: got.record, spec: got.spec, data, errors });
   }
 
   if (method === "POST" && path === "/api/query") {
     const sql = typeof body.sql === "string" ? body.sql : "";
     if (!sql) return { status: 400, body: { error: "sql required" } };
     try {
-      return ok(runDisplayQuery(kernel.workspace.db, sql));
+      return ok(runDisplayQuery(kernel.workspace.reader, sql));
     } catch (err) {
       return {
         status: 400,
@@ -212,40 +220,50 @@ export async function handleApiRequest(
   }
 
   if (method === "POST" && path === "/api/mutate") {
-    const table = typeof body.table === "string" ? body.table : "";
-    const columns = Array.isArray(body.columns)
-      ? (body.columns as string[])
-      : [];
-    const op = body.op as WidgetEdit["op"];
+    // The caller names a widget; the target comes from the stored spec, never
+    // from the request. A widget can only mutate what it declared.
+    const pageId = typeof body.pageId === "string" ? body.pageId : "";
+    const widgetIndex = Number(body.widgetIndex);
+    if (!pageId || !Number.isInteger(widgetIndex) || widgetIndex < 0) {
+      return {
+        status: 400,
+        body: { error: "pageId and widgetIndex required" },
+      };
+    }
+    const page = kernel.pages.get(pageId);
+    if (!page) return { status: 404, body: { error: "page not found" } };
+    const widget = page.spec.widgets[widgetIndex];
+    if (!widget) return { status: 404, body: { error: "widget not found" } };
+    if (!WRITE_CAPABLE.has(widget.type)) {
+      return { status: 403, body: { error: "widget is not write-capable" } };
+    }
+    const target = (widget as { mutate?: MutationTarget }).mutate;
+    if (!target) {
+      return {
+        status: 403,
+        body: { error: "widget declares no mutation target" },
+      };
+    }
+
     const values = (body.values ?? {}) as Record<string, unknown>;
     const key =
       body.key && typeof body.key === "object"
         ? (body.key as { column: string; value: unknown })
         : undefined;
-    if (!table || !op || columns.length === 0) {
-      return {
-        status: 400,
-        body: { error: "table, op, and columns required" },
-      };
+    let edit: WidgetEdit;
+    if (body.op === "insert") edit = { op: "insert", values };
+    else if (body.op === "update") {
+      if (!key) return { status: 400, body: { error: "key required for update" } };
+      edit = { op: "update", key, values };
+    } else if (body.op === "delete") {
+      if (!key) return { status: 400, body: { error: "key required for delete" } };
+      edit = { op: "delete", key };
+    } else {
+      return { status: 400, body: { error: "invalid op" } };
     }
+
     try {
-      let edit: WidgetEdit;
-      if (op === "insert") edit = { op: "insert", values };
-      else if (op === "update") {
-        if (!key) return { status: 400, body: { error: "key required for update" } };
-        edit = { op: "update", key, values };
-      } else if (op === "delete") {
-        if (!key) return { status: 400, body: { error: "key required for delete" } };
-        edit = { op: "delete", key };
-      } else {
-        return { status: 400, body: { error: "invalid op" } };
-      }
-      const result = executeMutation(kernel.workspace.db, {
-        table,
-        columns,
-        allow: ["insert", "update", "delete"],
-      }, edit);
-      return ok(result);
+      return ok(executeMutation(kernel.workspace.db, target, edit));
     } catch (err) {
       return {
         status: 400,
@@ -369,22 +387,29 @@ function clampLimit(raw: string | null, fallback: number): number {
   return Math.min(500, Math.max(1, Math.floor(n)));
 }
 
-async function loadPageData(
-  kernel: Kernel,
-  spec: PageSpec,
-): Promise<Record<number, Record<string, unknown>[]>> {
-  const data: Record<number, Record<string, unknown>[]> = {};
+interface PageData {
+  /** Rows per widget index, for widgets whose query succeeded. */
+  data: Record<number, Record<string, unknown>[]>;
+  /** Query failure message per widget index, so a broken widget is visible. */
+  errors: Record<number, string>;
+}
+
+async function loadPageData(kernel: Kernel, spec: PageSpec): Promise<PageData> {
+  const data: PageData["data"] = {};
+  const errors: PageData["errors"] = {};
   for (let i = 0; i < spec.widgets.length; i++) {
     const w = spec.widgets[i] as Widget & { query?: string };
     if (typeof w.query === "string" && w.query.trim()) {
       try {
-        data[i] = runDisplayQuery(kernel.workspace.db, w.query).rows;
-      } catch {
+        data[i] = runDisplayQuery(kernel.workspace.reader, w.query).rows;
+      } catch (err) {
+        // An empty result and a broken query must not look the same.
         data[i] = [];
+        errors[i] = err instanceof Error ? err.message : String(err);
       }
     }
   }
-  return data;
+  return { data, errors };
 }
 
 async function readBody(stream: NodeJS.ReadableStream): Promise<unknown> {
@@ -449,7 +474,7 @@ export function createDashboardServer(
       const path = rawUrl.split("?")[0] ?? "/";
 
       if (method === "OPTIONS") {
-        res.writeHead(204, corsHeaders());
+        res.writeHead(204, corsHeaders(req, options));
         res.end();
         return;
       }
@@ -469,7 +494,7 @@ export function createDashboardServer(
         );
         res.writeHead(result.status, {
           "content-type": "application/json",
-          ...corsHeaders(),
+          ...corsHeaders(req, options),
           ...(result.headers ?? {}),
         });
         if (result.body === null) res.end();
@@ -481,7 +506,7 @@ export function createDashboardServer(
         if (tryStatic(options.staticDir, path, res)) return;
       }
 
-      res.writeHead(404, { "content-type": "application/json", ...corsHeaders() });
+      res.writeHead(404, { "content-type": "application/json", ...corsHeaders(req, options) });
       res.end(JSON.stringify({ error: "not found" }));
     })().catch(() => {
       res.writeHead(500, { "content-type": "application/json" });
@@ -490,10 +515,25 @@ export function createDashboardServer(
   });
 }
 
-function corsHeaders(): Record<string, string> {
+/**
+ * Same-origin by default: no allow-origin header at all, so a browser refuses
+ * cross-site reads of the loopback daemon. Cross-origin access is opt-in via
+ * an explicit allowlist and is echoed back only for an origin on that list.
+ */
+function corsHeaders(
+  req: IncomingMessage,
+  options: DashboardServerOptions,
+): Record<string, string> {
+  const allowed = options.allowedOrigins ?? [];
+  if (allowed.length === 0) return {};
+  const origin = req.headers.origin;
+  if (typeof origin !== "string" || !allowed.includes(origin)) {
+    return { vary: "origin" };
+  }
   return {
-    "access-control-allow-origin": "*",
+    "access-control-allow-origin": origin,
     "access-control-allow-headers": "content-type, authorization, x-kos-token",
     "access-control-allow-methods": "GET, POST, OPTIONS",
+    vary: "origin",
   };
 }

@@ -40,7 +40,9 @@ export class MemoryRetriever {
     let episodes: EpisodeHit[] = [];
     const minFacts = options.minFactsBeforeVector ?? 1;
     if (this.episodic && this.embedder && facts.length < minFacts) {
-      const [embedding] = await this.embedder.embed([query]);
+      // Embed as a query, not a document: asymmetric providers lose accuracy
+      // when a search string is embedded the way stored text is.
+      const [embedding] = await this.embedder.embed([query], "query");
       if (embedding) {
         episodes = this.episodic.search(
           userId,

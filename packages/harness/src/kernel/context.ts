@@ -70,10 +70,34 @@ export function assembleSystemPrompt(parts: ContextParts): string {
       "Compose primitive tools. Use systems.project_create + systems.migrate for schemas (never raw DDL via sql).",
       "Use pages.write to register dashboard pages. Risky actions are queued for approval.",
       "Prefer sql SELECT for inspection; writes may require approval.",
+      "Use export.query to hand over a csv/markdown/json file instead of pasting a large table into chat.",
+      "For a reusable script: write it with files.write under skills/, then skills.test, then skills.promote. Never run one live without testing it first.",
     ].join("\n"),
   );
 
   return sections.join("\n\n");
+}
+
+/**
+ * How to present a reply on a given channel. The agent loop is channel
+ * agnostic, so the surface's capabilities have to be described to the model
+ * rather than assumed: it decides the shape of its own answer, and can only do
+ * that well if it knows what the destination renders.
+ */
+export function channelGuidance(channel?: string): string | undefined {
+  if (channel !== "discord") return undefined;
+  return [
+    "## Replying on Discord",
+    "Your reply is sent as an ordinary Discord message, so you choose the presentation.",
+    "Available: # ## ### headings, -# subtext, **bold**, *italic*, __underline__,",
+    "~~strikethrough~~, ||spoiler||, `inline code`, ```lang fenced code blocks```,",
+    "- bullet and 1. numbered lists (indent to nest), > quote and >>> block quote.",
+    "Discord has no table syntax. For anything column-shaped use a fenced code block",
+    "and pad the columns, or use a list. Prefer raw URLs; masked links are unreliable here.",
+    "Match the format to the answer: a one-line question gets one line, not a heading.",
+    "Reach for structure when it earns its place, such as steps, comparisons, or query output.",
+    "Messages over 2000 characters are split, so keep replies tight and put bulk in a file via export.query.",
+  ].join("\n");
 }
 
 /**
@@ -92,6 +116,8 @@ export function inferScopeTags(text: string): string[] {
   }
   if (/\b(task|todo|checklist|habit)\b/.test(t)) tags.add("tasks");
   if (/\b(search|find|grep|look up|semantic)\b/.test(t)) tags.add("search");
+  if (/\b(export|csv|spreadsheet|download|report)\b/.test(t)) tags.add("export");
+  if (/\b(skill|script|automate|reusable|routine)\b/.test(t)) tags.add("skills");
   if (/\b(file|read|write|edit|folder|directory|scratch)\b/.test(t)) {
     tags.add("files");
   }
