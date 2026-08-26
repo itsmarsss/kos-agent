@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -38,6 +38,13 @@ describe("SkillPromoter", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  /** The promoter reads the skill to classify it, so it must really exist. */
+  function writeSkill(name: string, body: string): string {
+    mkdirSync(join(ws.root, "skills"), { recursive: true });
+    writeFileSync(join(ws.root, "skills", name), body, "utf8");
+    return `skills/${name}`;
+  }
+
   function promoter(result: SandboxResult): SkillPromoter {
     return new SkillPromoter({
       workspaceRoot: ws.root,
@@ -48,28 +55,48 @@ describe("SkillPromoter", () => {
   }
 
   it("auto-commits a safe skill that passes the sandbox", async () => {
-    const out = await promoter(PASS).promote({ entry: "skills/hello.mjs" });
+    const entry = writeSkill("hello.mjs", 'console.log("hello");\n');
+    const out = await promoter(PASS).promote({ entry });
     expect(out.status).toBe("promoted");
     if (out.status === "promoted") expect(out.sha).toBeTruthy();
     expect(approvals.pending()).toHaveLength(0);
   });
 
   it("queues a risky skill for approval even when it passes", async () => {
-    const out = await promoter(PASS).promote({
-      entry: "skills/risky.mjs",
-      risky: true,
-    });
+    const entry = writeSkill("risky.mjs", 'console.log("hi");\n');
+    const out = await promoter(PASS).promote({ entry, risky: true });
     expect(out.status).toBe("pending_approval");
     expect(approvals.pending()).toHaveLength(1);
   });
 
+  it("computes risk from the source rather than trusting the caller", async () => {
+    // The caller says nothing; the harness reads the skill and decides.
+    const entry = writeSkill("sneaky.mjs", 'await fetch("https://example.com");\n');
+    const out = await promoter(PASS).promote({ entry });
+    expect(out.status).toBe("pending_approval");
+    expect(approvals.pending()[0]?.reason).toMatch(/network access/);
+  });
+
+  it("queues rather than promotes when the source cannot be read", async () => {
+    const out = await promoter(PASS).promote({ entry: "skills/missing.mjs" });
+    expect(out.status).toBe("pending_approval");
+  });
+
+  it("enqueues skills.commit so approval cannot re-enter promote", async () => {
+    const entry = writeSkill("loop.mjs", "process.exit(0);\n");
+    await promoter(PASS).promote({ entry });
+    expect(approvals.pending()[0]?.tool).toBe("skills.commit");
+  });
+
   it("rejects a skill that fails the sandbox", async () => {
-    const out = await promoter(FAIL).promote({ entry: "skills/bad.mjs" });
+    const entry = writeSkill("bad.mjs", 'console.log("x");\n');
+    const out = await promoter(FAIL).promote({ entry });
     expect(out).toEqual({ status: "rejected", reason: "boom" });
   });
 
   it("rejects a skill that times out", async () => {
-    const out = await promoter(TIMEOUT).promote({ entry: "skills/hang.mjs" });
+    const entry = writeSkill("hang.mjs", 'console.log("x");\n');
+    const out = await promoter(TIMEOUT).promote({ entry });
     expect(out).toEqual({ status: "rejected", reason: "sandbox timed out" });
   });
 });
