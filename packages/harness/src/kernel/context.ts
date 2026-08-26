@@ -78,6 +78,28 @@ export function assembleSystemPrompt(parts: ContextParts): string {
 }
 
 /**
+ * How to present a reply on a given channel. The agent loop is channel
+ * agnostic, so the surface's capabilities have to be described to the model
+ * rather than assumed: it decides the shape of its own answer, and can only do
+ * that well if it knows what the destination renders.
+ */
+export function channelGuidance(channel?: string): string | undefined {
+  if (channel !== "discord") return undefined;
+  return [
+    "## Replying on Discord",
+    "Your reply is sent as an ordinary Discord message, so you choose the presentation.",
+    "Available: # ## ### headings, -# subtext, **bold**, *italic*, __underline__,",
+    "~~strikethrough~~, ||spoiler||, `inline code`, ```lang fenced code blocks```,",
+    "- bullet and 1. numbered lists (indent to nest), > quote and >>> block quote.",
+    "Discord has no table syntax. For anything column-shaped use a fenced code block",
+    "and pad the columns, or use a list. Prefer raw URLs; masked links are unreliable here.",
+    "Match the format to the answer: a one-line question gets one line, not a heading.",
+    "Reach for structure when it earns its place, such as steps, comparisons, or query output.",
+    "Messages over 2000 characters are split, so keep replies tight and put bulk in a file via export.query.",
+  ].join("\n");
+}
+
+/**
  * Infer scope tags from user text so tagged tools surface when relevant.
  * Untagged tools are always offered by the registry.
  */

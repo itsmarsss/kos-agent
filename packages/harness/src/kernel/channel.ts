@@ -38,6 +38,7 @@ export function connectChannel(
     handleTurn: async (ctx) => {
       const res = await kernel.handleMessage(ctx.text, {
         userId: ctx.userId,
+        channel: ctx.channel,
         // Same primary session as the CLI so Discord and kos share history.
         sessionId: primarySessionId(ctx.userId),
       });
