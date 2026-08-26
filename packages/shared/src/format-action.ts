@@ -68,6 +68,20 @@ export function summarizeAction(
       return `Schedule cron “${fmtVal(a.name)}” [${fmtVal(a.schedule)}]`;
     case "pages.write":
       return `Write page for project ${fmtVal(a.project)}`;
+    case "search.grep":
+      return `Search for “${fmtVal(a.pattern)}”`;
+    case "search.semantic":
+      return `Recall about “${fmtVal(a.query)}”`;
+    case "export.query":
+      return `Export ${fmtVal(a.format)} to ${fmtVal(a.path)}`;
+    case "notify":
+      return `Notify: ${fmtVal(a.text)}`;
+    case "skills.test":
+      return `Sandbox test ${fmtVal(a.entry)}`;
+    case "skills.promote":
+      return `Promote skill ${fmtVal(a.entry)}`;
+    case "skills.run":
+      return `Run skill ${fmtVal(a.entry)} for real`;
     default:
       break;
   }
