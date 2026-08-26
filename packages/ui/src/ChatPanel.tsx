@@ -1,4 +1,7 @@
 import { useEffect, useRef, type ReactElement } from "react";
+import { AnimatePresence, m } from "motion/react";
+
+import { ease, spring } from "./motion.js";
 
 /**
  * Chat as a slide-over rather than a permanent panel. KOS is mostly reached
@@ -54,69 +57,87 @@ export function ChatPanel({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
-
   return (
-    <>
-      <div className="sheet-backdrop" onClick={onClose} />
-      <aside className="sheet" aria-label="Chat with KOS">
-        <header className="sheet-head">
-          <div>
-            <strong>Ask KOS</strong>
-            <span className="sheet-sub">same conversation as Discord</span>
-          </div>
-          <div className="sheet-head-actions">
-            <button type="button" className="btn btn--ghost" onClick={onClear}>
-              Clear
-            </button>
-            <button type="button" className="btn btn--ghost" onClick={onClose} aria-label="Close">
-              ✕
-            </button>
-          </div>
-        </header>
-
-        <div className="sheet-thread" ref={boxRef} aria-live="polite">
-          {thread.length === 0 && (
-            <p className="sheet-empty">
-              Ask for anything: “what did I spend on coffee”, “build me a reading
-              list”, “remind me to review the budget on Mondays”.
-            </p>
-          )}
-          {thread.map((m, i) => (
-            <div key={i} className={`bubble bubble--${m.role}`}>
-              {m.text}
-            </div>
-          ))}
-          {sending && <div className="bubble bubble--kos is-thinking">thinking…</div>}
-        </div>
-
-        <div className="sheet-composer">
-          <textarea
-            ref={inputRef}
-            rows={3}
-            value={prompt}
-            placeholder="Ask KOS…"
-            onChange={(e) => onPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                onSend();
-              }
-            }}
+    <AnimatePresence>
+      {open && (
+        <>
+          <m.div
+            key="backdrop"
+            className="sheet-backdrop"
+            onClick={onClose}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={ease}
           />
-          <div className="sheet-composer-bar">
-            <span className="hint">⌘↵ to send</span>
-            <button
-              type="button"
-              className="btn btn--primary"
-              onClick={onSend}
-              disabled={sending || prompt.trim() === ""}
-            >
-              {sending ? "Sending…" : "Send"}
-            </button>
-          </div>
-        </div>
-      </aside>
-    </>
+          <m.aside
+            key="sheet"
+            className="sheet"
+            aria-label="Chat with KOS"
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            transition={spring}
+          >
+            <header className="sheet-head">
+              <div>
+                <strong>Ask KOS</strong>
+                <span className="sheet-sub">same conversation as Discord</span>
+              </div>
+              <div className="sheet-head-actions">
+                <button type="button" className="btn btn--ghost" onClick={onClear}>
+                  Clear
+                </button>
+                <button type="button" className="btn btn--ghost" onClick={onClose} aria-label="Close">
+                  ✕
+                </button>
+              </div>
+            </header>
+
+            <div className="sheet-thread" ref={boxRef} aria-live="polite">
+              {thread.length === 0 && (
+                <p className="sheet-empty">
+                  Ask for anything: “what did I spend on coffee”, “build me a reading
+                  list”, “remind me to review the budget on Mondays”.
+                </p>
+              )}
+              {thread.map((m, i) => (
+                <div key={i} className={`bubble bubble--${m.role}`}>
+                  {m.text}
+                </div>
+              ))}
+              {sending && <div className="bubble bubble--kos is-thinking">thinking…</div>}
+            </div>
+
+            <div className="sheet-composer">
+              <textarea
+                ref={inputRef}
+                rows={3}
+                value={prompt}
+                placeholder="Ask KOS…"
+                onChange={(e) => onPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    onSend();
+                  }
+                }}
+              />
+              <div className="sheet-composer-bar">
+                <span className="hint">⌘↵ to send</span>
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={onSend}
+                  disabled={sending || prompt.trim() === ""}
+                >
+                  {sending ? "Sending…" : "Send"}
+                </button>
+              </div>
+            </div>
+          </m.aside>
+        </>
+      )}
+    </AnimatePresence>
   );
 }

@@ -1660,11 +1660,11 @@ textarea {
   text-decoration: none;
   font: inherit;
   cursor: pointer;
-  transition: border-color 0.14s, transform 0.14s, box-shadow 0.14s;
+  transition: border-color 0.14s, box-shadow 0.14s;
 }
+/* Lift is owned by motion's whileHover so the two do not fight over transform. */
 .card:hover {
   border-color: var(--line-strong);
-  transform: translateY(-1px);
   box-shadow: var(--elev-2);
 }
 

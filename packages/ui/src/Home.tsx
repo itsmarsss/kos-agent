@@ -1,4 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
+import { m } from "motion/react";
+
+import { card, stagger } from "./motion.js";
 
 import { api, type PageSummary, type Project } from "./api.js";
 import { hrefFor } from "./routes.js";
@@ -96,7 +99,11 @@ export function Home({
         </span>
       </div>
 
-      <div className="card-grid">
+      {/*
+        Mounted once, so the 5s poll re-renders without replaying the stagger:
+        the cards settle when data first arrives and stay put after that.
+      */}
+      <m.div className="card-grid" variants={stagger} initial="hidden" animate="show">
         {[...projects]
           .sort((a, b) => b.lastTouchedAt - a.lastTouchedAt)
           .map((project) => {
@@ -127,22 +134,32 @@ export function Home({
           );
 
           return page ? (
-            <a key={project.slug} className="card card--link" href={hrefFor({ name: "page", id: page.id })}>
-              {body}
-            </a>
-          ) : (
-            <button
+            <m.a
               key={project.slug}
+              variants={card}
+              whileHover={{ y: -2 }}
+              whileTap={{ scale: 0.99 }}
+              className="card card--link"
+              href={hrefFor({ name: "page", id: page.id })}
+            >
+              {body}
+            </m.a>
+          ) : (
+            <m.button
+              key={project.slug}
+              variants={card}
+              whileHover={{ y: -2 }}
+              whileTap={{ scale: 0.99 }}
               type="button"
               className="card"
               onClick={() => onInspect(project, pages)}
             >
               {body}
               <span className="card-hint">No page yet — ask KOS to build one</span>
-            </button>
+            </m.button>
           );
         })}
-      </div>
+      </m.div>
     </div>
   );
 }
