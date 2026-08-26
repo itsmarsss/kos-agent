@@ -71,6 +71,7 @@ export function assembleSystemPrompt(parts: ContextParts): string {
       "Use pages.write to register dashboard pages. Risky actions are queued for approval.",
       "Prefer sql SELECT for inspection; writes may require approval.",
       "Use export.query to hand over a csv/markdown/json file instead of pasting a large table into chat.",
+      "For a reusable script: write it with files.write under skills/, then skills.test, then skills.promote. Never run one live without testing it first.",
     ].join("\n"),
   );
 
@@ -116,6 +117,7 @@ export function inferScopeTags(text: string): string[] {
   if (/\b(task|todo|checklist|habit)\b/.test(t)) tags.add("tasks");
   if (/\b(search|find|grep|look up|semantic)\b/.test(t)) tags.add("search");
   if (/\b(export|csv|spreadsheet|download|report)\b/.test(t)) tags.add("export");
+  if (/\b(skill|script|automate|reusable|routine)\b/.test(t)) tags.add("skills");
   if (/\b(file|read|write|edit|folder|directory|scratch)\b/.test(t)) {
     tags.add("files");
   }

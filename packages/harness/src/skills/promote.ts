@@ -1,6 +1,10 @@
+import { readFileSync } from "node:fs";
+
+import { resolvePath } from "../jail/resolvePath.js";
 import type { ApprovalQueue } from "../ops/approvals.js";
 import type { WorkspaceBackup } from "../ops/backup.js";
 import { runSandbox, type SandboxResult } from "../sandbox/runner.js";
+import { assessSkillRisk } from "./risk.js";
 
 /**
  * The self-improvement loop. An agent-written skill is never trusted on sight:
@@ -18,7 +22,10 @@ export type PromoteOutcome =
 export interface PromoteInput {
   /** Workspace-relative entry script for the skill. */
   entry: string;
-  /** True if the skill uses any risky-tier capability. */
+  /**
+   * Force the risky path. The harness reads the skill's source and decides on
+   * its own; this only ever adds caution, it cannot clear a risky verdict.
+   */
   risky?: boolean;
   args?: string[];
   userId?: string;
@@ -54,20 +61,45 @@ export class SkillPromoter {
       return { status: "rejected", reason };
     }
 
-    // Passing test is necessary but not sufficient: risky skills need approval.
-    if (input.risky) {
+    // Passing test is necessary but not sufficient. The sandbox mocks external
+    // effects, so a clean run says nothing about what the skill does for real:
+    // the verdict comes from reading the source, never from the caller.
+    const assessed = this.assess(input.entry);
+    if (input.risky || assessed.risky) {
+      const reason = assessed.reasons.length
+        ? `skill uses a risky capability: ${assessed.reasons.join(", ")}`
+        : "skill uses a risky capability";
       const action = this.deps.approvals.enqueue({
-        tool: "skills.promote",
+        // Deliberately not skills.promote: approving re-executes the queued
+        // tool, and re-entering promote would re-assess and re-queue forever.
+        tool: "skills.commit",
         args: { entry: input.entry },
         riskTier: "risky",
-        reason: "skill uses a risky capability",
+        reason,
         ...(input.userId ? { userId: input.userId } : {}),
       });
       return { status: "pending_approval", actionId: action.id };
     }
 
+    return { status: "promoted", sha: await this.commit(input.entry) };
+  }
+
+  /** Read the skill and classify it; unreadable source is risky by default. */
+  private assess(entry: string): { risky: boolean; reasons: string[] } {
+    try {
+      const abs = resolvePath(this.deps.workspaceRoot, entry);
+      return assessSkillRisk(readFileSync(abs, "utf8"));
+    } catch (err) {
+      return {
+        risky: true,
+        reasons: [`could not read skill: ${err instanceof Error ? err.message : String(err)}`],
+      };
+    }
+  }
+
+  /** Git-snapshot the workspace so the promotion is revertible. */
+  async commit(entry: string): Promise<string | null> {
     await this.deps.backup.ensureRepo();
-    const sha = await this.deps.backup.snapshot(`promote skill ${input.entry}`);
-    return { status: "promoted", sha };
+    return this.deps.backup.snapshot(`promote skill ${entry}`);
   }
 }
