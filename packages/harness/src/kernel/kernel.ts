@@ -40,6 +40,7 @@ import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
 import { createHttpModule } from "../tools/http.js";
 import { createSearchModule } from "../tools/search.js";
+import { exportModule } from "../tools/export.js";
 import { cronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
 import { notifyModule } from "../tools/notify.js";
@@ -264,6 +265,7 @@ export class Kernel {
       createSearchModule(),
       systemsModule,
       tasksModule,
+      exportModule,
       ...(options.extraModules ?? []),
     ];
     const loader = new ModuleLoader(toolRegistryContext(registry, services));
