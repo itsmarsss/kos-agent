@@ -41,6 +41,7 @@ import { PageStore } from "../systems/pages.js";
 import { createHttpModule } from "../tools/http.js";
 import { createSearchModule } from "../tools/search.js";
 import { exportModule } from "../tools/export.js";
+import { createSkillsModule } from "../tools/skills.js";
 import { cronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
 import { notifyModule } from "../tools/notify.js";
@@ -270,6 +271,7 @@ export class Kernel {
       systemsModule,
       tasksModule,
       exportModule,
+      createSkillsModule(promoter),
       ...(options.extraModules ?? []),
     ];
     const loader = new ModuleLoader(toolRegistryContext(registry, services));
