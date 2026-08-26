@@ -8,6 +8,7 @@ import { isValidPageSpec, type PageSpec } from "@kos/shared";
 import type { Inference } from "../agent/loop.js";
 import type { Task } from "../models/router.js";
 import type { GenerateRequest, ModelResponse } from "../models/types.js";
+import type { KosModule } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
@@ -355,6 +356,65 @@ describe("KOS end-to-end flows", () => {
       .prepare("SELECT COUNT(*) AS n FROM probe")
       .get() as { n: number };
     expect(rows.n).toBe(0);
+  });
+
+  it("runs an approved action through the serial queue, not alongside it", async () => {
+    // Observe when the TOOL runs, not when approve() resolves: approve waits
+    // on its own resume turn, which is queued anyway and would mask the race.
+    const order: string[] = [];
+    const marker: KosModule = {
+      manifest: {
+        name: "marker",
+        version: "1.0.0",
+        provides: [{ kind: "tool", name: "test.mark", version: "1.0.0" }],
+        riskTier: "risky",
+      },
+      activate(ctx) {
+        ctx.registerTool(
+          { name: "test.mark", description: "mark", inputSchema: { type: "object" } },
+          () => {
+            order.push("approved action");
+            return "marked";
+          },
+          { floor: "risky" },
+        );
+      },
+    };
+
+    const model = scripted([
+      toolCall("c1", "test.mark", {}),
+      text("Queued."),
+      text("Done."),
+    ]);
+    root = mkdtempSync(join(tmpdir(), "kos-flow-"));
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: model.inference,
+      profileOverrides: { name: "Kenny", timezone: "UTC" },
+      extraModules: [marker],
+    });
+
+    await kernel.handleMessage("mark it");
+    const pending = kernel.approvals.pending();
+    expect(pending).toHaveLength(1);
+
+    let release!: () => void;
+    const blocker = new Promise<void>((r) => (release = r));
+    const occupied = kernel.queue.enqueue(async () => {
+      await blocker;
+      order.push("in-flight job");
+    });
+
+    const approval = kernel.approve(pending[0]!.id);
+
+    // Ample time for an inline execution to run ahead of the blocked job.
+    await new Promise((r) => setTimeout(r, 50));
+    release();
+    await occupied;
+    await approval;
+
+    expect(order).toEqual(["in-flight job", "approved action"]);
   });
 
   it("shares one session across the CLI and Discord surfaces", async () => {
