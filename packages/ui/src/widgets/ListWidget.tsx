@@ -1,0 +1,85 @@
+import type { ListWidget as ListSpec } from "@kos/shared";
+import type { ReactElement } from "react";
+
+import { formatCell, humanize, keyColumn, toNumber } from "./format.js";
+import { allows, type Row, type WidgetProps } from "./types.js";
+import { useMutationRunner } from "./useMutationRunner.js";
+
+/**
+ * A list that edits through inline actions - a toggle and a delete button per
+ * row - never an editable grid. Both actions go through the guarded mutation
+ * path, keyed on the row's id column.
+ */
+
+const TOGGLE = /^(done|completed?|complete|active|enabled|checked|archived|paid|read)$/i;
+
+function toggleColumn(columns: string[], row: Row | undefined): string | null {
+  if (!row) return null;
+  return columns.find((c) => TOGGLE.test(c) && c in row) ?? null;
+}
+
+export function ListWidget({ widget, rows, mutate }: WidgetProps): ReactElement {
+  const w = widget as ListSpec;
+  const runner = useMutationRunner(mutate);
+  const key = keyColumn(rows[0]);
+  const editable = w.mutate?.columns ?? [];
+  const toggle = toggleColumn(editable, rows[0]);
+  const canToggle = toggle !== null && key !== null && allows(w.mutate, "update");
+  const canDelete = key !== null && allows(w.mutate, "delete");
+
+  return (
+    <div className="kos-widget kos-list">
+      {w.title ? <div className="kos-widget-title">{w.title}</div> : null}
+      {rows.length === 0 ? <div className="kos-empty">nothing here yet</div> : null}
+      <ul className="kos-list-items">
+        {rows.map((row, i) => {
+          const columns = Object.keys(row);
+          const label = columns.find((c) => c !== key && c !== toggle) ?? columns[0];
+          const meta = columns.filter((c) => c !== key && c !== toggle && c !== label);
+          const on = toggle ? toNumber(row[toggle]) === 1 : false;
+          const rowKey =
+            key !== null ? { column: key, value: row[key] } : undefined;
+          return (
+            <li className="kos-list-item" key={i}>
+              {canToggle && rowKey && toggle ? (
+                <input
+                  className="kos-check"
+                  type="checkbox"
+                  checked={on}
+                  disabled={runner.pending}
+                  aria-label={`${humanize(toggle)}: ${formatCell(label ? row[label] : "")}`}
+                  onChange={() =>
+                    void runner.run("update", { [toggle]: on ? 0 : 1 }, rowKey)
+                  }
+                />
+              ) : null}
+              <span className={on ? "kos-list-label is-done" : "kos-list-label"}>
+                {formatCell(label ? row[label] : "")}
+              </span>
+              {meta.length > 0 ? (
+                <span className="kos-list-meta">
+                  {meta.map((c) => formatCell(row[c])).filter(Boolean).join(" · ")}
+                </span>
+              ) : null}
+              {canDelete && rowKey ? (
+                <button
+                  className="kos-btn kos-btn--danger"
+                  type="button"
+                  disabled={runner.pending}
+                  onClick={() => void runner.run("delete", undefined, rowKey)}
+                >
+                  Delete
+                </button>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+      {runner.error ? (
+        <div className="kos-error" role="alert">
+          {runner.error}
+        </div>
+      ) : null}
+    </div>
+  );
+}
