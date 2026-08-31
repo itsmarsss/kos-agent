@@ -304,6 +304,12 @@ export async function handleApiRequest(
     return ok(await kernel.handleMessage(text, { sessionId, userId }));
   }
 
+  if (method === "POST" && path === "/api/orchestrator") {
+    const text = typeof body.text === "string" ? body.text : "";
+    if (text === "") return { status: 400, body: { error: "text required" } };
+    return ok(await kernel.handleOrchestratorTurn(text, { channel: "dashboard" }));
+  }
+
   if (method === "POST" && path === "/api/clear") {
     const sessionId =
       typeof body.sessionId === "string" && body.sessionId.length > 0
