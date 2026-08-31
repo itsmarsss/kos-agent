@@ -11,6 +11,7 @@ import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
 import { orchestratorId } from "./kernel.js";
 import { conversationEvents } from "./transcript.js";
+import { listDirectory, readFile } from "./files.js";
 
 export interface ApiRequest {
   method: string;
@@ -312,6 +313,33 @@ export async function handleApiRequest(
     const text = typeof body.text === "string" ? body.text : "";
     if (text === "") return { status: 400, body: { error: "text required" } };
     return ok(await kernel.handleOrchestratorTurn(text, { channel: "dashboard" }));
+  }
+
+  if (method === "GET" && path === "/api/files") {
+    // The path comes from the client, so it goes through the jail; a traversal
+    // attempt throws there rather than being sanitised here.
+    const target = queryParams(req.url).get("path") ?? ".";
+    try {
+      return ok({ path: target, entries: listDirectory(kernel.workspace, target) });
+    } catch (err) {
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
+  }
+
+  if (method === "GET" && path === "/api/file") {
+    const target = queryParams(req.url).get("path") ?? "";
+    if (!target) return { status: 400, body: { error: "path required" } };
+    try {
+      return ok(readFile(kernel.workspace, target));
+    } catch (err) {
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
   }
 
   if (method === "POST" && path === "/api/workspace/open") {

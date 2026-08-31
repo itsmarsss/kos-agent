@@ -8,6 +8,7 @@ export type Route =
   | { name: "tools" }
   | { name: "runs" }
   | { name: "chats"; id?: string }
+  | { name: "files"; path?: string }
   | { name: "page"; id: string };
 
 export function parseRoute(hash: string): Route {
@@ -16,6 +17,9 @@ export function parseRoute(hash: string): Route {
   if (path === "/" || path === "") return { name: "home" };
   if (path === "/projects") return { name: "projects" };
   if (path === "/chats") return { name: "chats" };
+  if (path === "/files") return { name: "files" };
+  const file = path.match(/^\/files\/(.+)$/);
+  if (file?.[1]) return { name: "files", path: decodeURIComponent(file[1]) };
   const chat = path.match(/^\/chats\/([^/]+)$/);
   if (chat?.[1]) return { name: "chats", id: decodeURIComponent(chat[1]) };
   if (path === "/crons") return { name: "crons" };
@@ -35,6 +39,8 @@ export function hrefFor(route: Route): string {
       return `#/page/${encodeURIComponent(route.id)}`;
     case "chats":
       return route.id ? `#/chats/${encodeURIComponent(route.id)}` : "#/chats";
+    case "files":
+      return route.path ? `#/files/${encodeURIComponent(route.path)}` : "#/files";
     default:
       return `#/${route.name}`;
   }
@@ -48,6 +54,7 @@ export function hrefFor(route: Route): string {
 export const NAV: Array<{ route: Route; label: string }> = [
   { route: { name: "home" }, label: "Home" },
   { route: { name: "chats" }, label: "Chats" },
+  { route: { name: "files" }, label: "Files" },
   { route: { name: "projects" }, label: "Projects" },
   { route: { name: "crons" }, label: "Schedule" },
   { route: { name: "memory" }, label: "What it knows" },
