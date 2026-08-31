@@ -2783,7 +2783,18 @@ li:hover .chats-item-when { opacity: 0; }
 /* Compact by default: these are three short fields, not a form. */
 .settings .kos-field { gap: 0.15rem; display: flex; flex-direction: column; align-items: flex-start; }
 /* In a form the control should fill its field, and its menu drops down. */
-.settings-select { width: 100%; }
+.settings-select,
+.insp-select { width: 100%; }
+.insp-select .sel-button {
+  width: 100%;
+  justify-content: space-between;
+  border-color: var(--line);
+  background: var(--bg);
+  padding: 0.35rem 0.5rem;
+  max-width: none;
+  font-family: var(--font);
+}
+.insp-select .sel-menu { bottom: auto; top: calc(100% + 0.3rem); right: 0; }
 .settings-select .sel-button {
   width: 100%;
   justify-content: space-between;

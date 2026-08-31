@@ -3,9 +3,13 @@ import { useEffect, useState } from "react";
 /**
  * What each conversation is doing, streamed from the host.
  *
+ * One connection and one map for the whole app, not one per component. Held
+ * per mount, the state was thrown away every time the chat view unmounted, so
+ * leaving a running conversation and coming back showed nothing at all until
+ * the next event happened to arrive.
+ *
  * The steps accumulate rather than replace: a turn is a sequence of thoughts
- * and tool calls, and the reader should watch it build up, not be shown one
- * label at a time and then handed the whole thing at the end.
+ * and tool calls, and the reader should watch it build up.
  */
 
 export type ProgressEvent =
@@ -74,12 +78,58 @@ function reduce(live: Live, event: ProgressEvent): Live {
   }
 }
 
-export function useProgress(): ProgressMap {
-  const [steps, setSteps] = useState<ProgressMap>({});
+/**
+ * The shared store. One EventSource, opened with the first reader and closed
+ * with the last, and a map that outlives any particular view.
+ */
+class ProgressStore {
+  private map: ProgressMap = {};
+  private readonly listeners = new Set<(m: ProgressMap) => void>();
+  private source: EventSource | null = null;
 
-  useEffect(() => {
+  subscribe(listener: (m: ProgressMap) => void): () => void {
+    this.listeners.add(listener);
+    this.open();
+    listener(this.map);
+    return () => {
+      this.listeners.delete(listener);
+      if (this.listeners.size === 0) this.close();
+    };
+  }
+
+  /**
+   * Say a conversation is working before any event has arrived.
+   *
+   * Used when the conversation list reports a turn in flight that started
+   * before this page was open: without it, returning to a running chat looks
+   * idle until the next delta.
+   */
+  seed(conversationId: string): void {
+    if (this.map[conversationId]) return;
+    this.map = {
+      ...this.map,
+      [conversationId]: { steps: [], text: "", since: Date.now() },
+    };
+    this.emit();
+  }
+
+  /** Drop a conversation the server no longer reports as working. */
+  clear(conversationId: string): void {
+    if (!this.map[conversationId]) return;
+    const next = { ...this.map };
+    delete next[conversationId];
+    this.map = next;
+    this.emit();
+  }
+
+  private emit(): void {
+    for (const listener of this.listeners) listener(this.map);
+  }
+
+  private open(): void {
+    if (this.source) return;
     const source = new EventSource("/api/events");
-
+    this.source = source;
     source.onmessage = (message) => {
       let event: ProgressEvent;
       try {
@@ -87,27 +137,46 @@ export function useProgress(): ProgressMap {
       } catch {
         return;
       }
-      setSteps((current) => {
-        const id = event.conversationId;
-        if (event.kind === "turn-end") {
-          const next = { ...current };
-          delete next[id];
-          return next;
-        }
-        if (event.kind === "turn-start") {
-          return { ...current, [id]: { steps: [], text: "", since: Date.now() } };
-        }
-        const live: Live = current[id] ?? { steps: [], text: "", since: Date.now() };
-        return { ...current, [id]: reduce(live, event) };
-      });
+      const id = event.conversationId;
+      if (event.kind === "turn-end") {
+        const next = { ...this.map };
+        delete next[id];
+        this.map = next;
+      } else if (event.kind === "turn-start") {
+        this.map = { ...this.map, [id]: { steps: [], text: "", since: Date.now() } };
+      } else {
+        const live = this.map[id] ?? { steps: [], text: "", since: Date.now() };
+        this.map = { ...this.map, [id]: reduce(live, event) };
+      }
+      this.emit();
     };
+    // A dropped connection is not evidence that work stopped; the seed from
+    // the conversation list puts back anything still running.
+    source.onerror = () => {
+      this.map = {};
+      this.emit();
+    };
+  }
 
-    // EventSource reconnects on its own; the map is rebuilt from the events
-    // that follow, and a stale entry would otherwise claim work that ended.
-    source.onerror = () => setSteps({});
+  private close(): void {
+    this.source?.close();
+    this.source = null;
+  }
+}
 
-    return () => source.close();
-  }, []);
+const store = new ProgressStore();
 
-  return steps;
+/** Tell the store about work the server says is in flight. */
+export function seedProgress(working: string[]): void {
+  for (const id of working) store.seed(id);
+}
+
+export function clearProgress(conversationId: string): void {
+  store.clear(conversationId);
+}
+
+export function useProgress(): ProgressMap {
+  const [map, setMap] = useState<ProgressMap>({});
+  useEffect(() => store.subscribe(setMap), []);
+  return map;
 }

@@ -4,7 +4,7 @@ import { AnimatePresence, m } from "motion/react";
 import { Markdown } from "./Markdown.js";
 import { listItem } from "./motion.js";
 import { Thinking } from "./Thinking.js";
-import type { Live } from "./progress.js";
+import type { Live, LiveStep } from "./progress.js";
 
 /**
  * A turn while it is still happening.
@@ -35,7 +35,18 @@ function Elapsed({ since }: { since: number }): ReactElement {
 }
 
 export function LiveTurn({ live }: { live: Live }): ReactElement {
-  const running = live.steps.find((s) => s.kind === "tool" && !s.done);
+  const running = live.steps.find(
+    (s): s is Extract<LiveStep, { kind: "tool" }> => s.kind === "tool" && !s.done,
+  );
+
+  /*
+   * Three states, and only one of them is thinking.
+   *
+   * Once the reply starts arriving the model is writing, not deliberating, and
+   * a "thinking" box above streaming prose says something untrue about what is
+   * happening. While a tool runs it is the tool that matters, not the wait.
+   */
+  const answering = live.text !== "";
 
   return (
     <>
@@ -72,24 +83,26 @@ export function LiveTurn({ live }: { live: Live }): ReactElement {
         )}
       </AnimatePresence>
 
-      <div className="bubble bubble--kos live">
-        <div className="live-head">
-          <span className="live-dots" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </span>
-          <span className="live-what">
-            {running && running.kind === "tool" ? running.summary : "thinking"}
-          </span>
-          <Elapsed since={live.since} />
+      {answering ? (
+        // The reply as it is written, in the shape it will keep once it lands.
+        <div className="bubble bubble--kos">
+          <Markdown text={live.text} />
         </div>
-        {live.text && (
-          <div className="live-text">
-            <Markdown text={live.text} />
+      ) : (
+        <div className="bubble bubble--kos live">
+          <div className="live-head">
+            <span className="live-dots" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+            <span className="live-what">
+              {running ? `Running ${running.summary}` : "Thinking"}
+            </span>
+            <Elapsed since={live.since} />
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </>
   );
 }
