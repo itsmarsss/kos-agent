@@ -112,6 +112,21 @@ export interface MutateResult {
   changes?: number;
 }
 
+export interface Conversation {
+  id: string;
+  userId: string;
+  title: string;
+  channel: string | null;
+  createdAt: number;
+  updatedAt: number;
+  archived: boolean;
+}
+
+export interface ChatTurn {
+  role: "you" | "kos";
+  text: string;
+}
+
 export interface FactRow {
   id?: number;
   key: string;
@@ -170,6 +185,19 @@ export const api = {
     ),
   page: (id: string) => get<PagePayload>(`/api/pages/${encodeURIComponent(id)}`),
   mutate: (req: MutateRequest) => post<MutateResult>("/api/mutate", req),
+  conversations: () => get<Conversation[]>("/api/conversations"),
+  conversation: (id: string) =>
+    get<{ id: string; messages: ChatTurn[] }>(
+      `/api/conversations/${encodeURIComponent(id)}/messages`,
+    ),
+  newConversation: (title?: string) =>
+    post<Conversation>("/api/conversations/new", title ? { title } : {}),
+  renameConversation: (id: string, title: string) =>
+    post<Conversation>("/api/conversations/rename", { id, title }),
+  archiveConversation: (id: string) =>
+    post<Conversation>("/api/conversations/archive", { id, archived: true }),
+  deleteConversation: (id: string) =>
+    post<{ id: string; removed: boolean }>("/api/conversations/delete", { id }),
   memory: (limit = 200) =>
     get<{ facts: FactRow[] }>(`/api/memory?limit=${limit}`),
   saveMemory: (key: string, value: string, kind: "fact" | "preference" = "fact") =>
@@ -183,7 +211,11 @@ export const api = {
   deny: (id: number) =>
     post<{ ok: boolean; message: string; reply?: string }>("/api/deny", { id }),
   setKill: (halted: boolean) => post<Status>("/api/kill", { halted }),
-  message: (text: string) => post<{ reply: string }>("/api/message", { text }),
+  message: (text: string, sessionId?: string) =>
+    post<{ reply: string }>("/api/message", {
+      text,
+      ...(sessionId ? { sessionId } : {}),
+    }),
   snapshot: (message?: string) =>
     post<{ sha: string | null }>("/api/snapshot", message ? { message } : {}),
   clear: (sessionId?: string) =>
