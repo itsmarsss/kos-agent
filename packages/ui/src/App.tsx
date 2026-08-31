@@ -24,6 +24,7 @@ import { ease, listItem, spring } from "./motion.js";
 import { Home } from "./Home.js";
 import { ChatsPage } from "./ChatsPage.js";
 import { FilesPage } from "./FilesPage.js";
+import { ProjectsPage } from "./ProjectsPage.js";
 import { ChatPanel } from "./ChatPanel.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { PageRenderer } from "./widgets/PageRenderer.js";
@@ -504,95 +505,12 @@ export function App(): React.ReactElement {
 
   if (route.name === "projects") {
     return shell(
-      <ListPage
-        title="Projects"
-        subtitle="Everything KOS is tracking for you, and the pages it built."
-        rows={projects}
-        rowKey={(p) => p.slug}
-        empty="No projects match"
-        onRowClick={(p) =>
-          setInspect({
-            kind: "project",
-            data: p,
-            pages: pagesByProject.get(p.slug) ?? [],
-          })
+      <ProjectsPage
+        projects={projects}
+        pagesByProject={pagesByProject}
+        onInspect={(project, pages) =>
+          setInspect({ kind: "project", data: project, pages })
         }
-        columns={[
-          {
-            key: "name",
-            header: "Name",
-            searchText: (p) => `${p.name} ${p.slug}`,
-            render: (p) => (
-              <div>
-                <div className="ops-nav-title">{p.name}</div>
-                <div className="ops-mono ops-muted">{p.slug}</div>
-              </div>
-            ),
-          },
-          {
-            key: "type",
-            header: "Type",
-            searchText: (p) => p.type,
-            render: (p) => p.type,
-          },
-          {
-            key: "module",
-            header: "Module",
-            searchText: (p) => p.module ?? "",
-            render: (p) => (
-              <span className="ops-mono">{p.module ?? "—"}</span>
-            ),
-          },
-          {
-            key: "status",
-            header: "Status",
-            searchText: (p) => p.status,
-            render: (p) => (
-              <span className={`ops-status ops-status--${p.status}`}>
-                {p.status}
-              </span>
-            ),
-          },
-          {
-            key: "pages",
-            header: "Pages",
-            render: (p) => {
-              const linked = pagesByProject.get(p.slug) ?? [];
-              if (linked.length === 0) return <span className="ops-muted">—</span>;
-              return (
-                <span className="ops-page-chips">
-                  {linked.map((pg) => (
-                    <span
-                      key={pg.id}
-                      className="ops-chip"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openPage(pg.id);
-                      }}
-                      role="link"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.stopPropagation();
-                          openPage(pg.id);
-                        }
-                      }}
-                    >
-                      {pg.title}
-                    </span>
-                  ))}
-                </span>
-              );
-            },
-          },
-          {
-            key: "touched",
-            header: "Touched",
-            render: (p) => (
-              <span className="ops-muted">{timeAgo(p.lastTouchedAt)}</span>
-            ),
-          },
-        ]}
       />,
     );
   }

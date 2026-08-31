@@ -77,10 +77,14 @@ export function ChatsPage({
 
   useStickToBottom(boxRef, [events, sending, activeId]);
 
+  // The orchestrator lives above the list: it is how work gets routed, not one
+  // of the threads the routing produces.
+  const orchestrator = conversations.find((c) => c.kind === "orchestrator");
   const filtered = useMemo(() => {
+    const chats = conversations.filter((c) => c.kind !== "orchestrator");
     const q = query.trim().toLowerCase();
-    if (!q) return conversations;
-    return conversations.filter((c) => c.title.toLowerCase().includes(q));
+    if (!q) return chats;
+    return chats.filter((c) => c.title.toLowerCase().includes(q));
   }, [conversations, query]);
 
   async function send(): Promise<void> {
@@ -115,6 +119,27 @@ export function ChatsPage({
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
+        {orchestrator && (
+          <div className="chats-pinned">
+            <a
+              className={`chats-item chats-item--pinned ${
+                orchestrator.id === activeId ? "is-active" : ""
+              }`}
+              href={hrefFor({ name: "chats", id: orchestrator.id })}
+              onClick={(e) => {
+                e.preventDefault();
+                onOpen(orchestrator.id);
+              }}
+            >
+              <span className="chats-item-top">
+                <span className="chats-item-title">{orchestrator.title}</span>
+                <span className="chats-badge">⌘K</span>
+              </span>
+              <span className="chats-item-brief">Routes work across your chats</span>
+            </a>
+          </div>
+        )}
+
         <ul>
           {filtered.map((c) => (
             <li key={c.id}>
@@ -141,9 +166,7 @@ export function ChatsPage({
           ))}
           {filtered.length === 0 && (
             <li className="chats-empty">
-              {conversations.length === 0
-                ? "No chats yet. Press ⌘K and say what you want to work on."
-                : "Nothing matches."}
+              {query.trim() ? "Nothing matches." : "No chats yet. Ask Command to start one."}
             </li>
           )}
         </ul>
@@ -196,15 +219,17 @@ export function ChatsPage({
                 >
                   {editing ? "Close" : "Configure"}
                 </button>
-                <button
-                  type="button"
-                  className="btn btn--ghost"
-                  onClick={() => {
-                    void api.archiveConversation(active.id).then(onChanged);
-                  }}
-                >
-                  Archive
-                </button>
+                {active.kind !== "orchestrator" && (
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    onClick={() => {
+                      void api.archiveConversation(active.id).then(onChanged);
+                    }}
+                  >
+                    Archive
+                  </button>
+                )}
               </div>
             </header>
 
