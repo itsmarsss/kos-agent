@@ -7,12 +7,9 @@ import {
 } from "react";
 
 import { api, type ChatEvent, type Conversation } from "./api.js";
-import {
-  AttachButton,
-  AttachmentBar,
-  useAttachments,
-  useDropZone,
-} from "./Attachments.js";
+import { AttachButton, useAttachments, useDropZone } from "./Attachments.js";
+import { AttachmentStrip } from "./AttachmentStrip.js";
+import { ModelPicker } from "./ModelPicker.js";
 import { Thinking } from "./Thinking.js";
 import { useProgress } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
@@ -21,7 +18,7 @@ import { ChatConfig } from "./ChatConfig.js";
 import { Markdown } from "./Markdown.js";
 import { Modal } from "./Modal.js";
 import { hrefFor } from "./routes.js";
-import { composerKeyDown, useStickToBottom } from "./composer.js";
+import { composerKeyDown, useAutoGrow, useStickToBottom } from "./composer.js";
 
 /**
  * The chats page: a list that stays usable at fifty conversations, and the
@@ -65,7 +62,10 @@ export function ChatsPage({
   const attachments = useAttachments();
   const progress = useProgress();
   const [creating, setCreating] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const drop = useDropZone((l) => void attachments.add(l));
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  useAutoGrow(inputRef, draft);
   const loaded = useRef<string | undefined>(undefined);
   const boxRef = useRef<HTMLDivElement>(null);
 
@@ -134,7 +134,17 @@ export function ChatsPage({
   }
 
   return (
-    <div className="chats">
+    <div className={`chats ${collapsed ? "is-collapsed" : ""}`}>
+      {/* The list is worth a third of the window while you are choosing, and
+          nothing once you have. */}
+      <button
+        type="button"
+        className="chats-toggle"
+        aria-label={collapsed ? "Show chats" : "Hide chats"}
+        onClick={() => setCollapsed((v) => !v)}
+      >
+        {collapsed ? "›" : "‹"}
+      </button>
       <aside className="chats-list">
         <div className="chats-list-head">
           {/* There was no way to start a chat at all: every conversation had
@@ -319,10 +329,17 @@ export function ChatsPage({
                   <Thinking key={i} text={e.text} />
                 ) : (
                   <div key={i} className={`bubble bubble--${e.role}`}>
-                    {e.images?.map((src, n) => (
-                      <img className="bubble-image" key={n} src={src} alt="" />
-                    ))}
                     {e.text && <Markdown text={e.text} />}
+                    {/* Under the sentence, at a fixed size: a full-width image
+                        pushed the message it belonged to off the screen. */}
+                    {e.images && e.images.length > 0 && (
+                      <AttachmentStrip
+                        items={e.images.map((src, n) => ({
+                          name: `Image ${n + 1}`,
+                          src,
+                        }))}
+                      />
+                    )}
                   </div>
                 ),
               )}
@@ -337,12 +354,18 @@ export function ChatsPage({
               className={`chats-composer composer ${drop.over ? "is-over" : ""}`}
               {...drop.handlers}
             >
-              <AttachmentBar
-                files={attachments.files}
+              <AttachmentStrip
+                items={attachments.files.map((f) => ({
+                  name: f.name,
+                  ...(f.mediaType.startsWith("image/")
+                    ? { src: `data:${f.mediaType};base64,${f.data}` }
+                    : {}),
+                }))}
                 onRemove={attachments.remove}
               />
               <textarea
-                rows={3}
+                ref={inputRef}
+                rows={1}
                 value={draft}
                 placeholder={`Message ${active.title}…`}
                 onChange={(e) => setDraft(e.target.value)}
@@ -350,6 +373,7 @@ export function ChatsPage({
               />
               <div className="sheet-composer-bar">
                 <AttachButton onAdd={(l) => void attachments.add(l)} />
+                <ModelPicker />
                 <span className="hint">Enter to send · Shift+Enter for a new line</span>
                 <button
                   type="button"

@@ -1,6 +1,7 @@
 import React, { useRef, useState, type ReactElement } from "react";
 
 import type { Attachment } from "./api.js";
+import { MAX_ATTACHMENTS } from "./AttachmentStrip.js";
 
 /**
  * Attaching files to a message: a button, a drop target, and a row of chips.
@@ -40,48 +41,13 @@ export function useAttachments(): {
     add: async (list) => {
       if (!list?.length) return;
       const read = await Promise.all(Array.from(list).map(readFile));
-      setFiles((f) => [...f, ...read]);
+      // Past ten it is a folder, not an attachment, and every one of them is
+      // inlined into the prompt.
+      setFiles((f) => [...f, ...read].slice(0, MAX_ATTACHMENTS));
     },
     remove: (index) => setFiles((f) => f.filter((_, i) => i !== index)),
     clear: () => setFiles([]),
   };
-}
-
-export function AttachmentBar({
-  files,
-  onRemove,
-}: {
-  files: Attachment[];
-  onRemove: (index: number) => void;
-}): ReactElement | null {
-  // Chips only, and only when there is something to show. The button lives in
-  // the composer row: a permanent "or drop files here" strip above every
-  // message box is a file uploader wearing a chat's clothes.
-  if (files.length === 0) return null;
-  return (
-    <div className="attach-chips">
-      {files.map((f, i) => (
-        <span className="attach-chip" key={`${f.name}-${i}`}>
-          {f.mediaType.startsWith("image/") && (
-            <img
-              className="attach-thumb"
-              alt=""
-              src={`data:${f.mediaType};base64,${f.data}`}
-            />
-          )}
-          <span className="attach-name">{f.name}</span>
-          <button
-            type="button"
-            className="attach-x"
-            aria-label={`Remove ${f.name}`}
-            onClick={() => onRemove(i)}
-          >
-            ✕
-          </button>
-        </span>
-      ))}
-    </div>
-  );
 }
 
 /** The paperclip that sits inside the composer, beside the send button. */
@@ -96,7 +62,6 @@ export function AttachButton({
       <button
         type="button"
         className="composer-icon"
-        title="Attach files"
         aria-label="Attach files"
         onClick={() => input.current?.click()}
       >

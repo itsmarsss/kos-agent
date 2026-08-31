@@ -63,7 +63,8 @@ export function ModelSettings({ onClose }: { onClose: () => void }): ReactElemen
 
   return (
     <div className="settings">
-      <h2>Models</h2>
+      {/* No heading here: the modal already has the title, and a second one
+          scrolled up under it. */}
       <p className="hint">
         Applied on the next turn, no restart. Leave a field blank to keep the
         default.

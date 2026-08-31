@@ -93,3 +93,26 @@ export function useStickToBottom<T extends HTMLElement>(
     if (el) el.scrollTop = el.scrollHeight;
   }, [ref, ...deps]);
 }
+
+/**
+ * Grow a textarea with what is typed, up to a ceiling.
+ *
+ * A fixed three-row box means a long message is written through a slot, and a
+ * one-word message reserves three rows of a thread that could have used them.
+ */
+export function useAutoGrow(
+  ref: RefObject<HTMLTextAreaElement | null>,
+  value: string,
+  maxRows = 12,
+): void {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // Reset first: without it the box can only ever get taller.
+    el.style.height = "auto";
+    const line = parseFloat(getComputedStyle(el).lineHeight || "20") || 20;
+    const max = line * maxRows;
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+    el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+  }, [ref, value, maxRows]);
+}
