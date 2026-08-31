@@ -31,6 +31,15 @@ export interface Live {
   text: string;
   /** When the turn started, so a wait can show its length. */
   since: number;
+  /**
+   * Joined a turn already in progress, after a reload or a reconnect.
+   *
+   * Whatever was said before this page existed cannot be recovered, so the
+   * text here is a fragment. It is withheld rather than shown starting from
+   * the middle of a sentence; the whole reply arrives with the transcript
+   * when the turn ends.
+   */
+  resumed?: boolean;
 }
 
 export type ProgressMap = Record<string, Live | undefined>;
@@ -108,7 +117,7 @@ class ProgressStore {
     if (this.map[conversationId]) return;
     this.map = {
       ...this.map,
-      [conversationId]: { steps: [], text: "", since: Date.now() },
+      [conversationId]: { steps: [], text: "", since: Date.now(), resumed: true },
     };
     this.emit();
   }
