@@ -7,7 +7,13 @@ import {
 } from "react";
 
 import { api, type ChatEvent, type Conversation } from "./api.js";
-import { AttachmentBar, useAttachments } from "./Attachments.js";
+import {
+  AttachButton,
+  AttachmentBar,
+  useAttachments,
+  useDropZone,
+} from "./Attachments.js";
+import { Thinking } from "./Thinking.js";
 import { useProgress } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
 import { ToolCall } from "./ToolCall.js";
@@ -58,6 +64,8 @@ export function ChatsPage({
   const [sending, setSending] = useState(false);
   const attachments = useAttachments();
   const progress = useProgress();
+  const [creating, setCreating] = useState(false);
+  const drop = useDropZone((l) => void attachments.add(l));
   const loaded = useRef<string | undefined>(undefined);
   const boxRef = useRef<HTMLDivElement>(null);
 
@@ -129,6 +137,25 @@ export function ChatsPage({
     <div className="chats">
       <aside className="chats-list">
         <div className="chats-list-head">
+          {/* There was no way to start a chat at all: every conversation had
+              to come from the orchestrator deciding to make one. */}
+          <button
+            type="button"
+            className="btn btn--primary chats-new"
+            disabled={creating}
+            onClick={() => {
+              setCreating(true);
+              void api
+                .newConversation()
+                .then((c) => {
+                  onChanged();
+                  onOpen(c.id);
+                })
+                .finally(() => setCreating(false));
+            }}
+          >
+            {creating ? "Starting…" : "New chat"}
+          </button>
           <input
             className="chats-search"
             value={query}
@@ -288,6 +315,8 @@ export function ChatsPage({
                     }
                     onDecide={onDecide}
                   />
+                ) : e.kind === "reasoning" ? (
+                  <Thinking key={i} text={e.text} />
                 ) : (
                   <div key={i} className={`bubble bubble--${e.role}`}>
                     {e.images?.map((src, n) => (
@@ -304,10 +333,12 @@ export function ChatsPage({
               )}
             </div>
 
-            <div className="chats-composer">
+            <div
+              className={`chats-composer composer ${drop.over ? "is-over" : ""}`}
+              {...drop.handlers}
+            >
               <AttachmentBar
                 files={attachments.files}
-                onAdd={(l) => void attachments.add(l)}
                 onRemove={attachments.remove}
               />
               <textarea
@@ -318,12 +349,16 @@ export function ChatsPage({
                 onKeyDown={(e) => composerKeyDown(e, () => void send())}
               />
               <div className="sheet-composer-bar">
+                <AttachButton onAdd={(l) => void attachments.add(l)} />
                 <span className="hint">Enter to send · Shift+Enter for a new line</span>
                 <button
                   type="button"
                   className="btn btn--primary"
                   onClick={() => void send()}
-                  disabled={sending || draft.trim() === ""}
+                  disabled={
+                    sending ||
+                    (draft.trim() === "" && attachments.files.length === 0)
+                  }
                 >
                   {sending ? "Sending…" : "Send"}
                 </button>

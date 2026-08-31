@@ -37,6 +37,10 @@ function toAnthropicContent(blocks: ContentBlock[]): AnthropicBlockParam[] {
           ...(block.isError ? { is_error: true } : {}),
         });
         break;
+      case "reasoning":
+        // For the reader only. Anthropic owns its own thinking blocks, and a
+        // summary written by another provider is not one of them.
+        break;
       case "image":
         out.push({
           type: "image",

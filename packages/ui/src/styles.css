@@ -2096,19 +2096,12 @@ textarea {
 .chats-composer { border-top: 1px solid var(--line); padding: 0.75rem; }
 
 /* —— attachments —— */
-.attach {
+.attach-chips {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem;
-  padding-bottom: 0.5rem;
-  border-radius: var(--r-sm);
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
 }
-.attach.is-over {
-  outline: 1px dashed var(--accent);
-  outline-offset: 3px;
-}
-.attach-add { font-size: 0.8125rem; padding: 0.2rem 0.5rem; }
 .attach-chip {
   display: inline-flex;
   align-items: center;
@@ -2116,30 +2109,120 @@ textarea {
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 0.15rem 0.35rem 0.15rem 0.15rem;
+  padding: 0.15rem 0.4rem 0.15rem 0.15rem;
   font-size: 0.8125rem;
-  max-width: 16rem;
+  max-width: 15rem;
 }
 .attach-thumb {
-  width: 1.4rem;
-  height: 1.4rem;
+  width: 1.35rem;
+  height: 1.35rem;
   border-radius: 999px;
   object-fit: cover;
 }
-.attach-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.attach-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attach-x {
   background: none;
   border: 0;
   color: var(--faint);
   cursor: pointer;
   font-size: 0.75rem;
-  padding: 0 0.15rem;
+  padding: 0 0.1rem;
 }
 .attach-x:hover { color: var(--text); }
+
+/* The paperclip sits with the send button, not in a strip of its own. */
+.composer-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: var(--r-sm);
+  background: none;
+  border: 0;
+  color: var(--faint);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.composer-icon:hover { color: var(--text); background: var(--panel-2); }
+.composer.is-over {
+  outline: 1px dashed var(--accent);
+  outline-offset: -3px;
+  border-radius: var(--r-sm);
+}
+
+/* —— a kept thought —— */
+.thinking {
+  align-self: flex-start;
+  max-width: 88%;
+  font-size: 0.875rem;
+}
+.thinking-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 0.15rem 0;
+  color: var(--faint);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.thinking-head:hover { color: var(--muted); }
+.thinking-caret { flex-shrink: 0; }
+.thinking-label { flex-shrink: 0; }
+.thinking-peek {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+.thinking-body {
+  border-left: 2px solid var(--line);
+  padding-left: 0.7rem;
+  margin: 0.2rem 0 0.1rem 0.35rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.thinking-body p { margin: 0 0 0.5rem; }
+.thinking-body p:last-child { margin-bottom: 0; }
+
+/* New chat leads the list; search is secondary to it. */
+.chats-new { width: 100%; margin-bottom: 0.45rem; }
+
+/* —— model settings —— */
+.settings { display: flex; flex-direction: column; gap: 1.25rem; }
+.settings > h2 { margin: 0; font-size: 1rem; }
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.9rem 1rem;
+  background: var(--panel-2);
+  border-radius: var(--r-md);
+}
+.settings-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.settings-group-head strong { font-size: 0.9375rem; }
+.settings-row { display: flex; gap: 0.6rem; }
+.settings-row .kos-field { flex: 1; min-width: 0; }
+.settings-now {
+  font-size: 0.8125rem;
+  color: var(--faint);
+}
+.settings-now code { font-family: var(--mono); color: var(--muted); }
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
 
 /* An attached image in the transcript, capped so it cannot dwarf the thread. */
 .bubble-image {

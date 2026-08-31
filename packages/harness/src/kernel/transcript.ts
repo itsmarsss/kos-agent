@@ -14,6 +14,11 @@ import { parseQueuedApproval } from "./guarded.js";
 
 export type ChatEvent =
   | {
+      /** What the model worked out before answering, kept so it can be reread. */
+      kind: "reasoning";
+      text: string;
+    }
+  | {
       kind: "message";
       role: "you" | "kos" | "system";
       text: string;
@@ -74,6 +79,12 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
 
   for (const message of messages) {
     for (const block of message.content) {
+      if (block.type === "reasoning") {
+        const text = block.text.trim();
+        if (text) events.push({ kind: "reasoning", text });
+        continue;
+      }
+
       if (block.type === "image") {
         // Attached to the turn it belongs to: a transcript that drops the
         // picture leaves a question about something no longer on screen.
