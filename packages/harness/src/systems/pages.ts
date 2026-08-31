@@ -141,6 +141,38 @@ export class PageStore {
   }
 
   /**
+   * A page reads its own project's data, not another's.
+   *
+   * Tables are namespaced by slug, so a query naming another project's tables
+   * says plainly that the page was filed in the wrong place. Left unchecked
+   * the page renders correctly and the mistake shows up only as a stranger in
+   * someone else's project on the Projects tab.
+   */
+  private assertQueriesStayInProject(projectSlug: string, page: PageSpec): void {
+    const slugs = this.manifest
+      .list()
+      .map((p) => p.slug)
+      .filter((s) => s !== projectSlug);
+    if (slugs.length === 0) return;
+
+    page.widgets.forEach((widget, index) => {
+      const query = (widget as { query?: unknown }).query;
+      if (typeof query !== "string") return;
+      for (const other of slugs) {
+        // Word-boundary match on the namespace prefix: budget_tracker_expenses
+        // belongs to budget_tracker, and nothing else looks like that.
+        const re = new RegExp(`\\b${other}_[a-z0-9_]+`, "i");
+        const hit = re.exec(query)?.[0];
+        if (hit) {
+          throw new Error(
+            `widget[${index}]: query reads "${hit}", which belongs to project "${other}", not "${projectSlug}". Write this page under "${other}", or create the project it really belongs to.`,
+          );
+        }
+      }
+    });
+  }
+
+  /**
    * Validate and write a page spec. page id must match the spec id. Project
    * must already exist in the manifest.
    */
@@ -154,6 +186,7 @@ export class PageStore {
     }
     const page = spec as PageSpec;
     this.assertMutationTablesExist(projectSlug, page);
+    this.assertQueriesStayInProject(projectSlug, page);
     const rel = this.filePath(projectSlug, page.id);
     const abs = this.workspace.resolve(rel);
     mkdirSync(dirname(abs), { recursive: true });

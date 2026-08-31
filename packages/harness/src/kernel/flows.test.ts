@@ -276,16 +276,19 @@ describe("KOS end-to-end flows", () => {
     kernel = await boot(model.inference);
     const c = kernel.conversations.create({ userId: "owner", title: "Ops" });
     await kernel.handleMessage("delete notes/x.md", { sessionId: c.id });
-    // Something else moves to the front while the action sits in the queue.
+    // Something else moves ahead of it while the action sits in the queue.
+    // Compared against that stamp rather than list position, because two
+    // touches in the same millisecond fall back to insertion order.
     const other = kernel.conversations.create({ userId: "owner", title: "Later" });
     kernel.conversations.touch(other.id);
-    expect(kernel.conversations.list("owner")[0]?.id).toBe(other.id);
+    const ahead = kernel.conversations.get(other.id)!.updatedAt;
+    expect(kernel.conversations.get(c.id)!.updatedAt).toBeLessThan(ahead);
 
     await kernel.approve(kernel.approvals.pending()[0]!.id);
 
     // A reader watching the list has to see the thread move on, but the resume
     // prompt is plumbing and must not become the title.
-    expect(kernel.conversations.list("owner")[0]?.id).toBe(c.id);
+    expect(kernel.conversations.get(c.id)!.updatedAt).toBeGreaterThanOrEqual(ahead);
     expect(kernel.conversations.get(c.id)!.title).toBe("Ops");
   });
 
@@ -683,6 +686,54 @@ describe("KOS end-to-end flows", () => {
     const offered = (model.calls[0]!.request.tools ?? []).map((t) => t.name);
     expect(offered).toContain("chats.search");
     expect(offered).toContain("chats.create");
+  });
+
+  it("gives the orchestrator no tools for building things itself", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    await kernel.handleOrchestratorTurn("build me a workout log");
+    const offered = (model.calls[0]!.request.tools ?? []).map((t) => t.name);
+
+    // Told only in prose to route, and handed the full toolkit, it built
+    // things inline: a whole project landed in the Command thread, and a page
+    // for one thing was written into whatever project already existed.
+    expect(offered).toContain("chats.create");
+    expect(offered).toContain("chats.dispatch");
+    expect(offered.some((n) => n.startsWith("memory."))).toBe(true);
+    for (const withheld of [
+      "systems.project_create",
+      "systems.migrate",
+      "pages.write",
+      "files.write",
+      "sql",
+      "cron.schedule",
+    ]) {
+      expect(offered).not.toContain(withheld);
+    }
+  });
+
+  it("refuses to build inline even when the orchestrator names the tool", async () => {
+    const model = scripted([
+      toolCall("c1", "pages.write", { project: "x", spec: {} }),
+      text("I will route that instead."),
+    ]);
+    kernel = await boot(model.inference);
+    await kernel.handleOrchestratorTurn("write me a page");
+
+    // Withheld in defs() is only half of it: a model can name any tool.
+    const wire = JSON.stringify(model.calls.at(-1)!.request.messages);
+    expect(wire).toContain("not available in this conversation");
+    expect(kernel.pages.list()).toHaveLength(0);
+  });
+
+  it("leaves an ordinary conversation the full toolkit", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "Work" });
+    await kernel.handleMessage("build a workout log", { sessionId: c.id });
+    const offered = (model.calls[0]!.request.tools ?? []).map((t) => t.name);
+    expect(offered).toContain("pages.write");
+    expect(offered).toContain("systems.migrate");
   });
 
   it("orchestrator finds an existing conversation before making another", async () => {

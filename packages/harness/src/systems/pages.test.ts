@@ -123,3 +123,55 @@ describe("PageStore mutation targets", () => {
     );
   });
 });
+
+describe("PageStore project boundaries", () => {
+  let root: string;
+  let ws: Workspace;
+  let pages: PageStore;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-pages-proj-"));
+    ws = Workspace.open(root);
+    const manifest = new ProjectManifest(ws.db);
+    manifest.createProject({ name: "Budget Tracker", type: "budget" });
+    manifest.createProject({ name: "Workout Log", type: "tracker" });
+    ws.db.exec(`CREATE TABLE budget_tracker_expenses (id INTEGER PRIMARY KEY, amount REAL)`);
+    ws.db.exec(`CREATE TABLE workout_log_sets (id INTEGER PRIMARY KEY, reps INTEGER)`);
+    pages = new PageStore(ws.db, ws, manifest);
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const page = (query: string): unknown => ({
+    id: "p",
+    title: "P",
+    widgets: [{ type: "table", title: "T", query }],
+  });
+
+  it("accepts a page reading its own project", () => {
+    expect(
+      pages.write("budget_tracker", page("SELECT * FROM budget_tracker_expenses")).id,
+    ).toBe("p");
+  });
+
+  it("refuses a page reading another project's tables", () => {
+    // Unchecked, the page rendered fine and the only symptom was a stranger
+    // sitting in someone else's project on the Projects tab.
+    expect(() =>
+      pages.write("budget_tracker", page("SELECT * FROM workout_log_sets")),
+    ).toThrow(/belongs to project "workout_log"/);
+  });
+
+  it("does not mistake a similarly named table for another project", () => {
+    ws.db.exec(`CREATE TABLE budget_tracker_workout_log_notes (id INTEGER PRIMARY KEY)`);
+    expect(
+      pages.write(
+        "budget_tracker",
+        page("SELECT * FROM budget_tracker_workout_log_notes"),
+      ).id,
+    ).toBe("p");
+  });
+});
