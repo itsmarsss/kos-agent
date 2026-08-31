@@ -25,6 +25,7 @@ import { Home } from "./Home.js";
 import { ChatsPage } from "./ChatsPage.js";
 import { FilesPage } from "./FilesPage.js";
 import { ProjectsPage } from "./ProjectsPage.js";
+import { KnowledgePage } from "./KnowledgePage.js";
 import { ChatPanel } from "./ChatPanel.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { PageRenderer } from "./widgets/PageRenderer.js";
@@ -57,6 +58,7 @@ export function App(): React.ReactElement {
   const [pages, setPages] = useState<PageSummary[]>([]);
   const [activity, setActivity] = useState<AuditRecord[]>([]);
   const [facts, setFacts] = useState<FactRow[]>([]);
+  const [factTags, setFactTags] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
   const [thread, setThread] = useState<ChatEvent[]>([]);
   const [sending, setSending] = useState(false);
@@ -97,6 +99,7 @@ export function App(): React.ReactElement {
     setPages(pg);
     setActivity(act.tools);
     setFacts(mem.facts ?? []);
+    setFactTags(mem.tags ?? []);
     setRuns(r);
     setConversations(convos);
     // The sheet's transcript is the orchestrator's own thread, not whichever
@@ -636,45 +639,10 @@ export function App(): React.ReactElement {
 
   if (route.name === "memory") {
     return shell(
-      <ListPage
-        title="What it knows"
-        subtitle="Durable facts KOS has learned about you. Click a row to edit or forget one."
-        rows={facts}
-        rowKey={(f) => f.key}
-        empty="No facts yet"
-        onRowClick={(f) => setInspect({ kind: "fact", data: f })}
-        columns={[
-          {
-            key: "key",
-            header: "Key",
-            width: "22%",
-            searchText: (f) => f.key,
-            render: (f) => <span className="ops-mono">{f.key}</span>,
-          },
-          {
-            key: "value",
-            header: "Value",
-            searchText: (f) => f.value,
-            render: (f) => preview(f.value, 80),
-          },
-          {
-            key: "kind",
-            header: "Kind",
-            width: "12%",
-            searchText: (f) => f.kind,
-            render: (f) => f.kind,
-          },
-          {
-            key: "updated",
-            header: "Updated",
-            width: "12%",
-            render: (f) => (
-              <span className="ops-muted">
-                {f.updatedAt ? timeAgo(f.updatedAt) : "—"}
-              </span>
-            ),
-          },
-        ]}
+      <KnowledgePage
+        facts={facts}
+        tags={factTags}
+        onChanged={() => void refresh()}
       />,
     );
   }

@@ -43,6 +43,7 @@ import { createSearchModule } from "../tools/search.js";
 import { exportModule } from "../tools/export.js";
 import { createSkillsModule } from "../tools/skills.js";
 import { createChatsModule, CHAT_TOOLS } from "../tools/chats.js";
+import { createMemoryModule } from "../tools/memory.js";
 import { cronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
 import { notifyModule } from "../tools/notify.js";
@@ -187,6 +188,8 @@ export class Kernel {
    * within a session; clearing the session clears it.
    */
   private readonly sessionScope = new Map<string, Set<string>>();
+  /** The conversation currently running a turn, for memory attribution. */
+  currentConversationId: string | undefined;
 
   private constructor(args: {
     workspace: Workspace;
@@ -309,6 +312,13 @@ export class Kernel {
       tasksModule,
       exportModule,
       createSkillsModule(promoter),
+      createMemoryModule({
+        facts,
+        ownerId: profile.ownerId,
+        // Attributed to the conversation that wrote it, so the owner can see
+        // which agent believed what.
+        currentSource: () => kernelRef?.currentConversationId ?? "agent",
+      }),
       createChatsModule({
         conversations,
         sessions,
@@ -456,6 +466,8 @@ export class Kernel {
   ): Promise<HandleResult> {
     {
       const runId = this.runs.start("chat");
+      const previousConversation = this.currentConversationId;
+      this.currentConversationId = sessionId;
       try {
         // A conversation may be a scoped agent: its own brief, its own reach.
         const conversation = this.conversations.get(sessionId);
@@ -477,6 +489,13 @@ export class Kernel {
           episodeLimit: 4,
           minFactsBeforeVector: 2,
         });
+        // Pinned entries are the handful of things every conversation should
+        // know without having to match them, so they bypass retrieval.
+        const pinnedFacts = this.facts.pinned(userId);
+        recall.facts = [
+          ...pinnedFacts,
+          ...recall.facts.filter((f) => !pinnedFacts.some((p) => p.key === f.key)),
+        ];
         const formatting = channelGuidance(opts.channel);
         // The brief comes last so a conversation's own instructions read as
         // the most specific thing in the prompt.
@@ -537,6 +556,10 @@ export class Kernel {
           err instanceof Error ? err.message : String(err),
         );
         throw err;
+      } finally {
+        // Restored rather than cleared: a dispatched turn runs inside another,
+        // and the outer one still has work to attribute.
+        this.currentConversationId = previousConversation;
       }
     }
   }

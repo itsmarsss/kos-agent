@@ -818,6 +818,77 @@ describe("KOS end-to-end flows", () => {
     expect(outcome).toBe("sub-agent done");
   });
 
+  it("one conversation remembers, another recalls it", async () => {
+    const model = scripted([
+      toolCall("m1", "memory.remember", {
+        key: "deploy target",
+        value: "Fly.io, iad region",
+        tags: ["infra"],
+      }),
+      text("Noted."),
+      toolCall("m2", "memory.recall", { query: "deploy" }),
+      text("Fly.io."),
+    ]);
+    kernel = await boot(model.inference);
+    const a = kernel.conversations.create({ userId: "owner", title: "Infra" });
+    const b = kernel.conversations.create({ userId: "owner", title: "Other" });
+
+    await kernel.handleMessage("we settled on fly", { sessionId: a.id });
+    // The key is normalised, so a restatement updates rather than duplicating.
+    expect(kernel.facts.get("owner", "deploy_target")?.value).toContain("Fly.io");
+
+    await kernel.handleMessage("where do we deploy", { sessionId: b.id });
+    const wire = JSON.stringify(model.calls.at(-1)!.request.messages);
+    // Knowledge is shared: what one conversation learned, another can reach.
+    expect(wire).toContain("Fly.io");
+  });
+
+  it("attributes an entry to the conversation that wrote it", async () => {
+    const model = scripted([
+      toolCall("m1", "memory.remember", { key: "x", value: "y" }),
+      text("ok"),
+    ]);
+    kernel = await boot(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "Writer" });
+    await kernel.handleMessage("remember it", { sessionId: c.id });
+    expect(kernel.facts.get("owner", "x")?.source).toBe(c.id);
+  });
+
+  it("puts pinned knowledge in every conversation without a match", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    kernel.facts.upsert(
+      "owner",
+      { key: "timezone", value: "America/New_York", kind: "fact", pinned: true },
+      "dashboard",
+    );
+    const c = kernel.conversations.create({ userId: "owner", title: "Unrelated" });
+
+    // Nothing in this message matches the entry; pinning is what gets it in.
+    await kernel.handleMessage("write a poem about ducks", { sessionId: c.id });
+    expect(model.systems.at(-1)!).toContain("America/New_York");
+    expect(model.systems.at(-1)!).toContain("pinned");
+  });
+
+  it("scopes recall to a tag when asked", async () => {
+    const model = scripted([
+      toolCall("m1", "memory.recall", { tags: ["infra"] }),
+      text("ok"),
+    ]);
+    kernel = await boot(model.inference);
+    kernel.facts.upsert("owner", { key: "host", value: "fly", kind: "fact", tags: ["infra"] });
+    kernel.facts.upsert("owner", { key: "coffee", value: "oat", kind: "preference", tags: ["personal"] });
+    const c = kernel.conversations.create({ userId: "owner", title: "Infra" });
+
+    await kernel.handleMessage("what infra do we have", { sessionId: c.id });
+    const result = model.calls
+      .at(-1)!
+      .request.messages.flatMap((m) => m.content)
+      .find((b) => b.type === "tool_result");
+    const rows = JSON.parse((result as { content: string }).content) as Array<{ key: string }>;
+    expect(rows.map((r) => r.key)).toEqual(["host"]);
+  });
+
   it("shares one session across the CLI and Discord surfaces", async () => {
     const model = scripted([text("first"), text("second")]);
     kernel = await boot(model.inference);
