@@ -57,7 +57,7 @@ export const NAV: Array<{ route: Route; label: string }> = [
   { route: { name: "files" }, label: "Files" },
   { route: { name: "projects" }, label: "Projects" },
   { route: { name: "crons" }, label: "Schedule" },
-  { route: { name: "memory" }, label: "What it knows" },
+  { route: { name: "memory" }, label: "Knowledge" },
   { route: { name: "tools" }, label: "Activity" },
   { route: { name: "runs" }, label: "Runs" },
 ];

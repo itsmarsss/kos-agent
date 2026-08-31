@@ -490,7 +490,20 @@ export async function handleApiRequest(
     const limit = clampLimit(queryParams(req.url).get("limit"), 200);
     return ok({
       facts: kernel.facts.all(kernel.profile.ownerId).slice(0, limit),
+      tags: kernel.facts.tags(kernel.profile.ownerId),
     });
+  }
+
+  if (method === "POST" && path === "/api/memory/pin") {
+    const key = typeof body.key === "string" ? body.key : "";
+    if (!key) return { status: 400, body: { error: "key required" } };
+    const updated = kernel.facts.setPinned(
+      kernel.profile.ownerId,
+      key,
+      body.pinned !== false,
+    );
+    if (!updated) return { status: 404, body: { error: "not found" } };
+    return ok(updated);
   }
 
   if (method === "POST" && path === "/api/memory") {
@@ -500,9 +513,18 @@ export async function handleApiRequest(
     if (!key || value === "") {
       return { status: 400, body: { error: "key and value required" } };
     }
+    const tags = Array.isArray(body.tags)
+      ? (body.tags as unknown[]).filter((t): t is string => typeof t === "string")
+      : undefined;
     kernel.facts.upsert(
       kernel.profile.ownerId,
-      { key, value, kind },
+      {
+        key,
+        value,
+        kind,
+        ...(tags ? { tags } : {}),
+        ...(typeof body.pinned === "boolean" ? { pinned: body.pinned } : {}),
+      },
       "dashboard",
     );
     return ok(kernel.facts.get(kernel.profile.ownerId, key));
@@ -567,6 +589,9 @@ function projectFromUrl(url?: string): string | undefined {
 }
 
 function clampLimit(raw: string | null, fallback: number): number {
+  // Number(null) is 0, which is finite, so an absent parameter used to clamp
+  // to 1 and every one of these endpoints returned a single row.
+  if (raw === null || raw.trim() === "") return fallback;
   const n = Number(raw);
   if (!Number.isFinite(n)) return fallback;
   return Math.min(500, Math.max(1, Math.floor(n)));

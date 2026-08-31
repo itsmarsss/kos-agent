@@ -52,7 +52,8 @@ export function assembleSystemPrompt(parts: ContextParts): string {
   if (facts.length > 0 || episodes.length > 0) {
     const mem: string[] = ["## Salient memory"];
     for (const f of facts.slice(0, 12)) {
-      mem.push(`- (${f.kind}) ${f.key}: ${f.value}`);
+      const marks = [f.kind, ...(f.pinned ? ["pinned"] : []), ...f.tags];
+      mem.push(`- (${marks.join(", ")}) ${f.key}: ${f.value}`);
     }
     for (const e of episodes.slice(0, 5)) {
       mem.push(`- episode: ${e.text.slice(0, 200)}`);
