@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
-import { extname, join, normalize, resolve, sep } from "node:path";
+import { extname, join, normalize, relative, resolve, sep } from "node:path";
 
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
@@ -671,7 +671,17 @@ function tryStatic(
     if (!existsSync(file)) return false;
   }
   const type = MIME[extname(file)] ?? "application/octet-stream";
-  res.writeHead(200, { "content-type": type });
+  // Vite fingerprints everything under assets/, so those are safe to keep
+  // forever. index.html is not fingerprinted, and with no header at all the
+  // browser cached it heuristically: an updated KOS kept serving the old app
+  // until someone thought to hard-reload.
+  const fingerprinted = relative(root, file).split(sep)[0] === "assets";
+  res.writeHead(200, {
+    "content-type": type,
+    "cache-control": fingerprinted
+      ? "public, max-age=31536000, immutable"
+      : "no-cache",
+  });
   createReadStream(file).pipe(res);
   return true;
 }
