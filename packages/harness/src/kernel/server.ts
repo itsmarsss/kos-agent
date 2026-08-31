@@ -458,6 +458,27 @@ export async function handleApiRequest(
     return ok({ sha });
   }
 
+  if (method === "POST" && path === "/api/conversations/rewind") {
+    const id = typeof body.sessionId === "string" ? body.sessionId : "";
+    const index = Number(body.index);
+    if (!id || !Number.isInteger(index) || index < 0) {
+      return { status: 400, body: { error: "sessionId and index required" } };
+    }
+    try {
+      return ok(
+        await kernel.rewind(id, index, {
+          ...(typeof body.text === "string" ? { text: body.text } : {}),
+          ...(typeof body.forkTitle === "string" ? { forkTitle: body.forkTitle } : {}),
+        }),
+      );
+    } catch (err) {
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
+  }
+
   if (method === "GET" && path === "/api/conversations") {
     const includeArchived = queryParams(req.url).get("archived") === "1";
     // The orchestrator is included and labelled rather than filtered out: the
