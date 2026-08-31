@@ -35,3 +35,27 @@ describe("summarizeAction", () => {
     expect(d.some((l) => l.startsWith("instance:"))).toBe(true);
   });
 });
+
+describe("summaries for the rest of the toolkit", () => {
+  it("names the conversation work is handed to", () => {
+    // These reach the reader now that each step is streamed, so the raw
+    // key=value dump is no longer good enough.
+    expect(summarizeAction("chats.dispatch", { id: "c1", message: "do it" })).toBe(
+      "Hand work to conversation c1",
+    );
+  });
+
+  it("summarises the memory tools", () => {
+    expect(summarizeAction("memory.remember", { key: "budget" })).toBe(
+      "Remember budget",
+    );
+    expect(summarizeAction("memory.recall", { query: "deploy" })).toBe(
+      "Recall “deploy”",
+    );
+    expect(summarizeAction("memory.recall", {})).toBe("Recall knowledge");
+  });
+
+  it("still falls back for a tool it does not know", () => {
+    expect(summarizeAction("mystery.thing", { a: 1 })).toBe("mystery.thing: a=1");
+  });
+});

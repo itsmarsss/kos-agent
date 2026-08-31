@@ -337,6 +337,26 @@ describe("KOS end-to-end flows", () => {
     expect(JSON.stringify(main)).toContain("56.25");
   });
 
+  it("reports each step of a turn as it happens", async () => {
+    const model = scripted([
+      toolCall("c1", "files.write", { path: "a.md", content: "hi" }),
+      text("Wrote it."),
+    ]);
+    kernel = await boot(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "Work" });
+
+    // A turn runs for tens of seconds across several calls, and the reader saw
+    // one static word for all of it.
+    const seen: string[] = [];
+    kernel.progress.subscribe((e) => seen.push(`${e.kind}:${"tool" in e ? e.tool : ""}`));
+    await kernel.handleMessage("write a file", { sessionId: c.id });
+
+    expect(seen[0]).toBe("turn-start:");
+    expect(seen).toContain("tool-start:files.write");
+    expect(seen).toContain("tool-end:files.write");
+    expect(seen.at(-1)).toBe("turn-end:");
+  });
+
   it("remembers a stated fact and recalls it on a later turn", async () => {
     const model = scripted([text("Noted."), text("You are in America/New_York.")]);
     kernel = await boot(model.inference);

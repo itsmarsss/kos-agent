@@ -32,6 +32,8 @@ export interface ChatPanelProps {
   onDecide: (pendingId: string, approved: boolean) => void;
   /** Attachment state, owned by the caller so send() can clear it. */
   attachments?: ReturnType<typeof useAttachments>;
+  /** The step the orchestrator is on, when it is running. */
+  step?: string | undefined;
 }
 
 export function ChatPanel({
@@ -46,6 +48,7 @@ export function ChatPanel({
   pendingApprovals,
   onDecide,
   attachments,
+  step,
 }: ChatPanelProps): ReactElement | null {
   const boxRef = useRef<HTMLDivElement>(null);
   // A routing question fits in a sheet; reading what a dispatched agent did,
@@ -145,7 +148,11 @@ export function ChatPanel({
                   </div>
                 ),
               )}
-              {sending && <div className="bubble bubble--kos is-thinking">thinking…</div>}
+              {(sending || step) && (
+                <div className="bubble bubble--kos is-thinking">
+                  {step ?? "thinking"}…
+                </div>
+              )}
             </div>
 
             <div className="sheet-composer">

@@ -719,6 +719,45 @@ async function readBody(stream: NodeJS.ReadableStream): Promise<unknown> {
   }
 }
 
+
+/**
+ * Turn progress as server-sent events.
+ *
+ * A turn runs for tens of seconds across several tool calls, and a reader
+ * polling every five seconds sees none of it. The stream carries what step the
+ * agent is on; anything that has to survive a reconnect stays in the polled
+ * conversation list, so a dropped connection loses nothing but liveness.
+ */
+function streamProgress(
+  kernel: Kernel,
+  req: IncomingMessage,
+  res: ServerResponse,
+  options: DashboardServerOptions,
+): void {
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+    ...corsHeaders(req, options),
+  });
+  res.write(": connected\n\n");
+
+  const unsubscribe = kernel.progress.subscribe((event) => {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  });
+  // Proxies and browsers drop a silent stream; a comment costs nothing and is
+  // ignored by EventSource.
+  const beat = setInterval(() => res.write(": beat\n\n"), 25_000);
+
+  const close = (): void => {
+    clearInterval(beat);
+    unsubscribe();
+  };
+  req.on("close", close);
+  res.on("close", close);
+}
+
+
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -782,6 +821,13 @@ export function createDashboardServer(
       if (method === "OPTIONS") {
         res.writeHead(204, corsHeaders(req, options));
         res.end();
+        return;
+      }
+
+      // Server-sent events need the raw response, so this cannot go through
+      // the JSON handler that every other route uses.
+      if (method === "GET" && path === "/api/events") {
+        streamProgress(kernel, req, res, options);
         return;
       }
 
