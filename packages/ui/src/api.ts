@@ -145,6 +145,23 @@ export type ChatEvent =
       pendingId?: string;
     };
 
+export interface DirEntry {
+  name: string;
+  path: string;
+  kind: "dir" | "file";
+  size: number;
+  modifiedAt: number;
+}
+
+export interface FileContent {
+  path: string;
+  size: number;
+  modifiedAt: number;
+  text?: string;
+  omitted?: "binary" | "too-large";
+  language: string;
+}
+
 export interface ToolInfo {
   name: string;
   description: string;
@@ -216,6 +233,12 @@ export const api = {
       `/api/conversations/${encodeURIComponent(id)}/messages`,
     ),
   tools: () => get<ToolInfo[]>("/api/tools"),
+  files: (path = ".") =>
+    get<{ path: string; entries: DirEntry[] }>(
+      `/api/files?path=${encodeURIComponent(path)}`,
+    ),
+  file: (path: string) =>
+    get<FileContent>(`/api/file?path=${encodeURIComponent(path)}`),
   openWorkspace: () => post<{ opened: string }>("/api/workspace/open", {}),
   configureConversation: (
     id: string,
