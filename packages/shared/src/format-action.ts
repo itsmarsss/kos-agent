@@ -58,6 +58,16 @@ export function summarizeAction(
       return `Write file ${fmtVal(a.path)}`;
     case "files.rm":
       return `Delete ${fmtVal(a.path)}`;
+    case "files.mkdir":
+      return `Create folder ${fmtVal(a.path)}`;
+    case "files.ls":
+      return `List ${fmtVal(a.path)}`;
+    case "files.read":
+      return `Read ${fmtVal(a.path)}`;
+    case "files.edit":
+      return `Edit ${fmtVal(a.path)}`;
+    case "files.cp":
+      return `Copy ${fmtVal(a.from)} to ${fmtVal(a.to)}`;
     case "files.mv":
       return `Move ${fmtVal(a.from)} → ${fmtVal(a.to)}`;
     case "sql":
