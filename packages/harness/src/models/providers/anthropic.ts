@@ -37,6 +37,26 @@ function toAnthropicContent(blocks: ContentBlock[]): AnthropicBlockParam[] {
           ...(block.isError ? { is_error: true } : {}),
         });
         break;
+      case "file":
+        out.push({
+          type: "text",
+          text: `Attached file ${block.name}:\n\n${block.text}`,
+        });
+        break;
+      case "reasoning":
+        // For the reader only. Anthropic owns its own thinking blocks, and a
+        // summary written by another provider is not one of them.
+        break;
+      case "image":
+        out.push({
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: block.mediaType as "image/png",
+            data: block.data,
+          },
+        });
+        break;
       case "thinking":
         // Echo the provider-native thinking block back exactly as received.
         out.push(block.raw as AnthropicBlockParam);
@@ -75,7 +95,13 @@ export function buildAnthropicParams(
     messages: toAnthropicMessages(req.messages),
   };
   if (req.system) params.system = req.system;
-  if (req.tools?.length) params.tools = toAnthropicTools(req.tools);
+  if (req.tools?.length) {
+    params.tools = toAnthropicTools(req.tools);
+    if (spec.parallelToolCalls !== true) {
+      // Same reason as the OpenAI side: one call, one result, then decide.
+      params.tool_choice = { type: "auto", disable_parallel_tool_use: true };
+    }
+  }
   if (spec.thinking === "adaptive") {
     params.thinking = { type: "adaptive" };
   } else if (spec.thinking === "disabled") {

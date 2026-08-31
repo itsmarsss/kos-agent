@@ -10,6 +10,14 @@ import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
 import { orchestratorId } from "./kernel.js";
+import { parseAttachments } from "./attachments.js";
+import { findMentions, type MentionKind } from "./mentions.js";
+import { CHAT_COMMANDS } from "./chatcommands.js";
+import {
+  EFFORTS,
+  MODEL_SETTINGS_KEY,
+  parseModelSettings,
+} from "../models/settings.js";
 import { conversationEvents } from "./transcript.js";
 import { listDirectory, readFile } from "./files.js";
 
@@ -112,6 +120,34 @@ export async function handleApiRequest(
       orchestratorId: orchestratorId(kernel.profile.ownerId),
       routes: kernel.routes() ?? null,
     });
+  }
+
+  if (method === "GET" && path === "/api/settings/models") {
+    return ok({
+      routes: kernel.routes() ?? null,
+      saved: kernel.settings.get(MODEL_SETTINGS_KEY) ?? {},
+      efforts: EFFORTS,
+    });
+  }
+
+  if (method === "POST" && path === "/api/settings/models") {
+    const settings = parseModelSettings(body);
+    kernel.settings.set(MODEL_SETTINGS_KEY, settings);
+    // Applied in place: the owner changing a model should not have to restart
+    // the host to see it take effect.
+    kernel.applyModelSettings(settings);
+    return ok({ saved: settings, routes: kernel.routes() ?? null });
+  }
+
+  if (method === "GET" && path === "/api/models") {
+    try {
+      return ok({ models: await kernel.availableModels() });
+    } catch (err) {
+      return {
+        status: 502,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
   }
 
   if (method === "GET" && path === "/api/approvals") {
@@ -311,16 +347,45 @@ export async function handleApiRequest(
     // and it has to be the same agent there as it is under cmd-K. Routing on
     // the id keeps one definition of what it can do instead of two doors with
     // different toolkits behind them.
-    if (sessionId === orchestratorId(kernel.profile.ownerId)) {
-      return ok(await kernel.handleOrchestratorTurn(text, { channel: "dashboard" }));
+    const attachments = parseAttachments(body.attachments);
+    try {
+      if (sessionId === orchestratorId(kernel.profile.ownerId)) {
+        return ok(
+          await kernel.handleOrchestratorTurn(text, {
+            channel: "dashboard",
+            attachments,
+          }),
+        );
+      }
+      return ok(
+        await kernel.handleMessage(text, { sessionId, userId, attachments }),
+      );
+    } catch (err) {
+      // An attachment we cannot send is the caller's problem to fix, not a
+      // server fault, and they need to be told which file and why.
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
     }
-    return ok(await kernel.handleMessage(text, { sessionId, userId }));
   }
 
   if (method === "POST" && path === "/api/orchestrator") {
     const text = typeof body.text === "string" ? body.text : "";
     if (text === "") return { status: 400, body: { error: "text required" } };
-    return ok(await kernel.handleOrchestratorTurn(text, { channel: "dashboard" }));
+    try {
+      return ok(
+        await kernel.handleOrchestratorTurn(text, {
+          channel: "dashboard",
+          attachments: parseAttachments(body.attachments),
+        }),
+      );
+    } catch (err) {
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
   }
 
   if (method === "GET" && path === "/api/files") {
@@ -395,6 +460,54 @@ export async function handleApiRequest(
     return ok({ sha });
   }
 
+  if (method === "POST" && path === "/api/conversations/stop") {
+    const id = typeof body.sessionId === "string" ? body.sessionId : "";
+    if (!id) return { status: 400, body: { error: "sessionId required" } };
+    return ok({ stopping: kernel.stop(id) });
+  }
+
+  if (method === "POST" && path === "/api/conversations/rewind") {
+    const id = typeof body.sessionId === "string" ? body.sessionId : "";
+    const index = Number(body.index);
+    if (!id || !Number.isInteger(index) || index < 0) {
+      return { status: 400, body: { error: "sessionId and index required" } };
+    }
+    try {
+      return ok(
+        await kernel.rewind(id, index, {
+          ...(typeof body.text === "string" ? { text: body.text } : {}),
+          ...(typeof body.forkTitle === "string" ? { forkTitle: body.forkTitle } : {}),
+        }),
+      );
+    } catch (err) {
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
+  }
+
+  if (method === "GET" && path === "/api/mentions") {
+    const params = queryParams(req.url);
+    const q = params.get("q") ?? "";
+    const kind = params.get("kind");
+    const kinds = ["project", "page", "file", "schedule"];
+    return ok({
+      mentions: findMentions(
+        {
+          projects: kernel.manifest.list(),
+          pages: kernel.pages.list(),
+          crons: kernel.crons.list(),
+          workspace: kernel.workspace,
+        },
+        q,
+        12,
+        kind && kinds.includes(kind) ? (kind as MentionKind) : undefined,
+      ),
+      commands: CHAT_COMMANDS,
+    });
+  }
+
   if (method === "GET" && path === "/api/conversations") {
     const includeArchived = queryParams(req.url).get("archived") === "1";
     // The orchestrator is included and labelled rather than filtered out: the
@@ -402,12 +515,27 @@ export async function handleApiRequest(
     // agent-facing chats.list still hides it, because it must not offer its
     // own thread as somewhere to put work.
     const orchestrator = orchestratorId(kernel.profile.ownerId);
+    // Each row says what it is doing. Without this a thread that is mid-turn
+    // or sitting on an approval looks exactly like one with nothing happening,
+    // and the only way to find out was to open it.
+    const busy = new Set(kernel.busyConversations());
+    const waiting = new Set(
+      kernel.approvals
+        .pending()
+        .map((a) => a.conversationId)
+        .filter((id): id is string => typeof id === "string"),
+    );
     return ok(
       kernel.conversations
         .list(kernel.profile.ownerId, { includeArchived })
         .map((c) => ({
           ...c,
           kind: c.id === orchestrator ? "orchestrator" : "chat",
+          activity: busy.has(c.id)
+            ? "working"
+            : waiting.has(c.id)
+              ? "needs-you"
+              : "idle",
         })),
     );
   }
@@ -641,6 +769,45 @@ async function readBody(stream: NodeJS.ReadableStream): Promise<unknown> {
   }
 }
 
+
+/**
+ * Turn progress as server-sent events.
+ *
+ * A turn runs for tens of seconds across several tool calls, and a reader
+ * polling every five seconds sees none of it. The stream carries what step the
+ * agent is on; anything that has to survive a reconnect stays in the polled
+ * conversation list, so a dropped connection loses nothing but liveness.
+ */
+function streamProgress(
+  kernel: Kernel,
+  req: IncomingMessage,
+  res: ServerResponse,
+  options: DashboardServerOptions,
+): void {
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+    ...corsHeaders(req, options),
+  });
+  res.write(": connected\n\n");
+
+  const unsubscribe = kernel.progress.subscribe((event) => {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  });
+  // Proxies and browsers drop a silent stream; a comment costs nothing and is
+  // ignored by EventSource.
+  const beat = setInterval(() => res.write(": beat\n\n"), 25_000);
+
+  const close = (): void => {
+    clearInterval(beat);
+    unsubscribe();
+  };
+  req.on("close", close);
+  res.on("close", close);
+}
+
+
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -704,6 +871,13 @@ export function createDashboardServer(
       if (method === "OPTIONS") {
         res.writeHead(204, corsHeaders(req, options));
         res.end();
+        return;
+      }
+
+      // Server-sent events need the raw response, so this cannot go through
+      // the JSON handler that every other route uses.
+      if (method === "GET" && path === "/api/events") {
+        streamProgress(kernel, req, res, options);
         return;
       }
 

@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { Markdown } from "./Markdown.js";
+import { formatElapsed } from "./LiveTurn.js";
 
 function html(text: string): string {
   const { container } = render(<Markdown text={text} />);
@@ -91,5 +92,116 @@ describe("Markdown lists", () => {
   it("starts an ordered list at the number it was written with", () => {
     const { container } = render(<Markdown text={"3. third\n4. fourth"} />);
     expect(container.querySelector("ol")?.getAttribute("start")).toBe("3");
+  });
+});
+
+describe("Markdown tables", () => {
+  const table = [
+    "| Cause | Likelihood | Note |",
+    "| --- | ---: | :---: |",
+    "| Month filter | High | stat filters to this month |",
+    "| Stale cache | Low | possible |",
+  ].join("\n");
+
+  it("renders a pipe table as a table", () => {
+    // An agent's comparison table arrived as a screenful of raw pipes, which
+    // is the shape of answer a table is chosen for in the first place.
+    const { container } = render(<Markdown text={table} />);
+    expect(container.querySelectorAll("th")).toHaveLength(3);
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(2);
+    expect(container.textContent).not.toContain("---");
+  });
+
+  it("honours column alignment", () => {
+    const { container } = render(<Markdown text={table} />);
+    const heads = [...container.querySelectorAll("th")];
+    expect(heads[1]?.style.textAlign).toBe("right");
+    expect(heads[2]?.style.textAlign).toBe("center");
+  });
+
+  it("renders inline markup inside cells", () => {
+    const { container } = render(
+      <Markdown text={"| a |\n| --- |\n| `code` |"} />,
+    );
+    expect(container.querySelector("td code")?.textContent).toBe("code");
+  });
+
+  it("leaves a lone pipe line as text", () => {
+    const { container } = render(<Markdown text={"| not a table"} />);
+    expect(container.querySelector("table")).toBeNull();
+    expect(container.textContent).toContain("| not a table");
+  });
+});
+
+describe("elapsed formatting", () => {
+  it("rolls seconds into minutes and hours", () => {
+    // It counted up in seconds forever, so a long turn read as "312s".
+    expect(formatElapsed(45_000)).toBe("45s");
+    expect(formatElapsed(200_000)).toBe("3m 20s");
+    expect(formatElapsed(3_840_000)).toBe("1h 4m");
+  });
+});
+
+describe("references in a message", () => {
+  it("renders a mention as a chip showing what was named", () => {
+    const { container } = render(<Markdown text="look at @file:notes/todo.md now" />);
+    const chip = container.querySelector(".chip-ref--file");
+    expect(chip?.textContent).toBe("notes/todo.md");
+    expect(container.textContent).not.toContain("@file:");
+  });
+
+  it("colours a chip by what kind of thing it is", () => {
+    const { container } = render(
+      <Markdown text="@project:budget and @schedule:nightly" />,
+    );
+    expect(container.querySelector(".chip-ref--project")?.textContent).toBe("budget");
+    expect(container.querySelector(".chip-ref--schedule")?.textContent).toBe("nightly");
+  });
+
+  it("renders a known slash command as a chip", () => {
+    const { container } = render(<Markdown text="/archive" />);
+    expect(container.querySelector(".chip-ref--command")?.textContent).toBe("/archive");
+  });
+
+  it("does not swallow the sentence's full stop", () => {
+    const { container } = render(<Markdown text="check @schedule:kos.backup." />);
+    expect(container.querySelector(".chip-ref--schedule")?.textContent).toBe(
+      "kos.backup",
+    );
+    expect(container.textContent).toContain("kos.backup.");
+  });
+
+  it("leaves an ordinary slash alone", () => {
+    // A path is not a command.
+    const { container } = render(<Markdown text="see docs/api for more" />);
+    expect(container.querySelector(".chip-ref")).toBeNull();
+    expect(container.textContent).toContain("docs/api");
+  });
+
+  it("leaves an email address alone", () => {
+    const { container } = render(<Markdown text="mail me@example.com" />);
+    expect(container.querySelector(".chip-ref")).toBeNull();
+  });
+});
+
+describe("references are links", () => {
+  it("links a page to its page route", () => {
+    const { container } = render(<Markdown text="see @page:budget-dash" />);
+    const a = container.querySelector("a.chip-ref--page");
+    expect(a?.getAttribute("href")).toBe("#/page/budget-dash");
+  });
+
+  it("links a file to the browser at that path", () => {
+    const { container } = render(<Markdown text="see @file:notes/todo.md" />);
+    expect(container.querySelector("a.chip-ref--file")?.getAttribute("href")).toBe(
+      "#/files/notes%2Ftodo.md",
+    );
+  });
+
+  it("links a schedule to the schedule tab", () => {
+    const { container } = render(<Markdown text="@schedule:nightly" />);
+    expect(container.querySelector("a.chip-ref--schedule")?.getAttribute("href")).toBe(
+      "#/crons",
+    );
   });
 });

@@ -26,3 +26,11 @@ export {
   type RoutingTable,
   type Task,
 } from "./router.js";
+export {
+  applyModelSettings,
+  parseModelSettings,
+  EFFORTS,
+  MODEL_SETTINGS_KEY,
+  type ModelSettings,
+  type TaskModelSetting,
+} from "./settings.js";

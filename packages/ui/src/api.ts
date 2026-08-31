@@ -12,8 +12,27 @@ export interface Status {
   workspace?: string;
   orchestratorId?: string;
   /** Which model answers each task class, when the router can say. */
-  routes?: Record<string, { provider: string; model: string }> | null;
+  routes?: Record<
+    string,
+    { provider: string; model: string; effort?: string; maxTokens?: number }
+  > | null;
 }
+
+/** A file the owner attached, as bytes the model can be shown. */
+export interface Attachment {
+  name: string;
+  mediaType: string;
+  data: string;
+}
+
+export interface TaskModelSetting {
+  model?: string;
+  effort?: string;
+  maxTokens?: number;
+}
+
+/** Model choices per task class, as edited in Settings. */
+export type ModelSettings = Partial<Record<"reasoning" | "cheap", TaskModelSetting>>;
 
 export interface PendingAction {
   id: number;
@@ -131,6 +150,8 @@ export interface Conversation {
   toolAllow: string[] | null;
   /** The orchestrator is a conversation, but not one of the owner's chats. */
   kind?: "orchestrator" | "chat";
+  /** What the thread is doing, so the list can say rather than look idle. */
+  activity?: "working" | "needs-you" | "idle";
 }
 
 export interface ChatTurn {
@@ -139,7 +160,18 @@ export interface ChatTurn {
 }
 
 export type ChatEvent =
-  | { kind: "message"; role: "you" | "kos" | "system"; text: string }
+  | {
+      /** What the model worked out before answering, kept so it can be reread. */
+      kind: "reasoning";
+      text: string;
+    }
+  | {
+      kind: "message";
+      role: "you" | "kos" | "system";
+      text: string;
+      /** What came with this turn: images and text files, with their names. */
+      attachments?: { name: string; src?: string; text?: string }[];
+    }
   | {
       kind: "tool";
       name: string;
@@ -185,9 +217,21 @@ export interface FactRow {
   createdAt?: number;
 }
 
+/** The server's own sentence when it sent one, else something serviceable. */
+async function readError(res: Response, path: string): Promise<string> {
+  const text = await res.text();
+  try {
+    const body = JSON.parse(text) as { error?: unknown };
+    if (typeof body.error === "string" && body.error.trim()) return body.error;
+  } catch {
+    // Not JSON; fall through to the raw body.
+  }
+  return text.trim() || `${path} failed (${res.status})`;
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path);
-  if (!res.ok) throw new Error(`${path}: ${res.status}`);
+  if (!res.ok) throw new Error(await readError(res, path));
   return (await res.json()) as T;
 }
 
@@ -198,8 +242,9 @@ async function post<T>(path: string, body: unknown = {}): Promise<T> {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`${path}: ${res.status} ${text}`);
+    // The server sends {"error": "..."} written for a reader; pasting the raw
+    // body meant a chat showed `/api/message: 400 {"error":"..."}` instead.
+    throw new Error(await readError(res, path));
   }
   return (await res.json()) as T;
 }
@@ -207,6 +252,18 @@ async function post<T>(path: string, body: unknown = {}): Promise<T> {
 export const api = {
   status: () => get<Status>("/api/status"),
   approvals: () => get<PendingAction[]>("/api/approvals"),
+  modelSettings: () =>
+    get<{
+      routes: Record<
+        string,
+        { provider: string; model: string; effort?: string; maxTokens?: number }
+      > | null;
+      saved: ModelSettings;
+      efforts: string[];
+    }>("/api/settings/models"),
+  saveModelSettings: (settings: ModelSettings) =>
+    post<{ saved: ModelSettings }>("/api/settings/models", settings),
+  availableModels: () => get<{ models: string[] }>("/api/models"),
   projects: () => get<Project[]>("/api/projects"),
   setProjectStatus: (slug: string, status: string) =>
     post<Project>("/api/projects/status", { slug, status }),
@@ -233,9 +290,15 @@ export const api = {
     ),
   page: (id: string) => get<PagePayload>(`/api/pages/${encodeURIComponent(id)}`),
   mutate: (req: MutateRequest) => post<MutateResult>("/api/mutate", req),
-  conversations: () => get<Conversation[]>("/api/conversations"),
-  orchestrator: (text: string) =>
-    post<{ reply: string; conversationId: string }>("/api/orchestrator", { text }),
+  conversations: (includeArchived = false) =>
+    get<Conversation[]>(
+      includeArchived ? "/api/conversations?archived=1" : "/api/conversations",
+    ),
+  orchestrator: (text: string, attachments?: Attachment[]) =>
+    post<{ reply: string; conversationId: string }>("/api/orchestrator", {
+      text,
+      ...(attachments?.length ? { attachments } : {}),
+    }),
   conversation: (id: string) =>
     get<{ id: string; messages: ChatTurn[]; events: ChatEvent[] }>(
       `/api/conversations/${encodeURIComponent(id)}/messages`,
@@ -254,6 +317,26 @@ export const api = {
   ) => post<Conversation>("/api/conversations/configure", { id, ...config }),
   newConversation: (title?: string) =>
     post<Conversation>("/api/conversations/new", title ? { title } : {}),
+  mentions: (q: string, kind?: string) =>
+    get<{
+      mentions: { kind: string; id: string; label: string; hint?: string }[];
+      commands: { name: string; args?: string; description: string }[];
+    }>(
+      `/api/mentions?q=${encodeURIComponent(q)}${kind ? `&kind=${encodeURIComponent(kind)}` : ""}`,
+    ),
+  stopConversation: (sessionId: string) =>
+    post<{ stopping: boolean }>("/api/conversations/stop", { sessionId }),
+  /** Retry, edit and fork: rewind to an owner message and run from there. */
+  rewind: (
+    sessionId: string,
+    index: number,
+    opts: { text?: string; forkTitle?: string } = {},
+  ) =>
+    post<{ reply: string; conversationId: string }>("/api/conversations/rewind", {
+      sessionId,
+      index,
+      ...opts,
+    }),
   renameConversation: (id: string, title: string) =>
     post<Conversation>("/api/conversations/rename", { id, title }),
   archiveConversation: (id: string) =>
@@ -285,10 +368,11 @@ export const api = {
   deny: (id: number) =>
     post<{ ok: boolean; message: string; reply?: string }>("/api/deny", { id }),
   setKill: (halted: boolean) => post<Status>("/api/kill", { halted }),
-  message: (text: string, sessionId?: string) =>
+  message: (text: string, sessionId?: string, attachments?: Attachment[]) =>
     post<{ reply: string }>("/api/message", {
       text,
       ...(sessionId ? { sessionId } : {}),
+      ...(attachments?.length ? { attachments } : {}),
     }),
   snapshot: (message?: string) =>
     post<{ sha: string | null }>("/api/snapshot", message ? { message } : {}),

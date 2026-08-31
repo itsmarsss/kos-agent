@@ -1,5 +1,7 @@
 import { Fragment, type ReactElement, type ReactNode } from "react";
 
+import { hrefFor } from "./routes.js";
+
 /**
  * A small markdown renderer for chat.
  *
@@ -9,6 +11,30 @@ import { Fragment, type ReactElement, type ReactNode } from "react";
  * quotes, headings, links -- and anything unrecognised stays literal text
  * rather than disappearing.
  */
+
+/**
+ * A reference the owner wrote with @, and a slash command.
+ *
+ * Rendered as chips so they read as things rather than as punctuation in the
+ * middle of a sentence, and coloured by kind so a file is distinguishable from
+ * a project at a glance.
+ */
+const MENTION = /@(project|page|file|schedule):([A-Za-z0-9._/-]*[A-Za-z0-9_/-])/;
+const COMMAND = /(^|\s)(\/(?:new|chats|switch|rename|archive|help))\b/;
+
+/** Where a reference goes when it is clicked. */
+function refHref(kind: string, id: string): string {
+  switch (kind) {
+    case "page":
+      return hrefFor({ name: "page", id });
+    case "file":
+      return hrefFor({ name: "files", path: id });
+    case "schedule":
+      return hrefFor({ name: "crons" });
+    default:
+      return hrefFor({ name: "projects" });
+  }
+}
 
 const BOLD_ITALIC = /(\*\*\*|___)(.+?)\1/;
 const BOLD = /(\*\*|__)(.+?)\1/;
@@ -24,6 +50,32 @@ const INLINE: Array<{
   render: (m: RegExpExecArray, key: number) => ReactNode;
 }> = [
   { re: CODE, render: (m, k) => <code key={k}>{m[1]}</code> },
+  {
+    re: MENTION,
+    render: (m, k) => {
+      const kind = m[1] ?? "";
+      const id = m[2] ?? "";
+      return (
+        <a
+          key={k}
+          className={`chip-ref chip-ref--${kind}`}
+          href={refHref(kind, id)}
+          title={`${kind}: ${id}`}
+        >
+          {id}
+        </a>
+      );
+    },
+  },
+  {
+    re: COMMAND,
+    render: (m, k) => (
+      <Fragment key={k}>
+        {m[1]}
+        <span className="chip-ref chip-ref--command">{m[2]}</span>
+      </Fragment>
+    ),
+  },
   {
     re: LINK,
     render: (m, k) => (
@@ -125,6 +177,64 @@ function blocks(source: string): Block[] {
       continue;
     }
 
+    // A pipe table: a header row, a dashed separator, then body rows. Without
+    // this an agent's comparison table arrived as a screenful of raw pipes,
+    // which is exactly the shape of answer a table is chosen for.
+    const isRow = (l: string): boolean => /\|/.test(l) && l.trim().startsWith("|");
+    const isDivider = (l: string): boolean =>
+      /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(l) && l.includes("-");
+    if (isRow(line) && isDivider(lines[i + 1] ?? "")) {
+      const cells = (l: string): string[] =>
+        l
+          .trim()
+          .replace(/^\||\|$/g, "")
+          .split("|")
+          .map((c) => c.trim());
+      const header = cells(line);
+      const aligns = cells(lines[i + 1] ?? "").map((c) =>
+        c.startsWith(":") && c.endsWith(":")
+          ? "center"
+          : c.endsWith(":")
+            ? "right"
+            : "left",
+      );
+      i += 2;
+      const body: string[][] = [];
+      while (i < lines.length && isRow(lines[i] ?? "")) {
+        body.push(cells(lines[i] ?? ""));
+        i++;
+      }
+      out.push({
+        render: (k) => (
+          <div key={k} className="md-table-wrap">
+            <table className="md-table">
+              <thead>
+                <tr>
+                  {header.map((cell, n) => (
+                    <th key={n} style={{ textAlign: aligns[n] ?? "left" }}>
+                      {inline(cell)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {body.map((row, r) => (
+                  <tr key={r}>
+                    {header.map((_, n) => (
+                      <td key={n} style={{ textAlign: aligns[n] ?? "left" }}>
+                        {inline(row[n] ?? "")}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ),
+      });
+      continue;
+    }
+
     const bullet = /^\s*[-*+]\s+/;
     const numbered = /^\s*\d+[.)]\s+/;
     if (bullet.test(line) || numbered.test(line)) {
@@ -181,7 +291,8 @@ function blocks(source: string): Block[] {
       !/^#{1,3}\s/.test(lines[i] ?? "") &&
       !/^\s*>\s?/.test(lines[i] ?? "") &&
       !bullet.test(lines[i] ?? "") &&
-      !numbered.test(lines[i] ?? "")
+      !numbered.test(lines[i] ?? "") &&
+      !(isRow(lines[i] ?? "") && isDivider(lines[i + 1] ?? ""))
     ) {
       para.push(lines[i] ?? "");
       i++;

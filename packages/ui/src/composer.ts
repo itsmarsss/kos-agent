@@ -57,15 +57,31 @@ export function useStickToBottom<T extends HTMLElement>(
     };
     el.addEventListener("scroll", onScroll, { passive: true });
 
-    const observer = new ResizeObserver(() => {
+    const follow = (): void => {
       if (stick.current) el.scrollTop = el.scrollHeight;
-    });
+    };
+    const observer = new ResizeObserver(follow);
     observer.observe(el);
     for (const child of Array.from(el.children)) observer.observe(child);
+
+    // A streamed turn arrives as a child that did not exist when the observer
+    // was set up, and a scroller of fixed height never changes size as its
+    // content grows, so neither of the above notices it. Watching the subtree
+    // does: without this the reply streamed in below the fold.
+    const mutations = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of Array.from(record.addedNodes)) {
+          if (node instanceof Element) observer.observe(node);
+        }
+      }
+      follow();
+    });
+    mutations.observe(el, { childList: true, subtree: true, characterData: true });
 
     return () => {
       el.removeEventListener("scroll", onScroll);
       observer.disconnect();
+      mutations.disconnect();
     };
     // Re-observe when the children change, so new turns are watched too.
   }, [ref, ...deps]);
@@ -76,4 +92,27 @@ export function useStickToBottom<T extends HTMLElement>(
     const el = ref.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [ref, ...deps]);
+}
+
+/**
+ * Grow a textarea with what is typed, up to a ceiling.
+ *
+ * A fixed three-row box means a long message is written through a slot, and a
+ * one-word message reserves three rows of a thread that could have used them.
+ */
+export function useAutoGrow(
+  ref: RefObject<HTMLTextAreaElement | null>,
+  value: string,
+  maxRows = 12,
+): void {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // Reset first: without it the box can only ever get taller.
+    el.style.height = "auto";
+    const line = parseFloat(getComputedStyle(el).lineHeight || "20") || 20;
+    const max = line * maxRows;
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+    el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+  }, [ref, value, maxRows]);
 }

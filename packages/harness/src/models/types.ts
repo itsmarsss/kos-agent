@@ -36,15 +36,73 @@ export interface ThinkingBlock {
   raw: unknown;
 }
 
+/**
+ * An image the owner attached, carried as a data URI rather than a link.
+ *
+ * The workspace is not reachable from a provider, and a path in a transcript
+ * is only meaningful to the process that wrote it. Bytes travel with the
+ * message, so a turn replayed later still has the picture it was about.
+ */
+export interface ImageBlock {
+  type: "image";
+  /** The filename it was attached under, so a reader sees what they sent. */
+  name?: string;
+  /** Image media type, e.g. "image/png". */
+  mediaType: string;
+  /** Base64 payload, without the data: prefix. */
+  data: string;
+}
+
+/**
+ * The model's own account of what it worked out, in plain text.
+ *
+ * Distinct from ThinkingBlock, which is a provider-native payload echoed back
+ * verbatim. This one is for the reader: it is kept in the transcript so a turn
+ * can be understood after the fact, and never sent back to any provider.
+ */
+export interface ReasoningBlock {
+  type: "reasoning";
+  text: string;
+}
+
+/**
+ * A text file the owner attached, kept as a file rather than flattened.
+ *
+ * Providers see its contents as text, because that is all a model can read.
+ * The transcript keeps the name and the bytes, so the reader gets a thing they
+ * attached and can open, not an anonymous wall of text in their own message.
+ */
+export interface FileBlock {
+  type: "file";
+  name: string;
+  text: string;
+}
+
 export type ContentBlock =
   | TextBlock
+  | FileBlock
   | ToolUseBlock
   | ToolResultBlock
-  | ThinkingBlock;
+  | ThinkingBlock
+  | ReasoningBlock
+  | ImageBlock;
 
 export interface ModelMessage {
   role: Role;
   content: ContentBlock[];
+}
+
+/**
+ * A piece of the answer as it is produced.
+ *
+ * "reasoning" is the model's own summary of what it is working out, where the
+ * provider offers one; "text" is the reply itself. Both exist so a reader
+ * watching a turn sees it happening rather than a static word for the whole
+ * of it.
+ */
+export interface GenerateDelta {
+  kind: "reasoning" | "text";
+  text: string;
 }
 
 export interface ToolDef {
@@ -66,6 +124,11 @@ export interface GenerateRequest {
   messages: ModelMessage[];
   tools?: ToolDef[];
   maxTokens?: number;
+  /**
+   * Called as the answer is produced. Providers that cannot stream ignore it
+   * and return the whole reply at the end, so a caller may always pass one.
+   */
+  onDelta?: (delta: GenerateDelta) => void;
 }
 
 export interface ModelResponse {

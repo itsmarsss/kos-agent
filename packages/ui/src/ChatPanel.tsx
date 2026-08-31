@@ -6,6 +6,11 @@ import { composerKeyDown, useStickToBottom } from "./composer.js";
 import type { ChatEvent } from "./api.js";
 import { Markdown } from "./Markdown.js";
 import { ToolCall } from "./ToolCall.js";
+import { AttachButton, useAttachments } from "./Attachments.js";
+import { AttachmentStrip } from "./AttachmentStrip.js";
+import { Thinking } from "./Thinking.js";
+import { LiveTurn } from "./LiveTurn.js";
+import type { Live } from "./progress.js";
 
 /**
  * Chat as a slide-over rather than a permanent panel. KOS is mostly reached
@@ -29,6 +34,10 @@ export interface ChatPanelProps {
   onClear: () => void;
   pendingApprovals: Set<string>;
   onDecide: (pendingId: string, approved: boolean) => void;
+  /** Attachment state, owned by the caller so send() can clear it. */
+  attachments?: ReturnType<typeof useAttachments>;
+  /** The orchestrator's turn while it runs, when it is running. */
+  live?: Live | undefined;
 }
 
 export function ChatPanel({
@@ -42,6 +51,8 @@ export function ChatPanel({
   onClear,
   pendingApprovals,
   onDecide,
+  attachments,
+  live,
 }: ChatPanelProps): ReactElement | null {
   const boxRef = useRef<HTMLDivElement>(null);
   // A routing question fits in a sheet; reading what a dispatched agent did,
@@ -132,16 +143,42 @@ export function ChatPanel({
                     }
                     onDecide={onDecide}
                   />
+                ) : e.kind === "reasoning" ? (
+                  <Thinking key={i} text={e.text} />
                 ) : (
-                  <div key={i} className={`bubble bubble--${e.role}`}>
-                    <Markdown text={e.text} />
+                  <div key={i} className={`turn turn--${e.role}`}>
+                    {e.text && (
+                      <div className={`bubble bubble--${e.role}`}>
+                        <Markdown text={e.text} />
+                      </div>
+                    )}
+                    {/* Outside the bubble, under it: an attachment is a thing
+                        that came with the message, not part of the sentence. */}
+                    {e.attachments && e.attachments.length > 0 && (
+                      <AttachmentStrip items={e.attachments} />
+                    )}
                   </div>
                 ),
               )}
-              {sending && <div className="bubble bubble--kos is-thinking">thinking…</div>}
+              {live ? (
+                <LiveTurn live={live} />
+              ) : (
+                sending && <div className="bubble bubble--kos is-thinking">sending…</div>
+              )}
             </div>
 
-            <div className="sheet-composer">
+            <div className="sheet-composer composer">
+              {attachments && (
+                <AttachmentStrip
+                  items={attachments.files.map((f) => ({
+                    name: f.name,
+                    ...(f.mediaType.startsWith("image/")
+                      ? { src: `data:${f.mediaType};base64,${f.data}` }
+                      : {}),
+                  }))}
+                  onRemove={attachments.remove}
+                />
+              )}
               <textarea
                 ref={inputRef}
                 rows={3}
@@ -151,6 +188,9 @@ export function ChatPanel({
                 onKeyDown={(e) => composerKeyDown(e, onSend)}
               />
               <div className="sheet-composer-bar">
+                {attachments && (
+                  <AttachButton onAdd={(l) => void attachments.add(l)} />
+                )}
                 <span className="hint">Enter to send · Shift+Enter for a new line</span>
                 <button
                   type="button"

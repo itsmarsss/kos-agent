@@ -15,8 +15,14 @@ import {
   EpisodicStore,
   type EmbeddingProvider,
 } from "../memory/index.js";
-import type { ModelMessage } from "../models/types.js";
-import { createDefaultRouter } from "../models/router.js";
+import type { ContentBlock, ModelMessage } from "../models/types.js";
+import { createDefaultRouter, type RouteSummary } from "../models/router.js";
+import {
+  applyModelSettings,
+  MODEL_SETTINGS_KEY,
+  type ModelSettings,
+} from "../models/settings.js";
+import { SettingsStore } from "../store/settings.js";
 import {
   ModuleLoader,
   toolRegistryContext,
@@ -56,6 +62,11 @@ import {
   inferScopeTags,
 } from "./context.js";
 import { GuardedTools } from "./guarded.js";
+import { ProgressBus } from "./progress.js";
+import { parseMentions } from "./mentions.js";
+import { readFile as readWorkspaceFile } from "./files.js";
+import { summarizeAction } from "@kos/shared";
+import { attachmentBlocks, type Attachment } from "./attachments.js";
 import { ensureProfile, type Profile } from "./profile.js";
 import { SessionStore, primarySessionId } from "./session.js";
 import { ConversationStore, type Conversation } from "./conversations.js";
@@ -119,7 +130,8 @@ const ORCHESTRATOR_BRIEF = [
   "A task is an instruction to the agent, in the owner's voice: \"Create a directory called test-dir\". Never address the owner in it. A task that asks a question produces an agent that asks it back and does nothing.",
   "If the request is too vague to state a concrete task, ask the owner for the missing detail yourself. Do not hand the ambiguity to a new agent.",
   "Leave tools unrestricted. A new conversation gets the full toolkit unless the owner has asked you to limit it, because a guess about what it will need becomes a capability it silently lacks later.",
-  "Creating a conversation and stopping is not an outcome. Every reply should say what the agent actually did, not that you set something up.",
+  "Creating a conversation and stopping is not an outcome: say what the agent actually did.",
+  "Say it in a line or two of your own. Do not reproduce the agent\u2019s reply: the owner can open that conversation and read it there, and repeating it in full means they read the same thing twice.",
   "Dispatch to an existing conversation when one already covers the work, rather than creating a near-duplicate.",
   "Be brief. Say what you found, what you dispatched, and what it said.",
 ].join("\n");
@@ -185,6 +197,7 @@ export class Kernel {
   readonly sessions: SessionStore;
   readonly conversations: ConversationStore;
   readonly facts: FactsStore;
+  readonly settings: SettingsStore;
   readonly memoryWriter: MemoryWriter;
   readonly memoryRetriever: MemoryRetriever;
 
@@ -205,6 +218,21 @@ export class Kernel {
   private readonly sessionScope = new Map<string, Set<string>>();
   /** The conversation currently running a turn, for memory attribution. */
   currentConversationId: string | undefined;
+
+  /**
+   * Conversations with a turn in flight right now.
+   *
+   * A set rather than a single id: a dispatched turn runs inside the
+   * dispatcher's slot, so both are genuinely working. Read by the dashboard so
+   * a thread can say it is thinking instead of looking idle for ten seconds.
+   */
+  private readonly working = new Set<string>();
+
+  /** Conversations the owner has asked to stop, cleared when the turn ends. */
+  private readonly stopping = new Set<string>();
+
+  /** Turn progress, for readers watching a conversation as it runs. */
+  readonly progress = new ProgressBus();
 
   private constructor(args: {
     workspace: Workspace;
@@ -227,6 +255,7 @@ export class Kernel {
     sessions: SessionStore;
     conversations: ConversationStore;
     facts: FactsStore;
+    settings: SettingsStore;
     memoryWriter: MemoryWriter;
     memoryRetriever: MemoryRetriever;
     embedder: EmbeddingProvider;
@@ -257,6 +286,7 @@ export class Kernel {
     this.sessions = args.sessions;
     this.conversations = args.conversations;
     this.facts = args.facts;
+    this.settings = args.settings;
     this.memoryWriter = args.memoryWriter;
     this.memoryRetriever = args.memoryRetriever;
     this.embedder = args.embedder;
@@ -373,17 +403,30 @@ export class Kernel {
     // The orchestrator is a real conversation so it remembers what it has set
     // up and why, rather than re-deriving it from scratch every invocation.
     const orchestrator = orchestratorId(profile.ownerId);
-    if (!conversations.get(orchestrator)) {
+    const existing = conversations.get(orchestrator);
+    // Renamed in place: it was called Command, which named the keystroke
+    // rather than the thing, and a workspace that predates the rename should
+    // not keep the old label forever.
+    if (existing && existing.title === "Command") {
+      conversations.rename(orchestrator, "KOS");
+    }
+    if (!existing) {
       conversations.create({
         id: orchestrator,
         userId: profile.ownerId,
-        title: "Command",
+        title: "KOS",
         brief: ORCHESTRATOR_BRIEF,
       });
     }
 
-    const inference =
-      options.inference ?? createDefaultRouter(secrets);
+    const settings = new SettingsStore(workspace.db);
+    const router = options.inference ? undefined : createDefaultRouter(secrets);
+    // Saved model choices are applied before anything runs, so the first turn
+    // after a restart uses what the owner picked rather than the default.
+    if (router) {
+      applyModelSettings(router, settings.get<ModelSettings>(MODEL_SETTINGS_KEY));
+    }
+    const inference = options.inference ?? router!;
 
     // Hybrid salience: heuristics decide outright, the cheap model confirms and
     // structures whatever they only flag as "maybe".
@@ -413,6 +456,7 @@ export class Kernel {
       sessions,
       conversations,
       facts,
+      settings,
       memoryWriter,
       memoryRetriever,
       embedder,
@@ -463,6 +507,8 @@ export class Kernel {
        * than stored state that an edit could drift away from.
        */
       allow?: string[];
+      /** Files the owner attached to this message. */
+      attachments?: Attachment[];
     } = {},
   ): Promise<HandleResult> {
     if (this.killSwitch.halted) {
@@ -493,12 +539,15 @@ export class Kernel {
       channel?: string;
       grant?: string[];
       allow?: string[];
+      attachments?: Attachment[];
     },
   ): Promise<HandleResult> {
     {
       const runId = this.runs.start("chat");
       const previousConversation = this.currentConversationId;
       this.currentConversationId = sessionId;
+      this.working.add(sessionId);
+      this.progress.emit({ kind: "turn-start", conversationId: sessionId });
       try {
         // A conversation may be a scoped agent: its own brief, its own reach.
         const conversation = this.conversations.get(sessionId);
@@ -532,6 +581,11 @@ export class Kernel {
           ...pinnedFacts,
           ...recall.facts.filter((f) => !pinnedFacts.some((p) => p.key === f.key)),
         ];
+        // A mention is a promise that the thing named is to hand. Resolved
+        // here so the agent gets the file's contents or the page's spec
+        // rather than a string it has to go and look up, and so a name that
+        // no longer exists says so instead of being silently ignored.
+        const mentioned = this.resolveMentions(text);
         const formatting = channelGuidance(opts.channel);
         // Say when the toolkit has been narrowed. Withheld tools are simply
         // absent, so a scoped agent asked for something outside its reach does
@@ -539,11 +593,16 @@ export class Kernel {
         // the only tools it has instead. One asked to alter a schema with a
         // files-and-memory scope spent its whole turn writing and deleting
         // memory entries, including a false one saying the change was made.
-        const scopeNote = tools.scopeNote();
+        // Only for a scope the owner set on the conversation. A per-turn
+        // override is a caller that knows what it is and has a brief saying
+        // what to do instead: the orchestrator read the generic note, said it
+        // had no page tools, and stopped, when handing the work to another
+        // conversation was the whole job.
+        const scopeNote = opts.allow === undefined ? tools.scopeNote() : null;
         // The scope goes last, after the brief: a brief tells the agent what
         // it is for, and the two conflict exactly when the owner asks for
         // something the brief covers and the scope does not.
-        const extra = [formatting, conversation?.brief, scopeNote]
+        const extra = [formatting, mentioned, conversation?.brief, scopeNote]
           .filter((part): part is string => Boolean(part && part.trim()))
           .join("\n\n");
         const system = assembleSystemPrompt({
@@ -554,18 +613,45 @@ export class Kernel {
           ...(extra ? { extra } : {}),
         });
 
+        // Attachments ride on the turn's own message rather than the system
+        // prompt, so a later turn replaying the transcript still has them.
+        const userContent: ContentBlock[] = [
+          { type: "text", text },
+          ...attachmentBlocks(opts.attachments ?? []),
+        ];
         let input: string | ModelMessage[] = text;
         const useSession = !this.sessionless && !opts.noSession;
         if (useSession) {
           const prior = this.sessions.historyForPrompt(sessionId);
-          input = [
-            ...prior,
-            { role: "user", content: [{ type: "text", text }] },
-          ];
+          input = [...prior, { role: "user", content: userContent }];
+          // Written before the model is asked anything.
+          //
+          // Recorded only at the end, what the owner said existed nowhere but
+          // the browser for the length of the turn: reloading the page lost
+          // it, and so would the process dying mid-answer. The reply is
+          // appended when it arrives.
+          this.sessions.record(sessionId, input);
+          this.conversations.touch(
+            sessionId,
+            ...(opts.origin === "system" ? [] : [text]),
+          );
+        } else if (userContent.length > 1) {
+          input = [{ role: "user", content: userContent }];
         }
 
         const result = await runAgent(this.inference, tools, input, {
           system,
+          // Watched turns stream. A reader was shown one static word for the
+          // whole of a turn, and with a reasoning model most of that time is
+          // the model working rather than any tool running.
+          shouldStop: () => this.stopping.has(sessionId),
+          onDelta: (delta) =>
+            this.progress.emit({
+              kind: "delta",
+              conversationId: sessionId,
+              of: delta.kind,
+              text: delta.text,
+            }),
         });
 
         if (useSession) {
@@ -590,11 +676,13 @@ export class Kernel {
         // It happens when the loop hits its iteration cap, which is exactly
         // when the reader most needs to hear that it got stuck.
         const reply =
-          result.finalText.trim() !== ""
-            ? result.finalText
-            : result.exhausted
-              ? "I got stuck on that and stopped after too many steps without reaching an answer. Tell me what to try instead, or narrow it down."
-              : "I do not have anything to add to that.";
+          result.stopped && result.finalText.trim() === ""
+            ? "Stopped."
+            : result.finalText.trim() !== ""
+              ? result.finalText
+              : result.exhausted
+                ? "I got stuck on that and stopped after too many steps without reaching an answer. Tell me what to try instead, or narrow it down."
+                : "I do not have anything to add to that.";
 
         if (opts.origin !== "system") {
           await this.rememberExchange(userId, text, reply);
@@ -617,6 +705,9 @@ export class Kernel {
         // Restored rather than cleared: a dispatched turn runs inside another,
         // and the outer one still has work to attribute.
         this.currentConversationId = previousConversation;
+        this.working.delete(sessionId);
+        this.stopping.delete(sessionId);
+        this.progress.emit({ kind: "turn-end", conversationId: sessionId });
       }
     }
   }
@@ -745,7 +836,7 @@ export class Kernel {
    */
   async handleOrchestratorTurn(
     text: string,
-    opts: { channel?: string } = {},
+    opts: { channel?: string; attachments?: Attachment[] } = {},
   ): Promise<HandleResult & { conversationId: string }> {
     const id = orchestratorId(this.profile.ownerId);
     const res = await this.handleMessage(text, {
@@ -754,6 +845,7 @@ export class Kernel {
       grant: [...CHAT_TOOLS],
       allow: [...ORCHESTRATOR_SCOPE],
       ...(opts.channel ? { channel: opts.channel } : {}),
+      ...(opts.attachments ? { attachments: opts.attachments } : {}),
     });
     return { ...res, conversationId: id };
   }
@@ -969,7 +1061,26 @@ export class Kernel {
       ...(this.onApprovalRequested
         ? { onQueued: this.onApprovalRequested }
         : {}),
-      onExecuted: (tool) => this.afterToolRan(tool),
+      onExecuted: (tool, result) => {
+        this.afterToolRan(tool);
+        if (opts.conversationId) {
+          this.progress.emit({
+            kind: "tool-end",
+            conversationId: opts.conversationId,
+            tool,
+            isError: result.isError === true,
+          });
+        }
+      },
+      onStarted: (tool, input) => {
+        if (!opts.conversationId) return;
+        this.progress.emit({
+          kind: "tool-start",
+          conversationId: opts.conversationId,
+          tool,
+          summary: summarizeAction(tool, input),
+        });
+      },
     });
   }
 
@@ -1050,11 +1161,213 @@ export class Kernel {
    * workspace with only one provider gets a materially different agent from
    * the default and nothing anywhere said so.
    */
-  routes(): Record<string, { provider: string; model: string }> | undefined {
+  routes(): Record<string, RouteSummary> | undefined {
     const source = this.inference as {
-      describeRoutes?: () => Record<string, { provider: string; model: string }>;
+      describeRoutes?: () => Record<string, RouteSummary>;
     };
     return source.describeRoutes?.();
+  }
+
+  /** Repoint the router at the owner's saved choices, without a restart. */
+  applyModelSettings(settings: ModelSettings): void {
+    const router = this.inference as { setRoute?: unknown; routeFor?: unknown };
+    if (typeof router.setRoute !== "function") return;
+    applyModelSettings(this.inference as Parameters<typeof applyModelSettings>[0], settings);
+  }
+
+  /**
+   * Models this provider will actually accept, asked at call time rather than
+   * kept in a list here. A hard-coded list is how the OpenAI route sat on
+   * gpt-4o long after better models existed.
+   */
+  async availableModels(): Promise<string[]> {
+    const route = this.routes()?.["reasoning"];
+    if (route?.provider !== "openai") return [];
+    const key = this.secrets.get("openai");
+    if (!key) return [];
+    const res = await fetch("https://api.openai.com/v1/models", {
+      headers: { authorization: `Bearer ${key}` },
+    });
+    if (!res.ok) throw new Error(`model list failed: ${res.status}`);
+    const body = (await res.json()) as { data?: { id: string }[] };
+    return (body.data ?? [])
+      .map((m) => m.id)
+      .filter((id) => /^(gpt|o[0-9])/.test(id))
+      .filter((id) => !/(audio|realtime|transcribe|tts|image|search|embedding)/.test(id))
+      .sort();
+  }
+
+  /**
+   * Ask a running turn to stop at its next round trip.
+   *
+   * Between round trips rather than mid-call: a tool that is already running
+   * has to finish or its result is lost, and the model's own reply arrives in
+   * one piece.
+   */
+  stop(sessionId: string): boolean {
+    if (!this.working.has(sessionId)) return false;
+    this.stopping.add(sessionId);
+    return true;
+  }
+
+
+  /**
+   * Turn the @references in a message into context.
+   *
+   * Only what was actually named: this is the owner pointing at something, so
+   * it is worth the prompt space, unlike everything else in the workspace.
+   */
+  private resolveMentions(text: string): string | null {
+    const refs = parseMentions(text);
+    if (refs.length === 0) return null;
+
+    const parts: string[] = [];
+    for (const ref of refs) {
+      if (ref.kind === "project") {
+        const project = this.manifest.get(ref.id);
+        parts.push(
+          project
+            ? `Project ${project.slug} (${project.type}): ${project.description ?? "no description"}`
+            : `Project ${ref.id}: not found.`,
+        );
+        continue;
+      }
+      if (ref.kind === "page") {
+        const page = this.pages.get(ref.id);
+        parts.push(
+          page
+            ? `Page ${ref.id} in project ${page.record.projectSlug}:\n${JSON.stringify(page.spec, null, 2)}`
+            : `Page ${ref.id}: not found.`,
+        );
+        continue;
+      }
+      if (ref.kind === "schedule") {
+        const job = this.crons.list().find((c) => c.name === ref.id);
+        parts.push(
+          job
+            ? `Schedule ${job.name}: ${job.schedule}, type ${job.type}, ${job.enabled ? "enabled" : "disabled"}`
+            : `Schedule ${ref.id}: not found.`,
+        );
+        continue;
+      }
+      try {
+        const file = readWorkspaceFile(this.workspace, ref.id);
+        parts.push(
+          file.text === undefined
+            ? `File ${ref.id}: not shown (${file.omitted ?? "unreadable"}).`
+            : `File ${ref.id}:\n${file.text}`,
+        );
+      } catch (err) {
+        parts.push(
+          `File ${ref.id}: ${err instanceof Error ? err.message : "could not be read"}`,
+        );
+      }
+    }
+    return ["## Referenced by the owner in this message", ...parts].join("\n\n");
+  }
+
+
+  /** Conversation ids with a turn in flight, for the chat list. */
+  busyConversations(): string[] {
+    return [...this.working];
+  }
+
+  /**
+   * Drop everything from the owner's Nth message onward, and optionally say it
+   * differently.
+   *
+   * Retry, edit and fork are the same operation seen from three angles: rewind
+   * the transcript to a point and run from there. Fork copies first, so the
+   * original survives; the other two rewrite in place.
+   */
+  async rewind(
+    sessionId: string,
+    userTurnIndex: number,
+    opts: { text?: string; forkTitle?: string } = {},
+  ): Promise<HandleResult & { conversationId: string }> {
+    const source = this.conversations.get(sessionId);
+    if (!source) throw new Error(`no such conversation: ${sessionId}`);
+
+    const history = this.sessions.get(sessionId);
+    // Owner turns are the anchors: a tool result is also a "user" message on
+    // the wire, so only messages carrying text count as something they said.
+    const anchors: number[] = [];
+    history.forEach((m, i) => {
+      if (m.role !== "user") return;
+      if (!m.content.some((b) => b.type === "text" || b.type === "file" || b.type === "image")) {
+        return;
+      }
+      anchors.push(i);
+    });
+    const at = anchors[userTurnIndex];
+    if (at === undefined) throw new Error(`no message #${userTurnIndex} to rewind to`);
+
+    const original = history[at];
+    const said =
+      opts.text ??
+      original?.content
+        .filter((b) => b.type === "text")
+        .map((b) => (b as { text: string }).text)
+        .join("") ??
+      "";
+    if (!said.trim()) throw new Error("nothing to send");
+
+    // Anything the original message carried travels with it, so a retry of a
+    // message with a picture is still about the picture.
+    const carried = (original?.content ?? []).filter(
+      (b) => b.type === "image" || b.type === "file",
+    );
+
+    // A fork is a copy, not a rerun: the answer already exists, so producing
+    // it again costs a model call and can come back different, which is not
+    // what "fork this conversation" means.
+    if (opts.forkTitle !== undefined && opts.text === undefined) {
+      const fork = this.conversations.create({
+        userId: source.userId,
+        title: opts.forkTitle || `${source.title} (fork)`,
+        ...(source.brief ? { brief: source.brief } : {}),
+        ...(source.toolAllow !== null ? { toolAllow: source.toolAllow } : {}),
+      });
+      this.sessions.set(fork.id, history);
+      this.conversations.touch(fork.id);
+      return {
+        reply: "",
+        halted: false,
+        sessionId: fork.id,
+        conversationId: fork.id,
+      };
+    }
+
+    let target = sessionId;
+    if (opts.forkTitle !== undefined) {
+      const fork = this.conversations.create({
+        userId: source.userId,
+        title: opts.forkTitle || `${source.title} (fork)`,
+        ...(source.brief ? { brief: source.brief } : {}),
+        ...(source.toolAllow !== null ? { toolAllow: source.toolAllow } : {}),
+      });
+      target = fork.id;
+    }
+    this.sessions.set(target, history.slice(0, at));
+
+    const res = await this.handleMessage(said, {
+      sessionId: target,
+      userId: source.userId,
+      ...(carried.length ? { attachments: [] } : {}),
+    });
+    // Re-attach by hand: handleMessage builds its own user message, and the
+    // carried blocks are already decoded rather than base64 payloads.
+    if (carried.length) {
+      const after = this.sessions.get(target);
+      const idx = after.findIndex(
+        (m, i) => i >= at && m.role === "user" && m.content.some((b) => b.type === "text"),
+      );
+      if (idx >= 0) {
+        after[idx] = { role: "user", content: [...after[idx]!.content, ...carried] };
+        this.sessions.set(target, after);
+      }
+    }
+    return { ...res, conversationId: target };
   }
 
   reloadCron(): void {

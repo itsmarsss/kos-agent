@@ -12,6 +12,14 @@ import type { GenerateRequest, ModelResponse } from "./types.js";
  */
 export type Task = "reasoning" | "cheap";
 
+/** A route as shown to a reader: what answers, how hard, and how much. */
+export interface RouteSummary {
+  provider: string;
+  model: string;
+  effort?: string;
+  maxTokens?: number;
+}
+
 export interface Route {
   provider: string;
   spec: ModelSpec;
@@ -30,15 +38,22 @@ export const DEFAULT_ROUTING: RoutingTable = {
   },
 };
 
-/** OpenAI-only table used when Anthropic is not configured. */
+/**
+ * OpenAI-only table used when Anthropic is not configured.
+ *
+ * Mirrors the Anthropic default: a reasoning model at high effort for real
+ * turns, a small one for salience. Both need the Responses API, which is what
+ * the provider speaks; on Chat Completions an effort could not be sent
+ * alongside function tools at all, and gpt-5.6 refused tools outright.
+ */
 export const OPENAI_ROUTING: RoutingTable = {
   reasoning: {
     provider: "openai",
-    spec: { model: "gpt-4o" },
+    spec: { model: "gpt-5.6-terra", effort: "high" },
   },
   cheap: {
     provider: "openai",
-    spec: { model: "gpt-4o-mini" },
+    spec: { model: "gpt-5.4-mini", effort: "low" },
   },
 };
 
@@ -61,10 +76,26 @@ export class ModelRouter {
 
   constructor(
     providers: Provider[],
-    private readonly routing: RoutingTable,
+    private routing: RoutingTable,
     private readonly secrets: SecretsRegistry,
   ) {
     this.providers = new Map(providers.map((p) => [p.name, p]));
+  }
+
+  /**
+   * Point a task class at a different model. Applied in place so a change the
+   * owner makes takes effect on the next turn rather than the next restart.
+   */
+  setRoute(task: Task, route: Route): void {
+    if (!this.providers.has(route.provider)) {
+      throw new Error(`no provider registered for route: ${route.provider}`);
+    }
+    this.routing = { ...this.routing, [task]: route };
+  }
+
+  /** The full spec for a task, so a caller can show what is set. */
+  routeFor(task: Task): Route {
+    return this.routing[task];
   }
 
   /**
@@ -75,11 +106,18 @@ export class ModelRouter {
    * by status so that is visible rather than something you find out by
    * reading the router.
    */
-  describeRoutes(): Record<Task, { provider: string; model: string }> {
-    const out = {} as Record<Task, { provider: string; model: string }>;
+  describeRoutes(): Record<Task, RouteSummary> {
+    const out = {} as Record<Task, RouteSummary>;
     for (const task of Object.keys(this.routing) as Task[]) {
       const route = this.routing[task];
-      out[task] = { provider: route.provider, model: route.spec.model };
+      out[task] = {
+        provider: route.provider,
+        model: route.spec.model,
+        // Effort and the token cap are what the owner set in the dashboard, so
+        // it has to be able to read back what is actually in force.
+        ...(route.spec.effort ? { effort: route.spec.effort } : {}),
+        ...(route.spec.maxTokens ? { maxTokens: route.spec.maxTokens } : {}),
+      };
     }
     return out;
   }

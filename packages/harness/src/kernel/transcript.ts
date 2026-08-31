@@ -12,8 +12,32 @@ import { parseQueuedApproval } from "./guarded.js";
  * open: what it called, with what, and what came back.
  */
 
+/** An attachment as a reader needs it: a name, and either an image or text. */
+export interface Attachment {
+  name: string;
+  /** Data URI, for an image. */
+  src?: string;
+  /** File contents, for a text file. */
+  text?: string;
+}
+
 export type ChatEvent =
-  | { kind: "message"; role: "you" | "kos" | "system"; text: string }
+  | {
+      /** What the model worked out before answering, kept so it can be reread. */
+      kind: "reasoning";
+      text: string;
+    }
+  | {
+      kind: "message";
+      role: "you" | "kos" | "system";
+      text: string;
+      /**
+       * What was attached to this turn. Kept as things with names rather than
+       * flattened into the message, so the reader sees what they sent and can
+       * open it.
+       */
+      attachments?: Attachment[];
+    }
   | {
       kind: "tool";
       /** Tool name, e.g. "sql". */
@@ -68,6 +92,36 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
 
   for (const message of messages) {
     for (const block of message.content) {
+      if (block.type === "reasoning") {
+        const text = block.text.trim();
+        if (text) events.push({ kind: "reasoning", text });
+        continue;
+      }
+
+      if (block.type === "image" || block.type === "file") {
+        // Attached to the turn it belongs to: a transcript that drops these
+        // leaves a question about something no longer on screen.
+        const attachment: Attachment =
+          block.type === "image"
+            ? {
+                name: block.name ?? "image",
+                src: `data:${block.mediaType};base64,${block.data}`,
+              }
+            : { name: block.name, text: block.text };
+        const last = events.at(-1);
+        if (last?.kind === "message" && last.role === "you") {
+          last.attachments = [...(last.attachments ?? []), attachment];
+        } else {
+          events.push({
+            kind: "message",
+            role: "you",
+            text: "",
+            attachments: [attachment],
+          });
+        }
+        continue;
+      }
+
       if (block.type === "text") {
         const text = block.text.trim();
         if (text) {

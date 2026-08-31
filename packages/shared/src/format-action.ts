@@ -98,6 +98,26 @@ export function summarizeAction(
       return `Read conversation ${fmtVal(a.id)}`;
     case "chats.create":
       return `Start conversation “${fmtVal(a.title)}”`;
+    case "chats.dispatch":
+      return `Hand work to conversation ${fmtVal(a.id)}`;
+    case "pages.get":
+      return `Read page ${fmtVal(a.id)}`;
+    case "pages.list":
+      return "List pages";
+    case "systems.project_list":
+      return "List projects";
+    case "memory.remember":
+      return `Remember ${fmtVal(a.key)}`;
+    case "memory.recall":
+      return a.query ? `Recall “${fmtVal(a.query)}”` : "Recall knowledge";
+    case "memory.forget":
+      return `Forget ${fmtVal(a.key)}`;
+    case "memory.tags":
+      return "List knowledge tags";
+    case "cron.list":
+      return "List scheduled jobs";
+    case "cron.remove":
+      return `Delete scheduled job ${fmtVal(a.id)}`;
     case "skills.run":
       return `Run skill ${fmtVal(a.entry)} for real`;
     default:

@@ -244,7 +244,7 @@ function defineDispatchTool(deps: ChatToolDeps, ctx: ModuleContext): void {
     {
       name: "chats.dispatch",
       description:
-        "Give a task to one of the owner's conversations and get its answer back. That conversation runs with its own brief and tools, so use this to actually get work done rather than only creating somewhere for it to happen. Returns its reply, which you should summarise for the owner.",
+        "Give a task to one of the owner's conversations and get its answer back. That conversation runs with its own brief and tools, so use this to actually get work done rather than only creating somewhere for it to happen. Returns its reply. Summarise it in a line or two; do not paste it back, the owner can open that conversation and read it there.",
       inputSchema: {
         type: "object",
         properties: {

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -337,6 +337,26 @@ describe("KOS end-to-end flows", () => {
     expect(JSON.stringify(main)).toContain("56.25");
   });
 
+  it("reports each step of a turn as it happens", async () => {
+    const model = scripted([
+      toolCall("c1", "files.write", { path: "a.md", content: "hi" }),
+      text("Wrote it."),
+    ]);
+    kernel = await boot(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "Work" });
+
+    // A turn runs for tens of seconds across several calls, and the reader saw
+    // one static word for all of it.
+    const seen: string[] = [];
+    kernel.progress.subscribe((e) => seen.push(`${e.kind}:${"tool" in e ? e.tool : ""}`));
+    await kernel.handleMessage("write a file", { sessionId: c.id });
+
+    expect(seen[0]).toBe("turn-start:");
+    expect(seen).toContain("tool-start:files.write");
+    expect(seen).toContain("tool-end:files.write");
+    expect(seen.at(-1)).toBe("turn-end:");
+  });
+
   it("remembers a stated fact and recalls it on a later turn", async () => {
     const model = scripted([text("Noted."), text("You are in America/New_York.")]);
     kernel = await boot(model.inference);
@@ -667,6 +687,20 @@ describe("KOS end-to-end flows", () => {
     const system = model.systems.at(-1)!;
     expect(system).toContain("limited to these tools");
     expect(system).toContain("files, memory");
+  });
+
+  it("does not tell the orchestrator to stop at what it cannot reach", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    await kernel.handleOrchestratorTurn("build me a snake game page");
+
+    // It is scoped too, but it has somewhere to send the work and a brief
+    // saying so. Given the note meant for an ordinary conversation it
+    // answered "I have no page tools here" and stopped, which is the one
+    // thing it must never do.
+    const system = model.systems.at(-1)!;
+    expect(system).not.toContain("limited to these tools");
+    expect(system).toContain("You are the owner's router");
   });
 
   it("says nothing about scope in an unrestricted conversation", async () => {
@@ -1085,5 +1119,198 @@ describe("KOS end-to-end flows", () => {
 
     const wire = JSON.stringify(model.calls.at(-1)!.request.messages);
     expect(wire).toContain("hello from the CLI");
+  });
+});
+
+describe("rewinding a conversation", () => {
+  let root: string;
+  let kernel: Kernel;
+
+  afterEach(() => {
+    kernel?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  async function boot2(inference: Inference): Promise<Kernel> {
+    root = mkdtempSync(join(tmpdir(), "kos-rewind-"));
+    return Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference });
+  }
+
+  it("retries the last message, dropping what came after it", async () => {
+    const model = scripted([text("first answer"), text("second answer")]);
+    kernel = await boot2(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "T" });
+    await kernel.handleMessage("what is it", { sessionId: c.id });
+
+    await kernel.rewind(c.id, 0);
+
+    const wire = JSON.stringify(kernel.sessions.get(c.id));
+    expect(wire).toContain("second answer");
+    expect(wire).not.toContain("first answer");
+  });
+
+  it("edits a message and runs the new one", async () => {
+    const model = scripted([text("a"), text("b")]);
+    kernel = await boot2(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "T" });
+    await kernel.handleMessage("original", { sessionId: c.id });
+
+    await kernel.rewind(c.id, 0, { text: "changed" });
+
+    const wire = JSON.stringify(kernel.sessions.get(c.id));
+    expect(wire).toContain("changed");
+    expect(wire).not.toContain("original");
+  });
+
+  it("forks by copying, without asking the model again", async () => {
+    // The answer already exists. Producing it again costs a call and can come
+    // back different, which is not what forking a conversation means.
+    const model = scripted([text("original answer")]);
+    kernel = await boot2(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "T" });
+    await kernel.handleMessage("keep me", { sessionId: c.id });
+    const callsBefore = model.calls.length;
+
+    const res = await kernel.rewind(c.id, 0, { forkTitle: "Fork" });
+
+    expect(model.calls.length).toBe(callsBefore);
+    expect(res.conversationId).not.toBe(c.id);
+    expect(JSON.stringify(kernel.sessions.get(res.conversationId))).toContain(
+      "original answer",
+    );
+    expect(JSON.stringify(kernel.sessions.get(c.id))).toContain("keep me");
+    expect(kernel.conversations.get(res.conversationId)?.title).toBe("Fork");
+  });
+
+  it("forks and reruns when the message is also edited", async () => {
+    const model = scripted([text("a"), text("b")]);
+    kernel = await boot2(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "T" });
+    await kernel.handleMessage("first", { sessionId: c.id });
+
+    const res = await kernel.rewind(c.id, 0, { forkTitle: "F", text: "second" });
+
+    expect(JSON.stringify(kernel.sessions.get(res.conversationId))).toContain("second");
+    expect(JSON.stringify(kernel.sessions.get(c.id))).toContain("first");
+  });
+
+  it("refuses an index that is not an owner message", async () => {
+    const model = scripted([text("a")]);
+    kernel = await boot2(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "T" });
+    await kernel.handleMessage("one", { sessionId: c.id });
+    await expect(kernel.rewind(c.id, 7)).rejects.toThrow(/no message #7/);
+  });
+});
+
+describe("mentions in a message", () => {
+  let root: string;
+  let kernel: Kernel;
+
+  afterEach(() => {
+    kernel?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  async function boot3(inference: Inference): Promise<Kernel> {
+    root = mkdtempSync(join(tmpdir(), "kos-mention-"));
+    return Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference });
+  }
+
+  it("puts a referenced file's contents in front of the agent", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot3(model.inference);
+    writeFileSync(join(root, "plan.md"), "ship the budget page");
+
+    await kernel.handleMessage("what does @file:plan.md say");
+
+    // A mention is a promise that the thing named is to hand, not a string the
+    // agent has to go and look up.
+    expect(model.systems.at(-1)!).toContain("ship the budget page");
+  });
+
+  it("says so when the thing referenced does not exist", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot3(model.inference);
+    await kernel.handleMessage("look at @project:nope");
+    expect(model.systems.at(-1)!).toContain("not found");
+  });
+
+  it("adds nothing when there are no mentions", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot3(model.inference);
+    await kernel.handleMessage("just a normal message");
+    expect(model.systems.at(-1)!).not.toContain("Referenced by the owner");
+  });
+});
+
+describe("a message survives the turn it started", () => {
+  let root: string;
+  let kernel: Kernel;
+
+  afterEach(() => {
+    kernel?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("is in the transcript before the model has answered", async () => {
+    // It used to exist nowhere but the browser until the turn finished, so
+    // reloading the page mid-answer lost what had been asked.
+    let midTurn: string | undefined;
+    root = mkdtempSync(join(tmpdir(), "kos-persist-"));
+    const inference: Inference = {
+      async generate() {
+        midTurn = JSON.stringify(kernel.sessions.get("chat:owner"));
+        return {
+          content: [{ type: "text", text: "answered" }],
+          stopReason: "end_turn",
+          usage: { inputTokens: 0, outputTokens: 0 },
+          model: "stub",
+        };
+      },
+    };
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference,
+    });
+
+    await kernel.handleMessage("do not lose this");
+
+    expect(midTurn).toContain("do not lose this");
+    expect(midTurn).not.toContain("answered");
+  });
+
+  it("keeps what was asked even when the turn throws", async () => {
+    root = mkdtempSync(join(tmpdir(), "kos-persist-fail-"));
+    const inference: Inference = {
+      async generate() {
+        throw new Error("provider exploded");
+      },
+    };
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference,
+    });
+
+    await expect(kernel.handleMessage("still mine")).rejects.toThrow();
+    expect(JSON.stringify(kernel.sessions.get("chat:owner"))).toContain(
+      "still mine",
+    );
+  });
+
+  it("has the whole exchange once the turn lands", async () => {
+    const model = scripted([text("answered")]);
+    root = mkdtempSync(join(tmpdir(), "kos-persist-done-"));
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: model.inference,
+    });
+    await kernel.handleMessage("ask");
+    const wire = JSON.stringify(kernel.sessions.get("chat:owner"));
+    expect(wire).toContain("ask");
+    expect(wire).toContain("answered");
   });
 });

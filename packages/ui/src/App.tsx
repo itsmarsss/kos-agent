@@ -20,6 +20,10 @@ import { ListPage } from "./ListPage.js";
 import { AnimatePresence, m } from "motion/react";
 
 import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
+import { Modal } from "./Modal.js";
+import { ModelSettings } from "./ModelSettings.js";
+import { useAttachments } from "./Attachments.js";
+import { useProgress } from "./progress.js";
 import { ease, listItem, spring } from "./motion.js";
 import { Home } from "./Home.js";
 import { ChatsPage } from "./ChatsPage.js";
@@ -70,6 +74,9 @@ export function App(): React.ReactElement {
   const [cronFilter, setCronFilter] = useState<"all" | "on" | "off">("all");
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const attachments = useAttachments();
+  const progress = useProgress();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeChat, setActiveChat] = useState<string | null>(null);
 
@@ -255,12 +262,33 @@ export function App(): React.ReactElement {
 
   const send = async (): Promise<void> => {
     const text = prompt.trim();
-    if (text === "" || sending) return;
+    if ((text === "" && attachments.files.length === 0) || sending) return;
     setSending(true);
-    setThread((t) => [...t, { kind: "message", role: "you", text }]);
+    // Attached on send, not when the answer lands: the files belong to the
+    // message the moment it goes.
+    const files = attachments.files;
+    setThread((t) => [
+      ...t,
+      {
+        kind: "message",
+        role: "you",
+        text,
+        ...(files.length
+          ? {
+              attachments: files.map((f) => ({
+                name: f.name,
+                ...(f.mediaType.startsWith("image/")
+                  ? { src: `data:${f.mediaType};base64,${f.data}` }
+                  : {}),
+              })),
+            }
+          : {}),
+      },
+    ]);
     setPrompt("");
+    attachments.clear();
     try {
-      const res = await api.orchestrator(text);
+      const res = await api.orchestrator(text, files);
       // Reload: the turn's tool calls belong in the transcript, and appending
       // only the reply would hide the work that produced it.
       const { events } = await api.conversation(res.conversationId);
@@ -332,7 +360,10 @@ export function App(): React.ReactElement {
 
   const shell = (body: React.ReactNode): React.ReactElement => (
     <ErrorBoundary label="dashboard">
-      <main className="ops">
+      {/* The chat route owns the whole window: the shell's scroll padding is
+          for pages that scroll, and with it the document ran past the viewport
+          so the page moved behind the chat, top bar and all. */}
+      <main className={`ops ${route.name === "chats" ? "ops--full" : ""}`}>
         <AnimatePresence>
           {toast && (
             <m.div
@@ -431,11 +462,24 @@ export function App(): React.ReactElement {
             >
               Ask KOS <kbd>⌘K</kbd>
             </button>
-            <details className="menu">
+            {/* A native details stays open when something inside it is
+                clicked, so the menu sat over whatever it had just opened. */}
+            <details
+              className="menu"
+              onClick={(e) => {
+                const target = e.target as HTMLElement;
+                if (target.closest("button, a")) {
+                  e.currentTarget.removeAttribute("open");
+                }
+              }}
+            >
               <summary className="btn btn--ghost" aria-label="More">⋯</summary>
               <div className="menu-body">
                 <button type="button" onClick={() => void refresh()}>Refresh</button>
                 <button type="button" onClick={() => void doSnapshot()}>Snapshot now</button>
+                <button type="button" onClick={() => setSettingsOpen(true)}>
+                  Models and thinking
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -477,6 +521,14 @@ export function App(): React.ReactElement {
 
         {body}
 
+        <Modal
+          open={settingsOpen}
+          title="Models and thinking"
+          onClose={() => setSettingsOpen(false)}
+        >
+          <ModelSettings onClose={() => setSettingsOpen(false)} />
+        </Modal>
+
         <ChatPanel
           open={chatOpen}
           thread={thread}
@@ -488,6 +540,8 @@ export function App(): React.ReactElement {
           onClear={() => void doClear()}
           pendingApprovals={pendingIds}
           onDecide={decideByPendingId}
+          attachments={attachments}
+          live={activeChat ? progress[activeChat] : undefined}
         />
       </main>
     </ErrorBoundary>
@@ -854,10 +908,10 @@ export function App(): React.ReactElement {
           {activity.slice(0, 6).map((t) => (
             <li key={t.id} className="feed-item">
               <button type="button" onClick={() => setInspect({ kind: "tool", data: t })}>
+                {/* The tool name was the loudest thing on the home page and
+                    the least useful: summarizeAction already says what
+                    happened in words. It stays in the inspector. */}
                 <span className="feed-what">{summarizeAction(t.tool, t.args)}</span>
-                <span className="feed-detail">
-                  <code>{t.tool}</code>
-                </span>
                 <span className="feed-when">{timeAgo(t.createdAt)}</span>
               </button>
             </li>
