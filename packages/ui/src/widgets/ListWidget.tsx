@@ -1,5 +1,5 @@
 import type { ListWidget as ListSpec } from "@kos/shared";
-import type { ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 
 import { formatCell, humanize, keyColumn, toNumber } from "./format.js";
 import { allows, type Row, type WidgetProps } from "./types.js";
@@ -7,8 +7,9 @@ import { useMutationRunner } from "./useMutationRunner.js";
 
 /**
  * A list that edits through inline actions - a toggle and a delete button per
- * row - never an editable grid. Both actions go through the guarded mutation
- * path, keyed on the row's id column.
+ * row - never an editable grid. Adding opens the declared columns as one
+ * inline row rather than a separate form. Every action goes through the
+ * guarded mutation path, keyed on the row's id column.
  */
 
 const TOGGLE = /^(done|completed?|complete|active|enabled|checked|archived|paid|read)$/i;
@@ -26,6 +27,27 @@ export function ListWidget({ widget, rows, mutate }: WidgetProps): ReactElement 
   const toggle = toggleColumn(editable, rows[0]);
   const canToggle = toggle !== null && key !== null && allows(w.mutate, "update");
   const canDelete = key !== null && allows(w.mutate, "delete");
+  const canAdd = allows(w.mutate, "insert") && editable.length > 0;
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+
+  // A list declaring insert had no way to insert: it only ever toggled and
+  // deleted rows that already existed, so a reading list the agent built could
+  // never have a book put in it.
+  const submit = (): void => {
+    const values: Record<string, string> = {};
+    for (const column of editable) {
+      const v = draft[column]?.trim();
+      if (v) values[column] = v;
+    }
+    if (Object.keys(values).length === 0) return;
+    void runner.run("insert", values).then((okay) => {
+      if (okay) {
+        setDraft({});
+        setAdding(false);
+      }
+    });
+  };
 
   return (
     <div className="kos-widget kos-list">
@@ -75,6 +97,55 @@ export function ListWidget({ widget, rows, mutate }: WidgetProps): ReactElement 
           );
         })}
       </ul>
+      {canAdd && !adding ? (
+        <button
+          className="kos-btn"
+          type="button"
+          onClick={() => {
+            runner.reset();
+            setAdding(true);
+          }}
+        >
+          + Add
+        </button>
+      ) : null}
+
+      {canAdd && adding ? (
+        <div className="kos-list-add">
+          {editable.map((column) => (
+            <label className="kos-field" key={column}>
+              <span className="kos-field-label">{humanize(column)}</span>
+              <input
+                className="kos-input"
+                type="text"
+                value={draft[column] ?? ""}
+                onChange={(e) => setDraft({ ...draft, [column]: e.target.value })}
+              />
+            </label>
+          ))}
+          <div className="kos-list-add-actions">
+            <button
+              className="kos-btn kos-btn--primary"
+              type="button"
+              disabled={runner.pending}
+              onClick={submit}
+            >
+              {runner.pending ? "Saving…" : "Save"}
+            </button>
+            <button
+              className="kos-btn"
+              type="button"
+              onClick={() => {
+                setAdding(false);
+                setDraft({});
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {runner.error ? (
         <div className="kos-error" role="alert">
           {runner.error}
