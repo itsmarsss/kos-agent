@@ -200,6 +200,12 @@ export interface FileContent {
   language: string;
 }
 
+export interface SiteInfo {
+  name: string;
+  hasIndex: boolean;
+  modifiedAt: number;
+}
+
 export interface ToolInfo {
   name: string;
   description: string;
@@ -325,6 +331,8 @@ export const api = {
     if (!res.ok) throw new Error(await readError(res, url));
     return URL.createObjectURL(await res.blob());
   },
+  sites: () =>
+    get<{ base: string | null; sites: SiteInfo[] }>("/api/sites"),
   openWorkspace: () => post<{ opened: string }>("/api/workspace/open", {}),
   configureConversation: (
     id: string,

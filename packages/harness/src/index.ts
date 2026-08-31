@@ -29,3 +29,5 @@ export * from "./kernel/index.js";
 export function version(): string {
   return KOS_VERSION;
 }
+export { listSites, resolveSiteRequest, startSiteServer, SITES_DIR } from "./sites/server.js";
+export type { Site } from "./sites/server.js";

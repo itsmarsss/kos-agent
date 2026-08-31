@@ -48,6 +48,19 @@ function listenPort(flag: string | boolean | undefined): number {
   return Number(flag ?? process.env.KOS_PORT ?? 4317);
 }
 
+/**
+ * Port for serving what the agent built, defaulting to next to the dashboard.
+ * A separate port is not a convenience: it puts a site on its own origin,
+ * where its scripts cannot reach the dashboard's API. 0 turns serving off.
+ */
+function sitesPort(
+  flag: string | boolean | undefined,
+  dashboard: number,
+): number {
+  const raw = flag ?? process.env.KOS_SITES_PORT;
+  return raw === undefined ? dashboard + 1 : Number(raw);
+}
+
 function baseUrlFromState(state: DaemonState): string {
   return `http://${state.host}:${state.port}`;
 }
@@ -245,6 +258,7 @@ async function cmdStart(
     ...(dashboardToken() ? { token: dashboardToken() } : {}),
     discord: flags["no-discord"] === true ? false : true,
     requireDiscord: flags.discord === true,
+    sitesPort: sitesPort(flags["sites-port"], port),
   });
 }
 
