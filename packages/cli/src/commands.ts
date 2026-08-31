@@ -66,6 +66,10 @@ Chat needs ANTHROPIC_API_KEY or OPENAI_API_KEY in .env.`;
 export function statusLine(kernel: Kernel): string {
   const crons = kernel.crons.list().length;
   const pending = kernel.approvals.pending().length;
+  // The routing table is picked from whichever API keys are present, so a
+  // workspace with one provider gets a different agent from the default and
+  // nothing said which one was answering.
+  const reasoning = kernel.routes()?.["reasoning"];
   return [
     `kill switch: ${kernel.killSwitch.halted ? "HALTED" : "running"}`,
     `queue depth: ${kernel.queue.depth}`,
@@ -73,6 +77,7 @@ export function statusLine(kernel: Kernel): string {
     `pending approvals: ${pending}`,
     `projects: ${kernel.manifest.list().length}`,
     `pages: ${kernel.pages.list().length}`,
+    ...(reasoning ? [`model: ${reasoning.model}`] : []),
   ].join(" | ");
 }
 

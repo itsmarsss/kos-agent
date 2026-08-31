@@ -11,6 +11,8 @@ export interface Status {
   pid?: number;
   workspace?: string;
   orchestratorId?: string;
+  /** Which model answers each task class, when the router can say. */
+  routes?: Record<string, { provider: string; model: string }> | null;
 }
 
 export interface PendingAction {

@@ -110,3 +110,26 @@ describe("createDefaultRouter", () => {
     expect(router).toBeInstanceOf(ModelRouter);
   });
 });
+
+describe("describeRoutes", () => {
+  it("reports the table actually in use", () => {
+    // A workspace with only an OpenAI key silently runs gpt-4o where the
+    // default is claude-opus-4-8, and nothing anywhere said so.
+    const secrets = new SecretsRegistry();
+    secrets.set("openai", "sk-test");
+    const router = createDefaultRouter(secrets);
+    expect(router.describeRoutes()).toEqual({
+      reasoning: { provider: "openai", model: "gpt-4o" },
+      cheap: { provider: "openai", model: "gpt-4o-mini" },
+    });
+  });
+
+  it("reports the anthropic table when that key is present", () => {
+    const secrets = new SecretsRegistry();
+    secrets.set("anthropic", "sk-ant-test");
+    expect(createDefaultRouter(secrets).describeRoutes().reasoning).toEqual({
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+    });
+  });
+});

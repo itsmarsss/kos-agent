@@ -1043,6 +1043,20 @@ export class Kernel {
     this.conversations.touch(sessionId);
   }
 
+  /**
+   * Which model is actually answering, when the inference layer can say.
+   *
+   * The routing table is picked from whichever API keys are present, so a
+   * workspace with only one provider gets a materially different agent from
+   * the default and nothing anywhere said so.
+   */
+  routes(): Record<string, { provider: string; model: string }> | undefined {
+    const source = this.inference as {
+      describeRoutes?: () => Record<string, { provider: string; model: string }>;
+    };
+    return source.describeRoutes?.();
+  }
+
   reloadCron(): void {
     this.scheduler?.reload();
   }
