@@ -509,6 +509,59 @@ describe("KOS end-to-end flows", () => {
     expect(primary?.title).toBe("Main");
   });
 
+  it("applies a conversation's brief to its turns only", async () => {
+    const model = scripted([text("ok"), text("ok")]);
+    kernel = await boot(model.inference);
+
+    const scoped = kernel.conversations.create({
+      userId: "owner",
+      title: "App build",
+      brief: "Prefer concrete steps. Ask before scaffolding files.",
+    });
+    const plain = kernel.conversations.create({ userId: "owner", title: "Other" });
+
+    await kernel.handleMessage("start", { sessionId: scoped.id });
+    expect(model.systems.at(-1)!).toContain("Ask before scaffolding files");
+
+    await kernel.handleMessage("start", { sessionId: plain.id });
+    expect(model.systems.at(-1)!).not.toContain("Ask before scaffolding files");
+  });
+
+  it("withholds tools outside a conversation's allow-list", async () => {
+    const model = scripted([
+      toolCall("c1", "cron.schedule", { name: "x", schedule: "0 9 * * 1" }),
+      text("done"),
+    ]);
+    kernel = await boot(model.inference);
+
+    const scoped = kernel.conversations.create({
+      userId: "owner",
+      title: "Reading",
+      toolAllow: ["files", "search"],
+    });
+
+    await kernel.handleMessage("schedule something", { sessionId: scoped.id });
+
+    // Not merely hidden: naming it directly has to fail too, or the list is a
+    // fiction the model can step around.
+    const offered = (model.calls[0]!.request.tools ?? []).map((t) => t.name);
+    expect(offered.some((n) => n.startsWith("cron"))).toBe(false);
+    expect(offered.some((n) => n.startsWith("files"))).toBe(true);
+
+    const wire = JSON.stringify(model.calls.at(-1)!.request.messages);
+    expect(wire).toContain("not available in this conversation");
+    expect(kernel.crons.list().some((c) => c.name === "x")).toBe(false);
+  });
+
+  it("leaves an unscoped conversation with the full toolset", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    const plain = kernel.conversations.create({ userId: "owner", title: "Plain" });
+    await kernel.handleMessage("hello", { sessionId: plain.id });
+    const offered = (model.calls[0]!.request.tools ?? []).map((t) => t.name);
+    expect(offered.some((n) => n.startsWith("cron"))).toBe(true);
+  });
+
   it("shares one session across the CLI and Discord surfaces", async () => {
     const model = scripted([text("first"), text("second")]);
     kernel = await boot(model.inference);

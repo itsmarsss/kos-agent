@@ -19,6 +19,18 @@ export interface GuardedToolsDeps {
   scopeTags?: string[];
   /** Cap tools offered to the model (default unlimited). */
   toolLimit?: number;
+  /**
+   * Hard allow-list of tool name prefixes for this conversation. When set, no
+   * other tool is offered or executed. Unlike scope tags this withholds rather
+   * than merely hides, which is what makes a scoped agent meaningfully scoped.
+   */
+  allow?: string[];
+  /**
+   * Restricted tools granted to this turn by name. Nothing else can reach
+   * them, so a tool that operates on other conversations stays out of an
+   * ordinary conversation entirely.
+   */
+  grant?: string[];
   /** Notified when a risky call is queued, so a channel can prompt for approval. */
   onQueued?: (action: PendingAction) => void;
 }
@@ -34,9 +46,20 @@ export interface GuardedToolsDeps {
 export class GuardedTools implements ToolBox {
   constructor(private readonly deps: GuardedToolsDeps) {}
 
+  /** Does this tool survive the conversation's allow-list? */
+  private permitted(name: string): boolean {
+    const { allow, grant, registry } = this.deps;
+    if (registry.isRestricted(name)) return (grant ?? []).includes(name);
+    if (!allow || allow.length === 0) return true;
+    return allow.some((prefix) => name === prefix || name.startsWith(`${prefix}.`));
+  }
+
   defs(): ReturnType<ToolRegistry["defs"]> {
-    const { registry, scopeTags, toolLimit } = this.deps;
-    const all = registry.defs();
+    const { registry, scopeTags, toolLimit, grant } = this.deps;
+    const granted = grant?.length ? registry.restrictedDefs(grant) : [];
+    const all = [...registry.defs(), ...granted].filter((d) =>
+      this.permitted(d.name),
+    );
 
     // Scoping exists for the many-modules case. While every tool still fits
     // under the cap, narrowing only makes the offered set change shape from
@@ -48,10 +71,11 @@ export class GuardedTools implements ToolBox {
       return toolLimit !== undefined ? all.slice(0, toolLimit) : all;
     }
 
-    return registry.scopedDefs({
-      tags: scopeTags,
-      ...(toolLimit !== undefined ? { limit: toolLimit } : {}),
-    });
+    const scoped = registry
+      .scopedDefs({ tags: scopeTags })
+      .filter((d) => this.permitted(d.name));
+    const withGrants = [...scoped, ...granted];
+    return toolLimit !== undefined ? withGrants.slice(0, toolLimit) : withGrants;
   }
 
   async execute(
@@ -59,6 +83,16 @@ export class GuardedTools implements ToolBox {
     input: Record<string, unknown>,
   ): Promise<ToolExecution> {
     const { registry, secrets, audit, approvals, userId } = this.deps;
+
+    // Enforced here too, not only in defs(): a model can name any tool it
+    // likes, and an offered-but-not-executable list would be a fiction.
+    if (!this.permitted(name)) {
+      return {
+        content: `tool not available in this conversation: ${name}`,
+        isError: true,
+      };
+    }
+
     const assessment = registry.classify(name, input);
 
     if (assessment.tier === "risky") {
