@@ -312,11 +312,13 @@ export const api = {
   ) => post<Conversation>("/api/conversations/configure", { id, ...config }),
   newConversation: (title?: string) =>
     post<Conversation>("/api/conversations/new", title ? { title } : {}),
-  mentions: (q: string) =>
+  mentions: (q: string, kind?: string) =>
     get<{
       mentions: { kind: string; id: string; label: string; hint?: string }[];
       commands: { name: string; args?: string; description: string }[];
-    }>(`/api/mentions?q=${encodeURIComponent(q)}`),
+    }>(
+      `/api/mentions?q=${encodeURIComponent(q)}${kind ? `&kind=${encodeURIComponent(kind)}` : ""}`,
+    ),
   stopConversation: (sessionId: string) =>
     post<{ stopping: boolean }>("/api/conversations/stop", { sessionId }),
   /** Retry, edit and fork: rewind to an owner message and run from there. */

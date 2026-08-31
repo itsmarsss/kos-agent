@@ -77,6 +77,8 @@ export function ChatsPage({
   const [collapsed, setCollapsed] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [rewinding, setRewinding] = useState(false);
   const [archived, setArchived] = useState<Conversation[]>([]);
 
   // Fetched only when asked for: an archived chat is something you go looking
@@ -119,7 +121,6 @@ export function ChatsPage({
       el.setSelectionRange(next.caret, next.caret);
     });
   };
-  const loaded = useRef<string | undefined>(undefined);
   const boxRef = useRef<HTMLDivElement>(null);
 
   const active = conversations.find((c) => c.id === activeId);
@@ -132,23 +133,47 @@ export function ChatsPage({
    * dispatched into it, a message arriving over Discord. Keying on updatedAt
    * means one poll upstream keeps every open thread current.
    */
-  const stamp = active?.updatedAt;
+  const stamp = active?.updatedAt ?? 0;
+  // What is on screen belongs to a conversation. Keyed only on id and stamp,
+  // returning to a chat mid-turn matched the key it was last loaded under and
+  // skipped the fetch, leaving another conversation's transcript on screen.
+  const [loadedFor, setLoadedFor] = useState<{ id: string; stamp: number } | null>(
+    null,
+  );
+  // A turn ending is worth a reload straight away rather than at the next
+  // poll, which is up to five seconds later.
+  const wasLive = useRef(false);
+  const justEnded = wasLive.current && !live;
+  wasLive.current = Boolean(live);
+
   useEffect(() => {
     if (!activeId) return;
-    const key = `${activeId}:${stamp ?? 0}`;
+    const mine = loadedFor?.id === activeId;
     // Mid-send the optimistic bubble is the only record of what was typed.
-    if (sendingIn === activeId || loaded.current === key) return;
-    if (loaded.current?.startsWith(`${activeId}:`) !== true) setEditing(false);
-    loaded.current = key;
+    if (mine && sendingIn === activeId) return;
+    if (mine && loadedFor.stamp === stamp && !justEnded) return;
+    if (!mine) {
+      // Nothing from the previous conversation stays visible while this one
+      // loads.
+      setEvents([]);
+      setEditing(false);
+      setEditingIndex(null);
+    }
     let cancelled = false;
     void api
       .conversation(activeId)
-      .then(({ events: got }) => !cancelled && setEvents(got))
-      .catch(() => !cancelled && setEvents([]));
+      .then(({ events: got }) => {
+        if (cancelled) return;
+        setEvents(got);
+        setLoadedFor({ id: activeId, stamp });
+      })
+      .catch(() => {
+        if (!cancelled) setEvents([]);
+      });
     return () => {
       cancelled = true;
     };
-  }, [activeId, stamp, sendingIn]);
+  }, [activeId, stamp, sendingIn, loadedFor, justEnded]);
 
   // The live turn grows as it streams, so it is part of what pins the scroll.
   useStickToBottom(boxRef, [events, sendingIn, activeId, live?.steps.length, live?.text]);
@@ -218,8 +243,6 @@ export function ChatsPage({
     void api.stopConversation(activeId).catch(() => undefined);
   }
 
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const [rewinding, setRewinding] = useState(false);
 
   const rewind = (
     index: number,

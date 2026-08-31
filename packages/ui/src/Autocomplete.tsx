@@ -18,6 +18,11 @@ export interface Suggestion {
   label: string;
   hint?: string;
   kind: string;
+  /**
+   * Leaves the caret inside the reference instead of finishing it. Picking a
+   * kind is half a reference: the next thing typed narrows within it.
+   */
+  partial?: boolean;
 }
 
 export interface Trigger {
@@ -35,9 +40,23 @@ export interface Trigger {
  * A trigger only counts at the start of a word: an email address is not a
  * mention, and a path is not a command.
  */
+export const MENTION_KINDS = ["project", "page", "file", "schedule"] as const;
+
+/** Split `file:notes/a` into the kind being narrowed to and the term. */
+export function splitQuery(query: string): { kind?: string; term: string } {
+  const colon = query.indexOf(":");
+  if (colon < 0) return { term: query };
+  const kind = query.slice(0, colon);
+  if (!(MENTION_KINDS as readonly string[]).includes(kind)) return { term: query };
+  return { kind, term: query.slice(colon + 1) };
+}
+
 export function readTrigger(text: string, caret: number): Trigger | null {
   const before = text.slice(0, caret);
-  const match = /(^|\s)([@/])([^\s@/]*)$/.exec(before);
+  // The query keeps colons and slashes, so a half-typed reference is still a
+  // trigger: backspacing into @file:notes/a leaves a live search rather than
+  // a dead string, and typing a kind narrows to it.
+  const match = /(^|\s)([@/])([^\s@]*)$/.exec(before);
   if (!match) return null;
   const char = match[2] as string;
   const query = match[3] ?? "";
@@ -53,7 +72,7 @@ export function applySuggestion(
 ): { text: string; caret: number } {
   const head = text.slice(0, trigger.at);
   const tail = text.slice(trigger.at + 1 + trigger.query.length);
-  const inserted = `${suggestion.insert} `;
+  const inserted = suggestion.partial ? suggestion.insert : `${suggestion.insert} `;
   return { text: head + inserted + tail, caret: head.length + inserted.length };
 }
 
@@ -71,11 +90,13 @@ export function useSuggestions(trigger: Trigger | null): Suggestion[] {
   const query = trigger?.query ?? "";
   const char = trigger?.char ?? "";
 
+  const split = splitQuery(query);
+
   useEffect(() => {
     if (char !== "@") return;
     let cancelled = false;
     void api
-      .mentions(query)
+      .mentions(split.term, split.kind)
       .then((r) => {
         if (cancelled) return;
         setMentions(
@@ -101,7 +122,7 @@ export function useSuggestions(trigger: Trigger | null): Suggestion[] {
     return () => {
       cancelled = true;
     };
-  }, [char, query]);
+  }, [char, split.kind, split.term]);
 
   // Commands come back with the mentions, so the list is there before the
   // first slash is typed and the menu does not flash empty.
@@ -128,8 +149,22 @@ export function useSuggestions(trigger: Trigger | null): Suggestion[] {
       const q = trigger.query.toLowerCase();
       return commands.filter((c) => c.label.toLowerCase().includes(q));
     }
-    return mentions;
-  }, [trigger, mentions, commands]);
+    // Before a kind is chosen, offer the kinds themselves: typing @fi should
+    // get you to files rather than only matching things called "fi".
+    const kinds: Suggestion[] =
+      split.kind === undefined
+        ? MENTION_KINDS.filter((k) => k.startsWith(split.term.toLowerCase())).map(
+            (k) => ({
+              insert: `@${k}:`,
+              label: `${k}:`,
+              kind: k,
+              hint: `only ${k}s`,
+              partial: true,
+            }),
+          )
+        : [];
+    return [...kinds, ...mentions];
+  }, [trigger, mentions, commands, split.kind, split.term]);
 }
 
 export function AutocompleteMenu({

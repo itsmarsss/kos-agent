@@ -114,3 +114,41 @@ describe("findMentions", () => {
     expect(walkFiles(ws)).toContain("src/main.py");
   });
 });
+
+describe("narrowing to one kind", () => {
+  let root: string;
+  let ws: Workspace;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-kind-"));
+    ws = Workspace.open(root);
+    writeFileSync(join(root, "budget.md"), "x");
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const sources = () => ({
+    projects: [{ slug: "budget_tracker", name: "Budget Tracker", type: "budget" }],
+    pages: [{ id: "budget-dash", title: "Budget", projectSlug: "budget_tracker" }],
+    crons: [{ name: "budget-nightly", schedule: "0 3 * * *" }],
+    workspace: ws,
+  });
+
+  it("returns only the kind asked for", () => {
+    const hits = findMentions(sources(), "budget", 12, "file");
+    expect(hits.every((h) => h.kind === "file")).toBe(true);
+    expect(hits.map((h) => h.id)).toContain("budget.md");
+  });
+
+  it("returns every kind when none is asked for", () => {
+    const kinds = new Set(findMentions(sources(), "budget").map((h) => h.kind));
+    expect(kinds.size).toBeGreaterThan(1);
+  });
+
+  it("returns nothing for a kind with no matches", () => {
+    expect(findMentions(sources(), "nothingmatches", 12, "page")).toEqual([]);
+  });
+});

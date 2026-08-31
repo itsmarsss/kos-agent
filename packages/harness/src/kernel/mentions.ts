@@ -100,6 +100,8 @@ export function findMentions(
   sources: MentionSources,
   query: string,
   limit = 12,
+  /** Narrow to one kind, as when the owner has typed `@file:`. */
+  kind?: MentionKind,
 ): Mention[] {
   const q = query.trim().toLowerCase();
   const all: Mention[] = [
@@ -129,6 +131,7 @@ export function findMentions(
   ];
 
   return all
+    .filter((m) => kind === undefined || m.kind === kind)
     .map((m) => ({ m, s: Math.max(score(m.label, q), score(m.id, q)) }))
     .filter((x) => x.s > 0)
     .sort((a, b) => b.s - a.s || a.m.label.length - b.m.label.length)

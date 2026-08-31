@@ -11,7 +11,7 @@ import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
 import { orchestratorId } from "./kernel.js";
 import { parseAttachments } from "./attachments.js";
-import { findMentions } from "./mentions.js";
+import { findMentions, type MentionKind } from "./mentions.js";
 import { CHAT_COMMANDS } from "./chatcommands.js";
 import {
   EFFORTS,
@@ -488,7 +488,10 @@ export async function handleApiRequest(
   }
 
   if (method === "GET" && path === "/api/mentions") {
-    const q = queryParams(req.url).get("q") ?? "";
+    const params = queryParams(req.url);
+    const q = params.get("q") ?? "";
+    const kind = params.get("kind");
+    const kinds = ["project", "page", "file", "schedule"];
     return ok({
       mentions: findMentions(
         {
@@ -498,6 +501,8 @@ export async function handleApiRequest(
           workspace: kernel.workspace,
         },
         q,
+        12,
+        kind && kinds.includes(kind) ? (kind as MentionKind) : undefined,
       ),
       commands: CHAT_COMMANDS,
     });
