@@ -475,6 +475,7 @@ export class Kernel {
         const scopeTags = this.accumulateScope(sessionId, inferred);
         const tools = this.guardedTools({
           userId,
+          conversationId: sessionId,
           ...(scopeTags.length ? { scopeTags } : {}),
           // null is unrestricted; an array is the exact scope, empty included.
           ...(conversation?.toolAllow !== null &&
@@ -528,11 +529,13 @@ export class Kernel {
           // Persist the loop's own message list so tool calls and their results
           // survive into the next turn, not just the final text.
           this.sessions.record(sessionId, result.messages);
-          // Ordering and the auto-title follow real owner turns only; a resume
-          // prompt is harness plumbing and must not retitle a conversation.
-          if (opts.origin !== "system") {
-            this.conversations.touch(sessionId, text);
-          }
+          // The conversation moved either way, and a reader watching it needs
+          // to see that. Only the auto-title is withheld from a resume prompt,
+          // which is harness plumbing and must not rename anything.
+          this.conversations.touch(
+            sessionId,
+            ...(opts.origin === "system" ? [] : [text]),
+          );
         }
 
         // Memory write path (salience) + episodic note for the exchange. Only
@@ -609,7 +612,11 @@ export class Kernel {
     });
 
     const userId = decidedBy ?? this.profile.ownerId;
-    const sessionId = primarySessionId(this.profile.ownerId);
+    // Resume the conversation that asked. Resuming the primary one left the
+    // waiting agent still waiting, and put the result in front of the wrong
+    // reader.
+    const sessionId =
+      action.conversationId ?? primarySessionId(this.profile.ownerId);
     const outcome = result.isError ? "FAILED" : "SUCCEEDED";
     const resumePrompt = [
       `System: the owner approved pending action #${id}.`,
@@ -651,7 +658,8 @@ export class Kernel {
     if (!denied) {
       return { ok: false, message: `no pending action #${id}` };
     }
-    const sessionId = primarySessionId(this.profile.ownerId);
+    const sessionId =
+      denied.conversationId ?? primarySessionId(this.profile.ownerId);
     let reply: string | undefined;
     try {
       const cont = await this.handleMessage(
@@ -882,6 +890,8 @@ export class Kernel {
   private guardedTools(opts: {
     scopeTags?: string[];
     userId?: string;
+    /** The conversation this turn belongs to, for approval routing. */
+    conversationId?: string;
     /** Hard allow-list from the conversation, when it is a scoped agent. */
     allow?: string[];
     /** Restricted tools granted for this turn. */
@@ -894,6 +904,7 @@ export class Kernel {
       approvals: this.approvals,
       userId: opts.userId ?? this.profile.ownerId,
       toolLimit: 48,
+      ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
       ...(opts.scopeTags ? { scopeTags: opts.scopeTags } : {}),
       ...(opts.allow !== undefined ? { allow: opts.allow } : {}),
       ...(opts.grant?.length ? { grant: opts.grant } : {}),

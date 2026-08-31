@@ -1787,6 +1787,19 @@ textarea {
 .bubble--kos { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--line); }
 .is-thinking { color: var(--faint); font-style: italic; }
 
+/* An approval resume is plumbing, not something the owner said. It stays in
+   the thread because the continuation would otherwise come from nowhere. */
+.bubble--system {
+  align-self: center;
+  max-width: 100%;
+  background: none;
+  border: 0;
+  padding: 0.15rem 0;
+  color: var(--faint);
+  font-size: 0.8125rem;
+  font-family: var(--mono);
+}
+
 .sheet-composer { border-top: 1px solid var(--line); padding: 0.75rem; }
 .sheet-composer textarea {
   width: 100%;
@@ -1935,7 +1948,11 @@ textarea {
 .chats-view {
   display: flex;
   flex-direction: column;
-  min-height: 60vh;
+  /* A grid item defaults to min-width:auto, so one wide tool result stretched
+     this column past the viewport and put a horizontal scrollbar on the page. */
+  min-width: 0;
+  height: calc(100vh - 11rem);
+  min-height: 32rem;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
@@ -1968,9 +1985,17 @@ textarea {
   gap: 0.6rem;
   padding: 1rem;
   overflow-y: auto;
-  max-height: 55vh;
+  /* The thread owns the scrolling; the page underneath should not move. */
+  min-height: 0;
 }
 .chats-composer { border-top: 1px solid var(--line); padding: 0.75rem; }
+/* Full width is not a readable measure. Capped with padding rather than a cap
+   on the children, so a right-aligned bubble stays right-aligned. */
+.chats-thread,
+.chats-composer {
+  padding-inline: max(1rem, calc((100% - 56rem) / 2));
+}
+
 .chats-composer textarea {
   width: 100%;
   resize: vertical;
@@ -2025,6 +2050,7 @@ textarea {
 .toolcall-name { font-family: var(--mono); color: var(--accent); flex-shrink: 0; }
 .toolcall-summary {
   flex: 1;
+  min-width: 0;
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;

@@ -78,8 +78,17 @@ export function App(): React.ReactElement {
     window.setTimeout(() => setToast(null), 3200);
   };
 
+  /**
+   * One poll feeds the whole dashboard. Settled rather than all: under
+   * Promise.all a single failing endpoint rejected the batch and froze every
+   * panel, so one slow query could leave a decided approval on screen for as
+   * long as it kept failing. Each result is applied on its own.
+   */
   const refresh = useCallback(async () => {
-    const [s, a, p, c, f, pg, act, mem, r, convos] = await Promise.all([
+    const apply = <T,>(r: PromiseSettledResult<T>, set: (v: T) => void): void => {
+      if (r.status === "fulfilled") set(r.value);
+    };
+    const [s, a, p, c, f, pg, act, mem, r, convos] = await Promise.allSettled([
       api.status(),
       api.approvals(),
       api.projects(),
@@ -91,26 +100,37 @@ export function App(): React.ReactElement {
       api.runs(200, false),
       api.conversations(),
     ]);
-    setStatus(s);
-    setApprovals(a);
-    setProjects(p);
-    setCrons(c);
-    setFailed(f);
-    setPages(pg);
-    setActivity(act.tools);
-    setFacts(mem.facts ?? []);
-    setFactTags(mem.tags ?? []);
-    setRuns(r);
-    setConversations(convos);
+    apply(s, setStatus);
+    apply(a, setApprovals);
+    apply(p, setProjects);
+    apply(c, setCrons);
+    apply(f, setFailed);
+    apply(pg, setPages);
+    apply(act, (v) => setActivity(v.tools));
+    apply(mem, (v) => {
+      setFacts(v.facts ?? []);
+      setFactTags(v.tags ?? []);
+    });
+    apply(r, setRuns);
+    apply(convos, setConversations);
     // The sheet's transcript is the orchestrator's own thread, not whichever
     // chat happens to be newest.
-    setActiveChat(s.orchestratorId ?? null);
+    if (s.status === "fulfilled") setActiveChat(s.value.orchestratorId ?? null);
   }, []);
 
   useEffect(() => {
     void refresh();
     const t = setInterval(() => void refresh(), 5000);
-    return () => clearInterval(t);
+    // A hidden tab has its timers throttled to about once a minute, so coming
+    // back to one shows a minute-old dashboard until the next tick.
+    const onVisible = (): void => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [refresh]);
 
   // Chat is summoned, not resident. Cmd-K is the one shortcut worth having.
@@ -261,9 +281,14 @@ export function App(): React.ReactElement {
    * first conversation, which is selected automatically after the initial poll.
    */
   const loadedChat = useRef<string | null>(null);
+  // Reloaded again whenever the conversation has moved on the server, so an
+  // approval resuming the agent shows its continuation without a reopen.
+  const chatStamp = conversations.find((c) => c.id === activeChat)?.updatedAt;
   useEffect(() => {
-    if (!activeChat || loadedChat.current === activeChat) return;
-    loadedChat.current = activeChat;
+    if (!activeChat) return;
+    const key = `${activeChat}:${chatStamp ?? 0}`;
+    if (sending || loadedChat.current === key) return;
+    loadedChat.current = key;
     let cancelled = false;
     void api
       .conversation(activeChat)
@@ -276,7 +301,7 @@ export function App(): React.ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [activeChat]);
+  }, [activeChat, chatStamp, sending]);
 
 
 
@@ -750,6 +775,20 @@ export function App(): React.ReactElement {
                 <div className="approval-meta">
                   <code>{a.tool}</code>
                   {a.reason ? <span> · {a.reason}</span> : null}
+                  {/* Deciding here and deciding in the thread are the same act,
+                      so say which thread is waiting on it. */}
+                  {a.conversationId && (
+                    <>
+                      {" · "}
+                      <a
+                        className="link"
+                        href={hrefFor({ name: "chats", id: a.conversationId })}
+                      >
+                        {conversations.find((c) => c.id === a.conversationId)
+                          ?.title ?? "the chat"}
+                      </a>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="approval-actions">

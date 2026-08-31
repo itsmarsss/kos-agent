@@ -88,7 +88,9 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
         visible().map((c) => ({
           id: c.id,
           title: c.title,
-          updatedAt: c.updatedAt,
+          // ISO, not epoch: handed a bare number the model reads it back to
+          // the owner as a number.
+          lastActive: new Date(c.updatedAt).toISOString(),
           brief: c.brief,
         })),
       ),
