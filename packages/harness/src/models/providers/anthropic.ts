@@ -37,6 +37,12 @@ function toAnthropicContent(blocks: ContentBlock[]): AnthropicBlockParam[] {
           ...(block.isError ? { is_error: true } : {}),
         });
         break;
+      case "file":
+        out.push({
+          type: "text",
+          text: `Attached file ${block.name}:\n\n${block.text}`,
+        });
+        break;
       case "reasoning":
         // For the reader only. Anthropic owns its own thinking blocks, and a
         // summary written by another provider is not one of them.

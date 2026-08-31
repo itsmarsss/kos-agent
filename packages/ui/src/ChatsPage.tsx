@@ -11,6 +11,7 @@ import { AttachButton, useAttachments, useDropZone } from "./Attachments.js";
 import { AttachmentStrip } from "./AttachmentStrip.js";
 import { ModelPicker } from "./ModelPicker.js";
 import { Thinking } from "./Thinking.js";
+import { MessageActions, MessageEditor } from "./MessageActions.js";
 import { useProgress } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
 import { ToolCall } from "./ToolCall.js";
@@ -55,7 +56,6 @@ export function ChatsPage({
 }: ChatsPageProps): ReactElement {
   const [query, setQuery] = useState("");
   const [events, setEvents] = useState<ChatEvent[]>([]);
-  const [showTools, setShowTools] = useState(true);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -63,6 +63,18 @@ export function ChatsPage({
   const progress = useProgress();
   const [creating, setCreating] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archived, setArchived] = useState<Conversation[]>([]);
+
+  // Fetched only when asked for: an archived chat is something you go looking
+  // for, and there was no way to reach one at all.
+  useEffect(() => {
+    if (!showArchived) return;
+    void api
+      .conversations(true)
+      .then((all) => setArchived(all.filter((c) => c.archived)))
+      .catch(() => setArchived([]));
+  }, [showArchived, conversations]);
   const drop = useDropZone((l) => void attachments.add(l));
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useAutoGrow(inputRef, draft);
@@ -70,9 +82,7 @@ export function ChatsPage({
   const boxRef = useRef<HTMLDivElement>(null);
 
   const active = conversations.find((c) => c.id === activeId);
-  const visible = showTools ? events : events.filter((e) => e.kind !== "tool");
-  const toolCount = events.filter((e) => e.kind === "tool").length;
-  const msgCount = events.length - toolCount;
+  const visible = events;
 
   /**
    * Reload on the conversation changing, and again whenever it has moved on
@@ -133,18 +143,93 @@ export function ChatsPage({
     }
   }
 
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [rewinding, setRewinding] = useState(false);
+
+  const rewind = (
+    index: number,
+    opts: { text?: string; forkTitle?: string } = {},
+  ): void => {
+    if (!activeId) return;
+    setRewinding(true);
+    setEditingIndex(null);
+    void api
+      .rewind(activeId, index, opts)
+      .then((r) => {
+        onChanged();
+        if (r.conversationId !== activeId) onOpen(r.conversationId);
+        else void api.conversation(activeId).then(({ events: got }) => setEvents(got));
+      })
+      .catch((err: unknown) =>
+        setEvents((e) => [
+          ...e,
+          {
+            kind: "message",
+            role: "kos",
+            text: err instanceof Error ? err.message : String(err),
+          },
+        ]),
+      )
+      .finally(() => setRewinding(false));
+  };
+
+  const renderEvent = (e: ChatEvent, i: number, turn: number): ReactElement => {
+    if (e.kind === "tool") {
+      return (
+        <ToolCall
+          key={i}
+          event={e}
+          awaitingApproval={
+            e.pendingId !== undefined && pendingApprovals.has(e.pendingId)
+          }
+          onDecide={onDecide}
+        />
+      );
+    }
+    if (e.kind === "reasoning") return <Thinking key={i} text={e.text} />;
+
+    if (editingIndex === turn && turn >= 0) {
+      return (
+        <MessageEditor
+          key={i}
+          initial={e.text}
+          onCancel={() => setEditingIndex(null)}
+          onSubmit={(text) => rewind(turn, { text })}
+        />
+      );
+    }
+
+    return (
+      <div key={i} className={`turn turn--${e.role}`}>
+        {e.text && (
+          <div className={`bubble bubble--${e.role}`}>
+            <Markdown text={e.text} />
+          </div>
+        )}
+        {/* Outside the bubble, under it: an attachment is a thing that came
+            with the message, not part of the sentence. */}
+        {e.attachments && e.attachments.length > 0 && (
+          <AttachmentStrip items={e.attachments} />
+        )}
+        {e.text && e.role !== "system" && (
+          <MessageActions
+            text={e.text}
+            busy={rewinding}
+            {...(turn >= 0
+              ? {
+                  onEdit: () => setEditingIndex(turn),
+                  onRetry: () => rewind(turn),
+                  onFork: () => rewind(turn, { forkTitle: "" }),
+                }
+              : {})}
+          />
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className={`chats ${collapsed ? "is-collapsed" : ""}`}>
-      {/* The list is worth a third of the window while you are choosing, and
-          nothing once you have. */}
-      <button
-        type="button"
-        className="chats-toggle"
-        aria-label={collapsed ? "Show chats" : "Hide chats"}
-        onClick={() => setCollapsed((v) => !v)}
-      >
-        {collapsed ? "›" : "‹"}
-      </button>
       <aside className="chats-list">
         <div className="chats-list-head">
           {/* There was no way to start a chat at all: every conversation had
@@ -172,6 +257,13 @@ export function ChatsPage({
             placeholder="Search chats…"
             onChange={(e) => setQuery(e.target.value)}
           />
+          <button
+            type="button"
+            className={`chats-archived ${showArchived ? "is-on" : ""}`}
+            onClick={() => setShowArchived((v) => !v)}
+          >
+            {showArchived ? "← Back to chats" : "Archived"}
+          </button>
         </div>
         {orchestrator && (
           <div className="chats-pinned">
@@ -195,7 +287,7 @@ export function ChatsPage({
         )}
 
         <ul>
-          {filtered.map((c) => (
+          {(showArchived ? archived : filtered).map((c) => (
             <li key={c.id}>
               <a
                 className={`chats-item ${c.id === activeId ? "is-active" : ""}`}
@@ -248,37 +340,33 @@ export function ChatsPage({
           <>
             <header className="chats-view-head">
               <div className="chats-view-title">
-                <h1>{active.title}</h1>
+                <h1>
+                  {/* In the header rather than floating: positioned against
+                      the grid it sat off the left edge of the window and was
+                      not the top element at its own centre. */}
+                  <button
+                    type="button"
+                    className="chats-toggle"
+                    aria-label={collapsed ? "Show chats" : "Hide chats"}
+                    onClick={() => setCollapsed((v) => !v)}
+                  >
+                    {collapsed ? "›" : "‹"}
+                  </button>
+                  {active.title}
+                </h1>
                 {active.brief && <p className="chats-brief">{active.brief}</p>}
-                <div className="chats-meta">
-                  <span>{toolCount} tool call{toolCount === 1 ? "" : "s"}</span>
-                  <span>·</span>
-                  <span>{msgCount} message{msgCount === 1 ? "" : "s"}</span>
-                  <span>·</span>
-                  <span>
-                    {active.toolAllow === null
-                      ? "full toolkit"
-                      : active.toolAllow.length === 0
-                        ? "no tools"
-                        : `scoped to ${active.toolAllow.join(", ")}`}
-                  </span>
-                  {active.channel && (
-                    <>
-                      <span>·</span>
-                      <span>started in {active.channel}</span>
-                    </>
-                  )}
-                </div>
+                {/* Counts are not something anyone came here to read. Only
+                    the tool scope is said, and only when it is not the
+                    default, because that is a capability the chat lacks. */}
+                {active.toolAllow !== null && (
+                  <div className="chats-meta">
+                    {active.toolAllow.length === 0
+                      ? "no tools"
+                      : `scoped to ${active.toolAllow.join(", ")}`}
+                  </div>
+                )}
               </div>
               <div className="chats-view-actions">
-                <label className="toggle" title="Show tool calls in the transcript">
-                  <input
-                    type="checkbox"
-                    checked={showTools}
-                    onChange={(e) => setShowTools(e.target.checked)}
-                  />
-                  Tool calls
-                </label>
                 <button
                   type="button"
                   className="btn btn--ghost"
@@ -315,34 +403,15 @@ export function ChatsPage({
 
             <div className="chats-thread" ref={boxRef}>
               {visible.length === 0 && <p className="hint">Nothing said yet.</p>}
-              {visible.map((e, i) =>
-                e.kind === "tool" ? (
-                  <ToolCall
-                    key={i}
-                    event={e}
-                    awaitingApproval={
-                      e.pendingId !== undefined && pendingApprovals.has(e.pendingId)
-                    }
-                    onDecide={onDecide}
-                  />
-                ) : e.kind === "reasoning" ? (
-                  <Thinking key={i} text={e.text} />
-                ) : (
-                  <div key={i} className={`bubble bubble--${e.role}`}>
-                    {e.text && <Markdown text={e.text} />}
-                    {/* Under the sentence, at a fixed size: a full-width image
-                        pushed the message it belonged to off the screen. */}
-                    {e.images && e.images.length > 0 && (
-                      <AttachmentStrip
-                        items={e.images.map((src, n) => ({
-                          name: `Image ${n + 1}`,
-                          src,
-                        }))}
-                      />
-                    )}
-                  </div>
-                ),
-              )}
+              {(() => {
+                // Owner turns are numbered in order, because rewind addresses
+                // them by position rather than by any id a transcript keeps.
+                let owner = -1;
+                return visible.map((e, i) => {
+                  const turn = e.kind === "message" && e.role === "you" ? ++owner : -1;
+                  return renderEvent(e, i, turn);
+                });
+              })()}
               {activeId && progress[activeId] ? (
                 <LiveTurn live={progress[activeId]!} />
               ) : (

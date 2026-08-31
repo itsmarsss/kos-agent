@@ -398,11 +398,18 @@ export class Kernel {
     // The orchestrator is a real conversation so it remembers what it has set
     // up and why, rather than re-deriving it from scratch every invocation.
     const orchestrator = orchestratorId(profile.ownerId);
-    if (!conversations.get(orchestrator)) {
+    const existing = conversations.get(orchestrator);
+    // Renamed in place: it was called Command, which named the keystroke
+    // rather than the thing, and a workspace that predates the rename should
+    // not keep the old label forever.
+    if (existing && existing.title === "Command") {
+      conversations.rename(orchestrator, "KOS");
+    }
+    if (!existing) {
       conversations.create({
         id: orchestrator,
         userId: profile.ownerId,
-        title: "Command",
+        title: "KOS",
         brief: ORCHESTRATOR_BRIEF,
       });
     }
@@ -1168,6 +1175,84 @@ export class Kernel {
   /** Conversation ids with a turn in flight, for the chat list. */
   busyConversations(): string[] {
     return [...this.working];
+  }
+
+  /**
+   * Drop everything from the owner's Nth message onward, and optionally say it
+   * differently.
+   *
+   * Retry, edit and fork are the same operation seen from three angles: rewind
+   * the transcript to a point and run from there. Fork copies first, so the
+   * original survives; the other two rewrite in place.
+   */
+  async rewind(
+    sessionId: string,
+    userTurnIndex: number,
+    opts: { text?: string; forkTitle?: string } = {},
+  ): Promise<HandleResult & { conversationId: string }> {
+    const source = this.conversations.get(sessionId);
+    if (!source) throw new Error(`no such conversation: ${sessionId}`);
+
+    const history = this.sessions.get(sessionId);
+    // Owner turns are the anchors: a tool result is also a "user" message on
+    // the wire, so only messages carrying text count as something they said.
+    const anchors: number[] = [];
+    history.forEach((m, i) => {
+      if (m.role !== "user") return;
+      if (!m.content.some((b) => b.type === "text" || b.type === "file" || b.type === "image")) {
+        return;
+      }
+      anchors.push(i);
+    });
+    const at = anchors[userTurnIndex];
+    if (at === undefined) throw new Error(`no message #${userTurnIndex} to rewind to`);
+
+    const original = history[at];
+    const said =
+      opts.text ??
+      original?.content
+        .filter((b) => b.type === "text")
+        .map((b) => (b as { text: string }).text)
+        .join("") ??
+      "";
+    if (!said.trim()) throw new Error("nothing to send");
+
+    // Anything the original message carried travels with it, so a retry of a
+    // message with a picture is still about the picture.
+    const carried = (original?.content ?? []).filter(
+      (b) => b.type === "image" || b.type === "file",
+    );
+
+    let target = sessionId;
+    if (opts.forkTitle !== undefined) {
+      const fork = this.conversations.create({
+        userId: source.userId,
+        title: opts.forkTitle || `${source.title} (fork)`,
+        ...(source.brief ? { brief: source.brief } : {}),
+        ...(source.toolAllow !== null ? { toolAllow: source.toolAllow } : {}),
+      });
+      target = fork.id;
+    }
+    this.sessions.set(target, history.slice(0, at));
+
+    const res = await this.handleMessage(said, {
+      sessionId: target,
+      userId: source.userId,
+      ...(carried.length ? { attachments: [] } : {}),
+    });
+    // Re-attach by hand: handleMessage builds its own user message, and the
+    // carried blocks are already decoded rather than base64 payloads.
+    if (carried.length) {
+      const after = this.sessions.get(target);
+      const idx = after.findIndex(
+        (m, i) => i >= at && m.role === "user" && m.content.some((b) => b.type === "text"),
+      );
+      if (idx >= 0) {
+        after[idx] = { role: "user", content: [...after[idx]!.content, ...carried] };
+        this.sessions.set(target, after);
+      }
+    }
+    return { ...res, conversationId: target };
   }
 
   reloadCron(): void {

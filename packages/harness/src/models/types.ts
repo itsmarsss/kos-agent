@@ -45,6 +45,8 @@ export interface ThinkingBlock {
  */
 export interface ImageBlock {
   type: "image";
+  /** The filename it was attached under, so a reader sees what they sent. */
+  name?: string;
   /** Image media type, e.g. "image/png". */
   mediaType: string;
   /** Base64 payload, without the data: prefix. */
@@ -63,8 +65,22 @@ export interface ReasoningBlock {
   text: string;
 }
 
+/**
+ * A text file the owner attached, kept as a file rather than flattened.
+ *
+ * Providers see its contents as text, because that is all a model can read.
+ * The transcript keeps the name and the bytes, so the reader gets a thing they
+ * attached and can open, not an anonymous wall of text in their own message.
+ */
+export interface FileBlock {
+  type: "file";
+  name: string;
+  text: string;
+}
+
 export type ContentBlock =
   | TextBlock
+  | FileBlock
   | ToolUseBlock
   | ToolResultBlock
   | ThinkingBlock

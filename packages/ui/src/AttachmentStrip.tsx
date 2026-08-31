@@ -13,6 +13,8 @@ export interface StripItem {
   name: string;
   /** Ready-to-render source for an image, absent for anything else. */
   src?: string;
+  /** Contents of a text file, so opening one shows the file. */
+  text?: string;
 }
 
 /** More than this in one message is a folder, not an attachment. */
@@ -48,7 +50,9 @@ function Viewer({
         {item.src ? (
           <img className="viewer-image" src={item.src} alt={item.name} />
         ) : (
-          <div className="viewer-file">{item.name}</div>
+          // The point of opening a text file is reading it, not being told
+          // its extension again.
+          <pre className="viewer-text">{item.text ?? "(no preview)"}</pre>
         )}
         <div className="viewer-bar">
           {items.length > 1 && (
