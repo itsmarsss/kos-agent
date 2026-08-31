@@ -167,7 +167,7 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
     {
       name: "chats.create",
       description:
-        "Start a conversation for a piece of work. Give it a title, a brief saying what it is for and how to behave, and an opening message carrying over anything it needs from elsewhere. It gets the full toolkit by default. Returns the id so the owner can be pointed at it.",
+        "Start a conversation for a piece of work and put it to work. Give it a title, a brief saying what it is for and how to behave, and the task to do first, including anything it needs to know from elsewhere. The task is asked as the owner, that conversation runs it immediately, and its answer comes back to you. It gets the full toolkit by default.",
       inputSchema: {
         type: "object",
         properties: {
@@ -182,15 +182,16 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
             description:
               "ONLY set this if the owner explicitly asked to limit the conversation's tools. Omit it otherwise: the default is the full toolkit, and a restriction you guessed at becomes a capability the conversation silently lacks.",
           },
-          opening: {
+          task: {
             type: "string",
-            description: "first message in the new conversation, e.g. carried-over context",
+            description:
+              "what that conversation should do first, phrased as the owner asking for it. Include the carried-over context it needs. Omit only when the owner asked to set something up without starting it.",
           },
         },
         required: ["title", "brief"],
       },
     },
-    (input) => {
+    async (input) => {
       const toolAllow = Array.isArray(input.toolAllow)
         ? (input.toolAllow as unknown[]).filter((x): x is string => typeof x === "string")
         : undefined;
@@ -200,19 +201,26 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
         brief: str(input, "brief"),
         ...(toolAllow?.length ? { toolAllow } : {}),
       });
-      // The opening message is seeded as KOS speaking, so the owner reads it as
-      // a handoff note rather than words put in their own mouth.
-      const opening = typeof input.opening === "string" ? input.opening.trim() : "";
-      if (opening) {
-        sessions.record(created.id, [
-          { role: "assistant", content: [{ type: "text", text: opening }] },
-        ]);
+
+      const task = typeof input.task === "string" ? input.task.trim() : "";
+      if (!task) {
+        return JSON.stringify({
+          id: created.id,
+          title: created.title,
+          started: false,
+          note: "Created but not started. Dispatch a task to it, or tell the owner it is waiting.",
+        });
       }
+
+      // Asked as the owner, then actually run. Seeding a note from KOS instead
+      // left a conversation holding a message nobody had asked anything of, so
+      // it sat there looking created and doing nothing.
+      const res = await deps.dispatch(created.id, task);
       return JSON.stringify({
         id: created.id,
         title: created.title,
-        brief: created.brief,
-        toolAllow: created.toolAllow,
+        started: true,
+        reply: res.reply,
       });
     },
     { floor: "safe" },

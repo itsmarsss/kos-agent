@@ -614,7 +614,7 @@ describe("KOS end-to-end flows", () => {
         title: "App build",
         brief: "Help build the app. Ask before scaffolding.",
         toolAllow: ["files", "search"],
-        opening: "Carried over: stack is Postgres and Next.",
+        task: "Carried over: stack is Postgres and Next. Start on the auth flow.",
       }),
       text("Started it."),
     ]);
@@ -627,10 +627,10 @@ describe("KOS end-to-end flows", () => {
       .find((c) => c.title === "App build");
     expect(made?.brief).toContain("Ask before scaffolding");
     expect(made?.toolAllow).toEqual(["files", "search"]);
-    // The opening lands as a handoff note, not as words put in the owner's mouth.
-    const opening = kernel.sessions.get(made!.id)[0];
-    expect(opening?.role).toBe("assistant");
-    expect(JSON.stringify(opening)).toContain("Postgres and Next");
+    // The task lands as the owner asking, so the agent has something to act on.
+    const first = kernel.sessions.get(made!.id)[0];
+    expect(first?.role).toBe("user");
+    expect(JSON.stringify(first)).toContain("Postgres and Next");
   });
 
   it("does not offer the orchestrator its own thread as a destination", async () => {
@@ -707,6 +707,51 @@ describe("KOS end-to-end flows", () => {
     kernel.conversations.configure(c.id, { toolAllow: null });
     await kernel.handleMessage("go again", { sessionId: c.id });
     expect((model.calls.at(-1)!.request.tools ?? []).length).toBeGreaterThan(20);
+  });
+
+  it("a created conversation is asked as the owner and actually runs", async () => {
+    const model = scripted([
+      toolCall("c1", "chats.create", {
+        title: "Notes",
+        brief: "keep notes",
+        task: "write test3.md",
+      }),
+      text("It wrote test3.md."),
+      text("sub-agent ran"),
+    ]);
+    kernel = await boot(model.inference);
+    await kernel.handleOrchestratorTurn("make me a notes agent that writes a file");
+
+    const made = kernel.conversations.list("owner").find((c) => c.title === "Notes")!;
+    const transcript = kernel.sessions.get(made.id);
+
+    // The task arrives as the owner asking, so the agent has something to act
+    // on. Seeding it as KOS speaking left nothing for it to respond to.
+    expect(transcript[0]?.role).toBe("user");
+    expect(JSON.stringify(transcript[0])).toContain("write test3.md");
+    // And it ran: there is a reply after the task.
+    expect(transcript.length).toBeGreaterThan(1);
+    expect(transcript.some((m) => m.role === "assistant")).toBe(true);
+  });
+
+  it("creating without a task says so rather than pretending it started", async () => {
+    const model = scripted([
+      toolCall("c1", "chats.create", { title: "Later", brief: "for later" }),
+      text("Set it up, not started."),
+    ]);
+    kernel = await boot(model.inference);
+    await kernel.handleOrchestratorTurn("set something up for later");
+
+    const made = kernel.conversations.list("owner").find((c) => c.title === "Later")!;
+    expect(kernel.sessions.get(made.id)).toEqual([]);
+    // Read the tool result itself rather than the escaped wire form.
+    const result = model.calls
+      .at(-1)!
+      .request.messages.flatMap((m) => m.content)
+      .find((b) => b.type === "tool_result");
+    expect(JSON.parse((result as { content: string }).content)).toMatchObject({
+      started: false,
+    });
   });
 
   it("orchestrator dispatches work and reports the result back", async () => {
