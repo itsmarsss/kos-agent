@@ -226,6 +226,9 @@ export class Kernel {
    */
   private readonly working = new Set<string>();
 
+  /** Conversations the owner has asked to stop, cleared when the turn ends. */
+  private readonly stopping = new Set<string>();
+
   /** Turn progress, for readers watching a conversation as it runs. */
   readonly progress = new ProgressBus();
 
@@ -623,6 +626,7 @@ export class Kernel {
           // Watched turns stream. A reader was shown one static word for the
           // whole of a turn, and with a reasoning model most of that time is
           // the model working rather than any tool running.
+          shouldStop: () => this.stopping.has(sessionId),
           onDelta: (delta) =>
             this.progress.emit({
               kind: "delta",
@@ -654,11 +658,13 @@ export class Kernel {
         // It happens when the loop hits its iteration cap, which is exactly
         // when the reader most needs to hear that it got stuck.
         const reply =
-          result.finalText.trim() !== ""
-            ? result.finalText
-            : result.exhausted
-              ? "I got stuck on that and stopped after too many steps without reaching an answer. Tell me what to try instead, or narrow it down."
-              : "I do not have anything to add to that.";
+          result.stopped && result.finalText.trim() === ""
+            ? "Stopped."
+            : result.finalText.trim() !== ""
+              ? result.finalText
+              : result.exhausted
+                ? "I got stuck on that and stopped after too many steps without reaching an answer. Tell me what to try instead, or narrow it down."
+                : "I do not have anything to add to that.";
 
         if (opts.origin !== "system") {
           await this.rememberExchange(userId, text, reply);
@@ -682,6 +688,7 @@ export class Kernel {
         // and the outer one still has work to attribute.
         this.currentConversationId = previousConversation;
         this.working.delete(sessionId);
+        this.stopping.delete(sessionId);
         this.progress.emit({ kind: "turn-end", conversationId: sessionId });
       }
     }
@@ -1172,6 +1179,19 @@ export class Kernel {
       .sort();
   }
 
+  /**
+   * Ask a running turn to stop at its next round trip.
+   *
+   * Between round trips rather than mid-call: a tool that is already running
+   * has to finish or its result is lost, and the model's own reply arrives in
+   * one piece.
+   */
+  stop(sessionId: string): boolean {
+    if (!this.working.has(sessionId)) return false;
+    this.stopping.add(sessionId);
+    return true;
+  }
+
   /** Conversation ids with a turn in flight, for the chat list. */
   busyConversations(): string[] {
     return [...this.working];
@@ -1222,6 +1242,26 @@ export class Kernel {
     const carried = (original?.content ?? []).filter(
       (b) => b.type === "image" || b.type === "file",
     );
+
+    // A fork is a copy, not a rerun: the answer already exists, so producing
+    // it again costs a model call and can come back different, which is not
+    // what "fork this conversation" means.
+    if (opts.forkTitle !== undefined && opts.text === undefined) {
+      const fork = this.conversations.create({
+        userId: source.userId,
+        title: opts.forkTitle || `${source.title} (fork)`,
+        ...(source.brief ? { brief: source.brief } : {}),
+        ...(source.toolAllow !== null ? { toolAllow: source.toolAllow } : {}),
+      });
+      this.sessions.set(fork.id, history);
+      this.conversations.touch(fork.id);
+      return {
+        reply: "",
+        halted: false,
+        sessionId: fork.id,
+        conversationId: fork.id,
+      };
+    }
 
     let target = sessionId;
     if (opts.forkTitle !== undefined) {

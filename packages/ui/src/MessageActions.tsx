@@ -1,5 +1,7 @@
 import { useState, type ReactElement } from "react";
 
+import { CheckIcon, CopyIcon, EditIcon, ForkIcon, RetryIcon } from "./icons.js";
+
 /**
  * What you can do with a message you sent, or one you got back.
  *
@@ -38,27 +40,40 @@ export function MessageActions({
 
   return (
     <div className="acts">
-      <button type="button" className="acts-btn" onClick={copy}>
-        {copied ? "copied" : "copy"}
+      <button type="button" className="acts-btn" aria-label="Copy" onClick={copy}>
+        {copied ? <CheckIcon /> : <CopyIcon />}
       </button>
       {onEdit && (
         <button
           type="button"
           className="acts-btn"
+          aria-label="Edit"
           disabled={busy}
           onClick={() => onEdit(text)}
         >
-          edit
+          <EditIcon />
         </button>
       )}
       {onRetry && (
-        <button type="button" className="acts-btn" disabled={busy} onClick={onRetry}>
-          retry
+        <button
+          type="button"
+          className="acts-btn"
+          aria-label="Retry"
+          disabled={busy}
+          onClick={onRetry}
+        >
+          <RetryIcon />
         </button>
       )}
       {onFork && (
-        <button type="button" className="acts-btn" disabled={busy} onClick={onFork}>
-          fork
+        <button
+          type="button"
+          className="acts-btn"
+          aria-label="Fork"
+          disabled={busy}
+          onClick={onFork}
+        >
+          <ForkIcon />
         </button>
       )}
     </div>

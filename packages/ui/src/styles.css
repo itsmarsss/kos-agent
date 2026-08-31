@@ -1989,6 +1989,158 @@ textarea {
 .chats.is-collapsed { grid-template-columns: 1fr; }
 .chats.is-collapsed .chats-list { display: none; }
 
+/* —— scrollbars ——
+   The platform default is a light grey slab that belongs to a different
+   application. Firefox gets the two-value form; everything else the parts. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 999px;
+  /* Inset by a transparent border so the bar reads as narrower than its
+     hit area, which stays comfortable to grab. */
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--line-strong); background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* —— select —— */
+.sel { position: relative; display: inline-flex; }
+.sel-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-family: var(--mono);
+  padding: 0.2rem 0.4rem;
+  cursor: pointer;
+  max-width: 14rem;
+}
+.sel-button:hover:not(:disabled) { color: var(--text); border-color: var(--line); }
+.sel-button:disabled { opacity: 0.5; cursor: default; }
+.sel-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-caret { color: var(--faint); font-size: 0.7rem; line-height: 1; }
+
+.sel-menu {
+  position: absolute;
+  bottom: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 40;
+  min-width: 12rem;
+  max-height: 17rem;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--elev-2);
+  outline: none;
+}
+.sel-option {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  width: 100%;
+  background: none;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8125rem;
+  text-align: left;
+  padding: 0.3rem 0.45rem;
+  cursor: pointer;
+}
+.sel-option.is-cursor { background: var(--panel-2); }
+.sel-option.is-on { color: var(--accent); }
+.sel-option-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+.sel-option-hint { color: var(--faint); font-size: 0.75rem; }
+
+/* —— chat row actions —— */
+.chats-row { position: relative; }
+.chats-more {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.3rem;
+  z-index: 2;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+li:hover .chats-more, .chats-more:focus-visible { opacity: 1; }
+.chats-more:hover { color: var(--text); background: var(--panel-2); }
+.chats-menu {
+  position: absolute;
+  top: 1.9rem;
+  right: 0.3rem;
+  z-index: 30;
+  min-width: 9rem;
+  display: flex;
+  flex-direction: column;
+  padding: 0.25rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--elev-2);
+}
+.chats-menu button {
+  background: none;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8125rem;
+  text-align: left;
+  padding: 0.3rem 0.45rem;
+  cursor: pointer;
+}
+.chats-menu button:hover { background: var(--panel-2); }
+.chats-menu button.is-danger { color: var(--danger); }
+
+/* —— composer row —— */
+.composer-spacer { flex: 1; }
+.btn--stop {
+  background: var(--danger-dim);
+  color: var(--danger);
+  border: 1px solid rgba(240, 113, 120, 0.4);
+}
+.btn--stop:hover { background: rgba(240, 113, 120, 0.2); }
+
+/* —— a tool call while it runs —— */
+.livetool {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  align-self: stretch;
+  font-size: 0.8125rem;
+  padding: 0.3rem 0.1rem;
+  color: var(--muted);
+}
+.livetool-name { font-family: var(--mono); color: var(--accent); flex-shrink: 0; }
+.livetool-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.livetool-state { color: var(--faint); flex-shrink: 0; }
+.livetool.is-error .livetool-state { color: var(--danger); }
+
 /* Sits in the title, so it is always on screen and always hittable. */
 .chats-toggle {
   width: 1.5rem;
@@ -2434,7 +2586,18 @@ textarea {
   border-radius: var(--r-md);
 }
 /* Compact by default: these are three short fields, not a form. */
-.settings .kos-field { gap: 0.15rem; }
+.settings .kos-field { gap: 0.15rem; display: flex; flex-direction: column; align-items: flex-start; }
+/* In a form the control should fill its field, and its menu drops down. */
+.settings-select { width: 100%; }
+.settings-select .sel-button {
+  width: 100%;
+  justify-content: space-between;
+  border-color: var(--line);
+  background: var(--bg);
+  padding: 0.35rem 0.5rem;
+  max-width: none;
+}
+.settings-select .sel-menu { bottom: auto; top: calc(100% + 0.3rem); right: 0; }
 .settings .kos-input {
   padding: 0.35rem 0.5rem;
   font-size: 0.875rem;

@@ -312,6 +312,8 @@ export const api = {
   ) => post<Conversation>("/api/conversations/configure", { id, ...config }),
   newConversation: (title?: string) =>
     post<Conversation>("/api/conversations/new", title ? { title } : {}),
+  stopConversation: (sessionId: string) =>
+    post<{ stopping: boolean }>("/api/conversations/stop", { sessionId }),
   /** Retry, edit and fork: rewind to an owner message and run from there. */
   rewind: (
     sessionId: string,
