@@ -78,3 +78,37 @@ describe("LiveTurn states", () => {
     );
   });
 });
+
+describe("joining a turn already in progress", () => {
+  afterEach(cleanup);
+
+  it("says it is still working rather than claiming to think", () => {
+    render(<LiveTurn live={{ ...base, resumed: true }} />);
+    expect(screen.getByText("Still working")).toBeTruthy();
+  });
+
+  it("withholds a reply it only has the middle of", () => {
+    // After a reload the earlier deltas are gone, so showing what arrives next
+    // would start the answer mid-sentence.
+    const { container } = render(
+      <LiveTurn live={{ ...base, resumed: true, text: "sentence" }} />,
+    );
+    expect(container.textContent).not.toContain("sentence");
+    expect(screen.getByText("Still working")).toBeTruthy();
+  });
+
+  it("still shows tool calls it did see", () => {
+    const { container } = render(
+      <LiveTurn
+        live={{
+          ...base,
+          resumed: true,
+          steps: [
+            { kind: "tool", tool: "sql", summary: "SELECT 1", done: true, isError: false },
+          ],
+        }}
+      />,
+    );
+    expect(container.querySelector(".livetool")?.textContent).toContain("SELECT 1");
+  });
+});

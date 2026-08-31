@@ -9,6 +9,7 @@ import type {
   Project,
   RunRecord,
 } from "./api.js";
+import { Select } from "./Select.js";
 
 export type InspectTarget =
   | { kind: "tool"; data: AuditRecord }
@@ -196,7 +197,9 @@ export function Inspector(props: {
                 { value: "fact", label: "fact" },
                 { value: "preference", label: "preference" },
               ]}
-              onChange={(v) => setEditKind(v === "preference" ? "preference" : "fact")}
+              onChange={(v: string) =>
+                setEditKind(v === "preference" ? "preference" : "fact")
+              }
             />
           </div>
           <div className="insp-field">

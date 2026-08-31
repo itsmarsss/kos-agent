@@ -624,6 +624,17 @@ export class Kernel {
         if (useSession) {
           const prior = this.sessions.historyForPrompt(sessionId);
           input = [...prior, { role: "user", content: userContent }];
+          // Written before the model is asked anything.
+          //
+          // Recorded only at the end, what the owner said existed nowhere but
+          // the browser for the length of the turn: reloading the page lost
+          // it, and so would the process dying mid-answer. The reply is
+          // appended when it arrives.
+          this.sessions.record(sessionId, input);
+          this.conversations.touch(
+            sessionId,
+            ...(opts.origin === "system" ? [] : [text]),
+          );
         } else if (userContent.length > 1) {
           input = [{ role: "user", content: userContent }];
         }

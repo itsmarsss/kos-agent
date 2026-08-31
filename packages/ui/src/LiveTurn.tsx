@@ -46,7 +46,7 @@ export function LiveTurn({ live }: { live: Live }): ReactElement {
    * a "thinking" box above streaming prose says something untrue about what is
    * happening. While a tool runs it is the tool that matters, not the wait.
    */
-  const answering = live.text !== "";
+  const answering = live.text !== "" && !live.resumed;
 
   return (
     <>
@@ -97,7 +97,11 @@ export function LiveTurn({ live }: { live: Live }): ReactElement {
               <i />
             </span>
             <span className="live-what">
-              {running ? `Running ${running.summary}` : "Thinking"}
+              {running
+                ? `Running ${running.summary}`
+                : live.resumed
+                  ? "Still working"
+                  : "Thinking"}
             </span>
             <Elapsed since={live.since} />
           </div>

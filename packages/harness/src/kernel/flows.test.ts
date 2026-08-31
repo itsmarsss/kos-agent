@@ -1243,3 +1243,74 @@ describe("mentions in a message", () => {
     expect(model.systems.at(-1)!).not.toContain("Referenced by the owner");
   });
 });
+
+describe("a message survives the turn it started", () => {
+  let root: string;
+  let kernel: Kernel;
+
+  afterEach(() => {
+    kernel?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("is in the transcript before the model has answered", async () => {
+    // It used to exist nowhere but the browser until the turn finished, so
+    // reloading the page mid-answer lost what had been asked.
+    let midTurn: string | undefined;
+    root = mkdtempSync(join(tmpdir(), "kos-persist-"));
+    const inference: Inference = {
+      async generate() {
+        midTurn = JSON.stringify(kernel.sessions.get("chat:owner"));
+        return {
+          content: [{ type: "text", text: "answered" }],
+          stopReason: "end_turn",
+          usage: { inputTokens: 0, outputTokens: 0 },
+          model: "stub",
+        };
+      },
+    };
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference,
+    });
+
+    await kernel.handleMessage("do not lose this");
+
+    expect(midTurn).toContain("do not lose this");
+    expect(midTurn).not.toContain("answered");
+  });
+
+  it("keeps what was asked even when the turn throws", async () => {
+    root = mkdtempSync(join(tmpdir(), "kos-persist-fail-"));
+    const inference: Inference = {
+      async generate() {
+        throw new Error("provider exploded");
+      },
+    };
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference,
+    });
+
+    await expect(kernel.handleMessage("still mine")).rejects.toThrow();
+    expect(JSON.stringify(kernel.sessions.get("chat:owner"))).toContain(
+      "still mine",
+    );
+  });
+
+  it("has the whole exchange once the turn lands", async () => {
+    const model = scripted([text("answered")]);
+    root = mkdtempSync(join(tmpdir(), "kos-persist-done-"));
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: model.inference,
+    });
+    await kernel.handleMessage("ask");
+    const wire = JSON.stringify(kernel.sessions.get("chat:owner"));
+    expect(wire).toContain("ask");
+    expect(wire).toContain("answered");
+  });
+});

@@ -11,8 +11,8 @@
     "kos": "./packages/cli/dist/main.js"
   },
   "scripts": {
-    "build": "tsc -b && pnpm -C packages/ui build",
-    "typecheck": "tsc -b",
+    "build": "tsc -b && tsc -p packages/ui/tsconfig.json && pnpm -C packages/ui build",
+    "typecheck": "tsc -b && tsc -p packages/ui/tsconfig.json",
     "test": "vitest run --passWithNoTests",
     "lint": "eslint .",
     "kos": "node packages/cli/dist/main.js",
