@@ -8,6 +8,7 @@ import {
 
 import { api, type ChatEvent, type Conversation } from "./api.js";
 import { AttachmentBar, useAttachments } from "./Attachments.js";
+import { useProgress } from "./progress.js";
 import { ToolCall } from "./ToolCall.js";
 import { ChatConfig } from "./ChatConfig.js";
 import { Markdown } from "./Markdown.js";
@@ -55,6 +56,7 @@ export function ChatsPage({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const attachments = useAttachments();
+  const progress = useProgress();
   const loaded = useRef<string | undefined>(undefined);
   const boxRef = useRef<HTMLDivElement>(null);
 
@@ -170,7 +172,11 @@ export function ChatsPage({
                   {/* A thread mid-turn or sitting on an approval looked
                       exactly like an idle one, and the only way to find out
                       was to open it. */}
-                  {c.activity && c.activity !== "idle" ? (
+                  {progress[c.id] ? (
+                    <span className="chats-flag chats-flag--working">
+                      {progress[c.id]}
+                    </span>
+                  ) : c.activity && c.activity !== "idle" ? (
                     <span className={`chats-flag chats-flag--${c.activity}`}>
                       {c.activity === "working" ? "working" : "needs you"}
                     </span>
@@ -290,7 +296,11 @@ export function ChatsPage({
                   </div>
                 ),
               )}
-              {sending && <div className="bubble bubble--kos is-thinking">thinking…</div>}
+              {(sending || (activeId && progress[activeId])) && (
+                <div className="bubble bubble--kos is-thinking">
+                  {(activeId && progress[activeId]) ?? "thinking"}…
+                </div>
+              )}
             </div>
 
             <div className="chats-composer">

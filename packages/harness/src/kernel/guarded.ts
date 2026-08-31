@@ -41,6 +41,8 @@ export interface GuardedToolsDeps {
    * outside the database, and it has to hear about it.
    */
   onExecuted?: (tool: string, result: ToolExecution) => void;
+  /** Called as a call begins, so a reader can see the step it is on. */
+  onStarted?: (tool: string, input: Record<string, unknown>) => void;
 }
 
 /**
@@ -155,6 +157,8 @@ export class GuardedTools implements ToolBox {
 
     const repeated = this.repeatGuard(name, input);
     if (repeated) return { content: repeated, isError: true };
+
+    this.deps.onStarted?.(name, input);
 
     // Enforced here too, not only in defs(): a model can name any tool it
     // likes, and an offered-but-not-executable list would be a fiction.
