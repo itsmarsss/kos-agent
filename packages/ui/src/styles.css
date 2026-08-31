@@ -2254,3 +2254,15 @@ textarea {
 }
 .files-md { padding: 0.85rem; max-height: 70vh; overflow: auto; }
 .files-file .hint { display: block; padding: 0.85rem; }
+
+
+/*
+ * A scrolling flex column shrinks its children when the content overflows.
+ * Text resists at its min-content height, but a tool call sets overflow:hidden
+ * and so collapses to a bar -- invisible in a short thread, and exactly what a
+ * real conversation looks like. Nothing in a transcript should shrink.
+ */
+.chats-thread > *,
+.sheet-thread > * {
+  flex-shrink: 0;
+}

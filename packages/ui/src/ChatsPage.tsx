@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 
 import { api, type ChatEvent, type Conversation } from "./api.js";
 import { ToolCall } from "./ToolCall.js";
@@ -6,6 +12,7 @@ import { ChatConfig } from "./ChatConfig.js";
 import { Markdown } from "./Markdown.js";
 import { Modal } from "./Modal.js";
 import { hrefFor } from "./routes.js";
+import { composerKeyDown, useStickToBottom } from "./composer.js";
 
 /**
  * The chats page: a list that stays usable at fifty conversations, and the
@@ -68,9 +75,7 @@ export function ChatsPage({
     };
   }, [activeId]);
 
-  useEffect(() => {
-    boxRef.current?.scrollTo({ top: boxRef.current.scrollHeight });
-  }, [events, sending]);
+  useStickToBottom(boxRef, [events, sending, activeId]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -243,15 +248,10 @@ export function ChatsPage({
                 value={draft}
                 placeholder={`Message ${active.title}…`}
                 onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                    e.preventDefault();
-                    void send();
-                  }
-                }}
+                onKeyDown={(e) => composerKeyDown(e, () => void send())}
               />
               <div className="sheet-composer-bar">
-                <span className="hint">⌘↵ to send</span>
+                <span className="hint">Enter to send · Shift+Enter for a new line</span>
                 <button
                   type="button"
                   className="btn btn--primary"
