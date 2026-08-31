@@ -451,3 +451,112 @@ describe("handleApiRequest", () => {
     expect((res.body as { facts: unknown[] }).facts.length).toBe(2);
   });
 });
+
+describe("owner-written schedules", () => {
+  let root: string;
+  let kernel: Kernel;
+
+  beforeEach(async () => {
+    root = mkdtempSync(join(tmpdir(), "kos-cronapi-"));
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: stub,
+    });
+  });
+
+  afterEach(() => {
+    kernel.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const post = (path: string, body: Record<string, unknown>) =>
+    handleApiRequest(kernel, { method: "POST", path, body });
+
+  it("creates a self_prompt job the owner wrote", async () => {
+    const res = await post("/api/crons/create", {
+      name: "Morning",
+      schedule: "0 9 * * *",
+      type: "self_prompt",
+      prompt: "summarise yesterday",
+    });
+    expect(res.status).toBe(200);
+    expect(kernel.crons.list().some((c) => c.name === "Morning")).toBe(true);
+  });
+
+  it("refuses a schedule that is not a schedule", async () => {
+    const res = await post("/api/crons/create", {
+      name: "Bad",
+      schedule: "whenever",
+      type: "self_prompt",
+      prompt: "x",
+    });
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).toContain("invalid cron schedule");
+  });
+
+  it("refuses a self_prompt with nothing to say", async () => {
+    const res = await post("/api/crons/create", {
+      name: "Empty",
+      schedule: "0 9 * * *",
+      type: "self_prompt",
+      prompt: "   ",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("refuses actions that are not tool calls", async () => {
+    // The same shape check the tool does; an owner typing JSON by hand is just
+    // as able to get it wrong.
+    const res = await post("/api/crons/create", {
+      name: "Bad actions",
+      schedule: "0 9 * * *",
+      type: "actions",
+      actions: [{ recipient_name: "notify" }],
+    });
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).toContain("needs a tool");
+  });
+
+  it("will not let an edit slip a write into the query", async () => {
+    // A query is the job's variable scope, and an edit is exactly as good a
+    // place to put a write as a create.
+    const made = await post("/api/crons/create", {
+      name: "Q",
+      schedule: "0 9 * * *",
+      type: "self_prompt",
+      prompt: "x",
+    });
+    const id = (made.body as { id: number }).id;
+    const res = await post("/api/crons/update", {
+      id,
+      name: "Q",
+      schedule: "0 9 * * *",
+      type: "self_prompt",
+      prompt: "x",
+      query: "DELETE FROM crons",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("updates a job in place and keeps its id", async () => {
+    const made = await post("/api/crons/create", {
+      name: "Before",
+      schedule: "0 9 * * *",
+      type: "self_prompt",
+      prompt: "x",
+    });
+    const id = (made.body as { id: number }).id;
+    const res = await post("/api/crons/update", {
+      id,
+      name: "After",
+      schedule: "0 10 * * *",
+      type: "self_prompt",
+      prompt: "y",
+    });
+    expect(res.status).toBe(200);
+    const job = kernel.crons.list().find((c) => c.id === id);
+    expect(job?.name).toBe("After");
+    expect(job?.schedule).toBe("0 10 * * *");
+  });
+});

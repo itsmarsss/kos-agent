@@ -522,7 +522,7 @@ export function ChatsPage({
           ))}
           {filtered.length === 0 && (
             <li className="chats-empty">
-              {query.trim() ? "Nothing matches." : "No chats yet. Ask Command to start one."}
+              {query.trim() ? "Nothing matches." : "No chats yet. Ask KOS to start one."}
             </li>
           )}
         </ul>
