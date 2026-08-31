@@ -10,6 +10,9 @@ export interface Status {
   discord?: boolean;
   pid?: number;
   workspace?: string;
+  orchestratorId?: string;
+  /** Which model answers each task class, when the router can say. */
+  routes?: Record<string, { provider: string; model: string }> | null;
 }
 
 export interface PendingAction {
@@ -17,6 +20,8 @@ export interface PendingAction {
   tool: string;
   args: string;
   reason: string | null;
+  /** The conversation that asked, so a decision can be taken where it lives. */
+  conversationId: string | null;
   requestedAt: number;
 }
 
@@ -112,12 +117,70 @@ export interface MutateResult {
   changes?: number;
 }
 
+export interface Conversation {
+  id: string;
+  userId: string;
+  title: string;
+  channel: string | null;
+  createdAt: number;
+  updatedAt: number;
+  archived: boolean;
+  /** Standing instructions for this conversation, when it is a scoped agent. */
+  brief: string | null;
+  /** null is the full toolkit; an array is an exact scope, empty included. */
+  toolAllow: string[] | null;
+  /** The orchestrator is a conversation, but not one of the owner's chats. */
+  kind?: "orchestrator" | "chat";
+}
+
+export interface ChatTurn {
+  role: "you" | "kos";
+  text: string;
+}
+
+export type ChatEvent =
+  | { kind: "message"; role: "you" | "kos" | "system"; text: string }
+  | {
+      kind: "tool";
+      name: string;
+      summary: string;
+      args: Record<string, unknown>;
+      result?: string;
+      isError?: boolean;
+      /** Set when the call is waiting on approval rather than having run. */
+      pendingId?: string;
+    };
+
+export interface DirEntry {
+  name: string;
+  path: string;
+  kind: "dir" | "file";
+  size: number;
+  modifiedAt: number;
+}
+
+export interface FileContent {
+  path: string;
+  size: number;
+  modifiedAt: number;
+  text?: string;
+  omitted?: "binary" | "too-large";
+  language: string;
+}
+
+export interface ToolInfo {
+  name: string;
+  description: string;
+}
+
 export interface FactRow {
   id?: number;
   key: string;
   value: string;
   kind: string;
   source?: string | null;
+  tags?: string[];
+  pinned?: boolean;
   updatedAt?: number;
   createdAt?: number;
 }
@@ -170,10 +233,49 @@ export const api = {
     ),
   page: (id: string) => get<PagePayload>(`/api/pages/${encodeURIComponent(id)}`),
   mutate: (req: MutateRequest) => post<MutateResult>("/api/mutate", req),
+  conversations: () => get<Conversation[]>("/api/conversations"),
+  orchestrator: (text: string) =>
+    post<{ reply: string; conversationId: string }>("/api/orchestrator", { text }),
+  conversation: (id: string) =>
+    get<{ id: string; messages: ChatTurn[]; events: ChatEvent[] }>(
+      `/api/conversations/${encodeURIComponent(id)}/messages`,
+    ),
+  tools: () => get<ToolInfo[]>("/api/tools"),
+  files: (path = ".") =>
+    get<{ path: string; entries: DirEntry[] }>(
+      `/api/files?path=${encodeURIComponent(path)}`,
+    ),
+  file: (path: string) =>
+    get<FileContent>(`/api/file?path=${encodeURIComponent(path)}`),
+  openWorkspace: () => post<{ opened: string }>("/api/workspace/open", {}),
+  configureConversation: (
+    id: string,
+    config: { brief?: string | null; toolAllow?: string[] | null },
+  ) => post<Conversation>("/api/conversations/configure", { id, ...config }),
+  newConversation: (title?: string) =>
+    post<Conversation>("/api/conversations/new", title ? { title } : {}),
+  renameConversation: (id: string, title: string) =>
+    post<Conversation>("/api/conversations/rename", { id, title }),
+  archiveConversation: (id: string) =>
+    post<Conversation>("/api/conversations/archive", { id, archived: true }),
+  deleteConversation: (id: string) =>
+    post<{ id: string; removed: boolean }>("/api/conversations/delete", { id }),
   memory: (limit = 200) =>
-    get<{ facts: FactRow[] }>(`/api/memory?limit=${limit}`),
-  saveMemory: (key: string, value: string, kind: "fact" | "preference" = "fact") =>
-    post<FactRow>("/api/memory", { key, value, kind }),
+    get<{ facts: FactRow[]; tags: string[] }>(`/api/memory?limit=${limit}`),
+  pinMemory: (key: string, pinned: boolean) =>
+    post<FactRow>("/api/memory/pin", { key, pinned }),
+  saveMemory: (
+    key: string,
+    value: string,
+    kind: "fact" | "preference" = "fact",
+    tags?: string[],
+  ) =>
+    post<FactRow>("/api/memory", {
+      key,
+      value,
+      kind,
+      ...(tags?.length ? { tags } : {}),
+    }),
   deleteMemory: (key: string) =>
     post<{ key: string; removed: boolean }>("/api/memory/delete", { key }),
   approve: (id: number) =>
@@ -183,7 +285,11 @@ export const api = {
   deny: (id: number) =>
     post<{ ok: boolean; message: string; reply?: string }>("/api/deny", { id }),
   setKill: (halted: boolean) => post<Status>("/api/kill", { halted }),
-  message: (text: string) => post<{ reply: string }>("/api/message", { text }),
+  message: (text: string, sessionId?: string) =>
+    post<{ reply: string }>("/api/message", {
+      text,
+      ...(sessionId ? { sessionId } : {}),
+    }),
   snapshot: (message?: string) =>
     post<{ sha: string | null }>("/api/snapshot", message ? { message } : {}),
   clear: (sessionId?: string) =>

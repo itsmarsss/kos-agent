@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { summarizeAction } from "@kos/shared";
 
 import {
@@ -12,6 +12,8 @@ import {
   type Project,
   type RunRecord,
   type Status,
+  type ChatEvent,
+  type Conversation,
 } from "./api.js";
 import { Inspector, type InspectTarget } from "./Inspector.js";
 import { ListPage } from "./ListPage.js";
@@ -20,6 +22,10 @@ import { AnimatePresence, m } from "motion/react";
 import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
 import { ease, listItem, spring } from "./motion.js";
 import { Home } from "./Home.js";
+import { ChatsPage } from "./ChatsPage.js";
+import { FilesPage } from "./FilesPage.js";
+import { ProjectsPage } from "./ProjectsPage.js";
+import { KnowledgePage } from "./KnowledgePage.js";
 import { ChatPanel } from "./ChatPanel.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { PageRenderer } from "./widgets/PageRenderer.js";
@@ -52,10 +58,9 @@ export function App(): React.ReactElement {
   const [pages, setPages] = useState<PageSummary[]>([]);
   const [activity, setActivity] = useState<AuditRecord[]>([]);
   const [facts, setFacts] = useState<FactRow[]>([]);
+  const [factTags, setFactTags] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
-  const [thread, setThread] = useState<
-    Array<{ role: "you" | "kos"; text: string }>
-  >([]);
+  const [thread, setThread] = useState<ChatEvent[]>([]);
   const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast>(null);
@@ -65,14 +70,25 @@ export function App(): React.ReactElement {
   const [cronFilter, setCronFilter] = useState<"all" | "on" | "off">("all");
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeChat, setActiveChat] = useState<string | null>(null);
 
   const flash = (kind: "ok" | "err", text: string): void => {
     setToast({ kind, text });
     window.setTimeout(() => setToast(null), 3200);
   };
 
+  /**
+   * One poll feeds the whole dashboard. Settled rather than all: under
+   * Promise.all a single failing endpoint rejected the batch and froze every
+   * panel, so one slow query could leave a decided approval on screen for as
+   * long as it kept failing. Each result is applied on its own.
+   */
   const refresh = useCallback(async () => {
-    const [s, a, p, c, f, pg, act, mem, r] = await Promise.all([
+    const apply = <T,>(r: PromiseSettledResult<T>, set: (v: T) => void): void => {
+      if (r.status === "fulfilled") set(r.value);
+    };
+    const [s, a, p, c, f, pg, act, mem, r, convos] = await Promise.allSettled([
       api.status(),
       api.approvals(),
       api.projects(),
@@ -82,22 +98,39 @@ export function App(): React.ReactElement {
       api.activity(200),
       api.memory(300),
       api.runs(200, false),
+      api.conversations(),
     ]);
-    setStatus(s);
-    setApprovals(a);
-    setProjects(p);
-    setCrons(c);
-    setFailed(f);
-    setPages(pg);
-    setActivity(act.tools);
-    setFacts(mem.facts ?? []);
-    setRuns(r);
+    apply(s, setStatus);
+    apply(a, setApprovals);
+    apply(p, setProjects);
+    apply(c, setCrons);
+    apply(f, setFailed);
+    apply(pg, setPages);
+    apply(act, (v) => setActivity(v.tools));
+    apply(mem, (v) => {
+      setFacts(v.facts ?? []);
+      setFactTags(v.tags ?? []);
+    });
+    apply(r, setRuns);
+    apply(convos, setConversations);
+    // The sheet's transcript is the orchestrator's own thread, not whichever
+    // chat happens to be newest.
+    if (s.status === "fulfilled") setActiveChat(s.value.orchestratorId ?? null);
   }, []);
 
   useEffect(() => {
     void refresh();
     const t = setInterval(() => void refresh(), 5000);
-    return () => clearInterval(t);
+    // A hidden tab has its timers throttled to about once a minute, so coming
+    // back to one shows a minute-old dashboard until the next tick.
+    const onVisible = (): void => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [refresh]);
 
   // Chat is summoned, not resident. Cmd-K is the one shortcut worth having.
@@ -155,7 +188,12 @@ export function App(): React.ReactElement {
     setBusy(approved ? `approving #${id}` : `denying #${id}`);
     try {
       const res = await (approved ? api.approve(id) : api.deny(id));
-      if (res.reply) setThread((t) => [...t, { role: "kos", text: res.reply! }]);
+      if (res.reply) {
+        setThread((t) => [
+          ...t,
+          { kind: "message", role: "kos", text: res.reply! },
+        ]);
+      }
       flash("ok", approved ? `Approved #${id}` : `Denied #${id}`);
       await refresh();
     } catch (err) {
@@ -219,19 +257,64 @@ export function App(): React.ReactElement {
     const text = prompt.trim();
     if (text === "" || sending) return;
     setSending(true);
-    setThread((t) => [...t, { role: "you", text }]);
+    setThread((t) => [...t, { kind: "message", role: "you", text }]);
     setPrompt("");
     try {
-      const res = await api.message(text);
-      setThread((t) => [...t, { role: "kos", text: res.reply || "(no reply)" }]);
+      const res = await api.orchestrator(text);
+      // Reload: the turn's tool calls belong in the transcript, and appending
+      // only the reply would hide the work that produced it.
+      const { events } = await api.conversation(res.conversationId);
+      setThread(events);
       await refresh();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setThread((t) => [...t, { role: "kos", text: `Error: ${msg}` }]);
+      setThread((t) => [...t, { kind: "message", role: "kos", text: `Error: ${msg}` }]);
       flash("err", msg);
     } finally {
       setSending(false);
     }
+  };
+
+  /**
+   * One place loads a transcript: whenever the active conversation changes to
+   * one we have not loaded. Doing it only inside a click handler missed the
+   * first conversation, which is selected automatically after the initial poll.
+   */
+  const loadedChat = useRef<string | null>(null);
+  // Reloaded again whenever the conversation has moved on the server, so an
+  // approval resuming the agent shows its continuation without a reopen.
+  const chatStamp = conversations.find((c) => c.id === activeChat)?.updatedAt;
+  useEffect(() => {
+    if (!activeChat) return;
+    const key = `${activeChat}:${chatStamp ?? 0}`;
+    if (sending || loadedChat.current === key) return;
+    loadedChat.current = key;
+    let cancelled = false;
+    void api
+      .conversation(activeChat)
+      .then(({ events }) => {
+        if (!cancelled) setThread(events);
+      })
+      .catch(() => {
+        if (!cancelled) setThread([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeChat, chatStamp, sending]);
+
+
+
+
+  /** Pending-action ids, so a queued tool call can offer a decision in place. */
+  const pendingIds = useMemo(
+    () => new Set(approvals.map((a) => String(a.id))),
+    [approvals],
+  );
+
+  const decideByPendingId = (pendingId: string, approved: boolean): void => {
+    const id = Number(pendingId);
+    if (Number.isInteger(id)) void decide(id, approved);
   };
 
   const inspectKey =
@@ -329,6 +412,18 @@ export function App(): React.ReactElement {
               <span className="health-dot" />
               {status?.halted ? "Halted" : "Running"}
             </span>
+            {/* Which model is answering. The routing table is picked from
+                whichever API keys are present, so a workspace with one
+                provider gets a different agent from the default; without this
+                the only way to find out was to read the router. */}
+            {status?.routes?.["reasoning"] && (
+              <span
+                className="health health--model"
+                title={`${status.routes["reasoning"].provider} · reasoning turns`}
+              >
+                {status.routes["reasoning"].model}
+              </span>
+            )}
             <button
               type="button"
               className="btn btn--primary"
@@ -341,6 +436,19 @@ export function App(): React.ReactElement {
               <div className="menu-body">
                 <button type="button" onClick={() => void refresh()}>Refresh</button>
                 <button type="button" onClick={() => void doSnapshot()}>Snapshot now</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void api
+                      .openWorkspace()
+                      .then((r) => flash("ok", `Opened ${r.opened}`))
+                      .catch((err: unknown) =>
+                        flash("err", err instanceof Error ? err.message : String(err)),
+                      );
+                  }}
+                >
+                  Open workspace folder
+                </button>
                 <button type="button" onClick={() => void copyWorkspace()}>Copy workspace path</button>
                 <button type="button" className="is-danger" onClick={() => void toggleKill()}>
                   {status?.halted ? "Resume KOS" : "Halt KOS"}
@@ -378,6 +486,8 @@ export function App(): React.ReactElement {
           onSend={() => void send()}
           onClose={() => setChatOpen(false)}
           onClear={() => void doClear()}
+          pendingApprovals={pendingIds}
+          onDecide={decideByPendingId}
         />
       </main>
     </ErrorBoundary>
@@ -411,97 +521,36 @@ export function App(): React.ReactElement {
   }
 
   // —— list pages ——
+  if (route.name === "chats") {
+    return shell(
+      <ChatsPage
+        conversations={conversations}
+        {...(route.id ? { activeId: route.id } : {})}
+        pendingApprovals={pendingIds}
+        onOpen={(id) => go({ name: "chats", id })}
+        onChanged={() => void refresh()}
+        onDecide={decideByPendingId}
+      />,
+    );
+  }
+
+  if (route.name === "files") {
+    return shell(
+      <FilesPage
+        {...(route.path ? { path: route.path } : {})}
+        onOpen={(p) => go({ name: "files", path: p })}
+      />,
+    );
+  }
+
   if (route.name === "projects") {
     return shell(
-      <ListPage
-        title="Projects"
-        subtitle="Everything KOS is tracking for you, and the pages it built."
-        rows={projects}
-        rowKey={(p) => p.slug}
-        empty="No projects match"
-        onRowClick={(p) =>
-          setInspect({
-            kind: "project",
-            data: p,
-            pages: pagesByProject.get(p.slug) ?? [],
-          })
+      <ProjectsPage
+        projects={projects}
+        pagesByProject={pagesByProject}
+        onInspect={(project, pages) =>
+          setInspect({ kind: "project", data: project, pages })
         }
-        columns={[
-          {
-            key: "name",
-            header: "Name",
-            searchText: (p) => `${p.name} ${p.slug}`,
-            render: (p) => (
-              <div>
-                <div className="ops-nav-title">{p.name}</div>
-                <div className="ops-mono ops-muted">{p.slug}</div>
-              </div>
-            ),
-          },
-          {
-            key: "type",
-            header: "Type",
-            searchText: (p) => p.type,
-            render: (p) => p.type,
-          },
-          {
-            key: "module",
-            header: "Module",
-            searchText: (p) => p.module ?? "",
-            render: (p) => (
-              <span className="ops-mono">{p.module ?? "—"}</span>
-            ),
-          },
-          {
-            key: "status",
-            header: "Status",
-            searchText: (p) => p.status,
-            render: (p) => (
-              <span className={`ops-status ops-status--${p.status}`}>
-                {p.status}
-              </span>
-            ),
-          },
-          {
-            key: "pages",
-            header: "Pages",
-            render: (p) => {
-              const linked = pagesByProject.get(p.slug) ?? [];
-              if (linked.length === 0) return <span className="ops-muted">—</span>;
-              return (
-                <span className="ops-page-chips">
-                  {linked.map((pg) => (
-                    <span
-                      key={pg.id}
-                      className="ops-chip"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openPage(pg.id);
-                      }}
-                      role="link"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.stopPropagation();
-                          openPage(pg.id);
-                        }
-                      }}
-                    >
-                      {pg.title}
-                    </span>
-                  ))}
-                </span>
-              );
-            },
-          },
-          {
-            key: "touched",
-            header: "Touched",
-            render: (p) => (
-              <span className="ops-muted">{timeAgo(p.lastTouchedAt)}</span>
-            ),
-          },
-        ]}
       />,
     );
   }
@@ -627,45 +676,10 @@ export function App(): React.ReactElement {
 
   if (route.name === "memory") {
     return shell(
-      <ListPage
-        title="What it knows"
-        subtitle="Durable facts KOS has learned about you. Click a row to edit or forget one."
-        rows={facts}
-        rowKey={(f) => f.key}
-        empty="No facts yet"
-        onRowClick={(f) => setInspect({ kind: "fact", data: f })}
-        columns={[
-          {
-            key: "key",
-            header: "Key",
-            width: "22%",
-            searchText: (f) => f.key,
-            render: (f) => <span className="ops-mono">{f.key}</span>,
-          },
-          {
-            key: "value",
-            header: "Value",
-            searchText: (f) => f.value,
-            render: (f) => preview(f.value, 80),
-          },
-          {
-            key: "kind",
-            header: "Kind",
-            width: "12%",
-            searchText: (f) => f.kind,
-            render: (f) => f.kind,
-          },
-          {
-            key: "updated",
-            header: "Updated",
-            width: "12%",
-            render: (f) => (
-              <span className="ops-muted">
-                {f.updatedAt ? timeAgo(f.updatedAt) : "—"}
-              </span>
-            ),
-          },
-        ]}
+      <KnowledgePage
+        facts={facts}
+        tags={factTags}
+        onChanged={() => void refresh()}
       />,
     );
   }
@@ -773,6 +787,20 @@ export function App(): React.ReactElement {
                 <div className="approval-meta">
                   <code>{a.tool}</code>
                   {a.reason ? <span> · {a.reason}</span> : null}
+                  {/* Deciding here and deciding in the thread are the same act,
+                      so say which thread is waiting on it. */}
+                  {a.conversationId && (
+                    <>
+                      {" · "}
+                      <a
+                        className="link"
+                        href={hrefFor({ name: "chats", id: a.conversationId })}
+                      >
+                        {conversations.find((c) => c.id === a.conversationId)
+                          ?.title ?? "the chat"}
+                      </a>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="approval-actions">

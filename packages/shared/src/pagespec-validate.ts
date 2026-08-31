@@ -32,6 +32,12 @@ export function isReadOnlyQuery(sql: string): boolean {
   );
 }
 
+const MUTATION_OPS: MutationTarget["allow"] & string[] = [
+  "insert",
+  "update",
+  "delete",
+];
+
 function validateMutation(
   m: MutationTarget,
   where: string,
@@ -42,6 +48,21 @@ function validateMutation(
   }
   if (!Array.isArray(m.columns) || m.columns.length === 0) {
     errors.push(`${where}: mutation target requires at least one column`);
+  }
+  if (m.allow !== undefined) {
+    // Unchecked, an invented value like "create" passed validation and then
+    // failed at submit time, so the page looked fine until someone used it.
+    if (!Array.isArray(m.allow)) {
+      errors.push(`${where}: mutation allow must be an array`);
+    } else {
+      for (const op of m.allow) {
+        if (!MUTATION_OPS.includes(op)) {
+          errors.push(
+            `${where}: unknown mutation op "${String(op)}" (allowed: ${MUTATION_OPS.join(", ")})`,
+          );
+        }
+      }
+    }
   }
 }
 
@@ -73,8 +94,16 @@ function validateWidget(widget: Widget, index: number, errors: string[]): void {
   if (widget.type === "markdown" && typeof widget.content !== "string") {
     errors.push(`${where}: markdown requires content`);
   }
-  if (widget.type === "custom_html" && typeof widget.html !== "string") {
-    errors.push(`${where}: custom_html requires html`);
+  if (widget.type === "custom_html") {
+    if (typeof widget.html !== "string") {
+      errors.push(`${where}: custom_html requires html`);
+    }
+    if (
+      widget.height !== undefined &&
+      (typeof widget.height !== "number" || !Number.isFinite(widget.height))
+    ) {
+      errors.push(`${where}: custom_html height must be a number`);
+    }
   }
   if (widget.type === "form") {
     if (!widget.mutate) errors.push(`${where}: form requires a mutation target`);

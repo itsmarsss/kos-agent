@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
-import { extname, join, normalize, resolve, sep } from "node:path";
+import { execFile } from "node:child_process";
+import { extname, join, normalize, relative, resolve, sep } from "node:path";
 
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
@@ -8,6 +9,9 @@ import { runDisplayQuery } from "../systems/display.js";
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
+import { orchestratorId } from "./kernel.js";
+import { conversationEvents } from "./transcript.js";
+import { listDirectory, readFile } from "./files.js";
 
 export interface ApiRequest {
   method: string;
@@ -105,6 +109,8 @@ export async function handleApiRequest(
       discord: options.meta?.discord === true,
       pid: options.meta?.pid ?? process.pid,
       workspace: options.meta?.workspace ?? kernel.workspace.root,
+      orchestratorId: orchestratorId(kernel.profile.ownerId),
+      routes: kernel.routes() ?? null,
     });
   }
 
@@ -301,7 +307,73 @@ export async function handleApiRequest(
       typeof body.userId === "string" && body.userId.length > 0
         ? body.userId
         : kernel.profile.ownerId;
+    // The orchestrator is reachable from the chat list like any other thread,
+    // and it has to be the same agent there as it is under cmd-K. Routing on
+    // the id keeps one definition of what it can do instead of two doors with
+    // different toolkits behind them.
+    if (sessionId === orchestratorId(kernel.profile.ownerId)) {
+      return ok(await kernel.handleOrchestratorTurn(text, { channel: "dashboard" }));
+    }
     return ok(await kernel.handleMessage(text, { sessionId, userId }));
+  }
+
+  if (method === "POST" && path === "/api/orchestrator") {
+    const text = typeof body.text === "string" ? body.text : "";
+    if (text === "") return { status: 400, body: { error: "text required" } };
+    return ok(await kernel.handleOrchestratorTurn(text, { channel: "dashboard" }));
+  }
+
+  if (method === "GET" && path === "/api/files") {
+    // The path comes from the client, so it goes through the jail; a traversal
+    // attempt throws there rather than being sanitised here.
+    const target = queryParams(req.url).get("path") ?? ".";
+    try {
+      return ok({ path: target, entries: listDirectory(kernel.workspace, target) });
+    } catch (err) {
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
+  }
+
+  if (method === "GET" && path === "/api/file") {
+    const target = queryParams(req.url).get("path") ?? "";
+    if (!target) return { status: 400, body: { error: "path required" } };
+    try {
+      return ok(readFile(kernel.workspace, target));
+    } catch (err) {
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
+  }
+
+  if (method === "POST" && path === "/api/workspace/open") {
+    // Reveals the workspace in the desktop file manager. The path is the
+    // kernel's own root, never anything from the request, so this cannot be
+    // pointed at an arbitrary directory.
+    const target = kernel.workspace.root;
+    const opener =
+      process.platform === "darwin"
+        ? "open"
+        : process.platform === "win32"
+          ? "explorer"
+          : "xdg-open";
+    try {
+      await new Promise<void>((resolve, reject) => {
+        execFile(opener, [target], (err) => (err ? reject(err) : resolve()));
+      });
+      return ok({ opened: target });
+    } catch (err) {
+      return {
+        status: 500,
+        body: {
+          error: `could not open ${target}: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      };
+    }
   }
 
   if (method === "POST" && path === "/api/clear") {
@@ -323,11 +395,123 @@ export async function handleApiRequest(
     return ok({ sha });
   }
 
+  if (method === "GET" && path === "/api/conversations") {
+    const includeArchived = queryParams(req.url).get("archived") === "1";
+    // The orchestrator is included and labelled rather than filtered out: the
+    // owner should be able to open the thread that routes their work. The
+    // agent-facing chats.list still hides it, because it must not offer its
+    // own thread as somewhere to put work.
+    const orchestrator = orchestratorId(kernel.profile.ownerId);
+    return ok(
+      kernel.conversations
+        .list(kernel.profile.ownerId, { includeArchived })
+        .map((c) => ({
+          ...c,
+          kind: c.id === orchestrator ? "orchestrator" : "chat",
+        })),
+    );
+  }
+
+  if (method === "GET" && path.startsWith("/api/conversations/")) {
+    // Transcript for one conversation, so switching in the UI shows history
+    // rather than an empty pane.
+    const id = decodeURIComponent(
+      path.slice("/api/conversations/".length).replace(/\/messages$/, ""),
+    );
+    if (!kernel.conversations.get(id)) {
+      return { status: 404, body: { error: "conversation not found" } };
+    }
+    // Events, not just spoken turns: a chat view that hides the tool calls
+    // shows conclusions with no visible working.
+    return ok({
+      id,
+      messages: transcriptOf(kernel, id),
+      events: conversationEvents(kernel.sessions.get(id)),
+    });
+  }
+
+  if (method === "POST" && path === "/api/conversations/new") {
+    const title = typeof body.title === "string" ? body.title : undefined;
+    const created = kernel.conversations.create({
+      userId: kernel.profile.ownerId,
+      channel: "dashboard",
+      ...(title ? { title } : {}),
+    });
+    kernel.conversations.setActive("dashboard", kernel.profile.ownerId, created.id);
+    return ok(created);
+  }
+
+  if (method === "GET" && path === "/api/tools") {
+    // Powers the tool-scope editor: the owner picks from what actually exists.
+    return ok(
+      kernel.registry
+        .defs()
+        .map((d) => ({ name: d.name, description: d.description })),
+    );
+  }
+
+  if (method === "POST" && path === "/api/conversations/configure") {
+    const id = typeof body.id === "string" ? body.id : "";
+    if (!id) return { status: 400, body: { error: "id required" } };
+    if (!kernel.conversations.get(id)) {
+      return { status: 404, body: { error: "conversation not found" } };
+    }
+    const config: { brief?: string | null; toolAllow?: string[] | null } = {};
+    if (typeof body.brief === "string") config.brief = body.brief;
+    else if (body.brief === null) config.brief = null;
+    // null clears the scope; an array sets it, empty included.
+    if (body.toolAllow === null) config.toolAllow = null;
+    else if (Array.isArray(body.toolAllow)) {
+      config.toolAllow = (body.toolAllow as unknown[]).filter(
+        (x): x is string => typeof x === "string",
+      );
+    }
+    return ok(kernel.conversations.configure(id, config));
+  }
+
+  if (method === "POST" && path === "/api/conversations/rename") {
+    const id = typeof body.id === "string" ? body.id : "";
+    const title = typeof body.title === "string" ? body.title : "";
+    if (!id || !title) {
+      return { status: 400, body: { error: "id and title required" } };
+    }
+    const renamed = kernel.conversations.rename(id, title);
+    if (!renamed) return { status: 404, body: { error: "conversation not found" } };
+    return ok(renamed);
+  }
+
+  if (method === "POST" && path === "/api/conversations/archive") {
+    const id = typeof body.id === "string" ? body.id : "";
+    if (!id) return { status: 400, body: { error: "id required" } };
+    const updated = kernel.conversations.setArchived(id, body.archived !== false);
+    if (!updated) return { status: 404, body: { error: "conversation not found" } };
+    return ok(updated);
+  }
+
+  if (method === "POST" && path === "/api/conversations/delete") {
+    const id = typeof body.id === "string" ? body.id : "";
+    if (!id) return { status: 400, body: { error: "id required" } };
+    return ok({ id, removed: kernel.conversations.remove(id) });
+  }
+
   if (method === "GET" && path === "/api/memory") {
     const limit = clampLimit(queryParams(req.url).get("limit"), 200);
     return ok({
       facts: kernel.facts.all(kernel.profile.ownerId).slice(0, limit),
+      tags: kernel.facts.tags(kernel.profile.ownerId),
     });
+  }
+
+  if (method === "POST" && path === "/api/memory/pin") {
+    const key = typeof body.key === "string" ? body.key : "";
+    if (!key) return { status: 400, body: { error: "key required" } };
+    const updated = kernel.facts.setPinned(
+      kernel.profile.ownerId,
+      key,
+      body.pinned !== false,
+    );
+    if (!updated) return { status: 404, body: { error: "not found" } };
+    return ok(updated);
   }
 
   if (method === "POST" && path === "/api/memory") {
@@ -337,9 +521,18 @@ export async function handleApiRequest(
     if (!key || value === "") {
       return { status: 400, body: { error: "key and value required" } };
     }
+    const tags = Array.isArray(body.tags)
+      ? (body.tags as unknown[]).filter((t): t is string => typeof t === "string")
+      : undefined;
     kernel.facts.upsert(
       kernel.profile.ownerId,
-      { key, value, kind },
+      {
+        key,
+        value,
+        kind,
+        ...(tags ? { tags } : {}),
+        ...(typeof body.pinned === "boolean" ? { pinned: body.pinned } : {}),
+      },
       "dashboard",
     );
     return ok(kernel.facts.get(kernel.profile.ownerId, key));
@@ -353,6 +546,28 @@ export async function handleApiRequest(
   }
 
   return { status: 404, body: { error: "not found" } };
+}
+
+/**
+ * Flatten a stored transcript to the {role, text} pairs a chat view needs.
+ * Tool round-trips are kept in the session for the model but are noise here,
+ * so only spoken turns come back.
+ */
+function transcriptOf(
+  kernel: Kernel,
+  id: string,
+): Array<{ role: "you" | "kos"; text: string }> {
+  const out: Array<{ role: "you" | "kos"; text: string }> = [];
+  for (const message of kernel.sessions.get(id)) {
+    const text = message.content
+      .filter((b) => b.type === "text")
+      .map((b) => (b as { text: string }).text)
+      .join("")
+      .trim();
+    if (text === "") continue;
+    out.push({ role: message.role === "user" ? "you" : "kos", text });
+  }
+  return out;
 }
 
 function authorized(req: ApiRequest, token: string): boolean {
@@ -382,6 +597,9 @@ function projectFromUrl(url?: string): string | undefined {
 }
 
 function clampLimit(raw: string | null, fallback: number): number {
+  // Number(null) is 0, which is finite, so an absent parameter used to clamp
+  // to 1 and every one of these endpoints returned a single row.
+  if (raw === null || raw.trim() === "") return fallback;
   const n = Number(raw);
   if (!Number.isFinite(n)) return fallback;
   return Math.min(500, Math.max(1, Math.floor(n)));
@@ -454,7 +672,17 @@ function tryStatic(
     if (!existsSync(file)) return false;
   }
   const type = MIME[extname(file)] ?? "application/octet-stream";
-  res.writeHead(200, { "content-type": type });
+  // Vite fingerprints everything under assets/, so those are safe to keep
+  // forever. index.html is not fingerprinted, and with no header at all the
+  // browser cached it heuristically: an updated KOS kept serving the old app
+  // until someone thought to hard-reload.
+  const fingerprinted = relative(root, file).split(sep)[0] === "assets";
+  res.writeHead(200, {
+    "content-type": type,
+    "cache-control": fingerprinted
+      ? "public, max-age=31536000, immutable"
+      : "no-cache",
+  });
   createReadStream(file).pipe(res);
   return true;
 }

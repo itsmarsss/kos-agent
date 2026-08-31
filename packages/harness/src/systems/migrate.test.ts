@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
 import { ProjectManifest } from "./manifest.js";
-import { Migrator, buildMigrationSql } from "./migrate.js";
+import { Migrator, buildMigrationSql, parseChangeSpec } from "./migrate.js";
 
 describe("buildMigrationSql", () => {
   it("builds a namespaced create_table", () => {
@@ -131,5 +131,117 @@ describe("Migrator", () => {
       }),
     ).toThrow();
     expect(migrator.history("budget")).toEqual([]);
+  });
+});
+
+describe("parseChangeSpec", () => {
+  it("accepts a well-formed create_table", () => {
+    expect(
+      parseChangeSpec({
+        op: "create_table",
+        table: "tx",
+        columns: [
+          { name: "id", type: "INTEGER", primaryKey: true },
+          { name: "amount", type: "REAL" },
+        ],
+      }),
+    ).toEqual({
+      op: "create_table",
+      table: "tx",
+      columns: [
+        { name: "id", type: "INTEGER", primaryKey: true },
+        { name: "amount", type: "REAL" },
+      ],
+    });
+  });
+
+  it("names the missing field and the keys it did get", () => {
+    // The model guessed "fields". Reading spec.columns.length threw a
+    // TypeError that named nothing, so it retried the same shape four times.
+    let message = "";
+    try {
+      parseChangeSpec({
+        op: "create_table",
+        table: "expenses",
+        fields: [{ name: "id", type: "serial" }],
+      });
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    expect(message).toContain('requires "columns"');
+    expect(message).toContain("fields");
+    expect(message).not.toContain("Cannot read properties");
+  });
+
+  it("lists the allowed types when given one SQLite does not have", () => {
+    expect(() =>
+      parseChangeSpec({
+        op: "create_table",
+        table: "tx",
+        columns: [{ name: "amount", type: "decimal(10,2)" }],
+      }),
+    ).toThrow(/TEXT, INTEGER, REAL, BLOB, NUMERIC/);
+  });
+
+  it("rejects an unknown op by listing the real ones", () => {
+    expect(() => parseChangeSpec({ op: "drop_table", table: "tx" })).toThrow(
+      /create_table, add_column/,
+    );
+  });
+
+  it("rejects a spec that is not an object", () => {
+    expect(() => parseChangeSpec("create_table")).toThrow(/must be an object/);
+  });
+});
+
+describe("re-creating a table", () => {
+  let root: string;
+  let ws: Workspace;
+  let migrator: Migrator;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-remigrate-"));
+    ws = Workspace.open(root);
+    const manifest = new ProjectManifest(ws.db);
+    manifest.createProject({ name: "Budget Tracker", type: "budget" });
+    migrator = new Migrator(ws.db, manifest);
+    migrator.migrate("budget_tracker", {
+      op: "create_table",
+      table: "expenses",
+      columns: [
+        { name: "id", type: "INTEGER", primaryKey: true },
+        { name: "amount", type: "REAL" },
+      ],
+    });
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("says what the table already holds", () => {
+    // "table X already exists" sent the agent looking through PRAGMA and grep
+    // for the columns, which are right there.
+    expect(() =>
+      migrator.migrate("budget_tracker", {
+        op: "create_table",
+        table: "expenses",
+        columns: [{ name: "id", type: "INTEGER" }],
+      }),
+    ).toThrow(/already exists with columns: id, amount\. Use add_column/);
+  });
+
+  it("records nothing for the refused migration", () => {
+    try {
+      migrator.migrate("budget_tracker", {
+        op: "create_table",
+        table: "expenses",
+        columns: [{ name: "id", type: "INTEGER" }],
+      });
+    } catch {
+      // expected
+    }
+    expect(migrator.history("budget_tracker")).toHaveLength(1);
   });
 });

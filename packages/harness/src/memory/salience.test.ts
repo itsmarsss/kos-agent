@@ -11,13 +11,14 @@ describe("assessSalience", () => {
     ]);
   });
 
-  it("extracts a durable preference", () => {
+  it("flags a preference for confirmation rather than keying it blindly", () => {
+    // Keying a preference off its own value produced unsearchable keys like
+    // prefers:terse_answers_tag_it_style_and_pin_it, and made every
+    // restatement a new row. The confirmer names it instead.
     const r = assessSalience("I prefer dark mode");
-    expect(r.verdict).toBe("durable");
-    expect(r.candidates[0]).toMatchObject({
-      kind: "preference",
-      value: "dark mode",
-    });
+    expect(r.verdict).toBe("maybe");
+    expect(r.signals).toContain("preference");
+    expect(r.candidates).toEqual([]);
   });
 
   it("flags account info as durable even without a candidate", () => {

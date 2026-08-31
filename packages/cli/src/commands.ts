@@ -36,6 +36,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
 const HELP = `kos commands:
   start [--foreground] multi-modal host (API + cron + Discord if configured)
   stop                 stop the background host
+  restart              stop then start; run pnpm build first to pick up code changes
   chat                 REPL (attaches to host if running; default)
   once <message>       one message (via host if running)
   status               crons, queue, kill switch, pending, host info
@@ -57,6 +58,7 @@ Flags:
 Typical flow:
   kos start            # background host + Discord if .env set
   kos                  # attach REPL (same session as Discord DMs)
+  kos restart          # after changing config or rebuilding
   kos stop
 
 Chat needs ANTHROPIC_API_KEY or OPENAI_API_KEY in .env.`;
@@ -64,6 +66,10 @@ Chat needs ANTHROPIC_API_KEY or OPENAI_API_KEY in .env.`;
 export function statusLine(kernel: Kernel): string {
   const crons = kernel.crons.list().length;
   const pending = kernel.approvals.pending().length;
+  // The routing table is picked from whichever API keys are present, so a
+  // workspace with one provider gets a different agent from the default and
+  // nothing said which one was answering.
+  const reasoning = kernel.routes()?.["reasoning"];
   return [
     `kill switch: ${kernel.killSwitch.halted ? "HALTED" : "running"}`,
     `queue depth: ${kernel.queue.depth}`,
@@ -71,6 +77,7 @@ export function statusLine(kernel: Kernel): string {
     `pending approvals: ${pending}`,
     `projects: ${kernel.manifest.list().length}`,
     `pages: ${kernel.pages.list().length}`,
+    ...(reasoning ? [`model: ${reasoning.model}`] : []),
   ].join(" | ");
 }
 

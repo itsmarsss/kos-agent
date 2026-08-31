@@ -58,6 +58,16 @@ export function summarizeAction(
       return `Write file ${fmtVal(a.path)}`;
     case "files.rm":
       return `Delete ${fmtVal(a.path)}`;
+    case "files.mkdir":
+      return `Create folder ${fmtVal(a.path)}`;
+    case "files.ls":
+      return `List ${fmtVal(a.path)}`;
+    case "files.read":
+      return `Read ${fmtVal(a.path)}`;
+    case "files.edit":
+      return `Edit ${fmtVal(a.path)}`;
+    case "files.cp":
+      return `Copy ${fmtVal(a.from)} to ${fmtVal(a.to)}`;
     case "files.mv":
       return `Move ${fmtVal(a.from)} → ${fmtVal(a.to)}`;
     case "sql":
@@ -80,6 +90,14 @@ export function summarizeAction(
       return `Sandbox test ${fmtVal(a.entry)}`;
     case "skills.promote":
       return `Promote skill ${fmtVal(a.entry)}`;
+    case "chats.list":
+      return "List conversations";
+    case "chats.search":
+      return `Search conversations for “${fmtVal(a.query)}”`;
+    case "chats.read":
+      return `Read conversation ${fmtVal(a.id)}`;
+    case "chats.create":
+      return `Start conversation “${fmtVal(a.title)}”`;
     case "skills.run":
       return `Run skill ${fmtVal(a.entry)} for real`;
     default:

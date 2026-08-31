@@ -11,18 +11,20 @@
     "kos": "./packages/cli/dist/main.js"
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && pnpm -C packages/ui build",
     "typecheck": "tsc -b",
     "test": "vitest run --passWithNoTests",
     "lint": "eslint .",
     "kos": "node packages/cli/dist/main.js",
     "start": "node packages/cli/dist/main.js start",
     "stop": "node packages/cli/dist/main.js stop",
+    "restart": "node packages/cli/dist/main.js restart",
     "chat": "node packages/cli/dist/main.js chat",
     "serve": "node packages/cli/dist/main.js serve",
     "doctor": "node packages/cli/dist/main.js doctor",
     "build:ui": "pnpm -C packages/ui build",
-    "build:all": "pnpm build && pnpm build:ui"
+    "build:all": "pnpm build",
+    "build:ts": "tsc -b"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

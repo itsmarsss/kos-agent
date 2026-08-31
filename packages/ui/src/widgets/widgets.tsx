@@ -6,6 +6,7 @@ import { Chart } from "./Chart.js";
 import { CustomHtml } from "./CustomHtml.js";
 import { formatCell, humanize } from "./format.js";
 import { ListWidget } from "./ListWidget.js";
+import { Markdown as MarkdownText } from "../Markdown.js";
 import { RecordForm } from "./RecordForm.js";
 import type { WidgetProps, WidgetRenderer } from "./types.js";
 
@@ -22,16 +23,30 @@ function Stat({ widget, rows }: WidgetProps): ReactElement {
   const w = widget as StatWidget;
   const first = rows[0] ?? {};
   const value = Object.values(first)[0];
+  // SUM over no rows is null, and formatCell renders null as "" -- right for a
+  // table cell, but a stat whose number is an empty string just looks broken.
+  const text = value === undefined || value === null ? "-" : formatCell(value);
   return (
     <div className="kos-widget kos-stat">
       <div className="kos-stat-label">{w.label}</div>
-      <div className="kos-stat-value">{value === undefined ? "-" : formatCell(value)}</div>
+      <div className="kos-stat-value">{text}</div>
     </div>
   );
 }
 
 function Table({ widget, rows }: WidgetProps): ReactElement {
   const cols = rows[0] ? Object.keys(rows[0]) : [];
+  // Columns come from the first row, so an empty result has none either: the
+  // widget rendered as a bare title over nothing at all. A tracker is empty
+  // on the day it is built, which is exactly when this is first seen.
+  if (rows.length === 0) {
+    return (
+      <div className="kos-widget kos-table-widget">
+        {widget.title ? <div className="kos-widget-title">{widget.title}</div> : null}
+        <div className="kos-empty">nothing here yet</div>
+      </div>
+    );
+  }
   return (
     <div className="kos-widget kos-table-widget">
       {widget.title ? <div className="kos-widget-title">{widget.title}</div> : null}
@@ -59,8 +74,14 @@ function Table({ widget, rows }: WidgetProps): ReactElement {
 
 function Markdown({ widget }: WidgetProps): ReactElement {
   const w = widget as MarkdownWidget;
-  // Plain text render (no HTML injection); a markdown lib can replace this.
-  return <div className="kos-widget kos-markdown">{w.content}</div>;
+  // The same element-building renderer chat uses: no dangerouslySetInnerHTML,
+  // so agent-authored text still cannot inject markup. Rendering it as plain
+  // text meant a markdown widget showed its own asterisks.
+  return (
+    <div className="kos-widget kos-markdown">
+      <MarkdownText text={w.content} />
+    </div>
+  );
 }
 
 function Placeholder({ widget }: WidgetProps): ReactElement {

@@ -27,7 +27,7 @@ function recorder(refreshed: Row[] = []) {
     ): Promise<void> => {
       calls.push({ pageId, widgetIndex, op, values, key });
     },
-    onRefresh: async (): Promise<Row[]> => refreshed,
+    onRefresh: async (): Promise<Record<number, Row[]>> => ({ 0: refreshed }),
   };
 }
 
@@ -147,6 +147,55 @@ describe("chart widget", () => {
     expect(container.querySelector(".kos-cell--quarter")).toBeNull();
   });
 
+  it("runs scripts in custom_html but keeps it cross-origin", () => {
+    const { container } = render(
+      <PageRenderer
+        spec={{
+          id: "p",
+          title: "P",
+          widgets: [{ type: "custom_html", html: "<canvas id=g></canvas>", height: 480 }],
+        }}
+        data={{}}
+      />,
+    );
+    const frame = container.querySelector("iframe")!;
+    // Scripts are the point of the escape hatch; same-origin is what would let
+    // the frame rewrite its own sandbox and get out.
+    expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin");
+    expect(frame.getAttribute("srcdoc")).toContain("<canvas id=g>");
+    expect((frame as HTMLIFrameElement).style.height).toBe("480px");
+  });
+
+  it("repairs a closing tag the model escaped as if it were in a JS string", () => {
+    const { container } = render(
+      <PageRenderer
+        spec={{
+          id: "p",
+          title: "P",
+          widgets: [
+            { type: "custom_html", html: "<script>var a=1;<\\/script><p>after</p>" },
+          ],
+        }}
+        data={{}}
+      />,
+    );
+    const srcdoc = container.querySelector("iframe")!.getAttribute("srcdoc")!;
+    // Left as-is the script never closes and the whole frame does nothing.
+    expect(srcdoc).toContain("</script>");
+    expect(srcdoc).not.toContain("<\\/script>");
+  });
+
+  it("clamps an absurd custom_html height", () => {
+    const { container } = render(
+      <PageRenderer
+        spec={{ id: "p", title: "P", widgets: [{ type: "custom_html", html: "x", height: 99999 }] }}
+        data={{}}
+      />,
+    );
+    expect((container.querySelector("iframe") as HTMLIFrameElement).style.height).toBe("900px");
+  });
+
   it("shows a failed display query instead of an empty widget", () => {
     render(
       <PageRenderer
@@ -202,14 +251,17 @@ describe("custom_html widget", () => {
 
   const html = '<p id="agent-markup">hello</p>';
 
-  it("renders inside a sandboxed iframe with a restrictive sandbox", () => {
+  it("renders inside a sandbox that runs scripts but stays cross-origin", () => {
     const { container } = render(
       <PageRenderer spec={page({ type: "custom_html", html })} data={{}} />,
     );
     expect(screen.queryByText(/unsupported widget/)).toBeNull();
     const frame = container.querySelector("iframe");
     expect(frame).toBeTruthy();
-    expect(frame?.getAttribute("sandbox")).toBe("");
+    // An empty sandbox made the escape hatch unable to escape anything: no
+    // interactive page can run without scripts. Withholding same-origin is
+    // what keeps it away from the dashboard.
+    expect(frame?.getAttribute("sandbox")).toBe("allow-scripts");
     expect(frame?.getAttribute("srcdoc")).toContain("agent-markup");
   });
 
@@ -273,7 +325,7 @@ describe("form widget", () => {
         onMutate={async () => {
           throw new Error("table is read-only");
         }}
-        onRefresh={async () => []}
+        onRefresh={async () => ({})}
       />,
     );
     fireEvent.submit(container.querySelector("form") as HTMLFormElement);
@@ -425,5 +477,168 @@ describe("card detail edit", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(rec.calls.length).toBe(1));
     expect(rec.calls[0]?.op).toBe("insert");
+  });
+});
+
+describe("empty and formatted widgets", () => {
+  afterEach(cleanup);
+
+  it("says a table is empty rather than rendering nothing", () => {
+    // Columns are read off the first row, so no rows meant no headers either:
+    // a title over a blank box, which is what a new tracker always looks like.
+    const { container } = render(
+      <PageRenderer
+        spec={{
+          id: "p",
+          title: "P",
+          widgets: [{ type: "table", title: "Expenses", query: "SELECT 1" }],
+        }}
+        data={[[]]}
+      />,
+    );
+    expect(container.textContent).toContain("nothing here yet");
+  });
+
+  it("renders a markdown widget as markdown, not as its own asterisks", () => {
+    const { container } = render(
+      <PageRenderer
+        spec={{
+          id: "p",
+          title: "P",
+          widgets: [{ type: "markdown", content: "**bold** and `code`" }],
+        }}
+        data={[[]]}
+      />,
+    );
+    expect(container.querySelector("strong")?.textContent).toBe("bold");
+    expect(container.querySelector("code")?.textContent).toBe("code");
+    expect(container.textContent).not.toContain("**");
+  });
+});
+
+describe("refresh after a write", () => {
+  afterEach(cleanup);
+
+  it("updates the widgets that read the table, not the form that wrote it", async () => {
+    // The refresh was scoped to the writing widget. A form has no rows of its
+    // own, so saving refreshed nothing: the table and the total sat unchanged
+    // next to a green "Saved", which reads as a write that did not happen.
+    const spec: PageSpec = {
+      id: "budget",
+      title: "Budget",
+      widgets: [
+        { type: "table", title: "Expenses", query: "SELECT 1" },
+        {
+          type: "form",
+          title: "Log",
+          mutate: { table: "budget_expenses", columns: ["amount"] },
+        },
+      ],
+    };
+    render(
+      <PageRenderer
+        spec={spec}
+        data={{ 0: [] }}
+        onMutate={async () => undefined}
+        onRefresh={async () => ({ 0: [{ amount: 42.5 }], 1: [] })}
+      />,
+    );
+    expect(screen.getByText("Expenses").parentElement?.textContent).toContain(
+      "nothing here yet",
+    );
+
+    fireEvent.change(screen.getByLabelText(/amount/i), {
+      target: { value: "42.50" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+
+    expect(await screen.findByText("42.5")).toBeTruthy();
+  });
+});
+
+describe("stat widget", () => {
+  afterEach(cleanup);
+
+  it("shows a placeholder when the aggregate is null", () => {
+    // SUM over an empty table is null, which formatCell renders as "", so a
+    // fresh tracker's headline number was an invisible blank.
+    render(
+      <PageRenderer
+        spec={{
+          id: "p",
+          title: "P",
+          widgets: [
+            { type: "stat", label: "Total", query: "SELECT SUM(amount)" },
+          ],
+        }}
+        data={{ 0: [{ total: null }] }}
+      />,
+    );
+    expect(screen.getByText("Total").parentElement?.textContent).toContain("-");
+  });
+});
+
+describe("list widget", () => {
+  afterEach(cleanup);
+
+  const spec: PageSpec = {
+    id: "reading",
+    title: "Reading",
+    widgets: [
+      {
+        type: "list",
+        query: "SELECT id, title FROM reading_list_books",
+        mutate: {
+          table: "reading_list_books",
+          columns: ["title", "author"],
+          allow: ["insert", "update", "delete"],
+        },
+      },
+    ],
+  };
+
+  it("can add a row to a list that declares insert", async () => {
+    // The list only toggled and deleted rows that already existed, so a
+    // reading list the agent built could never have a book put in it.
+    const calls: Array<{ op: string; values?: Record<string, unknown> }> = [];
+    render(
+      <PageRenderer
+        spec={spec}
+        data={{ 0: [] }}
+        onMutate={async (_p, _i, op, values) => {
+          calls.push({ op, ...(values ? { values } : {}) });
+        }}
+        onRefresh={async () => ({ 0: [{ id: 1, title: "Dune" }] })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /add/i }));
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Dune" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]).toEqual({ op: "insert", values: { title: "Dune" } });
+    expect(await screen.findByText("Dune")).toBeTruthy();
+  });
+
+  it("offers no add button when the list cannot insert", () => {
+    render(
+      <PageRenderer
+        spec={{
+          ...spec,
+          widgets: [
+            {
+              type: "list",
+              query: "SELECT id, title FROM t",
+              mutate: { table: "t", columns: ["title"], allow: ["delete"] },
+            },
+          ],
+        }}
+        data={{ 0: [] }}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /add/i })).toBeNull();
   });
 });

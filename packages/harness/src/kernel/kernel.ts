@@ -42,6 +42,8 @@ import { createHttpModule } from "../tools/http.js";
 import { createSearchModule } from "../tools/search.js";
 import { exportModule } from "../tools/export.js";
 import { createSkillsModule } from "../tools/skills.js";
+import { createChatsModule, CHAT_TOOLS } from "../tools/chats.js";
+import { createMemoryModule } from "../tools/memory.js";
 import { cronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
 import { notifyModule } from "../tools/notify.js";
@@ -56,6 +58,12 @@ import {
 import { GuardedTools } from "./guarded.js";
 import { ensureProfile, type Profile } from "./profile.js";
 import { SessionStore, primarySessionId } from "./session.js";
+import { ConversationStore, type Conversation } from "./conversations.js";
+import {
+  parseChatCommand,
+  runChatCommand,
+  type CommandResult,
+} from "./chatcommands.js";
 
 export interface KernelOptions {
   rootDir: string;
@@ -86,6 +94,43 @@ const DEFAULT_SYSTEM =
   "You are KOS, a personal assistant operating inside a sandboxed workspace. Use the available tools to help. Risky actions are queued for owner approval — tell the user the pending id, then wait; when approval results arrive (as a System message), continue the plan without repeating completed creates. Prefer short checklist-style replies when the user asks. For tasks: create_list once, then tasks.add/list/complete with the returned slug as instance.";
 
 const DEFAULT_BACKUP_CRON = "0 3 * * *";
+
+/** The orchestrator's own conversation id. */
+export function orchestratorId(ownerId = "owner"): string {
+  return `orchestrator:${ownerId}`;
+}
+
+/**
+ * What the orchestrator is for. Deliberately about routing rather than any
+ * particular kind of work: its job is to find where something belongs and set
+ * it up, not to do the work itself.
+ *
+ * ORCHESTRATOR_SCOPE is the other half of this, and the half that holds. Told
+ * only in prose to route, and handed the full toolkit, it built things inline
+ * instead: a whole project would land in the Command thread, later work on it
+ * had nowhere to go, and a page for one thing got written into whatever
+ * project already existed. What it cannot reach, it has to delegate.
+ */
+const ORCHESTRATOR_BRIEF = [
+  "You are the owner's router. You do not build things yourself. You find or create the conversation where a piece of work belongs, give it the task, and report back what it did.",
+  "You deliberately have no tools for files, data, pages or schedules. Anything that needs them goes to a conversation. This is not a limitation to apologise for or work around; it is the job.",
+  "Before starting anything, search existing conversations: the work often already has a home, and saying so is more useful than making another thread.",
+  "When something genuinely needs its own conversation, create it with a brief saying what it is for, and give it the task at the same time. It runs immediately and its answer comes back to you.",
+  "A task is an instruction to the agent, in the owner's voice: \"Create a directory called test-dir\". Never address the owner in it. A task that asks a question produces an agent that asks it back and does nothing.",
+  "If the request is too vague to state a concrete task, ask the owner for the missing detail yourself. Do not hand the ambiguity to a new agent.",
+  "Leave tools unrestricted. A new conversation gets the full toolkit unless the owner has asked you to limit it, because a guess about what it will need becomes a capability it silently lacks later.",
+  "Creating a conversation and stopping is not an outcome. Every reply should say what the agent actually did, not that you set something up.",
+  "Dispatch to an existing conversation when one already covers the work, rather than creating a near-duplicate.",
+  "Be brief. Say what you found, what you dispatched, and what it said.",
+].join("\n");
+
+/**
+ * The orchestrator's reach, applied per turn rather than stored on the
+ * conversation: it is a property of what the orchestrator is, so an edit to
+ * the conversation cannot drift it, and it holds for workspaces that predate
+ * it. The chats.* tools are restricted and arrive separately as a grant.
+ */
+const ORCHESTRATOR_SCOPE = ["memory"];
 
 /**
  * Pick the embedding provider from available secrets. Cohere is here so an
@@ -138,6 +183,7 @@ export class Kernel {
   readonly profile: Profile;
   readonly loadReport: LoadReport;
   readonly sessions: SessionStore;
+  readonly conversations: ConversationStore;
   readonly facts: FactsStore;
   readonly memoryWriter: MemoryWriter;
   readonly memoryRetriever: MemoryRetriever;
@@ -157,6 +203,8 @@ export class Kernel {
    * within a session; clearing the session clears it.
    */
   private readonly sessionScope = new Map<string, Set<string>>();
+  /** The conversation currently running a turn, for memory attribution. */
+  currentConversationId: string | undefined;
 
   private constructor(args: {
     workspace: Workspace;
@@ -177,6 +225,7 @@ export class Kernel {
     profile: Profile;
     loadReport: LoadReport;
     sessions: SessionStore;
+    conversations: ConversationStore;
     facts: FactsStore;
     memoryWriter: MemoryWriter;
     memoryRetriever: MemoryRetriever;
@@ -206,6 +255,7 @@ export class Kernel {
     this.profile = args.profile;
     this.loadReport = args.loadReport;
     this.sessions = args.sessions;
+    this.conversations = args.conversations;
     this.facts = args.facts;
     this.memoryWriter = args.memoryWriter;
     this.memoryRetriever = args.memoryRetriever;
@@ -219,6 +269,10 @@ export class Kernel {
   }
 
   static async boot(options: KernelOptions): Promise<Kernel> {
+    // Modules are constructed before the kernel exists, and one of them needs
+    // to call back into it; this closes that loop without a partial `this`.
+    // eslint-disable-next-line prefer-const
+    let kernelRef: Kernel | undefined;
     const workspace = Workspace.open(options.rootDir);
     const secrets = options.secrets ?? SecretsRegistry.fromEnv();
     const profile = ensureProfile(workspace, options.profileOverrides);
@@ -241,6 +295,7 @@ export class Kernel {
       approvals,
     });
     const sessions = new SessionStore(workspace.db);
+    const conversations = new ConversationStore(workspace.db);
     const facts = new FactsStore(workspace.db);
     const embedder = pickEmbedder(secrets);
     const episodic = new EpisodicStore(
@@ -258,7 +313,16 @@ export class Kernel {
       manifest,
       migrator,
       pages,
-      ...(options.notify ? { notify: options.notify } : {}),
+      // Always wired. Without a channel this used to be absent, so `notify`
+      // threw and every unattended job that ended in "tell me" lost its
+      // message. The fallback puts it where the owner already looks.
+      notify: async (text: string) => {
+        if (options.notify) {
+          await options.notify(text);
+          return;
+        }
+        kernelRef?.recordNotice(text);
+      },
     };
 
     const modules: KosModule[] = [
@@ -272,12 +336,51 @@ export class Kernel {
       tasksModule,
       exportModule,
       createSkillsModule(promoter),
+      createMemoryModule({
+        facts,
+        ownerId: profile.ownerId,
+        // Attributed to the conversation that wrote it, so the owner can see
+        // which agent believed what.
+        currentSource: () => kernelRef?.currentConversationId ?? "agent",
+      }),
+      createChatsModule({
+        conversations,
+        sessions,
+        ownerId: profile.ownerId,
+        // Bound late: the kernel does not exist yet while modules are built.
+        dispatch: (id, text) => kernelRef!.dispatchTo(id, text),
+        // It should not offer you its own thread as somewhere to put work.
+        hide: [orchestratorId(profile.ownerId)],
+      }),
       ...(options.extraModules ?? []),
     ];
     const loader = new ModuleLoader(toolRegistryContext(registry, services));
     const loadReport = await loader.load(modules);
 
     ensureDefaultBackupCron(crons);
+
+    // The pre-existing primary session becomes the first conversation, so an
+    // upgraded workspace keeps its transcript instead of orphaning it.
+    const primaryId = primarySessionId(profile.ownerId);
+    if (!conversations.get(primaryId)) {
+      conversations.create({
+        id: primaryId,
+        userId: profile.ownerId,
+        title: "Main",
+      });
+    }
+
+    // The orchestrator is a real conversation so it remembers what it has set
+    // up and why, rather than re-deriving it from scratch every invocation.
+    const orchestrator = orchestratorId(profile.ownerId);
+    if (!conversations.get(orchestrator)) {
+      conversations.create({
+        id: orchestrator,
+        userId: profile.ownerId,
+        title: "Command",
+        brief: ORCHESTRATOR_BRIEF,
+      });
+    }
 
     const inference =
       options.inference ?? createDefaultRouter(secrets);
@@ -289,7 +392,7 @@ export class Kernel {
       new LlmSalienceConfirmer(inference),
     );
 
-    return new Kernel({
+    kernelRef = new Kernel({
       workspace,
       secrets,
       registry,
@@ -308,6 +411,7 @@ export class Kernel {
       profile,
       loadReport,
       sessions,
+      conversations,
       facts,
       memoryWriter,
       memoryRetriever,
@@ -321,6 +425,7 @@ export class Kernel {
         ? { onApprovalRequested: options.onApprovalRequested }
         : {}),
     });
+    return kernelRef;
   }
 
   promoteSkill(input: PromoteInput): Promise<PromoteOutcome> {
@@ -347,6 +452,17 @@ export class Kernel {
       origin?: "owner" | "system";
       /** Surface this turn arrived on, so the reply can be shaped for it. */
       channel?: string;
+      /**
+       * Restricted tools granted for this turn. Only the orchestrator passes
+       * these; an ordinary conversation cannot reach them.
+       */
+      grant?: string[];
+      /**
+       * Overrides the conversation's own tool scope for this turn. The
+       * orchestrator uses it so its reach is a property of what it is rather
+       * than stored state that an edit could drift away from.
+       */
+      allow?: string[];
     } = {},
   ): Promise<HandleResult> {
     if (this.killSwitch.halted) {
@@ -356,14 +472,52 @@ export class Kernel {
     const sessionId =
       opts.sessionId ?? `chat:${userId}`;
 
-    return this.queue.enqueue(async () => {
+    return this.queue.enqueue(() => this.runTurn(text, userId, sessionId, opts));
+  }
+
+  /**
+   * One turn, without the queue.
+   *
+   * handleMessage wraps this in the serial queue. Dispatch calls it directly,
+   * because a dispatched turn already runs inside the dispatcher's queue slot:
+   * enqueuing again would wait on a task that is waiting on it.
+   */
+  private async runTurn(
+    text: string,
+    userId: string,
+    sessionId: string,
+    opts: {
+      scopeTags?: string[];
+      noSession?: boolean;
+      origin?: "owner" | "system";
+      channel?: string;
+      grant?: string[];
+      allow?: string[];
+    },
+  ): Promise<HandleResult> {
+    {
       const runId = this.runs.start("chat");
+      const previousConversation = this.currentConversationId;
+      this.currentConversationId = sessionId;
       try {
+        // A conversation may be a scoped agent: its own brief, its own reach.
+        const conversation = this.conversations.get(sessionId);
         const inferred = opts.scopeTags ?? inferScopeTags(text);
         const scopeTags = this.accumulateScope(sessionId, inferred);
         const tools = this.guardedTools({
           userId,
+          conversationId: sessionId,
           ...(scopeTags.length ? { scopeTags } : {}),
+          // null is unrestricted; an array is the exact scope, empty included.
+          // An explicit override wins: it says what this caller is, and the
+          // conversation's own scope is what the owner set for ordinary turns.
+          ...(opts.allow !== undefined
+            ? { allow: opts.allow }
+            : conversation?.toolAllow !== null &&
+                conversation?.toolAllow !== undefined
+              ? { allow: conversation.toolAllow }
+              : {}),
+          ...(opts.grant?.length ? { grant: opts.grant } : {}),
         });
 
         const recall = await this.memoryRetriever.recall(userId, text, {
@@ -371,13 +525,33 @@ export class Kernel {
           episodeLimit: 4,
           minFactsBeforeVector: 2,
         });
+        // Pinned entries are the handful of things every conversation should
+        // know without having to match them, so they bypass retrieval.
+        const pinnedFacts = this.facts.pinned(userId);
+        recall.facts = [
+          ...pinnedFacts,
+          ...recall.facts.filter((f) => !pinnedFacts.some((p) => p.key === f.key)),
+        ];
         const formatting = channelGuidance(opts.channel);
+        // Say when the toolkit has been narrowed. Withheld tools are simply
+        // absent, so a scoped agent asked for something outside its reach does
+        // not know the capability exists: it cannot say "not here", and works
+        // the only tools it has instead. One asked to alter a schema with a
+        // files-and-memory scope spent its whole turn writing and deleting
+        // memory entries, including a false one saying the change was made.
+        const scopeNote = tools.scopeNote();
+        // The scope goes last, after the brief: a brief tells the agent what
+        // it is for, and the two conflict exactly when the owner asks for
+        // something the brief covers and the scope does not.
+        const extra = [formatting, conversation?.brief, scopeNote]
+          .filter((part): part is string => Boolean(part && part.trim()))
+          .join("\n\n");
         const system = assembleSystemPrompt({
           baseSystem: this.system,
           profile: this.profile,
           projects: this.manifest.list(),
           recall,
-          ...(formatting ? { extra: formatting } : {}),
+          ...(extra ? { extra } : {}),
         });
 
         let input: string | ModelMessage[] = text;
@@ -398,19 +572,37 @@ export class Kernel {
           // Persist the loop's own message list so tool calls and their results
           // survive into the next turn, not just the final text.
           this.sessions.record(sessionId, result.messages);
+          // The conversation moved either way, and a reader watching it needs
+          // to see that. Only the auto-title is withheld from a resume prompt,
+          // which is harness plumbing and must not rename anything.
+          this.conversations.touch(
+            sessionId,
+            ...(opts.origin === "system" ? [] : [text]),
+          );
         }
 
         // Memory write path (salience) + episodic note for the exchange. Only
         // owner turns are remembered; harness-generated turns are plumbing.
         // Awaited so a write cannot be lost when the process exits right after
         // a reply, and so failures surface in the runs log instead of vanishing.
+        // A turn that ends on a tool call has no text in it. Handed straight
+        // to the reader that is silence: the agent looks like it ignored them.
+        // It happens when the loop hits its iteration cap, which is exactly
+        // when the reader most needs to hear that it got stuck.
+        const reply =
+          result.finalText.trim() !== ""
+            ? result.finalText
+            : result.exhausted
+              ? "I got stuck on that and stopped after too many steps without reaching an answer. Tell me what to try instead, or narrow it down."
+              : "I do not have anything to add to that.";
+
         if (opts.origin !== "system") {
-          await this.rememberExchange(userId, text, result.finalText);
+          await this.rememberExchange(userId, text, reply);
         }
 
         this.runs.finish(runId, "ok");
         return {
-          reply: result.finalText,
+          reply,
           halted: false,
           sessionId,
         };
@@ -421,8 +613,12 @@ export class Kernel {
           err instanceof Error ? err.message : String(err),
         );
         throw err;
+      } finally {
+        // Restored rather than cleared: a dispatched turn runs inside another,
+        // and the outer one still has work to attribute.
+        this.currentConversationId = previousConversation;
       }
-    });
+    }
   }
 
   /**
@@ -466,11 +662,18 @@ export class Kernel {
         riskTier: "risky",
         userId: decidedBy ?? this.profile.ownerId,
       });
+      // cron.schedule is risky, so this is the path a scheduled job normally
+      // takes: approved here, never through the guarded executor.
+      if (!r.isError) this.afterToolRan(action.tool);
       return r;
     });
 
     const userId = decidedBy ?? this.profile.ownerId;
-    const sessionId = primarySessionId(this.profile.ownerId);
+    // Resume the conversation that asked. Resuming the primary one left the
+    // waiting agent still waiting, and put the result in front of the wrong
+    // reader.
+    const sessionId =
+      action.conversationId ?? primarySessionId(this.profile.ownerId);
     const outcome = result.isError ? "FAILED" : "SUCCEEDED";
     const resumePrompt = [
       `System: the owner approved pending action #${id}.`,
@@ -512,7 +715,8 @@ export class Kernel {
     if (!denied) {
       return { ok: false, message: `no pending action #${id}` };
     }
-    const sessionId = primarySessionId(this.profile.ownerId);
+    const sessionId =
+      denied.conversationId ?? primarySessionId(this.profile.ownerId);
     let reply: string | undefined;
     try {
       const cont = await this.handleMessage(
@@ -534,9 +738,136 @@ export class Kernel {
     };
   }
 
+  /**
+   * A turn with the orchestrator. It runs in its own conversation and is the
+   * only caller granted the chats.* tools, so the ability to read across
+   * threads and start new ones exists in exactly one place.
+   */
+  async handleOrchestratorTurn(
+    text: string,
+    opts: { channel?: string } = {},
+  ): Promise<HandleResult & { conversationId: string }> {
+    const id = orchestratorId(this.profile.ownerId);
+    const res = await this.handleMessage(text, {
+      sessionId: id,
+      userId: this.profile.ownerId,
+      grant: [...CHAT_TOOLS],
+      allow: [...ORCHESTRATOR_SCOPE],
+      ...(opts.channel ? { channel: opts.channel } : {}),
+    });
+    return { ...res, conversationId: id };
+  }
+
+  /**
+   * Run a turn inside another conversation and return what it said.
+   *
+   * This is how the orchestrator delegates rather than merely filing work:
+   * the sub-agent runs with its own brief and its own tool scope, and its
+   * reply comes back so the orchestrator can report a result instead of a
+   * promise that something was created.
+   *
+   * Bypasses the queue on purpose. The caller is already holding the queue
+   * slot, so nothing else is running concurrently, and enqueuing here would
+   * deadlock against the very task doing the dispatching.
+   */
+  async dispatchTo(
+    conversationId: string,
+    text: string,
+  ): Promise<{ reply: string; conversationId: string }> {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) throw new Error(`no such conversation: ${conversationId}`);
+    // The sub-agent is never granted the chats tools, so a dispatched turn
+    // cannot dispatch again and there is no recursion to bound.
+    const res = await this.runTurn(text, conversation.userId, conversation.id, {
+      channel: "dispatch",
+    });
+    return { reply: res.reply, conversationId: conversation.id };
+  }
+
   clearSession(sessionId: string): void {
     this.sessions.clear(sessionId);
     this.sessionScope.delete(sessionId);
+  }
+
+  /**
+   * Which conversation a surface should use for this turn.
+   *
+   * A surface with native threads passes its thread id as `conversationKey`
+   * and gets one conversation per thread, created on first sight. A surface
+   * with a single stream (a DM, the CLI) has no key, so it follows a pointer
+   * the user moves with `/switch`.
+   */
+  conversationFor(
+    channel: string,
+    userId: string,
+    conversationKey?: string,
+  ): Conversation {
+    if (conversationKey) {
+      const id = `${channel}:${conversationKey}`;
+      return (
+        this.conversations.get(id) ??
+        this.conversations.create({ id, userId, channel })
+      );
+    }
+
+    const active = this.conversations.activeFor(channel, userId);
+    if (active) return this.conversations.get(active)!;
+
+    // Fall back to the most recent conversation, else the primary one.
+    const existing = this.conversations.list(userId)[0];
+    const chosen =
+      existing ??
+      this.conversations.create({
+        id: primarySessionId(userId),
+        userId,
+        channel,
+        title: "Main",
+      });
+    this.conversations.setActive(channel, userId, chosen.id);
+    return chosen;
+  }
+
+  /**
+   * One turn from a messaging surface: resolve the conversation, run a
+   * conversation command if that is what it was, otherwise run the agent.
+   * Channels call this instead of handleMessage so every surface gets the same
+   * conversation behaviour without implementing any of it.
+   */
+  async handleChannelTurn(input: {
+    text: string;
+    userId: string;
+    channel: string;
+    conversationKey?: string;
+  }): Promise<HandleResult & { conversationId: string; isCommand: boolean }> {
+    const conversation = this.conversationFor(
+      input.channel,
+      input.userId,
+      input.conversationKey,
+    );
+
+    const command = parseChatCommand(input.text);
+    if (command) {
+      // Commands are bookkeeping: no model call, no queue, no transcript entry.
+      const result: CommandResult = runChatCommand(command, {
+        conversations: this.conversations,
+        channel: input.channel,
+        userId: input.userId,
+        currentId: conversation.id,
+      });
+      return {
+        reply: result.reply,
+        halted: false,
+        conversationId: result.switchedTo ?? conversation.id,
+        isCommand: true,
+      };
+    }
+
+    const res = await this.handleMessage(input.text, {
+      userId: input.userId,
+      sessionId: conversation.id,
+      channel: input.channel,
+    });
+    return { ...res, conversationId: conversation.id, isCommand: false };
   }
 
   /**
@@ -617,6 +948,12 @@ export class Kernel {
   private guardedTools(opts: {
     scopeTags?: string[];
     userId?: string;
+    /** The conversation this turn belongs to, for approval routing. */
+    conversationId?: string;
+    /** Hard allow-list from the conversation, when it is a scoped agent. */
+    allow?: string[];
+    /** Restricted tools granted for this turn. */
+    grant?: string[];
   } = {}): GuardedTools {
     return new GuardedTools({
       registry: this.registry,
@@ -625,11 +962,28 @@ export class Kernel {
       approvals: this.approvals,
       userId: opts.userId ?? this.profile.ownerId,
       toolLimit: 48,
+      ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
       ...(opts.scopeTags ? { scopeTags: opts.scopeTags } : {}),
+      ...(opts.allow !== undefined ? { allow: opts.allow } : {}),
+      ...(opts.grant?.length ? { grant: opts.grant } : {}),
       ...(this.onApprovalRequested
         ? { onQueued: this.onApprovalRequested }
         : {}),
+      onExecuted: (tool) => this.afterToolRan(tool),
     });
+  }
+
+  /**
+   * State a tool changed that lives outside the database.
+   *
+   * The scheduler holds node-cron tasks in memory, built from the crons table
+   * when the host started. A job the agent scheduled after that was stored,
+   * enabled, and never once fired, because nothing told the scheduler it
+   * existed. The dashboard's own enable and delete already reloaded; the
+   * agent's path did not.
+   */
+  private afterToolRan(tool: string): void {
+    if (tool.startsWith("cron.")) this.reloadCron();
   }
 
   startCron(): void {
@@ -672,8 +1026,44 @@ export class Kernel {
     this.scheduler.start();
   }
 
+  /**
+   * An agent-initiated message with no channel to carry it.
+   *
+   * It lands in the owner's primary conversation, which is the same thread the
+   * CLI and a DM use, so unattended work is readable in Chats rather than
+   * thrown away with "no notify channel is wired".
+   */
+  recordNotice(text: string): void {
+    const sessionId = primarySessionId(this.profile.ownerId);
+    // record() replaces the transcript, so the existing one comes with it.
+    this.sessions.record(sessionId, [
+      ...this.sessions.get(sessionId),
+      { role: "assistant", content: [{ type: "text", text }] },
+    ]);
+    this.conversations.touch(sessionId);
+  }
+
+  /**
+   * Which model is actually answering, when the inference layer can say.
+   *
+   * The routing table is picked from whichever API keys are present, so a
+   * workspace with only one provider gets a materially different agent from
+   * the default and nothing anywhere said so.
+   */
+  routes(): Record<string, { provider: string; model: string }> | undefined {
+    const source = this.inference as {
+      describeRoutes?: () => Record<string, { provider: string; model: string }>;
+    };
+    return source.describeRoutes?.();
+  }
+
   reloadCron(): void {
     this.scheduler?.reload();
+  }
+
+  /** Jobs the running scheduler actually holds, as opposed to rows in the table. */
+  scheduledCronCount(): number {
+    return this.scheduler?.scheduledCount() ?? 0;
   }
 
   stopCron(): void {
