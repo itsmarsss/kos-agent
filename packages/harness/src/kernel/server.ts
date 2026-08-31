@@ -389,13 +389,18 @@ export async function handleApiRequest(
 
   if (method === "GET" && path === "/api/conversations") {
     const includeArchived = queryParams(req.url).get("archived") === "1";
-    // The orchestrator is machinery, not one of the owner's chats, so it does
-    // not belong in the list they browse.
+    // The orchestrator is included and labelled rather than filtered out: the
+    // owner should be able to open the thread that routes their work. The
+    // agent-facing chats.list still hides it, because it must not offer its
+    // own thread as somewhere to put work.
     const orchestrator = orchestratorId(kernel.profile.ownerId);
     return ok(
       kernel.conversations
         .list(kernel.profile.ownerId, { includeArchived })
-        .filter((c) => c.id !== orchestrator),
+        .map((c) => ({
+          ...c,
+          kind: c.id === orchestrator ? "orchestrator" : "chat",
+        })),
     );
   }
 
