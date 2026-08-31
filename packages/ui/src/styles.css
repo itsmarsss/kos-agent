@@ -1959,6 +1959,23 @@ textarea {
   white-space: nowrap;
 }
 .chats-item-when { color: var(--faint); font-size: 0.8125rem; }
+
+/* What a thread is doing, in the place the timestamp would otherwise sit. */
+.chats-flag {
+  font-size: 0.75rem;
+  font-family: var(--mono);
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.chats-flag--working {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+.chats-flag--needs-you {
+  color: var(--warn);
+  background: rgba(230, 184, 77, 0.16);
+}
 .chats-item-brief,
 .chats-item-tools {
   color: var(--faint);

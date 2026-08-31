@@ -15,6 +15,15 @@ export interface Status {
   routes?: Record<string, { provider: string; model: string }> | null;
 }
 
+export interface TaskModelSetting {
+  model?: string;
+  effort?: string;
+  maxTokens?: number;
+}
+
+/** Model choices per task class, as edited in Settings. */
+export type ModelSettings = Partial<Record<"reasoning" | "cheap", TaskModelSetting>>;
+
 export interface PendingAction {
   id: number;
   tool: string;
@@ -131,6 +140,8 @@ export interface Conversation {
   toolAllow: string[] | null;
   /** The orchestrator is a conversation, but not one of the owner's chats. */
   kind?: "orchestrator" | "chat";
+  /** What the thread is doing, so the list can say rather than look idle. */
+  activity?: "working" | "needs-you" | "idle";
 }
 
 export interface ChatTurn {
@@ -207,6 +218,15 @@ async function post<T>(path: string, body: unknown = {}): Promise<T> {
 export const api = {
   status: () => get<Status>("/api/status"),
   approvals: () => get<PendingAction[]>("/api/approvals"),
+  modelSettings: () =>
+    get<{
+      routes: Record<string, { provider: string; model: string }> | null;
+      saved: ModelSettings;
+      efforts: string[];
+    }>("/api/settings/models"),
+  saveModelSettings: (settings: ModelSettings) =>
+    post<{ saved: ModelSettings }>("/api/settings/models", settings),
+  availableModels: () => get<{ models: string[] }>("/api/models"),
   projects: () => get<Project[]>("/api/projects"),
   setProjectStatus: (slug: string, status: string) =>
     post<Project>("/api/projects/status", { slug, status }),

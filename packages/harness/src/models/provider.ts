@@ -8,6 +8,13 @@ export interface ModelSpec {
   maxTokens?: number;
   effort?: Effort;
   thinking?: "adaptive" | "disabled";
+  /**
+   * Let the model emit several tool calls in one response. Off by default: it
+   * fires a whole plan before seeing any of it come back, so a wrong first
+   * assumption is carried through every call in the batch. One at a time
+   * means each result is read before the next call is chosen.
+   */
+  parallelToolCalls?: boolean;
 }
 
 /**

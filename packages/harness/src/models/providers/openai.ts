@@ -128,7 +128,12 @@ export function buildResponsesParams(
     store: false,
   };
   if (req.system) params.instructions = req.system;
-  if (req.tools?.length) params.tools = toResponsesTools(req.tools);
+  if (req.tools?.length) {
+    params.tools = toResponsesTools(req.tools);
+    // One call per turn unless asked otherwise: the model reads each result
+    // before choosing the next call, instead of firing a whole plan blind.
+    params.parallel_tool_calls = spec.parallelToolCalls === true;
+  }
   // Only when asked for: a non-reasoning model rejects the field outright.
   if (spec.effort) params.reasoning = { effort: toReasoningEffort(spec.effort) };
   return params;

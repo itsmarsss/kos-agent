@@ -75,7 +75,13 @@ export function buildAnthropicParams(
     messages: toAnthropicMessages(req.messages),
   };
   if (req.system) params.system = req.system;
-  if (req.tools?.length) params.tools = toAnthropicTools(req.tools);
+  if (req.tools?.length) {
+    params.tools = toAnthropicTools(req.tools);
+    if (spec.parallelToolCalls !== true) {
+      // Same reason as the OpenAI side: one call, one result, then decide.
+      params.tool_choice = { type: "auto", disable_parallel_tool_use: true };
+    }
+  }
   if (spec.thinking === "adaptive") {
     params.thinking = { type: "adaptive" };
   } else if (spec.thinking === "disabled") {

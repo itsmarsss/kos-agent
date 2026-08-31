@@ -20,6 +20,8 @@ import { ListPage } from "./ListPage.js";
 import { AnimatePresence, m } from "motion/react";
 
 import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
+import { Modal } from "./Modal.js";
+import { ModelSettings } from "./ModelSettings.js";
 import { ease, listItem, spring } from "./motion.js";
 import { Home } from "./Home.js";
 import { ChatsPage } from "./ChatsPage.js";
@@ -70,6 +72,7 @@ export function App(): React.ReactElement {
   const [cronFilter, setCronFilter] = useState<"all" | "on" | "off">("all");
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeChat, setActiveChat] = useState<string | null>(null);
 
@@ -431,11 +434,24 @@ export function App(): React.ReactElement {
             >
               Ask KOS <kbd>⌘K</kbd>
             </button>
-            <details className="menu">
+            {/* A native details stays open when something inside it is
+                clicked, so the menu sat over whatever it had just opened. */}
+            <details
+              className="menu"
+              onClick={(e) => {
+                const target = e.target as HTMLElement;
+                if (target.closest("button, a")) {
+                  e.currentTarget.removeAttribute("open");
+                }
+              }}
+            >
               <summary className="btn btn--ghost" aria-label="More">⋯</summary>
               <div className="menu-body">
                 <button type="button" onClick={() => void refresh()}>Refresh</button>
                 <button type="button" onClick={() => void doSnapshot()}>Snapshot now</button>
+                <button type="button" onClick={() => setSettingsOpen(true)}>
+                  Models and thinking
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -476,6 +492,14 @@ export function App(): React.ReactElement {
         </AnimatePresence>
 
         {body}
+
+        <Modal
+          open={settingsOpen}
+          title="Models and thinking"
+          onClose={() => setSettingsOpen(false)}
+        >
+          <ModelSettings onClose={() => setSettingsOpen(false)} />
+        </Modal>
 
         <ChatPanel
           open={chatOpen}
