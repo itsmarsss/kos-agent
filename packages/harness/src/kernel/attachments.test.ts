@@ -61,3 +61,29 @@ describe("attachmentBlocks", () => {
     ).toThrow(/limit is 5MB/);
   });
 });
+
+describe("file types the browser does not name", () => {
+  it("reads a .tex file", () => {
+    // Reported: main.tex came back as "unknown type" and was refused, which
+    // is not something a reader can act on.
+    const blocks = attachmentBlocks([
+      { name: "main.tex", mediaType: "", data: b64("\\documentclass{article}") },
+    ]);
+    expect(blocks[0]).toMatchObject({ type: "text" });
+    expect(JSON.stringify(blocks[0])).toContain("documentclass");
+  });
+
+  it("reads source files whatever the browser calls them", () => {
+    for (const name of ["a.py", "b.rs", "c.go", "d.bib", "e.toml", "f.sql"]) {
+      expect(
+        attachmentBlocks([{ name, mediaType: "", data: b64("x") }])[0],
+      ).toMatchObject({ type: "text" });
+    }
+  });
+
+  it("still refuses something genuinely unreadable", () => {
+    expect(() =>
+      attachmentBlocks([{ name: "a.zip", mediaType: "application/zip", data: "AA" }]),
+    ).toThrow(/cannot be read/);
+  });
+});

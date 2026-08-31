@@ -125,6 +125,64 @@ function blocks(source: string): Block[] {
       continue;
     }
 
+    // A pipe table: a header row, a dashed separator, then body rows. Without
+    // this an agent's comparison table arrived as a screenful of raw pipes,
+    // which is exactly the shape of answer a table is chosen for.
+    const isRow = (l: string): boolean => /\|/.test(l) && l.trim().startsWith("|");
+    const isDivider = (l: string): boolean =>
+      /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(l) && l.includes("-");
+    if (isRow(line) && isDivider(lines[i + 1] ?? "")) {
+      const cells = (l: string): string[] =>
+        l
+          .trim()
+          .replace(/^\||\|$/g, "")
+          .split("|")
+          .map((c) => c.trim());
+      const header = cells(line);
+      const aligns = cells(lines[i + 1] ?? "").map((c) =>
+        c.startsWith(":") && c.endsWith(":")
+          ? "center"
+          : c.endsWith(":")
+            ? "right"
+            : "left",
+      );
+      i += 2;
+      const body: string[][] = [];
+      while (i < lines.length && isRow(lines[i] ?? "")) {
+        body.push(cells(lines[i] ?? ""));
+        i++;
+      }
+      out.push({
+        render: (k) => (
+          <div key={k} className="md-table-wrap">
+            <table className="md-table">
+              <thead>
+                <tr>
+                  {header.map((cell, n) => (
+                    <th key={n} style={{ textAlign: aligns[n] ?? "left" }}>
+                      {inline(cell)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {body.map((row, r) => (
+                  <tr key={r}>
+                    {header.map((_, n) => (
+                      <td key={n} style={{ textAlign: aligns[n] ?? "left" }}>
+                        {inline(row[n] ?? "")}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ),
+      });
+      continue;
+    }
+
     const bullet = /^\s*[-*+]\s+/;
     const numbered = /^\s*\d+[.)]\s+/;
     if (bullet.test(line) || numbered.test(line)) {
@@ -181,7 +239,8 @@ function blocks(source: string): Block[] {
       !/^#{1,3}\s/.test(lines[i] ?? "") &&
       !/^\s*>\s?/.test(lines[i] ?? "") &&
       !bullet.test(lines[i] ?? "") &&
-      !numbered.test(lines[i] ?? "")
+      !numbered.test(lines[i] ?? "") &&
+      !(isRow(lines[i] ?? "") && isDivider(lines[i + 1] ?? ""))
     ) {
       para.push(lines[i] ?? "");
       i++;

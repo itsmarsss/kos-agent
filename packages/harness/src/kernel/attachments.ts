@@ -20,7 +20,15 @@ export interface Attachment {
 /** Bytes per attachment. Base64 inflates by a third, and prompts have limits. */
 const MAX_BYTES = 5 * 1024 * 1024;
 
-const TEXTUAL = /^(text\/|application\/(json|xml|x-yaml|yaml|toml|javascript|typescript))/;
+const TEXTUAL = /^(text\/|application\/(json|xml|x-yaml|yaml|toml|javascript|typescript|x-tex|x-latex|sql|x-sh|rtf))/;
+
+/**
+ * Extensions that are text whatever the browser claims. Browsers report an
+ * empty or generic type for most of these: .tex came through as "unknown type"
+ * and was refused, which is not a thing a reader can act on.
+ */
+const TEXT_EXTENSIONS =
+  /\.(md|markdown|txt|text|csv|tsv|json|jsonl|ya?ml|toml|ini|cfg|conf|env|log|tex|bib|cls|sty|rst|org|adoc|ts|tsx|js|jsx|mjs|cjs|css|scss|less|html?|xml|svg|sql|sh|bash|zsh|fish|py|rb|go|rs|java|kt|swift|c|h|cpp|hpp|cs|php|pl|lua|r|jl|vue|svelte|astro|gradle|dockerfile|makefile|gitignore|npmrc|lock)$/i;
 
 export function isImage(mediaType: string): boolean {
   return mediaType.startsWith("image/");
@@ -30,10 +38,12 @@ export function isTextual(mediaType: string, name: string): boolean {
   if (TEXTUAL.test(mediaType)) return true;
   // Browsers report an empty or generic type for plenty of ordinary text
   // files, so the extension gets a say when the type says nothing useful.
-  if (mediaType === "" || mediaType === "application/octet-stream") {
-    return /\.(md|txt|csv|tsv|json|ya?ml|toml|log|ts|tsx|js|jsx|css|html|sql|sh)$/i.test(
-      name,
-    );
+  if (
+    mediaType === "" ||
+    mediaType === "application/octet-stream" ||
+    !mediaType.includes("/")
+  ) {
+    return TEXT_EXTENSIONS.test(name);
   }
   return false;
 }

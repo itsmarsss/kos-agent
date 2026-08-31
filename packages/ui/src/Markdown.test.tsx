@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { Markdown } from "./Markdown.js";
+import { formatElapsed } from "./LiveTurn.js";
 
 function html(text: string): string {
   const { container } = render(<Markdown text={text} />);
@@ -91,5 +92,52 @@ describe("Markdown lists", () => {
   it("starts an ordered list at the number it was written with", () => {
     const { container } = render(<Markdown text={"3. third\n4. fourth"} />);
     expect(container.querySelector("ol")?.getAttribute("start")).toBe("3");
+  });
+});
+
+describe("Markdown tables", () => {
+  const table = [
+    "| Cause | Likelihood | Note |",
+    "| --- | ---: | :---: |",
+    "| Month filter | High | stat filters to this month |",
+    "| Stale cache | Low | possible |",
+  ].join("\n");
+
+  it("renders a pipe table as a table", () => {
+    // An agent's comparison table arrived as a screenful of raw pipes, which
+    // is the shape of answer a table is chosen for in the first place.
+    const { container } = render(<Markdown text={table} />);
+    expect(container.querySelectorAll("th")).toHaveLength(3);
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(2);
+    expect(container.textContent).not.toContain("---");
+  });
+
+  it("honours column alignment", () => {
+    const { container } = render(<Markdown text={table} />);
+    const heads = [...container.querySelectorAll("th")];
+    expect(heads[1]?.style.textAlign).toBe("right");
+    expect(heads[2]?.style.textAlign).toBe("center");
+  });
+
+  it("renders inline markup inside cells", () => {
+    const { container } = render(
+      <Markdown text={"| a |\n| --- |\n| `code` |"} />,
+    );
+    expect(container.querySelector("td code")?.textContent).toBe("code");
+  });
+
+  it("leaves a lone pipe line as text", () => {
+    const { container } = render(<Markdown text={"| not a table"} />);
+    expect(container.querySelector("table")).toBeNull();
+    expect(container.textContent).toContain("| not a table");
+  });
+});
+
+describe("elapsed formatting", () => {
+  it("rolls seconds into minutes and hours", () => {
+    // It counted up in seconds forever, so a long turn read as "312s".
+    expect(formatElapsed(45_000)).toBe("45s");
+    expect(formatElapsed(200_000)).toBe("3m 20s");
+    expect(formatElapsed(3_840_000)).toBe("1h 4m");
   });
 });

@@ -20,13 +20,24 @@ function currentThought(reasoning: string): string {
   return lines.at(-1)?.trim() ?? "";
 }
 
+/** 45s, 3m 20s, 1h 4m. A count that only ever grows in seconds stops reading. */
+export function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  if (total < 60) return `${total}s`;
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  if (minutes < 60) return `${minutes}m ${seconds}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
 function Elapsed({ since }: { since: number }): ReactElement {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
-  return <span className="live-elapsed">{Math.max(0, Math.round((now - since) / 1000))}s</span>;
+  return <span className="live-elapsed">{formatElapsed(now - since)}</span>;
 }
 
 export function LiveTurn({ live }: { live: Live }): ReactElement {

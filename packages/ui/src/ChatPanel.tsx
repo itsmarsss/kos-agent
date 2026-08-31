@@ -6,7 +6,8 @@ import { composerKeyDown, useStickToBottom } from "./composer.js";
 import type { ChatEvent } from "./api.js";
 import { Markdown } from "./Markdown.js";
 import { ToolCall } from "./ToolCall.js";
-import { AttachButton, AttachmentBar, useAttachments } from "./Attachments.js";
+import { AttachButton, useAttachments } from "./Attachments.js";
+import { AttachmentStrip } from "./AttachmentStrip.js";
 import { Thinking } from "./Thinking.js";
 import { LiveTurn } from "./LiveTurn.js";
 import type { Live } from "./progress.js";
@@ -146,10 +147,17 @@ export function ChatPanel({
                   <Thinking key={i} text={e.text} />
                 ) : (
                   <div key={i} className={`bubble bubble--${e.role}`}>
-                    {e.images?.map((src, n) => (
-                      <img className="bubble-image" key={n} src={src} alt="" />
-                    ))}
                     {e.text && <Markdown text={e.text} />}
+                    {/* Under the sentence, at a fixed size: a full-width image
+                        pushed the message it belonged to off the screen. */}
+                    {e.images && e.images.length > 0 && (
+                      <AttachmentStrip
+                        items={e.images.map((src, n) => ({
+                          name: `Image ${n + 1}`,
+                          src,
+                        }))}
+                      />
+                    )}
                   </div>
                 ),
               )}
@@ -162,8 +170,13 @@ export function ChatPanel({
 
             <div className="sheet-composer composer">
               {attachments && (
-                <AttachmentBar
-                  files={attachments.files}
+                <AttachmentStrip
+                  items={attachments.files.map((f) => ({
+                    name: f.name,
+                    ...(f.mediaType.startsWith("image/")
+                      ? { src: `data:${f.mediaType};base64,${f.data}` }
+                      : {}),
+                  }))}
                   onRemove={attachments.remove}
                 />
               )}
