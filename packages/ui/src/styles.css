@@ -2134,6 +2134,32 @@ li:hover .chats-more, .chats-more:focus-visible { opacity: 1; }
 .chats-menu button:hover { background: var(--panel-2); }
 .chats-menu button.is-danger { color: var(--danger); }
 
+/* —— references written into a message —— */
+.chip-ref {
+  display: inline-block;
+  padding: 0.02em 0.4em;
+  border-radius: 0.5em;
+  font-size: 0.9em;
+  font-family: var(--mono);
+  line-height: 1.4;
+  vertical-align: baseline;
+  border: 1px solid transparent;
+  /* Long paths wrap inside the chip rather than pushing the bubble wider. */
+  word-break: break-word;
+}
+.chip-ref--project { color: var(--accent); background: var(--accent-dim); }
+.chip-ref--page { color: var(--ok); background: var(--ok-dim); }
+.chip-ref--file { color: var(--muted); background: var(--panel-2); border-color: var(--line); }
+.chip-ref--schedule { color: var(--warn); background: var(--warn-dim); }
+.chip-ref--command { color: var(--accent); background: var(--accent-dim); }
+/* On the owner's own bubble the accent is the background, so the chips need
+   to sit against it rather than disappear into it. */
+.bubble--you .chip-ref {
+  background: rgba(11, 13, 18, 0.14);
+  border-color: rgba(11, 13, 18, 0.18);
+  color: inherit;
+}
+
 /* —— autocomplete —— */
 .composer-input { position: relative; }
 .ac {

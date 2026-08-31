@@ -10,6 +10,16 @@ import { Fragment, type ReactElement, type ReactNode } from "react";
  * rather than disappearing.
  */
 
+/**
+ * A reference the owner wrote with @, and a slash command.
+ *
+ * Rendered as chips so they read as things rather than as punctuation in the
+ * middle of a sentence, and coloured by kind so a file is distinguishable from
+ * a project at a glance.
+ */
+const MENTION = /@(project|page|file|schedule):([A-Za-z0-9._/-]*[A-Za-z0-9_/-])/;
+const COMMAND = /(^|\s)(\/(?:new|chats|switch|rename|archive|help))\b/;
+
 const BOLD_ITALIC = /(\*\*\*|___)(.+?)\1/;
 const BOLD = /(\*\*|__)(.+?)\1/;
 const ITALIC = /(?<![*\w])(\*|_)(?!\s)(.+?)(?<!\s)\1(?![*\w])/;
@@ -24,6 +34,27 @@ const INLINE: Array<{
   render: (m: RegExpExecArray, key: number) => ReactNode;
 }> = [
   { re: CODE, render: (m, k) => <code key={k}>{m[1]}</code> },
+  {
+    re: MENTION,
+    render: (m, k) => (
+      <span
+        key={k}
+        className={`chip-ref chip-ref--${m[1]}`}
+        title={`${m[1]}: ${m[2]}`}
+      >
+        {m[2]}
+      </span>
+    ),
+  },
+  {
+    re: COMMAND,
+    render: (m, k) => (
+      <Fragment key={k}>
+        {m[1]}
+        <span className="chip-ref chip-ref--command">{m[2]}</span>
+      </Fragment>
+    ),
+  },
   {
     re: LINK,
     render: (m, k) => (
