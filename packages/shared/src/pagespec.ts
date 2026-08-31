@@ -86,6 +86,8 @@ export interface FormWidget extends BaseWidget {
 export interface CustomHtmlWidget extends BaseWidget {
   type: "custom_html";
   html: string;
+  /** Frame height in px. Interactive pages need room; default 320. */
+  height?: number;
 }
 
 export type Widget =

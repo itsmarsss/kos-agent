@@ -147,6 +147,55 @@ describe("chart widget", () => {
     expect(container.querySelector(".kos-cell--quarter")).toBeNull();
   });
 
+  it("runs scripts in custom_html but keeps it cross-origin", () => {
+    const { container } = render(
+      <PageRenderer
+        spec={{
+          id: "p",
+          title: "P",
+          widgets: [{ type: "custom_html", html: "<canvas id=g></canvas>", height: 480 }],
+        }}
+        data={{}}
+      />,
+    );
+    const frame = container.querySelector("iframe")!;
+    // Scripts are the point of the escape hatch; same-origin is what would let
+    // the frame rewrite its own sandbox and get out.
+    expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin");
+    expect(frame.getAttribute("srcdoc")).toContain("<canvas id=g>");
+    expect((frame as HTMLIFrameElement).style.height).toBe("480px");
+  });
+
+  it("repairs a closing tag the model escaped as if it were in a JS string", () => {
+    const { container } = render(
+      <PageRenderer
+        spec={{
+          id: "p",
+          title: "P",
+          widgets: [
+            { type: "custom_html", html: "<script>var a=1;<\\/script><p>after</p>" },
+          ],
+        }}
+        data={{}}
+      />,
+    );
+    const srcdoc = container.querySelector("iframe")!.getAttribute("srcdoc")!;
+    // Left as-is the script never closes and the whole frame does nothing.
+    expect(srcdoc).toContain("</script>");
+    expect(srcdoc).not.toContain("<\\/script>");
+  });
+
+  it("clamps an absurd custom_html height", () => {
+    const { container } = render(
+      <PageRenderer
+        spec={{ id: "p", title: "P", widgets: [{ type: "custom_html", html: "x", height: 99999 }] }}
+        data={{}}
+      />,
+    );
+    expect((container.querySelector("iframe") as HTMLIFrameElement).style.height).toBe("900px");
+  });
+
   it("shows a failed display query instead of an empty widget", () => {
     render(
       <PageRenderer
@@ -202,14 +251,17 @@ describe("custom_html widget", () => {
 
   const html = '<p id="agent-markup">hello</p>';
 
-  it("renders inside a sandboxed iframe with a restrictive sandbox", () => {
+  it("renders inside a sandbox that runs scripts but stays cross-origin", () => {
     const { container } = render(
       <PageRenderer spec={page({ type: "custom_html", html })} data={{}} />,
     );
     expect(screen.queryByText(/unsupported widget/)).toBeNull();
     const frame = container.querySelector("iframe");
     expect(frame).toBeTruthy();
-    expect(frame?.getAttribute("sandbox")).toBe("");
+    // An empty sandbox made the escape hatch unable to escape anything: no
+    // interactive page can run without scripts. Withholding same-origin is
+    // what keeps it away from the dashboard.
+    expect(frame?.getAttribute("sandbox")).toBe("allow-scripts");
     expect(frame?.getAttribute("srcdoc")).toContain("agent-markup");
   });
 
