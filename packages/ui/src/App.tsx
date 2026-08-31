@@ -264,11 +264,31 @@ export function App(): React.ReactElement {
     const text = prompt.trim();
     if ((text === "" && attachments.files.length === 0) || sending) return;
     setSending(true);
-    setThread((t) => [...t, { kind: "message", role: "you", text }]);
+    // Attached on send, not when the answer lands: the files belong to the
+    // message the moment it goes.
+    const files = attachments.files;
+    setThread((t) => [
+      ...t,
+      {
+        kind: "message",
+        role: "you",
+        text,
+        ...(files.length
+          ? {
+              attachments: files.map((f) => ({
+                name: f.name,
+                ...(f.mediaType.startsWith("image/")
+                  ? { src: `data:${f.mediaType};base64,${f.data}` }
+                  : {}),
+              })),
+            }
+          : {}),
+      },
+    ]);
     setPrompt("");
+    attachments.clear();
     try {
-      const res = await api.orchestrator(text, attachments.files);
-      attachments.clear();
+      const res = await api.orchestrator(text, files);
       // Reload: the turn's tool calls belong in the transcript, and appending
       // only the reply would hide the work that produced it.
       const { events } = await api.conversation(res.conversationId);
@@ -340,7 +360,10 @@ export function App(): React.ReactElement {
 
   const shell = (body: React.ReactNode): React.ReactElement => (
     <ErrorBoundary label="dashboard">
-      <main className="ops">
+      {/* The chat route owns the whole window: the shell's scroll padding is
+          for pages that scroll, and with it the document ran past the viewport
+          so the page moved behind the chat, top bar and all. */}
+      <main className={`ops ${route.name === "chats" ? "ops--full" : ""}`}>
         <AnimatePresence>
           {toast && (
             <m.div

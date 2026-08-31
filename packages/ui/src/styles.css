@@ -1475,6 +1475,23 @@ textarea {
   padding: 0 1.25rem 4rem;
 }
 
+/* Exactly the viewport, so nothing behind the chat can scroll. The pane takes
+   whatever is left after the top bar rather than guessing at its height. */
+.ops--full {
+  height: 100vh;
+  height: 100dvh;
+  padding-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ops--full .chats {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  padding-bottom: 0.75rem;
+}
+
 /* —— top bar —— */
 .topbar {
   display: flex;
