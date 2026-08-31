@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 
-import type { ModelSpec, Provider } from "../provider.js";
+import type { Effort, ModelSpec, Provider } from "../provider.js";
 import type {
   ContentBlock,
   GenerateRequest,
@@ -11,7 +11,17 @@ import type {
 
 const DEFAULT_MAX_TOKENS = 16000;
 
-type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
+/**
+ * OpenAI over the Responses API.
+ *
+ * Chat Completions cannot carry a reasoning effort alongside function tools
+ * for the gpt-5 line, and the gpt-5.6 models refuse function tools there
+ * outright. KOS always sends tools, so on Chat Completions the effort in a
+ * ModelSpec was silently unusable and the newest models were unreachable.
+ */
+
+type ResponseParams = OpenAI.Responses.ResponseCreateParamsNonStreaming;
+type ResponseInputItem = OpenAI.Responses.ResponseInputItem;
 
 /**
  * OpenAI function names must match ^[a-zA-Z0-9_-]+$. KOS tools use dotted
@@ -25,131 +35,163 @@ export function fromOpenAIToolName(name: string): string {
   return name.replace(/__/g, ".");
 }
 
-/** Map one internal message to one or more OpenAI chat messages. */
-function toChatMessages(message: ModelMessage): ChatMessage[] {
-  const text = message.content
+function textOf(content: ModelMessage["content"]): string {
+  return content
     .filter((b) => b.type === "text")
     .map((b) => (b as { text: string }).text)
     .join("");
-
-  if (message.role === "assistant") {
-    const toolCalls = message.content
-      .filter((b) => b.type === "tool_use")
-      .map((b) => {
-        const t = b as { id: string; name: string; input: unknown };
-        return {
-          id: t.id,
-          type: "function" as const,
-          function: {
-            name: toOpenAIToolName(t.name),
-            arguments: JSON.stringify(t.input),
-          },
-        };
-      });
-    const msg: OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam = {
-      role: "assistant",
-      content: text || null,
-    };
-    if (toolCalls.length) msg.tool_calls = toolCalls;
-    return [msg];
-  }
-
-  // user role: tool results become separate `tool` messages.
-  const results = message.content.filter((b) => b.type === "tool_result");
-  if (results.length) {
-    return results.map((b) => {
-      const r = b as { toolUseId: string; content: string };
-      return { role: "tool", tool_call_id: r.toolUseId, content: r.content };
-    });
-  }
-  return [{ role: "user", content: text }];
 }
 
-export function toOpenAIMessages(
-  system: string | undefined,
-  messages: ModelMessage[],
-): ChatMessage[] {
-  const out: ChatMessage[] = [];
-  if (system) out.push({ role: "system", content: system });
-  for (const m of messages) out.push(...toChatMessages(m));
+/**
+ * Map one internal message to Responses input items.
+ *
+ * A tool call and its result are separate top-level items here rather than
+ * fields on a message, and both carry the same call_id. Dropping either one
+ * leaves the model with a call it never saw answered.
+ */
+function toInputItems(message: ModelMessage): ResponseInputItem[] {
+  const out: ResponseInputItem[] = [];
+  const text = textOf(message.content);
+
+  if (message.role === "assistant") {
+    // Plain string content: the structured output_text form is an output
+    // item, which carries an id and status we do not have when replaying.
+    if (text) out.push({ role: "assistant", content: text });
+    for (const block of message.content) {
+      if (block.type !== "tool_use") continue;
+      const call = block as { id: string; name: string; input: unknown };
+      out.push({
+        type: "function_call",
+        call_id: call.id,
+        name: toOpenAIToolName(call.name),
+        arguments: JSON.stringify(call.input),
+      });
+    }
+    return out;
+  }
+
+  const results = message.content.filter((b) => b.type === "tool_result");
+  for (const block of results) {
+    const result = block as { toolUseId: string; content: string };
+    out.push({
+      type: "function_call_output",
+      call_id: result.toolUseId,
+      output: result.content,
+    });
+  }
+  if (results.length === 0) out.push({ role: "user", content: text });
   return out;
 }
 
-export function toOpenAITools(
+export function toResponsesInput(messages: ModelMessage[]): ResponseInputItem[] {
+  return messages.flatMap(toInputItems);
+}
+
+export function toResponsesTools(
   tools: NonNullable<GenerateRequest["tools"]>,
-): OpenAI.Chat.Completions.ChatCompletionTool[] {
+): ResponseParams["tools"] {
   return tools.map((t) => ({
-    type: "function",
-    function: {
-      name: toOpenAIToolName(t.name),
-      description: t.description,
-      parameters: t.inputSchema,
-    },
+    type: "function" as const,
+    name: toOpenAIToolName(t.name),
+    description: t.description,
+    parameters: t.inputSchema as Record<string, unknown>,
+    strict: false,
   }));
 }
-export function buildOpenAIParams(
+
+/**
+ * KOS efforts are a superset of what OpenAI accepts, so the two above its top
+ * setting land on "high" rather than being dropped or rejected.
+ */
+export function toReasoningEffort(
+  effort: Effort,
+): "low" | "medium" | "high" {
+  switch (effort) {
+    case "low":
+      return "low";
+    case "medium":
+      return "medium";
+    default:
+      return "high";
+  }
+}
+
+export function buildResponsesParams(
   req: GenerateRequest,
   spec: ModelSpec,
-): OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming {
-  const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming =
-    {
-      model: spec.model,
-      max_completion_tokens: spec.maxTokens ?? req.maxTokens ?? DEFAULT_MAX_TOKENS,
-      messages: toOpenAIMessages(req.system, req.messages),
-    };
-  if (req.tools?.length) params.tools = toOpenAITools(req.tools);
+): ResponseParams {
+  const params: ResponseParams = {
+    model: spec.model,
+    input: toResponsesInput(req.messages),
+    max_output_tokens: spec.maxTokens ?? req.maxTokens ?? DEFAULT_MAX_TOKENS,
+    // Nothing here needs to outlive the call, and the transcript is ours.
+    store: false,
+  };
+  if (req.system) params.instructions = req.system;
+  if (req.tools?.length) params.tools = toResponsesTools(req.tools);
+  // Only when asked for: a non-reasoning model rejects the field outright.
+  if (spec.effort) params.reasoning = { effort: toReasoningEffort(spec.effort) };
   return params;
 }
 
-export function mapFinishReason(reason: string | null): StopReason {
-  switch (reason) {
-    case "stop":
-      return "end_turn";
-    case "tool_calls":
-    case "function_call":
-      return "tool_use";
-    case "length":
-      return "max_tokens";
-    case "content_filter":
-      return "refusal";
-    default:
-      return "other";
+function stopReasonFor(
+  response: OpenAI.Responses.Response,
+  hasToolCall: boolean,
+  hasRefusal: boolean,
+): StopReason {
+  if (response.status === "incomplete") {
+    return response.incomplete_details?.reason === "max_output_tokens"
+      ? "max_tokens"
+      : "other";
   }
+  if (hasRefusal) return "refusal";
+  return hasToolCall ? "tool_use" : "end_turn";
 }
 
-export function fromOpenAIResponse(
-  completion: OpenAI.Chat.Completions.ChatCompletion,
+export function fromResponsesResponse(
+  response: OpenAI.Responses.Response,
 ): ModelResponse {
-  const choice = completion.choices[0];
   const content: ContentBlock[] = [];
-  const msg = choice?.message;
-  if (msg?.content) content.push({ type: "text", text: msg.content });
-  for (const call of msg?.tool_calls ?? []) {
-    if (call.type !== "function") continue;
-    let input: Record<string, unknown> = {};
-    try {
-      input = JSON.parse(call.function.arguments || "{}") as Record<
-        string,
-        unknown
-      >;
-    } catch {
-      input = { _raw: call.function.arguments };
+  let hasToolCall = false;
+  let hasRefusal = false;
+
+  for (const item of response.output ?? []) {
+    if (item.type === "message") {
+      for (const part of item.content ?? []) {
+        if (part.type === "output_text" && part.text) {
+          content.push({ type: "text", text: part.text });
+        }
+        if (part.type === "refusal") hasRefusal = true;
+      }
+      continue;
     }
-    content.push({
-      type: "tool_use",
-      id: call.id,
-      name: fromOpenAIToolName(call.function.name),
-      input,
-    });
+    if (item.type === "function_call") {
+      hasToolCall = true;
+      let input: Record<string, unknown> = {};
+      try {
+        input = JSON.parse(item.arguments || "{}") as Record<string, unknown>;
+      } catch {
+        // Malformed arguments reach the tool, which reports what was wrong;
+        // dropping the call instead would look like it was never made.
+        input = { _raw: item.arguments };
+      }
+      content.push({
+        type: "tool_use",
+        id: item.call_id,
+        name: fromOpenAIToolName(item.name),
+        input,
+      });
+    }
   }
+
   return {
     content,
-    stopReason: mapFinishReason(choice?.finish_reason ?? null),
+    stopReason: stopReasonFor(response, hasToolCall, hasRefusal),
     usage: {
-      inputTokens: completion.usage?.prompt_tokens ?? 0,
-      outputTokens: completion.usage?.completion_tokens ?? 0,
+      inputTokens: response.usage?.input_tokens ?? 0,
+      outputTokens: response.usage?.output_tokens ?? 0,
     },
-    model: completion.model,
+    model: response.model,
   };
 }
 
@@ -163,9 +205,9 @@ export class OpenAIProvider implements Provider {
     apiKey: string,
   ): Promise<ModelResponse> {
     const client = new OpenAI({ apiKey });
-    const completion = await client.chat.completions.create(
-      buildOpenAIParams(req, spec),
+    const response = await client.responses.create(
+      buildResponsesParams(req, spec),
     );
-    return fromOpenAIResponse(completion);
+    return fromResponsesResponse(response);
   }
 }
