@@ -75,6 +75,145 @@ function columnDdl(col: ColumnDef): string {
   return s;
 }
 
+const OPS = [
+  "create_table",
+  "add_column",
+  "drop_column",
+  "rename_column",
+  "rename_table",
+  "create_index",
+] as const;
+
+function keysOf(value: object): string {
+  const keys = Object.keys(value);
+  return keys.length ? keys.join(", ") : "(none)";
+}
+
+function requireString(spec: Record<string, unknown>, field: string, op: string): string {
+  const value = spec[field];
+  if (typeof value !== "string" || value === "") {
+    throw new Error(
+      `${op} requires "${field}" as a non-empty string. Got keys: ${keysOf(spec)}`,
+    );
+  }
+  return value;
+}
+
+function parseColumn(raw: unknown, op: string, where: string): ColumnDef {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new Error(
+      `${op}: ${where} must be an object {name, type}, not ${JSON.stringify(raw)}`,
+    );
+  }
+  const col = raw as Record<string, unknown>;
+  if (typeof col["name"] !== "string" || col["name"] === "") {
+    throw new Error(`${op}: ${where} needs a "name" string. Got keys: ${keysOf(col)}`);
+  }
+  if (typeof col["type"] !== "string") {
+    throw new Error(
+      `${op}: column "${col["name"]}" needs a "type" string, one of ${[...COLUMN_TYPES].join(", ")}`,
+    );
+  }
+  // normalizeType does the allowed-value check and reports the allowed set.
+  normalizeType(col["type"]);
+  const parsed: ColumnDef = { name: col["name"], type: col["type"] };
+  if (col["notNull"] === true) parsed.notNull = true;
+  if (col["primaryKey"] === true) parsed.primaryKey = true;
+  if (col["unique"] === true) parsed.unique = true;
+  if (col["default"] !== undefined) {
+    parsed.default = col["default"] as ColumnDef["default"];
+  }
+  return parsed;
+}
+
+function parseColumnList(
+  spec: Record<string, unknown>,
+  op: string,
+): unknown[] {
+  const columns = spec["columns"];
+  if (!Array.isArray(columns) || columns.length === 0) {
+    throw new Error(
+      `${op} requires "columns": a non-empty array. Got keys: ${keysOf(spec)}`,
+    );
+  }
+  return columns;
+}
+
+/**
+ * Turn model-supplied JSON into a ChangeSpec, or explain what is wrong.
+ *
+ * The spec arrives as free-form JSON from a model that cannot see this type,
+ * so every field here is a guess until it is checked. Reading an absent field
+ * threw a TypeError whose message named no field and offered no alternative,
+ * and a model handed "Cannot read properties of undefined" retries the same
+ * shape until it gives up. Each message below names the field, says what it
+ * should be, and lists the keys that actually arrived.
+ */
+export function parseChangeSpec(raw: unknown): ChangeSpec {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new Error(`spec must be an object with an "op" field, got ${JSON.stringify(raw)}`);
+  }
+  const spec = raw as Record<string, unknown>;
+  const op = spec["op"];
+  if (typeof op !== "string" || !(OPS as readonly string[]).includes(op)) {
+    throw new Error(
+      `spec.op must be one of ${OPS.join(", ")}. Got ${JSON.stringify(op)}`,
+    );
+  }
+
+  switch (op) {
+    case "create_table":
+      return {
+        op,
+        table: requireString(spec, "table", op),
+        columns: parseColumnList(spec, op).map((c, i) =>
+          parseColumn(c, op, `columns[${i}]`),
+        ),
+      };
+    case "add_column":
+      return {
+        op,
+        table: requireString(spec, "table", op),
+        column: parseColumn(spec["column"], op, `"column"`),
+      };
+    case "drop_column":
+      return {
+        op,
+        table: requireString(spec, "table", op),
+        column: requireString(spec, "column", op),
+      };
+    case "rename_column":
+      return {
+        op,
+        table: requireString(spec, "table", op),
+        from: requireString(spec, "from", op),
+        to: requireString(spec, "to", op),
+      };
+    case "rename_table":
+      return {
+        op,
+        from: requireString(spec, "from", op),
+        to: requireString(spec, "to", op),
+      };
+    default: {
+      const columns = parseColumnList(spec, op).map((c, i) => {
+        if (typeof c !== "string" || c === "") {
+          throw new Error(`${op}: columns[${i}] must be a column name string`);
+        }
+        return c;
+      });
+      const index: Extract<ChangeSpec, { op: "create_index" }> = {
+        op: "create_index",
+        table: requireString(spec, "table", op),
+        columns,
+      };
+      if (spec["unique"] === true) index.unique = true;
+      if (typeof spec["name"] === "string") index.name = spec["name"];
+      return index;
+    }
+  }
+}
+
 /** Build the DDL string for a changeSpec, namespaced to the project slug. */
 export function buildMigrationSql(slug: string, spec: ChangeSpec): string {
   switch (spec.op) {

@@ -15,6 +15,7 @@ export { InstanceConfig } from "./config.js";
 export {
   Migrator,
   buildMigrationSql,
+  parseChangeSpec,
   type ChangeSpec,
   type ColumnDef,
   type MigrationRecord,

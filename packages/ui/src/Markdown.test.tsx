@@ -68,3 +68,28 @@ describe("Markdown", () => {
     expect(html("just words")).toContain("just words");
   });
 });
+
+describe("Markdown lists", () => {
+  it("keeps one ordered list when items are separated by blank lines", () => {
+    // A model writing a spaced-out list produced a fresh <ol> per item, so the
+    // reader saw "1." three times instead of 1, 2, 3.
+    const { container } = render(
+      <Markdown text={"1. first\n\n2. second\n\n3. third"} />,
+    );
+    expect(container.querySelectorAll("ol")).toHaveLength(1);
+    expect(container.querySelectorAll("li")).toHaveLength(3);
+  });
+
+  it("ends the list when the blank line is followed by prose", () => {
+    const { container } = render(
+      <Markdown text={"1. first\n2. second\n\nAnd that is all."} />,
+    );
+    expect(container.querySelectorAll("li")).toHaveLength(2);
+    expect(container.querySelector("p")?.textContent).toBe("And that is all.");
+  });
+
+  it("starts an ordered list at the number it was written with", () => {
+    const { container } = render(<Markdown text={"3. third\n4. fourth"} />);
+    expect(container.querySelector("ol")?.getAttribute("start")).toBe("3");
+  });
+});

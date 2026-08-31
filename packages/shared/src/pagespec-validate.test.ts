@@ -136,3 +136,25 @@ describe("widget span", () => {
     expect(errors.join(" ")).toMatch(/span must be one of/);
   });
 });
+
+describe("mutation ops", () => {
+  const spec = (allow: unknown): unknown => ({
+    id: "p",
+    title: "P",
+    widgets: [
+      { type: "form", mutate: { table: "t", columns: ["a"], allow } },
+    ],
+  });
+
+  it("accepts the real ops", () => {
+    expect(validatePageSpec(spec(["insert", "delete"]) as never)).toEqual([]);
+  });
+
+  it("rejects an invented op and lists the real ones", () => {
+    // "create" passed validation and then failed at submit time, so the page
+    // looked correct right up until someone tried to use it.
+    expect(validatePageSpec(spec(["create"]) as never).join(" ")).toContain(
+      "insert, update, delete",
+    );
+  });
+});

@@ -24,8 +24,13 @@ export interface PageRendererProps {
     values?: Record<string, unknown>,
     key?: MutateKey,
   ) => Promise<void>;
-  /** Refetches one widget's rows after a write; defaults to the page endpoint. */
-  onRefresh?: (pageId: string, widgetIndex: number) => Promise<Row[]>;
+  /**
+   * Refetches the page's rows after a write; defaults to the page endpoint.
+   * The whole page, not one widget: a write changes every widget reading that
+   * table, and the widget that did the writing is usually a form with no rows
+   * of its own.
+   */
+  onRefresh?: (pageId: string) => Promise<Record<number, Row[]>>;
 }
 
 async function defaultMutate(
@@ -46,9 +51,9 @@ async function defaultMutate(
   });
 }
 
-async function defaultRefresh(pageId: string, widgetIndex: number): Promise<Row[]> {
+async function defaultRefresh(pageId: string): Promise<Record<number, Row[]>> {
   const payload = await api.page(pageId);
-  return payload.data[widgetIndex] ?? [];
+  return payload.data;
 }
 
 /**
@@ -79,8 +84,9 @@ const NO_ERRORS: Record<number, string> = {};
  * Render an agent-authored page spec from the fixed widget library. The spec is
  * validated first (a bad page is bad data, flagged, not a broken build), and
  * each widget renders inside its own error boundary so one failure is contained.
- * Write-capable widgets get a mutation runner scoped to their own index, which
- * refreshes just that widget's rows once the write lands.
+ * Write-capable widgets get a mutation runner scoped to their own index; once
+ * the write lands the page's rows are refetched, so the table and the total
+ * that read the same records move together with the form that changed them.
  */
 export function PageRenderer({
   spec,
@@ -104,8 +110,7 @@ export function PageRenderer({
       key?: MutateKey,
     ): Promise<void> => {
       await onMutate(spec.id, widgetIndex, op, values, key);
-      const rows = await onRefresh(spec.id, widgetIndex);
-      setFresh((prev) => ({ ...prev, [widgetIndex]: rows }));
+      setFresh(await onRefresh(spec.id));
     },
     [spec.id, onMutate, onRefresh],
   );

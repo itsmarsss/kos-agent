@@ -1,7 +1,7 @@
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { migrationEscalation } from "../risk/rules.js";
-import type { ChangeSpec } from "../systems/migrate.js";
+import { parseChangeSpec } from "../systems/migrate.js";
 import type { CreateProjectInput } from "../systems/manifest.js";
 
 /**
@@ -85,14 +85,23 @@ function defineSystemsTools(ctx: ModuleContext): void {
     {
       name: "systems.migrate",
       description:
-        "Apply a guarded schema change to a project. Ops: create_table, add_column, drop_column, rename_column, rename_table, create_index. Tables are namespaced to the project slug automatically. Additive ops (create_table, add_column, create_index) apply immediately; drop_column, rename_column, and rename_table need owner approval. Never use raw DDL via sql.",
+        "Apply a guarded schema change to a project. This is SQLite. Tables are namespaced to the project slug automatically. Additive ops (create_table, add_column, create_index) apply immediately; drop_column, rename_column, and rename_table need owner approval. Never use raw DDL via sql.\n" +
+        "spec shapes, by op:\n" +
+        '  create_table: {op, table, columns: [{name, type, primaryKey?, notNull?, unique?, default?}]}\n' +
+        '  add_column:   {op, table, column: {name, type, ...}}\n' +
+        '  drop_column:  {op, table, column: "name"}\n' +
+        '  rename_column:{op, table, from, to}\n' +
+        '  rename_table: {op, from, to}\n' +
+        '  create_index: {op, table, columns: ["a","b"], unique?, name?}\n' +
+        "A column type must be one of TEXT, INTEGER, REAL, BLOB, NUMERIC. There is no serial, decimal, date, or varchar: use INTEGER with primaryKey for a row id, REAL for money, and TEXT holding ISO-8601 for a date.",
       inputSchema: {
         type: "object",
         properties: {
           project: { type: "string", description: "project slug" },
           spec: {
             type: "object",
-            description: "changeSpec with op and fields for that op",
+            description:
+              'changeSpec, e.g. {"op":"create_table","table":"expenses","columns":[{"name":"id","type":"INTEGER","primaryKey":true},{"name":"spent_on","type":"TEXT"},{"name":"amount","type":"REAL"}]}',
           },
         },
         required: ["project", "spec"],
@@ -100,10 +109,9 @@ function defineSystemsTools(ctx: ModuleContext): void {
     },
     (input) => {
       const project = str(input, "project");
-      const spec = input.spec as ChangeSpec;
-      if (!spec || typeof spec !== "object" || typeof (spec as { op?: unknown }).op !== "string") {
-        throw new Error("spec must be an object with an op field");
-      }
+      // Checked rather than cast: this arrives as free-form model JSON, and a
+      // wrong guess has to come back as an instruction, not a TypeError.
+      const spec = parseChangeSpec(input.spec);
       const record = migrator.migrate(project, spec);
       return JSON.stringify({
         id: record.id,
@@ -124,7 +132,9 @@ function defineSystemsTools(ctx: ModuleContext): void {
       description:
         "Validate and save a page-spec JSON for a project. The page becomes renderable on the dashboard. Spec needs id, title, and widgets.\n" +
         "Widgets: stat, table, chart (line/bar/area/pie), list, markdown, card, form, custom_html.\n" +
-        "Data widgets take a read-only `query`; form/list/card take a `mutate` target ({table, columns}).\n" +
+        "Data widgets take a read-only `query`; form/list/card take a `mutate` target ({table, columns, allow?}). allow is any of insert, update, delete.\n" +
+        "Both `query` and `mutate.table` name the PHYSICAL table, the namespaced one systems.migrate reported, not the logical name you asked it to create.\n" +
+        "If the owner has to put data in (a log, a tracker, a list they add to), the page needs a way to add a row: pair the read-only view with a form widget, or use a list or card widget with a mutate target. A page built only from queries is read-only, and the owner has no way to fill it.\n" +
         "custom_html takes `html` and an optional `height`, and renders in a sandboxed frame WITH scripts enabled: use it for anything the fixed widgets cannot express, including interactive pages and small games.\n" +
         "Write a closing script tag plainly as </script>; do not escape the slash, that is a JavaScript-string convention and in HTML it fails to close the tag.\n" +
         "The frame has NO network access and cannot reach the workspace. Never link an external image, font, script or stylesheet: they will fail and can break your script. Draw with canvas or CSS, and inline any asset as a data URI. Put any data the page needs directly into the html.\n" +

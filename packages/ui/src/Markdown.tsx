@@ -129,17 +129,34 @@ function blocks(source: string): Block[] {
     const numbered = /^\s*\d+[.)]\s+/;
     if (bullet.test(line) || numbered.test(line)) {
       const ordered = numbered.test(line);
-      const items: string[] = [];
       const re = ordered ? numbered : bullet;
-      while (i < lines.length && re.test(lines[i] ?? "")) {
-        items.push((lines[i] ?? "").replace(re, ""));
-        i++;
+      const start = ordered ? Number(/^\s*(\d+)/.exec(line)?.[1] ?? 1) : 1;
+      const items: string[] = [];
+      while (i < lines.length) {
+        const current = lines[i] ?? "";
+        if (re.test(current)) {
+          items.push(current.replace(re, ""));
+          i++;
+          continue;
+        }
+        // A blank line between items is a loose list, not the end of one.
+        // Ending the list there started a fresh <ol> per item, so a model
+        // that spaced its list out was rendered as "1. 1. 1.".
+        if (current.trim() === "") {
+          let j = i;
+          while (j < lines.length && (lines[j] ?? "").trim() === "") j++;
+          if (j < lines.length && re.test(lines[j] ?? "")) {
+            i = j;
+            continue;
+          }
+        }
+        break;
       }
       out.push({
         render: (k) => {
           const Tag = ordered ? "ol" : "ul";
           return (
-            <Tag key={k} className="md-list">
+            <Tag key={k} className="md-list" {...(start !== 1 ? { start } : {})}>
               {items.map((item, n) => (
                 <li key={n}>{inline(item)}</li>
               ))}
