@@ -37,6 +37,20 @@ export interface GuardedToolsDeps {
 }
 
 /**
+ * A queued risky call reports success, because nothing went wrong: it simply
+ * has not happened yet. Readers need to tell those apart from a call that ran,
+ * so the message carries a stable prefix both the model and the transcript
+ * parse, rather than each guessing from prose.
+ */
+export const QUEUED_PREFIX = "queued for approval (pending #";
+
+/** The pending-action id in a queued tool result, if that is what this is. */
+export function parseQueuedApproval(result: string): string | null {
+  const match = /^queued for approval \(pending #([^)]+)\)/.exec(result);
+  return match?.[1] ?? null;
+}
+
+/**
  * The guarded tool path the kernel hands to the agent loop. For every call it:
  *  1. classifies risk in the harness (never the model),
  *  2. queues risky calls for approval and returns without executing,
@@ -109,7 +123,7 @@ export class GuardedTools implements ToolBox {
       this.deps.onQueued?.(action);
       return {
         content: [
-          `queued for approval (pending #${action.id}); not executed.`,
+          `${QUEUED_PREFIX}${action.id}); not executed.`,
           `Tell the user to approve #${action.id}.`,
           "Do not re-call this tool until you receive an approval result.",
           "After approval the harness will resume you with the result; continue the plan then.",

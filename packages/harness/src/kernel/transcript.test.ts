@@ -75,6 +75,37 @@ describe("conversationEvents", () => {
     expect(events).toEqual([{ kind: "message", role: "kos", text: "hi" }]);
   });
 
+  it("marks a call held for approval, so it does not read as done", () => {
+    const events = conversationEvents([
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "t1", name: "http.fetch", input: { url: "x" } }],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            toolUseId: "t1",
+            content:
+              "queued for approval (pending #7); not executed. Tell the user to approve #7.",
+          },
+        ],
+      },
+    ]);
+    // It did not fail, but it did not happen: without this it renders as "ok".
+    expect(events[0]).toMatchObject({ pendingId: "7" });
+    expect((events[0] as { isError?: boolean }).isError).toBeUndefined();
+  });
+
+  it("leaves a call that really ran without a pending id", () => {
+    const events = conversationEvents([
+      { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "sql", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", toolUseId: "t1", content: "[]" }] },
+    ]);
+    expect((events[0] as { pendingId?: string }).pendingId).toBeUndefined();
+  });
+
   it("drops empty text rather than emitting blank bubbles", () => {
     const events = conversationEvents([
       { role: "assistant", content: [{ type: "text", text: "   " }] },

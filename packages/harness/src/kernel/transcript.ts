@@ -1,6 +1,7 @@
 import { summarizeAction } from "@kos/shared";
 
 import type { ModelMessage } from "../models/types.js";
+import { parseQueuedApproval } from "./guarded.js";
 
 /**
  * A conversation rendered for a reader rather than for the model.
@@ -23,6 +24,11 @@ export type ChatEvent =
       /** Result text, present once the matching tool_result arrives. */
       result?: string;
       isError?: boolean;
+      /**
+       * Set when the call was held for approval instead of running. Without
+       * this a queued call reads as a successful one that did nothing.
+       */
+      pendingId?: string;
     };
 
 const MAX_RESULT = 2000;
@@ -77,6 +83,8 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
         if (target) {
           target.result = block.content.slice(0, MAX_RESULT);
           if (block.isError) target.isError = true;
+          const queued = parseQueuedApproval(block.content);
+          if (queued) target.pendingId = queued;
           pending.delete(block.toolUseId);
         }
       }

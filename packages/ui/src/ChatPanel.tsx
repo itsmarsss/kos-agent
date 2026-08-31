@@ -26,6 +26,8 @@ export interface ChatPanelProps {
   onSend: () => void;
   onClose: () => void;
   onClear: () => void;
+  pendingApprovals: Set<string>;
+  onDecide: (pendingId: string, approved: boolean) => void;
 }
 
 export function ChatPanel({
@@ -37,6 +39,8 @@ export function ChatPanel({
   onSend,
   onClose,
   onClear,
+  pendingApprovals,
+  onDecide,
 }: ChatPanelProps): ReactElement | null {
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -109,7 +113,14 @@ export function ChatPanel({
                   show its conclusions with no visible reason for them. */}
               {thread.map((e, i) =>
                 e.kind === "tool" ? (
-                  <ToolCall key={i} event={e} />
+                  <ToolCall
+                    key={i}
+                    event={e}
+                    awaitingApproval={
+                      e.pendingId !== undefined && pendingApprovals.has(e.pendingId)
+                    }
+                    onDecide={onDecide}
+                  />
                 ) : (
                   <div key={i} className={`bubble bubble--${e.role}`}>
                     <Markdown text={e.text} />
