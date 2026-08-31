@@ -37,10 +37,51 @@ function assertDml(sql: string): void {
   }
 }
 
+/**
+ * "no such table: budget_tracker.expenses" is true and useless: it does not say
+ * what the table is called, and a model that guessed the dotted or logical name
+ * guesses again the same way. Answered with the tables that do exist, and with
+ * the namespaced one when that is plainly what was meant.
+ */
+function explainMissingTable(db: Db, message: string): string {
+  const named = /no such table:\s*([^\s]+)/.exec(message)?.[1];
+  if (!named) return message;
+  const tables = (
+    db
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type = 'table'
+           AND name NOT LIKE 'sqlite_%' ORDER BY name`,
+      )
+      .all() as { name: string }[]
+  ).map((r) => r.name);
+  // A dotted or logical name usually differs from the physical one only in the
+  // separator, so the physical table is findable by normalising both.
+  const key = named.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  const match = tables.find(
+    (t) => t.replace(/[^a-z0-9]/gi, "").toLowerCase() === key,
+  );
+  if (match) return `${message}. Did you mean "${match}"?`;
+  const suffix = tables.find((t) => t.toLowerCase().endsWith(`_${named.toLowerCase()}`));
+  if (suffix) {
+    return `${message}. Tables are namespaced to their project: use "${suffix}".`;
+  }
+  return tables.length
+    ? `${message}. Tables in this workspace: ${tables.join(", ")}`
+    : `${message}. This workspace has no tables yet; create one with systems.migrate.`;
+}
+
 function runSql(db: Db, input: Record<string, unknown>): string {
   const sql = sqlOf(input);
   assertDml(sql);
-  const stmt = db.prepare(sql);
+  let stmt;
+  try {
+    stmt = db.prepare(sql);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      /no such table/i.test(message) ? explainMissingTable(db, message) : message,
+    );
+  }
   if (stmt.reader) {
     const rows = stmt.all(...paramsOf(input));
     return JSON.stringify(rows);
