@@ -137,11 +137,35 @@ export function ChatsPage({
       return;
     }
     setSendingIn(target);
-    setEvents((e) => [...e, { kind: "message", role: "you", text }]);
+
+    // The message is sent the moment Send is pressed, so it should read that
+    // way: the bubble carries its attachments straight away and the composer
+    // is empty. Waiting for the turn meant the files sat in the composer,
+    // looking unsent, until the answer came back.
+    const files = attachments.files;
+    setEvents((e) => [
+      ...e,
+      {
+        kind: "message",
+        role: "you",
+        text,
+        ...(files.length
+          ? {
+              attachments: files.map((f) => ({
+                name: f.name,
+                ...(f.mediaType.startsWith("image/")
+                  ? { src: `data:${f.mediaType};base64,${f.data}` }
+                  : {}),
+              })),
+            }
+          : {}),
+      },
+    ]);
     setDraft("");
+    attachments.clear();
+
     try {
-      await api.message(text, target, attachments.files);
-      attachments.clear();
+      await api.message(text, target, files);
       // Reload rather than appending the reply: the turn may have made tool
       // calls, and those belong in the transcript too.
       const { events: got } = await api.conversation(target);
