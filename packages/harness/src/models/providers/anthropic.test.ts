@@ -107,3 +107,23 @@ describe("anthropic translators", () => {
     expect(mapStopReason("refusal")).toBe("refusal");
   });
 });
+
+describe("anthropic parallel tool calls", () => {
+  const req = {
+    messages: [{ role: "user" as const, content: [{ type: "text" as const, text: "go" }] }],
+    tools: [{ name: "ping", description: "p", inputSchema: { type: "object" } }],
+  };
+
+  it("disables parallel use by default", () => {
+    expect(buildAnthropicParams(req, { model: "claude-opus-4-8" }).tool_choice).toEqual(
+      { type: "auto", disable_parallel_tool_use: true },
+    );
+  });
+
+  it("leaves it alone when the spec asks for parallel calls", () => {
+    expect(
+      buildAnthropicParams(req, { model: "claude-opus-4-8", parallelToolCalls: true })
+        .tool_choice,
+    ).toBeUndefined();
+  });
+});

@@ -164,7 +164,16 @@ export function ChatsPage({
               >
                 <span className="chats-item-top">
                   <span className="chats-item-title">{c.title}</span>
-                  <span className="chats-item-when">{relative(c.updatedAt)}</span>
+                  {/* A thread mid-turn or sitting on an approval looked
+                      exactly like an idle one, and the only way to find out
+                      was to open it. */}
+                  {c.activity && c.activity !== "idle" ? (
+                    <span className={`chats-flag chats-flag--${c.activity}`}>
+                      {c.activity === "working" ? "working" : "needs you"}
+                    </span>
+                  ) : (
+                    <span className="chats-item-when">{relative(c.updatedAt)}</span>
+                  )}
                 </span>
                 {c.brief && <span className="chats-item-brief">{c.brief}</span>}
                 {c.toolAllow !== null && (
