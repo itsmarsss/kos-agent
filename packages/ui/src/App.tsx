@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { summarizeAction } from "@kos/shared";
 
 import {
@@ -12,6 +12,7 @@ import {
   type Project,
   type RunRecord,
   type Status,
+  type Conversation,
 } from "./api.js";
 import { Inspector, type InspectTarget } from "./Inspector.js";
 import { ListPage } from "./ListPage.js";
@@ -65,6 +66,8 @@ export function App(): React.ReactElement {
   const [cronFilter, setCronFilter] = useState<"all" | "on" | "off">("all");
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeChat, setActiveChat] = useState<string | null>(null);
 
   const flash = (kind: "ok" | "err", text: string): void => {
     setToast({ kind, text });
@@ -72,7 +75,7 @@ export function App(): React.ReactElement {
   };
 
   const refresh = useCallback(async () => {
-    const [s, a, p, c, f, pg, act, mem, r] = await Promise.all([
+    const [s, a, p, c, f, pg, act, mem, r, convos] = await Promise.all([
       api.status(),
       api.approvals(),
       api.projects(),
@@ -82,6 +85,7 @@ export function App(): React.ReactElement {
       api.activity(200),
       api.memory(300),
       api.runs(200, false),
+      api.conversations(),
     ]);
     setStatus(s);
     setApprovals(a);
@@ -92,6 +96,9 @@ export function App(): React.ReactElement {
     setActivity(act.tools);
     setFacts(mem.facts ?? []);
     setRuns(r);
+    setConversations(convos);
+    // Land on the most recent conversation until the user picks one.
+    setActiveChat((cur) => cur ?? convos[0]?.id ?? null);
   }, []);
 
   useEffect(() => {
@@ -222,7 +229,7 @@ export function App(): React.ReactElement {
     setThread((t) => [...t, { role: "you", text }]);
     setPrompt("");
     try {
-      const res = await api.message(text);
+      const res = await api.message(text, activeChat ?? undefined);
       setThread((t) => [...t, { role: "kos", text: res.reply || "(no reply)" }]);
       await refresh();
     } catch (err) {
@@ -231,6 +238,58 @@ export function App(): React.ReactElement {
       flash("err", msg);
     } finally {
       setSending(false);
+    }
+  };
+
+  /**
+   * One place loads a transcript: whenever the active conversation changes to
+   * one we have not loaded. Doing it only inside a click handler missed the
+   * first conversation, which is selected automatically after the initial poll.
+   */
+  const loadedChat = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeChat || loadedChat.current === activeChat) return;
+    loadedChat.current = activeChat;
+    let cancelled = false;
+    void api
+      .conversation(activeChat)
+      .then(({ messages }) => {
+        if (!cancelled) setThread(messages);
+      })
+      .catch(() => {
+        if (!cancelled) setThread([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeChat]);
+
+  const selectChat = (id: string): void => {
+    setActiveChat(id);
+  };
+
+  const newChat = async (): Promise<void> => {
+    try {
+      const created = await api.newConversation();
+      setConversations((list) => [created, ...list]);
+      loadedChat.current = created.id; // brand new, nothing to fetch
+      setActiveChat(created.id);
+      setThread([]);
+    } catch (err) {
+      flash("err", err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const archiveChat = async (id: string): Promise<void> => {
+    try {
+      await api.archiveConversation(id);
+      const remaining = conversations.filter((c) => c.id !== id);
+      setConversations(remaining);
+      setActiveChat(remaining[0]?.id ?? null);
+      if (remaining.length === 0) setThread([]);
+      flash("ok", "Conversation archived");
+    } catch (err) {
+      flash("err", err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -378,6 +437,11 @@ export function App(): React.ReactElement {
           onSend={() => void send()}
           onClose={() => setChatOpen(false)}
           onClear={() => void doClear()}
+          conversations={conversations}
+          activeId={activeChat}
+          onSelect={selectChat}
+          onNew={() => void newChat()}
+          onArchive={(id) => void archiveChat(id)}
         />
       </main>
     </ErrorBoundary>

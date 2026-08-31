@@ -1,6 +1,8 @@
 import { useEffect, useRef, type ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
 
+import type { Conversation } from "./api.js";
+
 import { ease, spring } from "./motion.js";
 
 /**
@@ -19,10 +21,16 @@ export interface ChatPanelProps {
   thread: ChatMessage[];
   prompt: string;
   sending: boolean;
+  /** All open conversations, newest first. */
+  conversations: Conversation[];
+  activeId: string | null;
   onPrompt: (value: string) => void;
   onSend: () => void;
   onClose: () => void;
   onClear: () => void;
+  onSelect: (id: string) => void;
+  onNew: () => void;
+  onArchive: (id: string) => void;
 }
 
 export function ChatPanel({
@@ -30,10 +38,15 @@ export function ChatPanel({
   thread,
   prompt,
   sending,
+  conversations,
+  activeId,
   onPrompt,
   onSend,
   onClose,
   onClear,
+  onSelect,
+  onNew,
+  onArchive,
 }: ChatPanelProps): ReactElement | null {
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -56,6 +69,8 @@ export function ChatPanel({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  const active = conversations.find((c) => c.id === activeId);
 
   return (
     <AnimatePresence>
@@ -80,11 +95,18 @@ export function ChatPanel({
             transition={spring}
           >
             <header className="sheet-head">
-              <div>
-                <strong>Ask KOS</strong>
-                <span className="sheet-sub">same conversation as Discord</span>
+              <div className="sheet-title">
+                <strong>{active ? active.title : "Ask KOS"}</strong>
+                <span className="sheet-sub">
+                  {conversations.length > 1
+                    ? `${conversations.length} conversations`
+                    : "shared with Discord"}
+                </span>
               </div>
               <div className="sheet-head-actions">
+                <button type="button" className="btn btn--ghost" onClick={onNew} title="New conversation">
+                  + New
+                </button>
                 <button type="button" className="btn btn--ghost" onClick={onClear}>
                   Clear
                 </button>
@@ -93,6 +115,42 @@ export function ChatPanel({
                 </button>
               </div>
             </header>
+
+            {conversations.length > 1 && (
+              <nav className="sheet-tabs" aria-label="Conversations">
+                {conversations.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={`sheet-tab ${c.id === activeId ? "is-active" : ""}`}
+                    onClick={() => onSelect(c.id)}
+                    title={c.title}
+                  >
+                    <span className="sheet-tab-title">{c.title}</span>
+                    {c.id === activeId && (
+                      <span
+                        className="sheet-tab-x"
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Archive ${c.title}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onArchive(c.id);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.stopPropagation();
+                            onArchive(c.id);
+                          }
+                        }}
+                      >
+                        ✕
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </nav>
+            )}
 
             <div className="sheet-thread" ref={boxRef} aria-live="polite">
               {thread.length === 0 && (
