@@ -313,6 +313,18 @@ export class Migrator {
     const sql = buildMigrationSql(slug, spec);
     const ts = this.now();
 
+    // "table X already exists" leaves the caller guessing what is in it, so it
+    // tries again, then goes looking through PRAGMA and grep. The columns it
+    // needs to decide between add_column and doing nothing are right here.
+    if (spec.op === "create_table") {
+      const columns = this.columnsOf(projectTable(slug, spec.table));
+      if (columns.length > 0) {
+        throw new Error(
+          `table ${projectTable(slug, spec.table)} already exists with columns: ${columns.join(", ")}. Use add_column for anything missing.`,
+        );
+      }
+    }
+
     const run = this.db.transaction(() => {
       this.db.exec(sql);
       const version =
@@ -338,6 +350,13 @@ export class Migrator {
       .prepare(`SELECT * FROM schema_migrations WHERE id = ?`)
       .get(id) as MigrationRow;
     return toRecord(row);
+  }
+
+  /** Column names of a physical table, empty when it does not exist. */
+  private columnsOf(table: string): string[] {
+    return (
+      this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+    ).map((c) => c.name);
   }
 
   history(slug: string): MigrationRecord[] {
