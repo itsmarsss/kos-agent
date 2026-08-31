@@ -56,6 +56,8 @@ function toInputItems(message: ModelMessage): ResponseInputItem[] {
   if (message.role === "assistant") {
     // Plain string content: the structured output_text form is an output
     // item, which carries an id and status we do not have when replaying.
+    // A reasoning block is for the reader and is deliberately not echoed:
+    // the provider owns its own reasoning state.
     if (text) out.push({ role: "assistant", content: text });
     for (const block of message.content) {
       if (block.type !== "tool_use") continue;
@@ -247,9 +249,11 @@ export class OpenAIProvider implements Provider {
     // than stitched together from deltas here.
     const stream = await client.responses.create({ ...params, stream: true });
     let final: OpenAI.Responses.Response | undefined;
+    let reasoning = "";
     for await (const event of stream) {
       switch (event.type) {
         case "response.reasoning_summary_text.delta":
+          reasoning += event.delta;
           req.onDelta({ kind: "reasoning", text: event.delta });
           break;
         case "response.output_text.delta":
@@ -264,6 +268,11 @@ export class OpenAIProvider implements Provider {
       }
     }
     if (!final) throw new Error("stream ended without a completed response");
-    return fromResponsesResponse(final);
+    const response = fromResponsesResponse(final);
+    // Kept so the turn can be read back later, not only watched live.
+    if (reasoning.trim()) {
+      response.content.unshift({ type: "reasoning", text: reasoning });
+    }
+    return response;
   }
 }

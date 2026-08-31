@@ -6,7 +6,8 @@ import { composerKeyDown, useStickToBottom } from "./composer.js";
 import type { ChatEvent } from "./api.js";
 import { Markdown } from "./Markdown.js";
 import { ToolCall } from "./ToolCall.js";
-import { AttachmentBar, useAttachments } from "./Attachments.js";
+import { AttachButton, AttachmentBar, useAttachments } from "./Attachments.js";
+import { Thinking } from "./Thinking.js";
 import { LiveTurn } from "./LiveTurn.js";
 import type { Live } from "./progress.js";
 
@@ -141,6 +142,8 @@ export function ChatPanel({
                     }
                     onDecide={onDecide}
                   />
+                ) : e.kind === "reasoning" ? (
+                  <Thinking key={i} text={e.text} />
                 ) : (
                   <div key={i} className={`bubble bubble--${e.role}`}>
                     {e.images?.map((src, n) => (
@@ -157,11 +160,10 @@ export function ChatPanel({
               )}
             </div>
 
-            <div className="sheet-composer">
+            <div className="sheet-composer composer">
               {attachments && (
                 <AttachmentBar
                   files={attachments.files}
-                  onAdd={(l) => void attachments.add(l)}
                   onRemove={attachments.remove}
                 />
               )}
@@ -174,6 +176,9 @@ export function ChatPanel({
                 onKeyDown={(e) => composerKeyDown(e, onSend)}
               />
               <div className="sheet-composer-bar">
+                {attachments && (
+                  <AttachButton onAdd={(l) => void attachments.add(l)} />
+                )}
                 <span className="hint">Enter to send · Shift+Enter for a new line</span>
                 <button
                   type="button"

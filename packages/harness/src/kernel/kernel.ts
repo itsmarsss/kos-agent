@@ -16,7 +16,7 @@ import {
   type EmbeddingProvider,
 } from "../memory/index.js";
 import type { ContentBlock, ModelMessage } from "../models/types.js";
-import { createDefaultRouter } from "../models/router.js";
+import { createDefaultRouter, type RouteSummary } from "../models/router.js";
 import {
   applyModelSettings,
   MODEL_SETTINGS_KEY,
@@ -128,7 +128,8 @@ const ORCHESTRATOR_BRIEF = [
   "A task is an instruction to the agent, in the owner's voice: \"Create a directory called test-dir\". Never address the owner in it. A task that asks a question produces an agent that asks it back and does nothing.",
   "If the request is too vague to state a concrete task, ask the owner for the missing detail yourself. Do not hand the ambiguity to a new agent.",
   "Leave tools unrestricted. A new conversation gets the full toolkit unless the owner has asked you to limit it, because a guess about what it will need becomes a capability it silently lacks later.",
-  "Creating a conversation and stopping is not an outcome. Every reply should say what the agent actually did, not that you set something up.",
+  "Creating a conversation and stopping is not an outcome: say what the agent actually did.",
+  "Say it in a line or two of your own. Do not reproduce the agent\u2019s reply: the owner can open that conversation and read it there, and repeating it in full means they read the same thing twice.",
   "Dispatch to an existing conversation when one already covers the work, rather than creating a near-duplicate.",
   "Be brief. Say what you found, what you dispatched, and what it said.",
 ].join("\n");
@@ -1128,9 +1129,9 @@ export class Kernel {
    * workspace with only one provider gets a materially different agent from
    * the default and nothing anywhere said so.
    */
-  routes(): Record<string, { provider: string; model: string }> | undefined {
+  routes(): Record<string, RouteSummary> | undefined {
     const source = this.inference as {
-      describeRoutes?: () => Record<string, { provider: string; model: string }>;
+      describeRoutes?: () => Record<string, RouteSummary>;
     };
     return source.describeRoutes?.();
   }

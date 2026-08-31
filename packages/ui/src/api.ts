@@ -12,7 +12,10 @@ export interface Status {
   workspace?: string;
   orchestratorId?: string;
   /** Which model answers each task class, when the router can say. */
-  routes?: Record<string, { provider: string; model: string }> | null;
+  routes?: Record<
+    string,
+    { provider: string; model: string; effort?: string; maxTokens?: number }
+  > | null;
 }
 
 /** A file the owner attached, as bytes the model can be shown. */
@@ -233,7 +236,10 @@ export const api = {
   approvals: () => get<PendingAction[]>("/api/approvals"),
   modelSettings: () =>
     get<{
-      routes: Record<string, { provider: string; model: string }> | null;
+      routes: Record<
+        string,
+        { provider: string; model: string; effort?: string; maxTokens?: number }
+      > | null;
       saved: ModelSettings;
       efforts: string[];
     }>("/api/settings/models"),
