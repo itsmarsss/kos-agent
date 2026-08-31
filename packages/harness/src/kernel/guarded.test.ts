@@ -140,3 +140,74 @@ describe("GuardedTools tool scoping", () => {
     expect(guarded(registry).defs()).toHaveLength(5);
   });
 });
+
+describe("repeated calls", () => {
+  let root: string;
+  let ws: Workspace;
+  let tools: GuardedTools;
+  let calls: number;
+
+  beforeEach(async () => {
+    root = mkdtempSync(join(tmpdir(), "kos-repeat-"));
+    ws = Workspace.open(root);
+    calls = 0;
+    const registry = new ToolRegistry();
+    registry.register(
+      {
+        name: "peek",
+        description: "read something",
+        inputSchema: { type: "object", properties: { q: { type: "string" } } },
+      },
+      () => {
+        calls += 1;
+        return "same answer";
+      },
+      { floor: "safe" },
+    );
+    tools = new GuardedTools({
+      registry,
+      secrets: new SecretsRegistry(),
+      audit: new AuditLog(ws.db),
+      approvals: new ApprovalQueue(ws.db),
+    });
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("refuses a third identical call and says why", async () => {
+    // A scoped agent spent its whole step budget calling one tool with one set
+    // of arguments over and over, and the turn ended with no answer at all.
+    expect((await tools.execute("peek", { q: "x" })).isError).toBe(false);
+    expect((await tools.execute("peek", { q: "x" })).isError).toBe(false);
+    const third = await tools.execute("peek", { q: "x" });
+    expect(third.isError).toBe(true);
+    expect(third.content).toMatch(/already called peek/);
+    expect(calls).toBe(2);
+  });
+
+  it("counts arguments, not just the tool", async () => {
+    await tools.execute("peek", { q: "x" });
+    await tools.execute("peek", { q: "x" });
+    const other = await tools.execute("peek", { q: "y" });
+    expect(other.isError).toBe(false);
+    expect(other.content).toBe("same answer");
+  });
+
+  it("starts fresh for the next turn", async () => {
+    await tools.execute("peek", { q: "x" });
+    await tools.execute("peek", { q: "x" });
+    expect((await tools.execute("peek", { q: "x" })).isError).toBe(true);
+    // A GuardedTools instance is built per turn, so a new one forgets.
+    const next = new GuardedTools({
+      registry: (tools as unknown as { deps: { registry: ToolRegistry } }).deps
+        .registry,
+      secrets: new SecretsRegistry(),
+      audit: new AuditLog(ws.db),
+      approvals: new ApprovalQueue(ws.db),
+    });
+    expect((await next.execute("peek", { q: "x" })).isError).toBe(false);
+  });
+});
