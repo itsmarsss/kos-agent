@@ -2212,7 +2212,20 @@ li:hover .chats-more, .chats-more:focus-visible { opacity: 1; }
 .hl textarea.hl-area::placeholder { color: var(--faint); }
 .hl textarea.hl-area:focus { outline: none; border-color: var(--accent); }
 
-.hl-ref { border-radius: 0.35em; padding: 0 0.1em; }
+/*
+ * Nothing here may change how wide the text is.
+ *
+ * The mirror sits under a textarea that has no such styling, so any property
+ * affecting advance width pushes the mirror's glyphs away from the real caret:
+ * the padding alone put the caret a fifth of an em left of the text for every
+ * reference in the message. The padding is kept for the look and cancelled by
+ * an equal negative margin, which paints wider without occupying more room.
+ */
+.hl-ref {
+  border-radius: 0.35em;
+  padding: 0 0.15em;
+  margin: 0 -0.15em;
+}
 .hl-ref--project { color: var(--accent); background: var(--accent-dim); }
 .hl-ref--page { color: var(--ok); background: var(--ok-dim); }
 .hl-ref--file { color: var(--muted); background: var(--panel-2); }
