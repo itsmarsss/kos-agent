@@ -173,7 +173,11 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
       inputSchema: {
         type: "object",
         properties: {
-          title: { type: "string" },
+          title: {
+            type: "string",
+            description:
+              "What the conversation is about, the way it would appear in a list: \"Workout Log\", \"Snake Game\". Not the task. \"Create Workout Log Schema and Dashboard\" reads as a to-do the first time and as nothing at all once it is done.",
+          },
           brief: {
             type: "string",
             description: "standing instructions for that conversation",

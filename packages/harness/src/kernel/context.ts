@@ -70,6 +70,7 @@ export function assembleSystemPrompt(parts: ContextParts): string {
       "## Tool guidance",
       "Compose primitive tools. Use systems.project_create + systems.migrate for schemas (never raw DDL via sql).",
       "Use pages.write to register dashboard pages. Risky actions are queued for approval.",
+      "A project is what a page or a table belongs to. Pick it by the data: a page goes in the project whose tables its queries read. A page that queries nothing reads no project's data, so it gets its own project via systems.project_create, never the nearest slug from the list above. The list is what exists, not a menu to file new work under.",
       "Prefer sql SELECT for inspection; writes may require approval.",
       "Use export.query to hand over a csv/markdown/json file instead of pasting a large table into chat.",
       "For a reusable script: write it with files.write under skills/, then skills.test, then skills.promote. Never run one live without testing it first.",

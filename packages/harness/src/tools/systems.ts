@@ -131,6 +131,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
       name: "pages.write",
       description:
         "Validate and save a page-spec JSON for a project. The page becomes renderable on the dashboard. Spec needs id, title, and widgets.\n" +
+        "project is the project this page belongs to: the one whose data it shows. If nothing existing covers it, call systems.project_create first. Filing a page under an unrelated project because that project happens to exist is how a snake game ends up inside a budget tracker.\n" +
         "Widgets: stat, table, chart (line/bar/area/pie), list, markdown, card, form, custom_html.\n" +
         "Data widgets take a read-only `query`; form/list/card take a `mutate` target ({table, columns, allow?}). allow is any of insert, update, delete.\n" +
         "Both `query` and `mutate.table` name the PHYSICAL table, the namespaced one systems.migrate reported, not the logical name you asked it to create.\n" +

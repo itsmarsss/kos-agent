@@ -104,18 +104,33 @@ export function orchestratorId(ownerId = "owner"): string {
  * What the orchestrator is for. Deliberately about routing rather than any
  * particular kind of work: its job is to find where something belongs and set
  * it up, not to do the work itself.
+ *
+ * ORCHESTRATOR_SCOPE is the other half of this, and the half that holds. Told
+ * only in prose to route, and handed the full toolkit, it built things inline
+ * instead: a whole project would land in the Command thread, later work on it
+ * had nowhere to go, and a page for one thing got written into whatever
+ * project already existed. What it cannot reach, it has to delegate.
  */
 const ORCHESTRATOR_BRIEF = [
-  "You route work across the owner's conversations.",
+  "You are the owner's router. You do not build things yourself. You find or create the conversation where a piece of work belongs, give it the task, and report back what it did.",
+  "You deliberately have no tools for files, data, pages or schedules. Anything that needs them goes to a conversation. This is not a limitation to apologise for or work around; it is the job.",
   "Before starting anything, search existing conversations: the work often already has a home, and saying so is more useful than making another thread.",
-  "When something genuinely needs its own conversation, create it with a brief saying what it is for, and give it the task at the same time.",
+  "When something genuinely needs its own conversation, create it with a brief saying what it is for, and give it the task at the same time. It runs immediately and its answer comes back to you.",
   "A task is an instruction to the agent, in the owner's voice: \"Create a directory called test-dir\". Never address the owner in it. A task that asks a question produces an agent that asks it back and does nothing.",
   "If the request is too vague to state a concrete task, ask the owner for the missing detail yourself. Do not hand the ambiguity to a new agent.",
   "Leave tools unrestricted. A new conversation gets the full toolkit unless the owner has asked you to limit it, because a guess about what it will need becomes a capability it silently lacks later.",
-  "Do the work, do not just file it. Every reply of yours should be able to say what was actually done, because creating or naming a conversation is not an outcome the owner asked for.",
+  "Creating a conversation and stopping is not an outcome. Every reply should say what the agent actually did, not that you set something up.",
   "Dispatch to an existing conversation when one already covers the work, rather than creating a near-duplicate.",
   "Be brief. Say what you found, what you dispatched, and what it said.",
 ].join("\n");
+
+/**
+ * The orchestrator's reach, applied per turn rather than stored on the
+ * conversation: it is a property of what the orchestrator is, so an edit to
+ * the conversation cannot drift it, and it holds for workspaces that predate
+ * it. The chats.* tools are restricted and arrive separately as a grant.
+ */
+const ORCHESTRATOR_SCOPE = ["memory"];
 
 /**
  * Pick the embedding provider from available secrets. Cohere is here so an
@@ -442,6 +457,12 @@ export class Kernel {
        * these; an ordinary conversation cannot reach them.
        */
       grant?: string[];
+      /**
+       * Overrides the conversation's own tool scope for this turn. The
+       * orchestrator uses it so its reach is a property of what it is rather
+       * than stored state that an edit could drift away from.
+       */
+      allow?: string[];
     } = {},
   ): Promise<HandleResult> {
     if (this.killSwitch.halted) {
@@ -471,6 +492,7 @@ export class Kernel {
       origin?: "owner" | "system";
       channel?: string;
       grant?: string[];
+      allow?: string[];
     },
   ): Promise<HandleResult> {
     {
@@ -487,10 +509,14 @@ export class Kernel {
           conversationId: sessionId,
           ...(scopeTags.length ? { scopeTags } : {}),
           // null is unrestricted; an array is the exact scope, empty included.
-          ...(conversation?.toolAllow !== null &&
-          conversation?.toolAllow !== undefined
-            ? { allow: conversation.toolAllow }
-            : {}),
+          // An explicit override wins: it says what this caller is, and the
+          // conversation's own scope is what the owner set for ordinary turns.
+          ...(opts.allow !== undefined
+            ? { allow: opts.allow }
+            : conversation?.toolAllow !== null &&
+                conversation?.toolAllow !== undefined
+              ? { allow: conversation.toolAllow }
+              : {}),
           ...(opts.grant?.length ? { grant: opts.grant } : {}),
         });
 
@@ -707,6 +733,7 @@ export class Kernel {
       sessionId: id,
       userId: this.profile.ownerId,
       grant: [...CHAT_TOOLS],
+      allow: [...ORCHESTRATOR_SCOPE],
       ...(opts.channel ? { channel: opts.channel } : {}),
     });
     return { ...res, conversationId: id };
