@@ -298,7 +298,16 @@ export class Kernel {
       manifest,
       migrator,
       pages,
-      ...(options.notify ? { notify: options.notify } : {}),
+      // Always wired. Without a channel this used to be absent, so `notify`
+      // threw and every unattended job that ended in "tell me" lost its
+      // message. The fallback puts it where the owner already looks.
+      notify: async (text: string) => {
+        if (options.notify) {
+          await options.notify(text);
+          return;
+        }
+        kernelRef?.recordNotice(text);
+      },
     };
 
     const modules: KosModule[] = [
@@ -969,6 +978,23 @@ export class Kernel {
       { killSwitch: this.killSwitch },
     );
     this.scheduler.start();
+  }
+
+  /**
+   * An agent-initiated message with no channel to carry it.
+   *
+   * It lands in the owner's primary conversation, which is the same thread the
+   * CLI and a DM use, so unattended work is readable in Chats rather than
+   * thrown away with "no notify channel is wired".
+   */
+  recordNotice(text: string): void {
+    const sessionId = primarySessionId(this.profile.ownerId);
+    // record() replaces the transcript, so the existing one comes with it.
+    this.sessions.record(sessionId, [
+      ...this.sessions.get(sessionId),
+      { role: "assistant", content: [{ type: "text", text }] },
+    ]);
+    this.conversations.touch(sessionId);
   }
 
   reloadCron(): void {

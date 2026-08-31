@@ -69,3 +69,49 @@ describe("sqlModule", () => {
     expect(res.content).toMatch(/multiple statements/);
   });
 });
+
+describe("missing table errors", () => {
+  let root: string;
+  let ws: Workspace;
+  let registry: ToolRegistry;
+
+  beforeEach(async () => {
+    root = mkdtempSync(join(tmpdir(), "kos-sqlerr-"));
+    ws = Workspace.open(root);
+    ws.db.exec(`CREATE TABLE budget_tracker_expenses (id INTEGER PRIMARY KEY)`);
+    registry = new ToolRegistry();
+    const ctx = toolRegistryContext(registry, {
+      workspace: ws,
+      db: ws.db,
+      secrets: new SecretsRegistry(),
+    });
+    await new ModuleLoader(ctx).load([sqlModule]);
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("suggests the physical table when given the dotted name", async () => {
+    // A cron kept failing every minute on "no such table:
+    // budget_tracker.expenses", which is true and tells the model nothing.
+    const res = await registry.execute("sql", {
+      sql: "SELECT * FROM 'budget_tracker.expenses'",
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content).toContain('Did you mean "budget_tracker_expenses"');
+  });
+
+  it("says tables are namespaced when given the logical name", async () => {
+    const res = await registry.execute("sql", { sql: "SELECT * FROM expenses" });
+    expect(res.isError).toBe(true);
+    expect(res.content).toContain('use "budget_tracker_expenses"');
+  });
+
+  it("lists what exists when the name resembles nothing", async () => {
+    const res = await registry.execute("sql", { sql: "SELECT * FROM nonsense" });
+    expect(res.isError).toBe(true);
+    expect(res.content).toContain("budget_tracker_expenses");
+  });
+});

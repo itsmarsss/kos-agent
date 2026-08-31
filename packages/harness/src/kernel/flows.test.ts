@@ -314,6 +314,26 @@ describe("KOS end-to-end flows", () => {
     expect(kernel.scheduledCronCount()).toBe(before + 1);
   });
 
+  it("keeps an agent's message when there is no channel to send it on", async () => {
+    const model = scripted([
+      toolCall("n1", "notify", { text: "You have spent 56.25 this month." }),
+      text("Told you."),
+    ]);
+    kernel = await boot(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "Work" });
+
+    const before = kernel.sessions.get(primarySessionId(kernel.profile.ownerId)).length;
+    await kernel.handleMessage("tell me the total", { sessionId: c.id });
+
+    // With no Discord wired, notify threw and the message was simply lost, so
+    // every unattended job that ended in "tell me" produced nothing at all.
+    const wire = JSON.stringify(model.calls.at(-1)!.request.messages);
+    expect(wire).not.toContain("no notify channel is wired");
+    const main = kernel.sessions.get(primarySessionId(kernel.profile.ownerId));
+    expect(main.length).toBe(before + 1);
+    expect(JSON.stringify(main)).toContain("56.25");
+  });
+
   it("remembers a stated fact and recalls it on a later turn", async () => {
     const model = scripted([text("Noted."), text("You are in America/New_York.")]);
     kernel = await boot(model.inference);
