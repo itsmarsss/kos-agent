@@ -38,6 +38,13 @@ export function ProjectsPage({
 }: ProjectsPageProps): ReactElement {
   const [query, setQuery] = useState("");
 
+  /** A card's own action: its page if it has one, otherwise its details. */
+  const open = (project: Project, pages: PageSummary[]): void => {
+    const page = pages[0];
+    if (page) window.location.hash = hrefFor({ name: "page", id: page.id });
+    else onInspect(project, pages);
+  };
+
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
     const matched = q
@@ -95,7 +102,26 @@ export function ProjectsPage({
             {items.map((p) => {
               const pages = pagesByProject.get(p.slug) ?? [];
               return (
-                <m.div key={p.slug} variants={card} className="card project-card">
+                <m.div
+                  key={p.slug}
+                  variants={card}
+                  whileHover={{ y: -2 }}
+                  className="card project-card"
+                  role="button"
+                  tabIndex={0}
+                  // The card looked clickable and was not: only the chips and
+                  // Details did anything. Clicking it opens the project's page
+                  // when it has one, and its details when it does not.
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest("a, button")) return;
+                    open(p, pages);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" && e.key !== " ") return;
+                    e.preventDefault();
+                    open(p, pages);
+                  }}
+                >
                   <div className="card-top">
                     <span className="card-name">{p.name}</span>
                     <span className={`dot dot--${p.status}`} />
