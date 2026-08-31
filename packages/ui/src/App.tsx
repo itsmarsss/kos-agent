@@ -21,6 +21,7 @@ import { AnimatePresence, m } from "motion/react";
 import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
 import { ease, listItem, spring } from "./motion.js";
 import { Home } from "./Home.js";
+import { ChatsPage } from "./ChatsPage.js";
 import { ChatPanel } from "./ChatPanel.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { PageRenderer } from "./widgets/PageRenderer.js";
@@ -97,8 +98,9 @@ export function App(): React.ReactElement {
     setFacts(mem.facts ?? []);
     setRuns(r);
     setConversations(convos);
-    // Land on the most recent conversation until the user picks one.
-    setActiveChat((cur) => cur ?? convos[0]?.id ?? null);
+    // The sheet's transcript is the orchestrator's own thread, not whichever
+    // chat happens to be newest.
+    setActiveChat(s.orchestratorId ?? null);
   }, []);
 
   useEffect(() => {
@@ -229,7 +231,7 @@ export function App(): React.ReactElement {
     setThread((t) => [...t, { role: "you", text }]);
     setPrompt("");
     try {
-      const res = await api.message(text, activeChat ?? undefined);
+      const res = await api.orchestrator(text);
       setThread((t) => [...t, { role: "kos", text: res.reply || "(no reply)" }]);
       await refresh();
     } catch (err) {
@@ -264,34 +266,8 @@ export function App(): React.ReactElement {
     };
   }, [activeChat]);
 
-  const selectChat = (id: string): void => {
-    setActiveChat(id);
-  };
 
-  const newChat = async (): Promise<void> => {
-    try {
-      const created = await api.newConversation();
-      setConversations((list) => [created, ...list]);
-      loadedChat.current = created.id; // brand new, nothing to fetch
-      setActiveChat(created.id);
-      setThread([]);
-    } catch (err) {
-      flash("err", err instanceof Error ? err.message : String(err));
-    }
-  };
 
-  const archiveChat = async (id: string): Promise<void> => {
-    try {
-      await api.archiveConversation(id);
-      const remaining = conversations.filter((c) => c.id !== id);
-      setConversations(remaining);
-      setActiveChat(remaining[0]?.id ?? null);
-      if (remaining.length === 0) setThread([]);
-      flash("ok", "Conversation archived");
-    } catch (err) {
-      flash("err", err instanceof Error ? err.message : String(err));
-    }
-  };
 
   const inspectKey =
     inspect == null
@@ -437,11 +413,6 @@ export function App(): React.ReactElement {
           onSend={() => void send()}
           onClose={() => setChatOpen(false)}
           onClear={() => void doClear()}
-          conversations={conversations}
-          activeId={activeChat}
-          onSelect={selectChat}
-          onNew={() => void newChat()}
-          onArchive={(id) => void archiveChat(id)}
         />
       </main>
     </ErrorBoundary>
@@ -475,6 +446,17 @@ export function App(): React.ReactElement {
   }
 
   // —— list pages ——
+  if (route.name === "chats") {
+    return shell(
+      <ChatsPage
+        conversations={conversations}
+        {...(route.id ? { activeId: route.id } : {})}
+        onOpen={(id) => go({ name: "chats", id })}
+        onChanged={() => void refresh()}
+      />,
+    );
+  }
+
   if (route.name === "projects") {
     return shell(
       <ListPage
