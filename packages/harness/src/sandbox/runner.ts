@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { childEnv } from "./env.js";
 import { resolvePath } from "../jail/resolvePath.js";
 import { DB_FILENAME } from "../store/workspace.js";
 import { snapshotDatabase } from "./snapshot.js";
@@ -52,12 +53,11 @@ export async function runSandbox(
     return await new Promise<SandboxResult>((resolve) => {
       const child = spawn(process.execPath, [entryAbs, ...(options.args ?? [])], {
         cwd: tmp,
-        env: {
-          ...process.env,
-          KOS_SANDBOX: "1",
-          KOS_DRY_RUN: "1",
-          KOS_DB: dbCopy,
-        },
+        // An allow-list, not the host's environment: see childEnv.
+        env: childEnv(
+          { home: tmp, tmp },
+          { KOS_SANDBOX: "1", KOS_DRY_RUN: "1", KOS_DB: dbCopy },
+        ),
         stdio: ["ignore", "pipe", "pipe"],
       });
 
