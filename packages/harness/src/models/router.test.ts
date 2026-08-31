@@ -119,8 +119,8 @@ describe("describeRoutes", () => {
     secrets.set("openai", "sk-test");
     const router = createDefaultRouter(secrets);
     expect(router.describeRoutes()).toEqual({
-      reasoning: { provider: "openai", model: "gpt-4o" },
-      cheap: { provider: "openai", model: "gpt-4o-mini" },
+      reasoning: { provider: "openai", model: "gpt-5.5" },
+      cheap: { provider: "openai", model: "gpt-5.4-mini" },
     });
   });
 
