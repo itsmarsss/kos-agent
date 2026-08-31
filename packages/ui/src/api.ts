@@ -132,6 +132,22 @@ export interface ChatTurn {
   text: string;
 }
 
+export type ChatEvent =
+  | { kind: "message"; role: "you" | "kos"; text: string }
+  | {
+      kind: "tool";
+      name: string;
+      summary: string;
+      args: Record<string, unknown>;
+      result?: string;
+      isError?: boolean;
+    };
+
+export interface ToolInfo {
+  name: string;
+  description: string;
+}
+
 export interface FactRow {
   id?: number;
   key: string;
@@ -194,9 +210,14 @@ export const api = {
   orchestrator: (text: string) =>
     post<{ reply: string; conversationId: string }>("/api/orchestrator", { text }),
   conversation: (id: string) =>
-    get<{ id: string; messages: ChatTurn[] }>(
+    get<{ id: string; messages: ChatTurn[]; events: ChatEvent[] }>(
       `/api/conversations/${encodeURIComponent(id)}/messages`,
     ),
+  tools: () => get<ToolInfo[]>("/api/tools"),
+  configureConversation: (
+    id: string,
+    config: { brief?: string | null; toolAllow?: string[] },
+  ) => post<Conversation>("/api/conversations/configure", { id, ...config }),
   newConversation: (title?: string) =>
     post<Conversation>("/api/conversations/new", title ? { title } : {}),
   renameConversation: (id: string, title: string) =>
