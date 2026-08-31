@@ -23,6 +23,7 @@ import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
 import { ease, listItem, spring } from "./motion.js";
 import { Home } from "./Home.js";
 import { ChatsPage } from "./ChatsPage.js";
+import { FilesPage } from "./FilesPage.js";
 import { ChatPanel } from "./ChatPanel.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { PageRenderer } from "./widgets/PageRenderer.js";
@@ -488,6 +489,15 @@ export function App(): React.ReactElement {
         onOpen={(id) => go({ name: "chats", id })}
         onChanged={() => void refresh()}
         onDecide={decideByPendingId}
+      />,
+    );
+  }
+
+  if (route.name === "files") {
+    return shell(
+      <FilesPage
+        {...(route.path ? { path: route.path } : {})}
+        onOpen={(p) => go({ name: "files", path: p })}
       />,
     );
   }
