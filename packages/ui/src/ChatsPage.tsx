@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { api, type ChatEvent, type Conversation } from "./api.js";
 import { ToolCall } from "./ToolCall.js";
 import { ChatConfig } from "./ChatConfig.js";
+import { Markdown } from "./Markdown.js";
+import { Modal } from "./Modal.js";
 import { hrefFor } from "./routes.js";
 
 /**
@@ -119,9 +121,9 @@ export function ChatsPage({
                   <span className="chats-item-when">{relative(c.updatedAt)}</span>
                 </span>
                 {c.brief && <span className="chats-item-brief">{c.brief}</span>}
-                {c.toolAllow.length > 0 && (
+                {c.toolAllow !== null && (
                   <span className="chats-item-tools">
-                    {c.toolAllow.join(" · ")}
+                    {c.toolAllow.length === 0 ? "no tools" : c.toolAllow.join(" · ")}
                   </span>
                 )}
               </a>
@@ -154,9 +156,11 @@ export function ChatsPage({
                   <span>{msgCount} message{msgCount === 1 ? "" : "s"}</span>
                   <span>·</span>
                   <span>
-                    {active.toolAllow.length === 0
+                    {active.toolAllow === null
                       ? "full toolkit"
-                      : `scoped to ${active.toolAllow.join(", ")}`}
+                      : active.toolAllow.length === 0
+                        ? "no tools"
+                        : `scoped to ${active.toolAllow.join(", ")}`}
                   </span>
                   {active.channel && (
                     <>
@@ -194,14 +198,18 @@ export function ChatsPage({
               </div>
             </header>
 
-            {editing && (
+            <Modal
+              open={editing}
+              title={`Configure “${active.title}”`}
+              onClose={() => setEditing(false)}
+            >
               <ChatConfig
                 key={active.id}
                 conversation={active}
                 onSaved={onChanged}
                 onClose={() => setEditing(false)}
               />
-            )}
+            </Modal>
 
             <div className="chats-thread" ref={boxRef}>
               {visible.length === 0 && <p className="hint">Nothing said yet.</p>}
@@ -210,7 +218,7 @@ export function ChatsPage({
                   <ToolCall key={i} event={e} />
                 ) : (
                   <div key={i} className={`bubble bubble--${e.role}`}>
-                    {e.text}
+                    <Markdown text={e.text} />
                   </div>
                 ),
               )}

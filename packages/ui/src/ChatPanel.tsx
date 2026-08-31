@@ -2,6 +2,9 @@ import { useEffect, useRef, type ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
 
 import { ease, spring } from "./motion.js";
+import type { ChatEvent } from "./api.js";
+import { Markdown } from "./Markdown.js";
+import { ToolCall } from "./ToolCall.js";
 
 /**
  * Chat as a slide-over rather than a permanent panel. KOS is mostly reached
@@ -16,7 +19,7 @@ export interface ChatMessage {
 
 export interface ChatPanelProps {
   open: boolean;
-  thread: ChatMessage[];
+  thread: ChatEvent[];
   prompt: string;
   sending: boolean;
   onPrompt: (value: string) => void;
@@ -97,15 +100,22 @@ export function ChatPanel({
             <div className="sheet-thread" ref={boxRef} aria-live="polite">
               {thread.length === 0 && (
                 <p className="sheet-empty">
-                  Ask for anything: “what did I spend on coffee”, “build me a reading
-                  list”, “remind me to review the budget on Mondays”.
+                  Say what you want to work on. This one looks across your
+                  chats, finds where it belongs, and starts a new one if it
+                  needs to.
                 </p>
               )}
-              {thread.map((m, i) => (
-                <div key={i} className={`bubble bubble--${m.role}`}>
-                  {m.text}
-                </div>
-              ))}
+              {/* The orchestrator works by calling tools; hiding them would
+                  show its conclusions with no visible reason for them. */}
+              {thread.map((e, i) =>
+                e.kind === "tool" ? (
+                  <ToolCall key={i} event={e} />
+                ) : (
+                  <div key={i} className={`bubble bubble--${e.role}`}>
+                    <Markdown text={e.text} />
+                  </div>
+                ),
+              )}
               {sending && <div className="bubble bubble--kos is-thinking">thinking…</div>}
             </div>
 
