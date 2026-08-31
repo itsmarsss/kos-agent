@@ -10,6 +10,7 @@ export interface Status {
   discord?: boolean;
   pid?: number;
   workspace?: string;
+  orchestratorId?: string;
 }
 
 export interface PendingAction {
@@ -120,6 +121,10 @@ export interface Conversation {
   createdAt: number;
   updatedAt: number;
   archived: boolean;
+  /** Standing instructions for this conversation, when it is a scoped agent. */
+  brief: string | null;
+  /** Tool name prefixes it may use; empty means the usual toolset. */
+  toolAllow: string[];
 }
 
 export interface ChatTurn {
@@ -186,6 +191,8 @@ export const api = {
   page: (id: string) => get<PagePayload>(`/api/pages/${encodeURIComponent(id)}`),
   mutate: (req: MutateRequest) => post<MutateResult>("/api/mutate", req),
   conversations: () => get<Conversation[]>("/api/conversations"),
+  orchestrator: (text: string) =>
+    post<{ reply: string; conversationId: string }>("/api/orchestrator", { text }),
   conversation: (id: string) =>
     get<{ id: string; messages: ChatTurn[] }>(
       `/api/conversations/${encodeURIComponent(id)}/messages`,
