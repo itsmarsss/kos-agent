@@ -20,9 +20,10 @@ export interface GuardedToolsDeps {
   /** Cap tools offered to the model (default unlimited). */
   toolLimit?: number;
   /**
-   * Hard allow-list of tool name prefixes for this conversation. When set, no
-   * other tool is offered or executed. Unlike scope tags this withholds rather
-   * than merely hides, which is what makes a scoped agent meaningfully scoped.
+   * Hard allow-list of tool name prefixes for this conversation. Omitted means
+   * unrestricted; an empty array means no tools at all. Unlike scope tags this
+   * withholds rather than merely hides, which is what makes a scoped agent
+   * meaningfully scoped.
    */
   allow?: string[];
   /**
@@ -50,7 +51,9 @@ export class GuardedTools implements ToolBox {
   private permitted(name: string): boolean {
     const { allow, grant, registry } = this.deps;
     if (registry.isRestricted(name)) return (grant ?? []).includes(name);
-    if (!allow || allow.length === 0) return true;
+    // Undefined is unrestricted. An allow-list that happens to be empty is a
+    // real answer -- no tools -- not an absent one.
+    if (allow === undefined) return true;
     return allow.some((prefix) => name === prefix || name.startsWith(`${prefix}.`));
   }
 

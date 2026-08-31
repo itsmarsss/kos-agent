@@ -1,0 +1,70 @@
+// @vitest-environment jsdom
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+
+import { Markdown } from "./Markdown.js";
+
+function html(text: string): string {
+  const { container } = render(<Markdown text={text} />);
+  return container.innerHTML;
+}
+
+describe("Markdown", () => {
+  it("renders emphasis and inline code", () => {
+    expect(html("**bold** and *italic* and `code`")).toContain("<strong>bold</strong>");
+    expect(html("**bold** and *italic* and `code`")).toContain("<em>italic</em>");
+    expect(html("**bold** and *italic* and `code`")).toContain("<code>code</code>");
+  });
+
+  it("keeps markdown inside backticks literal", () => {
+    // The whole point of code spans: `**x**` is two asterisks, not bold.
+    const out = html("use `**not bold**` here");
+    expect(out).toContain("<code>**not bold**</code>");
+    expect(out).not.toContain("<strong>");
+  });
+
+  it("renders fenced code blocks with their language", () => {
+    const out = html("```sql\nSELECT 1\n```");
+    expect(out).toContain("SELECT 1");
+    expect(out).toContain('data-lang="sql"');
+  });
+
+  it("renders bullet and numbered lists", () => {
+    expect(html("- one\n- two")).toContain("<ul");
+    expect(html("1. one\n2. two")).toContain("<ol");
+    render(<Markdown text={"- alpha\n- beta"} />);
+    expect(screen.getByText("alpha")).toBeTruthy();
+  });
+
+  it("renders headings and quotes", () => {
+    expect(html("## Spending")).toContain("Spending");
+    expect(html("> a quote")).toContain("<blockquote");
+  });
+
+  it("linkifies markdown links and bare urls, safely", () => {
+    const masked = html("[docs](https://example.com/x)");
+    expect(masked).toContain('href="https://example.com/x"');
+    expect(masked).toContain('rel="noopener noreferrer"');
+    expect(html("see https://example.com now")).toContain("<a ");
+  });
+
+  it("cannot inject markup", () => {
+    // React elements, never innerHTML: a script tag is text, not a node.
+    const out = html('<script>alert(1)</script> and <b>raw</b>');
+    expect(out).not.toContain("<script>");
+    expect(out).toContain("&lt;script&gt;");
+    expect(out).not.toContain("<b>raw</b>");
+  });
+
+  it("keeps an unterminated fence as a code block rather than losing it", () => {
+    expect(html("```\nstranded")).toContain("stranded");
+  });
+
+  it("preserves single newlines inside a paragraph", () => {
+    expect(html("one\ntwo")).toContain("<br>");
+  });
+
+  it("leaves plain text alone", () => {
+    expect(html("just words")).toContain("just words");
+  });
+});

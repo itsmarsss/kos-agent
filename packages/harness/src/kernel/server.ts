@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
+import { execFile } from "node:child_process";
 import { extname, join, normalize, resolve, sep } from "node:path";
 
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
@@ -313,6 +314,32 @@ export async function handleApiRequest(
     return ok(await kernel.handleOrchestratorTurn(text, { channel: "dashboard" }));
   }
 
+  if (method === "POST" && path === "/api/workspace/open") {
+    // Reveals the workspace in the desktop file manager. The path is the
+    // kernel's own root, never anything from the request, so this cannot be
+    // pointed at an arbitrary directory.
+    const target = kernel.workspace.root;
+    const opener =
+      process.platform === "darwin"
+        ? "open"
+        : process.platform === "win32"
+          ? "explorer"
+          : "xdg-open";
+    try {
+      await new Promise<void>((resolve, reject) => {
+        execFile(opener, [target], (err) => (err ? reject(err) : resolve()));
+      });
+      return ok({ opened: target });
+    } catch (err) {
+      return {
+        status: 500,
+        body: {
+          error: `could not open ${target}: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      };
+    }
+  }
+
   if (method === "POST" && path === "/api/clear") {
     const sessionId =
       typeof body.sessionId === "string" && body.sessionId.length > 0
@@ -388,10 +415,12 @@ export async function handleApiRequest(
     if (!kernel.conversations.get(id)) {
       return { status: 404, body: { error: "conversation not found" } };
     }
-    const config: { brief?: string | null; toolAllow?: string[] } = {};
+    const config: { brief?: string | null; toolAllow?: string[] | null } = {};
     if (typeof body.brief === "string") config.brief = body.brief;
     else if (body.brief === null) config.brief = null;
-    if (Array.isArray(body.toolAllow)) {
+    // null clears the scope; an array sets it, empty included.
+    if (body.toolAllow === null) config.toolAllow = null;
+    else if (Array.isArray(body.toolAllow)) {
       config.toolAllow = (body.toolAllow as unknown[]).filter(
         (x): x is string => typeof x === "string",
       );

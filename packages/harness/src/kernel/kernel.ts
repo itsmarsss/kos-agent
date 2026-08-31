@@ -432,7 +432,9 @@ export class Kernel {
         const tools = this.guardedTools({
           userId,
           ...(scopeTags.length ? { scopeTags } : {}),
-          ...(conversation?.toolAllow.length
+          // null is unrestricted; an array is the exact scope, empty included.
+          ...(conversation?.toolAllow !== null &&
+          conversation?.toolAllow !== undefined
             ? { allow: conversation.toolAllow }
             : {}),
           ...(opts.grant?.length ? { grant: opts.grant } : {}),
@@ -812,7 +814,7 @@ export class Kernel {
       userId: opts.userId ?? this.profile.ownerId,
       toolLimit: 48,
       ...(opts.scopeTags ? { scopeTags: opts.scopeTags } : {}),
-      ...(opts.allow?.length ? { allow: opts.allow } : {}),
+      ...(opts.allow !== undefined ? { allow: opts.allow } : {}),
       ...(opts.grant?.length ? { grant: opts.grant } : {}),
       ...(this.onApprovalRequested
         ? { onQueued: this.onApprovalRequested }

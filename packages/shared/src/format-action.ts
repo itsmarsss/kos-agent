@@ -80,6 +80,14 @@ export function summarizeAction(
       return `Sandbox test ${fmtVal(a.entry)}`;
     case "skills.promote":
       return `Promote skill ${fmtVal(a.entry)}`;
+    case "chats.list":
+      return "List conversations";
+    case "chats.search":
+      return `Search conversations for “${fmtVal(a.query)}”`;
+    case "chats.read":
+      return `Read conversation ${fmtVal(a.id)}`;
+    case "chats.create":
+      return `Start conversation “${fmtVal(a.title)}”`;
     case "skills.run":
       return `Run skill ${fmtVal(a.entry)} for real`;
     default:

@@ -27,10 +27,13 @@ export interface Conversation {
    */
   brief: string | null;
   /**
-   * Hard allow-list of tool name prefixes. Empty means the usual toolset;
-   * otherwise nothing outside it is offered or executable here.
+   * Hard allow-list of tool name prefixes.
+   *
+   * null means unrestricted: the full toolkit. An array is an exact scope, and
+   * an empty array really does mean no tools at all. Collapsing those two onto
+   * "empty" made "give this conversation nothing" impossible to express.
    */
-  toolAllow: string[];
+  toolAllow: string[] | null;
 }
 
 const SCHEMA = `
@@ -82,14 +85,19 @@ function toConversation(row: Row): Conversation {
   };
 }
 
-/** Stored as JSON; anything malformed reads as "no restriction". */
-function parseAllow(raw: string | null): string[] {
-  if (!raw) return [];
+/**
+ * Stored as JSON, or SQL NULL for unrestricted. Malformed JSON reads as
+ * unrestricted rather than as "no tools": failing open on a display bug is
+ * recoverable, silently muting a conversation is not.
+ */
+function parseAllow(raw: string | null): string[] | null {
+  if (raw === null || raw === undefined) return null;
   try {
     const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+    if (!Array.isArray(parsed)) return null;
+    return parsed.filter((x): x is string => typeof x === "string");
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -111,7 +119,7 @@ export function titleFromText(text: string): string {
 export interface CreateConversationInput {
   userId: string;
   brief?: string;
-  toolAllow?: string[];
+  toolAllow?: string[] | null;
   /** Omit to use a placeholder until the first message names it. */
   title?: string;
   channel?: string;
@@ -160,7 +168,7 @@ export class ConversationStore {
       updatedAt: ts,
       archived: false,
       brief: input.brief?.trim() || null,
-      toolAllow: input.toolAllow ?? [],
+      toolAllow: input.toolAllow ?? null,
     };
     this.db
       .prepare(
@@ -170,7 +178,7 @@ export class ConversationStore {
       )
       .run({
         ...row,
-        toolAllow: row.toolAllow.length ? JSON.stringify(row.toolAllow) : null,
+        toolAllow: row.toolAllow === null ? null : JSON.stringify(row.toolAllow),
       });
     return this.get(id) ?? row;
   }
@@ -219,18 +227,20 @@ export class ConversationStore {
   /** Change what this conversation is for, or what it may reach. */
   configure(
     id: string,
-    config: { brief?: string | null; toolAllow?: string[] },
+    config: { brief?: string | null; toolAllow?: string[] | null },
   ): Conversation | undefined {
     const current = this.get(id);
     if (!current) return undefined;
     const brief =
       config.brief === undefined ? current.brief : config.brief?.trim() || null;
-    const allow = config.toolAllow ?? current.toolAllow;
+    // undefined leaves it alone; null clears the scope; an array sets it.
+    const allow =
+      config.toolAllow === undefined ? current.toolAllow : config.toolAllow;
     this.db
       .prepare(
         `UPDATE conversations SET brief = ?, tool_allow = ?, updated_at = ? WHERE id = ?`,
       )
-      .run(brief, allow.length ? JSON.stringify(allow) : null, this.now(), id);
+      .run(brief, allow === null ? null : JSON.stringify(allow), this.now(), id);
     return this.get(id);
   }
 
