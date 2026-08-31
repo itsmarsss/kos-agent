@@ -9,6 +9,7 @@ import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
 import { orchestratorId } from "./kernel.js";
+import { conversationEvents } from "./transcript.js";
 
 export interface ApiRequest {
   method: string;
@@ -352,7 +353,13 @@ export async function handleApiRequest(
     if (!kernel.conversations.get(id)) {
       return { status: 404, body: { error: "conversation not found" } };
     }
-    return ok({ id, messages: transcriptOf(kernel, id) });
+    // Events, not just spoken turns: a chat view that hides the tool calls
+    // shows conclusions with no visible working.
+    return ok({
+      id,
+      messages: transcriptOf(kernel, id),
+      events: conversationEvents(kernel.sessions.get(id)),
+    });
   }
 
   if (method === "POST" && path === "/api/conversations/new") {
@@ -364,6 +371,32 @@ export async function handleApiRequest(
     });
     kernel.conversations.setActive("dashboard", kernel.profile.ownerId, created.id);
     return ok(created);
+  }
+
+  if (method === "GET" && path === "/api/tools") {
+    // Powers the tool-scope editor: the owner picks from what actually exists.
+    return ok(
+      kernel.registry
+        .defs()
+        .map((d) => ({ name: d.name, description: d.description })),
+    );
+  }
+
+  if (method === "POST" && path === "/api/conversations/configure") {
+    const id = typeof body.id === "string" ? body.id : "";
+    if (!id) return { status: 400, body: { error: "id required" } };
+    if (!kernel.conversations.get(id)) {
+      return { status: 404, body: { error: "conversation not found" } };
+    }
+    const config: { brief?: string | null; toolAllow?: string[] } = {};
+    if (typeof body.brief === "string") config.brief = body.brief;
+    else if (body.brief === null) config.brief = null;
+    if (Array.isArray(body.toolAllow)) {
+      config.toolAllow = (body.toolAllow as unknown[]).filter(
+        (x): x is string => typeof x === "string",
+      );
+    }
+    return ok(kernel.conversations.configure(id, config));
   }
 
   if (method === "POST" && path === "/api/conversations/rename") {
