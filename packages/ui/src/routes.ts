@@ -22,9 +22,11 @@ export function parseRoute(hash: string): Route {
   if (file?.[1]) return { name: "files", path: decodeURIComponent(file[1]) };
   const chat = path.match(/^\/chats\/([^/]+)$/);
   if (chat?.[1]) return { name: "chats", id: decodeURIComponent(chat[1]) };
-  if (path === "/crons") return { name: "crons" };
-  if (path === "/memory") return { name: "memory" };
-  if (path === "/tools") return { name: "tools" };
+  // The label is what a reader sees, so it is what they type or bookmark.
+  // Without these, /knowledge silently rendered Home.
+  if (path === "/crons" || path === "/schedule") return { name: "crons" };
+  if (path === "/memory" || path === "/knowledge") return { name: "memory" };
+  if (path === "/tools" || path === "/activity") return { name: "tools" };
   if (path === "/runs") return { name: "runs" };
   const page = path.match(/^\/page\/([^/]+)$/);
   if (page?.[1]) return { name: "page", id: decodeURIComponent(page[1]) };

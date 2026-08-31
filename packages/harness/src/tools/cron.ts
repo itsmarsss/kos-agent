@@ -31,15 +31,48 @@ function parseSchedule(input: Record<string, unknown>): CreateCronInput {
     if (typeof test === "string") base.condition = { test };
   }
   if (type === "actions") {
-    if (!Array.isArray(input.actions)) {
-      throw new Error("actions job requires an actions array");
-    }
-    base.actions = input.actions as ToolCall[];
+    base.actions = parseActions(input.actions);
   } else {
     base.prompt = str(input, "prompt");
     if (typeof input.projectSlug === "string") base.projectSlug = input.projectSlug;
   }
   return base;
+}
+
+/**
+ * Check the action list rather than casting it.
+ *
+ * An unchecked cast let a job be stored in whatever shape the model imagined,
+ * approved by the owner, and then fail every morning at nine with nobody
+ * watching. A schedule that cannot run should be refused when it is written.
+ */
+function parseActions(raw: unknown): ToolCall[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error(
+      'an actions job needs a non-empty "actions" array of {tool, args}',
+    );
+  }
+  return raw.map((entry, i) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      throw new Error(`actions[${i}] must be an object {tool, args}`);
+    }
+    const call = entry as Record<string, unknown>;
+    if (typeof call["tool"] !== "string" || call["tool"] === "") {
+      throw new Error(
+        `actions[${i}] needs "tool", the tool name as a string. Got keys: ${
+          Object.keys(call).join(", ") || "(none)"
+        }`,
+      );
+    }
+    const args = call["args"];
+    if (args !== undefined && (typeof args !== "object" || args === null || Array.isArray(args))) {
+      throw new Error(`actions[${i}]: "args" must be an object of arguments`);
+    }
+    return {
+      tool: call["tool"],
+      args: (args as Record<string, unknown> | undefined) ?? {},
+    };
+  });
 }
 
 export const cronModule: KosModule = {
@@ -61,7 +94,9 @@ export const cronModule: KosModule = {
       {
         name: "cron.schedule",
         description:
-          "Schedule a job: a cron expression plus either actions (tool calls) or a self_prompt. New jobs require approval before running.",
+          "Schedule a job: a cron expression plus either actions (tool calls) or a self_prompt. New jobs require approval before running.\n" +
+          'actions is a list of literal calls: [{"tool":"notify","args":{"text":"..."}}]. They run in order and nothing is substituted into them: an action cannot see what an earlier one returned, and there is no {{placeholder}} syntax.\n' +
+          "So anything that has to read data and then say something about it is a self_prompt job, not an actions job. Use actions only for calls whose arguments are known when you schedule them.",
         inputSchema: {
           type: "object",
           properties: {
@@ -70,7 +105,18 @@ export const cronModule: KosModule = {
             type: { type: "string", enum: ["actions", "self_prompt"] },
             query: { type: "string" },
             condition: { type: "object" },
-            actions: { type: "array" },
+            actions: {
+              type: "array",
+              description: 'literal tool calls, e.g. [{"tool":"notify","args":{"text":"stand up"}}]',
+              items: {
+                type: "object",
+                properties: {
+                  tool: { type: "string" },
+                  args: { type: "object" },
+                },
+                required: ["tool"],
+              },
+            },
             prompt: { type: "string" },
             projectSlug: { type: "string" },
           },

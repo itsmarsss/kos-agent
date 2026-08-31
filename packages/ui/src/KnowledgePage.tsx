@@ -45,10 +45,16 @@ export function KnowledgePage({
 
     const pin = matched.filter((f) => f.pinned);
     const rest = matched.filter((f) => !f.pinned);
+
+    // Grouped by tag, an entry carrying two tags was listed under each one and
+    // read as two separate entries. Grouping only holds when a tag is chosen,
+    // and there the heading is the tag you already picked, so it earns nothing.
+    if (tag) return { pinned: pin, groups: [[tag, rest] as const] };
+
     const byTag = new Map<string, FactRow[]>();
     for (const f of rest) {
-      const keys = (f.tags ?? []).length ? f.tags! : [UNTAGGED];
-      for (const k of keys) byTag.set(k, [...(byTag.get(k) ?? []), f]);
+      const key = (f.tags ?? [])[0] ?? UNTAGGED;
+      byTag.set(key, [...(byTag.get(key) ?? []), f]);
     }
     return {
       pinned: pin,

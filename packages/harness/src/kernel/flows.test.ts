@@ -289,6 +289,31 @@ describe("KOS end-to-end flows", () => {
     expect(kernel.conversations.get(c.id)!.title).toBe("Ops");
   });
 
+  it("schedules a job into the running scheduler, not just the table", async () => {
+    const model = scripted([
+      toolCall("c1", "cron.schedule", {
+        name: "MinuteCheck",
+        schedule: "* * * * *",
+        type: "actions",
+        actions: [{ tool: "notify", args: { text: "tick" } }],
+      }),
+      text("Queued for approval."),
+      text("Scheduled."),
+    ]);
+    kernel = await boot(model.inference);
+    kernel.startCron();
+    const before = kernel.scheduledCronCount();
+
+    await kernel.handleMessage("check every minute");
+    await kernel.approve(kernel.approvals.pending()[0]!.id);
+
+    // The scheduler builds its tasks from the table when the host starts. A
+    // job scheduled after that was stored and enabled and never fired, so the
+    // owner had an unattended job that did nothing until a restart.
+    expect(kernel.crons.list()).toHaveLength(before + 1);
+    expect(kernel.scheduledCronCount()).toBe(before + 1);
+  });
+
   it("remembers a stated fact and recalls it on a later turn", async () => {
     const model = scripted([text("Noted."), text("You are in America/New_York.")]);
     kernel = await boot(model.inference);

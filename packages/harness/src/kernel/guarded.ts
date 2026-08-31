@@ -36,6 +36,11 @@ export interface GuardedToolsDeps {
   onQueued?: (action: PendingAction) => void;
   /** The conversation making the call, so approving resumes the right agent. */
   conversationId?: string;
+  /**
+   * Called after a tool actually ran. Some tools change state the kernel holds
+   * outside the database, and it has to hear about it.
+   */
+  onExecuted?: (tool: string, result: ToolExecution) => void;
 }
 
 /**
@@ -147,6 +152,7 @@ export class GuardedTools implements ToolBox {
       riskTier: "safe",
       ...(userId ? { userId } : {}),
     });
+    this.deps.onExecuted?.(name, result);
     return result;
   }
 }
