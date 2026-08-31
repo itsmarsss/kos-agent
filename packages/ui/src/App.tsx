@@ -22,6 +22,7 @@ import { AnimatePresence, m } from "motion/react";
 import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
 import { Modal } from "./Modal.js";
 import { ModelSettings } from "./ModelSettings.js";
+import { CronEditor } from "./CronEditor.js";
 import { useAttachments } from "./Attachments.js";
 import { useProgress } from "./progress.js";
 import { ease, listItem, spring } from "./motion.js";
@@ -75,6 +76,7 @@ export function App(): React.ReactElement {
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [editingCron, setEditingCron] = useState<{ job?: CronJob } | null>(null);
   const attachments = useAttachments();
   const progress = useProgress();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -529,6 +531,23 @@ export function App(): React.ReactElement {
           <ModelSettings onClose={() => setSettingsOpen(false)} />
         </Modal>
 
+        <Modal
+          open={editingCron !== null}
+          title={editingCron?.job ? `Edit “${editingCron.job.name}”` : "New schedule"}
+          onClose={() => setEditingCron(null)}
+        >
+          {editingCron && (
+            <CronEditor
+              {...(editingCron.job ? { job: editingCron.job } : {})}
+              onDone={() => {
+                setEditingCron(null);
+                void refresh();
+              }}
+              onCancel={() => setEditingCron(null)}
+            />
+          )}
+        </Modal>
+
         <ChatPanel
           open={chatOpen}
           thread={thread}
@@ -666,13 +685,23 @@ export function App(): React.ReactElement {
     return shell(
       <ListPage
         title="Schedule"
-        subtitle="Jobs KOS runs on its own. Click a row to turn one off or delete it."
+        subtitle="Jobs KOS runs on its own. Click a row to edit it."
         rows={rows}
         rowKey={(c) => c.id}
         empty="No crons match"
-        onRowClick={(c) => setInspect({ kind: "cron", data: c })}
+        onRowClick={(c) => setEditingCron({ job: c })}
         filters={
           <div className="list-filter-group">
+            {/* Writing one by hand: everything here could be asked for in a
+                sentence, but a schedule runs while nobody is watching, so it
+                is worth being able to read exactly what will happen. */}
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={() => setEditingCron({})}
+            >
+              New schedule
+            </button>
             {(["all", "on", "off"] as const).map((f) => (
               <button
                 key={f}
