@@ -21,7 +21,7 @@ import {
   parseModelSettings,
 } from "../models/settings.js";
 import { conversationEvents } from "./transcript.js";
-import { listDirectory, readFile } from "./files.js";
+import { listDirectory, readFile, readImage } from "./files.js";
 
 export interface ApiRequest {
   method: string;
@@ -436,6 +436,34 @@ export async function handleApiRequest(
     if (!target) return { status: 400, body: { error: "path required" } };
     try {
       return ok(readFile(kernel.workspace, target));
+    } catch (err) {
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
+  }
+
+  if (method === "GET" && path === "/api/file/raw") {
+    // Image bytes for the browser to draw. The allow-list and the type live in
+    // readImage; nosniff and a sandboxing policy are here so that even a file
+    // that somehow reached this point mislabelled cannot become a document on
+    // the dashboard's own origin.
+    const target = queryParams(req.url).get("path") ?? "";
+    if (!target) return { status: 400, body: { error: "path required" } };
+    try {
+      const raw = readImage(kernel.workspace, target);
+      return {
+        status: 200,
+        body: raw.bytes,
+        headers: {
+          "content-type": raw.contentType,
+          "content-length": String(raw.bytes.byteLength),
+          "x-content-type-options": "nosniff",
+          "content-security-policy": "default-src 'none'; sandbox",
+          "content-disposition": "inline",
+        },
+      };
     } catch (err) {
       return {
         status: 400,
@@ -975,6 +1003,9 @@ export function createDashboardServer(
           ...(result.headers ?? {}),
         });
         if (result.body === null) res.end();
+        // A route that answers with bytes has already said what they are; JSON
+        // encoding them would turn an image into a list of numbers.
+        else if (Buffer.isBuffer(result.body)) res.end(result.body);
         else res.end(JSON.stringify(result.body));
         return;
       }

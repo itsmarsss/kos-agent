@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
-import { listDirectory, readFile } from "./files.js";
+import { isImage, listDirectory, readFile, readImage } from "./files.js";
 
 describe("workspace file browsing", () => {
   let root: string;
@@ -74,5 +74,43 @@ describe("workspace file browsing", () => {
 
   it("rejects reading a directory as a file", () => {
     expect(() => readFile(ws, "projects")).toThrow(/not a file/);
+  });
+
+  describe("previewing images", () => {
+    it("returns the bytes and the type it is served as", () => {
+      const raw = readImage(ws, "photo.png");
+      expect(raw.contentType).toBe("image/png");
+      expect([...raw.bytes]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    });
+
+    /*
+     * The dashboard runs with full agent authority on its own origin, so a
+     * workspace file served as something the browser executes is a way in for
+     * anything ever written into the workspace. SVG is the one that looks
+     * harmless: it is an image by name and a scriptable document in fact.
+     */
+    it("refuses svg, which is markup that runs", () => {
+      writeFileSync(
+        join(ws.root, "logo.svg"),
+        '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+      );
+      expect(() => readImage(ws, "logo.svg")).toThrow(/not a previewable image/);
+      expect(isImage("logo.svg")).toBe(false);
+    });
+
+    it("refuses anything not on the allow-list", () => {
+      writeFileSync(join(ws.root, "page.html"), "<h1>hi</h1>");
+      expect(() => readImage(ws, "page.html")).toThrow(/not a previewable image/);
+      expect(() => readImage(ws, "notes.md")).toThrow(/not a previewable image/);
+    });
+
+    it("will not serve a file named as an image from outside the workspace", () => {
+      expect(() => readImage(ws, "../outside.png")).toThrow();
+    });
+
+    it("refuses a directory that happens to be named like an image", () => {
+      mkdirSync(join(ws.root, "shots.png"));
+      expect(() => readImage(ws, "shots.png")).toThrow(/not a file/);
+    });
   });
 });

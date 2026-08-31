@@ -314,6 +314,17 @@ export const api = {
     ),
   file: (path: string) =>
     get<FileContent>(`/api/file?path=${encodeURIComponent(path)}`),
+  /**
+   * Image bytes as an object URL. Fetched rather than pointed at with a src so
+   * the request carries whatever the rest of the client carries; the caller
+   * revokes the URL when it is done with it.
+   */
+  imageUrl: async (path: string): Promise<string> => {
+    const url = `/api/file/raw?path=${encodeURIComponent(path)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(await readError(res, url));
+    return URL.createObjectURL(await res.blob());
+  },
   openWorkspace: () => post<{ opened: string }>("/api/workspace/open", {}),
   configureConversation: (
     id: string,
