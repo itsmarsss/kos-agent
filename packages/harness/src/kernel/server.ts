@@ -10,6 +10,11 @@ import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
 import { orchestratorId } from "./kernel.js";
+import {
+  EFFORTS,
+  MODEL_SETTINGS_KEY,
+  parseModelSettings,
+} from "../models/settings.js";
 import { conversationEvents } from "./transcript.js";
 import { listDirectory, readFile } from "./files.js";
 
@@ -112,6 +117,34 @@ export async function handleApiRequest(
       orchestratorId: orchestratorId(kernel.profile.ownerId),
       routes: kernel.routes() ?? null,
     });
+  }
+
+  if (method === "GET" && path === "/api/settings/models") {
+    return ok({
+      routes: kernel.routes() ?? null,
+      saved: kernel.settings.get(MODEL_SETTINGS_KEY) ?? {},
+      efforts: EFFORTS,
+    });
+  }
+
+  if (method === "POST" && path === "/api/settings/models") {
+    const settings = parseModelSettings(body);
+    kernel.settings.set(MODEL_SETTINGS_KEY, settings);
+    // Applied in place: the owner changing a model should not have to restart
+    // the host to see it take effect.
+    kernel.applyModelSettings(settings);
+    return ok({ saved: settings, routes: kernel.routes() ?? null });
+  }
+
+  if (method === "GET" && path === "/api/models") {
+    try {
+      return ok({ models: await kernel.availableModels() });
+    } catch (err) {
+      return {
+        status: 502,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
   }
 
   if (method === "GET" && path === "/api/approvals") {
@@ -402,12 +435,27 @@ export async function handleApiRequest(
     // agent-facing chats.list still hides it, because it must not offer its
     // own thread as somewhere to put work.
     const orchestrator = orchestratorId(kernel.profile.ownerId);
+    // Each row says what it is doing. Without this a thread that is mid-turn
+    // or sitting on an approval looks exactly like one with nothing happening,
+    // and the only way to find out was to open it.
+    const busy = new Set(kernel.busyConversations());
+    const waiting = new Set(
+      kernel.approvals
+        .pending()
+        .map((a) => a.conversationId)
+        .filter((id): id is string => typeof id === "string"),
+    );
     return ok(
       kernel.conversations
         .list(kernel.profile.ownerId, { includeArchived })
         .map((c) => ({
           ...c,
           kind: c.id === orchestrator ? "orchestrator" : "chat",
+          activity: busy.has(c.id)
+            ? "working"
+            : waiting.has(c.id)
+              ? "needs-you"
+              : "idle",
         })),
     );
   }

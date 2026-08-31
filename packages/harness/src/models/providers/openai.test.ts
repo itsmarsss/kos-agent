@@ -206,3 +206,34 @@ describe("fromResponsesResponse", () => {
     expect(res.usage).toEqual({ inputTokens: 11, outputTokens: 22 });
   });
 });
+
+describe("parallel tool calls", () => {
+  const req = {
+    messages: [{ role: "user" as const, content: [{ type: "text" as const, text: "go" }] }],
+    tools: [{ name: "ping", description: "p", inputSchema: { type: "object" } }],
+  };
+
+  it("is off by default", () => {
+    // On, the model fires a whole plan before seeing any of it come back, so a
+    // wrong first assumption is carried through every call in the batch.
+    expect(buildResponsesParams(req, { model: "gpt-5.5" }).parallel_tool_calls).toBe(
+      false,
+    );
+  });
+
+  it("can be turned on per spec", () => {
+    expect(
+      buildResponsesParams(req, { model: "gpt-5.5", parallelToolCalls: true })
+        .parallel_tool_calls,
+    ).toBe(true);
+  });
+
+  it("says nothing about it when there are no tools", () => {
+    expect(
+      buildResponsesParams(
+        { messages: req.messages },
+        { model: "gpt-5.5" },
+      ).parallel_tool_calls,
+    ).toBeUndefined();
+  });
+});

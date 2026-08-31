@@ -18,6 +18,12 @@ import {
 import type { ModelMessage } from "../models/types.js";
 import { createDefaultRouter } from "../models/router.js";
 import {
+  applyModelSettings,
+  MODEL_SETTINGS_KEY,
+  type ModelSettings,
+} from "../models/settings.js";
+import { SettingsStore } from "../store/settings.js";
+import {
   ModuleLoader,
   toolRegistryContext,
   type KosModule,
@@ -185,6 +191,7 @@ export class Kernel {
   readonly sessions: SessionStore;
   readonly conversations: ConversationStore;
   readonly facts: FactsStore;
+  readonly settings: SettingsStore;
   readonly memoryWriter: MemoryWriter;
   readonly memoryRetriever: MemoryRetriever;
 
@@ -205,6 +212,15 @@ export class Kernel {
   private readonly sessionScope = new Map<string, Set<string>>();
   /** The conversation currently running a turn, for memory attribution. */
   currentConversationId: string | undefined;
+
+  /**
+   * Conversations with a turn in flight right now.
+   *
+   * A set rather than a single id: a dispatched turn runs inside the
+   * dispatcher's slot, so both are genuinely working. Read by the dashboard so
+   * a thread can say it is thinking instead of looking idle for ten seconds.
+   */
+  private readonly working = new Set<string>();
 
   private constructor(args: {
     workspace: Workspace;
@@ -227,6 +243,7 @@ export class Kernel {
     sessions: SessionStore;
     conversations: ConversationStore;
     facts: FactsStore;
+    settings: SettingsStore;
     memoryWriter: MemoryWriter;
     memoryRetriever: MemoryRetriever;
     embedder: EmbeddingProvider;
@@ -257,6 +274,7 @@ export class Kernel {
     this.sessions = args.sessions;
     this.conversations = args.conversations;
     this.facts = args.facts;
+    this.settings = args.settings;
     this.memoryWriter = args.memoryWriter;
     this.memoryRetriever = args.memoryRetriever;
     this.embedder = args.embedder;
@@ -382,8 +400,14 @@ export class Kernel {
       });
     }
 
-    const inference =
-      options.inference ?? createDefaultRouter(secrets);
+    const settings = new SettingsStore(workspace.db);
+    const router = options.inference ? undefined : createDefaultRouter(secrets);
+    // Saved model choices are applied before anything runs, so the first turn
+    // after a restart uses what the owner picked rather than the default.
+    if (router) {
+      applyModelSettings(router, settings.get<ModelSettings>(MODEL_SETTINGS_KEY));
+    }
+    const inference = options.inference ?? router!;
 
     // Hybrid salience: heuristics decide outright, the cheap model confirms and
     // structures whatever they only flag as "maybe".
@@ -413,6 +437,7 @@ export class Kernel {
       sessions,
       conversations,
       facts,
+      settings,
       memoryWriter,
       memoryRetriever,
       embedder,
@@ -499,6 +524,7 @@ export class Kernel {
       const runId = this.runs.start("chat");
       const previousConversation = this.currentConversationId;
       this.currentConversationId = sessionId;
+      this.working.add(sessionId);
       try {
         // A conversation may be a scoped agent: its own brief, its own reach.
         const conversation = this.conversations.get(sessionId);
@@ -622,6 +648,7 @@ export class Kernel {
         // Restored rather than cleared: a dispatched turn runs inside another,
         // and the outer one still has work to attribute.
         this.currentConversationId = previousConversation;
+        this.working.delete(sessionId);
       }
     }
   }
@@ -1060,6 +1087,40 @@ export class Kernel {
       describeRoutes?: () => Record<string, { provider: string; model: string }>;
     };
     return source.describeRoutes?.();
+  }
+
+  /** Repoint the router at the owner's saved choices, without a restart. */
+  applyModelSettings(settings: ModelSettings): void {
+    const router = this.inference as { setRoute?: unknown; routeFor?: unknown };
+    if (typeof router.setRoute !== "function") return;
+    applyModelSettings(this.inference as Parameters<typeof applyModelSettings>[0], settings);
+  }
+
+  /**
+   * Models this provider will actually accept, asked at call time rather than
+   * kept in a list here. A hard-coded list is how the OpenAI route sat on
+   * gpt-4o long after better models existed.
+   */
+  async availableModels(): Promise<string[]> {
+    const route = this.routes()?.["reasoning"];
+    if (route?.provider !== "openai") return [];
+    const key = this.secrets.get("openai");
+    if (!key) return [];
+    const res = await fetch("https://api.openai.com/v1/models", {
+      headers: { authorization: `Bearer ${key}` },
+    });
+    if (!res.ok) throw new Error(`model list failed: ${res.status}`);
+    const body = (await res.json()) as { data?: { id: string }[] };
+    return (body.data ?? [])
+      .map((m) => m.id)
+      .filter((id) => /^(gpt|o[0-9])/.test(id))
+      .filter((id) => !/(audio|realtime|transcribe|tts|image|search|embedding)/.test(id))
+      .sort();
+  }
+
+  /** Conversation ids with a turn in flight, for the chat list. */
+  busyConversations(): string[] {
+    return [...this.working];
   }
 
   reloadCron(): void {

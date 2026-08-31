@@ -68,10 +68,26 @@ export class ModelRouter {
 
   constructor(
     providers: Provider[],
-    private readonly routing: RoutingTable,
+    private routing: RoutingTable,
     private readonly secrets: SecretsRegistry,
   ) {
     this.providers = new Map(providers.map((p) => [p.name, p]));
+  }
+
+  /**
+   * Point a task class at a different model. Applied in place so a change the
+   * owner makes takes effect on the next turn rather than the next restart.
+   */
+  setRoute(task: Task, route: Route): void {
+    if (!this.providers.has(route.provider)) {
+      throw new Error(`no provider registered for route: ${route.provider}`);
+    }
+    this.routing = { ...this.routing, [task]: route };
+  }
+
+  /** The full spec for a task, so a caller can show what is set. */
+  routeFor(task: Task): Route {
+    return this.routing[task];
   }
 
   /**
