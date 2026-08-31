@@ -12,6 +12,7 @@ import { AttachmentStrip } from "./AttachmentStrip.js";
 import { ModelPicker } from "./ModelPicker.js";
 import { Thinking } from "./Thinking.js";
 import { MessageActions, MessageEditor } from "./MessageActions.js";
+import { MoreIcon } from "./icons.js";
 import { useProgress } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
 import { ToolCall } from "./ToolCall.js";
@@ -58,12 +59,15 @@ export function ChatsPage({
   const [events, setEvents] = useState<ChatEvent[]>([]);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
+  // Which conversation is mid-send, not whether any is: shared across chats it
+  // showed "sending" in every other thread while one was working.
+  const [sendingIn, setSendingIn] = useState<string | null>(null);
   const attachments = useAttachments();
   const progress = useProgress();
   const [creating, setCreating] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
   const [archived, setArchived] = useState<Conversation[]>([]);
 
   // Fetched only when asked for: an archived chat is something you go looking
@@ -76,6 +80,10 @@ export function ChatsPage({
       .catch(() => setArchived([]));
   }, [showArchived, conversations]);
   const drop = useDropZone((l) => void attachments.add(l));
+  const live = activeId ? progress[activeId] : undefined;
+  const running = Boolean(live) || sendingIn === activeId;
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useAutoGrow(inputRef, draft);
   const loaded = useRef<string | undefined>(undefined);
@@ -96,7 +104,7 @@ export function ChatsPage({
     if (!activeId) return;
     const key = `${activeId}:${stamp ?? 0}`;
     // Mid-send the optimistic bubble is the only record of what was typed.
-    if (sending || loaded.current === key) return;
+    if (sendingIn === activeId || loaded.current === key) return;
     if (loaded.current?.startsWith(`${activeId}:`) !== true) setEditing(false);
     loaded.current = key;
     let cancelled = false;
@@ -107,9 +115,10 @@ export function ChatsPage({
     return () => {
       cancelled = true;
     };
-  }, [activeId, stamp, sending]);
+  }, [activeId, stamp, sendingIn]);
 
-  useStickToBottom(boxRef, [events, sending, activeId]);
+  // The live turn grows as it streams, so it is part of what pins the scroll.
+  useStickToBottom(boxRef, [events, sendingIn, activeId, live?.steps.length, live?.text]);
 
   // The orchestrator lives above the list: it is how work gets routed, not one
   // of the threads the routing produces.
@@ -123,24 +132,33 @@ export function ChatsPage({
 
   async function send(): Promise<void> {
     const text = draft.trim();
-    if ((!text && attachments.files.length === 0) || sending || !activeId) return;
-    setSending(true);
+    const target = activeId;
+    if ((!text && attachments.files.length === 0) || !target || sendingIn === target) {
+      return;
+    }
+    setSendingIn(target);
     setEvents((e) => [...e, { kind: "message", role: "you", text }]);
     setDraft("");
     try {
-      await api.message(text, activeId, attachments.files);
+      await api.message(text, target, attachments.files);
       attachments.clear();
       // Reload rather than appending the reply: the turn may have made tool
       // calls, and those belong in the transcript too.
-      const { events: got } = await api.conversation(activeId);
-      setEvents(got);
+      const { events: got } = await api.conversation(target);
+      if (target === activeIdRef.current) setEvents(got);
       onChanged();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setEvents((e) => [...e, { kind: "message", role: "kos", text: `Error: ${msg}` }]);
     } finally {
-      setSending(false);
+      setSendingIn((id) => (id === target ? null : id));
     }
+  }
+
+  /** Ask the running turn in this conversation to stop. */
+  function stop(): void {
+    if (!activeId) return;
+    void api.stopConversation(activeId).catch(() => undefined);
   }
 
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -153,6 +171,26 @@ export function ChatsPage({
     if (!activeId) return;
     setRewinding(true);
     setEditingIndex(null);
+    // Cut the thread back now. Waiting for the reply left the old answer on
+    // screen while a new one was being written for a question it no longer
+    // matched.
+    if (opts.forkTitle === undefined) {
+      let owner = -1;
+      const upTo = events.findIndex((e) => {
+        if (e.kind !== "message" || e.role !== "you") return false;
+        return ++owner === index;
+      });
+      if (upTo >= 0) {
+        setEvents(
+          opts.text === undefined
+            ? events.slice(0, upTo + 1)
+            : [
+                ...events.slice(0, upTo),
+                { kind: "message", role: "you", text: opts.text },
+              ],
+        );
+      }
+    }
     void api
       .rewind(activeId, index, opts)
       .then((r) => {
@@ -289,6 +327,58 @@ export function ChatsPage({
         <ul>
           {(showArchived ? archived : filtered).map((c) => (
             <li key={c.id}>
+              {/* Hover reveals what can be done with a chat, so the list is
+                  a list until you need it to be more. */}
+              <div className="chats-row">
+                <button
+                  type="button"
+                  className="chats-more"
+                  aria-label={`Actions for ${c.title}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuFor(menuFor === c.id ? null : c.id);
+                  }}
+                >
+                  <MoreIcon />
+                </button>
+                {menuFor === c.id && (
+                  <div className="chats-menu" role="menu">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuFor(null);
+                        void api.rewind(c.id, 0, { forkTitle: `${c.title} copy` })
+                          .then((r) => {
+                            onChanged();
+                            onOpen(r.conversationId);
+                          })
+                          .catch(() => undefined);
+                      }}
+                    >
+                      Duplicate
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuFor(null);
+                        void api.archiveConversation(c.id).then(onChanged);
+                      }}
+                    >
+                      {showArchived ? "Unarchive" : "Archive"}
+                    </button>
+                    <button
+                      type="button"
+                      className="is-danger"
+                      onClick={() => {
+                        setMenuFor(null);
+                        void api.deleteConversation(c.id).then(onChanged);
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                )}
+              </div>
               <a
                 className={`chats-item ${c.id === activeId ? "is-active" : ""}`}
                 href={hrefFor({ name: "chats", id: c.id })}
@@ -412,10 +502,12 @@ export function ChatsPage({
                   return renderEvent(e, i, turn);
                 });
               })()}
-              {activeId && progress[activeId] ? (
-                <LiveTurn live={progress[activeId]!} />
+              {live ? (
+                <LiveTurn live={live} />
               ) : (
-                sending && <div className="bubble bubble--kos is-thinking">sending…</div>
+                sendingIn === activeId && (
+                  <div className="bubble bubble--kos is-thinking">sending…</div>
+                )
               )}
             </div>
 
@@ -443,18 +535,26 @@ export function ChatsPage({
               <div className="sheet-composer-bar">
                 <AttachButton onAdd={(l) => void attachments.add(l)} />
                 <ModelPicker />
-                <span className="hint">Enter to send · Shift+Enter for a new line</span>
-                <button
-                  type="button"
-                  className="btn btn--primary"
-                  onClick={() => void send()}
-                  disabled={
-                    sending ||
-                    (draft.trim() === "" && attachments.files.length === 0)
-                  }
-                >
-                  {sending ? "Sending…" : "Send"}
-                </button>
+                {/* The hint took the widest slot in the row to say something
+                    every chat surface already does. The space is the model's. */}
+                <span className="composer-spacer" />
+                {running ? (
+                  <button type="button" className="btn btn--stop" onClick={stop}>
+                    Stop
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    onClick={() => void send()}
+                    disabled={
+                      sendingIn === activeId ||
+                      (draft.trim() === "" && attachments.files.length === 0)
+                    }
+                  >
+                    Send
+                  </button>
+                )}
               </div>
             </div>
           </>

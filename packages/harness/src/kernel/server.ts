@@ -458,6 +458,12 @@ export async function handleApiRequest(
     return ok({ sha });
   }
 
+  if (method === "POST" && path === "/api/conversations/stop") {
+    const id = typeof body.sessionId === "string" ? body.sessionId : "";
+    if (!id) return { status: 400, body: { error: "sessionId required" } };
+    return ok({ stopping: kernel.stop(id) });
+  }
+
   if (method === "POST" && path === "/api/conversations/rewind") {
     const id = typeof body.sessionId === "string" ? body.sessionId : "";
     const index = Number(body.index);
