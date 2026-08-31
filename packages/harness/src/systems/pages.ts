@@ -114,6 +114,33 @@ export class PageStore {
   }
 
   /**
+   * A widget that writes has to name a table that exists.
+   *
+   * Tables are namespaced to the project slug on creation, so an agent that
+   * writes the logical name gets a page that renders, passes validation, and
+   * then fails on the first save with "no such table". The failure belongs at
+   * write time, naming the physical table it should have used.
+   */
+  private assertMutationTablesExist(projectSlug: string, page: PageSpec): void {
+    const exists = (table: string): boolean =>
+      this.db
+        .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`)
+        .get(table) !== undefined;
+
+    page.widgets.forEach((widget, index) => {
+      const target = (widget as { mutate?: { table?: unknown } }).mutate;
+      const table = target?.table;
+      if (typeof table !== "string" || table === "" || exists(table)) return;
+      const namespaced = `${projectSlug}_${table}`;
+      throw new Error(
+        exists(namespaced)
+          ? `widget[${index}]: mutation target table "${table}" does not exist. Tables are namespaced to the project, so use "${namespaced}".`
+          : `widget[${index}]: mutation target table "${table}" does not exist. Create it with systems.migrate first.`,
+      );
+    });
+  }
+
+  /**
    * Validate and write a page spec. page id must match the spec id. Project
    * must already exist in the manifest.
    */
@@ -126,6 +153,7 @@ export class PageStore {
       throw new Error(`invalid page spec: ${errors.join("; ") || "failed validation"}`);
     }
     const page = spec as PageSpec;
+    this.assertMutationTablesExist(projectSlug, page);
     const rel = this.filePath(projectSlug, page.id);
     const abs = this.workspace.resolve(rel);
     mkdirSync(dirname(abs), { recursive: true });
