@@ -12,6 +12,7 @@ import {
   type Project,
   type RunRecord,
   type Status,
+  type ChatEvent,
   type Conversation,
 } from "./api.js";
 import { Inspector, type InspectTarget } from "./Inspector.js";
@@ -55,9 +56,7 @@ export function App(): React.ReactElement {
   const [activity, setActivity] = useState<AuditRecord[]>([]);
   const [facts, setFacts] = useState<FactRow[]>([]);
   const [prompt, setPrompt] = useState("");
-  const [thread, setThread] = useState<
-    Array<{ role: "you" | "kos"; text: string }>
-  >([]);
+  const [thread, setThread] = useState<ChatEvent[]>([]);
   const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast>(null);
@@ -228,15 +227,18 @@ export function App(): React.ReactElement {
     const text = prompt.trim();
     if (text === "" || sending) return;
     setSending(true);
-    setThread((t) => [...t, { role: "you", text }]);
+    setThread((t) => [...t, { kind: "message", role: "you", text }]);
     setPrompt("");
     try {
       const res = await api.orchestrator(text);
-      setThread((t) => [...t, { role: "kos", text: res.reply || "(no reply)" }]);
+      // Reload: the turn's tool calls belong in the transcript, and appending
+      // only the reply would hide the work that produced it.
+      const { events } = await api.conversation(res.conversationId);
+      setThread(events);
       await refresh();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setThread((t) => [...t, { role: "kos", text: `Error: ${msg}` }]);
+      setThread((t) => [...t, { kind: "message", role: "kos", text: `Error: ${msg}` }]);
       flash("err", msg);
     } finally {
       setSending(false);
@@ -255,8 +257,8 @@ export function App(): React.ReactElement {
     let cancelled = false;
     void api
       .conversation(activeChat)
-      .then(({ messages }) => {
-        if (!cancelled) setThread(messages);
+      .then(({ events }) => {
+        if (!cancelled) setThread(events);
       })
       .catch(() => {
         if (!cancelled) setThread([]);
@@ -376,6 +378,19 @@ export function App(): React.ReactElement {
               <div className="menu-body">
                 <button type="button" onClick={() => void refresh()}>Refresh</button>
                 <button type="button" onClick={() => void doSnapshot()}>Snapshot now</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void api
+                      .openWorkspace()
+                      .then((r) => flash("ok", `Opened ${r.opened}`))
+                      .catch((err: unknown) =>
+                        flash("err", err instanceof Error ? err.message : String(err)),
+                      );
+                  }}
+                >
+                  Open workspace folder
+                </button>
                 <button type="button" onClick={() => void copyWorkspace()}>Copy workspace path</button>
                 <button type="button" className="is-danger" onClick={() => void toggleKill()}>
                   {status?.halted ? "Resume KOS" : "Halt KOS"}

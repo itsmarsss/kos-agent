@@ -123,8 +123,8 @@ export interface Conversation {
   archived: boolean;
   /** Standing instructions for this conversation, when it is a scoped agent. */
   brief: string | null;
-  /** Tool name prefixes it may use; empty means the usual toolset. */
-  toolAllow: string[];
+  /** null is the full toolkit; an array is an exact scope, empty included. */
+  toolAllow: string[] | null;
 }
 
 export interface ChatTurn {
@@ -214,6 +214,7 @@ export const api = {
       `/api/conversations/${encodeURIComponent(id)}/messages`,
     ),
   tools: () => get<ToolInfo[]>("/api/tools"),
+  openWorkspace: () => post<{ opened: string }>("/api/workspace/open", {}),
   configureConversation: (
     id: string,
     config: { brief?: string | null; toolAllow?: string[] },

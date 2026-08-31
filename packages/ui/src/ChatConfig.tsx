@@ -31,7 +31,7 @@ export function ChatConfig({
 }: ChatConfigProps): ReactElement {
   const [title, setTitle] = useState(conversation.title);
   const [brief, setBrief] = useState(conversation.brief ?? "");
-  const [allow, setAllow] = useState<string[]>(conversation.toolAllow);
+  const [allow, setAllow] = useState<string[] | null>(conversation.toolAllow);
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -40,12 +40,16 @@ export function ChatConfig({
   }, []);
 
   const families = familiesOf(tools);
-  const unrestricted = allow.length === 0;
+  const unrestricted = allow === null;
 
+  /** First click on an unrestricted chat starts a scope containing just that. */
   function toggle(family: string): void {
-    setAllow((cur) =>
-      cur.includes(family) ? cur.filter((f) => f !== family) : [...cur, family],
-    );
+    setAllow((cur) => {
+      if (cur === null) return [family];
+      return cur.includes(family)
+        ? cur.filter((f) => f !== family)
+        : [...cur, family];
+    });
   }
 
   async function save(): Promise<void> {
@@ -115,17 +119,30 @@ export function ChatConfig({
         <span className="hint">
           {unrestricted
             ? "Unrestricted: this chat has the full toolkit."
-            : `Only these are available. ${families.length - allow.length} withheld.`}
+            : allow.length === 0
+              ? "No tools at all. This chat can talk, and nothing else."
+              : `Only these are available. ${families.length - allow.length} withheld.`}
         </span>
-        {!unrestricted && (
-          <button
-            type="button"
-            className="btn btn--ghost chatcfg-reset"
-            onClick={() => setAllow([])}
-          >
-            Restore full toolkit
-          </button>
-        )}
+        <div className="chatcfg-presets">
+          {!unrestricted && (
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => setAllow(null)}
+            >
+              Full toolkit
+            </button>
+          )}
+          {(unrestricted || allow.length > 0) && (
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => setAllow([])}
+            >
+              No tools
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="chatcfg-bar">

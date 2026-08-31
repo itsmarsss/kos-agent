@@ -653,7 +653,7 @@ describe("KOS end-to-end flows", () => {
     const made = kernel.conversations.list("owner").find((c) => c.title === "App build")!;
     // A permission the model guessed at becomes a capability the conversation
     // silently lacks, so an unrequested restriction must not happen at all.
-    expect(made.toolAllow).toEqual([]);
+    expect(made.toolAllow).toBeNull();
 
     await kernel.handleMessage("do something", { sessionId: made.id });
     const offered = (model.calls.at(-1)!.request.tools ?? []).map((t) => t.name);
@@ -676,6 +676,37 @@ describe("KOS end-to-end flows", () => {
     const offered = (model.calls.at(-1)!.request.tools ?? []).map((t) => t.name);
     expect(offered.some((n) => n.startsWith("cron"))).toBe(false);
     expect(offered.some((n) => n.startsWith("files"))).toBe(true);
+  });
+
+  it("an empty tool scope means no tools, not every tool", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    const muted = kernel.conversations.create({
+      userId: "owner",
+      title: "Notes only",
+      toolAllow: [],
+    });
+
+    await kernel.handleMessage("do something", { sessionId: muted.id });
+    // Collapsing "no tools" onto "unrestricted" made this inexpressible.
+    expect(model.calls.at(-1)!.request.tools ?? []).toHaveLength(0);
+  });
+
+  it("clearing the scope restores the full toolkit", async () => {
+    const model = scripted([text("ok"), text("ok")]);
+    kernel = await boot(model.inference);
+    const c = kernel.conversations.create({
+      userId: "owner",
+      title: "Narrow",
+      toolAllow: ["files"],
+    });
+
+    await kernel.handleMessage("go", { sessionId: c.id });
+    expect((model.calls.at(-1)!.request.tools ?? []).length).toBeLessThan(12);
+
+    kernel.conversations.configure(c.id, { toolAllow: null });
+    await kernel.handleMessage("go again", { sessionId: c.id });
+    expect((model.calls.at(-1)!.request.tools ?? []).length).toBeGreaterThan(20);
   });
 
   it("shares one session across the CLI and Discord surfaces", async () => {
