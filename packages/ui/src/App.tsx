@@ -163,7 +163,12 @@ export function App(): React.ReactElement {
     setBusy(approved ? `approving #${id}` : `denying #${id}`);
     try {
       const res = await (approved ? api.approve(id) : api.deny(id));
-      if (res.reply) setThread((t) => [...t, { role: "kos", text: res.reply! }]);
+      if (res.reply) {
+        setThread((t) => [
+          ...t,
+          { kind: "message", role: "kos", text: res.reply! },
+        ]);
+      }
       flash("ok", approved ? `Approved #${id}` : `Denied #${id}`);
       await refresh();
     } catch (err) {
@@ -270,6 +275,17 @@ export function App(): React.ReactElement {
 
 
 
+
+  /** Pending-action ids, so a queued tool call can offer a decision in place. */
+  const pendingIds = useMemo(
+    () => new Set(approvals.map((a) => String(a.id))),
+    [approvals],
+  );
+
+  const decideByPendingId = (pendingId: string, approved: boolean): void => {
+    const id = Number(pendingId);
+    if (Number.isInteger(id)) void decide(id, approved);
+  };
 
   const inspectKey =
     inspect == null
@@ -428,6 +444,8 @@ export function App(): React.ReactElement {
           onSend={() => void send()}
           onClose={() => setChatOpen(false)}
           onClear={() => void doClear()}
+          pendingApprovals={pendingIds}
+          onDecide={decideByPendingId}
         />
       </main>
     </ErrorBoundary>
@@ -466,8 +484,10 @@ export function App(): React.ReactElement {
       <ChatsPage
         conversations={conversations}
         {...(route.id ? { activeId: route.id } : {})}
+        pendingApprovals={pendingIds}
         onOpen={(id) => go({ name: "chats", id })}
         onChanged={() => void refresh()}
+        onDecide={decideByPendingId}
       />,
     );
   }

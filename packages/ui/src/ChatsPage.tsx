@@ -17,8 +17,11 @@ import { hrefFor } from "./routes.js";
 export interface ChatsPageProps {
   conversations: Conversation[];
   activeId?: string;
+  /** Pending-action ids still awaiting a decision. */
+  pendingApprovals: Set<string>;
   onOpen: (id: string) => void;
   onChanged: () => void;
+  onDecide: (pendingId: string, approved: boolean) => void;
 }
 
 function relative(ts: number): string {
@@ -32,8 +35,10 @@ function relative(ts: number): string {
 export function ChatsPage({
   conversations,
   activeId,
+  pendingApprovals,
   onOpen,
   onChanged,
+  onDecide,
 }: ChatsPageProps): ReactElement {
   const [query, setQuery] = useState("");
   const [events, setEvents] = useState<ChatEvent[]>([]);
@@ -215,7 +220,14 @@ export function ChatsPage({
               {visible.length === 0 && <p className="hint">Nothing said yet.</p>}
               {visible.map((e, i) =>
                 e.kind === "tool" ? (
-                  <ToolCall key={i} event={e} />
+                  <ToolCall
+                    key={i}
+                    event={e}
+                    awaitingApproval={
+                      e.pendingId !== undefined && pendingApprovals.has(e.pendingId)
+                    }
+                    onDecide={onDecide}
+                  />
                 ) : (
                   <div key={i} className={`bubble bubble--${e.role}`}>
                     <Markdown text={e.text} />

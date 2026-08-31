@@ -141,6 +141,8 @@ export type ChatEvent =
       args: Record<string, unknown>;
       result?: string;
       isError?: boolean;
+      /** Set when the call is waiting on approval rather than having run. */
+      pendingId?: string;
     };
 
 export interface ToolInfo {
@@ -217,7 +219,7 @@ export const api = {
   openWorkspace: () => post<{ opened: string }>("/api/workspace/open", {}),
   configureConversation: (
     id: string,
-    config: { brief?: string | null; toolAllow?: string[] },
+    config: { brief?: string | null; toolAllow?: string[] | null },
   ) => post<Conversation>("/api/conversations/configure", { id, ...config }),
   newConversation: (title?: string) =>
     post<Conversation>("/api/conversations/new", title ? { title } : {}),
