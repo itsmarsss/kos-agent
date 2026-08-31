@@ -175,6 +175,8 @@ export interface FactRow {
   value: string;
   kind: string;
   source?: string | null;
+  tags?: string[];
+  pinned?: boolean;
   updatedAt?: number;
   createdAt?: number;
 }
@@ -255,9 +257,21 @@ export const api = {
   deleteConversation: (id: string) =>
     post<{ id: string; removed: boolean }>("/api/conversations/delete", { id }),
   memory: (limit = 200) =>
-    get<{ facts: FactRow[] }>(`/api/memory?limit=${limit}`),
-  saveMemory: (key: string, value: string, kind: "fact" | "preference" = "fact") =>
-    post<FactRow>("/api/memory", { key, value, kind }),
+    get<{ facts: FactRow[]; tags: string[] }>(`/api/memory?limit=${limit}`),
+  pinMemory: (key: string, pinned: boolean) =>
+    post<FactRow>("/api/memory/pin", { key, pinned }),
+  saveMemory: (
+    key: string,
+    value: string,
+    kind: "fact" | "preference" = "fact",
+    tags?: string[],
+  ) =>
+    post<FactRow>("/api/memory", {
+      key,
+      value,
+      kind,
+      ...(tags?.length ? { tags } : {}),
+    }),
   deleteMemory: (key: string) =>
     post<{ key: string; removed: boolean }>("/api/memory/delete", { key }),
   approve: (id: number) =>

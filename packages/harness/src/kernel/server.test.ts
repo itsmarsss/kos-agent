@@ -391,4 +391,29 @@ describe("handleApiRequest", () => {
       expect((res.body as { error: string }).error).toContain("key required");
     });
   });
+
+  it("returns the full page when no limit is given", async () => {
+    for (let i = 0; i < 5; i++) {
+      kernel.facts.upsert("owner", { key: `k${i}`, value: `v${i}`, kind: "fact" });
+    }
+    // Number(null) is 0 and finite, so an absent limit clamped to one row and
+    // these endpoints silently returned a single result.
+    const res = await handleApiRequest(kernel, {
+      method: "GET",
+      path: "/api/memory",
+    });
+    expect((res.body as { facts: unknown[] }).facts.length).toBe(5);
+  });
+
+  it("still honours an explicit limit", async () => {
+    for (let i = 0; i < 5; i++) {
+      kernel.facts.upsert("owner", { key: `k${i}`, value: `v${i}`, kind: "fact" });
+    }
+    const res = await handleApiRequest(kernel, {
+      method: "GET",
+      path: "/api/memory",
+      url: "/api/memory?limit=2",
+    });
+    expect((res.body as { facts: unknown[] }).facts.length).toBe(2);
+  });
 });

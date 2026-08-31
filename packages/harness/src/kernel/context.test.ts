@@ -34,6 +34,8 @@ describe("assembleSystemPrompt", () => {
             value: "USD",
             kind: "preference",
             source: null,
+      tags: [],
+      pinned: false,
             createdAt: 0,
             updatedAt: 0,
           },

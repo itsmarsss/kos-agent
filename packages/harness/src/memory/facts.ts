@@ -7,7 +7,15 @@ export interface Fact {
   key: string;
   value: string;
   kind: FactKind;
+  /** Who wrote it: a conversation id, "chat", "dashboard". */
   source: string | null;
+  /** Free-form labels, for grouping and for scoped recall. */
+  tags: string[];
+  /**
+   * Always in context, regardless of what the message matched. For the handful
+   * of things every agent should know without having to search for them.
+   */
+  pinned: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -33,8 +41,22 @@ interface Row {
   value: string;
   kind: string;
   source: string | null;
+  tags: string | null;
+  pinned: number | null;
   created_at: number;
   updated_at: number;
+}
+
+function parseTags(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((t): t is string => typeof t === "string")
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -79,6 +101,8 @@ function toFact(row: Row): Fact {
     value: row.value,
     kind: row.kind as FactKind,
     source: row.source,
+    tags: parseTags(row.tags),
+    pinned: row.pinned === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -95,25 +119,76 @@ export class FactsStore {
     private readonly now: () => number = Date.now,
   ) {
     this.db.exec(SCHEMA);
+    // Added in place: a workspace that predates tags and pinning should keep
+    // its memory rather than needing a migration step from the owner.
+    const columns = this.db
+      .prepare(`PRAGMA table_info(memory_facts)`)
+      .all() as { name: string }[];
+    const has = (n: string): boolean => columns.some((c) => c.name === n);
+    if (!has("tags")) this.db.exec(`ALTER TABLE memory_facts ADD COLUMN tags TEXT`);
+    if (!has("pinned")) {
+      this.db.exec(`ALTER TABLE memory_facts ADD COLUMN pinned INTEGER DEFAULT 0`);
+    }
   }
 
   upsert(
     userId: string,
-    fact: CandidateFact,
+    fact: CandidateFact & { tags?: string[]; pinned?: boolean },
     source: string | null = null,
   ): void {
     const ts = this.now();
+    // COALESCE on tags and pinned: an ordinary re-statement of a fact should
+    // not silently unpin it or drop labels the owner added.
     this.db
       .prepare(
-        `INSERT INTO memory_facts (user_id, key, value, kind, source, created_at, updated_at)
-         VALUES (@userId, @key, @value, @kind, @source, @ts, @ts)
+        `INSERT INTO memory_facts (user_id, key, value, kind, source, tags, pinned, created_at, updated_at)
+         VALUES (@userId, @key, @value, @kind, @source, @tags, @pinned, @ts, @ts)
          ON CONFLICT (user_id, key) DO UPDATE SET
            value = excluded.value,
            kind = excluded.kind,
            source = excluded.source,
+           tags = COALESCE(excluded.tags, memory_facts.tags),
+           pinned = COALESCE(excluded.pinned, memory_facts.pinned),
            updated_at = excluded.updated_at`,
       )
-      .run({ userId, key: fact.key, value: fact.value, kind: fact.kind, source, ts });
+      .run({
+        userId,
+        key: fact.key,
+        value: fact.value,
+        kind: fact.kind,
+        source,
+        tags: fact.tags ? JSON.stringify(fact.tags) : null,
+        pinned: fact.pinned === undefined ? null : fact.pinned ? 1 : 0,
+        ts,
+      });
+  }
+
+  /** Entries that go into every prompt without needing to be matched. */
+  pinned(userId: string): Fact[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM memory_facts WHERE user_id = ? AND pinned = 1
+           ORDER BY updated_at DESC`,
+        )
+        .all(userId) as Row[]
+    ).map(toFact);
+  }
+
+  setPinned(userId: string, key: string, pinned: boolean): Fact | undefined {
+    this.db
+      .prepare(
+        `UPDATE memory_facts SET pinned = ?, updated_at = ? WHERE user_id = ? AND key = ?`,
+      )
+      .run(pinned ? 1 : 0, this.now(), userId, key);
+    return this.get(userId, key);
+  }
+
+  /** Every distinct tag in use, for filters and for telling an agent what exists. */
+  tags(userId: string): string[] {
+    const seen = new Set<string>();
+    for (const fact of this.all(userId)) for (const t of fact.tags) seen.add(t);
+    return [...seen].sort();
   }
 
   get(userId: string, key: string): Fact | undefined {
@@ -141,9 +216,17 @@ export class FactsStore {
    * vector fallback. Facts are per-user and small, so scoring in code buys
    * better ranking than SQL can express here.
    */
-  search(userId: string, query: string, limit = 20): Fact[] {
+  search(
+    userId: string,
+    query: string,
+    limit = 20,
+    options: { tags?: string[] } = {},
+  ): Fact[] {
     const tokens = tokenize(query);
-    const all = this.all(userId); // already ordered by updated_at DESC
+    const wanted = options.tags?.filter(Boolean) ?? [];
+    const all = wanted.length
+      ? this.all(userId).filter((f) => f.tags.some((t) => wanted.includes(t)))
+      : this.all(userId); // already ordered by updated_at DESC
     if (tokens.length === 0) return all.slice(0, limit);
 
     const needle = query.trim().toLowerCase();
