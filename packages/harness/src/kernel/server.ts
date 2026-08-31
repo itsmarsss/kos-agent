@@ -11,6 +11,8 @@ import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
 import { orchestratorId } from "./kernel.js";
 import { parseAttachments } from "./attachments.js";
+import cron from "node-cron";
+import type { CreateCronInput, ToolCall } from "../cron/types.js";
 import { findMentions, type MentionKind } from "./mentions.js";
 import { CHAT_COMMANDS } from "./chatcommands.js";
 import {
@@ -179,6 +181,33 @@ export async function handleApiRequest(
     kernel.crons.setEnabled(id, enabled);
     kernel.reloadCron();
     return ok({ id, enabled });
+  }
+
+  if (
+    method === "POST" &&
+    (path === "/api/crons/create" || path === "/api/crons/update")
+  ) {
+    // The owner writing a schedule by hand is not the agent proposing one, so
+    // it takes effect without the approval queue. It still goes through the
+    // same validation, including the read-only rule on the query.
+    const input = parseCronInput(body);
+    if (typeof input === "string") {
+      return { status: 400, body: { error: input } };
+    }
+    try {
+      const job =
+        path === "/api/crons/update"
+          ? kernel.crons.update(Number(body.id), input)
+          : kernel.crons.create(input);
+      if (!job) return { status: 404, body: { error: "no such job" } };
+      kernel.reloadCron();
+      return ok(job);
+    } catch (err) {
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
   }
 
   if (method === "POST" && path === "/api/crons/delete") {
@@ -807,6 +836,52 @@ function streamProgress(
   res.on("close", close);
 }
 
+
+/**
+ * Check a schedule the owner wrote, returning the reason when it cannot be
+ * used. The same shape the tool accepts, minus the approval queue: this is the
+ * owner acting directly.
+ */
+function parseCronInput(body: Record<string, unknown>): CreateCronInput | string {
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const schedule = typeof body.schedule === "string" ? body.schedule.trim() : "";
+  if (!name) return "name required";
+  if (!cron.validate(schedule)) return `invalid cron schedule: ${schedule || "(empty)"}`;
+
+  const type = body.type === "self_prompt" ? "self_prompt" : "actions";
+  const input: CreateCronInput = { name, schedule, type };
+  if (typeof body.query === "string" && body.query.trim()) input.query = body.query;
+  if (typeof body.projectSlug === "string" && body.projectSlug) {
+    input.projectSlug = body.projectSlug;
+  }
+
+  if (type === "self_prompt") {
+    const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+    if (!prompt) return "a self_prompt job needs a prompt";
+    input.prompt = prompt;
+    return input;
+  }
+
+  if (!Array.isArray(body.actions) || body.actions.length === 0) {
+    return "an actions job needs at least one tool call";
+  }
+  const actions: ToolCall[] = [];
+  for (const [i, entry] of body.actions.entries()) {
+    if (typeof entry !== "object" || entry === null) return `actions[${i}] must be an object`;
+    const call = entry as Record<string, unknown>;
+    if (typeof call.tool !== "string" || !call.tool) return `actions[${i}] needs a tool`;
+    const args = call.args;
+    if (args !== undefined && (typeof args !== "object" || args === null || Array.isArray(args))) {
+      return `actions[${i}]: args must be an object`;
+    }
+    actions.push({
+      tool: call.tool,
+      args: (args as Record<string, unknown> | undefined) ?? {},
+    });
+  }
+  input.actions = actions;
+  return input;
+}
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",

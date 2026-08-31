@@ -268,6 +268,10 @@ export const api = {
   setProjectStatus: (slug: string, status: string) =>
     post<Project>("/api/projects/status", { slug, status }),
   crons: () => get<CronJob[]>("/api/crons"),
+  createCron: (job: Record<string, unknown>) =>
+    post<CronJob>("/api/crons/create", job),
+  updateCron: (job: Record<string, unknown>) =>
+    post<CronJob>("/api/crons/update", job),
   setCronEnabled: (id: number, enabled: boolean) =>
     post<{ id: number; enabled: boolean }>("/api/crons/enable", {
       id,

@@ -101,7 +101,7 @@ export function ChatPanel({
           >
             <header className="sheet-head">
               <div className="sheet-title">
-                <strong>Command</strong>
+                <strong>KOS</strong>
                 <span className="sheet-sub">routes work across your chats</span>
               </div>
               <div className="sheet-head-actions">
