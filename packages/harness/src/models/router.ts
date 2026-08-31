@@ -33,20 +33,19 @@ export const DEFAULT_ROUTING: RoutingTable = {
 /**
  * OpenAI-only table used when Anthropic is not configured.
  *
- * No `effort` here on purpose: /v1/chat/completions rejects reasoning_effort
- * whenever function tools are present, for the whole gpt-5 line, and KOS
- * always sends tools. The gpt-5.6 models are absent for the same reason --
- * they require the Responses API for function tools, which this provider does
- * not speak.
+ * Mirrors the Anthropic default: a reasoning model at high effort for real
+ * turns, a small one for salience. Both need the Responses API, which is what
+ * the provider speaks; on Chat Completions an effort could not be sent
+ * alongside function tools at all, and gpt-5.6 refused tools outright.
  */
 export const OPENAI_ROUTING: RoutingTable = {
   reasoning: {
     provider: "openai",
-    spec: { model: "gpt-5.5" },
+    spec: { model: "gpt-5.6-terra", effort: "high" },
   },
   cheap: {
     provider: "openai",
-    spec: { model: "gpt-5.4-mini" },
+    spec: { model: "gpt-5.4-mini", effort: "low" },
   },
 };
 

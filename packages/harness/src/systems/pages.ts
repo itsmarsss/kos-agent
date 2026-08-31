@@ -173,6 +173,29 @@ export class PageStore {
   }
 
   /**
+   * Fill a stat's label from its title.
+   *
+   * Every other widget captions itself with `title`, so a stat is the one
+   * place a separate `label` is required, and every model tested wrote
+   * `title` and got rejected for it. The two say the same thing to a reader,
+   * so the spec is completed rather than refused.
+   */
+  private static fillStatLabels(spec: unknown): unknown {
+    if (typeof spec !== "object" || spec === null) return spec;
+    const page = spec as { widgets?: unknown };
+    if (!Array.isArray(page.widgets)) return spec;
+    for (const widget of page.widgets) {
+      if (typeof widget !== "object" || widget === null) continue;
+      const w = widget as { type?: unknown; label?: unknown; title?: unknown };
+      if (w.type !== "stat") continue;
+      if (!w.label && typeof w.title === "string" && w.title !== "") {
+        w.label = w.title;
+      }
+    }
+    return spec;
+  }
+
+  /**
    * Validate and write a page spec. page id must match the spec id. Project
    * must already exist in the manifest.
    */
@@ -180,6 +203,7 @@ export class PageStore {
     if (!this.manifest.get(projectSlug)) {
       throw new Error(`unknown project: ${projectSlug}`);
     }
+    PageStore.fillStatLabels(spec);
     const errors = validatePageSpec(spec as PageSpec);
     if (errors.length > 0 || !isValidPageSpec(spec as PageSpec)) {
       throw new Error(`invalid page spec: ${errors.join("; ") || "failed validation"}`);

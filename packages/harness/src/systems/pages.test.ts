@@ -175,3 +175,57 @@ describe("PageStore project boundaries", () => {
     ).toBe("p");
   });
 });
+
+describe("PageStore stat labels", () => {
+  let root: string;
+  let ws: Workspace;
+  let pages: PageStore;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-pages-stat-"));
+    ws = Workspace.open(root);
+    const manifest = new ProjectManifest(ws.db);
+    manifest.createProject({ name: "Demo", type: "tracker" });
+    pages = new PageStore(ws.db, ws, manifest);
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("takes a stat's label from its title when only the title is given", () => {
+    // Every widget but this one captions itself with title, so every model
+    // tested wrote title and was rejected for a missing label.
+    const rec = pages.write("demo", {
+      id: "p",
+      title: "P",
+      widgets: [{ type: "stat", title: "Total spent", query: "SELECT 1" }],
+    });
+    expect(rec.id).toBe("p");
+    expect(pages.get("p")?.spec.widgets[0]).toMatchObject({
+      label: "Total spent",
+    });
+  });
+
+  it("leaves an explicit label alone", () => {
+    pages.write("demo", {
+      id: "q",
+      title: "Q",
+      widgets: [
+        { type: "stat", title: "Caption", label: "Real label", query: "SELECT 1" },
+      ],
+    });
+    expect(pages.get("q")?.spec.widgets[0]).toMatchObject({ label: "Real label" });
+  });
+
+  it("still rejects a stat with neither", () => {
+    expect(() =>
+      pages.write("demo", {
+        id: "r",
+        title: "R",
+        widgets: [{ type: "stat", query: "SELECT 1" }],
+      }),
+    ).toThrow(/stat requires a label/);
+  });
+});
