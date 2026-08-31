@@ -51,6 +51,9 @@ export interface GuardedToolsDeps {
  */
 export const QUEUED_PREFIX = "queued for approval (pending #";
 
+/** Identical calls allowed in one turn before the harness calls it a loop. */
+const REPEAT_LIMIT = 2;
+
 /** The pending-action id in a queued tool result, if that is what this is. */
 export function parseQueuedApproval(result: string): string | null {
   const match = /^queued for approval \(pending #([^)]+)\)/.exec(result);
@@ -66,6 +69,9 @@ export function parseQueuedApproval(result: string): string | null {
  * The model is offered scoped tools when tags are active.
  */
 export class GuardedTools implements ToolBox {
+  /** Identical calls made this turn, keyed by tool name and arguments. */
+  private readonly repeats = new Map<string, number>();
+
   constructor(private readonly deps: GuardedToolsDeps) {}
 
   /** Does this tool survive the conversation's allow-list? */
@@ -76,6 +82,24 @@ export class GuardedTools implements ToolBox {
     // real answer -- no tools -- not an absent one.
     if (allow === undefined) return true;
     return allow.some((prefix) => name === prefix || name.startsWith(`${prefix}.`));
+  }
+
+  /**
+   * What to tell a scoped conversation about its own reach, or null when it is
+   * unrestricted. Absent tools are invisible: without this the agent cannot
+   * tell "there is no such capability" from "not in this conversation", so it
+   * improvises with whatever it does have rather than saying it cannot.
+   */
+  scopeNote(): string | null {
+    const { allow } = this.deps;
+    if (allow === undefined) return null;
+    if (allow.length === 0) {
+      return "This conversation has no tools. Answer from what you know, and say plainly when something would need one.";
+    }
+    return [
+      `This conversation is limited to these tools: ${allow.join(", ")}. There are no others here.`,
+      "If the owner asks for something they do not cover, say that plainly in one sentence and stop. Do not reach for a tool you do have as a substitute for one you do not: writing a memory entry saying a change was made is not making the change, and leaves a false record behind.",
+    ].join(" ");
   }
 
   defs(): ReturnType<ToolRegistry["defs"]> {
@@ -102,12 +126,35 @@ export class GuardedTools implements ToolBox {
     return toolLimit !== undefined ? withGrants.slice(0, toolLimit) : withGrants;
   }
 
+  /**
+   * Break a repeated call.
+   *
+   * The same tool with the same arguments returns the same thing, so a third
+   * attempt is a loop, not progress. Left alone the agent spends its whole
+   * step budget on it and the turn ends with no answer at all. Counted per
+   * instance, and an instance is one turn.
+   */
+  private repeatGuard(name: string, input: Record<string, unknown>): string | null {
+    const key = `${name}:${JSON.stringify(input)}`;
+    const seen = (this.repeats.get(key) ?? 0) + 1;
+    this.repeats.set(key, seen);
+    if (seen <= REPEAT_LIMIT) return null;
+    return [
+      `You have already called ${name} with these exact arguments ${seen - 1} times in this turn.`,
+      "It returns the same thing every time, so calling it again cannot make progress.",
+      "Do something different, or tell the owner what is blocking you.",
+    ].join(" ");
+  }
+
   async execute(
     name: string,
     input: Record<string, unknown>,
   ): Promise<ToolExecution> {
     const { registry, secrets, audit, approvals, userId, conversationId } =
       this.deps;
+
+    const repeated = this.repeatGuard(name, input);
+    if (repeated) return { content: repeated, isError: true };
 
     // Enforced here too, not only in defs(): a model can name any tool it
     // likes, and an offered-but-not-executable list would be a fiction.

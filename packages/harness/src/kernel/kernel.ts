@@ -533,9 +533,17 @@ export class Kernel {
           ...recall.facts.filter((f) => !pinnedFacts.some((p) => p.key === f.key)),
         ];
         const formatting = channelGuidance(opts.channel);
-        // The brief comes last so a conversation's own instructions read as
-        // the most specific thing in the prompt.
-        const extra = [formatting, conversation?.brief]
+        // Say when the toolkit has been narrowed. Withheld tools are simply
+        // absent, so a scoped agent asked for something outside its reach does
+        // not know the capability exists: it cannot say "not here", and works
+        // the only tools it has instead. One asked to alter a schema with a
+        // files-and-memory scope spent its whole turn writing and deleting
+        // memory entries, including a false one saying the change was made.
+        const scopeNote = tools.scopeNote();
+        // The scope goes last, after the brief: a brief tells the agent what
+        // it is for, and the two conflict exactly when the owner asks for
+        // something the brief covers and the scope does not.
+        const extra = [formatting, conversation?.brief, scopeNote]
           .filter((part): part is string => Boolean(part && part.trim()))
           .join("\n\n");
         const system = assembleSystemPrompt({
@@ -577,13 +585,24 @@ export class Kernel {
         // owner turns are remembered; harness-generated turns are plumbing.
         // Awaited so a write cannot be lost when the process exits right after
         // a reply, and so failures surface in the runs log instead of vanishing.
+        // A turn that ends on a tool call has no text in it. Handed straight
+        // to the reader that is silence: the agent looks like it ignored them.
+        // It happens when the loop hits its iteration cap, which is exactly
+        // when the reader most needs to hear that it got stuck.
+        const reply =
+          result.finalText.trim() !== ""
+            ? result.finalText
+            : result.exhausted
+              ? "I got stuck on that and stopped after too many steps without reaching an answer. Tell me what to try instead, or narrow it down."
+              : "I do not have anything to add to that.";
+
         if (opts.origin !== "system") {
-          await this.rememberExchange(userId, text, result.finalText);
+          await this.rememberExchange(userId, text, reply);
         }
 
         this.runs.finish(runId, "ok");
         return {
-          reply: result.finalText,
+          reply,
           halted: false,
           sessionId,
         };
