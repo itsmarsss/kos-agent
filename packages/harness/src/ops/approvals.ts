@@ -11,6 +11,11 @@ export interface EnqueueInput {
   riskTier: RiskTier;
   reason?: string;
   userId?: string;
+  /**
+   * Which conversation asked. Approving has to resume the agent that was
+   * waiting, and that is not always the primary one.
+   */
+  conversationId?: string;
 }
 
 export interface PendingAction {
@@ -21,6 +26,7 @@ export interface PendingAction {
   reason: string | null;
   status: ApprovalStatus;
   userId: string | null;
+  conversationId: string | null;
   requestedAt: number;
   decidedAt: number | null;
   decidedBy: string | null;
@@ -35,6 +41,7 @@ CREATE TABLE IF NOT EXISTS pending_actions (
   reason TEXT,
   status TEXT NOT NULL DEFAULT 'pending',
   user_id TEXT,
+  conversation_id TEXT,
   requested_at INTEGER NOT NULL,
   decided_at INTEGER,
   decided_by TEXT
@@ -49,6 +56,7 @@ interface Row {
   reason: string | null;
   status: string;
   user_id: string | null;
+  conversation_id: string | null;
   requested_at: number;
   decided_at: number | null;
   decided_by: string | null;
@@ -63,6 +71,7 @@ function toAction(row: Row): PendingAction {
     reason: row.reason,
     status: row.status as ApprovalStatus,
     userId: row.user_id,
+    conversationId: row.conversation_id,
     requestedAt: row.requested_at,
     decidedAt: row.decided_at,
     decidedBy: row.decided_by,
@@ -81,6 +90,13 @@ export class ApprovalQueue {
     private readonly now: () => number = Date.now,
   ) {
     this.db.exec(SCHEMA);
+    // Added in place so a workspace with queued actions keeps them.
+    const columns = this.db
+      .prepare(`PRAGMA table_info(pending_actions)`)
+      .all() as { name: string }[];
+    if (!columns.some((c) => c.name === "conversation_id")) {
+      this.db.exec(`ALTER TABLE pending_actions ADD COLUMN conversation_id TEXT`);
+    }
   }
 
   enqueue(input: EnqueueInput): PendingAction {
@@ -88,8 +104,8 @@ export class ApprovalQueue {
     const args = this.secrets ? this.secrets.redact(argsJson) : argsJson;
     const info = this.db
       .prepare(
-        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, requested_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.tool,
@@ -97,6 +113,7 @@ export class ApprovalQueue {
         input.riskTier,
         input.reason ?? null,
         input.userId ?? null,
+        input.conversationId ?? null,
         this.now(),
       );
     return this.get(Number(info.lastInsertRowid))!;

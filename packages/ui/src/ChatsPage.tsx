@@ -61,11 +61,22 @@ export function ChatsPage({
   const toolCount = events.filter((e) => e.kind === "tool").length;
   const msgCount = events.length - toolCount;
 
+  /**
+   * Reload on the conversation changing, and again whenever it has moved on
+   * the server. A transcript loaded once goes stale the moment anything writes
+   * to it from outside this view: an approval resuming the agent, work
+   * dispatched into it, a message arriving over Discord. Keying on updatedAt
+   * means one poll upstream keeps every open thread current.
+   */
+  const stamp = active?.updatedAt;
   useEffect(() => {
-    if (!activeId || loaded.current === activeId) return;
-    loaded.current = activeId;
+    if (!activeId) return;
+    const key = `${activeId}:${stamp ?? 0}`;
+    // Mid-send the optimistic bubble is the only record of what was typed.
+    if (sending || loaded.current === key) return;
+    if (loaded.current?.startsWith(`${activeId}:`) !== true) setEditing(false);
+    loaded.current = key;
     let cancelled = false;
-    setEditing(false);
     void api
       .conversation(activeId)
       .then(({ events: got }) => !cancelled && setEvents(got))
@@ -73,7 +84,7 @@ export function ChatsPage({
     return () => {
       cancelled = true;
     };
-  }, [activeId]);
+  }, [activeId, stamp, sending]);
 
   useStickToBottom(boxRef, [events, sending, activeId]);
 

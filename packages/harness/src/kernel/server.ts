@@ -306,6 +306,13 @@ export async function handleApiRequest(
       typeof body.userId === "string" && body.userId.length > 0
         ? body.userId
         : kernel.profile.ownerId;
+    // The orchestrator is reachable from the chat list like any other thread,
+    // and it has to be the same agent there as it is under cmd-K. Routing on
+    // the id keeps one definition of what it can do instead of two doors with
+    // different toolkits behind them.
+    if (sessionId === orchestratorId(kernel.profile.ownerId)) {
+      return ok(await kernel.handleOrchestratorTurn(text, { channel: "dashboard" }));
+    }
     return ok(await kernel.handleMessage(text, { sessionId, userId }));
   }
 

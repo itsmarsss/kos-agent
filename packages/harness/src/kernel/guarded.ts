@@ -34,6 +34,8 @@ export interface GuardedToolsDeps {
   grant?: string[];
   /** Notified when a risky call is queued, so a channel can prompt for approval. */
   onQueued?: (action: PendingAction) => void;
+  /** The conversation making the call, so approving resumes the right agent. */
+  conversationId?: string;
 }
 
 /**
@@ -99,7 +101,8 @@ export class GuardedTools implements ToolBox {
     name: string,
     input: Record<string, unknown>,
   ): Promise<ToolExecution> {
-    const { registry, secrets, audit, approvals, userId } = this.deps;
+    const { registry, secrets, audit, approvals, userId, conversationId } =
+      this.deps;
 
     // Enforced here too, not only in defs(): a model can name any tool it
     // likes, and an offered-but-not-executable list would be a fiction.
@@ -119,6 +122,7 @@ export class GuardedTools implements ToolBox {
         riskTier: "risky",
         reason: assessment.escalated ? "argument escalation" : "risky tool",
         ...(userId ? { userId } : {}),
+        ...(conversationId ? { conversationId } : {}),
       });
       this.deps.onQueued?.(action);
       return {
