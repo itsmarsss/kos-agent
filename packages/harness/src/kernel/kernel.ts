@@ -539,7 +539,12 @@ export class Kernel {
         // the only tools it has instead. One asked to alter a schema with a
         // files-and-memory scope spent its whole turn writing and deleting
         // memory entries, including a false one saying the change was made.
-        const scopeNote = tools.scopeNote();
+        // Only for a scope the owner set on the conversation. A per-turn
+        // override is a caller that knows what it is and has a brief saying
+        // what to do instead: the orchestrator read the generic note, said it
+        // had no page tools, and stopped, when handing the work to another
+        // conversation was the whole job.
+        const scopeNote = opts.allow === undefined ? tools.scopeNote() : null;
         // The scope goes last, after the brief: a brief tells the agent what
         // it is for, and the two conflict exactly when the owner asks for
         // something the brief covers and the scope does not.
