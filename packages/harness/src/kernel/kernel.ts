@@ -42,6 +42,7 @@ import { createHttpModule } from "../tools/http.js";
 import { createSearchModule } from "../tools/search.js";
 import { exportModule } from "../tools/export.js";
 import { createSkillsModule } from "../tools/skills.js";
+import { createChatsModule, CHAT_TOOLS } from "../tools/chats.js";
 import { cronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
 import { notifyModule } from "../tools/notify.js";
@@ -92,6 +93,25 @@ const DEFAULT_SYSTEM =
   "You are KOS, a personal assistant operating inside a sandboxed workspace. Use the available tools to help. Risky actions are queued for owner approval — tell the user the pending id, then wait; when approval results arrive (as a System message), continue the plan without repeating completed creates. Prefer short checklist-style replies when the user asks. For tasks: create_list once, then tasks.add/list/complete with the returned slug as instance.";
 
 const DEFAULT_BACKUP_CRON = "0 3 * * *";
+
+/** The orchestrator's own conversation id. */
+export function orchestratorId(ownerId = "owner"): string {
+  return `orchestrator:${ownerId}`;
+}
+
+/**
+ * What the orchestrator is for. Deliberately about routing rather than any
+ * particular kind of work: its job is to find where something belongs and set
+ * it up, not to do the work itself.
+ */
+const ORCHESTRATOR_BRIEF = [
+  "You route work across the owner's conversations.",
+  "Before starting anything, search existing conversations: the work often already has a home, and saying so is more useful than making another thread.",
+  "When something genuinely needs its own conversation, create it with a brief that says what it is for and how to behave there, and carry over what it needs to know in the opening message.",
+  "Keep a new conversation's tools to what the work needs; withholding the rest keeps it focused.",
+  "You cannot speak inside other conversations. Set one up and hand it over.",
+  "Be brief. Say what you found and what you did.",
+].join("\n");
 
 /**
  * Pick the embedding provider from available secrets. Cohere is here so an
@@ -282,6 +302,13 @@ export class Kernel {
       tasksModule,
       exportModule,
       createSkillsModule(promoter),
+      createChatsModule({
+        conversations,
+        sessions,
+        ownerId: profile.ownerId,
+        // It should not offer you its own thread as somewhere to put work.
+        hide: [orchestratorId(profile.ownerId)],
+      }),
       ...(options.extraModules ?? []),
     ];
     const loader = new ModuleLoader(toolRegistryContext(registry, services));
@@ -297,6 +324,18 @@ export class Kernel {
         id: primaryId,
         userId: profile.ownerId,
         title: "Main",
+      });
+    }
+
+    // The orchestrator is a real conversation so it remembers what it has set
+    // up and why, rather than re-deriving it from scratch every invocation.
+    const orchestrator = orchestratorId(profile.ownerId);
+    if (!conversations.get(orchestrator)) {
+      conversations.create({
+        id: orchestrator,
+        userId: profile.ownerId,
+        title: "Command",
+        brief: ORCHESTRATOR_BRIEF,
       });
     }
 
@@ -575,6 +614,25 @@ export class Kernel {
       message: `denied #${id}`,
       ...(reply !== undefined ? { reply } : {}),
     };
+  }
+
+  /**
+   * A turn with the orchestrator. It runs in its own conversation and is the
+   * only caller granted the chats.* tools, so the ability to read across
+   * threads and start new ones exists in exactly one place.
+   */
+  async handleOrchestratorTurn(
+    text: string,
+    opts: { channel?: string } = {},
+  ): Promise<HandleResult & { conversationId: string }> {
+    const id = orchestratorId(this.profile.ownerId);
+    const res = await this.handleMessage(text, {
+      sessionId: id,
+      userId: this.profile.ownerId,
+      grant: [...CHAT_TOOLS],
+      ...(opts.channel ? { channel: opts.channel } : {}),
+    });
+    return { ...res, conversationId: id };
   }
 
   clearSession(sessionId: string): void {

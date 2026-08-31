@@ -9,6 +9,7 @@ export {
 } from "./profile.js";
 export {
   Kernel,
+  orchestratorId,
   type HandleResult,
   type KernelOptions,
 } from "./kernel.js";

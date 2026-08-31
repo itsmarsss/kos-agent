@@ -562,6 +562,85 @@ describe("KOS end-to-end flows", () => {
     expect(offered.some((n) => n.startsWith("cron"))).toBe(true);
   });
 
+  it("keeps the chats tools out of an ordinary conversation", async () => {
+    const model = scripted([
+      toolCall("c1", "chats.create", { title: "sneaky", brief: "x" }),
+      text("done"),
+    ]);
+    kernel = await boot(model.inference);
+
+    const plain = kernel.conversations.create({ userId: "owner", title: "Plain" });
+    const before = kernel.conversations.list("owner").length;
+    await kernel.handleMessage("make a chat", { sessionId: plain.id });
+
+    // Neither offered nor reachable by naming it: reading across threads and
+    // starting new ones is a different privilege level.
+    const offered = (model.calls[0]!.request.tools ?? []).map((t) => t.name);
+    expect(offered.some((n) => n.startsWith("chats."))).toBe(false);
+    const wire = JSON.stringify(model.calls.at(-1)!.request.messages);
+    expect(wire).toContain("not available in this conversation");
+    expect(kernel.conversations.list("owner")).toHaveLength(before);
+  });
+
+  it("gives the orchestrator the chats tools", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    await kernel.handleOrchestratorTurn("what do I have going on");
+    const offered = (model.calls[0]!.request.tools ?? []).map((t) => t.name);
+    expect(offered).toContain("chats.search");
+    expect(offered).toContain("chats.create");
+  });
+
+  it("orchestrator finds an existing conversation before making another", async () => {
+    const model = scripted([
+      toolCall("c1", "chats.search", { query: "shoot" }),
+      text("You already have one for that."),
+    ]);
+    kernel = await boot(model.inference);
+
+    const shoot = kernel.conversations.create({ userId: "owner", title: "Shoot plan" });
+    kernel.sessions.record(shoot.id, [
+      { role: "user", content: [{ type: "text", text: "book the van for the shoot" }] },
+    ]);
+
+    await kernel.handleOrchestratorTurn("help me with the shoot");
+    const wire = JSON.stringify(model.calls.at(-1)!.request.messages);
+    expect(wire).toContain("Shoot plan");
+  });
+
+  it("orchestrator creates a scoped agent and hands it back", async () => {
+    const model = scripted([
+      toolCall("c1", "chats.create", {
+        title: "App build",
+        brief: "Help build the app. Ask before scaffolding.",
+        toolAllow: ["files", "search"],
+        opening: "Carried over: stack is Postgres and Next.",
+      }),
+      text("Started it."),
+    ]);
+    kernel = await boot(model.inference);
+
+    await kernel.handleOrchestratorTurn("spin something up for the app");
+
+    const made = kernel.conversations
+      .list("owner")
+      .find((c) => c.title === "App build");
+    expect(made?.brief).toContain("Ask before scaffolding");
+    expect(made?.toolAllow).toEqual(["files", "search"]);
+    // The opening lands as a handoff note, not as words put in the owner's mouth.
+    const opening = kernel.sessions.get(made!.id)[0];
+    expect(opening?.role).toBe("assistant");
+    expect(JSON.stringify(opening)).toContain("Postgres and Next");
+  });
+
+  it("does not offer the orchestrator its own thread as a destination", async () => {
+    const model = scripted([toolCall("c1", "chats.list", {}), text("ok")]);
+    kernel = await boot(model.inference);
+    await kernel.handleOrchestratorTurn("list them");
+    const wire = JSON.stringify(model.calls.at(-1)!.request.messages);
+    expect(wire).not.toContain("orchestrator:");
+  });
+
   it("shares one session across the CLI and Discord surfaces", async () => {
     const model = scripted([text("first"), text("second")]);
     kernel = await boot(model.inference);

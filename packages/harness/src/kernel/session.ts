@@ -73,9 +73,11 @@ function toExchanges(messages: ModelMessage[]): ModelMessage[][] {
       exchanges[exchanges.length - 1]?.push(message);
     }
   }
-  // A leading group that does not start with an owner turn is a fragment from a
-  // previous truncation; it cannot stand alone.
-  if (exchanges.length > 0 && !startsExchange(exchanges[0]![0]!)) {
+  // Drop a leading group only when it opens with an orphaned tool_result,
+  // which no provider accepts. An assistant message can legitimately come
+  // first: a conversation may be seeded with an opening note before the owner
+  // has said anything.
+  if (exchanges.length > 0 && isToolResultOnly(exchanges[0]![0]!)) {
     exchanges.shift();
   }
   return exchanges;
