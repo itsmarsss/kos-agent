@@ -122,7 +122,13 @@ function defineSystemsTools(ctx: ModuleContext): void {
     {
       name: "pages.write",
       description:
-        "Validate and save a page-spec JSON for a project. The page becomes renderable on the dashboard. Spec needs id, title, and widgets (stat/table/chart/list/markdown/card/form).",
+        "Validate and save a page-spec JSON for a project. The page becomes renderable on the dashboard. Spec needs id, title, and widgets.\n" +
+        "Widgets: stat, table, chart (line/bar/area/pie), list, markdown, card, form, custom_html.\n" +
+        "Data widgets take a read-only `query`; form/list/card take a `mutate` target ({table, columns}).\n" +
+        "custom_html takes `html` and an optional `height`, and renders in a sandboxed frame WITH scripts enabled: use it for anything the fixed widgets cannot express, including interactive pages and small games.\n" +
+        "Write a closing script tag plainly as </script>; do not escape the slash, that is a JavaScript-string convention and in HTML it fails to close the tag.\n" +
+        "The frame has NO network access and cannot reach the workspace. Never link an external image, font, script or stylesheet: they will fail and can break your script. Draw with canvas or CSS, and inline any asset as a data URI. Put any data the page needs directly into the html.\n" +
+        "Every widget accepts an optional `span` of quarter, third, half or full.",
       inputSchema: {
         type: "object",
         properties: {

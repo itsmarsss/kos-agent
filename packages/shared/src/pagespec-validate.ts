@@ -73,8 +73,16 @@ function validateWidget(widget: Widget, index: number, errors: string[]): void {
   if (widget.type === "markdown" && typeof widget.content !== "string") {
     errors.push(`${where}: markdown requires content`);
   }
-  if (widget.type === "custom_html" && typeof widget.html !== "string") {
-    errors.push(`${where}: custom_html requires html`);
+  if (widget.type === "custom_html") {
+    if (typeof widget.html !== "string") {
+      errors.push(`${where}: custom_html requires html`);
+    }
+    if (
+      widget.height !== undefined &&
+      (typeof widget.height !== "number" || !Number.isFinite(widget.height))
+    ) {
+      errors.push(`${where}: custom_html height must be a number`);
+    }
   }
   if (widget.type === "form") {
     if (!widget.mutate) errors.push(`${where}: form requires a mutation target`);
