@@ -36,6 +36,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
 const HELP = `kos commands:
   start [--foreground] multi-modal host (API + cron + Discord if configured)
   stop                 stop the background host
+  restart              stop then start; run pnpm build first to pick up code changes
   chat                 REPL (attaches to host if running; default)
   once <message>       one message (via host if running)
   status               crons, queue, kill switch, pending, host info
@@ -57,6 +58,7 @@ Flags:
 Typical flow:
   kos start            # background host + Discord if .env set
   kos                  # attach REPL (same session as Discord DMs)
+  kos restart          # after changing config or rebuilding
   kos stop
 
 Chat needs ANTHROPIC_API_KEY or OPENAI_API_KEY in .env.`;

@@ -54,7 +54,12 @@ pnpm start
 pnpm kos
 # or: pnpm kos once "hi"
 
-# 3. Stop when done
+# 3. Restart after rebuilding or changing .env
+pnpm run restart
+# note: `pnpm run restart`, not `pnpm restart` -- the latter is pnpm's own
+# lifecycle command and shadows this script
+
+# 4. Stop when done
 pnpm stop
 ```
 
@@ -64,6 +69,7 @@ Also:
 pnpm kos status | memory | pages | doctor
 pnpm start --foreground    # keep host in this terminal
 pnpm start --no-discord    # API + cron only
+kos restart                # stop, wait for the port, start again
 kos discord                # host foreground, require Discord creds
 ```
 
