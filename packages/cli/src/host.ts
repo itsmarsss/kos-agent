@@ -1,3 +1,4 @@
+import { connect } from "node:net";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -183,3 +184,36 @@ export async function runHost(options: HostOptions): Promise<void> {
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 }
+
+
+/**
+ * Wait for a listening socket to be released.
+ *
+ * cmdStop already waits for the process to die, but the pid going away and the
+ * port becoming bindable are not the same instant. Starting into a port that
+ * is still held fails with "already in use", which is exactly the race a
+ * restart command exists to avoid.
+ */
+export async function waitForPortFree(
+  host: string,
+  port: number,
+  timeoutMs = 5_000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const inUse = await new Promise<boolean>((resolve) => {
+      const socket = connect({ host, port });
+      const done = (busy: boolean): void => {
+        socket.destroy();
+        resolve(busy);
+      };
+      socket.once("connect", () => done(true));
+      socket.once("error", () => done(false));
+      socket.setTimeout(500, () => done(false));
+    });
+    if (!inUse) return true;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return false;
+}
+

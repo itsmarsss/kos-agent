@@ -11,7 +11,7 @@ import { KosClient, probeDaemon } from "./client.js";
 import { OFFLINE_COMMANDS, parseArgs, runCommand, statusLine } from "./commands.js";
 import { runDoctor } from "./doctor.js";
 import { loadEnv } from "./env.js";
-import { runHost } from "./host.js";
+import { runHost, waitForPortFree } from "./host.js";
 import { runRemoteCommand } from "./remote.js";
 import {
   clearDaemonState,
@@ -279,6 +279,24 @@ async function cmdStop(rootDir: string): Promise<void> {
   console.log(`stopped kos host (was pid ${state.pid})`);
 }
 
+/** Stop the running host, wait for its port, then start a fresh one. */
+async function cmdRestart(
+  rootDir: string,
+  flags: Record<string, string | boolean>,
+): Promise<void> {
+  await cmdStop(rootDir);
+  const host = listenHost(flags.host);
+  const port = listenPort(flags.port);
+  if (!(await waitForPortFree(host, port))) {
+    console.error(
+      `port ${port} is still in use; something other than this workspace's host may be holding it`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+  await cmdStart(rootDir, flags);
+}
+
 async function main(): Promise<void> {
   const { command, rest, flags } = parseArgs(process.argv.slice(2));
   const rootDir = workspaceDir(flags.workspace);
@@ -295,6 +313,11 @@ async function main(): Promise<void> {
 
   if (command === "stop") {
     await cmdStop(rootDir);
+    return;
+  }
+
+  if (command === "restart") {
+    await cmdRestart(rootDir, flags);
     return;
   }
 
