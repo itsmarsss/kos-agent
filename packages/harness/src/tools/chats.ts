@@ -167,7 +167,7 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
     {
       name: "chats.create",
       description:
-        "Start a conversation for a piece of work and put it to work. Give it a title, a brief saying what it is for and how to behave, and the task to do first, including anything it needs to know from elsewhere. The task is asked as the owner, that conversation runs it immediately, and its answer comes back to you. It gets the full toolkit by default.",
+        "Start a conversation for a piece of work and put it to work. The task is delivered as the owner's own message and that conversation runs it immediately, so its answer comes back to you. Only call this when you can state a concrete task; if you cannot, ask the owner what is missing instead. It gets the full toolkit by default.",
       inputSchema: {
         type: "object",
         properties: {
@@ -185,10 +185,10 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
           task: {
             type: "string",
             description:
-              "what that conversation should do first, phrased as the owner asking for it. Include the carried-over context it needs. Omit only when the owner asked to set something up without starting it.",
+              "The instruction to carry out, written the way the owner would say it TO the agent. It is delivered as the owner's own message, so write 'Create a directory called test-dir', never 'Please tell me which directories you want'. Addressing the owner here produces an agent that asks a question instead of doing the work. Include any context carried over from other conversations.",
           },
         },
-        required: ["title", "brief"],
+        required: ["title", "brief", "task"],
       },
     },
     async (input) => {
@@ -204,11 +204,13 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
 
       const task = typeof input.task === "string" ? input.task.trim() : "";
       if (!task) {
+        // Required by the schema; this is the belt to that braces. A
+        // conversation with nothing asked of it is the empty-thread bug.
         return JSON.stringify({
           id: created.id,
           title: created.title,
           started: false,
-          note: "Created but not started. Dispatch a task to it, or tell the owner it is waiting.",
+          note: "No task given, so nothing ran. Dispatch one, or ask the owner what the first step should be.",
         });
       }
 
