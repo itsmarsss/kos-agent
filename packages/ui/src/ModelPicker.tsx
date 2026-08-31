@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { api } from "./api.js";
+import { Select } from "./Select.js";
 
 /**
  * Swap the reasoning model without leaving the conversation.
@@ -30,25 +31,19 @@ export function ModelPicker(): ReactElement | null {
   const options = models.includes(current) ? models : [current, ...models];
 
   return (
-    <select
+    <Select
       className="composer-model"
+      label="Model"
       value={current}
       disabled={busy}
-      aria-label="Model"
-      onChange={(e) => {
-        const model = e.target.value;
+      options={options.map((m) => ({ value: m, label: m }))}
+      onChange={(model) => {
         setCurrent(model);
         setBusy(true);
         void api
           .saveModelSettings({ reasoning: { model } })
           .finally(() => setBusy(false));
       }}
-    >
-      {options.map((m) => (
-        <option key={m} value={m}>
-          {m}
-        </option>
-      ))}
-    </select>
+    />
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { api, type ModelSettings as Settings, type TaskModelSetting } from "./api.js";
+import { Select } from "./Select.js";
 
 /**
  * Which model answers, how hard it thinks, and how much it may write.
@@ -98,21 +99,19 @@ export function ModelSettings({ onClose }: { onClose: () => void }): ReactElemen
             </label>
 
             <div className="settings-row">
-              <label className="kos-field">
+              <div className="kos-field">
                 <span className="kos-field-label">Thinking</span>
-                <select
-                  className="kos-input"
+                <Select
+                  className="settings-select"
+                  label="Thinking level"
                   value={setting.effort ?? ""}
-                  onChange={(e) => update(key, { effort: e.target.value })}
-                >
-                  <option value="">default</option>
-                  {efforts.map((e) => (
-                    <option key={e} value={e}>
-                      {e}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  options={[
+                    { value: "", label: "default" },
+                    ...efforts.map((e) => ({ value: e, label: e })),
+                  ]}
+                  onChange={(effort) => update(key, { effort })}
+                />
+              </div>
 
               <label className="kos-field">
                 <span className="kos-field-label">Token limit</span>

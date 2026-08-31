@@ -1162,17 +1162,36 @@ describe("rewinding a conversation", () => {
     expect(wire).not.toContain("original");
   });
 
-  it("forks into a new conversation and leaves the original alone", async () => {
-    const model = scripted([text("a"), text("b")]);
+  it("forks by copying, without asking the model again", async () => {
+    // The answer already exists. Producing it again costs a call and can come
+    // back different, which is not what forking a conversation means.
+    const model = scripted([text("original answer")]);
     kernel = await boot2(model.inference);
     const c = kernel.conversations.create({ userId: "owner", title: "T" });
     await kernel.handleMessage("keep me", { sessionId: c.id });
+    const callsBefore = model.calls.length;
 
     const res = await kernel.rewind(c.id, 0, { forkTitle: "Fork" });
 
+    expect(model.calls.length).toBe(callsBefore);
     expect(res.conversationId).not.toBe(c.id);
+    expect(JSON.stringify(kernel.sessions.get(res.conversationId))).toContain(
+      "original answer",
+    );
     expect(JSON.stringify(kernel.sessions.get(c.id))).toContain("keep me");
     expect(kernel.conversations.get(res.conversationId)?.title).toBe("Fork");
+  });
+
+  it("forks and reruns when the message is also edited", async () => {
+    const model = scripted([text("a"), text("b")]);
+    kernel = await boot2(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "T" });
+    await kernel.handleMessage("first", { sessionId: c.id });
+
+    const res = await kernel.rewind(c.id, 0, { forkTitle: "F", text: "second" });
+
+    expect(JSON.stringify(kernel.sessions.get(res.conversationId))).toContain("second");
+    expect(JSON.stringify(kernel.sessions.get(c.id))).toContain("first");
   });
 
   it("refuses an index that is not an owner message", async () => {

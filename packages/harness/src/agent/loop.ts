@@ -38,6 +38,12 @@ export interface AgentOptions {
   parallelToolCalls?: boolean;
   /** Forwarded to the provider, so a reader can watch the turn as it runs. */
   onDelta?: GenerateRequest["onDelta"];
+  /**
+   * Asked before each round trip. Returning true ends the turn where it is,
+   * with whatever has been said so far, so the owner can stop a run that has
+   * clearly gone wrong instead of waiting it out.
+   */
+  shouldStop?: () => boolean;
 }
 
 export interface AgentResult {
@@ -45,6 +51,8 @@ export interface AgentResult {
   messages: ModelMessage[];
   /** Concatenated text of the final assistant turn. */
   finalText: string;
+  /** True when the owner asked it to stop rather than it finishing. */
+  stopped?: boolean;
   /** Number of model round-trips taken. */
   iterations: number;
   stopReason: StopReason;
@@ -79,6 +87,18 @@ export async function runAgent(
   let stopReason: StopReason = "end_turn";
 
   while (iterations < maxIterations) {
+    if (options.shouldStop?.()) {
+      return {
+        messages,
+        finalText: textOf(
+          [...messages].reverse().find((m) => m.role === "assistant")?.content ?? [],
+        ),
+        iterations,
+        stopReason,
+        exhausted: false,
+        stopped: true,
+      };
+    }
     iterations += 1;
     const response = await inference.generate(task, {
       system: options.system,

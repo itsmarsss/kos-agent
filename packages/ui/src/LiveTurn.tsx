@@ -1,24 +1,18 @@
 import { useEffect, useState, type ReactElement } from "react";
+import { AnimatePresence, m } from "motion/react";
 
 import { Markdown } from "./Markdown.js";
+import { listItem } from "./motion.js";
+import { Thinking } from "./Thinking.js";
 import type { Live } from "./progress.js";
 
 /**
  * A turn while it is still happening.
  *
- * The reply streams in as it is written, the model's own account of what it is
- * working out sits above it, and the tool it is running replaces both while it
- * runs. When there is nothing yet to show, the elapsed time does the work: a
- * static word for twenty seconds reads as a hang.
+ * Each thought and each tool call appears as it occurs, in the same shapes the
+ * finished transcript uses, so the turn does not rearrange itself when it
+ * lands. The reply streams in underneath.
  */
-
-/** Last line of a reasoning summary: the part that is about right now. */
-function currentThought(reasoning: string): string {
-  const clean = reasoning.replace(/\*\*/g, "").trim();
-  if (!clean) return "";
-  const lines = clean.split("\n").filter((l) => l.trim() !== "");
-  return lines.at(-1)?.trim() ?? "";
-}
 
 /** 45s, 3m 20s, 1h 4m. A count that only ever grows in seconds stops reading. */
 export function formatElapsed(ms: number): string {
@@ -41,29 +35,61 @@ function Elapsed({ since }: { since: number }): ReactElement {
 }
 
 export function LiveTurn({ live }: { live: Live }): ReactElement {
-  const thought = currentThought(live.reasoning);
+  const running = live.steps.find((s) => s.kind === "tool" && !s.done);
 
   return (
-    <div className="bubble bubble--kos live">
-      <div className="live-head">
-        <span className="live-dots" aria-hidden="true">
-          <i />
-          <i />
-          <i />
-        </span>
-        <span className="live-what">{live.step ?? "thinking"}</span>
-        <Elapsed since={live.since} />
-      </div>
+    <>
+      <AnimatePresence initial={false}>
+        {live.steps.map((step, i) =>
+          step.kind === "reasoning" ? (
+            <m.div
+              key={`r${i}`}
+              variants={listItem}
+              initial="hidden"
+              animate="show"
+              layout="position"
+            >
+              <Thinking text={step.text} />
+            </m.div>
+          ) : (
+            <m.div
+              key={`t${i}`}
+              className={`livetool ${step.done ? "is-done" : ""} ${
+                step.isError ? "is-error" : ""
+              }`}
+              variants={listItem}
+              initial="hidden"
+              animate="show"
+              layout="position"
+            >
+              <code className="livetool-name">{step.tool}</code>
+              <span className="livetool-what">{step.summary}</span>
+              <span className="livetool-state">
+                {step.done ? (step.isError ? "failed" : "ok") : "…"}
+              </span>
+            </m.div>
+          ),
+        )}
+      </AnimatePresence>
 
-      {/* Only while there is no reply yet: once the answer starts arriving,
-          the working-out is no longer the interesting part. */}
-      {!live.text && thought && <div className="live-thought">{thought}</div>}
-
-      {live.text && (
-        <div className="live-text">
-          <Markdown text={live.text} />
+      <div className="bubble bubble--kos live">
+        <div className="live-head">
+          <span className="live-dots" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+          <span className="live-what">
+            {running && running.kind === "tool" ? running.summary : "thinking"}
+          </span>
+          <Elapsed since={live.since} />
         </div>
-      )}
-    </div>
+        {live.text && (
+          <div className="live-text">
+            <Markdown text={live.text} />
+          </div>
+        )}
+      </div>
+    </>
   );
 }

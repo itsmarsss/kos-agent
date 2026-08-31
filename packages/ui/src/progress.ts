@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 
 /**
- * What each conversation is doing right now, streamed from the host.
+ * What each conversation is doing, streamed from the host.
  *
- * A turn runs for tens of seconds across several tool calls and the reader saw
- * one static word for all of it. This carries the step, so waiting is legible.
- * Nothing here is authoritative: a reconnect starts empty and the polled
- * conversation list fills the gap.
+ * The steps accumulate rather than replace: a turn is a sequence of thoughts
+ * and tool calls, and the reader should watch it build up, not be shown one
+ * label at a time and then handed the whole thing at the end.
  */
 
 export type ProgressEvent =
@@ -16,12 +15,14 @@ export type ProgressEvent =
   | { kind: "delta"; conversationId: string; of: "reasoning" | "text"; text: string }
   | { kind: "turn-end"; conversationId: string };
 
-/** What a conversation is doing, while it does it. */
+/** One thing that happened during a turn, in the order it happened. */
+export type LiveStep =
+  | { kind: "reasoning"; text: string }
+  | { kind: "tool"; tool: string; summary: string; done: boolean; isError: boolean };
+
 export interface Live {
-  /** The tool running now, or undefined while the model is working. */
-  step?: string;
-  /** The model's own account of what it is working out, as it arrives. */
-  reasoning: string;
+  /** Everything so far this turn, oldest first. */
+  steps: LiveStep[];
   /** The reply, as it arrives. */
   text: string;
   /** When the turn started, so a wait can show its length. */
@@ -29,6 +30,49 @@ export interface Live {
 }
 
 export type ProgressMap = Record<string, Live | undefined>;
+
+function reduce(live: Live, event: ProgressEvent): Live {
+  const steps = [...live.steps];
+  switch (event.kind) {
+    case "tool-start":
+      steps.push({
+        kind: "tool",
+        tool: event.tool,
+        summary: event.summary,
+        done: false,
+        isError: false,
+      });
+      return { ...live, steps };
+
+    case "tool-end": {
+      // The most recent unfinished call of that name is the one that ended.
+      for (let i = steps.length - 1; i >= 0; i--) {
+        const step = steps[i];
+        if (step?.kind === "tool" && step.tool === event.tool && !step.done) {
+          steps[i] = { ...step, done: true, isError: event.isError };
+          break;
+        }
+      }
+      return { ...live, steps };
+    }
+
+    case "delta": {
+      if (event.of === "text") return { ...live, text: live.text + event.text };
+      // Reasoning accumulates into the trailing thought, so a summary that
+      // arrives in fifty pieces reads as one paragraph rather than fifty.
+      const last = steps.at(-1);
+      if (last?.kind === "reasoning") {
+        steps[steps.length - 1] = { kind: "reasoning", text: last.text + event.text };
+      } else {
+        steps.push({ kind: "reasoning", text: event.text });
+      }
+      return { ...live, steps };
+    }
+
+    default:
+      return live;
+  }
+}
 
 export function useProgress(): ProgressMap {
   const [steps, setSteps] = useState<ProgressMap>({});
@@ -44,31 +88,17 @@ export function useProgress(): ProgressMap {
         return;
       }
       setSteps((current) => {
-        const next = { ...current };
         const id = event.conversationId;
-        const live: Live = next[id] ?? { reasoning: "", text: "", since: Date.now() };
-        switch (event.kind) {
-          case "turn-start":
-            next[id] = { reasoning: "", text: "", since: Date.now() };
-            break;
-          case "tool-start":
-            next[id] = { ...live, step: event.summary || event.tool };
-            break;
-          case "tool-end":
-            // The reasoning that led here is spent; what comes next is new.
-            next[id] = { ...live, step: undefined, reasoning: "" };
-            break;
-          case "delta":
-            next[id] =
-              event.of === "reasoning"
-                ? { ...live, reasoning: live.reasoning + event.text }
-                : { ...live, text: live.text + event.text };
-            break;
-          case "turn-end":
-            delete next[id];
-            break;
+        if (event.kind === "turn-end") {
+          const next = { ...current };
+          delete next[id];
+          return next;
         }
-        return next;
+        if (event.kind === "turn-start") {
+          return { ...current, [id]: { steps: [], text: "", since: Date.now() } };
+        }
+        const live: Live = current[id] ?? { steps: [], text: "", since: Date.now() };
+        return { ...current, [id]: reduce(live, event) };
       });
     };
 
