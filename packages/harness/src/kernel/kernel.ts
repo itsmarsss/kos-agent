@@ -369,6 +369,11 @@ export class Kernel {
       origin?: "owner" | "system";
       /** Surface this turn arrived on, so the reply can be shaped for it. */
       channel?: string;
+      /**
+       * Restricted tools granted for this turn. Only the orchestrator passes
+       * these; an ordinary conversation cannot reach them.
+       */
+      grant?: string[];
     } = {},
   ): Promise<HandleResult> {
     if (this.killSwitch.halted) {
@@ -381,11 +386,17 @@ export class Kernel {
     return this.queue.enqueue(async () => {
       const runId = this.runs.start("chat");
       try {
+        // A conversation may be a scoped agent: its own brief, its own reach.
+        const conversation = this.conversations.get(sessionId);
         const inferred = opts.scopeTags ?? inferScopeTags(text);
         const scopeTags = this.accumulateScope(sessionId, inferred);
         const tools = this.guardedTools({
           userId,
           ...(scopeTags.length ? { scopeTags } : {}),
+          ...(conversation?.toolAllow.length
+            ? { allow: conversation.toolAllow }
+            : {}),
+          ...(opts.grant?.length ? { grant: opts.grant } : {}),
         });
 
         const recall = await this.memoryRetriever.recall(userId, text, {
@@ -394,12 +405,17 @@ export class Kernel {
           minFactsBeforeVector: 2,
         });
         const formatting = channelGuidance(opts.channel);
+        // The brief comes last so a conversation's own instructions read as
+        // the most specific thing in the prompt.
+        const extra = [formatting, conversation?.brief]
+          .filter((part): part is string => Boolean(part && part.trim()))
+          .join("\n\n");
         const system = assembleSystemPrompt({
           baseSystem: this.system,
           profile: this.profile,
           projects: this.manifest.list(),
           recall,
-          ...(formatting ? { extra: formatting } : {}),
+          ...(extra ? { extra } : {}),
         });
 
         let input: string | ModelMessage[] = text;
@@ -725,6 +741,10 @@ export class Kernel {
   private guardedTools(opts: {
     scopeTags?: string[];
     userId?: string;
+    /** Hard allow-list from the conversation, when it is a scoped agent. */
+    allow?: string[];
+    /** Restricted tools granted for this turn. */
+    grant?: string[];
   } = {}): GuardedTools {
     return new GuardedTools({
       registry: this.registry,
@@ -734,6 +754,8 @@ export class Kernel {
       userId: opts.userId ?? this.profile.ownerId,
       toolLimit: 48,
       ...(opts.scopeTags ? { scopeTags: opts.scopeTags } : {}),
+      ...(opts.allow?.length ? { allow: opts.allow } : {}),
+      ...(opts.grant?.length ? { grant: opts.grant } : {}),
       ...(this.onApprovalRequested
         ? { onQueued: this.onApprovalRequested }
         : {}),

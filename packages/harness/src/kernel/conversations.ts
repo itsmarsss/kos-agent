@@ -20,6 +20,17 @@ export interface Conversation {
   createdAt: number;
   updatedAt: number;
   archived: boolean;
+  /**
+   * Extra instructions for this conversation only, appended to the system
+   * prompt. This is what makes one conversation a different agent from
+   * another rather than the same assistant under a different title.
+   */
+  brief: string | null;
+  /**
+   * Hard allow-list of tool name prefixes. Empty means the usual toolset;
+   * otherwise nothing outside it is offered or executable here.
+   */
+  toolAllow: string[];
 }
 
 const SCHEMA = `
@@ -53,6 +64,8 @@ interface Row {
   created_at: number;
   updated_at: number;
   archived: number;
+  brief: string | null;
+  tool_allow: string | null;
 }
 
 function toConversation(row: Row): Conversation {
@@ -64,7 +77,20 @@ function toConversation(row: Row): Conversation {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     archived: row.archived === 1,
+    brief: row.brief ?? null,
+    toolAllow: parseAllow(row.tool_allow),
   };
+}
+
+/** Stored as JSON; anything malformed reads as "no restriction". */
+function parseAllow(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 const MAX_TITLE = 60;
@@ -84,6 +110,8 @@ export function titleFromText(text: string): string {
 
 export interface CreateConversationInput {
   userId: string;
+  brief?: string;
+  toolAllow?: string[];
   /** Omit to use a placeholder until the first message names it. */
   title?: string;
   channel?: string;
@@ -99,6 +127,16 @@ export class ConversationStore {
     private readonly now: () => number = Date.now,
   ) {
     this.db.exec(SCHEMA);
+    // Workspaces created before agent briefs existed get the columns added in
+    // place rather than a migration step the owner has to run.
+    const columns = this.db
+      .prepare(`PRAGMA table_info(conversations)`)
+      .all() as { name: string }[];
+    const has = (n: string): boolean => columns.some((c) => c.name === n);
+    if (!has("brief")) this.db.exec(`ALTER TABLE conversations ADD COLUMN brief TEXT`);
+    if (!has("tool_allow")) {
+      this.db.exec(`ALTER TABLE conversations ADD COLUMN tool_allow TEXT`);
+    }
   }
 
   /** Ids are readable and sortable; uniqueness is enforced by the primary key. */
@@ -121,14 +159,19 @@ export class ConversationStore {
       createdAt: ts,
       updatedAt: ts,
       archived: false,
+      brief: input.brief?.trim() || null,
+      toolAllow: input.toolAllow ?? [],
     };
     this.db
       .prepare(
-        `INSERT INTO conversations (id, user_id, title, channel, created_at, updated_at, archived)
-         VALUES (@id, @userId, @title, @channel, @createdAt, @updatedAt, 0)
+        `INSERT INTO conversations (id, user_id, title, channel, created_at, updated_at, archived, brief, tool_allow)
+         VALUES (@id, @userId, @title, @channel, @createdAt, @updatedAt, 0, @brief, @toolAllow)
          ON CONFLICT(id) DO NOTHING`,
       )
-      .run(row);
+      .run({
+        ...row,
+        toolAllow: row.toolAllow.length ? JSON.stringify(row.toolAllow) : null,
+      });
     return this.get(id) ?? row;
   }
 
@@ -171,6 +214,24 @@ export class ConversationStore {
     this.db
       .prepare(`UPDATE conversations SET updated_at = ?, title = ? WHERE id = ?`)
       .run(this.now(), title, id);
+  }
+
+  /** Change what this conversation is for, or what it may reach. */
+  configure(
+    id: string,
+    config: { brief?: string | null; toolAllow?: string[] },
+  ): Conversation | undefined {
+    const current = this.get(id);
+    if (!current) return undefined;
+    const brief =
+      config.brief === undefined ? current.brief : config.brief?.trim() || null;
+    const allow = config.toolAllow ?? current.toolAllow;
+    this.db
+      .prepare(
+        `UPDATE conversations SET brief = ?, tool_allow = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(brief, allow.length ? JSON.stringify(allow) : null, this.now(), id);
+    return this.get(id);
   }
 
   setArchived(id: string, archived: boolean): Conversation | undefined {
