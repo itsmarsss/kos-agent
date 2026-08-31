@@ -417,6 +417,98 @@ describe("KOS end-to-end flows", () => {
     expect(order).toEqual(["in-flight job", "approved action"]);
   });
 
+  it("keeps parallel conversations from leaking into each other", async () => {
+    const model = scripted([
+      text("Noted the shoot."),
+      text("Noted the budget."),
+      text("Recalling the shoot."),
+    ]);
+    kernel = await boot(model.inference);
+
+    const shoot = kernel.conversations.create({ userId: "owner", title: "Shoot" });
+    const budget = kernel.conversations.create({ userId: "owner", title: "Budget" });
+
+    await kernel.handleMessage("the shoot is on Tuesday", { sessionId: shoot.id });
+    await kernel.handleMessage("rent is 2400 a month", { sessionId: budget.id });
+    await kernel.handleMessage("when is it again", { sessionId: shoot.id });
+
+    // The third turn must see the shoot thread and not the budget one.
+    const wire = JSON.stringify(model.calls.at(-1)!.request.messages);
+    expect(wire).toContain("the shoot is on Tuesday");
+    expect(wire).not.toContain("rent is 2400");
+  });
+
+  it("runs conversation commands without calling the model", async () => {
+    const model = scripted([text("should not be used")]);
+    kernel = await boot(model.inference);
+
+    const before = model.calls.length;
+    const res = await kernel.handleChannelTurn({
+      text: "/new shoot plan",
+      userId: "owner",
+      channel: "discord",
+      });
+    expect(res.isCommand).toBe(true);
+    expect(model.calls.length).toBe(before);
+    expect(kernel.conversations.get(res.conversationId)?.title).toBe("shoot plan");
+  });
+
+  it("gives each surface its own place in the conversation list", async () => {
+    const model = scripted([text("ok"), text("ok"), text("ok")]);
+    kernel = await boot(model.inference);
+
+    await kernel.handleChannelTurn({ text: "/new from discord", userId: "owner", channel: "discord" });
+    await kernel.handleChannelTurn({ text: "/new from cli", userId: "owner", channel: "cli" });
+
+    const discord = kernel.conversationFor("discord", "owner");
+    const cli = kernel.conversationFor("cli", "owner");
+    // Switching on one surface must not drag the other along with it.
+    expect(discord.id).not.toBe(cli.id);
+    expect(discord.title).toBe("from discord");
+    expect(cli.title).toBe("from cli");
+  });
+
+  it("maps a native thread to its own conversation with no command", async () => {
+    const model = scripted([text("ok"), text("ok")]);
+    kernel = await boot(model.inference);
+
+    const a = await kernel.handleChannelTurn({
+      text: "first thread",
+      userId: "owner",
+      channel: "slack",
+      conversationKey: "thread-1",
+    });
+    const b = await kernel.handleChannelTurn({
+      text: "second thread",
+      userId: "owner",
+      channel: "slack",
+      conversationKey: "thread-2",
+    });
+    expect(a.conversationId).not.toBe(b.conversationId);
+    expect(a.conversationId).toBe("slack:thread-1");
+  });
+
+  it("titles a conversation from its opening message", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+
+    const created = kernel.conversations.create({ userId: "owner" });
+    expect(created.title).toBe("New conversation");
+    await kernel.handleMessage("plan the diecast shelf build", {
+      sessionId: created.id,
+    });
+    expect(kernel.conversations.get(created.id)?.title).toBe(
+      "plan the diecast shelf build",
+    );
+  });
+
+  it("keeps the pre-existing primary session as a conversation", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    const primary = kernel.conversations.get(primarySessionId(kernel.profile.ownerId));
+    expect(primary?.title).toBe("Main");
+  });
+
   it("shares one session across the CLI and Discord surfaces", async () => {
     const model = scripted([text("first"), text("second")]);
     kernel = await boot(model.inference);

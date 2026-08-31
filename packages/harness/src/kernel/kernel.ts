@@ -56,6 +56,12 @@ import {
 import { GuardedTools } from "./guarded.js";
 import { ensureProfile, type Profile } from "./profile.js";
 import { SessionStore, primarySessionId } from "./session.js";
+import { ConversationStore, type Conversation } from "./conversations.js";
+import {
+  parseChatCommand,
+  runChatCommand,
+  type CommandResult,
+} from "./chatcommands.js";
 
 export interface KernelOptions {
   rootDir: string;
@@ -138,6 +144,7 @@ export class Kernel {
   readonly profile: Profile;
   readonly loadReport: LoadReport;
   readonly sessions: SessionStore;
+  readonly conversations: ConversationStore;
   readonly facts: FactsStore;
   readonly memoryWriter: MemoryWriter;
   readonly memoryRetriever: MemoryRetriever;
@@ -177,6 +184,7 @@ export class Kernel {
     profile: Profile;
     loadReport: LoadReport;
     sessions: SessionStore;
+    conversations: ConversationStore;
     facts: FactsStore;
     memoryWriter: MemoryWriter;
     memoryRetriever: MemoryRetriever;
@@ -206,6 +214,7 @@ export class Kernel {
     this.profile = args.profile;
     this.loadReport = args.loadReport;
     this.sessions = args.sessions;
+    this.conversations = args.conversations;
     this.facts = args.facts;
     this.memoryWriter = args.memoryWriter;
     this.memoryRetriever = args.memoryRetriever;
@@ -241,6 +250,7 @@ export class Kernel {
       approvals,
     });
     const sessions = new SessionStore(workspace.db);
+    const conversations = new ConversationStore(workspace.db);
     const facts = new FactsStore(workspace.db);
     const embedder = pickEmbedder(secrets);
     const episodic = new EpisodicStore(
@@ -279,6 +289,17 @@ export class Kernel {
 
     ensureDefaultBackupCron(crons);
 
+    // The pre-existing primary session becomes the first conversation, so an
+    // upgraded workspace keeps its transcript instead of orphaning it.
+    const primaryId = primarySessionId(profile.ownerId);
+    if (!conversations.get(primaryId)) {
+      conversations.create({
+        id: primaryId,
+        userId: profile.ownerId,
+        title: "Main",
+      });
+    }
+
     const inference =
       options.inference ?? createDefaultRouter(secrets);
 
@@ -308,6 +329,7 @@ export class Kernel {
       profile,
       loadReport,
       sessions,
+      conversations,
       facts,
       memoryWriter,
       memoryRetriever,
@@ -398,6 +420,11 @@ export class Kernel {
           // Persist the loop's own message list so tool calls and their results
           // survive into the next turn, not just the final text.
           this.sessions.record(sessionId, result.messages);
+          // Ordering and the auto-title follow real owner turns only; a resume
+          // prompt is harness plumbing and must not retitle a conversation.
+          if (opts.origin !== "system") {
+            this.conversations.touch(sessionId, text);
+          }
         }
 
         // Memory write path (salience) + episodic note for the exchange. Only
@@ -537,6 +564,87 @@ export class Kernel {
   clearSession(sessionId: string): void {
     this.sessions.clear(sessionId);
     this.sessionScope.delete(sessionId);
+  }
+
+  /**
+   * Which conversation a surface should use for this turn.
+   *
+   * A surface with native threads passes its thread id as `conversationKey`
+   * and gets one conversation per thread, created on first sight. A surface
+   * with a single stream (a DM, the CLI) has no key, so it follows a pointer
+   * the user moves with `/switch`.
+   */
+  conversationFor(
+    channel: string,
+    userId: string,
+    conversationKey?: string,
+  ): Conversation {
+    if (conversationKey) {
+      const id = `${channel}:${conversationKey}`;
+      return (
+        this.conversations.get(id) ??
+        this.conversations.create({ id, userId, channel })
+      );
+    }
+
+    const active = this.conversations.activeFor(channel, userId);
+    if (active) return this.conversations.get(active)!;
+
+    // Fall back to the most recent conversation, else the primary one.
+    const existing = this.conversations.list(userId)[0];
+    const chosen =
+      existing ??
+      this.conversations.create({
+        id: primarySessionId(userId),
+        userId,
+        channel,
+        title: "Main",
+      });
+    this.conversations.setActive(channel, userId, chosen.id);
+    return chosen;
+  }
+
+  /**
+   * One turn from a messaging surface: resolve the conversation, run a
+   * conversation command if that is what it was, otherwise run the agent.
+   * Channels call this instead of handleMessage so every surface gets the same
+   * conversation behaviour without implementing any of it.
+   */
+  async handleChannelTurn(input: {
+    text: string;
+    userId: string;
+    channel: string;
+    conversationKey?: string;
+  }): Promise<HandleResult & { conversationId: string; isCommand: boolean }> {
+    const conversation = this.conversationFor(
+      input.channel,
+      input.userId,
+      input.conversationKey,
+    );
+
+    const command = parseChatCommand(input.text);
+    if (command) {
+      // Commands are bookkeeping: no model call, no queue, no transcript entry.
+      const result: CommandResult = runChatCommand(command, {
+        conversations: this.conversations,
+        channel: input.channel,
+        userId: input.userId,
+        currentId: conversation.id,
+      });
+      return {
+        reply: result.reply,
+        halted: false,
+        conversationId: result.switchedTo ?? conversation.id,
+        isCommand: true,
+      };
+    }
+
+    const res = await this.handleMessage(input.text, {
+      userId: input.userId,
+      sessionId: conversation.id,
+      channel: input.channel,
+    });
+    return { ...res, conversationId: conversation.id, isCommand: false };
   }
 
   /**

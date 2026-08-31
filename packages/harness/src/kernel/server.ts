@@ -323,6 +323,61 @@ export async function handleApiRequest(
     return ok({ sha });
   }
 
+  if (method === "GET" && path === "/api/conversations") {
+    const includeArchived = queryParams(req.url).get("archived") === "1";
+    return ok(
+      kernel.conversations.list(kernel.profile.ownerId, { includeArchived }),
+    );
+  }
+
+  if (method === "GET" && path.startsWith("/api/conversations/")) {
+    // Transcript for one conversation, so switching in the UI shows history
+    // rather than an empty pane.
+    const id = decodeURIComponent(
+      path.slice("/api/conversations/".length).replace(/\/messages$/, ""),
+    );
+    if (!kernel.conversations.get(id)) {
+      return { status: 404, body: { error: "conversation not found" } };
+    }
+    return ok({ id, messages: transcriptOf(kernel, id) });
+  }
+
+  if (method === "POST" && path === "/api/conversations/new") {
+    const title = typeof body.title === "string" ? body.title : undefined;
+    const created = kernel.conversations.create({
+      userId: kernel.profile.ownerId,
+      channel: "dashboard",
+      ...(title ? { title } : {}),
+    });
+    kernel.conversations.setActive("dashboard", kernel.profile.ownerId, created.id);
+    return ok(created);
+  }
+
+  if (method === "POST" && path === "/api/conversations/rename") {
+    const id = typeof body.id === "string" ? body.id : "";
+    const title = typeof body.title === "string" ? body.title : "";
+    if (!id || !title) {
+      return { status: 400, body: { error: "id and title required" } };
+    }
+    const renamed = kernel.conversations.rename(id, title);
+    if (!renamed) return { status: 404, body: { error: "conversation not found" } };
+    return ok(renamed);
+  }
+
+  if (method === "POST" && path === "/api/conversations/archive") {
+    const id = typeof body.id === "string" ? body.id : "";
+    if (!id) return { status: 400, body: { error: "id required" } };
+    const updated = kernel.conversations.setArchived(id, body.archived !== false);
+    if (!updated) return { status: 404, body: { error: "conversation not found" } };
+    return ok(updated);
+  }
+
+  if (method === "POST" && path === "/api/conversations/delete") {
+    const id = typeof body.id === "string" ? body.id : "";
+    if (!id) return { status: 400, body: { error: "id required" } };
+    return ok({ id, removed: kernel.conversations.remove(id) });
+  }
+
   if (method === "GET" && path === "/api/memory") {
     const limit = clampLimit(queryParams(req.url).get("limit"), 200);
     return ok({
@@ -353,6 +408,28 @@ export async function handleApiRequest(
   }
 
   return { status: 404, body: { error: "not found" } };
+}
+
+/**
+ * Flatten a stored transcript to the {role, text} pairs a chat view needs.
+ * Tool round-trips are kept in the session for the model but are noise here,
+ * so only spoken turns come back.
+ */
+function transcriptOf(
+  kernel: Kernel,
+  id: string,
+): Array<{ role: "you" | "kos"; text: string }> {
+  const out: Array<{ role: "you" | "kos"; text: string }> = [];
+  for (const message of kernel.sessions.get(id)) {
+    const text = message.content
+      .filter((b) => b.type === "text")
+      .map((b) => (b as { text: string }).text)
+      .join("")
+      .trim();
+    if (text === "") continue;
+    out.push({ role: message.role === "user" ? "you" : "kos", text });
+  }
+  return out;
 }
 
 function authorized(req: ApiRequest, token: string): boolean {
