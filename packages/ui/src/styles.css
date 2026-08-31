@@ -1989,32 +1989,32 @@ textarea {
 .chats.is-collapsed { grid-template-columns: 1fr; }
 .chats.is-collapsed .chats-list { display: none; }
 
+/* Sits in the title, so it is always on screen and always hittable. */
 .chats-toggle {
-  position: absolute;
-  top: 0.55rem;
-  left: -0.7rem;
-  z-index: 2;
-  width: 1.4rem;
-  height: 1.4rem;
-  border-radius: 50%;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-right: 0.35rem;
+  border-radius: var(--r-sm);
+  background: none;
+  border: 0;
   color: var(--faint);
   cursor: pointer;
-  font-size: 0.75rem;
+  font-size: 0.9rem;
   line-height: 1;
   padding: 0;
+  vertical-align: baseline;
 }
-.chats-toggle:hover { color: var(--text); }
-.chats.is-collapsed .chats-toggle { left: -0.2rem; }
+.chats-toggle:hover { color: var(--text); background: var(--panel-2); }
 
+/* Part of the page, not a card on it: the panel fill and rounded border made
+   a chat read as a widget parked inside a dashboard. */
 .chats-list {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
+  background: none;
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
   overflow: hidden;
-  position: sticky;
-  top: 1rem;
+  padding-right: 0.6rem;
 }
 .chats-list { display: flex; flex-direction: column; min-height: 0; }
 .chats-list ul { list-style: none; margin: 0; padding: 0.35rem; flex: 1; overflow-y: auto; }
@@ -2081,6 +2081,7 @@ textarea {
 .chats-item-tools { font-family: var(--mono); }
 .chats-empty { color: var(--faint); padding: 1rem 0.6rem; font-size: 0.875rem; }
 
+/* Part of the page, not a card on it. */
 .chats-view {
   display: flex;
   flex-direction: column;
@@ -2089,16 +2090,16 @@ textarea {
   min-width: 0;
   min-height: 0;
   height: 100%;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
+  background: none;
+  border: 0;
+  border-radius: 0;
 }
 .chats-view-head {
   display: flex;
-  align-items: flex-start;
+  align-items: baseline;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.9rem 1rem;
+  padding: 0 0 0.75rem;
   border-bottom: 1px solid var(--line);
 }
 .chats-view-head h1 { margin: 0; font-size: 1.125rem; }
@@ -2224,6 +2225,77 @@ textarea {
 
 /* New chat leads the list; search is secondary to it. */
 .chats-new { width: 100%; margin-bottom: 0.45rem; }
+.chats-archived {
+  width: 100%;
+  margin-top: 0.4rem;
+  background: none;
+  border: 0;
+  color: var(--faint);
+  font: inherit;
+  font-size: 0.8125rem;
+  text-align: left;
+  padding: 0.2rem 0.1rem;
+  cursor: pointer;
+}
+.chats-archived:hover { color: var(--text); }
+.chats-archived.is-on { color: var(--accent); }
+
+/* —— message actions —— */
+.turn { display: flex; flex-direction: column; gap: 0.25rem; align-self: stretch; }
+.turn--you { align-items: flex-end; }
+.turn--kos, .turn--system { align-items: flex-start; }
+.turn .bubble { max-width: 88%; }
+
+.acts {
+  display: flex;
+  gap: 0.15rem;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.turn:hover .acts, .acts:focus-within { opacity: 1; }
+.acts-btn {
+  background: none;
+  border: 0;
+  color: var(--faint);
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.3rem;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.acts-btn:hover:not(:disabled) { color: var(--text); background: var(--panel-2); }
+.acts-btn:disabled { opacity: 0.4; cursor: default; }
+
+.edit { align-self: stretch; display: flex; flex-direction: column; gap: 0.4rem; }
+.edit-area {
+  width: 100%;
+  resize: vertical;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  padding: 0.55rem 0.65rem;
+  font: inherit;
+  font-size: 0.9375rem;
+}
+.edit-bar { display: flex; align-items: center; gap: 0.5rem; }
+
+/* Opening a text file shows the file. */
+.viewer-text {
+  margin: 0;
+  max-width: min(88vw, 56rem);
+  max-height: 72vh;
+  overflow: auto;
+  background: var(--panel);
+  border-radius: var(--r-md);
+  padding: 1rem 1.2rem;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
 /* —— attachment strip —— */
 .strip { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem; }

@@ -79,14 +79,19 @@ export function attachmentBlocks(attachments: Attachment[]): ContentBlock[] {
       );
     }
     if (isImage(file.mediaType)) {
-      blocks.push({ type: "image", mediaType: file.mediaType, data: file.data });
+      blocks.push({
+        type: "image",
+        name: file.name,
+        mediaType: file.mediaType,
+        data: file.data,
+      });
       continue;
     }
     if (isTextual(file.mediaType, file.name)) {
-      const text = Buffer.from(file.data, "base64").toString("utf8");
       blocks.push({
-        type: "text",
-        text: `Attached file ${file.name}:\n\n${text}`,
+        type: "file",
+        name: file.name,
+        text: Buffer.from(file.data, "base64").toString("utf8"),
       });
       continue;
     }

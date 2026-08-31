@@ -164,8 +164,8 @@ export type ChatEvent =
       kind: "message";
       role: "you" | "kos" | "system";
       text: string;
-      /** Data URIs for images attached to this turn. */
-      images?: string[];
+      /** What came with this turn: images and text files, with their names. */
+      attachments?: { name: string; src?: string; text?: string }[];
     }
   | {
       kind: "tool";
@@ -285,7 +285,10 @@ export const api = {
     ),
   page: (id: string) => get<PagePayload>(`/api/pages/${encodeURIComponent(id)}`),
   mutate: (req: MutateRequest) => post<MutateResult>("/api/mutate", req),
-  conversations: () => get<Conversation[]>("/api/conversations"),
+  conversations: (includeArchived = false) =>
+    get<Conversation[]>(
+      includeArchived ? "/api/conversations?archived=1" : "/api/conversations",
+    ),
   orchestrator: (text: string, attachments?: Attachment[]) =>
     post<{ reply: string; conversationId: string }>("/api/orchestrator", {
       text,
@@ -309,6 +312,17 @@ export const api = {
   ) => post<Conversation>("/api/conversations/configure", { id, ...config }),
   newConversation: (title?: string) =>
     post<Conversation>("/api/conversations/new", title ? { title } : {}),
+  /** Retry, edit and fork: rewind to an owner message and run from there. */
+  rewind: (
+    sessionId: string,
+    index: number,
+    opts: { text?: string; forkTitle?: string } = {},
+  ) =>
+    post<{ reply: string; conversationId: string }>("/api/conversations/rewind", {
+      sessionId,
+      index,
+      ...opts,
+    }),
   renameConversation: (id: string, title: string) =>
     post<Conversation>("/api/conversations/rename", { id, title }),
   archiveConversation: (id: string) =>

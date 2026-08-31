@@ -37,9 +37,15 @@ export function fromOpenAIToolName(name: string): string {
 
 function textOf(content: ModelMessage["content"]): string {
   return content
-    .filter((b) => b.type === "text")
-    .map((b) => (b as { text: string }).text)
-    .join("");
+    .map((b) => {
+      if (b.type === "text") return b.text;
+      // A model can only read a file as text; the name goes with it so it
+      // knows what it is looking at.
+      if (b.type === "file") return `Attached file ${b.name}:\n\n${b.text}`;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 /**

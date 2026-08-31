@@ -1121,3 +1121,65 @@ describe("KOS end-to-end flows", () => {
     expect(wire).toContain("hello from the CLI");
   });
 });
+
+describe("rewinding a conversation", () => {
+  let root: string;
+  let kernel: Kernel;
+
+  afterEach(() => {
+    kernel?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  async function boot2(inference: Inference): Promise<Kernel> {
+    root = mkdtempSync(join(tmpdir(), "kos-rewind-"));
+    return Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference });
+  }
+
+  it("retries the last message, dropping what came after it", async () => {
+    const model = scripted([text("first answer"), text("second answer")]);
+    kernel = await boot2(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "T" });
+    await kernel.handleMessage("what is it", { sessionId: c.id });
+
+    await kernel.rewind(c.id, 0);
+
+    const wire = JSON.stringify(kernel.sessions.get(c.id));
+    expect(wire).toContain("second answer");
+    expect(wire).not.toContain("first answer");
+  });
+
+  it("edits a message and runs the new one", async () => {
+    const model = scripted([text("a"), text("b")]);
+    kernel = await boot2(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "T" });
+    await kernel.handleMessage("original", { sessionId: c.id });
+
+    await kernel.rewind(c.id, 0, { text: "changed" });
+
+    const wire = JSON.stringify(kernel.sessions.get(c.id));
+    expect(wire).toContain("changed");
+    expect(wire).not.toContain("original");
+  });
+
+  it("forks into a new conversation and leaves the original alone", async () => {
+    const model = scripted([text("a"), text("b")]);
+    kernel = await boot2(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "T" });
+    await kernel.handleMessage("keep me", { sessionId: c.id });
+
+    const res = await kernel.rewind(c.id, 0, { forkTitle: "Fork" });
+
+    expect(res.conversationId).not.toBe(c.id);
+    expect(JSON.stringify(kernel.sessions.get(c.id))).toContain("keep me");
+    expect(kernel.conversations.get(res.conversationId)?.title).toBe("Fork");
+  });
+
+  it("refuses an index that is not an owner message", async () => {
+    const model = scripted([text("a")]);
+    kernel = await boot2(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "T" });
+    await kernel.handleMessage("one", { sessionId: c.id });
+    await expect(kernel.rewind(c.id, 7)).rejects.toThrow(/no message #7/);
+  });
+});

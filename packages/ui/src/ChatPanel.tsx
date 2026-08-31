@@ -146,17 +146,16 @@ export function ChatPanel({
                 ) : e.kind === "reasoning" ? (
                   <Thinking key={i} text={e.text} />
                 ) : (
-                  <div key={i} className={`bubble bubble--${e.role}`}>
-                    {e.text && <Markdown text={e.text} />}
-                    {/* Under the sentence, at a fixed size: a full-width image
-                        pushed the message it belonged to off the screen. */}
-                    {e.images && e.images.length > 0 && (
-                      <AttachmentStrip
-                        items={e.images.map((src, n) => ({
-                          name: `Image ${n + 1}`,
-                          src,
-                        }))}
-                      />
+                  <div key={i} className={`turn turn--${e.role}`}>
+                    {e.text && (
+                      <div className={`bubble bubble--${e.role}`}>
+                        <Markdown text={e.text} />
+                      </div>
+                    )}
+                    {/* Outside the bubble, under it: an attachment is a thing
+                        that came with the message, not part of the sentence. */}
+                    {e.attachments && e.attachments.length > 0 && (
+                      <AttachmentStrip items={e.attachments} />
                     )}
                   </div>
                 ),
