@@ -6,6 +6,7 @@ import { composerKeyDown, useStickToBottom } from "./composer.js";
 import type { ChatEvent } from "./api.js";
 import { Markdown } from "./Markdown.js";
 import { ToolCall } from "./ToolCall.js";
+import { AttachmentBar, useAttachments } from "./Attachments.js";
 
 /**
  * Chat as a slide-over rather than a permanent panel. KOS is mostly reached
@@ -29,6 +30,8 @@ export interface ChatPanelProps {
   onClear: () => void;
   pendingApprovals: Set<string>;
   onDecide: (pendingId: string, approved: boolean) => void;
+  /** Attachment state, owned by the caller so send() can clear it. */
+  attachments?: ReturnType<typeof useAttachments>;
 }
 
 export function ChatPanel({
@@ -42,6 +45,7 @@ export function ChatPanel({
   onClear,
   pendingApprovals,
   onDecide,
+  attachments,
 }: ChatPanelProps): ReactElement | null {
   const boxRef = useRef<HTMLDivElement>(null);
   // A routing question fits in a sheet; reading what a dispatched agent did,
@@ -134,7 +138,10 @@ export function ChatPanel({
                   />
                 ) : (
                   <div key={i} className={`bubble bubble--${e.role}`}>
-                    <Markdown text={e.text} />
+                    {e.images?.map((src, n) => (
+                      <img className="bubble-image" key={n} src={src} alt="" />
+                    ))}
+                    {e.text && <Markdown text={e.text} />}
                   </div>
                 ),
               )}
@@ -142,6 +149,13 @@ export function ChatPanel({
             </div>
 
             <div className="sheet-composer">
+              {attachments && (
+                <AttachmentBar
+                  files={attachments.files}
+                  onAdd={(l) => void attachments.add(l)}
+                  onRemove={attachments.remove}
+                />
+              )}
               <textarea
                 ref={inputRef}
                 rows={3}

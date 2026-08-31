@@ -15,6 +15,13 @@ export interface Status {
   routes?: Record<string, { provider: string; model: string }> | null;
 }
 
+/** A file the owner attached, as bytes the model can be shown. */
+export interface Attachment {
+  name: string;
+  mediaType: string;
+  data: string;
+}
+
 export interface TaskModelSetting {
   model?: string;
   effort?: string;
@@ -150,7 +157,13 @@ export interface ChatTurn {
 }
 
 export type ChatEvent =
-  | { kind: "message"; role: "you" | "kos" | "system"; text: string }
+  | {
+      kind: "message";
+      role: "you" | "kos" | "system";
+      text: string;
+      /** Data URIs for images attached to this turn. */
+      images?: string[];
+    }
   | {
       kind: "tool";
       name: string;
@@ -254,8 +267,11 @@ export const api = {
   page: (id: string) => get<PagePayload>(`/api/pages/${encodeURIComponent(id)}`),
   mutate: (req: MutateRequest) => post<MutateResult>("/api/mutate", req),
   conversations: () => get<Conversation[]>("/api/conversations"),
-  orchestrator: (text: string) =>
-    post<{ reply: string; conversationId: string }>("/api/orchestrator", { text }),
+  orchestrator: (text: string, attachments?: Attachment[]) =>
+    post<{ reply: string; conversationId: string }>("/api/orchestrator", {
+      text,
+      ...(attachments?.length ? { attachments } : {}),
+    }),
   conversation: (id: string) =>
     get<{ id: string; messages: ChatTurn[]; events: ChatEvent[] }>(
       `/api/conversations/${encodeURIComponent(id)}/messages`,
@@ -305,10 +321,11 @@ export const api = {
   deny: (id: number) =>
     post<{ ok: boolean; message: string; reply?: string }>("/api/deny", { id }),
   setKill: (halted: boolean) => post<Status>("/api/kill", { halted }),
-  message: (text: string, sessionId?: string) =>
+  message: (text: string, sessionId?: string, attachments?: Attachment[]) =>
     post<{ reply: string }>("/api/message", {
       text,
       ...(sessionId ? { sessionId } : {}),
+      ...(attachments?.length ? { attachments } : {}),
     }),
   snapshot: (message?: string) =>
     post<{ sha: string | null }>("/api/snapshot", message ? { message } : {}),

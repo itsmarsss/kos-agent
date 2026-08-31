@@ -79,7 +79,27 @@ function toInputItems(message: ModelMessage): ResponseInputItem[] {
       output: result.content,
     });
   }
-  if (results.length === 0) out.push({ role: "user", content: text });
+  if (results.length === 0) {
+    const images = message.content.filter((b) => b.type === "image");
+    if (images.length === 0) {
+      out.push({ role: "user", content: text });
+    } else {
+      out.push({
+        role: "user",
+        content: [
+          ...(text ? [{ type: "input_text" as const, text }] : []),
+          ...images.map((b) => {
+            const img = b as { mediaType: string; data: string };
+            return {
+              type: "input_image" as const,
+              image_url: `data:${img.mediaType};base64,${img.data}`,
+              detail: "auto" as const,
+            };
+          }),
+        ],
+      });
+    }
+  }
   return out;
 }
 

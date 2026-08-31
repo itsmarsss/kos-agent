@@ -22,6 +22,7 @@ import { AnimatePresence, m } from "motion/react";
 import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
 import { Modal } from "./Modal.js";
 import { ModelSettings } from "./ModelSettings.js";
+import { useAttachments } from "./Attachments.js";
 import { ease, listItem, spring } from "./motion.js";
 import { Home } from "./Home.js";
 import { ChatsPage } from "./ChatsPage.js";
@@ -73,6 +74,7 @@ export function App(): React.ReactElement {
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const attachments = useAttachments();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeChat, setActiveChat] = useState<string | null>(null);
 
@@ -258,12 +260,13 @@ export function App(): React.ReactElement {
 
   const send = async (): Promise<void> => {
     const text = prompt.trim();
-    if (text === "" || sending) return;
+    if ((text === "" && attachments.files.length === 0) || sending) return;
     setSending(true);
     setThread((t) => [...t, { kind: "message", role: "you", text }]);
     setPrompt("");
     try {
-      const res = await api.orchestrator(text);
+      const res = await api.orchestrator(text, attachments.files);
+      attachments.clear();
       // Reload: the turn's tool calls belong in the transcript, and appending
       // only the reply would hide the work that produced it.
       const { events } = await api.conversation(res.conversationId);
@@ -512,6 +515,7 @@ export function App(): React.ReactElement {
           onClear={() => void doClear()}
           pendingApprovals={pendingIds}
           onDecide={decideByPendingId}
+          attachments={attachments}
         />
       </main>
     </ErrorBoundary>
