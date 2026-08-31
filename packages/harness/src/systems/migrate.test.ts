@@ -193,3 +193,55 @@ describe("parseChangeSpec", () => {
     expect(() => parseChangeSpec("create_table")).toThrow(/must be an object/);
   });
 });
+
+describe("re-creating a table", () => {
+  let root: string;
+  let ws: Workspace;
+  let migrator: Migrator;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-remigrate-"));
+    ws = Workspace.open(root);
+    const manifest = new ProjectManifest(ws.db);
+    manifest.createProject({ name: "Budget Tracker", type: "budget" });
+    migrator = new Migrator(ws.db, manifest);
+    migrator.migrate("budget_tracker", {
+      op: "create_table",
+      table: "expenses",
+      columns: [
+        { name: "id", type: "INTEGER", primaryKey: true },
+        { name: "amount", type: "REAL" },
+      ],
+    });
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("says what the table already holds", () => {
+    // "table X already exists" sent the agent looking through PRAGMA and grep
+    // for the columns, which are right there.
+    expect(() =>
+      migrator.migrate("budget_tracker", {
+        op: "create_table",
+        table: "expenses",
+        columns: [{ name: "id", type: "INTEGER" }],
+      }),
+    ).toThrow(/already exists with columns: id, amount\. Use add_column/);
+  });
+
+  it("records nothing for the refused migration", () => {
+    try {
+      migrator.migrate("budget_tracker", {
+        op: "create_table",
+        table: "expenses",
+        columns: [{ name: "id", type: "INTEGER" }],
+      });
+    } catch {
+      // expected
+    }
+    expect(migrator.history("budget_tracker")).toHaveLength(1);
+  });
+});
