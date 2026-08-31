@@ -1712,6 +1712,11 @@ textarea {
   background: var(--panel-2);
   border-color: var(--line);
 }
+/* It takes focus now that it is operable, so it has to show it. */
+.card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 .card-top { display: flex; align-items: center; gap: 0.5rem; }
 .card-name { font-weight: 600; letter-spacing: -0.01em; }
@@ -2089,8 +2094,8 @@ textarea {
 .chats-row { position: relative; }
 .chats-more {
   position: absolute;
-  top: 0.35rem;
-  right: 0.3rem;
+  top: 0.5rem;
+  right: 0.4rem;
   z-index: 2;
   width: 1.5rem;
   height: 1.5rem;
@@ -2104,8 +2109,19 @@ textarea {
   opacity: 0;
   transition: opacity 0.12s;
 }
-li:hover .chats-more, .chats-more:focus-visible { opacity: 1; }
-.chats-more:hover { color: var(--text); background: var(--panel-2); }
+/* The dots take the timestamp's place rather than sitting on top of it: both
+   were in the same corner, so hovering put one over the other. */
+li:hover .chats-more,
+.chats-more:focus-visible {
+  opacity: 1;
+  color: var(--muted);
+}
+li:hover .chats-item-when { opacity: 0; }
+.chats-more:hover,
+.chats-menu ~ .chats-more {
+  color: var(--text);
+  background: var(--panel-2);
+}
 .chats-menu {
   position: absolute;
   top: 1.9rem;
@@ -2379,7 +2395,11 @@ li:hover .chats-more, .chats-more:focus-visible { opacity: 1; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.chats-item-when { color: var(--faint); font-size: 0.8125rem; }
+.chats-item-when {
+  color: var(--faint);
+  font-size: 0.8125rem;
+  transition: opacity 0.12s;
+}
 
 /* What a thread is doing, in the place the timestamp would otherwise sit. */
 .chats-flag {
