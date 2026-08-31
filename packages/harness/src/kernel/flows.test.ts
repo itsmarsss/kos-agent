@@ -650,6 +650,47 @@ describe("KOS end-to-end flows", () => {
     expect(kernel.crons.list().some((c) => c.name === "x")).toBe(false);
   });
 
+  it("tells a scoped conversation what it cannot reach", async () => {
+    const model = scripted([text("That would need the schema tools.")]);
+    kernel = await boot(model.inference);
+    const c = kernel.conversations.create({
+      userId: "owner",
+      title: "Notes",
+      toolAllow: ["files", "memory"],
+    });
+    await kernel.handleMessage("add a rating column", { sessionId: c.id });
+
+    // Withheld tools are simply absent, so the agent could not tell "no such
+    // capability" from "not here". Asked to alter a schema with a files and
+    // memory scope, one spent its whole turn writing and deleting memory
+    // entries, including a false one saying the change had been made.
+    const system = model.systems.at(-1)!;
+    expect(system).toContain("limited to these tools");
+    expect(system).toContain("files, memory");
+  });
+
+  it("says nothing about scope in an unrestricted conversation", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "Open" });
+    await kernel.handleMessage("hello", { sessionId: c.id });
+    expect(model.systems.at(-1)!).not.toContain("limited to these tools");
+  });
+
+  it("answers rather than falling silent when it runs out of steps", async () => {
+    // Every turn is a tool call, so the loop hits its cap with no text in the
+    // last message. Handed straight to the reader that is silence.
+    const model = scripted(
+      Array.from({ length: 40 }, (_, i) =>
+        toolCall(`m${i}`, "memory.recall", { query: "anything" }),
+      ),
+    );
+    kernel = await boot(model.inference);
+    const res = await kernel.handleMessage("do the thing");
+    expect(res.reply.trim()).not.toBe("");
+    expect(res.reply).toMatch(/stuck|too many steps/i);
+  });
+
   it("leaves an unscoped conversation with the full toolset", async () => {
     const model = scripted([text("ok")]);
     kernel = await boot(model.inference);
