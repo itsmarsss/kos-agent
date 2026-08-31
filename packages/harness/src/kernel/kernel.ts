@@ -63,6 +63,8 @@ import {
 } from "./context.js";
 import { GuardedTools } from "./guarded.js";
 import { ProgressBus } from "./progress.js";
+import { parseMentions } from "./mentions.js";
+import { readFile as readWorkspaceFile } from "./files.js";
 import { summarizeAction } from "@kos/shared";
 import { attachmentBlocks, type Attachment } from "./attachments.js";
 import { ensureProfile, type Profile } from "./profile.js";
@@ -579,6 +581,11 @@ export class Kernel {
           ...pinnedFacts,
           ...recall.facts.filter((f) => !pinnedFacts.some((p) => p.key === f.key)),
         ];
+        // A mention is a promise that the thing named is to hand. Resolved
+        // here so the agent gets the file's contents or the page's spec
+        // rather than a string it has to go and look up, and so a name that
+        // no longer exists says so instead of being silently ignored.
+        const mentioned = this.resolveMentions(text);
         const formatting = channelGuidance(opts.channel);
         // Say when the toolkit has been narrowed. Withheld tools are simply
         // absent, so a scoped agent asked for something outside its reach does
@@ -595,7 +602,7 @@ export class Kernel {
         // The scope goes last, after the brief: a brief tells the agent what
         // it is for, and the two conflict exactly when the owner asks for
         // something the brief covers and the scope does not.
-        const extra = [formatting, conversation?.brief, scopeNote]
+        const extra = [formatting, mentioned, conversation?.brief, scopeNote]
           .filter((part): part is string => Boolean(part && part.trim()))
           .join("\n\n");
         const system = assembleSystemPrompt({
@@ -1191,6 +1198,63 @@ export class Kernel {
     this.stopping.add(sessionId);
     return true;
   }
+
+
+  /**
+   * Turn the @references in a message into context.
+   *
+   * Only what was actually named: this is the owner pointing at something, so
+   * it is worth the prompt space, unlike everything else in the workspace.
+   */
+  private resolveMentions(text: string): string | null {
+    const refs = parseMentions(text);
+    if (refs.length === 0) return null;
+
+    const parts: string[] = [];
+    for (const ref of refs) {
+      if (ref.kind === "project") {
+        const project = this.manifest.get(ref.id);
+        parts.push(
+          project
+            ? `Project ${project.slug} (${project.type}): ${project.description ?? "no description"}`
+            : `Project ${ref.id}: not found.`,
+        );
+        continue;
+      }
+      if (ref.kind === "page") {
+        const page = this.pages.get(ref.id);
+        parts.push(
+          page
+            ? `Page ${ref.id} in project ${page.record.projectSlug}:\n${JSON.stringify(page.spec, null, 2)}`
+            : `Page ${ref.id}: not found.`,
+        );
+        continue;
+      }
+      if (ref.kind === "schedule") {
+        const job = this.crons.list().find((c) => c.name === ref.id);
+        parts.push(
+          job
+            ? `Schedule ${job.name}: ${job.schedule}, type ${job.type}, ${job.enabled ? "enabled" : "disabled"}`
+            : `Schedule ${ref.id}: not found.`,
+        );
+        continue;
+      }
+      try {
+        const file = readWorkspaceFile(this.workspace, ref.id);
+        parts.push(
+          file.text === undefined
+            ? `File ${ref.id}: not shown (${file.omitted ?? "unreadable"}).`
+            : `File ${ref.id}:\n${file.text}`,
+        );
+      } catch (err) {
+        parts.push(
+          `File ${ref.id}: ${err instanceof Error ? err.message : "could not be read"}`,
+        );
+      }
+    }
+    return ["## Referenced by the owner in this message", ...parts].join("\n\n");
+  }
+
 
   /** Conversation ids with a turn in flight, for the chat list. */
   busyConversations(): string[] {

@@ -10,6 +10,14 @@ import { api, type ChatEvent, type Conversation } from "./api.js";
 import { AttachButton, useAttachments, useDropZone } from "./Attachments.js";
 import { AttachmentStrip } from "./AttachmentStrip.js";
 import { ModelPicker } from "./ModelPicker.js";
+import {
+  applySuggestion,
+  AutocompleteMenu,
+  readTrigger,
+  useSuggestions,
+  type Suggestion,
+  type Trigger,
+} from "./Autocomplete.js";
 import { Thinking } from "./Thinking.js";
 import { MessageActions, MessageEditor } from "./MessageActions.js";
 import { MoreIcon } from "./icons.js";
@@ -86,6 +94,30 @@ export function ChatsPage({
   activeIdRef.current = activeId;
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useAutoGrow(inputRef, draft);
+
+  const [trigger, setTrigger] = useState<Trigger | null>(null);
+  const [acCursor, setAcCursor] = useState(0);
+  const suggestions = useSuggestions(trigger);
+
+  const syncTrigger = (): void => {
+    const el = inputRef.current;
+    if (!el) return;
+    setTrigger(readTrigger(el.value, el.selectionStart ?? el.value.length));
+    setAcCursor(0);
+  };
+
+  const choose = (s: Suggestion): void => {
+    const el = inputRef.current;
+    if (!el || !trigger) return;
+    const next = applySuggestion(el.value, trigger, s);
+    setDraft(next.text);
+    setTrigger(null);
+    // Restored after React writes the value, or the caret jumps to the end.
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(next.caret, next.caret);
+    });
+  };
   const loaded = useRef<string | undefined>(undefined);
   const boxRef = useRef<HTMLDivElement>(null);
 
@@ -548,14 +580,63 @@ export function ChatsPage({
                 }))}
                 onRemove={attachments.remove}
               />
-              <textarea
-                ref={inputRef}
-                rows={1}
-                value={draft}
-                placeholder={`Message ${active.title}…`}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => composerKeyDown(e, () => void send())}
-              />
+              <div className="composer-input">
+                <AutocompleteMenu
+                  suggestions={suggestions}
+                  cursor={acCursor}
+                  onPick={choose}
+                />
+                <textarea
+                  ref={inputRef}
+                  rows={1}
+                  value={draft}
+                  placeholder={`Message ${active.title}…  @ to reference, / for commands`}
+                  onChange={(e) => {
+                    setDraft(e.target.value);
+                    syncTrigger();
+                  }}
+                  onClick={syncTrigger}
+                  onBlur={() => setTrigger(null)}
+                  onKeyUp={(e) => {
+                    // Arrows move the caret, so the trigger is re-read after
+                    // them too, but not while the menu owns them.
+                    if (suggestions.length === 0) syncTrigger();
+                    else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                      syncTrigger();
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (suggestions.length > 0) {
+                      if (e.key === "ArrowDown") {
+                        e.preventDefault();
+                        setAcCursor((c) => (c + 1) % suggestions.length);
+                        return;
+                      }
+                      if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        setAcCursor(
+                          (c) => (c - 1 + suggestions.length) % suggestions.length,
+                        );
+                        return;
+                      }
+                      if (e.key === "Enter" || e.key === "Tab") {
+                        const picked = suggestions[acCursor];
+                        if (picked) {
+                          e.preventDefault();
+                          choose(picked);
+                          return;
+                        }
+                      }
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        setTrigger(null);
+                        return;
+                      }
+                    }
+                    composerKeyDown(e, () => void send());
+                  }}
+                />
+              </div>
               <div className="sheet-composer-bar">
                 <AttachButton onAdd={(l) => void attachments.add(l)} />
                 <ModelPicker />

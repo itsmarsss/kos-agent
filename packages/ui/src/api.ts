@@ -312,6 +312,11 @@ export const api = {
   ) => post<Conversation>("/api/conversations/configure", { id, ...config }),
   newConversation: (title?: string) =>
     post<Conversation>("/api/conversations/new", title ? { title } : {}),
+  mentions: (q: string) =>
+    get<{
+      mentions: { kind: string; id: string; label: string; hint?: string }[];
+      commands: { name: string; args?: string; description: string }[];
+    }>(`/api/mentions?q=${encodeURIComponent(q)}`),
   stopConversation: (sessionId: string) =>
     post<{ stopping: boolean }>("/api/conversations/stop", { sessionId }),
   /** Retry, edit and fork: rewind to an owner message and run from there. */
