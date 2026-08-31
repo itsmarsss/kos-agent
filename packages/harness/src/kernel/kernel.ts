@@ -62,6 +62,8 @@ import {
   inferScopeTags,
 } from "./context.js";
 import { GuardedTools } from "./guarded.js";
+import { ProgressBus } from "./progress.js";
+import { summarizeAction } from "@kos/shared";
 import { attachmentBlocks, type Attachment } from "./attachments.js";
 import { ensureProfile, type Profile } from "./profile.js";
 import { SessionStore, primarySessionId } from "./session.js";
@@ -222,6 +224,9 @@ export class Kernel {
    * a thread can say it is thinking instead of looking idle for ten seconds.
    */
   private readonly working = new Set<string>();
+
+  /** Turn progress, for readers watching a conversation as it runs. */
+  readonly progress = new ProgressBus();
 
   private constructor(args: {
     workspace: Workspace;
@@ -529,6 +534,7 @@ export class Kernel {
       const previousConversation = this.currentConversationId;
       this.currentConversationId = sessionId;
       this.working.add(sessionId);
+      this.progress.emit({ kind: "turn-start", conversationId: sessionId });
       try {
         // A conversation may be a scoped agent: its own brief, its own reach.
         const conversation = this.conversations.get(sessionId);
@@ -658,6 +664,7 @@ export class Kernel {
         // and the outer one still has work to attribute.
         this.currentConversationId = previousConversation;
         this.working.delete(sessionId);
+        this.progress.emit({ kind: "turn-end", conversationId: sessionId });
       }
     }
   }
@@ -1011,7 +1018,26 @@ export class Kernel {
       ...(this.onApprovalRequested
         ? { onQueued: this.onApprovalRequested }
         : {}),
-      onExecuted: (tool) => this.afterToolRan(tool),
+      onExecuted: (tool, result) => {
+        this.afterToolRan(tool);
+        if (opts.conversationId) {
+          this.progress.emit({
+            kind: "tool-end",
+            conversationId: opts.conversationId,
+            tool,
+            isError: result.isError === true,
+          });
+        }
+      },
+      onStarted: (tool, input) => {
+        if (!opts.conversationId) return;
+        this.progress.emit({
+          kind: "tool-start",
+          conversationId: opts.conversationId,
+          tool,
+          summary: summarizeAction(tool, input),
+        });
+      },
     });
   }
 

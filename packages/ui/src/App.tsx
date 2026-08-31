@@ -23,6 +23,7 @@ import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
 import { Modal } from "./Modal.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { useAttachments } from "./Attachments.js";
+import { useProgress } from "./progress.js";
 import { ease, listItem, spring } from "./motion.js";
 import { Home } from "./Home.js";
 import { ChatsPage } from "./ChatsPage.js";
@@ -75,6 +76,7 @@ export function App(): React.ReactElement {
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const attachments = useAttachments();
+  const progress = useProgress();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeChat, setActiveChat] = useState<string | null>(null);
 
@@ -516,6 +518,7 @@ export function App(): React.ReactElement {
           pendingApprovals={pendingIds}
           onDecide={decideByPendingId}
           attachments={attachments}
+          step={activeChat ? progress[activeChat] : undefined}
         />
       </main>
     </ErrorBoundary>
