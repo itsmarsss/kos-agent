@@ -15,7 +15,7 @@ import {
   EpisodicStore,
   type EmbeddingProvider,
 } from "../memory/index.js";
-import type { ModelMessage } from "../models/types.js";
+import type { ContentBlock, ModelMessage } from "../models/types.js";
 import { createDefaultRouter } from "../models/router.js";
 import {
   applyModelSettings,
@@ -62,6 +62,7 @@ import {
   inferScopeTags,
 } from "./context.js";
 import { GuardedTools } from "./guarded.js";
+import { attachmentBlocks, type Attachment } from "./attachments.js";
 import { ensureProfile, type Profile } from "./profile.js";
 import { SessionStore, primarySessionId } from "./session.js";
 import { ConversationStore, type Conversation } from "./conversations.js";
@@ -488,6 +489,8 @@ export class Kernel {
        * than stored state that an edit could drift away from.
        */
       allow?: string[];
+      /** Files the owner attached to this message. */
+      attachments?: Attachment[];
     } = {},
   ): Promise<HandleResult> {
     if (this.killSwitch.halted) {
@@ -518,6 +521,7 @@ export class Kernel {
       channel?: string;
       grant?: string[];
       allow?: string[];
+      attachments?: Attachment[];
     },
   ): Promise<HandleResult> {
     {
@@ -585,14 +589,19 @@ export class Kernel {
           ...(extra ? { extra } : {}),
         });
 
+        // Attachments ride on the turn's own message rather than the system
+        // prompt, so a later turn replaying the transcript still has them.
+        const userContent: ContentBlock[] = [
+          { type: "text", text },
+          ...attachmentBlocks(opts.attachments ?? []),
+        ];
         let input: string | ModelMessage[] = text;
         const useSession = !this.sessionless && !opts.noSession;
         if (useSession) {
           const prior = this.sessions.historyForPrompt(sessionId);
-          input = [
-            ...prior,
-            { role: "user", content: [{ type: "text", text }] },
-          ];
+          input = [...prior, { role: "user", content: userContent }];
+        } else if (userContent.length > 1) {
+          input = [{ role: "user", content: userContent }];
         }
 
         const result = await runAgent(this.inference, tools, input, {
@@ -777,7 +786,7 @@ export class Kernel {
    */
   async handleOrchestratorTurn(
     text: string,
-    opts: { channel?: string } = {},
+    opts: { channel?: string; attachments?: Attachment[] } = {},
   ): Promise<HandleResult & { conversationId: string }> {
     const id = orchestratorId(this.profile.ownerId);
     const res = await this.handleMessage(text, {
@@ -786,6 +795,7 @@ export class Kernel {
       grant: [...CHAT_TOOLS],
       allow: [...ORCHESTRATOR_SCOPE],
       ...(opts.channel ? { channel: opts.channel } : {}),
+      ...(opts.attachments ? { attachments: opts.attachments } : {}),
     });
     return { ...res, conversationId: id };
   }

@@ -2031,6 +2031,61 @@ textarea {
   min-height: 0;
 }
 .chats-composer { border-top: 1px solid var(--line); padding: 0.75rem; }
+
+/* —— attachments —— */
+.attach {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding-bottom: 0.5rem;
+  border-radius: var(--r-sm);
+}
+.attach.is-over {
+  outline: 1px dashed var(--accent);
+  outline-offset: 3px;
+}
+.attach-add { font-size: 0.8125rem; padding: 0.2rem 0.5rem; }
+.attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.15rem 0.35rem 0.15rem 0.15rem;
+  font-size: 0.8125rem;
+  max-width: 16rem;
+}
+.attach-thumb {
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 999px;
+  object-fit: cover;
+}
+.attach-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attach-x {
+  background: none;
+  border: 0;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0 0.15rem;
+}
+.attach-x:hover { color: var(--text); }
+
+/* An attached image in the transcript, capped so it cannot dwarf the thread. */
+.bubble-image {
+  display: block;
+  max-width: 100%;
+  max-height: 18rem;
+  border-radius: var(--r-sm);
+  margin-bottom: 0.4rem;
+}
 /* Full width is not a readable measure. Capped with padding rather than a cap
    on the children, so a right-aligned bubble stays right-aligned. */
 .chats-thread,
