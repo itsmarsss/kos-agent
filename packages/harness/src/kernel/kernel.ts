@@ -109,8 +109,9 @@ const ORCHESTRATOR_BRIEF = [
   "Before starting anything, search existing conversations: the work often already has a home, and saying so is more useful than making another thread.",
   "When something genuinely needs its own conversation, create it with a brief that says what it is for and how to behave there, and carry over what it needs to know in the opening message.",
   "Leave tools unrestricted. A new conversation gets the full toolkit unless the owner has asked you to limit it, because a guess about what it will need becomes a capability it silently lacks later.",
-  "You cannot speak inside other conversations. Set one up and hand it over.",
-  "Be brief. Say what you found and what you did.",
+  "Do the work, do not just file it. Once the right conversation exists, dispatch the task to it and report what actually came back. Announcing that a thread now exists is not an answer.",
+  "Dispatch to an existing conversation when one already covers the work, rather than creating a near-duplicate.",
+  "Be brief. Say what you found, what you dispatched, and what it said.",
 ].join("\n");
 
 /**
@@ -248,6 +249,10 @@ export class Kernel {
   }
 
   static async boot(options: KernelOptions): Promise<Kernel> {
+    // Modules are constructed before the kernel exists, and one of them needs
+    // to call back into it; this closes that loop without a partial `this`.
+    // eslint-disable-next-line prefer-const
+    let kernelRef: Kernel | undefined;
     const workspace = Workspace.open(options.rootDir);
     const secrets = options.secrets ?? SecretsRegistry.fromEnv();
     const profile = ensureProfile(workspace, options.profileOverrides);
@@ -306,6 +311,8 @@ export class Kernel {
         conversations,
         sessions,
         ownerId: profile.ownerId,
+        // Bound late: the kernel does not exist yet while modules are built.
+        dispatch: (id, text) => kernelRef!.dispatchTo(id, text),
         // It should not offer you its own thread as somewhere to put work.
         hide: [orchestratorId(profile.ownerId)],
       }),
@@ -349,7 +356,7 @@ export class Kernel {
       new LlmSalienceConfirmer(inference),
     );
 
-    return new Kernel({
+    kernelRef = new Kernel({
       workspace,
       secrets,
       registry,
@@ -382,6 +389,7 @@ export class Kernel {
         ? { onApprovalRequested: options.onApprovalRequested }
         : {}),
     });
+    return kernelRef;
   }
 
   promoteSkill(input: PromoteInput): Promise<PromoteOutcome> {
@@ -422,7 +430,29 @@ export class Kernel {
     const sessionId =
       opts.sessionId ?? `chat:${userId}`;
 
-    return this.queue.enqueue(async () => {
+    return this.queue.enqueue(() => this.runTurn(text, userId, sessionId, opts));
+  }
+
+  /**
+   * One turn, without the queue.
+   *
+   * handleMessage wraps this in the serial queue. Dispatch calls it directly,
+   * because a dispatched turn already runs inside the dispatcher's queue slot:
+   * enqueuing again would wait on a task that is waiting on it.
+   */
+  private async runTurn(
+    text: string,
+    userId: string,
+    sessionId: string,
+    opts: {
+      scopeTags?: string[];
+      noSession?: boolean;
+      origin?: "owner" | "system";
+      channel?: string;
+      grant?: string[];
+    },
+  ): Promise<HandleResult> {
+    {
       const runId = this.runs.start("chat");
       try {
         // A conversation may be a scoped agent: its own brief, its own reach.
@@ -506,7 +536,7 @@ export class Kernel {
         );
         throw err;
       }
-    });
+    }
   }
 
   /**
@@ -635,6 +665,32 @@ export class Kernel {
       ...(opts.channel ? { channel: opts.channel } : {}),
     });
     return { ...res, conversationId: id };
+  }
+
+  /**
+   * Run a turn inside another conversation and return what it said.
+   *
+   * This is how the orchestrator delegates rather than merely filing work:
+   * the sub-agent runs with its own brief and its own tool scope, and its
+   * reply comes back so the orchestrator can report a result instead of a
+   * promise that something was created.
+   *
+   * Bypasses the queue on purpose. The caller is already holding the queue
+   * slot, so nothing else is running concurrently, and enqueuing here would
+   * deadlock against the very task doing the dispatching.
+   */
+  async dispatchTo(
+    conversationId: string,
+    text: string,
+  ): Promise<{ reply: string; conversationId: string }> {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) throw new Error(`no such conversation: ${conversationId}`);
+    // The sub-agent is never granted the chats tools, so a dispatched turn
+    // cannot dispatch again and there is no recursion to bound.
+    const res = await this.runTurn(text, conversation.userId, conversation.id, {
+      channel: "dispatch",
+    });
+    return { reply: res.reply, conversationId: conversation.id };
   }
 
   clearSession(sessionId: string): void {
