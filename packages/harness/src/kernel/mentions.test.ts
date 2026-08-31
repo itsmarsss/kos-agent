@@ -20,6 +20,17 @@ describe("parseMentions", () => {
     expect(parseMentions("@file:a.md and again @file:a.md")).toHaveLength(1);
   });
 
+  it("does not eat the full stop that ends the sentence", () => {
+    // "@schedule:kos.backup." resolved as a job called "kos.backup." and was
+    // reported to the owner as not existing.
+    expect(parseMentions("check @schedule:kos.backup.")).toEqual([
+      { kind: "schedule", id: "kos.backup" },
+    ]);
+    expect(parseMentions("see @file:notes/a.md, then stop")).toEqual([
+      { kind: "file", id: "notes/a.md" },
+    ]);
+  });
+
   it("ignores an @ that is not a reference", () => {
     expect(parseMentions("mail me@example.com about @stuff")).toEqual([]);
   });
@@ -79,7 +90,27 @@ describe("findMentions", () => {
   });
 
   it("leaves machinery out of the picker", () => {
-    // .git is not the owner's work and would swamp everything else.
-    expect(walkFiles(ws).some((p) => p.includes(".git"))).toBe(false);
+    // A Python venv or a node_modules alone is enough to bury everything the
+    // owner might actually be reaching for.
+    mkdirSync(join(root, "venv", "lib"), { recursive: true });
+    writeFileSync(join(root, "venv", "lib", "thing.py"), "x");
+    mkdirSync(join(root, "__pycache__"), { recursive: true });
+    writeFileSync(join(root, "__pycache__", "m.pyc"), "x");
+    mkdirSync(join(root, ".venv"), { recursive: true });
+    writeFileSync(join(root, ".venv", "cfg"), "x");
+    writeFileSync(join(root, ".env"), "SECRET=1");
+
+    const files = walkFiles(ws);
+    for (const noise of [".git", "venv", "__pycache__", ".venv", ".env"]) {
+      expect(files.some((f) => f.includes(noise))).toBe(false);
+    }
+    // The owner's own files are still there.
+    expect(files).toContain("notes/todo.md");
+  });
+
+  it("keeps a source file that merely lives in a normal folder", () => {
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "main.py"), "print(1)");
+    expect(walkFiles(ws)).toContain("src/main.py");
   });
 });

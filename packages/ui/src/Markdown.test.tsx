@@ -141,3 +141,45 @@ describe("elapsed formatting", () => {
     expect(formatElapsed(3_840_000)).toBe("1h 4m");
   });
 });
+
+describe("references in a message", () => {
+  it("renders a mention as a chip showing what was named", () => {
+    const { container } = render(<Markdown text="look at @file:notes/todo.md now" />);
+    const chip = container.querySelector(".chip-ref--file");
+    expect(chip?.textContent).toBe("notes/todo.md");
+    expect(container.textContent).not.toContain("@file:");
+  });
+
+  it("colours a chip by what kind of thing it is", () => {
+    const { container } = render(
+      <Markdown text="@project:budget and @schedule:nightly" />,
+    );
+    expect(container.querySelector(".chip-ref--project")?.textContent).toBe("budget");
+    expect(container.querySelector(".chip-ref--schedule")?.textContent).toBe("nightly");
+  });
+
+  it("renders a known slash command as a chip", () => {
+    const { container } = render(<Markdown text="/archive" />);
+    expect(container.querySelector(".chip-ref--command")?.textContent).toBe("/archive");
+  });
+
+  it("does not swallow the sentence's full stop", () => {
+    const { container } = render(<Markdown text="check @schedule:kos.backup." />);
+    expect(container.querySelector(".chip-ref--schedule")?.textContent).toBe(
+      "kos.backup",
+    );
+    expect(container.textContent).toContain("kos.backup.");
+  });
+
+  it("leaves an ordinary slash alone", () => {
+    // A path is not a command.
+    const { container } = render(<Markdown text="see docs/api for more" />);
+    expect(container.querySelector(".chip-ref")).toBeNull();
+    expect(container.textContent).toContain("docs/api");
+  });
+
+  it("leaves an email address alone", () => {
+    const { container } = render(<Markdown text="mail me@example.com" />);
+    expect(container.querySelector(".chip-ref")).toBeNull();
+  });
+});
