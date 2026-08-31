@@ -125,6 +125,8 @@ export interface Conversation {
   brief: string | null;
   /** null is the full toolkit; an array is an exact scope, empty included. */
   toolAllow: string[] | null;
+  /** The orchestrator is a conversation, but not one of the owner's chats. */
+  kind?: "orchestrator" | "chat";
 }
 
 export interface ChatTurn {

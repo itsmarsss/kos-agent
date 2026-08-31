@@ -1949,7 +1949,17 @@ textarea {
   border-bottom: 1px solid var(--line);
 }
 .chats-view-head h1 { margin: 0; font-size: 1.125rem; }
-.chats-brief { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.875rem; }
+/* A brief can be a paragraph; the header is not where you read it. */
+.chats-brief {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-width: 60ch;
+}
 
 .chats-thread {
   flex: 1;
@@ -2265,4 +2275,90 @@ textarea {
 .chats-thread > *,
 .sheet-thread > * {
   flex-shrink: 0;
+}
+
+/* Expanded orchestrator: a routing question fits in a sheet, reading a
+   dispatched agent's work with its tool calls open does not. */
+.sheet--full {
+  width: 100vw;
+  border-left: 0;
+}
+.sheet--full .sheet-thread,
+.sheet--full .sheet-composer {
+  max-width: 60rem;
+  width: 100%;
+  margin: 0 auto;
+}
+.sheet--full .sheet-head {
+  padding-left: max(1rem, calc((100vw - 60rem) / 2));
+  padding-right: max(1rem, calc((100vw - 60rem) / 2));
+}
+
+/* The orchestrator sits above the chat list, not inside it. */
+.chats-pinned {
+  padding: 0.35rem;
+  border-bottom: 1px solid var(--line);
+}
+.chats-item--pinned .chats-item-title { font-weight: 600; }
+.chats-badge {
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  color: var(--accent);
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  padding: 0 0.3rem;
+}
+
+/* —— projects —— */
+.projects-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+.projects-head h1 { margin: 0; font-size: 1.375rem; letter-spacing: -0.02em; }
+.projects-search { max-width: 18rem; }
+
+.projects-group { margin-bottom: 1.75rem; }
+.projects-group h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 0 0.6rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+.projects-count {
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  color: var(--faint);
+}
+
+.project-card { min-height: 11rem; }
+.project-desc {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.project-pages {
+  margin-top: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.project-nopages { margin-top: auto; color: var(--faint); font-size: 0.8125rem; }
+.project-more {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
 }

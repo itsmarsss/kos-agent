@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
 
 import { ease, spring } from "./motion.js";
@@ -44,6 +44,9 @@ export function ChatPanel({
   onDecide,
 }: ChatPanelProps): ReactElement | null {
   const boxRef = useRef<HTMLDivElement>(null);
+  // A routing question fits in a sheet; reading what a dispatched agent did,
+  // with its tool calls open, does not.
+  const [full, setFull] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Follow the conversation as it grows, and land focus in the input on open.
@@ -78,7 +81,7 @@ export function ChatPanel({
           />
           <m.aside
             key="sheet"
-            className="sheet"
+            className={`sheet ${full ? "sheet--full" : ""}`}
             aria-label="Chat with KOS"
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
@@ -91,6 +94,15 @@ export function ChatPanel({
                 <span className="sheet-sub">routes work across your chats</span>
               </div>
               <div className="sheet-head-actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => setFull((v) => !v)}
+                  aria-label={full ? "Shrink" : "Expand to full screen"}
+                  title={full ? "Shrink" : "Expand"}
+                >
+                  {full ? "⤡" : "⤢"}
+                </button>
                 <button type="button" className="btn btn--ghost" onClick={onClear}>
                   Clear
                 </button>
