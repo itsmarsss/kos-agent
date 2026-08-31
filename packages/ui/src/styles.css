@@ -1812,3 +1812,58 @@ textarea {
   .topbar { flex-wrap: wrap; }
   .card-grid { grid-template-columns: 1fr; }
 }
+
+/* —— conversation switcher —— */
+.sheet-title { min-width: 0; }
+.sheet-title strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 22ch;
+}
+
+.sheet-tabs {
+  display: flex;
+  gap: 0.3rem;
+  overflow-x: auto;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+  scrollbar-width: none;
+}
+.sheet-tabs::-webkit-scrollbar { display: none; }
+
+.sheet-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  max-width: 15rem;
+  padding: 0.28rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.sheet-tab:hover { color: var(--text); border-color: var(--line-strong); }
+.sheet-tab.is-active {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.sheet-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-tab-x {
+  opacity: 0.55;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+.sheet-tab-x:hover { opacity: 1; color: var(--danger); }
