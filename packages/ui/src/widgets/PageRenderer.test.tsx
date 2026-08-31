@@ -27,7 +27,7 @@ function recorder(refreshed: Row[] = []) {
     ): Promise<void> => {
       calls.push({ pageId, widgetIndex, op, values, key });
     },
-    onRefresh: async (): Promise<Row[]> => refreshed,
+    onRefresh: async (): Promise<Record<number, Row[]>> => ({ 0: refreshed }),
   };
 }
 
@@ -325,7 +325,7 @@ describe("form widget", () => {
         onMutate={async () => {
           throw new Error("table is read-only");
         }}
-        onRefresh={async () => []}
+        onRefresh={async () => ({})}
       />,
     );
     fireEvent.submit(container.querySelector("form") as HTMLFormElement);
@@ -477,5 +477,103 @@ describe("card detail edit", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(rec.calls.length).toBe(1));
     expect(rec.calls[0]?.op).toBe("insert");
+  });
+});
+
+describe("empty and formatted widgets", () => {
+  afterEach(cleanup);
+
+  it("says a table is empty rather than rendering nothing", () => {
+    // Columns are read off the first row, so no rows meant no headers either:
+    // a title over a blank box, which is what a new tracker always looks like.
+    const { container } = render(
+      <PageRenderer
+        spec={{
+          id: "p",
+          title: "P",
+          widgets: [{ type: "table", title: "Expenses", query: "SELECT 1" }],
+        }}
+        data={[[]]}
+      />,
+    );
+    expect(container.textContent).toContain("nothing here yet");
+  });
+
+  it("renders a markdown widget as markdown, not as its own asterisks", () => {
+    const { container } = render(
+      <PageRenderer
+        spec={{
+          id: "p",
+          title: "P",
+          widgets: [{ type: "markdown", content: "**bold** and `code`" }],
+        }}
+        data={[[]]}
+      />,
+    );
+    expect(container.querySelector("strong")?.textContent).toBe("bold");
+    expect(container.querySelector("code")?.textContent).toBe("code");
+    expect(container.textContent).not.toContain("**");
+  });
+});
+
+describe("refresh after a write", () => {
+  afterEach(cleanup);
+
+  it("updates the widgets that read the table, not the form that wrote it", async () => {
+    // The refresh was scoped to the writing widget. A form has no rows of its
+    // own, so saving refreshed nothing: the table and the total sat unchanged
+    // next to a green "Saved", which reads as a write that did not happen.
+    const spec: PageSpec = {
+      id: "budget",
+      title: "Budget",
+      widgets: [
+        { type: "table", title: "Expenses", query: "SELECT 1" },
+        {
+          type: "form",
+          title: "Log",
+          mutate: { table: "budget_expenses", columns: ["amount"] },
+        },
+      ],
+    };
+    render(
+      <PageRenderer
+        spec={spec}
+        data={{ 0: [] }}
+        onMutate={async () => undefined}
+        onRefresh={async () => ({ 0: [{ amount: 42.5 }], 1: [] })}
+      />,
+    );
+    expect(screen.getByText("Expenses").parentElement?.textContent).toContain(
+      "nothing here yet",
+    );
+
+    fireEvent.change(screen.getByLabelText(/amount/i), {
+      target: { value: "42.50" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+
+    expect(await screen.findByText("42.5")).toBeTruthy();
+  });
+});
+
+describe("stat widget", () => {
+  afterEach(cleanup);
+
+  it("shows a placeholder when the aggregate is null", () => {
+    // SUM over an empty table is null, which formatCell renders as "", so a
+    // fresh tracker's headline number was an invisible blank.
+    render(
+      <PageRenderer
+        spec={{
+          id: "p",
+          title: "P",
+          widgets: [
+            { type: "stat", label: "Total", query: "SELECT SUM(amount)" },
+          ],
+        }}
+        data={{ 0: [{ total: null }] }}
+      />,
+    );
+    expect(screen.getByText("Total").parentElement?.textContent).toContain("-");
   });
 });
