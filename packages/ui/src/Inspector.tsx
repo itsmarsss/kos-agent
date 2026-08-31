@@ -188,16 +188,16 @@ export function Inspector(props: {
           <Field label="Key" value={f.key} mono />
           <div className="insp-field">
             <div className="insp-label">Kind</div>
-            <select
-              className="ops-select"
+            <Select
+              className="insp-select"
+              label="Kind"
               value={kind}
-              onChange={(e) =>
-                setEditKind(e.target.value === "preference" ? "preference" : "fact")
-              }
-            >
-              <option value="fact">fact</option>
-              <option value="preference">preference</option>
-            </select>
+              options={[
+                { value: "fact", label: "fact" },
+                { value: "preference", label: "preference" },
+              ]}
+              onChange={(v) => setEditKind(v === "preference" ? "preference" : "fact")}
+            />
           </div>
           <div className="insp-field">
             <div className="insp-label">Value</div>
@@ -261,17 +261,13 @@ export function Inspector(props: {
           <Field label="Type" value={p.type} />
           <div className="insp-field">
             <div className="insp-label">Status</div>
-            <select
-              className="ops-select"
+            <Select
+              className="insp-select"
+              label="Status"
               value={status}
-              onChange={(e) => setEditStatus(e.target.value)}
-            >
-              {STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+              options={STATUSES.map((s) => ({ value: s, label: s }))}
+              onChange={setEditStatus}
+            />
           </div>
           <Field label="Module" value={p.module ?? "embedded"} mono />
           <Field label="Description" value={p.description ?? "—"} />

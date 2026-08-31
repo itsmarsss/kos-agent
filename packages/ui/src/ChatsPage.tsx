@@ -22,7 +22,12 @@ import {
 import { Thinking } from "./Thinking.js";
 import { MessageActions, MessageEditor } from "./MessageActions.js";
 import { MoreIcon } from "./icons.js";
-import { useProgress } from "./progress.js";
+import {
+  clearProgress,
+  seedProgress,
+  useProgress,
+  type Live,
+} from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
 import { ToolCall } from "./ToolCall.js";
 import { ChatConfig } from "./ChatConfig.js";
@@ -73,6 +78,20 @@ export function ChatsPage({
   const [sendingIn, setSendingIn] = useState<string | null>(null);
   const attachments = useAttachments();
   const progress = useProgress();
+
+  // The list is the authority on what is running: a turn that started before
+  // this view opened produced no events it could have seen, and one that
+  // finished while the connection was down would otherwise stay on screen.
+  useEffect(() => {
+    seedProgress(
+      conversations.filter((c) => c.activity === "working").map((c) => c.id),
+    );
+    for (const c of conversations) {
+      if (c.activity !== "working" && progress[c.id] && progress[c.id]!.steps.length === 0) {
+        clearProgress(c.id);
+      }
+    }
+  }, [conversations, progress]);
   const [creating, setCreating] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
@@ -236,6 +255,14 @@ export function ChatsPage({
       setSendingIn((id) => (id === target ? null : id));
     }
   }
+
+  /** What a running conversation is doing, for the list. */
+  const liveLabel = (l: Live | undefined): string => {
+    if (!l) return "working";
+    if (l.text) return "replying";
+    const tool = l.steps.find((s) => s.kind === "tool" && !s.done);
+    return tool && tool.kind === "tool" ? tool.tool : "thinking";
+  };
 
   /** Ask the running turn in this conversation to stop. */
   function stop(): void {
@@ -474,7 +501,7 @@ export function ChatsPage({
                       was to open it. */}
                   {progress[c.id] ? (
                     <span className="chats-flag chats-flag--working">
-                      {progress[c.id]?.step ?? "thinking"}
+                      {liveLabel(progress[c.id])}
                     </span>
                   ) : c.activity && c.activity !== "idle" ? (
                     <span className={`chats-flag chats-flag--${c.activity}`}>
