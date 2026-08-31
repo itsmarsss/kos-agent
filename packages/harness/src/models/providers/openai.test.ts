@@ -109,9 +109,11 @@ describe("buildResponsesParams", () => {
   });
 
   it("sends reasoning when the spec sets an effort", () => {
+    // summary is asked for so a reader can be shown the working-out; models
+    // that produce none simply send no summary events.
     expect(
       buildResponsesParams(req, { model: "gpt-5.5", effort: "high" }).reasoning,
-    ).toEqual({ effort: "high" });
+    ).toEqual({ effort: "high", summary: "detailed" });
   });
 
   it("maps efforts above OpenAI's top setting onto high", () => {
