@@ -31,8 +31,26 @@ export interface MentionSources {
   workspace: Workspace;
 }
 
-/** Directories that are machinery rather than the owner's work. */
-const SKIP = new Set([".git", ".kos", "node_modules"]);
+/**
+ * Machinery rather than the owner's work.
+ *
+ * Anything hidden is already skipped, which covers .git, .venv and the rest.
+ * These are the ones that are not hidden and would otherwise bury a picker in
+ * thousands of files nobody is looking for: a Python venv alone is enough.
+ */
+const SKIP = new Set([
+  "node_modules",
+  "__pycache__",
+  "site-packages",
+  "venv",
+  "env",
+  "dist",
+  "build",
+  "target",
+  "vendor",
+  "coverage",
+  "out",
+]);
 const MAX_FILES = 400;
 
 /**
@@ -54,7 +72,11 @@ export function walkFiles(workspace: Workspace, limit = MAX_FILES): string[] {
     }
     for (const entry of entries) {
       if (out.length >= limit) return;
-      if (entry.name.startsWith(".") || SKIP.has(entry.name)) continue;
+      // Hidden first: dotfiles and dot-directories are never what someone is
+      // reaching for with @, and .venv would swamp everything else.
+      if (entry.name.startsWith(".")) continue;
+      if (entry.isDirectory() && SKIP.has(entry.name)) continue;
+      if (/\.egg-info$/.test(entry.name)) continue;
       const full = join(dir, entry.name);
       if (entry.isDirectory()) walk(full, depth + 1);
       else if (entry.isFile()) out.push(relative(root, full));
@@ -119,7 +141,12 @@ export function mentionToken(mention: Mention): string {
   return `@${mention.kind}:${mention.id}`;
 }
 
-const TOKEN = /@(project|page|file|schedule):([A-Za-z0-9._/-]+)/g;
+/*
+ * The id may contain dots but must not end on one, or a mention finishing a
+ * sentence eats the full stop: "@schedule:kos.backup." resolved as the job
+ * "kos.backup." and was reported as not existing.
+ */
+const TOKEN = /@(project|page|file|schedule):([A-Za-z0-9._/-]*[A-Za-z0-9_/-])/g;
 
 /**
  * Pull the references out of a message.
