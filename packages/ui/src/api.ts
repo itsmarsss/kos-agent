@@ -212,9 +212,21 @@ export interface FactRow {
   createdAt?: number;
 }
 
+/** The server's own sentence when it sent one, else something serviceable. */
+async function readError(res: Response, path: string): Promise<string> {
+  const text = await res.text();
+  try {
+    const body = JSON.parse(text) as { error?: unknown };
+    if (typeof body.error === "string" && body.error.trim()) return body.error;
+  } catch {
+    // Not JSON; fall through to the raw body.
+  }
+  return text.trim() || `${path} failed (${res.status})`;
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path);
-  if (!res.ok) throw new Error(`${path}: ${res.status}`);
+  if (!res.ok) throw new Error(await readError(res, path));
   return (await res.json()) as T;
 }
 
@@ -225,8 +237,9 @@ async function post<T>(path: string, body: unknown = {}): Promise<T> {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`${path}: ${res.status} ${text}`);
+    // The server sends {"error": "..."} written for a reader; pasting the raw
+    // body meant a chat showed `/api/message: 400 {"error":"..."}` instead.
+    throw new Error(await readError(res, path));
   }
   return (await res.json()) as T;
 }
