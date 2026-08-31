@@ -3376,3 +3376,24 @@ li:hover .chats-item-when { opacity: 0; }
 @media (max-width: 720px) {
   .know-add { grid-template-columns: 1fr; }
 }
+
+/* Sites: what the agent built, linked out to rather than embedded. */
+.sites-head { margin-bottom: 1rem; }
+.sites-head h2 { font-size: 1.125rem; margin: 0 0 0.25rem; }
+.sites-head .hint { max-width: 46rem; }
+.sites-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.75rem;
+}
+.site-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.9rem 1rem 1rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+.site-card h3 { margin: 0; font-size: 0.9375rem; font-family: var(--mono); }
+.site-actions { display: flex; gap: 0.4rem; margin-top: 0.5rem; }

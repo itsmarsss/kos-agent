@@ -22,6 +22,7 @@ import {
 } from "../models/settings.js";
 import { conversationEvents } from "./transcript.js";
 import { listDirectory, readFile, readImage } from "./files.js";
+import { listSites, sitesBaseUrl } from "../sites/server.js";
 
 export interface ApiRequest {
   method: string;
@@ -442,6 +443,13 @@ export async function handleApiRequest(
         body: { error: err instanceof Error ? err.message : String(err) },
       };
     }
+  }
+
+  if (method === "GET" && path === "/api/sites") {
+    // The base URL is where the site server is bound, which is a different
+    // origin from this one on purpose. The dashboard links out to it rather
+    // than embedding it.
+    return ok({ base: sitesBaseUrl() ?? null, sites: listSites(kernel.workspace) });
   }
 
   if (method === "GET" && path === "/api/file/raw") {
