@@ -99,13 +99,32 @@ export interface CommandResult {
   switchedTo?: string;
 }
 
+/**
+ * Every command, once.
+ *
+ * The dashboard's autocomplete and the help text both read this, so a command
+ * cannot exist in one and be missing from the other.
+ */
+export interface CommandSpec {
+  name: string;
+  args?: string;
+  description: string;
+}
+
+export const CHAT_COMMANDS: CommandSpec[] = [
+  { name: "new", args: "[title]", description: "start another conversation" },
+  { name: "chats", description: "list your conversations" },
+  { name: "switch", args: "<number|title>", description: "move to one" },
+  { name: "rename", args: "<title>", description: "rename this conversation" },
+  { name: "archive", description: "close this conversation" },
+  { name: "help", description: "show these commands" },
+];
+
 const HELP = [
   "Conversation commands:",
-  "`/new [title]` start another conversation",
-  "`/chats` list them",
-  "`/switch <number|title>` move to one",
-  "`/rename <title>` rename this one",
-  "`/archive` close this one",
+  ...CHAT_COMMANDS.map(
+    (c) => `\`/${c.name}${c.args ? ` ${c.args}` : ""}\` ${c.description}`,
+  ),
 ].join("\n");
 
 function line(c: Conversation, i: number, currentId: string): string {

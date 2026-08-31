@@ -2134,6 +2134,66 @@ li:hover .chats-more, .chats-more:focus-visible { opacity: 1; }
 .chats-menu button:hover { background: var(--panel-2); }
 .chats-menu button.is-danger { color: var(--danger); }
 
+/* —— autocomplete —— */
+.composer-input { position: relative; }
+.ac {
+  position: absolute;
+  bottom: calc(100% + 0.4rem);
+  left: 0;
+  right: 0;
+  z-index: 45;
+  max-height: 15rem;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--elev-2);
+}
+.ac-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  width: 100%;
+  background: none;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8125rem;
+  text-align: left;
+  padding: 0.3rem 0.45rem;
+  cursor: pointer;
+}
+.ac-item.is-cursor { background: var(--panel-2); }
+.ac-kind {
+  flex-shrink: 0;
+  width: 4.5rem;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ac-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ac-hint {
+  color: var(--faint);
+  font-size: 0.75rem;
+  flex-shrink: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* —— composer row —— */
 .composer-spacer { flex: 1; }
 .btn--stop {

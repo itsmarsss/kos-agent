@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -1200,5 +1200,46 @@ describe("rewinding a conversation", () => {
     const c = kernel.conversations.create({ userId: "owner", title: "T" });
     await kernel.handleMessage("one", { sessionId: c.id });
     await expect(kernel.rewind(c.id, 7)).rejects.toThrow(/no message #7/);
+  });
+});
+
+describe("mentions in a message", () => {
+  let root: string;
+  let kernel: Kernel;
+
+  afterEach(() => {
+    kernel?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  async function boot3(inference: Inference): Promise<Kernel> {
+    root = mkdtempSync(join(tmpdir(), "kos-mention-"));
+    return Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference });
+  }
+
+  it("puts a referenced file's contents in front of the agent", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot3(model.inference);
+    writeFileSync(join(root, "plan.md"), "ship the budget page");
+
+    await kernel.handleMessage("what does @file:plan.md say");
+
+    // A mention is a promise that the thing named is to hand, not a string the
+    // agent has to go and look up.
+    expect(model.systems.at(-1)!).toContain("ship the budget page");
+  });
+
+  it("says so when the thing referenced does not exist", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot3(model.inference);
+    await kernel.handleMessage("look at @project:nope");
+    expect(model.systems.at(-1)!).toContain("not found");
+  });
+
+  it("adds nothing when there are no mentions", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot3(model.inference);
+    await kernel.handleMessage("just a normal message");
+    expect(model.systems.at(-1)!).not.toContain("Referenced by the owner");
   });
 });
