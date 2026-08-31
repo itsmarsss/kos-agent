@@ -8,6 +8,7 @@ import { runDisplayQuery } from "../systems/display.js";
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
+import { orchestratorId } from "./kernel.js";
 
 export interface ApiRequest {
   method: string;
@@ -105,6 +106,7 @@ export async function handleApiRequest(
       discord: options.meta?.discord === true,
       pid: options.meta?.pid ?? process.pid,
       workspace: options.meta?.workspace ?? kernel.workspace.root,
+      orchestratorId: orchestratorId(kernel.profile.ownerId),
     });
   }
 
@@ -331,8 +333,13 @@ export async function handleApiRequest(
 
   if (method === "GET" && path === "/api/conversations") {
     const includeArchived = queryParams(req.url).get("archived") === "1";
+    // The orchestrator is machinery, not one of the owner's chats, so it does
+    // not belong in the list they browse.
+    const orchestrator = orchestratorId(kernel.profile.ownerId);
     return ok(
-      kernel.conversations.list(kernel.profile.ownerId, { includeArchived }),
+      kernel.conversations
+        .list(kernel.profile.ownerId, { includeArchived })
+        .filter((c) => c.id !== orchestrator),
     );
   }
 
