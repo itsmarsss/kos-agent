@@ -13,7 +13,7 @@ import { parseQueuedApproval } from "./guarded.js";
  */
 
 export type ChatEvent =
-  | { kind: "message"; role: "you" | "kos"; text: string }
+  | { kind: "message"; role: "you" | "kos" | "system"; text: string }
   | {
       kind: "tool";
       /** Tool name, e.g. "sql". */
@@ -32,6 +32,22 @@ export type ChatEvent =
     };
 
 const MAX_RESULT = 2000;
+
+/**
+ * The harness resumes a held call by sending itself a user turn. That is the
+ * right shape for the model and the wrong one for a reader, who sees a wall of
+ * plumbing attributed to them. Recognised here and reduced to a one-line note.
+ */
+function approvalNote(text: string): string | null {
+  const approved = /^System: the owner approved pending action #(\d+)\./.exec(text);
+  if (approved) {
+    const tool = /\btool=(\S+)/.exec(text)?.[1] ?? "action";
+    const failed = /\boutcome=FAILED\b/.test(text);
+    return `Approved #${approved[1]} · ${tool} ${failed ? "failed" : "ran"}`;
+  }
+  const denied = /^System: the owner denied pending action #(\d+)\./.exec(text);
+  return denied ? `Denied #${denied[1]}` : null;
+}
 
 function textOf(content: ModelMessage["content"]): string {
   return content
@@ -55,11 +71,16 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
       if (block.type === "text") {
         const text = block.text.trim();
         if (text) {
-          events.push({
-            kind: "message",
-            role: message.role === "user" ? "you" : "kos",
-            text,
-          });
+          const note = message.role === "user" ? approvalNote(text) : null;
+          events.push(
+            note
+              ? { kind: "message", role: "system", text: note }
+              : {
+                  kind: "message",
+                  role: message.role === "user" ? "you" : "kos",
+                  text,
+                },
+          );
         }
         continue;
       }

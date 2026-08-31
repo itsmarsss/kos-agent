@@ -18,6 +18,8 @@ export interface PendingAction {
   tool: string;
   args: string;
   reason: string | null;
+  /** The conversation that asked, so a decision can be taken where it lives. */
+  conversationId: string | null;
   requestedAt: number;
 }
 
@@ -135,7 +137,7 @@ export interface ChatTurn {
 }
 
 export type ChatEvent =
-  | { kind: "message"; role: "you" | "kos"; text: string }
+  | { kind: "message"; role: "you" | "kos" | "system"; text: string }
   | {
       kind: "tool";
       name: string;

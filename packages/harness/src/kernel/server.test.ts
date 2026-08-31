@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { Inference } from "../agent/loop.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
-import { Kernel } from "./kernel.js";
+import { Kernel, orchestratorId } from "./kernel.js";
 import { handleApiRequest } from "./server.js";
 
 const stub: Inference = {
@@ -390,6 +390,40 @@ describe("handleApiRequest", () => {
       expect(res.status).toBe(400);
       expect((res.body as { error: string }).error).toContain("key required");
     });
+  });
+
+  it("gives the orchestrator its chats tools from the chat list too", async () => {
+    // It is reachable as an ordinary conversation, and it has to be the same
+    // agent there as under cmd-K. Two doors, one toolkit.
+    const seen: string[][] = [];
+    const capture: Inference = {
+      async generate(_task, req) {
+        seen.push((req.tools ?? []).map((t) => t.name));
+        return {
+          content: [{ type: "text", text: "ok" }],
+          stopReason: "end_turn",
+          usage: { inputTokens: 0, outputTokens: 0 },
+          model: "stub",
+        };
+      },
+    };
+    const dir = mkdtempSync(join(tmpdir(), "kos-orch-"));
+    const k = await Kernel.boot({
+      rootDir: dir,
+      secrets: new SecretsRegistry(),
+      inference: capture,
+    });
+    try {
+      await handleApiRequest(k, {
+        method: "POST",
+        path: "/api/message",
+        body: { text: "what is running", sessionId: orchestratorId(k.profile.ownerId) },
+      });
+      expect(seen.flat()).toContain("chats.list");
+    } finally {
+      k.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("returns the full page when no limit is given", async () => {

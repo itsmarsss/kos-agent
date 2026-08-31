@@ -240,6 +240,55 @@ describe("KOS end-to-end flows", () => {
     expect(kernel.approvals.pending()).toHaveLength(0);
   });
 
+  it("resumes an approval in the conversation that asked for it", async () => {
+    const model = scripted([
+      toolCall("c1", "shell", { command: "rm -rf build" }),
+      text("Queued that for you."),
+      text("Removed the build directory."),
+    ]);
+    kernel = await boot(model.inference);
+    const scoped = kernel.conversations.create({ userId: "owner", title: "Ops" });
+
+    await kernel.handleMessage("clear the build dir", { sessionId: scoped.id });
+    const pending = kernel.approvals.pending();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.conversationId).toBe(scoped.id);
+
+    await kernel.approve(pending[0]!.id);
+
+    // The agent that was waiting is the one that gets the result. Resuming in
+    // the primary conversation left it waiting and told the wrong reader.
+    const there = JSON.stringify(kernel.sessions.get(scoped.id));
+    expect(there).toContain("the owner approved pending action");
+    expect(there).toContain("Removed the build directory.");
+    const main = JSON.stringify(
+      kernel.sessions.get(primarySessionId(kernel.profile.ownerId)),
+    );
+    expect(main).not.toContain("the owner approved pending action");
+  });
+
+  it("moves a conversation when an approval resumes it, without renaming", async () => {
+    const model = scripted([
+      toolCall("c1", "files.rm", { path: "notes/x.md" }),
+      text("Queued."),
+      text("Deleted it."),
+    ]);
+    kernel = await boot(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "Ops" });
+    await kernel.handleMessage("delete notes/x.md", { sessionId: c.id });
+    // Something else moves to the front while the action sits in the queue.
+    const other = kernel.conversations.create({ userId: "owner", title: "Later" });
+    kernel.conversations.touch(other.id);
+    expect(kernel.conversations.list("owner")[0]?.id).toBe(other.id);
+
+    await kernel.approve(kernel.approvals.pending()[0]!.id);
+
+    // A reader watching the list has to see the thread move on, but the resume
+    // prompt is plumbing and must not become the title.
+    expect(kernel.conversations.list("owner")[0]?.id).toBe(c.id);
+    expect(kernel.conversations.get(c.id)!.title).toBe("Ops");
+  });
+
   it("remembers a stated fact and recalls it on a later turn", async () => {
     const model = scripted([text("Noted."), text("You are in America/New_York.")]);
     kernel = await boot(model.inference);
