@@ -18,6 +18,7 @@
     "kos": "node packages/cli/dist/main.js",
     "start": "node packages/cli/dist/main.js start",
     "stop": "node packages/cli/dist/main.js stop",
+    "restart": "node packages/cli/dist/main.js restart",
     "chat": "node packages/cli/dist/main.js chat",
     "serve": "node packages/cli/dist/main.js serve",
     "doctor": "node packages/cli/dist/main.js doctor",
