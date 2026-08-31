@@ -10,6 +10,7 @@ import { api, type ChatEvent, type Conversation } from "./api.js";
 import { AttachButton, useAttachments, useDropZone } from "./Attachments.js";
 import { AttachmentStrip } from "./AttachmentStrip.js";
 import { ModelPicker } from "./ModelPicker.js";
+import { HighlightedInput } from "./HighlightedInput.js";
 import {
   applySuggestion,
   AutocompleteMenu,
@@ -586,7 +587,9 @@ export function ChatsPage({
                   cursor={acCursor}
                   onPick={choose}
                 />
+                <HighlightedInput value={draft} textareaRef={inputRef}>
                 <textarea
+                  className="hl-area"
                   ref={inputRef}
                   rows={1}
                   value={draft}
@@ -636,6 +639,7 @@ export function ChatsPage({
                     composerKeyDown(e, () => void send());
                   }}
                 />
+                </HighlightedInput>
               </div>
               <div className="sheet-composer-bar">
                 <AttachButton onAdd={(l) => void attachments.add(l)} />

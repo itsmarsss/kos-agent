@@ -1,5 +1,7 @@
 import { Fragment, type ReactElement, type ReactNode } from "react";
 
+import { hrefFor } from "./routes.js";
+
 /**
  * A small markdown renderer for chat.
  *
@@ -20,6 +22,20 @@ import { Fragment, type ReactElement, type ReactNode } from "react";
 const MENTION = /@(project|page|file|schedule):([A-Za-z0-9._/-]*[A-Za-z0-9_/-])/;
 const COMMAND = /(^|\s)(\/(?:new|chats|switch|rename|archive|help))\b/;
 
+/** Where a reference goes when it is clicked. */
+function refHref(kind: string, id: string): string {
+  switch (kind) {
+    case "page":
+      return hrefFor({ name: "page", id });
+    case "file":
+      return hrefFor({ name: "files", path: id });
+    case "schedule":
+      return hrefFor({ name: "crons" });
+    default:
+      return hrefFor({ name: "projects" });
+  }
+}
+
 const BOLD_ITALIC = /(\*\*\*|___)(.+?)\1/;
 const BOLD = /(\*\*|__)(.+?)\1/;
 const ITALIC = /(?<![*\w])(\*|_)(?!\s)(.+?)(?<!\s)\1(?![*\w])/;
@@ -36,15 +52,20 @@ const INLINE: Array<{
   { re: CODE, render: (m, k) => <code key={k}>{m[1]}</code> },
   {
     re: MENTION,
-    render: (m, k) => (
-      <span
-        key={k}
-        className={`chip-ref chip-ref--${m[1]}`}
-        title={`${m[1]}: ${m[2]}`}
-      >
-        {m[2]}
-      </span>
-    ),
+    render: (m, k) => {
+      const kind = m[1] ?? "";
+      const id = m[2] ?? "";
+      return (
+        <a
+          key={k}
+          className={`chip-ref chip-ref--${kind}`}
+          href={refHref(kind, id)}
+          title={`${kind}: ${id}`}
+        >
+          {id}
+        </a>
+      );
+    },
   },
   {
     re: COMMAND,

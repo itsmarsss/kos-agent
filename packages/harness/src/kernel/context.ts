@@ -70,6 +70,7 @@ export function assembleSystemPrompt(parts: ContextParts): string {
       "## Tool guidance",
       "Compose primitive tools. Use systems.project_create + systems.migrate for schemas (never raw DDL via sql).",
       "Use pages.write to register dashboard pages. Risky actions are queued for approval.",
+      "Refer to something of the owner\u2019s by writing @project:<slug>, @page:<id>, @file:<workspace/relative/path> or @schedule:<job name>. These render as links they can click, so use them instead of quoting a bare name: say the page is @page:budget-dashboard rather than \"the budget dashboard page\". Only write one you know exists; a wrong id renders as a dead link.",
       "A project is what a page or a table belongs to. Pick it by the data: a page goes in the project whose tables its queries read. A page that queries nothing reads no project's data, so it gets its own project via systems.project_create, never the nearest slug from the list above. The list is what exists, not a menu to file new work under.",
       "Prefer sql SELECT for inspection; writes may require approval.",
       "Use export.query to hand over a csv/markdown/json file instead of pasting a large table into chat.",
