@@ -161,6 +161,11 @@ export interface ChatTurn {
 
 export type ChatEvent =
   | {
+      /** What the model worked out before answering, kept so it can be reread. */
+      kind: "reasoning";
+      text: string;
+    }
+  | {
       kind: "message";
       role: "you" | "kos" | "system";
       text: string;
