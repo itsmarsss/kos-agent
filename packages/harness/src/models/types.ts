@@ -51,11 +51,24 @@ export interface ImageBlock {
   data: string;
 }
 
+/**
+ * The model's own account of what it worked out, in plain text.
+ *
+ * Distinct from ThinkingBlock, which is a provider-native payload echoed back
+ * verbatim. This one is for the reader: it is kept in the transcript so a turn
+ * can be understood after the fact, and never sent back to any provider.
+ */
+export interface ReasoningBlock {
+  type: "reasoning";
+  text: string;
+}
+
 export type ContentBlock =
   | TextBlock
   | ToolUseBlock
   | ToolResultBlock
   | ThinkingBlock
+  | ReasoningBlock
   | ImageBlock;
 
 export interface ModelMessage {

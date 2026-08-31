@@ -19,7 +19,10 @@ const TASKS: Array<{ key: "reasoning" | "cheap"; label: string; hint: string }> 
 
 export function ModelSettings({ onClose }: { onClose: () => void }): ReactElement {
   const [saved, setSaved] = useState<Settings>({});
-  const [routes, setRoutes] = useState<Record<string, { model: string }> | null>(null);
+  const [routes, setRoutes] = useState<Record<
+    string,
+    { model: string; effort?: string; maxTokens?: number }
+  > | null>(null);
   const [efforts, setEfforts] = useState<string[]>([]);
   const [models, setModels] = useState<string[]>([]);
   const [status, setStatus] = useState<string | null>(null);
@@ -68,7 +71,8 @@ export function ModelSettings({ onClose }: { onClose: () => void }): ReactElemen
 
       {TASKS.map(({ key, label, hint }) => {
         const setting = saved[key] ?? {};
-        const active = routes?.[key]?.model;
+        const route = routes?.[key];
+        const active = route?.model;
         return (
           <section className="settings-group" key={key}>
             <div className="settings-group-head">
@@ -127,7 +131,15 @@ export function ModelSettings({ onClose }: { onClose: () => void }): ReactElemen
               </label>
             </div>
 
-            {active && <div className="hint">Currently answering with {active}.</div>}
+            {/* What is actually in force, so a saved setting can be read back
+                rather than only written. */}
+            {route && (
+              <div className="settings-now">
+                now: <code>{route.model}</code>
+                {route.effort ? ` · ${route.effort} thinking` : ""}
+                {route.maxTokens ? ` · ${route.maxTokens} tokens` : ""}
+              </div>
+            )}
           </section>
         );
       })}

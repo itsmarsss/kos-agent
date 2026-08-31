@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactElement } from "react";
+import React, { useRef, useState, type ReactElement } from "react";
 
 import type { Attachment } from "./api.js";
 
@@ -49,48 +49,17 @@ export function useAttachments(): {
 
 export function AttachmentBar({
   files,
-  onAdd,
   onRemove,
 }: {
   files: Attachment[];
-  onAdd: (list: FileList | null) => void;
   onRemove: (index: number) => void;
-}): ReactElement {
-  const input = useRef<HTMLInputElement>(null);
-  const [over, setOver] = useState(false);
-
+}): ReactElement | null {
+  // Chips only, and only when there is something to show. The button lives in
+  // the composer row: a permanent "or drop files here" strip above every
+  // message box is a file uploader wearing a chat's clothes.
+  if (files.length === 0) return null;
   return (
-    <div
-      className={`attach ${over ? "is-over" : ""}`}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setOver(true);
-      }}
-      onDragLeave={() => setOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setOver(false);
-        onAdd(e.dataTransfer.files);
-      }}
-    >
-      <button
-        type="button"
-        className="btn btn--ghost attach-add"
-        onClick={() => input.current?.click()}
-      >
-        Attach
-      </button>
-      <input
-        ref={input}
-        type="file"
-        multiple
-        hidden
-        onChange={(e) => {
-          onAdd(e.target.files);
-          // Cleared so picking the same file twice still fires a change.
-          e.target.value = "";
-        }}
-      />
+    <div className="attach-chips">
       {files.map((f, i) => (
         <span className="attach-chip" key={`${f.name}-${i}`}>
           {f.mediaType.startsWith("image/") && (
@@ -111,7 +80,74 @@ export function AttachmentBar({
           </button>
         </span>
       ))}
-      {files.length === 0 && <span className="hint">or drop files here</span>}
     </div>
   );
+}
+
+/** The paperclip that sits inside the composer, beside the send button. */
+export function AttachButton({
+  onAdd,
+}: {
+  onAdd: (list: FileList | null) => void;
+}): ReactElement {
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <button
+        type="button"
+        className="composer-icon"
+        title="Attach files"
+        aria-label="Attach files"
+        onClick={() => input.current?.click()}
+      >
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.2-9.19a4 4 0 0 1 5.65 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+      <input
+        ref={input}
+        type="file"
+        multiple
+        hidden
+        onChange={(e) => {
+          onAdd(e.target.files);
+          // Cleared so picking the same file twice still fires a change.
+          e.target.value = "";
+        }}
+      />
+    </>
+  );
+}
+
+/** Drop anywhere on the composer, which is where a file is aimed. */
+export function useDropZone(onAdd: (list: FileList | null) => void): {
+  over: boolean;
+  handlers: {
+    onDragOver: (e: React.DragEvent) => void;
+    onDragLeave: () => void;
+    onDrop: (e: React.DragEvent) => void;
+  };
+} {
+  const [over, setOver] = useState(false);
+  return {
+    over,
+    handlers: {
+      onDragOver: (e) => {
+        e.preventDefault();
+        setOver(true);
+      },
+      onDragLeave: () => setOver(false),
+      onDrop: (e) => {
+        e.preventDefault();
+        setOver(false);
+        onAdd(e.dataTransfer.files);
+      },
+    },
+  };
 }

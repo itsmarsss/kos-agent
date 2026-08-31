@@ -12,6 +12,14 @@ import type { GenerateRequest, ModelResponse } from "./types.js";
  */
 export type Task = "reasoning" | "cheap";
 
+/** A route as shown to a reader: what answers, how hard, and how much. */
+export interface RouteSummary {
+  provider: string;
+  model: string;
+  effort?: string;
+  maxTokens?: number;
+}
+
 export interface Route {
   provider: string;
   spec: ModelSpec;
@@ -98,11 +106,18 @@ export class ModelRouter {
    * by status so that is visible rather than something you find out by
    * reading the router.
    */
-  describeRoutes(): Record<Task, { provider: string; model: string }> {
-    const out = {} as Record<Task, { provider: string; model: string }>;
+  describeRoutes(): Record<Task, RouteSummary> {
+    const out = {} as Record<Task, RouteSummary>;
     for (const task of Object.keys(this.routing) as Task[]) {
       const route = this.routing[task];
-      out[task] = { provider: route.provider, model: route.spec.model };
+      out[task] = {
+        provider: route.provider,
+        model: route.spec.model,
+        // Effort and the token cap are what the owner set in the dashboard, so
+        // it has to be able to read back what is actually in force.
+        ...(route.spec.effort ? { effort: route.spec.effort } : {}),
+        ...(route.spec.maxTokens ? { maxTokens: route.spec.maxTokens } : {}),
+      };
     }
     return out;
   }

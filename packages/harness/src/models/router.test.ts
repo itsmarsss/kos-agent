@@ -118,9 +118,10 @@ describe("describeRoutes", () => {
     const secrets = new SecretsRegistry();
     secrets.set("openai", "sk-test");
     const router = createDefaultRouter(secrets);
+    // The effort is part of the route, and the dashboard shows it back.
     expect(router.describeRoutes()).toEqual({
-      reasoning: { provider: "openai", model: "gpt-5.6-terra" },
-      cheap: { provider: "openai", model: "gpt-5.4-mini" },
+      reasoning: { provider: "openai", model: "gpt-5.6-terra", effort: "high" },
+      cheap: { provider: "openai", model: "gpt-5.4-mini", effort: "low" },
     });
   });
 
@@ -130,6 +131,7 @@ describe("describeRoutes", () => {
     expect(createDefaultRouter(secrets).describeRoutes().reasoning).toEqual({
       provider: "anthropic",
       model: "claude-opus-4-8",
+      effort: "high",
     });
   });
 });
