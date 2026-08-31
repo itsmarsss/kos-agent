@@ -7,6 +7,8 @@ import type { ChatEvent } from "./api.js";
 import { Markdown } from "./Markdown.js";
 import { ToolCall } from "./ToolCall.js";
 import { AttachmentBar, useAttachments } from "./Attachments.js";
+import { LiveTurn } from "./LiveTurn.js";
+import type { Live } from "./progress.js";
 
 /**
  * Chat as a slide-over rather than a permanent panel. KOS is mostly reached
@@ -32,8 +34,8 @@ export interface ChatPanelProps {
   onDecide: (pendingId: string, approved: boolean) => void;
   /** Attachment state, owned by the caller so send() can clear it. */
   attachments?: ReturnType<typeof useAttachments>;
-  /** The step the orchestrator is on, when it is running. */
-  step?: string | undefined;
+  /** The orchestrator's turn while it runs, when it is running. */
+  live?: Live | undefined;
 }
 
 export function ChatPanel({
@@ -48,7 +50,7 @@ export function ChatPanel({
   pendingApprovals,
   onDecide,
   attachments,
-  step,
+  live,
 }: ChatPanelProps): ReactElement | null {
   const boxRef = useRef<HTMLDivElement>(null);
   // A routing question fits in a sheet; reading what a dispatched agent did,
@@ -148,10 +150,10 @@ export function ChatPanel({
                   </div>
                 ),
               )}
-              {(sending || step) && (
-                <div className="bubble bubble--kos is-thinking">
-                  {step ?? "thinking"}…
-                </div>
+              {live ? (
+                <LiveTurn live={live} />
+              ) : (
+                sending && <div className="bubble bubble--kos is-thinking">sending…</div>
               )}
             </div>
 

@@ -30,6 +30,14 @@ export interface AgentOptions {
   task?: Task;
   /** Hard cap on model round-trips, preventing runaway tool loops. */
   maxIterations?: number;
+  /**
+   * Run every call the model emitted in one go. Off by default: a batch is a
+   * plan fired before any of it comes back, so a wrong first assumption is
+   * carried through all of it.
+   */
+  parallelToolCalls?: boolean;
+  /** Forwarded to the provider, so a reader can watch the turn as it runs. */
+  onDelta?: GenerateRequest["onDelta"];
 }
 
 export interface AgentResult {
@@ -76,6 +84,7 @@ export async function runAgent(
       system: options.system,
       messages,
       ...(tools.length ? { tools } : {}),
+      ...(options.onDelta ? { onDelta: options.onDelta } : {}),
     });
     stopReason = response.stopReason;
     messages.push({ role: "assistant", content: response.content });
@@ -91,14 +100,33 @@ export async function runAgent(
       };
     }
 
+    // One call, then look at what came back.
+    //
+    // Asking the provider for this is only a strong hint: with it set, batches
+    // of six became mostly one, but twos still came through. Enforced here it
+    // is a guarantee. The calls that do not run still get a result, because
+    // both providers require one for every call they made, and that result
+    // tells the model to ask again if it still wants them.
+    const running = options.parallelToolCalls ? toolUses : toolUses.slice(0, 1);
+    const deferred = options.parallelToolCalls ? [] : toolUses.slice(1);
+
     const results: ContentBlock[] = [];
-    for (const call of toolUses) {
+    for (const call of running) {
       const { content, isError } = await tools_.execute(call.name, call.input);
       results.push({
         type: "tool_result",
         toolUseId: call.id,
         content,
         isError,
+      });
+    }
+    for (const call of deferred) {
+      results.push({
+        type: "tool_result",
+        toolUseId: call.id,
+        content:
+          "not run: this conversation takes one tool call at a time, so you can read each result before choosing the next. Call it again if you still need it.",
+        isError: false,
       });
     }
     messages.push({ role: "user", content: results });

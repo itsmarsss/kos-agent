@@ -612,6 +612,16 @@ export class Kernel {
 
         const result = await runAgent(this.inference, tools, input, {
           system,
+          // Watched turns stream. A reader was shown one static word for the
+          // whole of a turn, and with a reasoning model most of that time is
+          // the model working rather than any tool running.
+          onDelta: (delta) =>
+            this.progress.emit({
+              kind: "delta",
+              conversationId: sessionId,
+              of: delta.kind,
+              text: delta.text,
+            }),
         });
 
         if (useSession) {

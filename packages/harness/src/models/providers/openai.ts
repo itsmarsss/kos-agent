@@ -155,7 +155,14 @@ export function buildResponsesParams(
     params.parallel_tool_calls = spec.parallelToolCalls === true;
   }
   // Only when asked for: a non-reasoning model rejects the field outright.
-  if (spec.effort) params.reasoning = { effort: toReasoningEffort(spec.effort) };
+  if (spec.effort) {
+    params.reasoning = {
+      effort: toReasoningEffort(spec.effort),
+      // Asked for so a reader can be shown what the model is working out.
+      // Models that produce none simply send no summary events.
+      summary: "detailed",
+    };
+  }
   return params;
 }
 
@@ -230,9 +237,33 @@ export class OpenAIProvider implements Provider {
     apiKey: string,
   ): Promise<ModelResponse> {
     const client = new OpenAI({ apiKey });
-    const response = await client.responses.create(
-      buildResponsesParams(req, spec),
-    );
-    return fromResponsesResponse(response);
+    const params = buildResponsesParams(req, spec);
+    if (!req.onDelta) {
+      return fromResponsesResponse(await client.responses.create(params));
+    }
+
+    // Streamed only when someone is watching. The completed event carries the
+    // whole response, so the reply is still assembled by the provider rather
+    // than stitched together from deltas here.
+    const stream = await client.responses.create({ ...params, stream: true });
+    let final: OpenAI.Responses.Response | undefined;
+    for await (const event of stream) {
+      switch (event.type) {
+        case "response.reasoning_summary_text.delta":
+          req.onDelta({ kind: "reasoning", text: event.delta });
+          break;
+        case "response.output_text.delta":
+          req.onDelta({ kind: "text", text: event.delta });
+          break;
+        case "response.completed":
+        case "response.incomplete":
+          final = event.response;
+          break;
+        default:
+          break;
+      }
+    }
+    if (!final) throw new Error("stream ended without a completed response");
+    return fromResponsesResponse(final);
   }
 }
