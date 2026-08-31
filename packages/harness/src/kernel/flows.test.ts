@@ -669,6 +669,20 @@ describe("KOS end-to-end flows", () => {
     expect(system).toContain("files, memory");
   });
 
+  it("does not tell the orchestrator to stop at what it cannot reach", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    await kernel.handleOrchestratorTurn("build me a snake game page");
+
+    // It is scoped too, but it has somewhere to send the work and a brief
+    // saying so. Given the note meant for an ordinary conversation it
+    // answered "I have no page tools here" and stopped, which is the one
+    // thing it must never do.
+    const system = model.systems.at(-1)!;
+    expect(system).not.toContain("limited to these tools");
+    expect(system).toContain("You are the owner's router");
+  });
+
   it("says nothing about scope in an unrestricted conversation", async () => {
     const model = scripted([text("ok")]);
     kernel = await boot(model.inference);
