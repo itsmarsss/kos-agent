@@ -63,6 +63,19 @@ export interface ModelMessage {
   content: ContentBlock[];
 }
 
+/**
+ * A piece of the answer as it is produced.
+ *
+ * "reasoning" is the model's own summary of what it is working out, where the
+ * provider offers one; "text" is the reply itself. Both exist so a reader
+ * watching a turn sees it happening rather than a static word for the whole
+ * of it.
+ */
+export interface GenerateDelta {
+  kind: "reasoning" | "text";
+  text: string;
+}
+
 export interface ToolDef {
   name: string;
   description: string;
@@ -82,6 +95,11 @@ export interface GenerateRequest {
   messages: ModelMessage[];
   tools?: ToolDef[];
   maxTokens?: number;
+  /**
+   * Called as the answer is produced. Providers that cannot stream ignore it
+   * and return the whole reply at the end, so a caller may always pass one.
+   */
+  onDelta?: (delta: GenerateDelta) => void;
 }
 
 export interface ModelResponse {

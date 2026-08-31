@@ -9,6 +9,7 @@ import {
 import { api, type ChatEvent, type Conversation } from "./api.js";
 import { AttachmentBar, useAttachments } from "./Attachments.js";
 import { useProgress } from "./progress.js";
+import { LiveTurn } from "./LiveTurn.js";
 import { ToolCall } from "./ToolCall.js";
 import { ChatConfig } from "./ChatConfig.js";
 import { Markdown } from "./Markdown.js";
@@ -174,7 +175,7 @@ export function ChatsPage({
                       was to open it. */}
                   {progress[c.id] ? (
                     <span className="chats-flag chats-flag--working">
-                      {progress[c.id]}
+                      {progress[c.id]?.step ?? "thinking"}
                     </span>
                   ) : c.activity && c.activity !== "idle" ? (
                     <span className={`chats-flag chats-flag--${c.activity}`}>
@@ -296,10 +297,10 @@ export function ChatsPage({
                   </div>
                 ),
               )}
-              {(sending || (activeId && progress[activeId])) && (
-                <div className="bubble bubble--kos is-thinking">
-                  {(activeId && progress[activeId]) ?? "thinking"}…
-                </div>
+              {activeId && progress[activeId] ? (
+                <LiveTurn live={progress[activeId]!} />
+              ) : (
+                sending && <div className="bubble bubble--kos is-thinking">sending…</div>
               )}
             </div>
 

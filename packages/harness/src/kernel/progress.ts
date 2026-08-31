@@ -24,6 +24,13 @@ export type ProgressEvent =
       tool: string;
       isError: boolean;
     }
+  | {
+      /** A piece of the answer, or of the model's own account of its thinking. */
+      kind: "delta";
+      conversationId: string;
+      of: "reasoning" | "text";
+      text: string;
+    }
   | { kind: "turn-end"; conversationId: string };
 
 export type ProgressListener = (event: ProgressEvent) => void;
