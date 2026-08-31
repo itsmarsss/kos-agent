@@ -2176,3 +2176,19 @@ textarea {
 .modal-body .chatcfg { border-bottom: 0; background: transparent; }
 
 .chatcfg-presets { display: flex; gap: 0.3rem; margin-top: 0.2rem; }
+
+/* A queued call is not a failure and not a success; it is waiting on you. */
+.toolcall.is-queued { border-color: rgba(230, 184, 77, 0.45); }
+.toolcall.is-queued .toolcall-state { color: var(--warn); }
+
+.toolcall-approve {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.6rem;
+  border-top: 1px solid var(--line);
+  background: var(--warn-dim);
+  font-size: 0.875rem;
+}
+.toolcall-approve > span { flex: 1; min-width: 12rem; }
