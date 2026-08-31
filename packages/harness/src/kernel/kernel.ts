@@ -608,6 +608,9 @@ export class Kernel {
         riskTier: "risky",
         userId: decidedBy ?? this.profile.ownerId,
       });
+      // cron.schedule is risky, so this is the path a scheduled job normally
+      // takes: approved here, never through the guarded executor.
+      if (!r.isError) this.afterToolRan(action.tool);
       return r;
     });
 
@@ -911,7 +914,21 @@ export class Kernel {
       ...(this.onApprovalRequested
         ? { onQueued: this.onApprovalRequested }
         : {}),
+      onExecuted: (tool) => this.afterToolRan(tool),
     });
+  }
+
+  /**
+   * State a tool changed that lives outside the database.
+   *
+   * The scheduler holds node-cron tasks in memory, built from the crons table
+   * when the host started. A job the agent scheduled after that was stored,
+   * enabled, and never once fired, because nothing told the scheduler it
+   * existed. The dashboard's own enable and delete already reloaded; the
+   * agent's path did not.
+   */
+  private afterToolRan(tool: string): void {
+    if (tool.startsWith("cron.")) this.reloadCron();
   }
 
   startCron(): void {
@@ -956,6 +973,11 @@ export class Kernel {
 
   reloadCron(): void {
     this.scheduler?.reload();
+  }
+
+  /** Jobs the running scheduler actually holds, as opposed to rows in the table. */
+  scheduledCronCount(): number {
+    return this.scheduler?.scheduledCount() ?? 0;
   }
 
   stopCron(): void {
