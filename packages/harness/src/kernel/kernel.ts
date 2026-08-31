@@ -54,6 +54,7 @@ import { cronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
 import { notifyModule } from "../tools/notify.js";
 import { sqlModule } from "../tools/sql.js";
+import { sitesModule } from "../tools/sites.js";
 import { systemsModule } from "../tools/systems.js";
 import { tasksModule } from "../tools/tasks.js";
 import {
@@ -363,6 +364,7 @@ export class Kernel {
       createHttpModule({ allowedHosts: options.allowedHosts ?? [] }),
       createSearchModule(),
       systemsModule,
+      sitesModule,
       tasksModule,
       exportModule,
       createSkillsModule(promoter),

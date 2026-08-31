@@ -9,6 +9,7 @@ export type Route =
   | { name: "runs" }
   | { name: "chats"; id?: string }
   | { name: "files"; path?: string }
+  | { name: "sites" }
   | { name: "page"; id: string };
 
 export function parseRoute(hash: string): Route {
@@ -18,6 +19,7 @@ export function parseRoute(hash: string): Route {
   if (path === "/projects") return { name: "projects" };
   if (path === "/chats") return { name: "chats" };
   if (path === "/files") return { name: "files" };
+  if (path === "/sites") return { name: "sites" };
   const file = path.match(/^\/files\/(.+)$/);
   if (file?.[1]) return { name: "files", path: decodeURIComponent(file[1]) };
   const chat = path.match(/^\/chats\/([^/]+)$/);
@@ -57,6 +59,7 @@ export const NAV: Array<{ route: Route; label: string }> = [
   { route: { name: "home" }, label: "Home" },
   { route: { name: "chats" }, label: "Chats" },
   { route: { name: "files" }, label: "Files" },
+  { route: { name: "sites" }, label: "Sites" },
   { route: { name: "projects" }, label: "Projects" },
   { route: { name: "crons" }, label: "Schedule" },
   { route: { name: "memory" }, label: "Knowledge" },
