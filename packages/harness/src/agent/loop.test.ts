@@ -138,3 +138,71 @@ describe("runAgent", () => {
     expect(toolResult).toMatchObject({ type: "tool_result", isError: true });
   });
 });
+
+describe("one tool call at a time", () => {
+  function batching(names: string[]): Inference {
+    let sent = false;
+    return {
+      async generate() {
+        if (sent) {
+          return {
+            content: [{ type: "text", text: "done" }],
+            stopReason: "end_turn",
+            usage: { inputTokens: 0, outputTokens: 0 },
+            model: "stub",
+          };
+        }
+        sent = true;
+        return {
+          content: names.map((n, i) => ({
+            type: "tool_use" as const,
+            id: `c${i}`,
+            name: n,
+            input: {},
+          })),
+          stopReason: "tool_use",
+          usage: { inputTokens: 0, outputTokens: 0 },
+          model: "stub",
+        };
+      },
+    };
+  }
+
+  function box(ran: string[]) {
+    return {
+      defs: () => [{ name: "a", description: "", inputSchema: { type: "object" } }],
+      execute: async (name: string) => {
+        ran.push(name);
+        return { content: "ok", isError: false };
+      },
+    };
+  }
+
+  it("runs only the first of a batch", async () => {
+    // Asking the provider not to batch is a hint, not a guarantee: with it set,
+    // batches of six became mostly one, but twos still came through.
+    const ran: string[] = [];
+    await runAgent(batching(["a", "b", "c"]), box(ran), "go");
+    expect(ran).toEqual(["a"]);
+  });
+
+  it("still answers the calls it did not run", async () => {
+    // Both providers require a result for every call they made; without one
+    // the next request is rejected outright.
+    const ran: string[] = [];
+    const result = await runAgent(batching(["a", "b", "c"]), box(ran), "go");
+    const results = result.messages
+      .flatMap((m) => m.content)
+      .filter((b) => b.type === "tool_result");
+    expect(results).toHaveLength(3);
+    expect(JSON.stringify(results)).toContain("one tool call at a time");
+  });
+
+  it("runs the whole batch when asked to", async () => {
+    const ran: string[] = [];
+    await runAgent(batching(["a", "b", "c"]), box(ran), "go", {
+      parallelToolCalls: true,
+    });
+    expect(ran).toEqual(["a", "b", "c"]);
+  });
+});

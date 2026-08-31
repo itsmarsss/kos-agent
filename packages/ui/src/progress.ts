@@ -13,10 +13,22 @@ export type ProgressEvent =
   | { kind: "turn-start"; conversationId: string }
   | { kind: "tool-start"; conversationId: string; tool: string; summary: string }
   | { kind: "tool-end"; conversationId: string; tool: string; isError: boolean }
+  | { kind: "delta"; conversationId: string; of: "reasoning" | "text"; text: string }
   | { kind: "turn-end"; conversationId: string };
 
-/** Conversation id to the step it is on, or undefined when it is not running. */
-export type ProgressMap = Record<string, string | undefined>;
+/** What a conversation is doing, while it does it. */
+export interface Live {
+  /** The tool running now, or undefined while the model is working. */
+  step?: string;
+  /** The model's own account of what it is working out, as it arrives. */
+  reasoning: string;
+  /** The reply, as it arrives. */
+  text: string;
+  /** When the turn started, so a wait can show its length. */
+  since: number;
+}
+
+export type ProgressMap = Record<string, Live | undefined>;
 
 export function useProgress(): ProgressMap {
   const [steps, setSteps] = useState<ProgressMap>({});
@@ -33,19 +45,27 @@ export function useProgress(): ProgressMap {
       }
       setSteps((current) => {
         const next = { ...current };
+        const id = event.conversationId;
+        const live: Live = next[id] ?? { reasoning: "", text: "", since: Date.now() };
         switch (event.kind) {
           case "turn-start":
-            next[event.conversationId] = "thinking";
+            next[id] = { reasoning: "", text: "", since: Date.now() };
             break;
           case "tool-start":
-            next[event.conversationId] = event.summary || event.tool;
+            next[id] = { ...live, step: event.summary || event.tool };
             break;
           case "tool-end":
-            // Back to thinking: the model is deciding what to do with it.
-            next[event.conversationId] = "thinking";
+            // The reasoning that led here is spent; what comes next is new.
+            next[id] = { ...live, step: undefined, reasoning: "" };
+            break;
+          case "delta":
+            next[id] =
+              event.of === "reasoning"
+                ? { ...live, reasoning: live.reasoning + event.text }
+                : { ...live, text: live.text + event.text };
             break;
           case "turn-end":
-            delete next[event.conversationId];
+            delete next[id];
             break;
         }
         return next;

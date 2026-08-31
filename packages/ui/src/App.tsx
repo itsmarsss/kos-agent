@@ -518,7 +518,7 @@ export function App(): React.ReactElement {
           pendingApprovals={pendingIds}
           onDecide={decideByPendingId}
           attachments={attachments}
-          step={activeChat ? progress[activeChat] : undefined}
+          live={activeChat ? progress[activeChat] : undefined}
         />
       </main>
     </ErrorBoundary>
@@ -885,10 +885,10 @@ export function App(): React.ReactElement {
           {activity.slice(0, 6).map((t) => (
             <li key={t.id} className="feed-item">
               <button type="button" onClick={() => setInspect({ kind: "tool", data: t })}>
+                {/* The tool name was the loudest thing on the home page and
+                    the least useful: summarizeAction already says what
+                    happened in words. It stays in the inspector. */}
                 <span className="feed-what">{summarizeAction(t.tool, t.args)}</span>
-                <span className="feed-detail">
-                  <code>{t.tool}</code>
-                </span>
                 <span className="feed-when">{timeAgo(t.createdAt)}</span>
               </button>
             </li>
