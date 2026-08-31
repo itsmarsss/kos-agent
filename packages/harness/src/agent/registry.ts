@@ -18,6 +18,12 @@ export interface ToolMeta {
    * is not flooded with every tool every turn.
    */
   tags?: string[];
+  /**
+   * Withheld unless a caller explicitly grants it. Scope tags are advisory
+   * (they only decide what is *surfaced*); this is a lock. Use it for tools
+   * that must not be reachable from an ordinary conversation at all.
+   */
+  restricted?: boolean;
 }
 
 export interface RegisteredTool {
@@ -25,6 +31,7 @@ export interface RegisteredTool {
   handler: ToolHandler;
   risk: ToolRisk;
   tags: string[];
+  restricted: boolean;
 }
 
 export interface ToolExecution {
@@ -56,7 +63,13 @@ export class ToolRegistry {
     if (this.tools.has(def.name)) {
       throw new Error(`tool already registered: ${def.name}`);
     }
-    this.tools.set(def.name, { def, handler, risk, tags: meta.tags ?? [] });
+    this.tools.set(def.name, {
+      def,
+      handler,
+      risk,
+      tags: meta.tags ?? [],
+      restricted: meta.restricted === true,
+    });
   }
 
   /**
@@ -82,9 +95,21 @@ export class ToolRegistry {
     return this.tools.size;
   }
 
-  /** All tool definitions, for passing to the model. */
+  /** All unrestricted tool definitions, for passing to the model. */
   defs(): ToolDef[] {
-    return [...this.tools.values()].map((t) => t.def);
+    return [...this.tools.values()].filter((t) => !t.restricted).map((t) => t.def);
+  }
+
+  /** Definitions for named restricted tools, granted explicitly by a caller. */
+  restrictedDefs(names: string[]): ToolDef[] {
+    const wanted = new Set(names);
+    return [...this.tools.values()]
+      .filter((t) => t.restricted && wanted.has(t.def.name))
+      .map((t) => t.def);
+  }
+
+  isRestricted(name: string): boolean {
+    return this.tools.get(name)?.restricted === true;
   }
 
   /**
@@ -95,7 +120,9 @@ export class ToolRegistry {
   scopedDefs(opts: ScopeOptions = {}): ToolDef[] {
     const active = new Set(opts.tags ?? []);
     const selected = [...this.tools.values()].filter(
-      (t) => t.tags.length === 0 || t.tags.some((tag) => active.has(tag)),
+      (t) =>
+        !t.restricted &&
+        (t.tags.length === 0 || t.tags.some((tag) => active.has(tag))),
     );
     const defs = selected.map((t) => t.def);
     return opts.limit !== undefined ? defs.slice(0, opts.limit) : defs;
