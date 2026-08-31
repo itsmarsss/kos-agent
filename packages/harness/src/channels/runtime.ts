@@ -13,6 +13,8 @@ export interface TurnContext {
   channel: string;
   senderId: string;
   text: string;
+  /** Native thread id, when the surface has threads. */
+  conversationKey?: string;
 }
 
 /** Handles one user turn and returns the reply text. */
@@ -164,6 +166,7 @@ export class ChannelRuntime {
         channel: msg.channel,
         senderId: msg.senderId,
         text: msg.text,
+        ...(msg.conversationKey ? { conversationKey: msg.conversationKey } : {}),
       });
       if (presence) {
         await presence.complete(reply || "(no reply)");

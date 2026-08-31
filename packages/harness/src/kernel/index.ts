@@ -31,3 +31,17 @@ export {
   inferScopeTags,
   type ContextParts,
 } from "./context.js";
+export {
+  ConversationStore,
+  titleFromText,
+  type Conversation,
+  type CreateConversationInput,
+} from "./conversations.js";
+export {
+  parseChatCommand,
+  resolveConversation,
+  runChatCommand,
+  type ChatCommand,
+  type CommandContext,
+  type CommandResult,
+} from "./chatcommands.js";

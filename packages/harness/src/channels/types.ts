@@ -12,6 +12,13 @@ export interface InboundMessage {
   senderId: string;
   text: string;
   /**
+   * Native thread identifier, when the surface has threads. Each key maps to
+   * its own conversation, so a threaded surface needs no switch command. Leave
+   * unset on a single-stream surface like a DM, where the user switches with
+   * `/switch` instead.
+   */
+  conversationKey?: string;
+  /**
    * Adapter-private handle (e.g. Discord Message) for reactions/edits.
    * Runtime must not inspect this; only the adapter's acknowledge() may.
    */
