@@ -7,6 +7,7 @@ import {
 } from "react";
 
 import { api, type ChatEvent, type Conversation } from "./api.js";
+import { AttachmentBar, useAttachments } from "./Attachments.js";
 import { ToolCall } from "./ToolCall.js";
 import { ChatConfig } from "./ChatConfig.js";
 import { Markdown } from "./Markdown.js";
@@ -53,6 +54,7 @@ export function ChatsPage({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const attachments = useAttachments();
   const loaded = useRef<string | undefined>(undefined);
   const boxRef = useRef<HTMLDivElement>(null);
 
@@ -100,12 +102,13 @@ export function ChatsPage({
 
   async function send(): Promise<void> {
     const text = draft.trim();
-    if (!text || sending || !activeId) return;
+    if ((!text && attachments.files.length === 0) || sending || !activeId) return;
     setSending(true);
     setEvents((e) => [...e, { kind: "message", role: "you", text }]);
     setDraft("");
     try {
-      await api.message(text, activeId);
+      await api.message(text, activeId, attachments.files);
+      attachments.clear();
       // Reload rather than appending the reply: the turn may have made tool
       // calls, and those belong in the transcript too.
       const { events: got } = await api.conversation(activeId);
@@ -280,7 +283,10 @@ export function ChatsPage({
                   />
                 ) : (
                   <div key={i} className={`bubble bubble--${e.role}`}>
-                    <Markdown text={e.text} />
+                    {e.images?.map((src, n) => (
+                      <img className="bubble-image" key={n} src={src} alt="" />
+                    ))}
+                    {e.text && <Markdown text={e.text} />}
                   </div>
                 ),
               )}
@@ -288,6 +294,11 @@ export function ChatsPage({
             </div>
 
             <div className="chats-composer">
+              <AttachmentBar
+                files={attachments.files}
+                onAdd={(l) => void attachments.add(l)}
+                onRemove={attachments.remove}
+              />
               <textarea
                 rows={3}
                 value={draft}

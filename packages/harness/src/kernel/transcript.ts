@@ -13,7 +13,13 @@ import { parseQueuedApproval } from "./guarded.js";
  */
 
 export type ChatEvent =
-  | { kind: "message"; role: "you" | "kos" | "system"; text: string }
+  | {
+      kind: "message";
+      role: "you" | "kos" | "system";
+      text: string;
+      /** Images attached to this turn, as data URIs ready to render. */
+      images?: string[];
+    }
   | {
       kind: "tool";
       /** Tool name, e.g. "sql". */
@@ -68,6 +74,19 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
 
   for (const message of messages) {
     for (const block of message.content) {
+      if (block.type === "image") {
+        // Attached to the turn it belongs to: a transcript that drops the
+        // picture leaves a question about something no longer on screen.
+        const uri = `data:${block.mediaType};base64,${block.data}`;
+        const last = events.at(-1);
+        if (last?.kind === "message" && last.role === "you") {
+          last.images = [...(last.images ?? []), uri];
+        } else {
+          events.push({ kind: "message", role: "you", text: "", images: [uri] });
+        }
+        continue;
+      }
+
       if (block.type === "text") {
         const text = block.text.trim();
         if (text) {

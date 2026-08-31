@@ -36,11 +36,27 @@ export interface ThinkingBlock {
   raw: unknown;
 }
 
+/**
+ * An image the owner attached, carried as a data URI rather than a link.
+ *
+ * The workspace is not reachable from a provider, and a path in a transcript
+ * is only meaningful to the process that wrote it. Bytes travel with the
+ * message, so a turn replayed later still has the picture it was about.
+ */
+export interface ImageBlock {
+  type: "image";
+  /** Image media type, e.g. "image/png". */
+  mediaType: string;
+  /** Base64 payload, without the data: prefix. */
+  data: string;
+}
+
 export type ContentBlock =
   | TextBlock
   | ToolUseBlock
   | ToolResultBlock
-  | ThinkingBlock;
+  | ThinkingBlock
+  | ImageBlock;
 
 export interface ModelMessage {
   role: Role;

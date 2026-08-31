@@ -10,6 +10,7 @@ import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
 import { orchestratorId } from "./kernel.js";
+import { parseAttachments } from "./attachments.js";
 import {
   EFFORTS,
   MODEL_SETTINGS_KEY,
@@ -344,16 +345,45 @@ export async function handleApiRequest(
     // and it has to be the same agent there as it is under cmd-K. Routing on
     // the id keeps one definition of what it can do instead of two doors with
     // different toolkits behind them.
-    if (sessionId === orchestratorId(kernel.profile.ownerId)) {
-      return ok(await kernel.handleOrchestratorTurn(text, { channel: "dashboard" }));
+    const attachments = parseAttachments(body.attachments);
+    try {
+      if (sessionId === orchestratorId(kernel.profile.ownerId)) {
+        return ok(
+          await kernel.handleOrchestratorTurn(text, {
+            channel: "dashboard",
+            attachments,
+          }),
+        );
+      }
+      return ok(
+        await kernel.handleMessage(text, { sessionId, userId, attachments }),
+      );
+    } catch (err) {
+      // An attachment we cannot send is the caller's problem to fix, not a
+      // server fault, and they need to be told which file and why.
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
     }
-    return ok(await kernel.handleMessage(text, { sessionId, userId }));
   }
 
   if (method === "POST" && path === "/api/orchestrator") {
     const text = typeof body.text === "string" ? body.text : "";
     if (text === "") return { status: 400, body: { error: "text required" } };
-    return ok(await kernel.handleOrchestratorTurn(text, { channel: "dashboard" }));
+    try {
+      return ok(
+        await kernel.handleOrchestratorTurn(text, {
+          channel: "dashboard",
+          attachments: parseAttachments(body.attachments),
+        }),
+      );
+    } catch (err) {
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
   }
 
   if (method === "GET" && path === "/api/files") {

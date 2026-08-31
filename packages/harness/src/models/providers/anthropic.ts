@@ -37,6 +37,16 @@ function toAnthropicContent(blocks: ContentBlock[]): AnthropicBlockParam[] {
           ...(block.isError ? { is_error: true } : {}),
         });
         break;
+      case "image":
+        out.push({
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: block.mediaType as "image/png",
+            data: block.data,
+          },
+        });
+        break;
       case "thinking":
         // Echo the provider-native thinking block back exactly as received.
         out.push(block.raw as AnthropicBlockParam);
