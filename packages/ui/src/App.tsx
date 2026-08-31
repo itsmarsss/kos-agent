@@ -412,6 +412,18 @@ export function App(): React.ReactElement {
               <span className="health-dot" />
               {status?.halted ? "Halted" : "Running"}
             </span>
+            {/* Which model is answering. The routing table is picked from
+                whichever API keys are present, so a workspace with one
+                provider gets a different agent from the default; without this
+                the only way to find out was to read the router. */}
+            {status?.routes?.["reasoning"] && (
+              <span
+                className="health health--model"
+                title={`${status.routes["reasoning"].provider} · reasoning turns`}
+              >
+                {status.routes["reasoning"].model}
+              </span>
+            )}
             <button
               type="button"
               className="btn btn--primary"

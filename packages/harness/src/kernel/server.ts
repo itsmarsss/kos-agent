@@ -110,6 +110,7 @@ export async function handleApiRequest(
       pid: options.meta?.pid ?? process.pid,
       workspace: options.meta?.workspace ?? kernel.workspace.root,
       orchestratorId: orchestratorId(kernel.profile.ownerId),
+      routes: kernel.routes() ?? null,
     });
   }
 

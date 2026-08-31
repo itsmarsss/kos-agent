@@ -67,6 +67,23 @@ export class ModelRouter {
     this.providers = new Map(providers.map((p) => [p.name, p]));
   }
 
+  /**
+   * Which model answers each task class.
+   *
+   * The table is chosen from whichever API keys are present, so a workspace
+   * with one provider silently gets a different agent from the default. Read
+   * by status so that is visible rather than something you find out by
+   * reading the router.
+   */
+  describeRoutes(): Record<Task, { provider: string; model: string }> {
+    const out = {} as Record<Task, { provider: string; model: string }>;
+    for (const task of Object.keys(this.routing) as Task[]) {
+      const route = this.routing[task];
+      out[task] = { provider: route.provider, model: route.spec.model };
+    }
+    return out;
+  }
+
   async generate(task: Task, req: GenerateRequest): Promise<ModelResponse> {
     const route = this.routing[task];
     const provider = this.providers.get(route.provider);
