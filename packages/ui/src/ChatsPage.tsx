@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 
-import { api, type ChatTurn, type Conversation } from "./api.js";
+import { api, type ChatEvent, type Conversation } from "./api.js";
+import { ToolCall } from "./ToolCall.js";
+import { ChatConfig } from "./ChatConfig.js";
 import { hrefFor } from "./routes.js";
 
 /**
@@ -32,22 +34,28 @@ export function ChatsPage({
   onChanged,
 }: ChatsPageProps): ReactElement {
   const [query, setQuery] = useState("");
-  const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [events, setEvents] = useState<ChatEvent[]>([]);
+  const [showTools, setShowTools] = useState(true);
+  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const loaded = useRef<string | undefined>(undefined);
   const boxRef = useRef<HTMLDivElement>(null);
 
   const active = conversations.find((c) => c.id === activeId);
+  const visible = showTools ? events : events.filter((e) => e.kind !== "tool");
+  const toolCount = events.filter((e) => e.kind === "tool").length;
+  const msgCount = events.length - toolCount;
 
   useEffect(() => {
     if (!activeId || loaded.current === activeId) return;
     loaded.current = activeId;
     let cancelled = false;
+    setEditing(false);
     void api
       .conversation(activeId)
-      .then(({ messages }) => !cancelled && setTurns(messages))
-      .catch(() => !cancelled && setTurns([]));
+      .then(({ events: got }) => !cancelled && setEvents(got))
+      .catch(() => !cancelled && setEvents([]));
     return () => {
       cancelled = true;
     };
@@ -55,7 +63,7 @@ export function ChatsPage({
 
   useEffect(() => {
     boxRef.current?.scrollTo({ top: boxRef.current.scrollHeight });
-  }, [turns, sending]);
+  }, [events, sending]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -67,15 +75,18 @@ export function ChatsPage({
     const text = draft.trim();
     if (!text || sending || !activeId) return;
     setSending(true);
-    setTurns((t) => [...t, { role: "you", text }]);
+    setEvents((e) => [...e, { kind: "message", role: "you", text }]);
     setDraft("");
     try {
-      const res = await api.message(text, activeId);
-      setTurns((t) => [...t, { role: "kos", text: res.reply || "(no reply)" }]);
+      await api.message(text, activeId);
+      // Reload rather than appending the reply: the turn may have made tool
+      // calls, and those belong in the transcript too.
+      const { events: got } = await api.conversation(activeId);
+      setEvents(got);
       onChanged();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setTurns((t) => [...t, { role: "kos", text: `Error: ${msg}` }]);
+      setEvents((e) => [...e, { kind: "message", role: "kos", text: `Error: ${msg}` }]);
     } finally {
       setSending(false);
     }
@@ -134,30 +145,75 @@ export function ChatsPage({
         ) : (
           <>
             <header className="chats-view-head">
-              <div>
+              <div className="chats-view-title">
                 <h1>{active.title}</h1>
                 {active.brief && <p className="chats-brief">{active.brief}</p>}
+                <div className="chats-meta">
+                  <span>{toolCount} tool call{toolCount === 1 ? "" : "s"}</span>
+                  <span>·</span>
+                  <span>{msgCount} message{msgCount === 1 ? "" : "s"}</span>
+                  <span>·</span>
+                  <span>
+                    {active.toolAllow.length === 0
+                      ? "full toolkit"
+                      : `scoped to ${active.toolAllow.join(", ")}`}
+                  </span>
+                  {active.channel && (
+                    <>
+                      <span>·</span>
+                      <span>started in {active.channel}</span>
+                    </>
+                  )}
+                </div>
               </div>
-              <button
-                type="button"
-                className="btn btn--ghost"
-                onClick={() => {
-                  void api.archiveConversation(active.id).then(onChanged);
-                }}
-              >
-                Archive
-              </button>
+              <div className="chats-view-actions">
+                <label className="toggle" title="Show tool calls in the transcript">
+                  <input
+                    type="checkbox"
+                    checked={showTools}
+                    onChange={(e) => setShowTools(e.target.checked)}
+                  />
+                  Tool calls
+                </label>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => setEditing((v) => !v)}
+                >
+                  {editing ? "Close" : "Configure"}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => {
+                    void api.archiveConversation(active.id).then(onChanged);
+                  }}
+                >
+                  Archive
+                </button>
+              </div>
             </header>
 
+            {editing && (
+              <ChatConfig
+                key={active.id}
+                conversation={active}
+                onSaved={onChanged}
+                onClose={() => setEditing(false)}
+              />
+            )}
+
             <div className="chats-thread" ref={boxRef}>
-              {turns.length === 0 && (
-                <p className="hint">Nothing said yet.</p>
+              {visible.length === 0 && <p className="hint">Nothing said yet.</p>}
+              {visible.map((e, i) =>
+                e.kind === "tool" ? (
+                  <ToolCall key={i} event={e} />
+                ) : (
+                  <div key={i} className={`bubble bubble--${e.role}`}>
+                    {e.text}
+                  </div>
+                ),
               )}
-              {turns.map((m, i) => (
-                <div key={i} className={`bubble bubble--${m.role}`}>
-                  {m.text}
-                </div>
-              ))}
               {sending && <div className="bubble bubble--kos is-thinking">thinking…</div>}
             </div>
 

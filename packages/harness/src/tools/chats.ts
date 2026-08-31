@@ -154,7 +154,7 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
     {
       name: "chats.create",
       description:
-        "Start a conversation for a piece of work. Give it a title, a brief saying what it is for and how to behave, an optional tool allow-list to keep it narrow, and an opening message carrying over anything it needs from elsewhere. Returns the id so the owner can be pointed at it.",
+        "Start a conversation for a piece of work. Give it a title, a brief saying what it is for and how to behave, and an opening message carrying over anything it needs from elsewhere. It gets the full toolkit by default. Returns the id so the owner can be pointed at it.",
       inputSchema: {
         type: "object",
         properties: {
@@ -167,7 +167,7 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
             type: "array",
             items: { type: "string" },
             description:
-              "tool name prefixes it may use, e.g. files, sql, search. Omit for the usual toolset.",
+              "ONLY set this if the owner explicitly asked to limit the conversation's tools. Omit it otherwise: the default is the full toolkit, and a restriction you guessed at becomes a capability the conversation silently lacks.",
           },
           opening: {
             type: "string",

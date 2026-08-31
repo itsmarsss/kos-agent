@@ -641,6 +641,43 @@ describe("KOS end-to-end flows", () => {
     expect(wire).not.toContain("orchestrator:");
   });
 
+  it("gives an orchestrator-created conversation the full toolkit", async () => {
+    const model = scripted([
+      toolCall("c1", "chats.create", { title: "App build", brief: "help build" }),
+      text("Started it."),
+      text("ok"),
+    ]);
+    kernel = await boot(model.inference);
+
+    await kernel.handleOrchestratorTurn("spin something up for the app");
+    const made = kernel.conversations.list("owner").find((c) => c.title === "App build")!;
+    // A permission the model guessed at becomes a capability the conversation
+    // silently lacks, so an unrequested restriction must not happen at all.
+    expect(made.toolAllow).toEqual([]);
+
+    await kernel.handleMessage("do something", { sessionId: made.id });
+    const offered = (model.calls.at(-1)!.request.tools ?? []).map((t) => t.name);
+    expect(offered.length).toBeGreaterThan(20);
+    for (const expected of ["sql", "cron.schedule", "http.fetch", "files.write"]) {
+      expect(offered).toContain(expected);
+    }
+    // The chats tools stay out: those are the orchestrator's alone.
+    expect(offered.some((n) => n.startsWith("chats."))).toBe(false);
+  });
+
+  it("lets the owner set a tool scope after the fact", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "Narrow" });
+
+    kernel.conversations.configure(c.id, { toolAllow: ["files", "search"] });
+    await kernel.handleMessage("go", { sessionId: c.id });
+
+    const offered = (model.calls.at(-1)!.request.tools ?? []).map((t) => t.name);
+    expect(offered.some((n) => n.startsWith("cron"))).toBe(false);
+    expect(offered.some((n) => n.startsWith("files"))).toBe(true);
+  });
+
   it("shares one session across the CLI and Discord surfaces", async () => {
     const model = scripted([text("first"), text("second")]);
     kernel = await boot(model.inference);
