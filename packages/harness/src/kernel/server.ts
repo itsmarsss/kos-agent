@@ -11,6 +11,8 @@ import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
 import { orchestratorId } from "./kernel.js";
 import { parseAttachments } from "./attachments.js";
+import { findMentions } from "./mentions.js";
+import { CHAT_COMMANDS } from "./chatcommands.js";
 import {
   EFFORTS,
   MODEL_SETTINGS_KEY,
@@ -483,6 +485,22 @@ export async function handleApiRequest(
         body: { error: err instanceof Error ? err.message : String(err) },
       };
     }
+  }
+
+  if (method === "GET" && path === "/api/mentions") {
+    const q = queryParams(req.url).get("q") ?? "";
+    return ok({
+      mentions: findMentions(
+        {
+          projects: kernel.manifest.list(),
+          pages: kernel.pages.list(),
+          crons: kernel.crons.list(),
+          workspace: kernel.workspace,
+        },
+        q,
+      ),
+      commands: CHAT_COMMANDS,
+    });
   }
 
   if (method === "GET" && path === "/api/conversations") {
