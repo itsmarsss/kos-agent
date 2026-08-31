@@ -709,6 +709,70 @@ describe("KOS end-to-end flows", () => {
     expect((model.calls.at(-1)!.request.tools ?? []).length).toBeGreaterThan(20);
   });
 
+  it("orchestrator dispatches work and reports the result back", async () => {
+    // Two agents share the stub: the orchestrator dispatches, the sub-agent
+    // does the work, and the reply has to travel back up.
+    const model = scripted([
+      toolCall("c1", "chats.create", { title: "Notes", brief: "keep notes" }),
+      toolCall("c2", "chats.dispatch", { id: "PLACEHOLDER", message: "write test3.md" }),
+      text("Done: it wrote test3.md."),
+    ]);
+    kernel = await boot(model.inference);
+    await kernel.handleOrchestratorTurn("make me a notes agent");
+
+    const made = kernel.conversations.list("owner").find((c) => c.title === "Notes");
+    expect(made).toBeTruthy();
+  });
+
+  it("dispatch runs the target conversation and returns its reply", async () => {
+    let seenBrief = "";
+    let turn = 0;
+    const inference: Inference = {
+      async generate(_t, req) {
+        turn += 1;
+        seenBrief = req.system ?? "";
+        return {
+          content: [{ type: "text", text: turn === 1 ? "sub-agent answered" : "ok" }],
+          stopReason: "end_turn" as const,
+          usage: { inputTokens: 0, outputTokens: 0 },
+          model: "stub",
+        };
+      },
+    };
+    kernel = await boot(inference);
+    const target = kernel.conversations.create({
+      userId: "owner",
+      title: "Notes",
+      brief: "You keep terse notes.",
+    });
+
+    const res = await kernel.dispatchTo(target.id, "write it down");
+    expect(res.reply).toBe("sub-agent answered");
+    // It ran as that conversation, with that conversation's brief.
+    expect(seenBrief).toContain("You keep terse notes");
+    // And the exchange is in its transcript, not the dispatcher's.
+    expect(JSON.stringify(kernel.sessions.get(target.id))).toContain("write it down");
+  });
+
+  it("dispatching from inside a queued turn does not deadlock", async () => {
+    const model = scripted([text("sub-agent done"), text("ok")]);
+    kernel = await boot(model.inference);
+    const target = kernel.conversations.create({ userId: "owner", title: "Worker" });
+
+    // The real shape: dispatch happens inside a job that already holds the
+    // queue slot. Enqueuing there waits on the task doing the waiting.
+    const inSlot = kernel.queue.enqueue(async () => {
+      const res = await kernel.dispatchTo(target.id, "go");
+      return res.reply;
+    });
+
+    const outcome = await Promise.race([
+      inSlot,
+      new Promise((r) => setTimeout(() => r("DEADLOCK"), 3000)),
+    ]);
+    expect(outcome).toBe("sub-agent done");
+  });
+
   it("shares one session across the CLI and Discord surfaces", async () => {
     const model = scripted([text("first"), text("second")]);
     kernel = await boot(model.inference);

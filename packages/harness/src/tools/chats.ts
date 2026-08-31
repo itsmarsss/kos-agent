@@ -11,9 +11,13 @@ import type { SessionStore } from "../kernel/session.js";
  * them even by naming one: an agent that can read your other threads and start
  * new ones is a different privilege level from an agent that can read a file.
  *
- * The set is deliberately read-and-create. Nothing here speaks inside an
- * existing conversation, so the orchestrator can gather context and hand off,
- * but never acts as you in a thread you are not looking at.
+ * The set reads, creates, and dispatches. Dispatch is what makes this an
+ * orchestrator rather than a filing clerk: it hands a task to the conversation
+ * that owns it and reports back what actually happened, instead of announcing
+ * that a thread now exists.
+ *
+ * A dispatched conversation never holds these tools itself, so a sub-agent
+ * cannot dispatch further and the delegation is one level deep by construction.
  */
 
 export const CHAT_TOOLS = [
@@ -21,6 +25,7 @@ export const CHAT_TOOLS = [
   "chats.search",
   "chats.read",
   "chats.create",
+  "chats.dispatch",
 ] as const;
 
 export interface ChatToolDeps {
@@ -29,6 +34,14 @@ export interface ChatToolDeps {
   ownerId: string;
   /** Conversations the orchestrator should never surface, e.g. itself. */
   hide?: string[];
+  /**
+   * Run a turn inside another conversation and return its reply. Supplied by
+   * the kernel, which owns the queue discipline this has to respect.
+   */
+  dispatch: (
+    conversationId: string,
+    text: string,
+  ) => Promise<{ reply: string; conversationId: string }>;
 }
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -207,6 +220,48 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
   );
 }
 
+function defineDispatchTool(deps: ChatToolDeps, ctx: ModuleContext): void {
+  const { conversations, ownerId } = deps;
+  const hidden = new Set(deps.hide ?? []);
+
+  ctx.registerTool(
+    {
+      name: "chats.dispatch",
+      description:
+        "Give a task to one of the owner's conversations and get its answer back. That conversation runs with its own brief and tools, so use this to actually get work done rather than only creating somewhere for it to happen. Returns its reply, which you should summarise for the owner.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "conversation id" },
+          message: {
+            type: "string",
+            description: "what you want that conversation to do",
+          },
+        },
+        required: ["id", "message"],
+      },
+    },
+    async (input) => {
+      const id = str(input, "id");
+      if (hidden.has(id)) throw new Error("cannot dispatch to this conversation");
+      const target = conversations.get(id);
+      if (!target || target.userId !== ownerId) {
+        throw new Error(`no such conversation: ${id}`);
+      }
+      const res = await deps.dispatch(id, str(input, "message"));
+      return JSON.stringify({
+        conversationId: res.conversationId,
+        title: target.title,
+        reply: res.reply,
+      });
+    },
+    // The dispatched turn is governed by its own conversation's risk tiers, so
+    // anything dangerous it tries still queues for approval there.
+    { floor: "safe" },
+    { restricted: true },
+  );
+}
+
 export function createChatsModule(deps: ChatToolDeps): KosModule {
   return {
     manifest: {
@@ -222,6 +277,7 @@ export function createChatsModule(deps: ChatToolDeps): KosModule {
     activate(ctx) {
       requireServices(ctx);
       defineChatTools(deps, ctx);
+      defineDispatchTool(deps, ctx);
     },
   };
 }

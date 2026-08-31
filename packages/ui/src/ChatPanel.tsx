@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
 
 import { ease, spring } from "./motion.js";
+import { composerKeyDown, useStickToBottom } from "./composer.js";
 import type { ChatEvent } from "./api.js";
 import { Markdown } from "./Markdown.js";
 import { ToolCall } from "./ToolCall.js";
@@ -51,9 +52,7 @@ export function ChatPanel({
     inputRef.current?.focus();
   }, [open]);
 
-  useEffect(() => {
-    boxRef.current?.scrollTo({ top: boxRef.current.scrollHeight });
-  }, [thread, sending]);
+  useStickToBottom(boxRef, [thread, sending, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -137,15 +136,10 @@ export function ChatPanel({
                 value={prompt}
                 placeholder="What do you want to work on?"
                 onChange={(e) => onPrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                    e.preventDefault();
-                    onSend();
-                  }
-                }}
+                onKeyDown={(e) => composerKeyDown(e, onSend)}
               />
               <div className="sheet-composer-bar">
-                <span className="hint">⌘↵ to send</span>
+                <span className="hint">Enter to send · Shift+Enter for a new line</span>
                 <button
                   type="button"
                   className="btn btn--primary"
