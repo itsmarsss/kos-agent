@@ -577,3 +577,68 @@ describe("stat widget", () => {
     expect(screen.getByText("Total").parentElement?.textContent).toContain("-");
   });
 });
+
+describe("list widget", () => {
+  afterEach(cleanup);
+
+  const spec: PageSpec = {
+    id: "reading",
+    title: "Reading",
+    widgets: [
+      {
+        type: "list",
+        query: "SELECT id, title FROM reading_list_books",
+        mutate: {
+          table: "reading_list_books",
+          columns: ["title", "author"],
+          allow: ["insert", "update", "delete"],
+        },
+      },
+    ],
+  };
+
+  it("can add a row to a list that declares insert", async () => {
+    // The list only toggled and deleted rows that already existed, so a
+    // reading list the agent built could never have a book put in it.
+    const calls: Array<{ op: string; values?: Record<string, unknown> }> = [];
+    render(
+      <PageRenderer
+        spec={spec}
+        data={{ 0: [] }}
+        onMutate={async (_p, _i, op, values) => {
+          calls.push({ op, ...(values ? { values } : {}) });
+        }}
+        onRefresh={async () => ({ 0: [{ id: 1, title: "Dune" }] })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /add/i }));
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Dune" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]).toEqual({ op: "insert", values: { title: "Dune" } });
+    expect(await screen.findByText("Dune")).toBeTruthy();
+  });
+
+  it("offers no add button when the list cannot insert", () => {
+    render(
+      <PageRenderer
+        spec={{
+          ...spec,
+          widgets: [
+            {
+              type: "list",
+              query: "SELECT id, title FROM t",
+              mutate: { table: "t", columns: ["title"], allow: ["delete"] },
+            },
+          ],
+        }}
+        data={{ 0: [] }}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /add/i })).toBeNull();
+  });
+});

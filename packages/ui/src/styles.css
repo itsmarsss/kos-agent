@@ -824,6 +824,25 @@ textarea {
   border-top: none;
 }
 
+/* Adding to a list: the declared columns laid out across one row, so it reads
+   as a new entry rather than as a separate form parked under the list. */
+.kos-list-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--line);
+}
+.kos-list-add .kos-field {
+  flex: 1 1 9rem;
+  min-width: 0;
+}
+.kos-list-add-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
 .kos-check {
   accent-color: var(--accent);
   width: 1rem;
