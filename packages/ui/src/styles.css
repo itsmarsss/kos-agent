@@ -2160,6 +2160,65 @@ li:hover .chats-more, .chats-more:focus-visible { opacity: 1; }
   color: inherit;
 }
 
+/* —— composer highlighting ——
+   The mirror and the textarea must agree on every property that affects
+   layout, so both inherit from .hl rather than each restating its own. */
+.hl {
+  position: relative;
+  font: inherit;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+/* The class carries the specificity: the composer's own textarea rule sits
+   later in the file and would otherwise put opaque text over the mirror. */
+.hl-mirror,
+.hl textarea.hl-area {
+  font: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  box-sizing: border-box;
+}
+/* The mirror paints the surface and the text; the textarea on top contributes
+   only its border, caret and selection. Given a background of its own the
+   textarea covered the mirror completely. */
+.hl-mirror {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--text);
+  background: var(--bg);
+  z-index: 0;
+}
+.hl textarea.hl-area {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  resize: none;
+  background: transparent;
+  /* Transparent text over the mirror, but a visible caret and selection. */
+  color: transparent;
+  caret-color: var(--text);
+  border-color: var(--line);
+}
+.hl textarea.hl-area::selection { background: var(--accent-dim); }
+.hl textarea.hl-area::placeholder { color: var(--faint); }
+.hl textarea.hl-area:focus { outline: none; border-color: var(--accent); }
+
+.hl-ref { border-radius: 0.35em; padding: 0 0.1em; }
+.hl-ref--project { color: var(--accent); background: var(--accent-dim); }
+.hl-ref--page { color: var(--ok); background: var(--ok-dim); }
+.hl-ref--file { color: var(--muted); background: var(--panel-2); }
+.hl-ref--schedule { color: var(--warn); background: var(--warn-dim); }
+.hl-ref--command { color: var(--accent); background: var(--accent-dim); }
+
 /* —— autocomplete —— */
 .composer-input { position: relative; }
 .ac {

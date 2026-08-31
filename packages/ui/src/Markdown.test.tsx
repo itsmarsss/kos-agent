@@ -183,3 +183,25 @@ describe("references in a message", () => {
     expect(container.querySelector(".chip-ref")).toBeNull();
   });
 });
+
+describe("references are links", () => {
+  it("links a page to its page route", () => {
+    const { container } = render(<Markdown text="see @page:budget-dash" />);
+    const a = container.querySelector("a.chip-ref--page");
+    expect(a?.getAttribute("href")).toBe("#/page/budget-dash");
+  });
+
+  it("links a file to the browser at that path", () => {
+    const { container } = render(<Markdown text="see @file:notes/todo.md" />);
+    expect(container.querySelector("a.chip-ref--file")?.getAttribute("href")).toBe(
+      "#/files/notes%2Ftodo.md",
+    );
+  });
+
+  it("links a schedule to the schedule tab", () => {
+    const { container } = render(<Markdown text="@schedule:nightly" />);
+    expect(container.querySelector("a.chip-ref--schedule")?.getAttribute("href")).toBe(
+      "#/crons",
+    );
+  });
+});
