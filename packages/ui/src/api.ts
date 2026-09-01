@@ -226,6 +226,16 @@ export interface ContextUse {
   window?: number;
 }
 
+export interface SettingsPayload {
+  workspace: string;
+  envPath: string | null;
+  /** False when there is nowhere safe to write keys. */
+  envWritable: boolean;
+  secrets: Record<string, { label: string; hint: string; masked: string | null }>;
+  settings: Record<string, { label: string; hint: string; value: string }>;
+  sitesUrl: string | null;
+}
+
 export interface SiteInfo {
   name: string;
   /** Project it belongs to. */
@@ -372,6 +382,9 @@ export const api = {
     post<{ rates: Record<string, ModelRate> }>("/api/spend/rates", { rates }),
   context: (conversationId: string) =>
     get<ContextUse>(`/api/context?conversationId=${encodeURIComponent(conversationId)}`),
+  settings: () => get<SettingsPayload>("/api/settings"),
+  saveSettings: (values: Record<string, string>) =>
+    post<{ written: string[]; cleared: string[] }>("/api/settings", { values }),
   sites: () =>
     get<{ base: string | null; sites: SiteInfo[] }>("/api/sites"),
   openWorkspace: () => post<{ opened: string }>("/api/workspace/open", {}),

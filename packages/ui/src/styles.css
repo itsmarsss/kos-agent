@@ -3562,3 +3562,38 @@ li:hover .chats-item-when { opacity: 0; }
   font-family: var(--mono);
   font-size: 0.6875rem;
 }
+
+/* Settings as a page: everything you would otherwise open a dotfile for. */
+.settings-page { max-width: 44rem; }
+.set-head h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+.set-section { margin-bottom: 1.75rem; }
+.set-section h2 {
+  font-size: 0.9375rem;
+  margin: 0 0 0.35rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--line);
+}
+.set-section > .hint { display: block; margin-bottom: 0.85rem; max-width: 40rem; }
+.set-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.3rem 1rem;
+  margin: 0 0 0.85rem;
+  font-size: 0.875rem;
+}
+.set-facts dt { color: var(--faint); }
+.set-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.set-facts code { font-size: 0.8125rem; }
+.set-field { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.85rem; }
+.set-label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+.set-current { color: var(--ok); font-family: var(--mono); font-size: 0.75rem; }
+.set-row { display: flex; align-items: flex-start; gap: 0.6rem; }
+.set-row .set-field { flex: 1; }
+.set-row .btn { margin-top: 1.35rem; }
+.set-actions { margin: 0 0 1.75rem; }

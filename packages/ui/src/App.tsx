@@ -20,13 +20,12 @@ import { AnimatePresence, m } from "motion/react";
 
 import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
 import { Modal } from "./Modal.js";
-import { ModelSettings } from "./ModelSettings.js";
 import { CronEditor } from "./CronEditor.js";
 import { ease, listItem, spring } from "./motion.js";
 import { Home } from "./Home.js";
 import { ChatsPage } from "./ChatsPage.js";
 import { FilesPage } from "./FilesPage.js";
-import { SpendPanel } from "./SpendPanel.js";
+import { SettingsPage } from "./SettingsPage.js";
 import { ProjectsPage } from "./ProjectsPage.js";
 import { KnowledgePage } from "./KnowledgePage.js";
 import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
@@ -70,7 +69,6 @@ export function App(): React.ReactElement {
   const [cronFilter, setCronFilter] = useState<"all" | "on" | "off">("all");
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   // Where sites are served, so the palette can open one directly.
   const [sitesBase, setSitesBase] = useState<string | null>(null);
   const [editingCron, setEditingCron] = useState<{ job?: CronJob } | null>(null);
@@ -249,7 +247,7 @@ export function App(): React.ReactElement {
           : id;
       if (target) go({ name: "chats", id: target });
     },
-    openSettings: () => setSettingsOpen(true),
+    openSettings: () => go({ name: "settings" }),
     newChat: () => {
       void api
         .newConversation()
@@ -428,7 +426,7 @@ export function App(): React.ReactElement {
               <div className="menu-body">
                 <button type="button" onClick={() => void refresh()}>Refresh</button>
                 <button type="button" onClick={() => void doSnapshot()}>Snapshot now</button>
-                <button type="button" onClick={() => setSettingsOpen(true)}>
+                <button type="button" onClick={() => go({ name: "settings" })}>
                   Settings
                 </button>
                 <button
@@ -471,15 +469,6 @@ export function App(): React.ReactElement {
         </AnimatePresence>
 
         {body}
-
-        <Modal
-          open={settingsOpen}
-          title="Settings"
-          onClose={() => setSettingsOpen(false)}
-        >
-          <ModelSettings onClose={() => setSettingsOpen(false)} />
-          <SpendPanel />
-        </Modal>
 
         <Modal
           open={editingCron !== null}
@@ -555,6 +544,10 @@ export function App(): React.ReactElement {
         onOpen={(p) => go({ name: "files", path: p })}
       />,
     );
+  }
+
+  if (route.name === "settings") {
+    return shell(<SettingsPage />);
   }
 
   if (route.name === "projects") {

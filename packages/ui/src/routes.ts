@@ -9,6 +9,7 @@ export type Route =
   | { name: "runs" }
   | { name: "chats"; id?: string }
   | { name: "files"; path?: string }
+  | { name: "settings" }
   | { name: "page"; id: string };
 
 export function parseRoute(hash: string): Route {
@@ -18,6 +19,7 @@ export function parseRoute(hash: string): Route {
   if (path === "/projects") return { name: "projects" };
   if (path === "/chats") return { name: "chats" };
   if (path === "/files") return { name: "files" };
+  if (path === "/settings") return { name: "settings" };
   const file = path.match(/^\/files\/(.+)$/);
   if (file?.[1]) return { name: "files", path: decodeURIComponent(file[1]) };
   const chat = path.match(/^\/chats\/([^/]+)$/);

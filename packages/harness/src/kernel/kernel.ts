@@ -1304,6 +1304,24 @@ export class Kernel {
     return source.describeRoutes?.();
   }
 
+  /**
+   * Re-read secrets from the environment after the owner has changed them.
+   *
+   * The registry is updated in place rather than replaced, because the router
+   * and every tool that injects a secret hold a reference to this one: handing
+   * out a new object would leave them all pointing at the old keys until a
+   * restart, which is exactly what saving from the dashboard is meant to avoid.
+   */
+  reloadSecrets(): void {
+    const fresh = SecretsRegistry.fromEnv();
+    for (const name of this.secrets.names()) {
+      if (!fresh.has(name)) this.secrets.remove(name);
+    }
+    for (const name of fresh.names()) {
+      this.secrets.set(name, fresh.require(name));
+    }
+  }
+
   /** Repoint the router at the owner's saved choices, without a restart. */
   applyModelSettings(settings: ModelSettings): void {
     const router = this.inference as { setRoute?: unknown; routeFor?: unknown };

@@ -18,7 +18,12 @@ const TASKS: Array<{ key: "reasoning" | "cheap"; label: string; hint: string }> 
   { key: "cheap", label: "Cheap", hint: "deciding what is worth remembering" },
 ];
 
-export function ModelSettings({ onClose }: { onClose: () => void }): ReactElement {
+export function ModelSettings({
+  onClose,
+}: {
+  /** Absent on the settings page, where there is no sheet to close. */
+  onClose?: () => void;
+}): ReactElement {
   const [saved, setSaved] = useState<Settings>({});
   const [routes, setRoutes] = useState<Record<
     string,
@@ -155,9 +160,11 @@ export function ModelSettings({ onClose }: { onClose: () => void }): ReactElemen
         <button type="button" className="btn btn--primary" onClick={save}>
           Save
         </button>
-        <button type="button" className="btn" onClick={onClose}>
-          Close
-        </button>
+        {onClose && (
+          <button type="button" className="btn" onClick={onClose}>
+            Close
+          </button>
+        )}
         {status && <span className="hint">{status}</span>}
       </div>
     </div>
