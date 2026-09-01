@@ -74,14 +74,31 @@ describe("search module", () => {
     expect(res.content).toBe("(no matches)");
   });
 
-  it("reports an actionable error when the rg binary is missing", async () => {
+  /*
+   * This used to assert an error. Failing outright takes a core capability
+   * away based on what the owner happens to have installed, and the agent has
+   * no way to know in advance: it tries, fails, and works around it badly.
+   * With no ripgrep the search runs in Node instead.
+   */
+  it("searches anyway when the rg binary is missing", async () => {
+    writeFileSync(join(ws.root, "found.txt"), "first line\nhas a needle in it");
     const registry = await load(
       createSearchModule({ rgPath: join(root, "no-such-rg") }),
     );
     const res = await registry.execute("search.grep", { pattern: "needle" });
-    expect(res.isError).toBe(true);
-    expect(res.content).toMatch(/ripgrep \(rg\) not found on PATH/);
-    expect(res.content).toMatch(/set rgPath/);
+    expect(res.isError).toBe(false);
+    expect(res.content).toContain("found.txt:2:");
+    expect(res.content).toContain("needle");
+  });
+
+  it("still says so plainly when nothing matches and there is no rg", async () => {
+    writeFileSync(join(ws.root, "found.txt"), "nothing of interest");
+    const registry = await load(
+      createSearchModule({ rgPath: join(root, "no-such-rg") }),
+    );
+    const res = await registry.execute("search.grep", { pattern: "zzzmissing" });
+    expect(res.isError).toBe(false);
+    expect(res.content).toBe("(no matches)");
   });
 
   it("only registers grep when no embedder is wired", async () => {
