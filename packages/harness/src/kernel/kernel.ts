@@ -75,8 +75,11 @@ import { ConversationStore, type Conversation } from "./conversations.js";
 import {
   parseChatCommand,
   runChatCommand,
+  touchesHistory,
+  type ChatCommand,
   type CommandResult,
 } from "./chatcommands.js";
+import { compactHistory } from "./compact.js";
 
 export interface KernelOptions {
   rootDir: string;
@@ -946,6 +949,85 @@ export class Kernel {
    * Channels call this instead of handleMessage so every surface gets the same
    * conversation behaviour without implementing any of it.
    */
+  /**
+   * `/compact` and `/clear`: the two commands that act on a conversation's
+   * history rather than on the list of conversations.
+   *
+   * They live here rather than in the command table because that table is pure
+   * bookkeeping over the conversation store, and compacting needs the session
+   * history and a model call.
+   */
+  async runHistoryCommand(
+    command: ChatCommand,
+    conversationId: string,
+  ): Promise<string> {
+    const history = this.sessions.get(conversationId);
+
+    if (command.kind === "clear") {
+      if (history.length === 0) return "Nothing to forget; this chat is empty.";
+      this.sessions.clear(conversationId);
+      // Careful about what this actually promises. Clearing drops the
+      // transcript, not anything saved to memory, and saved facts are recalled
+      // into later turns: the first version of this said "I no longer remember
+      // what was in it" and was then able to recite a fact from the cleared
+      // chat, which is a worse answer than saying nothing.
+      return [
+        `Forgotten ${history.length} message${history.length === 1 ? "" : "s"} of this chat's history.`,
+        "Anything saved to memory stays, and I will still recall it. Knowledge lists those.",
+      ].join(" ");
+    }
+
+    if (history.length === 0) return "Nothing to compact; this chat is empty.";
+    const result = await compactHistory(this.inference, history);
+    if (!result) {
+      return "Not enough here to be worth compacting yet.";
+    }
+    this.sessions.set(conversationId, result.messages);
+    return [
+      `Compacted ${result.compacted} messages into a summary. Here is what I kept:`,
+      "",
+      result.summary,
+    ].join("\n");
+  }
+
+  /**
+   * Run a slash command against a conversation named outright, as the
+   * dashboard names it, rather than resolved from a channel and a sender.
+   *
+   * Returns null when the text is not a command, so a caller can fall through
+   * to an ordinary turn. The dashboard had no command path at all: it offered
+   * the commands in its autocomplete and then posted them to the model as
+   * prose, which answered them by improvising. Same verbs, same behaviour,
+   * whichever surface you type them on.
+   */
+  async runCommandIn(
+    conversationId: string,
+    userId: string,
+    text: string,
+    channel = "dashboard",
+  ): Promise<(HandleResult & { isCommand: true; switchedTo?: string }) | null> {
+    const command = parseChatCommand(text);
+    if (!command) return null;
+
+    if (touchesHistory(command)) {
+      const reply = await this.runHistoryCommand(command, conversationId);
+      return { reply, halted: false, isCommand: true };
+    }
+
+    const result = runChatCommand(command, {
+      conversations: this.conversations,
+      channel,
+      userId,
+      currentId: conversationId,
+    });
+    return {
+      reply: result.reply,
+      halted: false,
+      isCommand: true,
+      ...(result.switchedTo ? { switchedTo: result.switchedTo } : {}),
+    };
+  }
+
   async handleChannelTurn(input: {
     text: string;
     userId: string;
@@ -960,6 +1042,15 @@ export class Kernel {
     );
 
     const command = parseChatCommand(input.text);
+    if (command && touchesHistory(command)) {
+      const result = await this.runHistoryCommand(command, conversation.id);
+      return {
+        reply: result,
+        halted: false,
+        conversationId: conversation.id,
+        isCommand: true,
+      };
+    }
     if (command) {
       // Commands are bookkeeping: no model call, no queue, no transcript entry.
       const result: CommandResult = runChatCommand(command, {

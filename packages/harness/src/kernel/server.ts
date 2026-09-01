@@ -387,6 +387,9 @@ export async function handleApiRequest(
           }),
         );
       }
+      // A slash command is bookkeeping, not something to ask a model about.
+      const command = await kernel.runCommandIn(sessionId, userId, text);
+      if (command) return ok(command);
       return ok(
         await kernel.handleMessage(text, { sessionId, userId, attachments }),
       );
