@@ -53,12 +53,16 @@ export function hrefFor(route: Route): string {
 }
 
 /**
- * Primary nav. Labels name what you would go looking for, not the table the
+ * Primary nav.
+ *
+ * Home is deliberately absent: it is reached by the wordmark, the way a site's
+ * logo has meant home for thirty years, which buys back a slot in a bar that
+ * had nine.
+ * Labels name what you would go looking for, not the table the
  * data happens to live in: "Ops / Tools / Runs" told you nothing unless you
  * had read the source.
  */
 export const NAV: Array<{ route: Route; label: string }> = [
-  { route: { name: "home" }, label: "Home" },
   { route: { name: "chats" }, label: "Chats" },
   { route: { name: "files" }, label: "Files" },
   { route: { name: "projects" }, label: "Projects" },

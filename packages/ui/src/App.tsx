@@ -21,8 +21,8 @@ import { AnimatePresence, m } from "motion/react";
 import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
 import { Modal } from "./Modal.js";
 import { CronEditor } from "./CronEditor.js";
-import { ease, listItem, spring } from "./motion.js";
-import { Home } from "./Home.js";
+import { ease, spring } from "./motion.js";
+import { HomePage } from "./HomePage.js";
 import { ChatsPage } from "./ChatsPage.js";
 import { FilesPage } from "./FilesPage.js";
 import { AgentsPage } from "./AgentsPage.js";
@@ -771,126 +771,14 @@ export function App(): React.ReactElement {
     );
   }
 
-  const homeFailed = failed.slice(0, 5);
-
   return shell(
-    <>
-      <AnimatePresence initial={false}>
-      {approvals.length > 0 && (
-        <m.section
-          className="needs-you"
-          aria-label="Pending approvals"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0, height: 0, marginBottom: 0, overflow: "hidden" }}
-          transition={ease}
-        >
-          <h2>
-            {approvals.length === 1
-              ? "1 action needs you"
-              : `${approvals.length} actions need you`}
-          </h2>
-          <AnimatePresence initial={false}>
-          {approvals.map((a) => (
-            <m.div
-              key={a.id}
-              className="approval"
-              layout
-              variants={listItem}
-              initial="hidden"
-              animate="show"
-              exit="exit"
-              transition={ease}
-            >
-              <div className="approval-main">
-                <div className="approval-title">
-                  {summarizeAction(a.tool, a.args)}
-                </div>
-                <div className="approval-meta">
-                  <code>{a.tool}</code>
-                  {a.reason ? <span> · {a.reason}</span> : null}
-                  {/* Deciding here and deciding in the thread are the same act,
-                      so say which thread is waiting on it. */}
-                  {a.conversationId && (
-                    <>
-                      {" · "}
-                      <a
-                        className="link"
-                        href={hrefFor({ name: "chats", id: a.conversationId })}
-                      >
-                        {conversations.find((c) => c.id === a.conversationId)
-                          ?.title ?? "the chat"}
-                      </a>
-                    </>
-                  )}
-                </div>
-              </div>
-              <div className="approval-actions">
-                <button
-                  type="button"
-                  className="btn btn--ok"
-                  onClick={() => void decide(a.id, true)}
-                >
-                  Approve
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--danger-ghost"
-                  onClick={() => void decide(a.id, false)}
-                >
-                  Deny
-                </button>
-              </div>
-            </m.div>
-          ))}
-          </AnimatePresence>
-        </m.section>
-      )}
-      </AnimatePresence>
-
-      <Home
-        projects={projects}
-        pagesByProject={pagesByProject}
-        onInspect={(project, pages) =>
-          setInspect({ kind: "project", data: project, pages })
-        }
-      />
-
-      <section className="lately" aria-label="Recent activity">
-        <div className="lately-head">
-          <h2>Lately</h2>
-          <a className="link" href="#/runs">
-            All activity →
-          </a>
-        </div>
-        <ul className="feed">
-          {homeFailed.slice(0, 2).map((r) => (
-            <li key={`f${r.id}`} className="feed-item feed-item--bad">
-              <button type="button" onClick={() => setInspect({ kind: "run", data: r })}>
-                <span className="feed-what">{r.kind} run failed</span>
-                <span className="feed-detail">{preview(r.error ?? "", 60)}</span>
-                <span className="feed-when">{timeAgo(r.startedAt)}</span>
-              </button>
-            </li>
-          ))}
-          {activity.slice(0, 6).map((t) => (
-            <li key={t.id} className="feed-item">
-              <button type="button" onClick={() => setInspect({ kind: "tool", data: t })}>
-                {/* The tool name was the loudest thing on the home page and
-                    the least useful: summarizeAction already says what
-                    happened in words. It stays in the inspector. */}
-                <span className="feed-what">{summarizeAction(t.tool, t.args)}</span>
-                <span className="feed-when">{timeAgo(t.createdAt)}</span>
-              </button>
-            </li>
-          ))}
-          {activity.length === 0 && homeFailed.length === 0 && (
-            <li className="feed-empty">Nothing yet.</li>
-          )}
-        </ul>
-      </section>
-    </>,
+    <HomePage
+      onOpenChat={(id) => go({ name: "chats", id })}
+      onGo={(to) => go({ name: to } as Route)}
+      onDecide={(id, approved) => void decide(id, approved)}
+    />,
   );
 }
+
 
 

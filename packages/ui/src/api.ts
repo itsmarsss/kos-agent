@@ -243,6 +243,18 @@ export interface PendingMessage {
   attachments: { name: string }[];
 }
 
+export interface HomeData {
+  layout: import("@kos/shared").HomeLayout;
+  approvals: PendingAction[];
+  agents: BuildRecord[];
+  failures: RunRecord[];
+  activity: AuditRecord[];
+  projects: Project[];
+  chats: Conversation[];
+  crons: CronJob[];
+  spend: { models: ModelSpend[] };
+}
+
 export interface BuildRecord {
   id: number;
   dir: string;
@@ -470,6 +482,9 @@ export const api = {
     }),
   forkPending: (id: number) =>
     post<{ conversationId: string }>("/api/pending/fork", { id }),
+  home: () => get<HomeData>("/api/home"),
+  saveHome: (layout: import("@kos/shared").HomeLayout) =>
+    post<{ layout: import("@kos/shared").HomeLayout }>("/api/home", { layout }),
   agents: () => get<{ builds: BuildRecord[] }>("/api/agents"),
   stopAgent: (id: number) =>
     post<{ stopped: boolean; builds: BuildRecord[] }>("/api/agents/stop", { id }),
