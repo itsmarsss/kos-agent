@@ -51,6 +51,11 @@ export interface BuildOptions {
   /** Turn cap, so a confused sub-agent cannot spend the budget in a loop. */
   maxTurns?: number;
   onEvent?: (event: BuildEvent) => void;
+  /**
+   * Told how to stop this build as soon as it can be stopped, so a caller can
+   * offer that without waiting for the build to finish and hand it back.
+   */
+  onStart?: (control: { stop: () => void }) => void;
 }
 
 export interface BuildResult {
@@ -163,10 +168,23 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
   const env = { ...childEnv({ home: auth.home }), ...auth.env };
 
   const controller = new AbortController();
-  const timer = setTimeout(
-    () => controller.abort(),
-    options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-  );
+  // Both a timeout and the owner abort the same controller, so the reason has
+  // to be recorded when it happens. Without it a build the owner stopped
+  // reported itself as having timed out, which is a different thing and the
+  // wrong thing to tell them.
+  let halted: "timeout" | "owner" | null = null;
+  const timer = setTimeout(() => {
+    halted = "timeout";
+    controller.abort();
+  }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  // Handed over before any work starts: a build that cannot be stopped until
+  // it returns is one the owner cannot stop at all.
+  options.onStart?.({
+    stop: () => {
+      halted = "owner";
+      controller.abort();
+    },
+  });
 
   const filesTouched = new Set<string>();
   const allowedCommands = new Set<string>();
@@ -216,6 +234,7 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
       };
     }
     approved += 1;
+    emit("permission", `you approved: ${verdict.reason}`);
     // An approved command is approved for the rest of this build, matched
     // exactly. Otherwise `npm test` asks again on every run.
     if (tool === "Bash" && typeof input.command === "string") {
@@ -279,8 +298,13 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
     emit("done", summary);
   } catch (err) {
     const text = err instanceof Error ? err.message : String(err);
-    summary = controller.signal.aborted ? `build timed out: ${text}` : text;
-    emit("error", summary);
+    summary =
+      halted === "owner"
+        ? "You stopped this build."
+        : halted === "timeout"
+          ? `Build ran past its time limit and was stopped: ${text}`
+          : text;
+    emit(halted === "owner" ? "done" : "error", summary);
     ok = false;
   } finally {
     clearTimeout(timer);

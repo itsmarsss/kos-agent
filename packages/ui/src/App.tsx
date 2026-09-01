@@ -25,6 +25,7 @@ import { ease, listItem, spring } from "./motion.js";
 import { Home } from "./Home.js";
 import { ChatsPage } from "./ChatsPage.js";
 import { FilesPage } from "./FilesPage.js";
+import { AgentsPage } from "./AgentsPage.js";
 import { SettingsPage } from "./SettingsPage.js";
 import { ProjectsPage } from "./ProjectsPage.js";
 import { KnowledgePage } from "./KnowledgePage.js";
@@ -544,6 +545,10 @@ export function App(): React.ReactElement {
         onOpen={(p) => go({ name: "files", path: p })}
       />,
     );
+  }
+
+  if (route.name === "agents") {
+    return shell(<AgentsPage />);
   }
 
   if (route.name === "settings") {
