@@ -3,6 +3,7 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { extname, join, normalize, relative, resolve, sep } from "node:path";
 
+import { parseHomeLayout } from "@kos/shared";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
 import { runDisplayQuery } from "../systems/display.js";
@@ -25,6 +26,9 @@ import { listDirectory, readFile, readImage } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
 import { RETENTION_DEFAULTS, RETENTION_KEY } from "./session.js";
+
+/** Where the owner's home arrangement lives. */
+export const HOME_LAYOUT_KEY = "home.layout";
 import { saveProfile } from "./profile.js";
 import {
   findSecret,
@@ -681,6 +685,34 @@ export async function handleApiRequest(
       return { status: 409, body: { error: "that build is no longer running" } };
     }
     return ok({ interrupted: true, builds: kernel.builds.list() });
+  }
+
+  if (method === "GET" && path === "/api/home") {
+    return ok({
+      layout: parseHomeLayout(kernel.settings.get(HOME_LAYOUT_KEY)),
+      // Everything the panels draw from, in one round trip: home is the first
+      // thing loaded and eight separate requests to render it is eight chances
+      // to see it assemble itself.
+      approvals: kernel.approvals.pending(),
+      agents: kernel.builds.list().slice(0, 8),
+      failures: kernel.runs.failures(10),
+      activity: kernel.audit.recent(20),
+      projects: kernel.manifest.list(),
+      chats: kernel.conversations.list(kernel.profile.ownerId).slice(0, 10),
+      crons: kernel.crons.list(),
+      spend: {
+        models: kernel.spend.byModel(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      },
+    });
+  }
+
+  if (method === "POST" && path === "/api/home") {
+    // Parsed rather than trusted: this is a layout the owner edits and KOS may
+    // later write, and a bad one should degrade to the default rather than
+    // leave them with no home page.
+    const layout = parseHomeLayout(body.layout);
+    kernel.settings.set(HOME_LAYOUT_KEY, layout);
+    return ok({ layout });
   }
 
   if (method === "GET" && path === "/api/spend") {
