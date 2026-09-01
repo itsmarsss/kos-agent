@@ -3,7 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { isInside, maskSecret, parseEnvFile, writeEnvFile } from "./envfile.js";
+import {
+  findSecret,
+  isInside,
+  maskSecret,
+  namesFor,
+  parseEnvFile,
+  writeEnvFile,
+} from "./envfile.js";
 
 describe("the file secrets live in", () => {
   let root: string;
@@ -137,6 +144,59 @@ describe("the file secrets live in", () => {
       expect(maskSecret("")).toBeNull();
       // A short value gives nothing away at all rather than most of itself.
       expect(maskSecret("abc")).toBe("••••");
+    });
+  });
+
+  /*
+   * The host reads KOS_SECRET_DISCORD ?? DISCORD_TOKEN ?? DISCORD_BOT_TOKEN.
+   * A settings page that knew only the first name reported a working Discord
+   * token as "not set", and clearing that field would have left the bot
+   * running on a name the page never mentioned.
+   */
+  describe("names the host also accepts", () => {
+    it("finds a value stored under an older name, and says which", () => {
+      const found = findSecret("KOS_SECRET_DISCORD", { DISCORD_TOKEN: "abc123" });
+      expect(found?.value).toBe("abc123");
+      expect(found?.name).toBe("DISCORD_TOKEN");
+    });
+
+    it("prefers the canonical name when both are present", () => {
+      const found = findSecret("KOS_SECRET_DISCORD", {
+        KOS_SECRET_DISCORD: "canonical",
+        DISCORD_TOKEN: "older",
+      });
+      expect(found?.value).toBe("canonical");
+      expect(found?.name).toBe("KOS_SECRET_DISCORD");
+    });
+
+    it("knows every name for a key", () => {
+      expect(namesFor("KOS_SECRET_DISCORD")).toEqual([
+        "KOS_SECRET_DISCORD",
+        "DISCORD_TOKEN",
+        "DISCORD_BOT_TOKEN",
+      ]);
+      expect(namesFor("OPENAI_API_KEY")).toEqual(["OPENAI_API_KEY"]);
+    });
+
+    it("clearing removes every name, not just the canonical one", () => {
+      writeFileSync(
+        envPath,
+        "KOS_SECRET_DISCORD=a\nDISCORD_TOKEN=b\nDISCORD_BOT_TOKEN=c\nOPENAI_API_KEY=keep\n",
+      );
+      writeEnvFile(envPath, workspace, { KOS_SECRET_DISCORD: null });
+      const text = readFileSync(envPath, "utf8");
+      expect(text).not.toContain("DISCORD");
+      expect(text).toContain("OPENAI_API_KEY=keep");
+    });
+
+    it("saving leaves one home for the value, not two", () => {
+      writeFileSync(envPath, "DISCORD_TOKEN=old\n");
+      writeEnvFile(envPath, workspace, { KOS_SECRET_DISCORD: "new" });
+      const parsed = parseEnvFile(readFileSync(envPath, "utf8"));
+      expect(parsed.KOS_SECRET_DISCORD).toBe("new");
+      // The old name is gone, so there is never a second copy to wonder which
+      // of the two the host is actually using.
+      expect(parsed.DISCORD_TOKEN).toBeUndefined();
     });
   });
 });
