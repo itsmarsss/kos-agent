@@ -7,7 +7,12 @@ import {
 } from "react";
 
 import { ContextMeter } from "./ContextMeter.js";
-import { api, type ChatEvent, type Conversation } from "./api.js";
+import {
+  api,
+  type ChatEvent,
+  type Conversation,
+  type PendingMessage,
+} from "./api.js";
 import { AttachButton, useAttachments, useDropZone } from "./Attachments.js";
 import { AttachmentStrip } from "./AttachmentStrip.js";
 import { ModelPicker } from "./ModelPicker.js";
@@ -22,7 +27,7 @@ import {
 } from "./Autocomplete.js";
 import { Thinking } from "./Thinking.js";
 import { MessageActions, MessageEditor } from "./MessageActions.js";
-import { MoreIcon } from "./icons.js";
+import { CopyIcon, EditIcon, ForkIcon, MoreIcon } from "./icons.js";
 import {
   clearProgress,
   seedProgress,
@@ -79,9 +84,15 @@ export function ChatsPage({
   const [sendingIn, setSendingIn] = useState<string | null>(null);
   // Sent but not yet run. Read from the server rather than kept here, so a
   // reload still shows what was already taken.
-  const [pending, setPending] = useState<
-    { id: number; text: string; attachments: { name: string }[] }[]
-  >([]);
+  // Replies to slash commands, which are not in the transcript and were
+  // therefore thrown away by the reload after sending: /help printed nothing
+  // at all, and /clear emptied the chat without saying it had.
+  const [notes, setNotes] = useState<{ id: number; text: string }[]>([]);
+  const [pending, setPending] = useState<PendingMessage[]>([]);
+  /** The queued message being rewritten, if any. */
+  const [editingQueued, setEditingQueued] = useState<{ id: number; text: string } | null>(
+    null,
+  );
   const attachments = useAttachments();
   const progress = useProgress();
 
@@ -171,6 +182,9 @@ export function ChatsPage({
   const justEnded = wasLive.current && !live;
   wasLive.current = Boolean(live);
 
+  // Notes belong to the conversation that produced them.
+  useEffect(() => setNotes([]), [activeId]);
+
   useEffect(() => {
     if (!activeId) return;
     const mine = loadedFor?.id === activeId;
@@ -203,6 +217,32 @@ export function ChatsPage({
 
   // The live turn grows as it streams, so it is part of what pins the scroll.
   useStickToBottom(boxRef, [events, sendingIn, activeId, live?.steps.length, live?.text]);
+
+  /*
+   * Grow the composer with what is typed.
+   *
+   * There was no growing at all: the field was one row and scrolled inside
+   * itself, and its content box was two pixels shorter than its own
+   * line-height, so a single line sat slightly clipped and the box appeared
+   * to shrink the moment you typed into it. Measured, not guessed: 42.09px
+   * empty against 40px with text.
+   */
+  useEffect(() => {
+    const ta = inputRef.current;
+    if (!ta) return;
+    // Reset first: scrollHeight cannot shrink below the height already set.
+    ta.style.height = "auto";
+    const style = window.getComputedStyle(ta);
+    const border =
+      parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    const max = parseFloat(style.maxHeight);
+    // scrollHeight excludes the border, and the box is border-box, so the
+    // border has to be added back or the field is short by exactly that much.
+    const wanted = ta.scrollHeight + border;
+    const height = Number.isFinite(max) ? Math.min(wanted, max) : wanted;
+    ta.style.height = `${height}px`;
+    ta.style.overflowY = wanted > height ? "auto" : "hidden";
+  }, [draft, activeId]);
 
   // The orchestrator lives above the list: it is how work gets routed, not one
   // of the threads the routing produces.
@@ -249,7 +289,14 @@ export function ChatsPage({
     attachments.clear();
 
     try {
-      await api.message(text, target, files);
+      const res = await api.message(text, target, files);
+      // A command writes nothing to the transcript, so the reload below would
+      // drop its reply on the floor. It is kept as a note instead: for /help
+      // the reply is the entire output, and for /clear it is the only sign
+      // anything happened.
+      if (res.isCommand && res.reply) {
+        setNotes((n) => [...n, { id: Date.now(), text: res.reply }]);
+      }
       // Reload rather than appending the reply: the turn may have made tool
       // calls, and those belong in the transcript too.
       const { events: got, pending: waiting } = await api.conversation(target);
@@ -265,6 +312,60 @@ export function ChatsPage({
       setSendingIn((id) => (id === target ? null : id));
     }
   }
+
+  /*
+   * Managing what is still waiting. All three refuse once the turn has
+   * started, because by then the message has been asked and changing it would
+   * rewrite the record of a question that was already answered.
+   */
+  const queuedError = (err: unknown): void => {
+    const msg = err instanceof Error ? err.message : String(err);
+    setNotes((n) => [...n, { id: Date.now(), text: msg }]);
+    if (activeIdRef.current) void reloadPending(activeIdRef.current);
+  };
+
+  const reloadPending = async (id: string): Promise<void> => {
+    try {
+      const { pending: waiting } = await api.conversation(id);
+      if (id === activeIdRef.current) setPending(waiting);
+    } catch {
+      // The list is refreshed on the next turn either way.
+    }
+  };
+
+  const saveQueued = async (id: number): Promise<void> => {
+    const draftText = editingQueued?.text.trim();
+    if (!draftText || !activeId) return;
+    try {
+      const { pending: waiting } = await api.editPending(id, draftText, activeId);
+      setPending(waiting);
+      setEditingQueued(null);
+    } catch (err) {
+      queuedError(err);
+      setEditingQueued(null);
+    }
+  };
+
+  const dropQueued = async (id: number): Promise<void> => {
+    if (!activeId) return;
+    try {
+      const { pending: waiting } = await api.deletePending(id, activeId);
+      setPending(waiting);
+    } catch (err) {
+      queuedError(err);
+    }
+  };
+
+  const forkQueued = async (id: number): Promise<void> => {
+    try {
+      const { conversationId } = await api.forkPending(id);
+      if (activeIdRef.current) await reloadPending(activeIdRef.current);
+      onChanged();
+      onOpen(conversationId);
+    } catch (err) {
+      queuedError(err);
+    }
+  };
 
   /** What a running conversation is doing, for the list. */
   const liveLabel = (l: Live | undefined): string => {
@@ -637,13 +738,87 @@ export function ChatsPage({
                 )
               )}
 
+              {notes.map((n) => (
+                <div className="chats-note" key={n.id}>
+                  <Markdown text={n.text} />
+                </div>
+              ))}
+
               {/* Sent, taken, and waiting for the turn ahead of it. Shown
                   after the running turn because that is the order they will
                   be answered in. */}
               {pending.map((p) => (
-                <div className="bubble bubble--you is-queued" key={p.id}>
-                  {p.text}
-                  <span className="queued-mark">queued</span>
+                <div className="queued" key={p.id}>
+                  {editingQueued?.id === p.id ? (
+                    <div className="queued-edit">
+                      <textarea
+                        className="kos-input"
+                        rows={3}
+                        value={editingQueued.text}
+                        autoFocus
+                        onChange={(e) =>
+                          setEditingQueued({ id: p.id, text: e.target.value })
+                        }
+                      />
+                      <div className="queued-actions">
+                        <button
+                          type="button"
+                          className="btn btn--primary"
+                          onClick={() => void saveQueued(p.id)}
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() => setEditingQueued(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="bubble bubble--you is-queued">
+                        {p.text}
+                        <span className="queued-mark">queued</span>
+                      </div>
+                      <div className="queued-actions">
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title="Edit before it runs"
+                          onClick={() => setEditingQueued({ id: p.id, text: p.text })}
+                        >
+                          <EditIcon />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title="Copy"
+                          onClick={() => void navigator.clipboard.writeText(p.text)}
+                        >
+                          <CopyIcon />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title="Ask this in a copy of the chat instead"
+                          onClick={() => void forkQueued(p.id)}
+                        >
+                          <ForkIcon />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn icon-btn--danger"
+                          title="Drop it before it runs"
+                          onClick={() => void dropQueued(p.id)}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>

@@ -594,6 +594,58 @@ export async function handleApiRequest(
     return ok({ retention: kernel.sessions.retention() });
   }
 
+  if (method === "POST" && path === "/api/pending/edit") {
+    const id = Number(body.id);
+    const text = typeof body.text === "string" ? body.text.trim() : "";
+    if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
+    if (!text) return { status: 400, body: { error: "text required" } };
+    // Only while it is still waiting. Once the turn has started the question
+    // has been asked, and rewriting it would change the record of something
+    // already answered.
+    if (!kernel.pending.edit(id, text)) {
+      return {
+        status: 409,
+        body: { error: "that message has already started running" },
+      };
+    }
+    return ok({ pending: kernel.pending.forConversation(String(body.conversationId ?? "")) });
+  }
+
+  if (method === "POST" && path === "/api/pending/delete") {
+    const id = Number(body.id);
+    if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
+    if (!kernel.pending.remove(id)) {
+      return {
+        status: 409,
+        body: { error: "that message has already started running" },
+      };
+    }
+    return ok({ pending: kernel.pending.forConversation(String(body.conversationId ?? "")) });
+  }
+
+  if (method === "POST" && path === "/api/pending/fork") {
+    const id = Number(body.id);
+    if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
+    const waiting = kernel.pending.get(id);
+    if (!waiting) {
+      return {
+        status: 409,
+        body: { error: "that message has already started running" },
+      };
+    }
+    try {
+      // The conversation as it stands, plus this message, in a thread of its
+      // own. The original keeps running whatever else is queued behind it.
+      const forked = await kernel.forkPending(waiting);
+      return ok({ conversationId: forked });
+    } catch (err) {
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
+  }
+
   if (method === "GET" && path === "/api/spend") {
     const days = clampLimit(queryParams(req.url).get("days"), 30);
     const since = Date.now() - days * 24 * 60 * 60 * 1000;
@@ -624,8 +676,23 @@ export async function handleApiRequest(
     const id = queryParams(req.url).get("conversationId") ?? "";
     if (!id) return { status: 400, body: { error: "conversationId required" } };
     const last = kernel.spend.lastContext(id);
+    const retained = kernel.sessions.get(id);
+    const retention = kernel.sessions.retention();
+    // What KOS keeps is knowable for every model, and it is usually what
+    // binds first: history is trimmed at this budget long before a modern
+    // context window is anywhere near full. A percentage of the model window
+    // alone said 2% while the conversation was about to start losing its
+    // oldest turns.
+    const historyChars = JSON.stringify(retained).length;
+    const exchanges = retained.filter((m) => m.role === "user").length;
     return ok({
       conversationId: id,
+      history: {
+        historyChars,
+        maxChars: retention.maxChars,
+        exchanges,
+        maxExchanges: retention.maxExchanges,
+      },
       ...(last ? { last } : {}),
       total: kernel.spend.forConversation(id),
       window: last

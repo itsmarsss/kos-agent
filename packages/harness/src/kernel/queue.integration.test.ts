@@ -130,4 +130,66 @@ describe("a message sent while a turn is running", () => {
     const said = history(id);
     expect(said.indexOf("one")).toBeLessThan(said.indexOf("two"));
   });
+
+  /*
+   * Editing, dropping and forking a message that is still waiting. All three
+   * are refused once its turn has started, because from that point the
+   * question has been asked and changing it would rewrite the record of
+   * something already answered.
+   */
+  describe("managing what is still waiting", () => {
+    const queueOne = async (): Promise<{ id: string; pendingId: number; first: Promise<unknown> }> => {
+      // A real conversation, because forking copies its title, brief and tool
+      // scope, and the dashboard never queues into a bare session id.
+      const id = kernel.conversations.create({ userId: "owner", title: "Work" }).id;
+      const first = kernel.handleMessage("first", { sessionId: id });
+      await new Promise((r) => setTimeout(r, 20));
+      void kernel.handleMessage("second", { sessionId: id });
+      await new Promise((r) => setTimeout(r, 20));
+      const pendingId = kernel.pending.forConversation(id)[0]!.id;
+      return { id, pendingId, first };
+    };
+
+    const finish = async (): Promise<void> => {
+      for (let i = 0; i < 4; i++) {
+        release.forEach((fn) => fn());
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    };
+
+    it("edits a message before it runs", async () => {
+      const { id, pendingId } = await queueOne();
+      expect(kernel.pending.edit(pendingId, "rewritten")).toBe(true);
+      expect(kernel.pending.forConversation(id)[0]?.text).toBe("rewritten");
+      await finish();
+    });
+
+    it("drops a message before it runs", async () => {
+      const { id, pendingId } = await queueOne();
+      expect(kernel.pending.remove(pendingId)).toBe(true);
+      expect(kernel.pending.forConversation(id)).toEqual([]);
+      await finish();
+    });
+
+    it("refuses to edit or drop one that has already been taken", async () => {
+      const { pendingId } = await queueOne();
+      await finish();
+      // Its turn ran, so it is no longer waiting and neither call finds it.
+      expect(kernel.pending.edit(pendingId, "too late")).toBe(false);
+      expect(kernel.pending.remove(pendingId)).toBe(false);
+    });
+
+    it("forks a waiting message into a chat of its own", async () => {
+      const { id, pendingId } = await queueOne();
+      const waiting = kernel.pending.get(pendingId)!;
+      const forkId = await kernel.forkPending(waiting);
+
+      expect(forkId).not.toBe(id);
+      // Claimed, so it cannot also run in the original.
+      expect(kernel.pending.forConversation(id)).toEqual([]);
+      // The fork starts from a copy of the chat as it stood.
+      expect(kernel.conversations.get(forkId)?.title).toContain("fork");
+      await finish();
+    });
+  });
 });

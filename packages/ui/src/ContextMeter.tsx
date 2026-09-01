@@ -3,24 +3,37 @@ import { useEffect, useState, type ReactElement } from "react";
 import { api, type ContextUse } from "./api.js";
 
 /**
- * How full this conversation's context is.
+ * How full this conversation is.
  *
- * The number is the provider's own count of what the last turn was sent, not
- * an estimate from character counts, so it is the same number the model saw.
- * When the model's window is known it becomes a proportion; when it is not,
- * the count is shown on its own rather than a proportion of a guess.
+ * Two different limits apply and only one of them is always knowable, so the
+ * meter shows the one that binds:
  *
- * It reads as a warning past three quarters, because that is the point where
- * the next long turn starts pushing the beginning of the conversation out and
- * `/compact` is the thing to do about it.
+ * - **KOS's own retention.** History is trimmed to a character budget and a
+ *   number of exchanges, after which the oldest turns fall off the front. This
+ *   is a KOS setting, so it is known for every model, and on a large modern
+ *   context window it is what runs out first.
+ * - **The model's window**, when it is known. Reported as a second figure
+ *   rather than the headline, because for most models here it is not known and
+ *   a bare "2%" said nothing about the trimming that was about to happen.
+ *
+ * The earlier version showed only the model window, so on a model with no
+ * known window it rendered a token count with no percentage: a number with
+ * nothing to compare it to, which is what "does not show how much is used up"
+ * meant.
  */
+
+function short(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(2)}M`;
+}
 
 export function ContextMeter({
   conversationId,
-  /** Bumped by the caller when a turn finishes, so the figure keeps up. */
   refreshKey,
 }: {
   conversationId: string;
+  /** Bumped by the caller when a turn finishes, so the figure keeps up. */
   refreshKey?: number;
 }): ReactElement | null {
   const [use, setUse] = useState<ContextUse | null>(null);
@@ -33,8 +46,6 @@ export function ContextMeter({
         if (!cancelled) setUse(r);
       })
       .catch(() => {
-        // A missing figure is not worth an error in the header; the meter
-        // simply does not appear.
         if (!cancelled) setUse(null);
       });
     return () => {
@@ -42,34 +53,43 @@ export function ContextMeter({
     };
   }, [conversationId, refreshKey]);
 
-  if (!use?.last) return null;
+  if (!use?.history || use.history.historyChars <= 2) return null;
 
-  const used = use.last.inputTokens;
-  const shown = used < 1000 ? `${used}` : `${(used / 1000).toFixed(1)}k`;
-  const fraction = use.window ? used / use.window : undefined;
-  const level =
-    fraction === undefined ? "" : fraction > 0.75 ? " is-high" : fraction > 0.5 ? " is-mid" : "";
+  const { historyChars, maxChars, exchanges, maxExchanges } = use.history;
+  // Whichever budget is closer to being spent is the one worth showing: a
+  // short conversation of enormous tool results runs out of characters, and a
+  // long one of one-liners runs out of exchanges.
+  const byChars = historyChars / maxChars;
+  const byExchanges = exchanges / maxExchanges;
+  const fraction = Math.min(1, Math.max(byChars, byExchanges));
+  const level = fraction > 0.85 ? " is-high" : fraction > 0.6 ? " is-mid" : "";
+
+  const window = use.window;
+  const windowPart =
+    window && use.last
+      ? ` Last turn sent ${use.last.inputTokens.toLocaleString()} tokens of a ${short(window)} window.`
+      : use.last
+        ? ` Last turn sent ${use.last.inputTokens.toLocaleString()} tokens; the window for ${use.last.model} is not known here.`
+        : "";
 
   return (
     <div
       className={`ctx${level}`}
       title={
-        use.window
-          ? `Last turn sent ${used.toLocaleString()} of ${use.window.toLocaleString()} tokens. /compact to summarise the history.`
-          : `Last turn sent ${used.toLocaleString()} tokens. The window for ${use.last.model} is not known here, so no percentage is shown.`
+        `Keeping ${historyChars.toLocaleString()} of ${maxChars.toLocaleString()} characters ` +
+        `and ${exchanges} of ${maxExchanges} exchanges. Past either, the oldest turns ` +
+        `drop off; /compact turns them into a summary instead.${windowPart}`
       }
     >
-      {fraction !== undefined && (
-        <span className="ctx-track" aria-hidden="true">
-          <span
-            className="ctx-fill"
-            style={{ width: `${Math.min(100, fraction * 100).toFixed(1)}%` }}
-          />
-        </span>
-      )}
+      <span className="ctx-track" aria-hidden="true">
+        <span className="ctx-fill" style={{ width: `${(fraction * 100).toFixed(1)}%` }} />
+      </span>
       <span className="ctx-text">
-        {shown} context
-        {fraction !== undefined && ` · ${Math.round(fraction * 100)}%`}
+        {Math.round(fraction * 100)}% full
+        <span className="ctx-detail">
+          {" · "}
+          {exchanges}/{maxExchanges} turns
+        </span>
       </span>
     </div>
   );
