@@ -1210,7 +1210,9 @@ select {
 }
 
 .insp-panel {
-  width: min(440px, 100vw);
+  /* 440px was too narrow for what it holds: a page spec, a table listing or a
+     tool's arguments all wrapped into unreadable columns. */
+  width: min(720px, 100vw);
   height: 100%;
   background: var(--panel);
   border-left: 1px solid var(--line-strong);
@@ -2126,18 +2128,9 @@ select {
 .chats-row { position: relative; }
 .chats-more {
   position: absolute;
-  top: 0.5rem;
-  right: 0.4rem;
+  top: 0.4rem;
+  right: 0.3rem;
   z-index: 2;
-  width: 1.5rem;
-  height: 1.5rem;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: var(--r-sm);
-  background: none;
-  color: var(--faint);
-  cursor: pointer;
   opacity: 0;
   transition: opacity 0.12s;
 }
@@ -2632,18 +2625,47 @@ li:hover .chats-item-when { opacity: 0; }
   transition: opacity 0.12s;
 }
 .turn:hover .acts, .acts:focus-within { opacity: 1; }
-.acts-btn {
+/*
+ * Every icon button, one rule.
+ *
+ * These were sized by their padding, so each ended up as wide as whatever it
+ * contained: a row of copy, edit, fork and delete came out ragged, and the
+ * glyph sat off-centre because the button's line-height still applied. A fixed
+ * square with the content centred fixes both, and means a row of them is
+ * uniform whatever the icons are.
+ */
+.acts-btn,
+.chats-more,
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  line-height: 0;
   background: none;
   border: 0;
+  border-radius: var(--r-sm);
   color: var(--faint);
   font: inherit;
-  font-size: var(--text-sm);
-  padding: 0.1rem 0.3rem;
-  border-radius: var(--r-sm);
   cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
 }
-.acts-btn:hover:not(:disabled) { color: var(--text); background: var(--panel-2); }
-.acts-btn:disabled { opacity: 0.4; cursor: default; }
+.acts-btn:hover:not(:disabled),
+.chats-more:hover,
+.icon-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--panel-2);
+}
+.acts-btn:disabled,
+.icon-btn:disabled { opacity: 0.4; cursor: default; }
+.icon-btn--danger:hover:not(:disabled) { color: var(--danger); background: var(--danger-dim); }
+/* The icons themselves are a consistent box, so nothing shifts on swap. */
+.acts-btn svg,
+.chats-more svg,
+.icon-btn svg { display: block; }
 
 .edit { align-self: stretch; display: flex; flex-direction: column; gap: 0.4rem; }
 .edit-area {
@@ -3783,20 +3805,6 @@ li:hover .chats-item-when { opacity: 0; }
 .queued-actions { display: flex; gap: 0.15rem; }
 .queued-edit { width: 100%; display: flex; flex-direction: column; gap: 0.4rem; }
 .queued-edit .queued-actions { justify-content: flex-end; }
-.icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.25rem;
-  color: var(--faint);
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius);
-  cursor: pointer;
-  line-height: 0;
-}
-.icon-btn:hover { color: var(--text); background: var(--panel-2); }
-.icon-btn--danger:hover { color: var(--danger); background: var(--danger-dim); }
 
 /* Agents: what is running inside the workspace right now. */
 .agents-head h1 { margin: 0 0 0.25rem; font-size: var(--text-2xl); letter-spacing: -0.02em; }
@@ -4226,3 +4234,34 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
 }
 
 .agent-doing { color: var(--ok); margin-right: 0.5rem; }
+
+/* The context meter now lives in the composer bar. */
+.sheet-composer-bar .ctx { margin-left: 0.25rem; }
+.sheet-composer-bar .ctx-track { width: 2.5rem; }
+
+/* Full screen: a build log is long and wide, and the dialog was neither. */
+.term-wrap.is-full { padding: 0; }
+.term-wrap.is-full .term {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  border-radius: 0;
+  border: 0;
+}
+
+/* Drawer: the answer first, provenance last. */
+.insp-lead {
+  margin: 0 0 0.25rem;
+  font-size: var(--text-md);
+  line-height: 1.5;
+}
+.insp-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0.25rem 0 0;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--line);
+}
+.insp-facts dt { color: var(--faint); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em; }
+.insp-facts dd { margin: 0.1rem 0 0; font-size: var(--text-base); overflow-wrap: anywhere; }

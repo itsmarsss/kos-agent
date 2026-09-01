@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -6,9 +7,12 @@ import {
   type ReactElement,
 } from "react";
 
+import { m } from "motion/react";
 import { summarizeAction } from "@kos/shared";
 
 import { Decision } from "./Decision.js";
+import { ease } from "./motion.js";
+import { useDismiss } from "./useDismiss.js";
 
 import { ContextMeter } from "./ContextMeter.js";
 import {
@@ -134,6 +138,9 @@ export function ChatsPage({
   const [collapsed, setCollapsed] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const closeMenu = useCallback(() => setMenuFor(null), []);
+  useDismiss(menuRef, menuFor !== null, closeMenu);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [rewinding, setRewinding] = useState(false);
   const [archived, setArchived] = useState<Conversation[]>([]);
@@ -620,7 +627,14 @@ export function ChatsPage({
                   <MoreIcon />
                 </button>
                 {menuFor === c.id && (
-                  <div className="chats-menu" role="menu">
+                  <m.div
+                    className="chats-menu"
+                    role="menu"
+                    ref={menuRef}
+                    initial={{ opacity: 0, scale: 0.96, y: -4 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    transition={ease}
+                  >
                     <button
                       type="button"
                       onClick={() => {
@@ -654,7 +668,7 @@ export function ChatsPage({
                     >
                       Delete
                     </button>
-                  </div>
+                  </m.div>
                 )}
               </div>
               <a
@@ -734,14 +748,6 @@ export function ChatsPage({
                         : `scoped to ${active.toolAllow.join(", ")}`}
                     </span>
                   )}
-                  {/* Keyed off sendingIn so it re-reads once a turn lands:
-                      context that only updated on a page load would be stale
-                      exactly when it matters, which is while you are filling
-                      it up. */}
-                  <ContextMeter
-                    conversationId={active.id}
-                    refreshKey={sendingIn === null ? 1 : 0}
-                  />
                 </div>
               </div>
               <div className="chats-view-actions">
@@ -992,6 +998,14 @@ export function ChatsPage({
                         return;
                       }
                     }
+                    // Cmd or Ctrl with Enter stops the turn. Enter alone
+                    // sends, so the interrupt needs a modifier or every
+                    // message would be a stop.
+                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                      e.preventDefault();
+                      if (running) stop();
+                      return;
+                    }
                     composerKeyDown(e, () => void send());
                   }}
                 />
@@ -1002,6 +1016,13 @@ export function ChatsPage({
                 <ModelPicker />
                 {/* The hint took the widest slot in the row to say something
                     every chat surface already does. The space is the model's. */}
+                {/* Beside Send rather than under the title: how full the chat
+                    is matters when you are about to add to it, which is here.
+                    Keyed off sendingIn so it re-reads once a turn lands. */}
+                <ContextMeter
+                  conversationId={active.id}
+                  refreshKey={sendingIn === null ? 1 : 0}
+                />
                 <span className="composer-spacer" />
                 {running ? (
                   <button type="button" className="btn btn--stop" onClick={stop}>
