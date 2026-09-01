@@ -1,68 +1,146 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
-import { api, type SettingsPayload } from "./api.js";
+import { api, type ModelRate, type SettingsPayload } from "./api.js";
 import { ModelSettings } from "./ModelSettings.js";
+import { Select } from "./Select.js";
 import { SpendPanel } from "./SpendPanel.js";
 
 /**
  * Everything you would otherwise have opened a dotfile to change.
  *
+ * Grouped and reachable rather than stacked: a settings page you have to
+ * scroll to the bottom of to find out what is on it is one you avoid. The rail
+ * says what exists, each section holds one subject, and each saves on its own
+ * so nothing is half-applied.
+ *
  * Keys are write-only from here. What comes back is whether one is set and its
  * last four characters, which is enough to tell two apart and no use to
- * anyone; the value itself never leaves the machine it is stored on. Saving
- * applies to the running process as well as the file, so a key set here works
- * on the next turn rather than after a restart.
+ * anyone; the value itself never leaves the machine it is stored on.
  */
 
+type SectionId =
+  | "you"
+  | "providers"
+  | "models"
+  | "conversation"
+  | "network"
+  | "spend"
+  | "workspace";
+
+const SECTIONS: { id: SectionId; label: string; blurb: string }[] = [
+  { id: "you", label: "You", blurb: "Who KOS thinks it is working for" },
+  { id: "providers", label: "Providers", blurb: "API keys and channel credentials" },
+  { id: "models", label: "Models", blurb: "Which model answers what" },
+  { id: "conversation", label: "Conversation", blurb: "How much history is kept" },
+  { id: "network", label: "Network", blurb: "Ports, binding, and what the agent may reach" },
+  { id: "spend", label: "Spend", blurb: "Tokens used and what they cost" },
+  { id: "workspace", label: "Workspace", blurb: "Where everything lives" },
+];
+
+/** One setting: a label, the control, and why you would touch it. */
 function Field({
   label,
   hint,
-  placeholder,
-  value,
-  onChange,
-  secret,
-  current,
+  children,
+  badge,
 }: {
   label: string;
-  hint: string;
-  placeholder?: string;
-  value: string;
-  onChange: (v: string) => void;
-  secret?: boolean;
-  /** What is stored now, masked, when something is. */
-  current?: string | null;
+  hint?: string;
+  children: ReactNode;
+  badge?: ReactNode;
 }): ReactElement {
   return (
-    <label className="set-field">
-      <span className="set-label">
-        {label}
-        {current && <span className="set-current">set · {current}</span>}
-      </span>
-      <input
-        className="kos-input"
-        type={secret ? "password" : "text"}
-        value={value}
-        autoComplete={secret ? "new-password" : "off"}
-        placeholder={current ? "unchanged" : (placeholder ?? "")}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      <span className="hint">{hint}</span>
-    </label>
+    <div className="set-field">
+      <div className="set-label">
+        <span>{label}</span>
+        {badge}
+      </div>
+      {children}
+      {hint && <p className="set-hint">{hint}</p>}
+    </div>
   );
+}
+
+function Section({
+  title,
+  blurb,
+  children,
+  onSave,
+  saving,
+  saved,
+}: {
+  title: string;
+  blurb: string;
+  children: ReactNode;
+  onSave?: () => void;
+  saving?: boolean;
+  saved?: string | null;
+}): ReactElement {
+  return (
+    <section className="set-card">
+      <header className="set-card-head">
+        <h2>{title}</h2>
+        <p>{blurb}</p>
+      </header>
+      <div className="set-card-body">{children}</div>
+      {onSave && (
+        <footer className="set-card-foot">
+          <button
+            type="button"
+            className="btn btn--primary"
+            disabled={saving}
+            onClick={onSave}
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+          {saved && <span className="set-saved">{saved}</span>}
+        </footer>
+      )}
+    </section>
+  );
+}
+
+/** The zones this machine knows, so a typo cannot break every schedule. */
+function timezones(): string[] {
+  const supported = (
+    Intl as unknown as { supportedValuesOf?: (k: string) => string[] }
+  ).supportedValuesOf;
+  try {
+    return supported?.("timeZone") ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export function SettingsPage(): ReactElement {
   const [data, setData] = useState<SettingsPayload | null>(null);
-  const [draft, setDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [active, setActive] = useState<SectionId>("you");
+  const [busy, setBusy] = useState<SectionId | null>(null);
+  const [saved, setSaved] = useState<Partial<Record<SectionId, string>>>({});
+
+  const [profile, setProfile] = useState({ name: "", timezone: "" });
+  const [keys, setKeys] = useState<Record<string, string>>({});
+  const [ports, setPorts] = useState<Record<string, string>>({});
+  const [retention, setRetention] = useState({
+    maxChars: "",
+    maxToolResultChars: "",
+    maxExchanges: "",
+  });
+
+  const zones = useRef<string[]>(timezones());
 
   const load = (): void => {
     void api
       .settings()
       .then((r) => {
         setData(r);
+        setProfile({ name: r.profile.name, timezone: r.profile.timezone });
+        setRetention({
+          maxChars: String(r.retention.maxChars),
+          maxToolResultChars: String(r.retention.maxToolResultChars),
+          maxExchanges: String(r.retention.maxExchanges),
+        });
         setError(null);
       })
       .catch((err: unknown) =>
@@ -72,51 +150,53 @@ export function SettingsPage(): ReactElement {
 
   useEffect(load, []);
 
-  const save = (): void => {
-    // Only what was actually typed. An untouched field must not be sent as an
-    // empty string, which would read as "clear this key".
+  const done = (section: SectionId, message: string): void => {
+    setSaved((s) => ({ ...s, [section]: message }));
+    window.setTimeout(
+      () => setSaved((s) => ({ ...s, [section]: undefined })),
+      2500,
+    );
+  };
+
+  const run = (section: SectionId, work: Promise<unknown>, message: string): void => {
+    setBusy(section);
+    void work
+      .then(() => {
+        done(section, message);
+        load();
+      })
+      .catch((err: unknown) =>
+        setError(err instanceof Error ? err.message : String(err)),
+      )
+      .finally(() => setBusy(null));
+  };
+
+  const saveEnv = (
+    section: SectionId,
+    draft: Record<string, string>,
+    clear: () => void,
+  ): void => {
     const values: Record<string, string> = {};
-    for (const [key, value] of Object.entries(draft)) {
-      if (value !== "") values[key] = value;
-    }
+    // Only what was actually typed. An untouched field sent as an empty string
+    // would read as "clear this key".
+    for (const [k, v] of Object.entries(draft)) if (v !== "") values[k] = v;
     if (Object.keys(values).length === 0) {
-      setSaved("Nothing changed.");
+      done(section, "Nothing changed");
       return;
     }
-    setSaving(true);
+    setBusy(section);
     void api
       .saveSettings(values)
-      .then((r) => {
-        setDraft({});
-        setSaved(
-          r.written.length
-            ? `Saved ${r.written.length} setting${r.written.length === 1 ? "" : "s"}.`
-            : "Nothing changed.",
-        );
-        load();
-      })
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : String(err)),
-      )
-      .finally(() => setSaving(false));
-  };
-
-  const clear = (key: string): void => {
-    setSaving(true);
-    void api
-      .saveSettings({ [key]: "" })
       .then(() => {
-        setSaved("Cleared.");
+        clear();
+        done(section, "Saved");
         load();
       })
       .catch((err: unknown) =>
         setError(err instanceof Error ? err.message : String(err)),
       )
-      .finally(() => setSaving(false));
+      .finally(() => setBusy(null));
   };
-
-  const set = (key: string, value: string): void =>
-    setDraft((d) => ({ ...d, [key]: value }));
 
   if (!data) {
     return (
@@ -132,121 +212,339 @@ export function SettingsPage(): ReactElement {
     );
   }
 
+  const networkKeys = Object.entries(data.settings).filter(
+    ([, m]) => m.group === "network",
+  );
+  const accessKeys = Object.entries(data.settings).filter(
+    ([, m]) => m.group === "access",
+  );
+
   return (
     <div className="settings-page">
-      <header className="set-head">
-        <h1>Settings</h1>
-      </header>
+      <nav className="set-rail" aria-label="Settings sections">
+        {SECTIONS.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            className={`set-rail-item ${active === s.id ? "is-on" : ""}`}
+            onClick={() => setActive(s.id)}
+          >
+            <span className="set-rail-label">{s.label}</span>
+            <span className="set-rail-blurb">{s.blurb}</span>
+          </button>
+        ))}
+      </nav>
 
-      {error && (
-        <p className="ops-alert ops-alert--err" role="alert">
-          {error}
-        </p>
-      )}
-      {saved && (
-        <p className="ops-alert" role="status">
-          {saved}
-        </p>
-      )}
-
-      <section className="set-section">
-        <h2>This workspace</h2>
-        <dl className="set-facts">
-          <dt>Workspace</dt>
-          <dd>
-            <code>{data.workspace}</code>
-          </dd>
-          <dt>Settings file</dt>
-          <dd>
-            <code>{data.envPath ?? "none"}</code>
-          </dd>
-          {data.sitesUrl && (
-            <>
-              <dt>Sites served at</dt>
-              <dd>
-                <code>{data.sitesUrl}</code>
-              </dd>
-            </>
-          )}
-        </dl>
-        {!data.envWritable && (
+      <div className="set-pane">
+        {error && (
           <p className="ops-alert ops-alert--err" role="alert">
-            {data.envPath
-              ? "The settings file is inside the workspace, so keys cannot be saved there: the agent can read anything in the workspace. Move it out and restart."
-              : "This host was started without a settings file, so keys cannot be saved from here."}
+            {error}
           </p>
         )}
-        <p className="hint">
-          The workspace is set when the host starts, with{" "}
-          <code>--workspace</code> or <code>KOS_WORKSPACE</code>. Changing it
-          means pointing KOS at a different folder, so it is a restart rather
-          than a setting.
-        </p>
-      </section>
+        {!data.envWritable && active !== "spend" && active !== "models" && (
+          <p className="ops-alert ops-alert--err" role="alert">
+            {data.envPath
+              ? "The settings file is inside the workspace, so nothing can be saved there: the agent can read anything in the workspace. Move it out and restart."
+              : "This host was started without a settings file, so nothing can be saved from here."}
+          </p>
+        )}
 
-      <section className="set-section">
-        <h2>Providers</h2>
-        <p className="hint">
-          Stored outside the workspace, in the settings file above, readable
-          only by you. KOS shows the last four characters so you can tell two
-          keys apart; it never sends the value back.
-        </p>
-        {Object.entries(data.secrets).map(([key, meta]) => (
-          <div className="set-row" key={key}>
+        {active === "you" && (
+          <Section
+            title="You"
+            blurb="Used in the system prompt and to decide what today means for a schedule."
+            saving={busy === "you"}
+            saved={saved.you ?? null}
+            onSave={() =>
+              run(
+                "you",
+                api.saveProfile(profile.name, profile.timezone),
+                "Saved",
+              )
+            }
+          >
+            <Field label="Name" hint="What KOS calls you.">
+              <input
+                className="kos-input"
+                value={profile.name}
+                onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
+              />
+            </Field>
             <Field
-              label={meta.label}
-              hint={meta.hint}
-              secret={!key.endsWith("OWNER_DISCORD")}
-              value={draft[key] ?? ""}
-              current={meta.masked}
-              onChange={(v) => set(key, v)}
-            />
-            {meta.masked && (
+              label="Timezone"
+              hint="Schedules and “today” follow this. Checked against what this machine knows, so a typo cannot quietly move every cron job."
+            >
+              {zones.current.length > 0 ? (
+                <Select
+                  className="set-select"
+                  label="Timezone"
+                  value={profile.timezone}
+                  options={zones.current.map((z) => ({ value: z, label: z }))}
+                  onChange={(v) => setProfile((p) => ({ ...p, timezone: v }))}
+                />
+              ) : (
+                <input
+                  className="kos-input"
+                  value={profile.timezone}
+                  onChange={(e) =>
+                    setProfile((p) => ({ ...p, timezone: e.target.value }))
+                  }
+                />
+              )}
+            </Field>
+            <Field label="Owner id" hint="Identifies you across channels. Set at first run.">
+              <input className="kos-input" value={data.profile.ownerId} readOnly />
+            </Field>
+          </Section>
+        )}
+
+        {active === "providers" && (
+          <Section
+            title="Providers"
+            blurb="Stored outside the workspace, readable only by you. KOS shows the last four characters so you can tell two keys apart; it never sends the value back."
+            saving={busy === "providers"}
+            saved={saved.providers ?? null}
+            onSave={() => saveEnv("providers", keys, () => setKeys({}))}
+          >
+            {Object.entries(data.secrets).map(([key, meta]) => (
+              <Field
+                key={key}
+                label={meta.label}
+                hint={meta.hint}
+                badge={
+                  meta.masked ? (
+                    <span className="set-badge is-set">{meta.masked}</span>
+                  ) : (
+                    <span className="set-badge">not set</span>
+                  )
+                }
+              >
+                <div className="set-inline">
+                  <input
+                    className="kos-input"
+                    type="password"
+                    autoComplete="new-password"
+                    value={keys[key] ?? ""}
+                    placeholder={meta.masked ? "unchanged" : "not set"}
+                    onChange={(e) =>
+                      setKeys((k) => ({ ...k, [key]: e.target.value }))
+                    }
+                  />
+                  {meta.masked && (
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      disabled={busy === "providers"}
+                      onClick={() =>
+                        run("providers", api.saveSettings({ [key]: "" }), "Cleared")
+                      }
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </Field>
+            ))}
+          </Section>
+        )}
+
+        {active === "models" && (
+          <Section title="Models" blurb="Which model answers what, and how hard it thinks.">
+            <ModelSettings />
+          </Section>
+        )}
+
+        {active === "conversation" && (
+          <Section
+            title="Conversation"
+            blurb="How much of a chat is carried into the next turn. Past these, the oldest exchanges fall off the front; /compact turns them into a summary instead."
+            saving={busy === "conversation"}
+            saved={saved.conversation ?? null}
+            onSave={() =>
+              run(
+                "conversation",
+                api.saveRetention({
+                  maxChars: Number(retention.maxChars),
+                  maxToolResultChars: Number(retention.maxToolResultChars),
+                  maxExchanges: Number(retention.maxExchanges),
+                }),
+                "Saved",
+              )
+            }
+          >
+            <Field
+              label="History budget"
+              hint={`Characters of a conversation kept. Default ${data.retentionDefaults.maxChars.toLocaleString()}.`}
+            >
+              <input
+                className="kos-input"
+                inputMode="numeric"
+                value={retention.maxChars}
+                onChange={(e) =>
+                  setRetention((r) => ({ ...r, maxChars: e.target.value }))
+                }
+              />
+            </Field>
+            <Field
+              label="Exchanges kept"
+              hint={`Hard ceiling regardless of size. Default ${data.retentionDefaults.maxExchanges}.`}
+            >
+              <input
+                className="kos-input"
+                inputMode="numeric"
+                value={retention.maxExchanges}
+                onChange={(e) =>
+                  setRetention((r) => ({ ...r, maxExchanges: e.target.value }))
+                }
+              />
+            </Field>
+            <Field
+              label="Tool result cap"
+              hint={`A single result longer than this is truncated rather than dropped. Default ${data.retentionDefaults.maxToolResultChars.toLocaleString()}.`}
+            >
+              <input
+                className="kos-input"
+                inputMode="numeric"
+                value={retention.maxToolResultChars}
+                onChange={(e) =>
+                  setRetention((r) => ({
+                    ...r,
+                    maxToolResultChars: e.target.value,
+                  }))
+                }
+              />
+            </Field>
+            <p className="set-note">
+              Changes apply to the next trim, not retroactively: shrinking the
+              budget does not reach back and delete what a conversation already
+              has.
+            </p>
+          </Section>
+        )}
+
+        {active === "network" && (
+          <Section
+            title="Network"
+            blurb="Where KOS listens and what it may reach. Applied the next time the host starts."
+            saving={busy === "network"}
+            saved={saved.network ?? null}
+            onSave={() => saveEnv("network", ports, () => setPorts({}))}
+          >
+            {networkKeys.map(([key, meta]) => (
+              <Field
+                key={key}
+                label={meta.label}
+                hint={meta.hint}
+                badge={
+                  meta.value ? <span className="set-badge is-set">{meta.value}</span> : null
+                }
+              >
+                <input
+                  className="kos-input"
+                  value={ports[key] ?? ""}
+                  placeholder={meta.value || "default"}
+                  onChange={(e) => setPorts((p) => ({ ...p, [key]: e.target.value }))}
+                />
+              </Field>
+            ))}
+            {accessKeys.map(([key, meta]) => (
+              <Field
+                key={key}
+                label={meta.label}
+                hint={meta.hint}
+                badge={
+                  meta.value ? <span className="set-badge is-set">{meta.value}</span> : null
+                }
+              >
+                <input
+                  className="kos-input"
+                  value={ports[key] ?? ""}
+                  placeholder={meta.value || "none"}
+                  onChange={(e) => setPorts((p) => ({ ...p, [key]: e.target.value }))}
+                />
+              </Field>
+            ))}
+          </Section>
+        )}
+
+        {active === "spend" && (
+          <Section title="Spend" blurb="Tokens as the provider counted them.">
+            <SpendPanel />
+          </Section>
+        )}
+
+        {active === "workspace" && (
+          <Section
+            title="Workspace"
+            blurb="One folder holds everything KOS owns. The agent cannot see outside it."
+          >
+            <dl className="set-facts">
+              <dt>Workspace</dt>
+              <dd>
+                <code>{data.workspace}</code>
+              </dd>
+              <dt>Settings file</dt>
+              <dd>
+                <code>{data.envPath ?? "none"}</code>
+                <span className="set-hint">
+                  Deliberately outside the workspace: that is what stops the
+                  agent reading your keys.
+                </span>
+              </dd>
+              {data.sitesUrl && (
+                <>
+                  <dt>Sites served at</dt>
+                  <dd>
+                    <code>{data.sitesUrl}</code>
+                  </dd>
+                </>
+              )}
+              <dt>Agent</dt>
+              <dd>
+                {data.halted ? (
+                  <span className="set-badge is-halted">halted</span>
+                ) : (
+                  <span className="set-badge is-set">running</span>
+                )}
+              </dd>
+            </dl>
+            <div className="set-inline">
               <button
                 type="button"
-                className="btn btn--ghost"
-                disabled={saving}
-                onClick={() => clear(key)}
+                className="btn"
+                onClick={() => {
+                  void api
+                    .openWorkspace()
+                    .then(() => done("workspace", "Opened"))
+                    .catch((err: unknown) =>
+                      setError(err instanceof Error ? err.message : String(err)),
+                    );
+                }}
               >
-                Clear
+                Open folder
               </button>
-            )}
-          </div>
-        ))}
-      </section>
-
-      <section className="set-section">
-        <h2>Ports</h2>
-        <p className="hint">Applied the next time the host starts.</p>
-        {Object.entries(data.settings).map(([key, meta]) => (
-          <Field
-            key={key}
-            label={meta.label}
-            hint={meta.hint}
-            placeholder={meta.value || undefined}
-            value={draft[key] ?? ""}
-            onChange={(v) => set(key, v)}
-          />
-        ))}
-      </section>
-
-      <div className="set-actions">
-        <button
-          type="button"
-          className="btn btn--primary"
-          disabled={saving || !data.envWritable}
-          onClick={save}
-        >
-          {saving ? "Saving…" : "Save"}
-        </button>
+              <button
+                type="button"
+                className={data.halted ? "btn btn--primary" : "btn btn--danger"}
+                onClick={() =>
+                  run("workspace", api.setKill(!data.halted), data.halted ? "Resumed" : "Halted")
+                }
+              >
+                {data.halted ? "Resume KOS" : "Halt KOS"}
+              </button>
+              {saved.workspace && <span className="set-saved">{saved.workspace}</span>}
+            </div>
+            <p className="set-note">
+              Halting stops every turn and scheduled job until you resume. The
+              workspace is chosen when the host starts, with{" "}
+              <code>--workspace</code>, so pointing KOS at a different folder is
+              a restart rather than a setting.
+            </p>
+          </Section>
+        )}
       </div>
-
-      <section className="set-section">
-        <h2>Models</h2>
-        <ModelSettings />
-      </section>
-
-      <SpendPanel />
     </div>
   );
 }
+
+export type { ModelRate };

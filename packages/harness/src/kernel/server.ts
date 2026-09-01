@@ -24,6 +24,8 @@ import { conversationEvents } from "./transcript.js";
 import { listDirectory, readFile, readImage } from "./files.js";
 import { listSites, sitesBaseUrl } from "../sites/server.js";
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
+import { RETENTION_DEFAULTS, RETENTION_KEY } from "./session.js";
+import { saveProfile } from "./profile.js";
 import {
   isInside,
   isWritableKey,
@@ -478,6 +480,14 @@ export async function handleApiRequest(
     }
     return ok({
       workspace: kernel.workspace.root,
+      profile: {
+        name: kernel.profile.name,
+        timezone: kernel.profile.timezone,
+        ownerId: kernel.profile.ownerId,
+      },
+      retention: kernel.sessions.retention(),
+      retentionDefaults: RETENTION_DEFAULTS,
+      halted: kernel.killSwitch.halted,
       envPath: envPath ?? null,
       // Said plainly, because "why will it not save" is otherwise a mystery
       // whose answer is in a comment in another file.
@@ -524,6 +534,64 @@ export async function handleApiRequest(
         body: { error: err instanceof Error ? err.message : String(err) },
       };
     }
+  }
+
+  if (method === "POST" && path === "/api/settings/profile") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const timezone = typeof body.timezone === "string" ? body.timezone.trim() : "";
+    if (!name) return { status: 400, body: { error: "name required" } };
+    // Checked against the runtime rather than a list: a timezone this machine
+    // does not know would silently make every schedule fire at the wrong hour.
+    if (timezone) {
+      try {
+        new Intl.DateTimeFormat("en", { timeZone: timezone });
+      } catch {
+        return {
+          status: 400,
+          body: { error: `not a timezone this machine knows: ${timezone}` },
+        };
+      }
+    }
+    const next = {
+      ...kernel.profile,
+      name,
+      ...(timezone ? { timezone } : {}),
+    };
+    saveProfile(kernel.workspace, next);
+    Object.assign(kernel.profile, next);
+    return ok({ profile: next });
+  }
+
+  if (method === "POST" && path === "/api/settings/retention") {
+    const accepted: Record<string, number> = {};
+    const rejected: string[] = [];
+    for (const key of ["maxChars", "maxToolResultChars", "maxExchanges"]) {
+      const raw = (body as Record<string, unknown>)[key];
+      if (raw === undefined) continue;
+      const value = Number(raw);
+      // A zero or negative budget would retain nothing, which reads as KOS
+      // having forgotten everything rather than as a setting.
+      if (Number.isFinite(value) && value > 0) accepted[key] = Math.floor(value);
+      else rejected.push(key);
+    }
+    if (rejected.length > 0) {
+      return {
+        status: 400,
+        body: {
+          error: `must be a positive number: ${rejected.join(", ")}`,
+        },
+      };
+    }
+    // Merged, not replaced. Storing only what this request carried wiped the
+    // settings the owner had already saved: a request with nothing valid in
+    // it reset everything to the defaults on the next start.
+    const merged = {
+      ...(kernel.settings.get<Record<string, number>>(RETENTION_KEY) ?? {}),
+      ...accepted,
+    };
+    kernel.settings.set(RETENTION_KEY, merged);
+    kernel.sessions.configure(merged);
+    return ok({ retention: kernel.sessions.retention() });
   }
 
   if (method === "GET" && path === "/api/spend") {
