@@ -18,7 +18,7 @@ import {
 import type { ContentBlock, ModelMessage } from "../models/types.js";
 import { createDefaultRouter, type RouteSummary } from "../models/router.js";
 import { SpendStore } from "../ops/spend.js";
-import { PendingMessages } from "./pending.js";
+import { PendingMessages, type PendingMessage } from "./pending.js";
 import {
   applyModelSettings,
   MODEL_SETTINGS_KEY,
@@ -1470,6 +1470,39 @@ export class Kernel {
    * the transcript to a point and run from there. Fork copies first, so the
    * original survives; the other two rewrite in place.
    */
+  /**
+   * Take a waiting message into a conversation of its own.
+   *
+   * The chat as it stands is copied, the message is removed from the queue and
+   * asked in the copy, and the original carries on with whatever else was
+   * behind it. This is for the follow-up you typed while it was working and
+   * then decided was really a different thread.
+   */
+  async forkPending(waiting: PendingMessage): Promise<string> {
+    const source = this.conversations.get(waiting.conversationId);
+    if (!source) throw new Error("that conversation no longer exists");
+
+    const fork = this.conversations.create({
+      userId: source.userId,
+      title: `${source.title} (fork)`,
+      ...(source.brief ? { brief: source.brief } : {}),
+      ...(source.toolAllow !== null ? { toolAllow: source.toolAllow } : {}),
+    });
+    // A snapshot of the history as it is now. The turn still running in the
+    // original will write its own result there and not here.
+    this.sessions.set(fork.id, this.sessions.get(waiting.conversationId));
+    this.conversations.touch(fork.id);
+
+    // Claimed before it is asked, so it cannot also run in the original.
+    this.pending.remove(waiting.id);
+    void this.handleMessage(waiting.text, {
+      sessionId: fork.id,
+      userId: source.userId,
+      ...(waiting.attachments.length ? { attachments: waiting.attachments } : {}),
+    });
+    return fork.id;
+  }
+
   async rewind(
     sessionId: string,
     userTurnIndex: number,

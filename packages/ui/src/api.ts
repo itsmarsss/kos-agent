@@ -219,11 +219,28 @@ export interface ModelSpend {
 
 export interface ContextUse {
   conversationId: string;
+  /** What KOS itself is keeping, which is knowable for every model. */
+  history: ContextUseDetail;
   /** What the most recent turn was sent, as the provider counted it. */
   last?: { inputTokens: number; provider: string; model: string; at: number };
   total: { inputTokens: number; outputTokens: number; calls: number };
   /** Absent when the model's window is not known. */
   window?: number;
+}
+
+export interface ContextUseDetail {
+  /** Characters of history retained right now. */
+  historyChars: number;
+  /** Budget it is trimmed to. */
+  maxChars: number;
+  exchanges: number;
+  maxExchanges: number;
+}
+
+export interface PendingMessage {
+  id: number;
+  text: string;
+  attachments: { name: string }[];
 }
 
 export interface Retention {
@@ -393,7 +410,7 @@ export const api = {
       messages: ChatTurn[];
       events: ChatEvent[];
       /** Sent while a turn was running, waiting its turn. */
-      pending: { id: number; text: string; attachments: { name: string }[] }[];
+      pending: PendingMessage[];
     }>(
       `/api/conversations/${encodeURIComponent(id)}/messages`,
     ),
@@ -426,6 +443,19 @@ export const api = {
     post<{ rates: Record<string, ModelRate> }>("/api/spend/rates", { rates }),
   context: (conversationId: string) =>
     get<ContextUse>(`/api/context?conversationId=${encodeURIComponent(conversationId)}`),
+  editPending: (id: number, text: string, conversationId: string) =>
+    post<{ pending: PendingMessage[] }>("/api/pending/edit", {
+      id,
+      text,
+      conversationId,
+    }),
+  deletePending: (id: number, conversationId: string) =>
+    post<{ pending: PendingMessage[] }>("/api/pending/delete", {
+      id,
+      conversationId,
+    }),
+  forkPending: (id: number) =>
+    post<{ conversationId: string }>("/api/pending/fork", { id }),
   settings: () => get<SettingsPayload>("/api/settings"),
   saveProfile: (name: string, timezone: string) =>
     post<{ profile: { name: string; timezone: string } }>(
@@ -501,7 +531,7 @@ export const api = {
     post<{ ok: boolean; message: string; reply?: string }>("/api/deny", { id }),
   setKill: (halted: boolean) => post<Status>("/api/kill", { halted }),
   message: (text: string, sessionId?: string, attachments?: Attachment[]) =>
-    post<{ reply: string }>("/api/message", {
+    post<{ reply: string; isCommand?: boolean; switchedTo?: string }>("/api/message", {
       text,
       ...(sessionId ? { sessionId } : {}),
       ...(attachments?.length ? { attachments } : {}),
