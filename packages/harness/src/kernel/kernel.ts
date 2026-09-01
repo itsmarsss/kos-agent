@@ -17,6 +17,7 @@ import {
 } from "../memory/index.js";
 import type { ContentBlock, ModelMessage } from "../models/types.js";
 import { createDefaultRouter, type RouteSummary } from "../models/router.js";
+import { SpendStore } from "../ops/spend.js";
 import {
   applyModelSettings,
   MODEL_SETTINGS_KEY,
@@ -190,6 +191,7 @@ export class Kernel {
   readonly config: InstanceConfig;
   readonly pages: PageStore;
   readonly crons: CronStore;
+  readonly spend: SpendStore;
   readonly audit: AuditLog;
   readonly runs: RunsLog;
   readonly approvals: ApprovalQueue;
@@ -248,6 +250,7 @@ export class Kernel {
     config: InstanceConfig;
     pages: PageStore;
     crons: CronStore;
+    spend: SpendStore;
     audit: AuditLog;
     runs: RunsLog;
     approvals: ApprovalQueue;
@@ -279,6 +282,7 @@ export class Kernel {
     this.config = args.config;
     this.pages = args.pages;
     this.crons = args.crons;
+    this.spend = args.spend;
     this.audit = args.audit;
     this.runs = args.runs;
     this.approvals = args.approvals;
@@ -321,6 +325,7 @@ export class Kernel {
     const audit = new AuditLog(workspace.db, secrets);
     const runs = new RunsLog(workspace.db);
     const approvals = new ApprovalQueue(workspace.db, secrets);
+    const spend = new SpendStore(workspace.db);
     const killSwitch = new PersistentKillSwitch(workspace.db);
     const queue = new WorkQueue();
     const backup = new WorkspaceBackup(workspace.root);
@@ -452,6 +457,22 @@ export class Kernel {
     }
     const inference = options.inference ?? router!;
 
+    // Every response's token count, attributed to whatever conversation was
+    // being worked on. Providers report this and it was being thrown away, so
+    // there was no way to answer "what is this costing me" from inside KOS.
+    if (router) {
+      router.onUsage = (event) => {
+        spend.record({
+          conversationId: kernelRef?.currentConversationId ?? null,
+          task: event.task,
+          provider: event.provider,
+          model: event.model,
+          inputTokens: event.inputTokens,
+          outputTokens: event.outputTokens,
+        });
+      };
+    }
+
     // Hybrid salience: heuristics decide outright, the cheap model confirms and
     // structures whatever they only flag as "maybe".
     const memoryWriter = new MemoryWriter(
@@ -468,6 +489,7 @@ export class Kernel {
       config,
       pages,
       crons,
+      spend,
       audit,
       runs,
       approvals,

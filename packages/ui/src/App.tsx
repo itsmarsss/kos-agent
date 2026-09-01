@@ -30,6 +30,7 @@ import { Home } from "./Home.js";
 import { ChatsPage } from "./ChatsPage.js";
 import { FilesPage } from "./FilesPage.js";
 import { SitesPage } from "./SitesPage.js";
+import { SpendPanel } from "./SpendPanel.js";
 import { ProjectsPage } from "./ProjectsPage.js";
 import { KnowledgePage } from "./KnowledgePage.js";
 import { ChatPanel } from "./ChatPanel.js";
@@ -481,7 +482,7 @@ export function App(): React.ReactElement {
                 <button type="button" onClick={() => void refresh()}>Refresh</button>
                 <button type="button" onClick={() => void doSnapshot()}>Snapshot now</button>
                 <button type="button" onClick={() => setSettingsOpen(true)}>
-                  Models and thinking
+                  Settings
                 </button>
                 <button
                   type="button"
@@ -526,10 +527,11 @@ export function App(): React.ReactElement {
 
         <Modal
           open={settingsOpen}
-          title="Models and thinking"
+          title="Settings"
           onClose={() => setSettingsOpen(false)}
         >
           <ModelSettings onClose={() => setSettingsOpen(false)} />
+          <SpendPanel />
         </Modal>
 
         <Modal

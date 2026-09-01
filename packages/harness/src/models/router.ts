@@ -74,6 +74,22 @@ export function routingForSecrets(secrets: SecretsRegistry): RoutingTable {
 export class ModelRouter {
   private readonly providers: Map<string, Provider>;
 
+  /**
+   * Told about every response's token usage.
+   *
+   * Set here rather than at each call site because this is the one place that
+   * knows both which model answered and what it reported using, and because
+   * everything routes through it: a turn, a compaction, a salience check and a
+   * cron run all get counted without each remembering to.
+   */
+  onUsage?: (event: {
+    task: Task;
+    provider: string;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+  }) => void;
+
   constructor(
     providers: Provider[],
     private routing: RoutingTable,
@@ -129,7 +145,19 @@ export class ModelRouter {
       throw new Error(`no provider registered for route: ${route.provider}`);
     }
     const apiKey = this.secrets.require(provider.keyName);
-    return provider.generate(req, route.spec, apiKey);
+    const response = await provider.generate(req, route.spec, apiKey);
+    try {
+      this.onUsage?.({
+        task,
+        provider: route.provider,
+        model: route.spec.model,
+        inputTokens: response.usage?.inputTokens ?? 0,
+        outputTokens: response.usage?.outputTokens ?? 0,
+      });
+    } catch {
+      // Accounting must never be able to fail a turn that already succeeded.
+    }
+    return response;
   }
 }
 

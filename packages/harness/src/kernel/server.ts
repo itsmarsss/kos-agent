@@ -23,6 +23,8 @@ import {
 import { conversationEvents } from "./transcript.js";
 import { listDirectory, readFile, readImage } from "./files.js";
 import { listSites, sitesBaseUrl } from "../sites/server.js";
+import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
+import { contextWindowFor } from "../models/windows.js";
 
 export interface ApiRequest {
   method: string;
@@ -446,6 +448,51 @@ export async function handleApiRequest(
         body: { error: err instanceof Error ? err.message : String(err) },
       };
     }
+  }
+
+  if (method === "GET" && path === "/api/spend") {
+    const days = clampLimit(queryParams(req.url).get("days"), 30);
+    const since = Date.now() - days * 24 * 60 * 60 * 1000;
+    const rates = parseRates(kernel.settings.get(RATES_KEY));
+    const models = kernel.spend.byModel(since).map((m) => ({
+      ...m,
+      // Undefined rather than zero when no rate is set: a model the owner has
+      // not priced has an unknown cost, which is not the same as a free one.
+      cost: costOf(m, rates),
+    }));
+    return ok({
+      days,
+      models,
+      byDay: kernel.spend.byDay(since),
+      rates,
+    });
+  }
+
+  if (method === "POST" && path === "/api/spend/rates") {
+    const rates = parseRates(body.rates);
+    kernel.settings.set(RATES_KEY, rates);
+    return ok({ rates });
+  }
+
+  if (method === "GET" && path === "/api/context") {
+    // What the last turn actually put in front of the model, as the provider
+    // counted it, plus what this conversation has cost in total.
+    const id = queryParams(req.url).get("conversationId") ?? "";
+    if (!id) return { status: 400, body: { error: "conversationId required" } };
+    const last = kernel.spend.lastContext(id);
+    return ok({
+      conversationId: id,
+      ...(last ? { last } : {}),
+      total: kernel.spend.forConversation(id),
+      window: last
+        ? windowFor(
+            last.provider,
+            last.model,
+            parseRates(kernel.settings.get(RATES_KEY)),
+            contextWindowFor,
+          )
+        : undefined,
+    });
   }
 
   if (method === "GET" && path === "/api/sites") {
