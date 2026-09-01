@@ -18,6 +18,7 @@ import {
 import type { ContentBlock, ModelMessage } from "../models/types.js";
 import { createDefaultRouter, type RouteSummary } from "../models/router.js";
 import { SpendStore } from "../ops/spend.js";
+import { PendingMessages } from "./pending.js";
 import {
   applyModelSettings,
   MODEL_SETTINGS_KEY,
@@ -192,6 +193,7 @@ export class Kernel {
   readonly pages: PageStore;
   readonly crons: CronStore;
   readonly spend: SpendStore;
+  readonly pending: PendingMessages;
   readonly audit: AuditLog;
   readonly runs: RunsLog;
   readonly approvals: ApprovalQueue;
@@ -251,6 +253,7 @@ export class Kernel {
     pages: PageStore;
     crons: CronStore;
     spend: SpendStore;
+    pending: PendingMessages;
     audit: AuditLog;
     runs: RunsLog;
     approvals: ApprovalQueue;
@@ -283,6 +286,7 @@ export class Kernel {
     this.pages = args.pages;
     this.crons = args.crons;
     this.spend = args.spend;
+    this.pending = args.pending;
     this.audit = args.audit;
     this.runs = args.runs;
     this.approvals = args.approvals;
@@ -326,6 +330,7 @@ export class Kernel {
     const runs = new RunsLog(workspace.db);
     const approvals = new ApprovalQueue(workspace.db, secrets);
     const spend = new SpendStore(workspace.db);
+    const pending = new PendingMessages(workspace.db);
     const killSwitch = new PersistentKillSwitch(workspace.db);
     const queue = new WorkQueue();
     const backup = new WorkspaceBackup(workspace.root);
@@ -490,6 +495,7 @@ export class Kernel {
       pages,
       crons,
       spend,
+      pending,
       audit,
       runs,
       approvals,
@@ -564,7 +570,21 @@ export class Kernel {
     const sessionId =
       opts.sessionId ?? `chat:${userId}`;
 
-    return this.queue.enqueue(() => this.runTurn(text, userId, sessionId, opts));
+    // A turn runs one at a time, so a second message waits. It is parked
+    // where a reload can find it rather than living only in the browser: the
+    // session history cannot be used for that, because the turn already
+    // running rewrites it wholesale when it lands and would take the waiting
+    // message with it.
+    const useSession = !this.sessionless && !opts.noSession;
+    const parked =
+      useSession && this.queue.depth > 0
+        ? this.pending.add(sessionId, text, opts.attachments ?? [])
+        : undefined;
+
+    return this.queue.enqueue(() => {
+      if (parked !== undefined) this.pending.take(parked);
+      return this.runTurn(text, userId, sessionId, opts);
+    });
   }
 
   /**
@@ -1205,6 +1225,12 @@ export class Kernel {
             conversationId: opts.conversationId,
             tool,
             isError: result.isError === true,
+            // Capped: a live call should be openable like a finished one, and
+            // a tool that returns a megabyte should not be sent down an
+            // event stream to say so.
+            ...(typeof result.content === "string"
+              ? { result: result.content.slice(0, 4000) }
+              : {}),
           });
         }
       },
@@ -1215,6 +1241,7 @@ export class Kernel {
           conversationId: opts.conversationId,
           tool,
           summary: summarizeAction(tool, input),
+          input,
         });
       },
     });

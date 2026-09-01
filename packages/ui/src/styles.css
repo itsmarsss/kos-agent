@@ -3597,3 +3597,14 @@ li:hover .chats-item-when { opacity: 0; }
 .set-row .set-field { flex: 1; }
 .set-row .btn { margin-top: 1.35rem; }
 .set-actions { margin: 0 0 1.75rem; }
+
+/* A message sent while a turn was running: taken, not yet answered. */
+.bubble.is-queued { opacity: 0.65; position: relative; }
+.queued-mark {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.6875rem;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}

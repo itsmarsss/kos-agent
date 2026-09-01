@@ -753,6 +753,13 @@ export async function handleApiRequest(
       id,
       messages: transcriptOf(kernel, id),
       events: conversationEvents(kernel.sessions.get(id)),
+      // Sent but not yet run. Shown after the transcript because that is where
+      // they will land, and separately because they have not happened yet.
+      pending: kernel.pending.forConversation(id).map((m) => ({
+        id: m.id,
+        text: m.text,
+        attachments: m.attachments.map((a) => ({ name: a.name })),
+      })),
     });
   }
 
@@ -998,6 +1005,13 @@ function streamProgress(
     ...corsHeaders(req, options),
   });
   res.write(": connected\n\n");
+
+  // Catch the reader up on whatever is already running before sending them
+  // anything new. Without this a reload during a turn showed an empty space
+  // where the thinking and the tool calls had been, until the turn ended.
+  for (const event of kernel.progress.snapshot()) {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  }
 
   const unsubscribe = kernel.progress.subscribe((event) => {
     res.write(`data: ${JSON.stringify(event)}\n\n`);

@@ -350,7 +350,13 @@ export const api = {
       ...(attachments?.length ? { attachments } : {}),
     }),
   conversation: (id: string) =>
-    get<{ id: string; messages: ChatTurn[]; events: ChatEvent[] }>(
+    get<{
+      id: string;
+      messages: ChatTurn[];
+      events: ChatEvent[];
+      /** Sent while a turn was running, waiting its turn. */
+      pending: { id: number; text: string; attachments: { name: string }[] }[];
+    }>(
       `/api/conversations/${encodeURIComponent(id)}/messages`,
     ),
   tools: () => get<ToolInfo[]>("/api/tools"),

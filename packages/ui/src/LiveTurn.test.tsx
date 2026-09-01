@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { LiveTurn } from "./LiveTurn.js";
@@ -63,8 +63,61 @@ describe("LiveTurn states", () => {
         }}
       />,
     );
-    expect(container.querySelector(".livetool")?.textContent).toContain("SELECT 1");
+    expect(container.querySelector(".toolcall")?.textContent).toContain("SELECT 1");
     expect(screen.getByText("Thinking")).toBeTruthy();
+  });
+
+  /*
+   * The same component the finished transcript uses. A running call that could
+   * only be read as one line meant waiting for the turn to end to find out
+   * what the agent had actually asked for.
+   */
+  it("lets a call still running be opened for its arguments", () => {
+    const { container } = render(
+      <LiveTurn
+        live={{
+          ...base,
+          steps: [
+            {
+              kind: "tool",
+              tool: "files.write",
+              summary: "notes.md",
+              done: false,
+              isError: false,
+              input: { path: "notes.md", content: "hello" },
+            },
+          ],
+        }}
+      />,
+    );
+    const head = container.querySelector<HTMLElement>(".toolcall-head");
+    expect(head).toBeTruthy();
+    fireEvent.click(head!);
+    expect(container.querySelector(".toolcall")?.textContent).toContain("notes.md");
+    expect(container.querySelector(".toolcall")?.textContent).toContain("hello");
+  });
+
+  it("shows what a finished call returned", () => {
+    const { container } = render(
+      <LiveTurn
+        live={{
+          ...base,
+          steps: [
+            {
+              kind: "tool",
+              tool: "sql",
+              summary: "SELECT 1",
+              done: true,
+              isError: false,
+              input: { query: "SELECT 1" },
+              result: "1 row",
+            },
+          ],
+        }}
+      />,
+    );
+    fireEvent.click(container.querySelector<HTMLElement>(".toolcall-head")!);
+    expect(container.querySelector(".toolcall")?.textContent).toContain("1 row");
   });
 
   it("shows a thought as it streams", () => {
@@ -109,6 +162,6 @@ describe("joining a turn already in progress", () => {
         }}
       />,
     );
-    expect(container.querySelector(".livetool")?.textContent).toContain("SELECT 1");
+    expect(container.querySelector(".toolcall")?.textContent).toContain("SELECT 1");
   });
 });
