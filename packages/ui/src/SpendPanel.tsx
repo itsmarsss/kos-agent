@@ -45,12 +45,13 @@ function Trend({
       {days.map((d) => {
         const total = d.inputTokens + d.outputTokens;
         return (
-          <div
-            key={d.day}
-            className="spend-bar"
-            title={`${d.day}: ${tokens(total)} tokens`}
-            style={{ height: `${Math.max(2, (total / peak) * 100)}%` }}
-          />
+          <div className="spend-bar-slot" key={d.day}>
+            <div
+              className="spend-bar"
+              title={`${d.day}: ${tokens(total)} tokens`}
+              style={{ height: `${Math.max(2, (total / peak) * 100)}%` }}
+            />
+          </div>
         );
       })}
     </div>
@@ -121,13 +122,7 @@ export function SpendPanel(): ReactElement {
   return (
     <section className="spend">
       <header className="spend-head">
-        <div>
-          <h3>Spend</h3>
-          <p className="hint">
-            Tokens as the provider counted them. Costs use the rates you set
-            below.
-          </p>
-        </div>
+        <p className="hint">Costs use the rates you set below.</p>
         <Select
           className="spend-window"
           label="Period"
@@ -227,47 +222,51 @@ export function SpendPanel(): ReactElement {
               return (
                 <div className="spend-rate" key={key}>
                   <span className="spend-rate-name">{m.model}</span>
-                  <label>
-                    <span className="hint">in</span>
-                    <input
-                      className="kos-input"
-                      inputMode="decimal"
-                      value={rate?.inputPerMillion ?? ""}
-                      placeholder="0.00"
-                      onChange={(e) => setRate(key, "inputPerMillion", e.target.value)}
-                    />
-                  </label>
-                  <label>
-                    <span className="hint">out</span>
-                    <input
-                      className="kos-input"
-                      inputMode="decimal"
-                      value={rate?.outputPerMillion ?? ""}
-                      placeholder="0.00"
-                      onChange={(e) => setRate(key, "outputPerMillion", e.target.value)}
-                    />
-                  </label>
-                  <label>
-                    <span className="hint">window</span>
-                    <input
-                      className="kos-input"
-                      inputMode="numeric"
-                      value={rate?.contextWindow ?? ""}
-                      placeholder="tokens"
-                      onChange={(e) => setRate(key, "contextWindow", e.target.value)}
-                    />
-                  </label>
+                  <div className="spend-rate-fields">
+                    <label className="spend-rate-field">
+                      <span>$ / M in</span>
+                      <input
+                        className="kos-input kos-input--num"
+                        inputMode="decimal"
+                        value={rate?.inputPerMillion ?? ""}
+                        placeholder="0.00"
+                        onChange={(e) => setRate(key, "inputPerMillion", e.target.value)}
+                      />
+                    </label>
+                    <label className="spend-rate-field">
+                      <span>$ / M out</span>
+                      <input
+                        className="kos-input kos-input--num"
+                        inputMode="decimal"
+                        value={rate?.outputPerMillion ?? ""}
+                        placeholder="0.00"
+                        onChange={(e) => setRate(key, "outputPerMillion", e.target.value)}
+                      />
+                    </label>
+                    <label className="spend-rate-field">
+                      <span>Context window</span>
+                      <input
+                        className="kos-input kos-input--num"
+                        inputMode="numeric"
+                        value={rate?.contextWindow ?? ""}
+                        placeholder="tokens"
+                        onChange={(e) => setRate(key, "contextWindow", e.target.value)}
+                      />
+                    </label>
+                  </div>
                 </div>
               );
             })}
-            <button
-              type="button"
-              className="btn btn--primary"
-              disabled={saving}
-              onClick={save}
-            >
-              {saving ? "Saving…" : "Save rates"}
-            </button>
+            <div>
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={saving}
+                onClick={save}
+              >
+                {saving ? "Saving…" : "Save rates"}
+              </button>
+            </div>
           </div>
         )}
       </div>

@@ -249,6 +249,22 @@ export interface SettingsPayload {
   sitesUrl: string | null;
 }
 
+export interface ProjectDetail {
+  project: Project;
+  tables: { name: string; rows: number; columns: number }[];
+  pages: PageSummary[];
+  crons: CronJob[];
+  sites: SiteInfo[];
+  sitesBase: string | null;
+  migrations: {
+    id: number;
+    version: number;
+    op: string;
+    appliedAt?: number;
+  }[];
+  folder: string;
+}
+
 export interface SiteInfo {
   name: string;
   /** Project it belongs to. */
@@ -411,6 +427,8 @@ export const api = {
     post<{ retention: Retention }>("/api/settings/retention", retention),
   saveSettings: (values: Record<string, string>) =>
     post<{ written: string[]; cleared: string[] }>("/api/settings", { values }),
+  projectDetail: (slug: string) =>
+    get<ProjectDetail>(`/api/projects/${encodeURIComponent(slug)}/detail`),
   sites: () =>
     get<{ base: string | null; sites: SiteInfo[] }>("/api/sites"),
   openWorkspace: () => post<{ opened: string }>("/api/workspace/open", {}),
