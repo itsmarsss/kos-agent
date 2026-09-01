@@ -15,6 +15,18 @@ export function loadEnv(): void {
   }
 }
 
+/**
+ * Where an env file is, or where one would go.
+ *
+ * The settings page needs a path to write even when nothing has been saved
+ * yet, so an existing file wins and the repo root is the fallback rather than
+ * there being no answer.
+ */
+export function envFilePath(): string {
+  const candidates = envCandidates();
+  return candidates.find((path) => existsSync(path)) ?? candidates[1] ?? candidates[0]!;
+}
+
 function envCandidates(): string[] {
   const here = dirname(fileURLToPath(import.meta.url));
   // packages/cli/dist -> repo root
