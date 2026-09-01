@@ -475,7 +475,7 @@ describe("KOS end-to-end flows", () => {
     expect(rows.n).toBe(0);
   });
 
-  it("runs an approved action through the serial queue, not alongside it", async () => {
+  it("runs an approved action behind its own conversation's work, not alongside it", async () => {
     // Observe when the TOOL runs, not when approve() resolves: approve waits
     // on its own resume turn, which is queued anyway and would mask the race.
     const order: string[] = [];
@@ -518,10 +518,14 @@ describe("KOS end-to-end flows", () => {
 
     let release!: () => void;
     const blocker = new Promise<void>((r) => (release = r));
+    // The lane the approval belongs to. Work in *this* conversation must not
+    // be overtaken; work elsewhere is not this conversation's problem, which
+    // is the whole point of lanes.
+    const lane = pending[0]!.conversationId ?? primarySessionId("owner");
     const occupied = kernel.queue.enqueue(async () => {
       await blocker;
       order.push("in-flight job");
-    });
+    }, lane);
 
     const approval = kernel.approve(pending[0]!.id);
 
@@ -532,6 +536,27 @@ describe("KOS end-to-end flows", () => {
     await approval;
 
     expect(order).toEqual(["in-flight job", "approved action"]);
+  });
+
+  /*
+   * The other half of the same contract. One serial queue for everything meant
+   * a long turn in one chat stopped every other chat, every cron job and every
+   * approval, with nothing on screen to say why.
+   */
+  it("does not make one conversation wait on another", async () => {
+    const model = scripted([text("Done here.")]);
+    kernel = await boot(model.inference);
+    const other = kernel.conversations.create({ userId: "owner", title: "Other" });
+
+    let release!: () => void;
+    const blocker = new Promise<void>((r) => (release = r));
+    const busyElsewhere = kernel.queue.enqueue(() => blocker, "some-other-chat");
+
+    const res = await kernel.handleMessage("anything", { sessionId: other.id });
+    expect(res.reply).toContain("Done here.");
+
+    release();
+    await busyElsewhere;
   });
 
   it("keeps parallel conversations from leaking into each other", async () => {
