@@ -18,6 +18,7 @@ import {
 import type { ContentBlock, ModelMessage } from "../models/types.js";
 import { createDefaultRouter, type RouteSummary } from "../models/router.js";
 import { SpendStore } from "../ops/spend.js";
+import { BuildRegistry } from "../builds/registry.js";
 import { PendingMessages, type PendingMessage } from "./pending.js";
 import {
   applyModelSettings,
@@ -199,6 +200,7 @@ export class Kernel {
   readonly crons: CronStore;
   readonly spend: SpendStore;
   readonly pending: PendingMessages;
+  readonly builds: BuildRegistry;
   readonly audit: AuditLog;
   readonly runs: RunsLog;
   readonly approvals: ApprovalQueue;
@@ -259,6 +261,7 @@ export class Kernel {
     crons: CronStore;
     spend: SpendStore;
     pending: PendingMessages;
+    builds: BuildRegistry;
     audit: AuditLog;
     runs: RunsLog;
     approvals: ApprovalQueue;
@@ -292,6 +295,7 @@ export class Kernel {
     this.crons = args.crons;
     this.spend = args.spend;
     this.pending = args.pending;
+    this.builds = args.builds;
     this.audit = args.audit;
     this.runs = args.runs;
     this.approvals = args.approvals;
@@ -336,6 +340,7 @@ export class Kernel {
     const approvals = new ApprovalQueue(workspace.db, secrets);
     const spend = new SpendStore(workspace.db);
     const pending = new PendingMessages(workspace.db);
+    const builds = new BuildRegistry();
     const killSwitch = new PersistentKillSwitch(workspace.db);
     const queue = new WorkQueue();
     const backup = new WorkspaceBackup(workspace.root);
@@ -386,6 +391,7 @@ export class Kernel {
       sitesModule,
       createBuildsModule({
         approvals,
+        registry: builds,
         userId: profile.ownerId,
         currentConversationId: () => kernelRef?.currentConversationId,
         // A build runs for minutes inside one tool call. Its narration goes
@@ -505,6 +511,7 @@ export class Kernel {
       crons,
       spend,
       pending,
+      builds,
       audit,
       runs,
       approvals,

@@ -243,6 +243,20 @@ export interface PendingMessage {
   attachments: { name: string }[];
 }
 
+export interface BuildRecord {
+  id: number;
+  dir: string;
+  task: string;
+  conversationId?: string;
+  status: "running" | "waiting" | "done" | "failed" | "stopped";
+  startedAt: number;
+  endedAt?: number;
+  latest: string;
+  events: { at: number; kind: string; text: string }[];
+  files: string[];
+  askedFor: number;
+}
+
 export interface Retention {
   maxChars: number;
   maxToolResultChars: number;
@@ -456,6 +470,9 @@ export const api = {
     }),
   forkPending: (id: number) =>
     post<{ conversationId: string }>("/api/pending/fork", { id }),
+  agents: () => get<{ builds: BuildRecord[] }>("/api/agents"),
+  stopAgent: (id: number) =>
+    post<{ stopped: boolean; builds: BuildRecord[] }>("/api/agents/stop", { id }),
   settings: () => get<SettingsPayload>("/api/settings"),
   saveProfile: (name: string, timezone: string) =>
     post<{ profile: { name: string; timezone: string } }>(
