@@ -17,6 +17,10 @@ import {
 } from "../memory/index.js";
 import type { ContentBlock, ModelMessage } from "../models/types.js";
 import { createDefaultRouter, type RouteSummary } from "../models/router.js";
+import { SpendStore } from "../ops/spend.js";
+import { BuildRegistry } from "../builds/registry.js";
+import { sitesBaseUrl } from "../sites/server.js";
+import { PendingMessages, type PendingMessage } from "./pending.js";
 import {
   applyModelSettings,
   MODEL_SETTINGS_KEY,
@@ -54,6 +58,8 @@ import { cronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
 import { notifyModule } from "../tools/notify.js";
 import { sqlModule } from "../tools/sql.js";
+import { createBuildsModule } from "../tools/builds.js";
+import { sitesModule } from "../tools/sites.js";
 import { systemsModule } from "../tools/systems.js";
 import { tasksModule } from "../tools/tasks.js";
 import {
@@ -68,13 +74,21 @@ import { readFile as readWorkspaceFile } from "./files.js";
 import { summarizeAction } from "@kos/shared";
 import { attachmentBlocks, type Attachment } from "./attachments.js";
 import { ensureProfile, type Profile } from "./profile.js";
-import { SessionStore, primarySessionId } from "./session.js";
+import {
+  RETENTION_KEY,
+  SessionStore,
+  primarySessionId,
+  type Retention,
+} from "./session.js";
 import { ConversationStore, type Conversation } from "./conversations.js";
 import {
   parseChatCommand,
   runChatCommand,
+  touchesHistory,
+  type ChatCommand,
   type CommandResult,
 } from "./chatcommands.js";
+import { compactHistory } from "./compact.js";
 
 export interface KernelOptions {
   rootDir: string;
@@ -105,6 +119,15 @@ const DEFAULT_SYSTEM =
   "You are KOS, a personal assistant operating inside a sandboxed workspace. Use the available tools to help. Risky actions are queued for owner approval — tell the user the pending id, then wait; when approval results arrive (as a System message), continue the plan without repeating completed creates. Prefer short checklist-style replies when the user asks. For tasks: create_list once, then tasks.add/list/complete with the returned slug as instance.";
 
 const DEFAULT_BACKUP_CRON = "0 3 * * *";
+
+/** Owner settings for build sub-agents. */
+export const BUILD_SETTINGS_KEY = "builds";
+
+/**
+ * Prefix on a queued action that belongs to a build sub-agent rather than to
+ * the tool registry. See approve(): these are decisions, not calls.
+ */
+const BUILD_ACTION_PREFIX = "build.";
 
 /** The orchestrator's own conversation id. */
 export function orchestratorId(ownerId = "owner"): string {
@@ -185,6 +208,9 @@ export class Kernel {
   readonly config: InstanceConfig;
   readonly pages: PageStore;
   readonly crons: CronStore;
+  readonly spend: SpendStore;
+  readonly pending: PendingMessages;
+  readonly builds: BuildRegistry;
   readonly audit: AuditLog;
   readonly runs: RunsLog;
   readonly approvals: ApprovalQueue;
@@ -243,6 +269,9 @@ export class Kernel {
     config: InstanceConfig;
     pages: PageStore;
     crons: CronStore;
+    spend: SpendStore;
+    pending: PendingMessages;
+    builds: BuildRegistry;
     audit: AuditLog;
     runs: RunsLog;
     approvals: ApprovalQueue;
@@ -274,6 +303,9 @@ export class Kernel {
     this.config = args.config;
     this.pages = args.pages;
     this.crons = args.crons;
+    this.spend = args.spend;
+    this.pending = args.pending;
+    this.builds = args.builds;
     this.audit = args.audit;
     this.runs = args.runs;
     this.approvals = args.approvals;
@@ -316,6 +348,9 @@ export class Kernel {
     const audit = new AuditLog(workspace.db, secrets);
     const runs = new RunsLog(workspace.db);
     const approvals = new ApprovalQueue(workspace.db, secrets);
+    const spend = new SpendStore(workspace.db);
+    const pending = new PendingMessages(workspace.db);
+    const builds = new BuildRegistry();
     const killSwitch = new PersistentKillSwitch(workspace.db);
     const queue = new WorkQueue();
     const backup = new WorkspaceBackup(workspace.root);
@@ -363,6 +398,43 @@ export class Kernel {
       createHttpModule({ allowedHosts: options.allowedHosts ?? [] }),
       createSearchModule(),
       systemsModule,
+      sitesModule,
+      createBuildsModule({
+        approvals,
+        registry: builds,
+        userId: profile.ownerId,
+        currentConversationId: () => kernelRef?.currentConversationId,
+        // A build runs for minutes inside one tool call. Its narration goes
+        // out on the reasoning stream, which is already where a reader looks
+        // to see what is happening rather than whether it has hung.
+        onEvent: (event) => {
+          const conversationId = kernelRef?.currentConversationId;
+          if (!conversationId) return;
+          kernelRef?.progress.emit({
+            kind: "delta",
+            conversationId,
+            of: "reasoning",
+            text: `${event.text}\n`,
+          });
+        },
+        model: () => settings.get<{ buildModel?: string }>(BUILD_SETTINGS_KEY)?.buildModel,
+        /*
+         * A build usually runs from an approval, which is outside any turn, so
+         * nothing had opened a live turn for it. Its progress arrived for a
+         * conversation the reader's view had no live entry for, and no
+         * turn-end ever came, so the chat sat on a thinking indicator that
+         * would not clear. Framing it makes the chat show the build working
+         * and then stop.
+         */
+        frame: (phase) => {
+          const conversationId = kernelRef?.currentConversationId;
+          if (!conversationId) return;
+          kernelRef?.progress.emit({
+            kind: phase === "start" ? "turn-start" : "turn-end",
+            conversationId,
+          });
+        },
+      }),
       tasksModule,
       exportModule,
       createSkillsModule(promoter),
@@ -420,6 +492,10 @@ export class Kernel {
     }
 
     const settings = new SettingsStore(workspace.db);
+    // Retention the owner set, applied before any turn reads history, so a
+    // restart does not quietly go back to the defaults.
+    const retention = settings.get<Partial<Retention>>(RETENTION_KEY);
+    if (retention) sessions.configure(retention);
     const router = options.inference ? undefined : createDefaultRouter(secrets);
     // Saved model choices are applied before anything runs, so the first turn
     // after a restart uses what the owner picked rather than the default.
@@ -427,6 +503,22 @@ export class Kernel {
       applyModelSettings(router, settings.get<ModelSettings>(MODEL_SETTINGS_KEY));
     }
     const inference = options.inference ?? router!;
+
+    // Every response's token count, attributed to whatever conversation was
+    // being worked on. Providers report this and it was being thrown away, so
+    // there was no way to answer "what is this costing me" from inside KOS.
+    if (router) {
+      router.onUsage = (event) => {
+        spend.record({
+          conversationId: kernelRef?.currentConversationId ?? null,
+          task: event.task,
+          provider: event.provider,
+          model: event.model,
+          inputTokens: event.inputTokens,
+          outputTokens: event.outputTokens,
+        });
+      };
+    }
 
     // Hybrid salience: heuristics decide outright, the cheap model confirms and
     // structures whatever they only flag as "maybe".
@@ -444,6 +536,9 @@ export class Kernel {
       config,
       pages,
       crons,
+      spend,
+      pending,
+      builds,
       audit,
       runs,
       approvals,
@@ -518,7 +613,21 @@ export class Kernel {
     const sessionId =
       opts.sessionId ?? `chat:${userId}`;
 
-    return this.queue.enqueue(() => this.runTurn(text, userId, sessionId, opts));
+    // A turn runs one at a time, so a second message waits. It is parked
+    // where a reload can find it rather than living only in the browser: the
+    // session history cannot be used for that, because the turn already
+    // running rewrites it wholesale when it lands and would take the waiting
+    // message with it.
+    const useSession = !this.sessionless && !opts.noSession;
+    const parked =
+      useSession && this.queue.depth > 0
+        ? this.pending.add(sessionId, text, opts.attachments ?? [])
+        : undefined;
+
+    return this.queue.enqueue(() => {
+      if (parked !== undefined) this.pending.take(parked);
+      return this.runTurn(text, userId, sessionId, opts);
+    });
   }
 
   /**
@@ -732,6 +841,31 @@ export class Kernel {
     this.approvals.approve(id, decidedBy ?? this.profile.ownerId);
     const stored = JSON.parse(action.args) as Record<string, unknown>;
 
+    /*
+     * A build's permission request is a decision, not a call to make here.
+     *
+     * Builds queue their tool requests as build.Bash, build.Read and so on.
+     * Those are not registered tools: the sub-agent performs the action itself
+     * the moment it sees the row flip to approved. Executing them here looked
+     * up a tool that does not exist, recorded "unknown tool: build.Bash" in the
+     * audit log, and then resumed the parent agent with outcome=FAILED,
+     * telling it the thing it had just watched succeed had failed.
+     */
+    if (action.tool.startsWith(BUILD_ACTION_PREFIX)) {
+      const wanted = action.tool.slice(BUILD_ACTION_PREFIX.length);
+      this.audit.record({
+        tool: action.tool,
+        args: stored,
+        result: `approved; the build runs ${wanted} itself`,
+        isError: false,
+        riskTier: "risky",
+        userId: decidedBy ?? this.profile.ownerId,
+      });
+      // No resume turn either. The build is not a conversation waiting on a
+      // tool result; it is a process that was blocked and is now unblocked.
+      return { ok: true, message: `Approved. The build continues with ${wanted}.` };
+    }
+
     // Approvals arrive whenever the owner taps a button, so the execution has
     // to join the serial queue like any other job. Running it inline races
     // whatever is already in flight: two git snapshots in one repo, or a cron
@@ -741,10 +875,27 @@ export class Kernel {
     // handleMessage, which enqueues itself; nesting would wait on a chain that
     // includes this very task and deadlock.
     const result = await this.queue.enqueue(async () => {
-      const r = await this.registry.execute(
-        action.tool,
-        injectSecrets(stored, this.secrets),
-      );
+      /*
+       * The approved call belongs to the conversation that asked for it.
+       *
+       * currentConversationId was only ever set inside runTurn, so a tool
+       * executed from an approval ran with none. Anything that asks which
+       * conversation it is working for got nothing: a build started this way
+       * was orphaned from its own chat, so its permission requests carried no
+       * conversation and its progress was emitted for nobody. The chat that
+       * started it showed the request go out and then nothing at all.
+       */
+      const previous = this.currentConversationId;
+      if (action.conversationId) this.currentConversationId = action.conversationId;
+      let r;
+      try {
+        r = await this.registry.execute(
+          action.tool,
+          injectSecrets(stored, this.secrets),
+        );
+      } finally {
+        this.currentConversationId = previous;
+      }
       this.audit.record({
         tool: action.tool,
         args: stored,
@@ -805,6 +956,16 @@ export class Kernel {
     const denied = this.approvals.deny(id, decidedBy ?? this.profile.ownerId);
     if (!denied) {
       return { ok: false, message: `no pending action #${id}` };
+    }
+    // As with approve: the build sees the decision itself and adapts. Resuming
+    // the parent conversation would tell an agent that is not waiting on
+    // anything that something it never asked for was refused.
+    if (denied.tool.startsWith(BUILD_ACTION_PREFIX)) {
+      const wanted = denied.tool.slice(BUILD_ACTION_PREFIX.length);
+      return {
+        ok: true,
+        message: `Declined. The build was told it may not ${wanted}.`,
+      };
     }
     const sessionId =
       denied.conversationId ?? primarySessionId(this.profile.ownerId);
@@ -925,11 +1086,91 @@ export class Kernel {
    * Channels call this instead of handleMessage so every surface gets the same
    * conversation behaviour without implementing any of it.
    */
+  /**
+   * `/compact` and `/clear`: the two commands that act on a conversation's
+   * history rather than on the list of conversations.
+   *
+   * They live here rather than in the command table because that table is pure
+   * bookkeeping over the conversation store, and compacting needs the session
+   * history and a model call.
+   */
+  async runHistoryCommand(
+    command: ChatCommand,
+    conversationId: string,
+  ): Promise<string> {
+    const history = this.sessions.get(conversationId);
+
+    if (command.kind === "clear") {
+      if (history.length === 0) return "Nothing to forget; this chat is empty.";
+      this.sessions.clear(conversationId);
+      // Careful about what this actually promises. Clearing drops the
+      // transcript, not anything saved to memory, and saved facts are recalled
+      // into later turns: the first version of this said "I no longer remember
+      // what was in it" and was then able to recite a fact from the cleared
+      // chat, which is a worse answer than saying nothing.
+      return [
+        `Forgotten ${history.length} message${history.length === 1 ? "" : "s"} of this chat's history.`,
+        "Anything saved to memory stays, and I will still recall it. Knowledge lists those.",
+      ].join(" ");
+    }
+
+    if (history.length === 0) return "Nothing to compact; this chat is empty.";
+    const result = await compactHistory(this.inference, history);
+    if (!result) {
+      return "Not enough here to be worth compacting yet.";
+    }
+    this.sessions.set(conversationId, result.messages);
+    return [
+      `Compacted ${result.compacted} messages into a summary. Here is what I kept:`,
+      "",
+      result.summary,
+    ].join("\n");
+  }
+
+  /**
+   * Run a slash command against a conversation named outright, as the
+   * dashboard names it, rather than resolved from a channel and a sender.
+   *
+   * Returns null when the text is not a command, so a caller can fall through
+   * to an ordinary turn. The dashboard had no command path at all: it offered
+   * the commands in its autocomplete and then posted them to the model as
+   * prose, which answered them by improvising. Same verbs, same behaviour,
+   * whichever surface you type them on.
+   */
+  async runCommandIn(
+    conversationId: string,
+    userId: string,
+    text: string,
+    channel = "dashboard",
+  ): Promise<(HandleResult & { isCommand: true; switchedTo?: string }) | null> {
+    const command = parseChatCommand(text);
+    if (!command) return null;
+
+    if (touchesHistory(command)) {
+      const reply = await this.runHistoryCommand(command, conversationId);
+      return { reply, halted: false, isCommand: true };
+    }
+
+    const result = runChatCommand(command, {
+      conversations: this.conversations,
+      channel,
+      userId,
+      currentId: conversationId,
+    });
+    return {
+      reply: result.reply,
+      halted: false,
+      isCommand: true,
+      ...(result.switchedTo ? { switchedTo: result.switchedTo } : {}),
+    };
+  }
+
   async handleChannelTurn(input: {
     text: string;
     userId: string;
     channel: string;
     conversationKey?: string;
+    attachments?: Attachment[];
   }): Promise<HandleResult & { conversationId: string; isCommand: boolean }> {
     const conversation = this.conversationFor(
       input.channel,
@@ -938,6 +1179,15 @@ export class Kernel {
     );
 
     const command = parseChatCommand(input.text);
+    if (command && touchesHistory(command)) {
+      const result = await this.runHistoryCommand(command, conversation.id);
+      return {
+        reply: result,
+        halted: false,
+        conversationId: conversation.id,
+        isCommand: true,
+      };
+    }
     if (command) {
       // Commands are bookkeeping: no model call, no queue, no transcript entry.
       const result: CommandResult = runChatCommand(command, {
@@ -958,6 +1208,7 @@ export class Kernel {
       userId: input.userId,
       sessionId: conversation.id,
       channel: input.channel,
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     });
     return { ...res, conversationId: conversation.id, isCommand: false };
   }
@@ -1069,6 +1320,12 @@ export class Kernel {
             conversationId: opts.conversationId,
             tool,
             isError: result.isError === true,
+            // Capped: a live call should be openable like a finished one, and
+            // a tool that returns a megabyte should not be sent down an
+            // event stream to say so.
+            ...(typeof result.content === "string"
+              ? { result: result.content.slice(0, 4000) }
+              : {}),
           });
         }
       },
@@ -1079,6 +1336,7 @@ export class Kernel {
           conversationId: opts.conversationId,
           tool,
           summary: summarizeAction(tool, input),
+          input,
         });
       },
     });
@@ -1168,6 +1426,24 @@ export class Kernel {
     return source.describeRoutes?.();
   }
 
+  /**
+   * Re-read secrets from the environment after the owner has changed them.
+   *
+   * The registry is updated in place rather than replaced, because the router
+   * and every tool that injects a secret hold a reference to this one: handing
+   * out a new object would leave them all pointing at the old keys until a
+   * restart, which is exactly what saving from the dashboard is meant to avoid.
+   */
+  reloadSecrets(): void {
+    const fresh = SecretsRegistry.fromEnv();
+    for (const name of this.secrets.names()) {
+      if (!fresh.has(name)) this.secrets.remove(name);
+    }
+    for (const name of fresh.names()) {
+      this.secrets.set(name, fresh.require(name));
+    }
+  }
+
   /** Repoint the router at the owner's saved choices, without a restart. */
   applyModelSettings(settings: ModelSettings): void {
     const router = this.inference as { setRoute?: unknown; routeFor?: unknown };
@@ -1250,6 +1526,48 @@ export class Kernel {
         );
         continue;
       }
+      if (ref.kind === "agent") {
+        const build = this.builds.get(Number(ref.id));
+        if (!build) {
+          parts.push(`Agent ${ref.id}: not found, or its process has ended.`);
+          continue;
+        }
+        // The tail rather than the whole log: enough to answer "what is it
+        // doing" without spending the turn's context on a transcript.
+        const tail = build.events
+          .slice(-15)
+          .map((e) => `  [${e.kind}] ${e.text.slice(0, 300)}`)
+          .join("\n");
+        parts.push(
+          [
+            `Agent ${build.id} in ${build.dir}: ${build.status}.`,
+            `Asked to: ${build.task}`,
+            build.askedFor > 0 ? `Has asked the owner ${build.askedFor} time(s).` : "",
+            tail ? `Recent steps:\n${tail}` : "Nothing logged yet.",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        );
+        continue;
+      }
+      if (ref.kind === "chat") {
+        const chat = this.conversations.get(ref.id);
+        parts.push(
+          chat
+            ? `Chat "${chat.title}" (${chat.id})${chat.brief ? `: ${chat.brief}` : ""}`
+            : `Chat ${ref.id}: not found.`,
+        );
+        continue;
+      }
+      if (ref.kind === "site") {
+        // Addressed as project/name, which is also where it lives.
+        const base = sitesBaseUrl();
+        parts.push(
+          `Site ${ref.id}: folder projects/${ref.id.replace("/", "/sites/")}` +
+            (base ? `, served at ${base}/${ref.id}/` : ", not currently served"),
+        );
+        continue;
+      }
       try {
         const file = readWorkspaceFile(this.workspace, ref.id);
         parts.push(
@@ -1280,6 +1598,39 @@ export class Kernel {
    * the transcript to a point and run from there. Fork copies first, so the
    * original survives; the other two rewrite in place.
    */
+  /**
+   * Take a waiting message into a conversation of its own.
+   *
+   * The chat as it stands is copied, the message is removed from the queue and
+   * asked in the copy, and the original carries on with whatever else was
+   * behind it. This is for the follow-up you typed while it was working and
+   * then decided was really a different thread.
+   */
+  async forkPending(waiting: PendingMessage): Promise<string> {
+    const source = this.conversations.get(waiting.conversationId);
+    if (!source) throw new Error("that conversation no longer exists");
+
+    const fork = this.conversations.create({
+      userId: source.userId,
+      title: `${source.title} (fork)`,
+      ...(source.brief ? { brief: source.brief } : {}),
+      ...(source.toolAllow !== null ? { toolAllow: source.toolAllow } : {}),
+    });
+    // A snapshot of the history as it is now. The turn still running in the
+    // original will write its own result there and not here.
+    this.sessions.set(fork.id, this.sessions.get(waiting.conversationId));
+    this.conversations.touch(fork.id);
+
+    // Claimed before it is asked, so it cannot also run in the original.
+    this.pending.remove(waiting.id);
+    void this.handleMessage(waiting.text, {
+      sessionId: fork.id,
+      userId: source.userId,
+      ...(waiting.attachments.length ? { attachments: waiting.attachments } : {}),
+    });
+    return fork.id;
+  }
+
   async rewind(
     sessionId: string,
     userTurnIndex: number,

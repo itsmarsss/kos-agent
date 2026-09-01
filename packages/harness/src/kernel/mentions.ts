@@ -12,7 +12,14 @@ import type { Workspace } from "../store/workspace.js";
  * guess which of several similarly named things was meant.
  */
 
-export type MentionKind = "project" | "page" | "file" | "schedule";
+export type MentionKind =
+  | "project"
+  | "page"
+  | "file"
+  | "schedule"
+  | "chat"
+  | "site"
+  | "agent";
 
 export interface Mention {
   kind: MentionKind;
@@ -29,6 +36,15 @@ export interface MentionSources {
   pages: { id: string; title: string; projectSlug: string }[];
   crons: { name: string; schedule: string }[];
   workspace: Workspace;
+  /** Conversations, so the palette can jump straight to one. */
+  chats?: { id: string; title: string }[];
+  /** Built sites, addressed as project/name. */
+  sites?: { project: string; name: string; path: string }[];
+  /**
+   * Coding sub-agents, running or recently finished. Addressed by id because
+   * two builds in the same folder are different agents.
+   */
+  agents?: { id: number; dir: string; status: string }[];
 }
 
 /**
@@ -123,6 +139,23 @@ export function findMentions(
       label: c.name,
       hint: c.schedule,
     })),
+    ...(sources.chats ?? []).map((c) => ({
+      kind: "chat" as const,
+      id: c.id,
+      label: c.title,
+    })),
+    ...(sources.agents ?? []).map((a) => ({
+      kind: "agent" as const,
+      id: String(a.id),
+      label: a.dir,
+      hint: a.status,
+    })),
+    ...(sources.sites ?? []).map((s) => ({
+      kind: "site" as const,
+      id: `${s.project}/${s.name}`,
+      label: s.name,
+      hint: s.project,
+    })),
     ...walkFiles(sources.workspace).map((path) => ({
       kind: "file" as const,
       id: path,
@@ -149,7 +182,7 @@ export function mentionToken(mention: Mention): string {
  * sentence eats the full stop: "@schedule:kos.backup." resolved as the job
  * "kos.backup." and was reported as not existing.
  */
-const TOKEN = /@(project|page|file|schedule):([A-Za-z0-9._/-]*[A-Za-z0-9_/-])/g;
+const TOKEN = /@(project|page|file|schedule|chat|site|agent):([A-Za-z0-9._/-]*[A-Za-z0-9_/-])/g;
 
 /**
  * Pull the references out of a message.

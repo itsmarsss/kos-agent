@@ -10,8 +10,17 @@ import { useEffect, useRef, type ReactElement, type ReactNode } from "react";
  * font, padding and wrapping rather than restating them.
  */
 
-const MENTION = /@(?:project|page|file|schedule):[A-Za-z0-9._/-]*[A-Za-z0-9_/-]/g;
-const COMMAND = /^\s*\/(?:new|chats|switch|rename|archive|help)\b/;
+const MENTION =
+  /@(?:project|page|file|schedule|chat|site|agent):[A-Za-z0-9._/-]*[A-Za-z0-9_/-]/g;
+/*
+ * Any word-shaped slash at the very start of the message. Deliberately not a
+ * list of the commands: this file kept its own copy, so /compact and /clear
+ * existed everywhere except here and were the only ones typed in plain white.
+ * The autocomplete already reads the real list from the server and is the
+ * thing that says whether a command exists; this only has to colour the shape
+ * of one.
+ */
+const COMMAND = /^\s*\/[a-z][a-z-]*\b/i;
 
 interface Piece {
   text: string;

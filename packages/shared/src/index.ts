@@ -30,9 +30,14 @@ export type {
   PageSpec,
   StatWidget,
   TableWidget,
+  HomeLayout,
+  HomePanel,
+  PanelKind,
   Widget,
+  WidgetSpan,
   WidgetType,
 } from "./pagespec.js";
+export { DEFAULT_HOME, parseHomeLayout } from "./pagespec.js";
 export {
   isReadOnlyQuery,
   isValidPageSpec,

@@ -1,6 +1,7 @@
 import { useState, type ReactElement } from "react";
 
 import type { ChatEvent } from "./api.js";
+import { Decision } from "./Decision.js";
 
 /**
  * A tool call in the transcript. Collapsed it is one line saying what the
@@ -14,11 +15,14 @@ export function ToolCall({
   event,
   awaitingApproval,
   onDecide,
+  deciding = new Set<number>(),
 }: {
   event: Extract<ChatEvent, { kind: "tool" }>;
   /** True while its pending action is still undecided. */
   awaitingApproval?: boolean;
   onDecide?: (pendingId: string, approved: boolean) => void;
+  /** Ids being decided right now, so the buttons can say so. */
+  deciding?: ReadonlySet<number>;
 }): ReactElement {
   const [open, setOpen] = useState(false);
   const running = event.result === undefined;
@@ -57,20 +61,7 @@ export function ToolCall({
       {queued && awaitingApproval && onDecide && (
         <div className="toolcall-approve">
           <span>This needs your approval before it runs.</span>
-          <button
-            type="button"
-            className="btn btn--ok"
-            onClick={() => onDecide(event.pendingId!, true)}
-          >
-            Approve
-          </button>
-          <button
-            type="button"
-            className="btn btn--danger-ghost"
-            onClick={() => onDecide(event.pendingId!, false)}
-          >
-            Deny
-          </button>
+          <Decision id={Number(event.pendingId)} deciding={deciding} onDecide={(id, ok) => onDecide?.(String(id), ok)} small />
         </div>
       )}
 

@@ -51,6 +51,7 @@ Flags:
   --workspace <path>   workspace (default ~/kos-workspace or KOS_WORKSPACE)
   --host <addr>        host bind (default 127.0.0.1)
   --port <n>           host port (default 4317 or KOS_PORT)
+  --sites-port <n>     port for serving built sites (default port+1, 0 off)
   --foreground / --fg  keep host in this terminal
   --no-discord         start host without Discord
   --discord            require Discord credentials

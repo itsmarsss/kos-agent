@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { summarizeAction } from "@kos/shared";
 
 import {
   api,
   type AuditRecord,
+  type BuildRecord,
   type CronJob,
   type FactRow,
   type PagePayload,
@@ -12,7 +13,6 @@ import {
   type Project,
   type RunRecord,
   type Status,
-  type ChatEvent,
   type Conversation,
 } from "./api.js";
 import { Inspector, type InspectTarget } from "./Inspector.js";
@@ -21,16 +21,16 @@ import { AnimatePresence, m } from "motion/react";
 
 import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
 import { Modal } from "./Modal.js";
-import { ModelSettings } from "./ModelSettings.js";
-import { useAttachments } from "./Attachments.js";
-import { useProgress } from "./progress.js";
-import { ease, listItem, spring } from "./motion.js";
-import { Home } from "./Home.js";
+import { CronEditor } from "./CronEditor.js";
+import { ease, spring } from "./motion.js";
+import { HomePage } from "./HomePage.js";
 import { ChatsPage } from "./ChatsPage.js";
 import { FilesPage } from "./FilesPage.js";
+import { AgentsPage } from "./AgentsPage.js";
+import { SettingsPage } from "./SettingsPage.js";
 import { ProjectsPage } from "./ProjectsPage.js";
 import { KnowledgePage } from "./KnowledgePage.js";
-import { ChatPanel } from "./ChatPanel.js";
+import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { PageRenderer } from "./widgets/PageRenderer.js";
 
@@ -63,22 +63,21 @@ export function App(): React.ReactElement {
   const [activity, setActivity] = useState<AuditRecord[]>([]);
   const [facts, setFacts] = useState<FactRow[]>([]);
   const [factTags, setFactTags] = useState<string[]>([]);
-  const [prompt, setPrompt] = useState("");
-  const [thread, setThread] = useState<ChatEvent[]>([]);
-  const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  /** Pending actions being decided right now. */
+  const [deciding, setDeciding] = useState<ReadonlySet<number>>(new Set());
   const [toast, setToast] = useState<Toast>(null);
   const [activePage, setActivePage] = useState<PagePayload | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [runsFailedOnly, setRunsFailedOnly] = useState(false);
   const [cronFilter, setCronFilter] = useState<"all" | "on" | "off">("all");
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const attachments = useAttachments();
-  const progress = useProgress();
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  // Where sites are served, so the palette can open one directly.
+  const [sitesBase, setSitesBase] = useState<string | null>(null);
+  const [agents, setAgents] = useState<BuildRecord[]>([]);
+  const [editingCron, setEditingCron] = useState<{ job?: CronJob } | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeChat, setActiveChat] = useState<string | null>(null);
 
   const flash = (kind: "ok" | "err", text: string): void => {
     setToast({ kind, text });
@@ -95,7 +94,7 @@ export function App(): React.ReactElement {
     const apply = <T,>(r: PromiseSettledResult<T>, set: (v: T) => void): void => {
       if (r.status === "fulfilled") set(r.value);
     };
-    const [s, a, p, c, f, pg, act, mem, r, convos] = await Promise.allSettled([
+    const [s, a, p, c, f, pg, act, mem, r, convos, ag] = await Promise.allSettled([
       api.status(),
       api.approvals(),
       api.projects(),
@@ -106,9 +105,11 @@ export function App(): React.ReactElement {
       api.memory(300),
       api.runs(200, false),
       api.conversations(),
+      api.agents(),
     ]);
     apply(s, setStatus);
     apply(a, setApprovals);
+    apply(ag, (v) => setAgents(v.builds));
     apply(p, setProjects);
     apply(c, setCrons);
     apply(f, setFailed);
@@ -122,7 +123,6 @@ export function App(): React.ReactElement {
     apply(convos, setConversations);
     // The sheet's transcript is the orchestrator's own thread, not whichever
     // chat happens to be newest.
-    if (s.status === "fulfilled") setActiveChat(s.value.orchestratorId ?? null);
   }, []);
 
   useEffect(() => {
@@ -140,12 +140,23 @@ export function App(): React.ReactElement {
     };
   }, [refresh]);
 
-  // Chat is summoned, not resident. Cmd-K is the one shortcut worth having.
+  // Read once: the port sites are served on is a property of how the host was
+  // started, not something that changes while the page is open.
+  useEffect(() => {
+    void api
+      .sites()
+      .then((r) => setSitesBase(r.base))
+      .catch(() => undefined);
+  }, []);
+
+  // One shortcut, and it opens the thing that reaches everything. It used to
+  // open a chat with KOS, which Chats already does, so the most reachable key
+  // in the app was spent on a second way to do one thing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setChatOpen((v) => !v);
+        setPaletteOpen((v) => !v);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -192,21 +203,26 @@ export function App(): React.ReactElement {
   };
 
   const decide = async (id: number, approved: boolean): Promise<void> => {
+    // Tracked per id rather than as one busy flag, so a second approval
+    // pending elsewhere is not disabled by this one, and every copy of the
+    // buttons for this action agrees about what is happening.
+    setDeciding((current) => new Set(current).add(id));
     setBusy(approved ? `approving #${id}` : `denying #${id}`);
     try {
       const res = await (approved ? api.approve(id) : api.deny(id));
-      if (res.reply) {
-        setThread((t) => [
-          ...t,
-          { kind: "message", role: "kos", text: res.reply! },
-        ]);
-      }
-      flash("ok", approved ? `Approved #${id}` : `Denied #${id}`);
+      // The agent's continuation shows in the conversation it belongs to,
+      // which Chats is already watching; there is no panel to echo it into.
+      flash("ok", res.reply ? res.reply.slice(0, 120) : approved ? `Approved #${id}` : `Denied #${id}`);
       await refresh();
     } catch (err) {
       flash("err", err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(null);
+      setDeciding((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
     }
   };
 
@@ -236,17 +252,45 @@ export function App(): React.ReactElement {
     }
   };
 
-  const doClear = async (): Promise<void> => {
-    setBusy("clear session");
-    try {
-      const res = await api.clear();
-      setThread([]);
-      flash("ok", `Cleared ${res.cleared}`);
-    } catch (err) {
-      flash("err", err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(null);
-    }
+  // Everything the palette can do, in one place, so an action it offers is the
+  // same code path as the button that used to be the only way to reach it.
+  const paletteContext: PaletteContext = {
+    go,
+    openChat: (id) => {
+      const target =
+        id === "orchestrator"
+          ? conversations.find((c) => c.kind === "orchestrator")?.id
+          : id;
+      if (target) go({ name: "chats", id: target });
+    },
+    openSettings: () => go({ name: "settings" }),
+    newChat: () => {
+      void api
+        .newConversation()
+        .then((c) => {
+          void refresh();
+          go({ name: "chats", id: c.id });
+        })
+        .catch((err: unknown) =>
+          flash("err", err instanceof Error ? err.message : String(err)),
+        );
+    },
+    openWorkspace: () => {
+      void api
+        .openWorkspace()
+        .then((r) => flash("ok", `Opened ${r.opened}`))
+        .catch((err: unknown) =>
+          flash("err", err instanceof Error ? err.message : String(err)),
+        );
+    },
+    snapshot: () => void doSnapshot(),
+    refresh: () => void refresh(),
+    openAgent: (agentId) => {
+      // The route carries it, so the log opens straight from search rather
+      // than landing on the list and making you find it again.
+      go({ name: "agents", id: agentId });
+    },
+    sitesBase,
   };
 
   const copyWorkspace = async (): Promise<void> => {
@@ -259,80 +303,6 @@ export function App(): React.ReactElement {
       flash("err", ws);
     }
   };
-
-  const send = async (): Promise<void> => {
-    const text = prompt.trim();
-    if ((text === "" && attachments.files.length === 0) || sending) return;
-    setSending(true);
-    // Attached on send, not when the answer lands: the files belong to the
-    // message the moment it goes.
-    const files = attachments.files;
-    setThread((t) => [
-      ...t,
-      {
-        kind: "message",
-        role: "you",
-        text,
-        ...(files.length
-          ? {
-              attachments: files.map((f) => ({
-                name: f.name,
-                ...(f.mediaType.startsWith("image/")
-                  ? { src: `data:${f.mediaType};base64,${f.data}` }
-                  : {}),
-              })),
-            }
-          : {}),
-      },
-    ]);
-    setPrompt("");
-    attachments.clear();
-    try {
-      const res = await api.orchestrator(text, files);
-      // Reload: the turn's tool calls belong in the transcript, and appending
-      // only the reply would hide the work that produced it.
-      const { events } = await api.conversation(res.conversationId);
-      setThread(events);
-      await refresh();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setThread((t) => [...t, { kind: "message", role: "kos", text: `Error: ${msg}` }]);
-      flash("err", msg);
-    } finally {
-      setSending(false);
-    }
-  };
-
-  /**
-   * One place loads a transcript: whenever the active conversation changes to
-   * one we have not loaded. Doing it only inside a click handler missed the
-   * first conversation, which is selected automatically after the initial poll.
-   */
-  const loadedChat = useRef<string | null>(null);
-  // Reloaded again whenever the conversation has moved on the server, so an
-  // approval resuming the agent shows its continuation without a reopen.
-  const chatStamp = conversations.find((c) => c.id === activeChat)?.updatedAt;
-  useEffect(() => {
-    if (!activeChat) return;
-    const key = `${activeChat}:${chatStamp ?? 0}`;
-    if (sending || loadedChat.current === key) return;
-    loadedChat.current = key;
-    let cancelled = false;
-    void api
-      .conversation(activeChat)
-      .then(({ events }) => {
-        if (!cancelled) setThread(events);
-      })
-      .catch(() => {
-        if (!cancelled) setThread([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeChat, chatStamp, sending]);
-
-
-
 
   /** Pending-action ids, so a queued tool call can offer a decision in place. */
   const pendingIds = useMemo(
@@ -458,9 +428,9 @@ export function App(): React.ReactElement {
             <button
               type="button"
               className="btn btn--primary"
-              onClick={() => setChatOpen(true)}
+              onClick={() => setPaletteOpen(true)}
             >
-              Ask KOS <kbd>⌘K</kbd>
+              Search <kbd>⌘K</kbd>
             </button>
             {/* A native details stays open when something inside it is
                 clicked, so the menu sat over whatever it had just opened. */}
@@ -477,8 +447,8 @@ export function App(): React.ReactElement {
               <div className="menu-body">
                 <button type="button" onClick={() => void refresh()}>Refresh</button>
                 <button type="button" onClick={() => void doSnapshot()}>Snapshot now</button>
-                <button type="button" onClick={() => setSettingsOpen(true)}>
-                  Models and thinking
+                <button type="button" onClick={() => go({ name: "settings" })}>
+                  Settings
                 </button>
                 <button
                   type="button"
@@ -522,26 +492,26 @@ export function App(): React.ReactElement {
         {body}
 
         <Modal
-          open={settingsOpen}
-          title="Models and thinking"
-          onClose={() => setSettingsOpen(false)}
+          open={editingCron !== null}
+          title={editingCron?.job ? `Edit “${editingCron.job.name}”` : "New schedule"}
+          onClose={() => setEditingCron(null)}
         >
-          <ModelSettings onClose={() => setSettingsOpen(false)} />
+          {editingCron && (
+            <CronEditor
+              {...(editingCron.job ? { job: editingCron.job } : {})}
+              onDone={() => {
+                setEditingCron(null);
+                void refresh();
+              }}
+              onCancel={() => setEditingCron(null)}
+            />
+          )}
         </Modal>
 
-        <ChatPanel
-          open={chatOpen}
-          thread={thread}
-          prompt={prompt}
-          sending={sending}
-          onPrompt={setPrompt}
-          onSend={() => void send()}
-          onClose={() => setChatOpen(false)}
-          onClear={() => void doClear()}
-          pendingApprovals={pendingIds}
-          onDecide={decideByPendingId}
-          attachments={attachments}
-          live={activeChat ? progress[activeChat] : undefined}
+        <CommandPalette
+          open={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          ctx={paletteContext}
         />
       </main>
     </ErrorBoundary>
@@ -581,6 +551,10 @@ export function App(): React.ReactElement {
         conversations={conversations}
         {...(route.id ? { activeId: route.id } : {})}
         pendingApprovals={pendingIds}
+        approvals={approvals}
+        deciding={deciding}
+        agents={agents}
+        onOpenAgent={(id) => go({ name: "agents", id })}
         onOpen={(id) => go({ name: "chats", id })}
         onChanged={() => void refresh()}
         onDecide={decideByPendingId}
@@ -595,6 +569,20 @@ export function App(): React.ReactElement {
         onOpen={(p) => go({ name: "files", path: p })}
       />,
     );
+  }
+
+  if (route.name === "agents") {
+    return shell(
+      <AgentsPage
+        deciding={deciding}
+        onDecide={(id, approved) => void decide(id, approved)}
+        {...(route.id !== undefined ? { openId: route.id } : {})}
+      />,
+    );
+  }
+
+  if (route.name === "settings") {
+    return shell(<SettingsPage />);
   }
 
   if (route.name === "projects") {
@@ -666,13 +654,23 @@ export function App(): React.ReactElement {
     return shell(
       <ListPage
         title="Schedule"
-        subtitle="Jobs KOS runs on its own. Click a row to turn one off or delete it."
+        subtitle="Jobs KOS runs on its own. Click a row to edit it."
         rows={rows}
         rowKey={(c) => c.id}
         empty="No crons match"
-        onRowClick={(c) => setInspect({ kind: "cron", data: c })}
+        onRowClick={(c) => setEditingCron({ job: c })}
         filters={
           <div className="list-filter-group">
+            {/* Writing one by hand: everything here could be asked for in a
+                sentence, but a schedule runs while nobody is watching, so it
+                is worth being able to read exactly what will happen. */}
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={() => setEditingCron({})}
+            >
+              New schedule
+            </button>
             {(["all", "on", "off"] as const).map((f) => (
               <button
                 key={f}
@@ -803,126 +801,15 @@ export function App(): React.ReactElement {
     );
   }
 
-  const homeFailed = failed.slice(0, 5);
-
   return shell(
-    <>
-      <AnimatePresence initial={false}>
-      {approvals.length > 0 && (
-        <m.section
-          className="needs-you"
-          aria-label="Pending approvals"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0, height: 0, marginBottom: 0, overflow: "hidden" }}
-          transition={ease}
-        >
-          <h2>
-            {approvals.length === 1
-              ? "1 action needs you"
-              : `${approvals.length} actions need you`}
-          </h2>
-          <AnimatePresence initial={false}>
-          {approvals.map((a) => (
-            <m.div
-              key={a.id}
-              className="approval"
-              layout
-              variants={listItem}
-              initial="hidden"
-              animate="show"
-              exit="exit"
-              transition={ease}
-            >
-              <div className="approval-main">
-                <div className="approval-title">
-                  {summarizeAction(a.tool, a.args)}
-                </div>
-                <div className="approval-meta">
-                  <code>{a.tool}</code>
-                  {a.reason ? <span> · {a.reason}</span> : null}
-                  {/* Deciding here and deciding in the thread are the same act,
-                      so say which thread is waiting on it. */}
-                  {a.conversationId && (
-                    <>
-                      {" · "}
-                      <a
-                        className="link"
-                        href={hrefFor({ name: "chats", id: a.conversationId })}
-                      >
-                        {conversations.find((c) => c.id === a.conversationId)
-                          ?.title ?? "the chat"}
-                      </a>
-                    </>
-                  )}
-                </div>
-              </div>
-              <div className="approval-actions">
-                <button
-                  type="button"
-                  className="btn btn--ok"
-                  onClick={() => void decide(a.id, true)}
-                >
-                  Approve
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--danger-ghost"
-                  onClick={() => void decide(a.id, false)}
-                >
-                  Deny
-                </button>
-              </div>
-            </m.div>
-          ))}
-          </AnimatePresence>
-        </m.section>
-      )}
-      </AnimatePresence>
-
-      <Home
-        projects={projects}
-        pagesByProject={pagesByProject}
-        onInspect={(project, pages) =>
-          setInspect({ kind: "project", data: project, pages })
-        }
-      />
-
-      <section className="lately" aria-label="Recent activity">
-        <div className="lately-head">
-          <h2>Lately</h2>
-          <a className="link" href="#/runs">
-            All activity →
-          </a>
-        </div>
-        <ul className="feed">
-          {homeFailed.slice(0, 2).map((r) => (
-            <li key={`f${r.id}`} className="feed-item feed-item--bad">
-              <button type="button" onClick={() => setInspect({ kind: "run", data: r })}>
-                <span className="feed-what">{r.kind} run failed</span>
-                <span className="feed-detail">{preview(r.error ?? "", 60)}</span>
-                <span className="feed-when">{timeAgo(r.startedAt)}</span>
-              </button>
-            </li>
-          ))}
-          {activity.slice(0, 6).map((t) => (
-            <li key={t.id} className="feed-item">
-              <button type="button" onClick={() => setInspect({ kind: "tool", data: t })}>
-                {/* The tool name was the loudest thing on the home page and
-                    the least useful: summarizeAction already says what
-                    happened in words. It stays in the inspector. */}
-                <span className="feed-what">{summarizeAction(t.tool, t.args)}</span>
-                <span className="feed-when">{timeAgo(t.createdAt)}</span>
-              </button>
-            </li>
-          ))}
-          {activity.length === 0 && homeFailed.length === 0 && (
-            <li className="feed-empty">Nothing yet.</li>
-          )}
-        </ul>
-      </section>
-    </>,
+    <HomePage
+      onOpenChat={(id) => go({ name: "chats", id })}
+      onGo={(to) => go({ name: to } as Route)}
+      deciding={deciding}
+      onDecide={(id, approved) => void decide(id, approved)}
+    />,
   );
 }
+
 
 

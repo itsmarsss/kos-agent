@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { summarizeAction } from "@kos/shared";
 
 import type {
@@ -9,6 +9,7 @@ import type {
   Project,
   RunRecord,
 } from "./api.js";
+import { api, type ProjectDetail } from "./api.js";
 import { Select } from "./Select.js";
 
 export type InspectTarget =
@@ -37,6 +38,23 @@ function fmtTime(ts?: number | null): string {
 
 const STATUSES = ["born", "active", "dormant", "done", "archived"] as const;
 
+/** Total rows across a project's tables, the one number worth leading with. */
+function rowTotal(detail: ProjectDetail | null): string {
+  if (!detail) return "—";
+  const known = detail.tables.filter((t) => t.rows >= 0);
+  if (known.length === 0) return "0";
+  return known.reduce((n, t) => n + t.rows, 0).toLocaleString();
+}
+
+function Stat({ label, value }: { label: string; value: string }): React.ReactElement {
+  return (
+    <div className="insp-stat">
+      <span className="insp-stat-value">{value}</span>
+      <span className="insp-stat-label">{label}</span>
+    </div>
+  );
+}
+
 export function Inspector(props: {
   target: InspectTarget | null;
   onClose: () => void;
@@ -54,10 +72,37 @@ export function Inspector(props: {
 }): React.ReactElement | null {
   const { target, onClose } = props;
   const [busy, setBusy] = useState(false);
+  // Counts, tables, sites and schema history, fetched when a project is
+  // opened rather than carried on the card: the list does not need them and
+  // this is the one place they are read.
+  const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [editValue, setEditValue] = useState<string | null>(null);
   const [editKind, setEditKind] = useState<"fact" | "preference">("fact");
   const [editStatus, setEditStatus] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  const openSlug = target?.kind === "project" ? target.data.slug : null;
+  useEffect(() => {
+    if (!openSlug) {
+      setDetail(null);
+      return;
+    }
+    let cancelled = false;
+    void api
+      .projectDetail(openSlug)
+      .then((d) => {
+        if (!cancelled) setDetail(d);
+      })
+      .catch(() => {
+        // The drawer still shows what the card already knew; the extra
+        // detail simply does not appear.
+        if (!cancelled) setDetail(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [openSlug]);
+
 
   if (!target) return null;
 
@@ -258,10 +303,25 @@ export function Inspector(props: {
       title = p.name;
       subtitle = `${p.slug} · ${p.status}`;
       const status = editStatus ?? p.status;
+      const pages = detail?.pages ?? target.pages;
       body = (
         <>
-          <Field label="Slug" value={p.slug} mono />
-          <Field label="Type" value={p.type} />
+          {p.description && <p className="insp-desc">{p.description}</p>}
+
+          {/* What is actually in it, before what it is called. "How much data
+              does this hold" is the first question about a tracker, and the
+              drawer used to answer it nowhere. */}
+          <div className="insp-stats">
+            <Stat label="Rows" value={rowTotal(detail)} />
+            <Stat label="Tables" value={detail ? String(detail.tables.length) : "—"} />
+            <Stat label="Pages" value={String(pages.length)} />
+            <Stat label="Sites" value={detail ? String(detail.sites.length) : "—"} />
+            <Stat
+              label="Schedules"
+              value={detail ? String(detail.crons.length) : "—"}
+            />
+          </div>
+
           <div className="insp-field">
             <div className="insp-label">Status</div>
             <Select
@@ -272,17 +332,31 @@ export function Inspector(props: {
               onChange={setEditStatus}
             />
           </div>
-          <Field label="Module" value={p.module ?? "embedded"} mono />
-          <Field label="Description" value={p.description ?? "—"} />
-          <Field label="Created" value={fmtTime(p.createdAt)} />
-          <Field label="Last touched" value={fmtTime(p.lastTouchedAt)} />
+
+          {detail && detail.tables.length > 0 && (
+            <div className="insp-field">
+              <div className="insp-label">Data</div>
+              <table className="insp-table">
+                <tbody>
+                  {detail.tables.map((t) => (
+                    <tr key={t.name}>
+                      <td className="ops-mono">{t.name}</td>
+                      <td className="insp-num">{t.columns} cols</td>
+                      <td className="insp-num">
+                        {t.rows < 0 ? "—" : `${t.rows.toLocaleString()} rows`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           <div className="insp-field">
             <div className="insp-label">Pages</div>
-            {target.pages.length === 0 && (
-              <div className="ops-muted">No pages linked</div>
-            )}
+            {pages.length === 0 && <div className="ops-muted">No pages linked</div>}
             <ul className="insp-pages">
-              {target.pages.map((pg) => (
+              {pages.map((pg) => (
                 <li key={pg.id}>
                   <button
                     type="button"
@@ -296,6 +370,69 @@ export function Inspector(props: {
               ))}
             </ul>
           </div>
+
+          {detail && detail.sites.length > 0 && (
+            <div className="insp-field">
+              <div className="insp-label">Sites</div>
+              <ul className="insp-pages">
+                {detail.sites.map((site) => (
+                  <li key={site.path}>
+                    {detail.sitesBase && site.hasIndex ? (
+                      <a
+                        className="ops-link"
+                        href={`${detail.sitesBase}/${site.project}/${site.name}/`}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                      >
+                        {site.name}
+                      </a>
+                    ) : (
+                      <span>{site.name}</span>
+                    )}
+                    <span className="ops-mono ops-muted">
+                      {site.hasIndex ? site.path : "no index.html"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {detail && detail.crons.length > 0 && (
+            <div className="insp-field">
+              <div className="insp-label">Schedules</div>
+              <ul className="insp-pages">
+                {detail.crons.map((c) => (
+                  <li key={c.id}>
+                    <span>{c.name}</span>
+                    <span className="ops-mono ops-muted">
+                      {c.schedule} · {c.enabled ? "on" : "off"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {detail && detail.migrations.length > 0 && (
+            <div className="insp-field">
+              <div className="insp-label">Schema history</div>
+              <ul className="insp-pages">
+                {detail.migrations.map((m) => (
+                  <li key={m.id}>
+                    <span className="ops-mono">v{m.version}</span>
+                    <span className="ops-mono ops-muted">{m.op}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <Field label="Type" value={p.type} />
+          <Field label="Module" value={p.module ?? "embedded"} mono />
+          <Field label="Folder" value={detail?.folder ?? "—"} mono />
+          <Field label="Created" value={fmtTime(p.createdAt)} />
+          <Field label="Last touched" value={fmtTime(p.lastTouchedAt)} />
         </>
       );
       actions = props.onSetProjectStatus ? (

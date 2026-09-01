@@ -6,7 +6,19 @@ import {
   type ReactElement,
 } from "react";
 
-import { api, type ChatEvent, type Conversation } from "./api.js";
+import { summarizeAction } from "@kos/shared";
+
+import { Decision } from "./Decision.js";
+
+import { ContextMeter } from "./ContextMeter.js";
+import {
+  api,
+  type ChatEvent,
+  type Conversation,
+  type BuildRecord,
+  type PendingAction,
+  type PendingMessage,
+} from "./api.js";
 import { AttachButton, useAttachments, useDropZone } from "./Attachments.js";
 import { AttachmentStrip } from "./AttachmentStrip.js";
 import { ModelPicker } from "./ModelPicker.js";
@@ -21,7 +33,7 @@ import {
 } from "./Autocomplete.js";
 import { Thinking } from "./Thinking.js";
 import { MessageActions, MessageEditor } from "./MessageActions.js";
-import { MoreIcon } from "./icons.js";
+import { CopyIcon, EditIcon, ForkIcon, MoreIcon } from "./icons.js";
 import {
   clearProgress,
   seedProgress,
@@ -48,6 +60,17 @@ export interface ChatsPageProps {
   activeId?: string;
   /** Pending-action ids still awaiting a decision. */
   pendingApprovals: Set<string>;
+  /**
+   * Every action waiting on the owner, so this chat can show the ones that
+   * belong to it but are not in its transcript: a build's own requests come
+   * from a sub-agent, not from a tool call the conversation made.
+   */
+  approvals: PendingAction[];
+  /** Actions being decided right now. */
+  deciding: ReadonlySet<number>;
+  /** Coding sub-agents, so a chat that started one can link to it. */
+  agents: BuildRecord[];
+  onOpenAgent: (id: number) => void;
   onOpen: (id: string) => void;
   onChanged: () => void;
   onDecide: (pendingId: string, approved: boolean) => void;
@@ -65,6 +88,10 @@ export function ChatsPage({
   conversations,
   activeId,
   pendingApprovals,
+  approvals,
+  deciding,
+  agents,
+  onOpenAgent,
   onOpen,
   onChanged,
   onDecide,
@@ -76,6 +103,17 @@ export function ChatsPage({
   // Which conversation is mid-send, not whether any is: shared across chats it
   // showed "sending" in every other thread while one was working.
   const [sendingIn, setSendingIn] = useState<string | null>(null);
+  // Sent but not yet run. Read from the server rather than kept here, so a
+  // reload still shows what was already taken.
+  // Replies to slash commands, which are not in the transcript and were
+  // therefore thrown away by the reload after sending: /help printed nothing
+  // at all, and /clear emptied the chat without saying it had.
+  const [notes, setNotes] = useState<{ id: number; text: string }[]>([]);
+  const [pending, setPending] = useState<PendingMessage[]>([]);
+  /** The queued message being rewritten, if any. */
+  const [editingQueued, setEditingQueued] = useState<{ id: number; text: string } | null>(
+    null,
+  );
   const attachments = useAttachments();
   const progress = useProgress();
 
@@ -165,6 +203,9 @@ export function ChatsPage({
   const justEnded = wasLive.current && !live;
   wasLive.current = Boolean(live);
 
+  // Notes belong to the conversation that produced them.
+  useEffect(() => setNotes([]), [activeId]);
+
   useEffect(() => {
     if (!activeId) return;
     const mine = loadedFor?.id === activeId;
@@ -181,9 +222,10 @@ export function ChatsPage({
     let cancelled = false;
     void api
       .conversation(activeId)
-      .then(({ events: got }) => {
+      .then(({ events: got, pending: waiting }) => {
         if (cancelled) return;
         setEvents(got);
+        setPending(waiting);
         setLoadedFor({ id: activeId, stamp });
       })
       .catch(() => {
@@ -196,6 +238,32 @@ export function ChatsPage({
 
   // The live turn grows as it streams, so it is part of what pins the scroll.
   useStickToBottom(boxRef, [events, sendingIn, activeId, live?.steps.length, live?.text]);
+
+  /*
+   * Grow the composer with what is typed.
+   *
+   * There was no growing at all: the field was one row and scrolled inside
+   * itself, and its content box was two pixels shorter than its own
+   * line-height, so a single line sat slightly clipped and the box appeared
+   * to shrink the moment you typed into it. Measured, not guessed: 42.09px
+   * empty against 40px with text.
+   */
+  useEffect(() => {
+    const ta = inputRef.current;
+    if (!ta) return;
+    // Reset first: scrollHeight cannot shrink below the height already set.
+    ta.style.height = "auto";
+    const style = window.getComputedStyle(ta);
+    const border =
+      parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    const max = parseFloat(style.maxHeight);
+    // scrollHeight excludes the border, and the box is border-box, so the
+    // border has to be added back or the field is short by exactly that much.
+    const wanted = ta.scrollHeight + border;
+    const height = Number.isFinite(max) ? Math.min(wanted, max) : wanted;
+    ta.style.height = `${height}px`;
+    ta.style.overflowY = wanted > height ? "auto" : "hidden";
+  }, [draft, activeId]);
 
   // The orchestrator lives above the list: it is how work gets routed, not one
   // of the threads the routing produces.
@@ -210,9 +278,9 @@ export function ChatsPage({
   async function send(): Promise<void> {
     const text = draft.trim();
     const target = activeId;
-    if ((!text && attachments.files.length === 0) || !target || sendingIn === target) {
-      return;
-    }
+    if ((!text && attachments.files.length === 0) || !target) return;
+    // Not blocked while a turn runs. A follow-up is queued on the server and
+    // runs next, which is what the owner meant by sending it.
     setSendingIn(target);
 
     // The message is sent the moment Send is pressed, so it should read that
@@ -242,11 +310,21 @@ export function ChatsPage({
     attachments.clear();
 
     try {
-      await api.message(text, target, files);
+      const res = await api.message(text, target, files);
+      // A command writes nothing to the transcript, so the reload below would
+      // drop its reply on the floor. It is kept as a note instead: for /help
+      // the reply is the entire output, and for /clear it is the only sign
+      // anything happened.
+      if (res.isCommand && res.reply) {
+        setNotes((n) => [...n, { id: Date.now(), text: res.reply }]);
+      }
       // Reload rather than appending the reply: the turn may have made tool
       // calls, and those belong in the transcript too.
-      const { events: got } = await api.conversation(target);
-      if (target === activeIdRef.current) setEvents(got);
+      const { events: got, pending: waiting } = await api.conversation(target);
+      if (target === activeIdRef.current) {
+        setEvents(got);
+        setPending(waiting);
+      }
       onChanged();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -255,6 +333,99 @@ export function ChatsPage({
       setSendingIn((id) => (id === target ? null : id));
     }
   }
+
+  /*
+   * Managing what is still waiting. All three refuse once the turn has
+   * started, because by then the message has been asked and changing it would
+   * rewrite the record of a question that was already answered.
+   */
+  const queuedError = (err: unknown): void => {
+    const msg = err instanceof Error ? err.message : String(err);
+    setNotes((n) => [...n, { id: Date.now(), text: msg }]);
+    if (activeIdRef.current) void reloadPending(activeIdRef.current);
+  };
+
+  const reloadPending = async (id: string): Promise<void> => {
+    try {
+      const { pending: waiting } = await api.conversation(id);
+      if (id === activeIdRef.current) setPending(waiting);
+    } catch {
+      // The list is refreshed on the next turn either way.
+    }
+  };
+
+  const saveQueued = async (id: number): Promise<void> => {
+    const draftText = editingQueued?.text.trim();
+    if (!draftText || !activeId) return;
+    try {
+      const { pending: waiting } = await api.editPending(id, draftText, activeId);
+      setPending(waiting);
+      setEditingQueued(null);
+    } catch (err) {
+      queuedError(err);
+      setEditingQueued(null);
+    }
+  };
+
+  const dropQueued = async (id: number): Promise<void> => {
+    if (!activeId) return;
+    try {
+      const { pending: waiting } = await api.deletePending(id, activeId);
+      setPending(waiting);
+    } catch (err) {
+      queuedError(err);
+    }
+  };
+
+  const forkQueued = async (id: number): Promise<void> => {
+    try {
+      const { conversationId } = await api.forkPending(id);
+      if (activeIdRef.current) await reloadPending(activeIdRef.current);
+      onChanged();
+      onOpen(conversationId);
+    } catch (err) {
+      queuedError(err);
+    }
+  };
+
+  /**
+   * Approvals for this conversation that no tool call in it is showing.
+   *
+   * A tool the conversation called carries its pending id on the transcript
+   * event and offers the decision there. A build's own requests have no such
+   * event, so without this they were reachable only from Home.
+   */
+  const shownPendingIds = useMemo(
+    () =>
+      new Set(
+        events
+          .filter((e) => e.kind === "tool" && e.pendingId)
+          .map((e) => (e.kind === "tool" ? e.pendingId : undefined)),
+      ),
+    [events],
+  );
+  const loose = useMemo(
+    () =>
+      approvals.filter(
+        (a) =>
+          a.conversationId === activeId && !shownPendingIds.has(String(a.id)),
+      ),
+    [approvals, activeId, shownPendingIds],
+  );
+
+  /** Builds this conversation started, running first. */
+  const mine = useMemo(
+    () =>
+      agents
+        .filter((b) => b.conversationId === activeId)
+        .sort((a, b) => {
+          const aLive = a.status === "running" || a.status === "waiting";
+          const bLive = b.status === "running" || b.status === "waiting";
+          return aLive === bLive ? b.startedAt - a.startedAt : aLive ? -1 : 1;
+        })
+        .slice(0, 3),
+    [agents, activeId],
+  );
 
   /** What a running conversation is doing, for the list. */
   const liveLabel = (l: Live | undefined): string => {
@@ -522,7 +693,7 @@ export function ChatsPage({
           ))}
           {filtered.length === 0 && (
             <li className="chats-empty">
-              {query.trim() ? "Nothing matches." : "No chats yet. Ask Command to start one."}
+              {query.trim() ? "Nothing matches." : "No chats yet. Ask KOS to start one."}
             </li>
           )}
         </ul>
@@ -555,13 +726,23 @@ export function ChatsPage({
                 {/* Counts are not something anyone came here to read. Only
                     the tool scope is said, and only when it is not the
                     default, because that is a capability the chat lacks. */}
-                {active.toolAllow !== null && (
-                  <div className="chats-meta">
-                    {active.toolAllow.length === 0
-                      ? "no tools"
-                      : `scoped to ${active.toolAllow.join(", ")}`}
-                  </div>
-                )}
+                <div className="chats-meta">
+                  {active.toolAllow !== null && (
+                    <span>
+                      {active.toolAllow.length === 0
+                        ? "no tools"
+                        : `scoped to ${active.toolAllow.join(", ")}`}
+                    </span>
+                  )}
+                  {/* Keyed off sendingIn so it re-reads once a turn lands:
+                      context that only updated on a page load would be stale
+                      exactly when it matters, which is while you are filling
+                      it up. */}
+                  <ContextMeter
+                    conversationId={active.id}
+                    refreshKey={sendingIn === null ? 1 : 0}
+                  />
+                </div>
               </div>
               <div className="chats-view-actions">
                 <button
@@ -616,6 +797,131 @@ export function ChatsPage({
                   <div className="bubble bubble--kos is-thinking">sending…</div>
                 )
               )}
+
+              {/* A build this conversation started. It runs somewhere else and
+                  for minutes, so the chat says it exists and links to it
+                  rather than going quiet and leaving the reader to find the
+                  Agents page on their own. */}
+              {mine.map((b) => (
+                <button
+                  type="button"
+                  className={`chat-agent chat-agent--${b.status}`}
+                  key={b.id}
+                  onClick={() => onOpenAgent(b.id)}
+                >
+                  <span className={`agent-dot agent-dot--${b.status}`} />
+                  <span className="chat-agent-main">
+                    <span className="chat-agent-dir">{b.dir}</span>
+                    <span className="chat-agent-latest">{b.latest}</span>
+                  </span>
+                  <span className="chat-agent-go">Open log →</span>
+                </button>
+              ))}
+
+              {/* Waiting on a decision, and not attached to any tool call in
+                  this transcript. A build's requests arrive this way: the
+                  chat showed "I'll continue once the result comes through"
+                  and then nothing, because the thing waiting on the owner was
+                  invisible from here. */}
+              {loose.map((a) => (
+                <div className="loose-approval" key={a.id}>
+                  <div className="loose-approval-main">
+                    <code>{a.tool}</code>
+                    <span>{a.reason ?? summarizeAction(a.tool, a.args)}</span>
+                  </div>
+                  <div className="loose-approval-actions">
+                    <Decision
+                      id={a.id}
+                      deciding={deciding}
+                      onDecide={(id, ok) => onDecide(String(id), ok)}
+                    />
+                  </div>
+                </div>
+              ))}
+
+              {notes.map((n) => (
+                <div className="chats-note" key={n.id}>
+                  <Markdown text={n.text} />
+                </div>
+              ))}
+
+              {/* Sent, taken, and waiting for the turn ahead of it. Shown
+                  after the running turn because that is the order they will
+                  be answered in. */}
+              {pending.map((p) => (
+                <div className="queued" key={p.id}>
+                  {editingQueued?.id === p.id ? (
+                    <div className="queued-edit">
+                      <textarea
+                        className="kos-input"
+                        rows={3}
+                        value={editingQueued.text}
+                        autoFocus
+                        onChange={(e) =>
+                          setEditingQueued({ id: p.id, text: e.target.value })
+                        }
+                      />
+                      <div className="queued-actions">
+                        <button
+                          type="button"
+                          className="btn btn--primary"
+                          onClick={() => void saveQueued(p.id)}
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() => setEditingQueued(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="bubble bubble--you is-queued">
+                        {p.text}
+                        <span className="queued-mark">queued</span>
+                      </div>
+                      <div className="queued-actions">
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title="Edit before it runs"
+                          onClick={() => setEditingQueued({ id: p.id, text: p.text })}
+                        >
+                          <EditIcon />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title="Copy"
+                          onClick={() => void navigator.clipboard.writeText(p.text)}
+                        >
+                          <CopyIcon />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title="Ask this in a copy of the chat instead"
+                          onClick={() => void forkQueued(p.id)}
+                        >
+                          <ForkIcon />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn icon-btn--danger"
+                          title="Drop it before it runs"
+                          onClick={() => void dropQueued(p.id)}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
             </div>
 
             <div
@@ -706,10 +1012,7 @@ export function ChatsPage({
                     type="button"
                     className="btn btn--primary"
                     onClick={() => void send()}
-                    disabled={
-                      sendingIn === activeId ||
-                      (draft.trim() === "" && attachments.files.length === 0)
-                    }
+                    disabled={draft.trim() === "" && attachments.files.length === 0}
                   >
                     Send
                   </button>

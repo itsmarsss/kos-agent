@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 
+import { childEnv } from "../sandbox/env.js";
 import { resolvePath } from "../jail/resolvePath.js";
 import { DB_FILENAME } from "../store/workspace.js";
 import type { SandboxResult } from "../sandbox/runner.js";
@@ -26,7 +27,10 @@ export async function runSkillLive(options: {
   return new Promise<SandboxResult>((resolve) => {
     const child = spawn(process.execPath, [entryAbs, ...(options.args ?? [])], {
       cwd: options.workspaceRoot,
-      env: { ...process.env, KOS_DB: liveDb },
+      // An allow-list, not the host's environment: see childEnv. A promoted
+      // skill runs against the live database, which is all the more reason it
+      // should not also be handed the owner's credentials.
+      env: childEnv({ home: options.workspaceRoot }, { KOS_DB: liveDb }),
       stdio: ["ignore", "pipe", "pipe"],
     });
 

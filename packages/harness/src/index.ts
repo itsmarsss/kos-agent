@@ -29,3 +29,11 @@ export * from "./kernel/index.js";
 export function version(): string {
   return KOS_VERSION;
 }
+export {
+  listSites,
+  listSitesFor,
+  resolveSiteRequest,
+  startSiteServer,
+  sitesDirFor,
+} from "./sites/server.js";
+export type { Site } from "./sites/server.js";

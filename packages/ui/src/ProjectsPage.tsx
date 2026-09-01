@@ -1,7 +1,7 @@
-import { useMemo, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { m } from "motion/react";
 
-import type { PageSummary, Project } from "./api.js";
+import { api, type PageSummary, type Project, type SiteInfo } from "./api.js";
 import { card, stagger } from "./motion.js";
 import { hrefFor } from "./routes.js";
 
@@ -18,6 +18,24 @@ export interface ProjectsPageProps {
   projects: Project[];
   pagesByProject: Map<string, PageSummary[]>;
   onInspect: (project: Project, pages: PageSummary[]) => void;
+}
+
+/** A browser window, marking a chip as something that opens a running site. */
+function SiteGlyph(): ReactElement {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden="true"
+    >
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 9h18" />
+    </svg>
+  );
 }
 
 /** Active first: dormant and archived are things you look up, not scan. */
@@ -37,6 +55,28 @@ export function ProjectsPage({
   onInspect,
 }: ProjectsPageProps): ReactElement {
   const [query, setQuery] = useState("");
+  // Sites live under their project, so they belong on its card rather than in
+  // a tab of their own: the tracker, its pages and its site are one thing.
+  const [sites, setSites] = useState<{ base: string | null; sites: SiteInfo[] }>({
+    base: null,
+    sites: [],
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .sites()
+      .then((r) => {
+        if (!cancelled) setSites(r);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const sitesFor = (slug: string): SiteInfo[] =>
+    sites.sites.filter((s) => s.project === slug);
 
   /** A card's own action: its page if it has one, otherwise its details. */
   const open = (project: Project, pages: PageSummary[]): void => {
@@ -144,6 +184,37 @@ export function ProjectsPage({
                     </div>
                   ) : (
                     <span className="project-nopages">No pages yet</span>
+                  )}
+
+                  {sitesFor(p.slug).length > 0 && (
+                    <div className="project-sites">
+                      {sitesFor(p.slug).map((site) => (
+                        <a
+                          key={site.path}
+                          className="site-chip"
+                          // A new tab, and no referrer: the site is served on
+                          // its own origin precisely so it has none of this
+                          // page's authority, and opening it in place would
+                          // hand back some of what that separation is for.
+                          href={
+                            sites.base && site.hasIndex
+                              ? `${sites.base}/${encodeURIComponent(site.project)}/${encodeURIComponent(site.name)}/`
+                              : hrefFor({ name: "files", path: site.path })
+                          }
+                          {...(sites.base && site.hasIndex
+                            ? { target: "_blank", rel: "noreferrer noopener" }
+                            : {})}
+                          title={
+                            site.hasIndex
+                              ? `Open ${site.name}`
+                              : `${site.name} has no index.html yet`
+                          }
+                        >
+                          <SiteGlyph />
+                          {site.name}
+                        </a>
+                      ))}
+                    </div>
                   )}
 
                   <div className="card-foot">

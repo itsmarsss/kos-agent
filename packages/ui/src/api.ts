@@ -200,6 +200,160 @@ export interface FileContent {
   language: string;
 }
 
+export interface ModelRate {
+  inputPerMillion: number;
+  outputPerMillion: number;
+  /** Set when KOS does not know this model's window and you do. */
+  contextWindow?: number;
+}
+
+export interface ModelSpend {
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  calls: number;
+  /** Absent when no rate has been set for this model. */
+  cost?: number;
+}
+
+export interface ContextUse {
+  conversationId: string;
+  /** What KOS itself is keeping, which is knowable for every model. */
+  history: ContextUseDetail;
+  /** What the most recent turn was sent, as the provider counted it. */
+  last?: { inputTokens: number; provider: string; model: string; at: number };
+  total: { inputTokens: number; outputTokens: number; calls: number };
+  /** Absent when the model's window is not known. */
+  window?: number;
+}
+
+export interface ContextUseDetail {
+  /** Characters of history retained right now. */
+  historyChars: number;
+  /** Budget it is trimmed to. */
+  maxChars: number;
+  exchanges: number;
+  maxExchanges: number;
+}
+
+export interface PendingMessage {
+  id: number;
+  text: string;
+  attachments: { name: string }[];
+}
+
+export interface HomeData {
+  layout: import("@kos/shared").HomeLayout;
+  approvals: PendingAction[];
+  agents: BuildRecord[];
+  failures: RunRecord[];
+  activity: AuditRecord[];
+  projects: Project[];
+  chats: Conversation[];
+  crons: CronJob[];
+  spend: { models: ModelSpend[] };
+}
+
+export interface BuildRecord {
+  id: number;
+  dir: string;
+  task: string;
+  conversationId?: string;
+  status: "running" | "waiting" | "done" | "failed" | "stopped";
+  startedAt: number;
+  endedAt?: number;
+  latest: string;
+  events: {
+    at: number;
+    kind: string;
+    text: string;
+    tool?: string;
+    input?: Record<string, unknown>;
+    output?: string;
+    isError?: boolean;
+  }[];
+  phase?: {
+    phase: "thinking" | "writing" | "calling" | "idle";
+    partial?: string;
+    tool?: string;
+  };
+  phaseSince?: number;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    costUsd: number;
+    turns: number;
+    contextTokens: number;
+    model?: string;
+  };
+  files: string[];
+  askedFor: number;
+  /** Milliseconds of silence, when a working build has gone quiet. */
+  quietFor?: number;
+}
+
+export interface Retention {
+  maxChars: number;
+  maxToolResultChars: number;
+  maxExchanges: number;
+}
+
+export interface SettingsPayload {
+  workspace: string;
+  profile: { name: string; timezone: string; ownerId: string };
+  retention: Retention;
+  retentionDefaults: Retention;
+  /** Model used by build sub-agents; null means the CLI default. */
+  buildModel: string | null;
+  halted: boolean;
+  envPath: string | null;
+  /** False when there is nowhere safe to write keys. */
+  envWritable: boolean;
+  secrets: Record<
+    string,
+    {
+      label: string;
+      hint: string;
+      masked: string | null;
+      /** Set when the value lives under an older name the host still accepts. */
+      storedAs?: string;
+    }
+  >;
+  settings: Record<
+    string,
+    { label: string; hint: string; value: string; group: "network" | "access" }
+  >;
+  sitesUrl: string | null;
+}
+
+export interface ProjectDetail {
+  project: Project;
+  tables: { name: string; rows: number; columns: number }[];
+  pages: PageSummary[];
+  crons: CronJob[];
+  sites: SiteInfo[];
+  sitesBase: string | null;
+  migrations: {
+    id: number;
+    version: number;
+    op: string;
+    appliedAt?: number;
+  }[];
+  folder: string;
+}
+
+export interface SiteInfo {
+  name: string;
+  /** Project it belongs to. */
+  project: string;
+  /** Workspace-relative folder, for the file browser. */
+  path: string;
+  hasIndex: boolean;
+  modifiedAt: number;
+}
+
 export interface ToolInfo {
   name: string;
   description: string;
@@ -268,6 +422,10 @@ export const api = {
   setProjectStatus: (slug: string, status: string) =>
     post<Project>("/api/projects/status", { slug, status }),
   crons: () => get<CronJob[]>("/api/crons"),
+  createCron: (job: Record<string, unknown>) =>
+    post<CronJob>("/api/crons/create", job),
+  updateCron: (job: Record<string, unknown>) =>
+    post<CronJob>("/api/crons/update", job),
   setCronEnabled: (id: number, enabled: boolean) =>
     post<{ id: number; enabled: boolean }>("/api/crons/enable", {
       id,
@@ -300,7 +458,13 @@ export const api = {
       ...(attachments?.length ? { attachments } : {}),
     }),
   conversation: (id: string) =>
-    get<{ id: string; messages: ChatTurn[]; events: ChatEvent[] }>(
+    get<{
+      id: string;
+      messages: ChatTurn[];
+      events: ChatEvent[];
+      /** Sent while a turn was running, waiting its turn. */
+      pending: PendingMessage[];
+    }>(
       `/api/conversations/${encodeURIComponent(id)}/messages`,
     ),
   tools: () => get<ToolInfo[]>("/api/tools"),
@@ -310,6 +474,71 @@ export const api = {
     ),
   file: (path: string) =>
     get<FileContent>(`/api/file?path=${encodeURIComponent(path)}`),
+  /**
+   * Image bytes as an object URL. Fetched rather than pointed at with a src so
+   * the request carries whatever the rest of the client carries; the caller
+   * revokes the URL when it is done with it.
+   */
+  imageUrl: async (path: string): Promise<string> => {
+    const url = `/api/file/raw?path=${encodeURIComponent(path)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(await readError(res, url));
+    return URL.createObjectURL(await res.blob());
+  },
+  spend: (days = 30) =>
+    get<{
+      days: number;
+      models: ModelSpend[];
+      byDay: { day: string; inputTokens: number; outputTokens: number }[];
+      rates: Record<string, ModelRate>;
+    }>(`/api/spend?days=${days}`),
+  saveRates: (rates: Record<string, ModelRate>) =>
+    post<{ rates: Record<string, ModelRate> }>("/api/spend/rates", { rates }),
+  context: (conversationId: string) =>
+    get<ContextUse>(`/api/context?conversationId=${encodeURIComponent(conversationId)}`),
+  editPending: (id: number, text: string, conversationId: string) =>
+    post<{ pending: PendingMessage[] }>("/api/pending/edit", {
+      id,
+      text,
+      conversationId,
+    }),
+  deletePending: (id: number, conversationId: string) =>
+    post<{ pending: PendingMessage[] }>("/api/pending/delete", {
+      id,
+      conversationId,
+    }),
+  forkPending: (id: number) =>
+    post<{ conversationId: string }>("/api/pending/fork", { id }),
+  home: () => get<HomeData>("/api/home"),
+  saveHome: (layout: import("@kos/shared").HomeLayout) =>
+    post<{ layout: import("@kos/shared").HomeLayout }>("/api/home", { layout }),
+  agents: () => get<{ builds: BuildRecord[] }>("/api/agents"),
+  agent: (id: number) =>
+    get<{ build: BuildRecord; approvals: PendingAction[] }>(`/api/agents/${id}`),
+  stopAgent: (id: number) =>
+    post<{ stopped: boolean; builds: BuildRecord[] }>("/api/agents/stop", { id }),
+  sendToAgent: (id: number, text: string) =>
+    post<{ sent: boolean; builds: BuildRecord[] }>("/api/agents/send", { id, text }),
+  interruptAgent: (id: number) =>
+    post<{ interrupted: boolean; builds: BuildRecord[] }>("/api/agents/interrupt", {
+      id,
+    }),
+  settings: () => get<SettingsPayload>("/api/settings"),
+  saveProfile: (name: string, timezone: string) =>
+    post<{ profile: { name: string; timezone: string } }>(
+      "/api/settings/profile",
+      { name, timezone },
+    ),
+  saveBuildModel: (buildModel: string) =>
+    post<{ buildModel: string | null }>("/api/settings/builds", { buildModel }),
+  saveRetention: (retention: Partial<Retention>) =>
+    post<{ retention: Retention }>("/api/settings/retention", retention),
+  saveSettings: (values: Record<string, string>) =>
+    post<{ written: string[]; cleared: string[] }>("/api/settings", { values }),
+  projectDetail: (slug: string) =>
+    get<ProjectDetail>(`/api/projects/${encodeURIComponent(slug)}/detail`),
+  sites: () =>
+    get<{ base: string | null; sites: SiteInfo[] }>("/api/sites"),
   openWorkspace: () => post<{ opened: string }>("/api/workspace/open", {}),
   configureConversation: (
     id: string,
@@ -317,12 +546,14 @@ export const api = {
   ) => post<Conversation>("/api/conversations/configure", { id, ...config }),
   newConversation: (title?: string) =>
     post<Conversation>("/api/conversations/new", title ? { title } : {}),
-  mentions: (q: string, kind?: string) =>
+  mentions: (q: string, kind?: string, limit?: number) =>
     get<{
       mentions: { kind: string; id: string; label: string; hint?: string }[];
       commands: { name: string; args?: string; description: string }[];
     }>(
-      `/api/mentions?q=${encodeURIComponent(q)}${kind ? `&kind=${encodeURIComponent(kind)}` : ""}`,
+      `/api/mentions?q=${encodeURIComponent(q)}` +
+        (kind ? `&kind=${encodeURIComponent(kind)}` : "") +
+        (limit ? `&limit=${limit}` : ""),
     ),
   stopConversation: (sessionId: string) =>
     post<{ stopping: boolean }>("/api/conversations/stop", { sessionId }),
@@ -369,7 +600,7 @@ export const api = {
     post<{ ok: boolean; message: string; reply?: string }>("/api/deny", { id }),
   setKill: (halted: boolean) => post<Status>("/api/kill", { halted }),
   message: (text: string, sessionId?: string, attachments?: Attachment[]) =>
-    post<{ reply: string }>("/api/message", {
+    post<{ reply: string; isCommand?: boolean; switchedTo?: string }>("/api/message", {
       text,
       ...(sessionId ? { sessionId } : {}),
       ...(attachments?.length ? { attachments } : {}),

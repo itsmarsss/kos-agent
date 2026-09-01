@@ -1,4 +1,5 @@
 import { runAgent, type Inference } from "../agent/loop.js";
+import type { Attachment } from "../kernel/attachments.js";
 import type { ToolRegistry } from "../agent/registry.js";
 import { SingleOwnerMapping, type UserMapping } from "./identity.js";
 import type {
@@ -15,6 +16,8 @@ export interface TurnContext {
   text: string;
   /** Native thread id, when the surface has threads. */
   conversationKey?: string;
+  /** Images and text files that came with the message. */
+  attachments?: Attachment[];
 }
 
 /** Handles one user turn and returns the reply text. */
@@ -167,6 +170,7 @@ export class ChannelRuntime {
         senderId: msg.senderId,
         text: msg.text,
         ...(msg.conversationKey ? { conversationKey: msg.conversationKey } : {}),
+        ...(msg.attachments?.length ? { attachments: msg.attachments } : {}),
       });
       if (presence) {
         await presence.complete(reply || "(no reply)");

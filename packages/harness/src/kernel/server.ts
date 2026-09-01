@@ -3,14 +3,17 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { extname, join, normalize, relative, resolve, sep } from "node:path";
 
+import { parseHomeLayout } from "@kos/shared";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
 import { runDisplayQuery } from "../systems/display.js";
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
-import { orchestratorId } from "./kernel.js";
+import { BUILD_SETTINGS_KEY, orchestratorId } from "./kernel.js";
 import { parseAttachments } from "./attachments.js";
+import cron from "node-cron";
+import type { CreateCronInput, ToolCall } from "../cron/types.js";
 import { findMentions, type MentionKind } from "./mentions.js";
 import { CHAT_COMMANDS } from "./chatcommands.js";
 import {
@@ -19,7 +22,25 @@ import {
   parseModelSettings,
 } from "../models/settings.js";
 import { conversationEvents } from "./transcript.js";
-import { listDirectory, readFile } from "./files.js";
+import { listDirectory, readFile, readImage } from "./files.js";
+import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
+import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
+import { RETENTION_DEFAULTS, RETENTION_KEY } from "./session.js";
+
+/** Where the owner's home arrangement lives. */
+export const HOME_LAYOUT_KEY = "home.layout";
+import { saveProfile } from "./profile.js";
+import {
+  findSecret,
+  isInside,
+  isWritableKey,
+  maskSecret,
+  namesFor,
+  writeEnvFile,
+  WRITABLE_SECRETS,
+  WRITABLE_SETTINGS,
+} from "../secrets/envfile.js";
+import { contextWindowFor } from "../models/windows.js";
 
 export interface ApiRequest {
   method: string;
@@ -58,6 +79,11 @@ export interface DashboardServerOptions {
   host?: string;
   /** Hosted-mode metadata for /api/health and /api/status (daemon). */
   meta?: DaemonMeta;
+  /**
+   * The dotenv file this host reads, so the settings page can write it. Must
+   * be outside the workspace; writing is refused otherwise.
+   */
+  envPath?: string;
   /**
    * Explicit cross-origin allowlist. The dashboard is same-origin (the server
    * serves the built UI itself), so this is empty by default and no CORS
@@ -179,6 +205,33 @@ export async function handleApiRequest(
     kernel.crons.setEnabled(id, enabled);
     kernel.reloadCron();
     return ok({ id, enabled });
+  }
+
+  if (
+    method === "POST" &&
+    (path === "/api/crons/create" || path === "/api/crons/update")
+  ) {
+    // The owner writing a schedule by hand is not the agent proposing one, so
+    // it takes effect without the approval queue. It still goes through the
+    // same validation, including the read-only rule on the query.
+    const input = parseCronInput(body);
+    if (typeof input === "string") {
+      return { status: 400, body: { error: input } };
+    }
+    try {
+      const job =
+        path === "/api/crons/update"
+          ? kernel.crons.update(Number(body.id), input)
+          : kernel.crons.create(input);
+      if (!job) return { status: 404, body: { error: "no such job" } };
+      kernel.reloadCron();
+      return ok(job);
+    } catch (err) {
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
   }
 
   if (method === "POST" && path === "/api/crons/delete") {
@@ -357,6 +410,9 @@ export async function handleApiRequest(
           }),
         );
       }
+      // A slash command is bookkeeping, not something to ask a model about.
+      const command = await kernel.runCommandIn(sessionId, userId, text);
+      if (command) return ok(command);
       return ok(
         await kernel.handleMessage(text, { sessionId, userId, attachments }),
       );
@@ -407,6 +463,436 @@ export async function handleApiRequest(
     if (!target) return { status: 400, body: { error: "path required" } };
     try {
       return ok(readFile(kernel.workspace, target));
+    } catch (err) {
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
+  }
+
+  if (method === "GET" && path === "/api/settings") {
+    // Values are never sent back, only whether one is set and its last four
+    // characters, which is enough to tell two keys apart and no use to anyone.
+    const envPath = options.envPath;
+    const secrets = maskedSecrets();
+    const settings: Record<string, { label: string; hint: string; value: string }> = {};
+    for (const [key, meta] of Object.entries(WRITABLE_SETTINGS)) {
+      settings[key] = { ...meta, value: process.env[key] ?? "" };
+    }
+    return ok({
+      workspace: kernel.workspace.root,
+      profile: {
+        name: kernel.profile.name,
+        timezone: kernel.profile.timezone,
+        ownerId: kernel.profile.ownerId,
+      },
+      retention: kernel.sessions.retention(),
+      buildModel:
+        kernel.settings.get<{ buildModel?: string }>(BUILD_SETTINGS_KEY)?.buildModel ??
+        null,
+      retentionDefaults: RETENTION_DEFAULTS,
+      halted: kernel.killSwitch.halted,
+      envPath: envPath ?? null,
+      // Said plainly, because "why will it not save" is otherwise a mystery
+      // whose answer is in a comment in another file.
+      envWritable:
+        envPath !== undefined && !isInside(kernel.workspace.root, envPath),
+      secrets,
+      settings,
+      sitesUrl: sitesBaseUrl() ?? null,
+      routes: kernel.routes() ?? null,
+    });
+  }
+
+  if (method === "POST" && path === "/api/settings") {
+    const envPath = options.envPath;
+    if (!envPath) {
+      return {
+        status: 400,
+        body: { error: "this host was started without an env file to write to" },
+      };
+    }
+    const raw = body.values;
+    if (typeof raw !== "object" || raw === null) {
+      return { status: 400, body: { error: "values must be an object" } };
+    }
+    const values: Record<string, string | null> = {};
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (!isWritableKey(key)) continue;
+      values[key] = typeof value === "string" ? value : null;
+    }
+
+    try {
+      const result = writeEnvFile(envPath, kernel.workspace.root, values);
+      // Applied to this process too, so a key saved here works on the next
+      // turn rather than on the next restart.
+      for (const [key, value] of Object.entries(values)) {
+        // Aliases as well: leaving DISCORD_TOKEN set in this process would
+        // keep Discord running after the owner cleared the field for it.
+        for (const name of namesFor(key)) delete process.env[name];
+        if (value !== null && value !== "") process.env[key] = value;
+      }
+      kernel.reloadSecrets();
+      return ok({ ...result, secrets: maskedSecrets() });
+    } catch (err) {
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
+  }
+
+  if (method === "POST" && path === "/api/settings/profile") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const timezone = typeof body.timezone === "string" ? body.timezone.trim() : "";
+    if (!name) return { status: 400, body: { error: "name required" } };
+    // Checked against the runtime rather than a list: a timezone this machine
+    // does not know would silently make every schedule fire at the wrong hour.
+    if (timezone) {
+      try {
+        new Intl.DateTimeFormat("en", { timeZone: timezone });
+      } catch {
+        return {
+          status: 400,
+          body: { error: `not a timezone this machine knows: ${timezone}` },
+        };
+      }
+    }
+    const next = {
+      ...kernel.profile,
+      name,
+      ...(timezone ? { timezone } : {}),
+    };
+    saveProfile(kernel.workspace, next);
+    Object.assign(kernel.profile, next);
+    return ok({ profile: next });
+  }
+
+  if (method === "POST" && path === "/api/settings/builds") {
+    const raw = typeof body.buildModel === "string" ? body.buildModel.trim() : "";
+    // Empty means "whatever the CLI defaults to", which is a real choice and
+    // the one a workspace starts on.
+    kernel.settings.set(BUILD_SETTINGS_KEY, raw ? { buildModel: raw } : {});
+    return ok({ buildModel: raw || null });
+  }
+
+  if (method === "POST" && path === "/api/settings/retention") {
+    const accepted: Record<string, number> = {};
+    const rejected: string[] = [];
+    for (const key of ["maxChars", "maxToolResultChars", "maxExchanges"]) {
+      const raw = (body as Record<string, unknown>)[key];
+      if (raw === undefined) continue;
+      const value = Number(raw);
+      // A zero or negative budget would retain nothing, which reads as KOS
+      // having forgotten everything rather than as a setting.
+      if (Number.isFinite(value) && value > 0) accepted[key] = Math.floor(value);
+      else rejected.push(key);
+    }
+    if (rejected.length > 0) {
+      return {
+        status: 400,
+        body: {
+          error: `must be a positive number: ${rejected.join(", ")}`,
+        },
+      };
+    }
+    // Merged, not replaced. Storing only what this request carried wiped the
+    // settings the owner had already saved: a request with nothing valid in
+    // it reset everything to the defaults on the next start.
+    const merged = {
+      ...(kernel.settings.get<Record<string, number>>(RETENTION_KEY) ?? {}),
+      ...accepted,
+    };
+    kernel.settings.set(RETENTION_KEY, merged);
+    kernel.sessions.configure(merged);
+    return ok({ retention: kernel.sessions.retention() });
+  }
+
+  if (method === "POST" && path === "/api/pending/edit") {
+    const id = Number(body.id);
+    const text = typeof body.text === "string" ? body.text.trim() : "";
+    if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
+    if (!text) return { status: 400, body: { error: "text required" } };
+    // Only while it is still waiting. Once the turn has started the question
+    // has been asked, and rewriting it would change the record of something
+    // already answered.
+    if (!kernel.pending.edit(id, text)) {
+      return {
+        status: 409,
+        body: { error: "that message has already started running" },
+      };
+    }
+    return ok({ pending: kernel.pending.forConversation(String(body.conversationId ?? "")) });
+  }
+
+  if (method === "POST" && path === "/api/pending/delete") {
+    const id = Number(body.id);
+    if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
+    if (!kernel.pending.remove(id)) {
+      return {
+        status: 409,
+        body: { error: "that message has already started running" },
+      };
+    }
+    return ok({ pending: kernel.pending.forConversation(String(body.conversationId ?? "")) });
+  }
+
+  if (method === "POST" && path === "/api/pending/fork") {
+    const id = Number(body.id);
+    if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
+    const waiting = kernel.pending.get(id);
+    if (!waiting) {
+      return {
+        status: 409,
+        body: { error: "that message has already started running" },
+      };
+    }
+    try {
+      // The conversation as it stands, plus this message, in a thread of its
+      // own. The original keeps running whatever else is queued behind it.
+      const forked = await kernel.forkPending(waiting);
+      return ok({ conversationId: forked });
+    } catch (err) {
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
+  }
+
+  if (method === "GET" && path === "/api/agents") {
+    // What is running inside the workspace right now. Builds are the only kind
+    // so far; the shape leaves room for others without the page changing.
+    //
+    // The list carries a short tail per build; the full log is fetched for the
+    // one being read, so a page listing ten builds does not ship ten
+    // transcripts to draw ten summaries.
+    return ok({
+      builds: kernel.builds.list().map((b) => ({ ...b, events: b.events.slice(-12) })),
+    });
+  }
+
+  if (method === "GET" && path.startsWith("/api/agents/")) {
+    const id = Number(path.slice("/api/agents/".length));
+    if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
+    const build = kernel.builds.get(id);
+    if (!build) return { status: 404, body: { error: "no such build" } };
+    return ok({
+      build,
+      // Its own requests and no other build's: listing every build.* awaiting
+      // a decision invites approving one build's shell command from a
+      // different build's log.
+      approvals: kernel.approvals
+        .pending()
+        .filter((a) => build.waitingOn.includes(a.id)),
+    });
+  }
+
+  if (method === "POST" && path === "/api/agents/stop") {
+    const id = Number(body.id);
+    if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
+    if (!kernel.builds.stop(id)) {
+      // The ordinary answer for one that finished while it was being read
+      // about, so it is not an error.
+      return ok({ stopped: false, builds: kernel.builds.list() });
+    }
+    return ok({ stopped: true, builds: kernel.builds.list() });
+  }
+
+  if (method === "POST" && path === "/api/agents/send") {
+    const id = Number(body.id);
+    const text = typeof body.text === "string" ? body.text.trim() : "";
+    if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
+    if (!text) return { status: 400, body: { error: "text required" } };
+    if (!kernel.builds.send(id, text)) {
+      return { status: 409, body: { error: "that build is no longer running" } };
+    }
+    return ok({ sent: true, builds: kernel.builds.list() });
+  }
+
+  if (method === "POST" && path === "/api/agents/interrupt") {
+    const id = Number(body.id);
+    if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
+    if (!(await kernel.builds.interrupt(id))) {
+      return { status: 409, body: { error: "that build is no longer running" } };
+    }
+    return ok({ interrupted: true, builds: kernel.builds.list() });
+  }
+
+  if (method === "GET" && path === "/api/home") {
+    return ok({
+      layout: parseHomeLayout(kernel.settings.get(HOME_LAYOUT_KEY)),
+      // Everything the panels draw from, in one round trip: home is the first
+      // thing loaded and eight separate requests to render it is eight chances
+      // to see it assemble itself.
+      approvals: kernel.approvals.pending(),
+      agents: kernel.builds.list().slice(0, 8),
+      failures: kernel.runs.failures(10),
+      activity: kernel.audit.recent(20),
+      projects: kernel.manifest.list(),
+      chats: kernel.conversations.list(kernel.profile.ownerId).slice(0, 10),
+      crons: kernel.crons.list(),
+      spend: {
+        models: kernel.spend.byModel(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      },
+    });
+  }
+
+  if (method === "POST" && path === "/api/home") {
+    // Parsed rather than trusted: this is a layout the owner edits and KOS may
+    // later write, and a bad one should degrade to the default rather than
+    // leave them with no home page.
+    const layout = parseHomeLayout(body.layout);
+    kernel.settings.set(HOME_LAYOUT_KEY, layout);
+    return ok({ layout });
+  }
+
+  if (method === "GET" && path === "/api/spend") {
+    const days = clampLimit(queryParams(req.url).get("days"), 30);
+    const since = Date.now() - days * 24 * 60 * 60 * 1000;
+    const rates = parseRates(kernel.settings.get(RATES_KEY));
+    const models = kernel.spend.byModel(since).map((m) => ({
+      ...m,
+      // Undefined rather than zero when no rate is set: a model the owner has
+      // not priced has an unknown cost, which is not the same as a free one.
+      cost: costOf(m, rates),
+    }));
+    return ok({
+      days,
+      models,
+      byDay: kernel.spend.byDay(since),
+      rates,
+    });
+  }
+
+  if (method === "POST" && path === "/api/spend/rates") {
+    const rates = parseRates(body.rates);
+    kernel.settings.set(RATES_KEY, rates);
+    return ok({ rates });
+  }
+
+  if (method === "GET" && path === "/api/context") {
+    // What the last turn actually put in front of the model, as the provider
+    // counted it, plus what this conversation has cost in total.
+    const id = queryParams(req.url).get("conversationId") ?? "";
+    if (!id) return { status: 400, body: { error: "conversationId required" } };
+    const last = kernel.spend.lastContext(id);
+    const retained = kernel.sessions.get(id);
+    const retention = kernel.sessions.retention();
+    // What KOS keeps is knowable for every model, and it is usually what
+    // binds first: history is trimmed at this budget long before a modern
+    // context window is anywhere near full. A percentage of the model window
+    // alone said 2% while the conversation was about to start losing its
+    // oldest turns.
+    const historyChars = JSON.stringify(retained).length;
+    const exchanges = retained.filter((m) => m.role === "user").length;
+    return ok({
+      conversationId: id,
+      history: {
+        historyChars,
+        maxChars: retention.maxChars,
+        exchanges,
+        maxExchanges: retention.maxExchanges,
+      },
+      ...(last ? { last } : {}),
+      total: kernel.spend.forConversation(id),
+      window: last
+        ? windowFor(
+            last.provider,
+            last.model,
+            parseRates(kernel.settings.get(RATES_KEY)),
+            contextWindowFor,
+          )
+        : undefined,
+    });
+  }
+
+  if (method === "GET" && path.startsWith("/api/projects/") && path.endsWith("/detail")) {
+    const slug = decodeURIComponent(
+      path.slice("/api/projects/".length).replace(/\/detail$/, ""),
+    );
+    const project = kernel.manifest.list().find((p) => p.slug === slug);
+    if (!project) return { status: 404, body: { error: "project not found" } };
+
+    // A project's tables are namespaced with its slug, so they can be found
+    // without a registry of them. Counted here rather than guessed at: "how
+    // much is actually in this thing" is the first question about a tracker.
+    const tables: { name: string; rows: number; columns: number }[] = [];
+    try {
+      // Filtered here rather than with LIKE: the separator is an underscore,
+      // which LIKE treats as a wildcard, so the pattern needed an ESCAPE
+      // clause to mean what it looked like it meant and silently matched
+      // nothing without one.
+      const prefix = `${slug}_`;
+      const rows = (
+        kernel.workspace.db
+          .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`)
+          .all() as { name: string }[]
+      ).filter((r) => r.name.startsWith(prefix));
+      for (const row of rows) {
+        try {
+          const count = kernel.workspace.db
+            .prepare(`SELECT COUNT(*) AS n FROM "${row.name}"`)
+            .get() as { n: number };
+          const cols = kernel.workspace.db
+            .prepare(`PRAGMA table_info("${row.name}")`)
+            .all() as unknown[];
+          tables.push({
+            name: row.name.slice(slug.length + 1),
+            rows: count.n,
+            columns: cols.length,
+          });
+        } catch {
+          // A table that cannot be counted is still worth naming.
+          tables.push({ name: row.name.slice(slug.length + 1), rows: -1, columns: 0 });
+        }
+      }
+    } catch {
+      // No tables yet is the normal state of a new project, not an error.
+    }
+
+    return ok({
+      project,
+      tables,
+      pages: kernel.pages.list().filter((pg) => pg.projectSlug === slug),
+      crons: kernel.crons.list().filter((c) => c.projectSlug === slug),
+      sites: listSitesFor(kernel.workspace, slug),
+      sitesBase: sitesBaseUrl() ?? null,
+      // What has been done to its shape, newest first: a schema is a thing
+      // that grows, and the history says how it got here.
+      migrations: kernel.migrator.history(slug).slice(-10).reverse(),
+      folder: `${PROJECTS_DIR}/${slug}`,
+    });
+  }
+
+  if (method === "GET" && path === "/api/sites") {
+    // The base URL is where the site server is bound, which is a different
+    // origin from this one on purpose. The dashboard links out to it rather
+    // than embedding it.
+    return ok({ base: sitesBaseUrl() ?? null, sites: listSites(kernel.workspace) });
+  }
+
+  if (method === "GET" && path === "/api/file/raw") {
+    // Image bytes for the browser to draw. The allow-list and the type live in
+    // readImage; nosniff and a sandboxing policy are here so that even a file
+    // that somehow reached this point mislabelled cannot become a document on
+    // the dashboard's own origin.
+    const target = queryParams(req.url).get("path") ?? "";
+    if (!target) return { status: 400, body: { error: "path required" } };
+    try {
+      const raw = readImage(kernel.workspace, target);
+      return {
+        status: 200,
+        body: raw.bytes,
+        headers: {
+          "content-type": raw.contentType,
+          "content-length": String(raw.bytes.byteLength),
+          "x-content-type-options": "nosniff",
+          "content-security-policy": "default-src 'none'; sandbox",
+          "content-disposition": "inline",
+        },
+      };
     } catch (err) {
       return {
         status: 400,
@@ -491,7 +977,10 @@ export async function handleApiRequest(
     const params = queryParams(req.url);
     const q = params.get("q") ?? "";
     const kind = params.get("kind");
-    const kinds = ["project", "page", "file", "schedule"];
+    const kinds = ["project", "page", "file", "schedule", "chat", "site", "agent"];
+    // The palette and the @ menu ask the same question of the same index, so
+    // a thing reachable by one is reachable by the other.
+    const limit = clampLimit(params.get("limit"), 12);
     return ok({
       mentions: findMentions(
         {
@@ -499,9 +988,16 @@ export async function handleApiRequest(
           pages: kernel.pages.list(),
           crons: kernel.crons.list(),
           workspace: kernel.workspace,
+          chats: kernel.conversations
+            .list(kernel.profile.ownerId)
+            .map((c) => ({ id: c.id, title: c.title })),
+          sites: listSites(kernel.workspace),
+          agents: kernel.builds
+            .list()
+            .map((b) => ({ id: b.id, dir: b.dir, status: b.status })),
         },
         q,
-        12,
+        limit,
         kind && kinds.includes(kind) ? (kind as MentionKind) : undefined,
       ),
       commands: CHAT_COMMANDS,
@@ -555,6 +1051,13 @@ export async function handleApiRequest(
       id,
       messages: transcriptOf(kernel, id),
       events: conversationEvents(kernel.sessions.get(id)),
+      // Sent but not yet run. Shown after the transcript because that is where
+      // they will land, and separately because they have not happened yet.
+      pending: kernel.pending.forConversation(id).map((m) => ({
+        id: m.id,
+        text: m.text,
+        attachments: m.attachments.map((a) => ({ name: a.name })),
+      })),
     });
   }
 
@@ -698,6 +1201,33 @@ function transcriptOf(
   return out;
 }
 
+/**
+ * Every writable secret, masked, as the settings page shows them.
+ *
+ * `storedAs` names where the value actually is when that is not the canonical
+ * name. The page said "not set" for a working Discord token because it looked
+ * only at KOS_SECRET_DISCORD while the token was under DISCORD_TOKEN.
+ */
+function maskedSecrets(): Record<
+  string,
+  { label: string; hint: string; masked: string | null; storedAs?: string }
+> {
+  const out: Record<
+    string,
+    { label: string; hint: string; masked: string | null; storedAs?: string }
+  > = {};
+  for (const [key, meta] of Object.entries(WRITABLE_SECRETS)) {
+    const found = findSecret(key);
+    out[key] = {
+      label: meta.label,
+      hint: meta.hint,
+      masked: maskSecret(found?.value),
+      ...(found && found.name !== key ? { storedAs: found.name } : {}),
+    };
+  }
+  return out;
+}
+
 function authorized(req: ApiRequest, token: string): boolean {
   const headers = req.headers ?? {};
   const auth = header(headers, "authorization");
@@ -778,6 +1308,44 @@ async function readBody(stream: NodeJS.ReadableStream): Promise<unknown> {
  * agent is on; anything that has to survive a reconnect stays in the polled
  * conversation list, so a dropped connection loses nothing but liveness.
  */
+/**
+ * A build's log, as it happens.
+ *
+ * Polling is fine for a list and wrong for a log: output arrives in bursts,
+ * and a page that samples every second and a half renders them as stutter.
+ */
+function streamBuilds(
+  kernel: Kernel,
+  req: IncomingMessage,
+  res: ServerResponse,
+  options: DashboardServerOptions,
+): void {
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+    ...corsHeaders(req, options),
+  });
+  res.write(": connected\n\n");
+
+  const send = (id: number): void => {
+    const build = kernel.builds.get(id);
+    if (build) res.write(`data: ${JSON.stringify(build)}\n\n`);
+  };
+  // Everything currently known, so a reader that arrives mid-build sees the
+  // whole log rather than only what happens next.
+  for (const build of kernel.builds.list()) send(build.id);
+
+  const unwatch = kernel.builds.watch(send);
+  const beat = setInterval(() => res.write(": beat\n\n"), 25_000);
+  const close = (): void => {
+    clearInterval(beat);
+    unwatch();
+  };
+  req.on("close", close);
+  res.on("close", close);
+}
+
 function streamProgress(
   kernel: Kernel,
   req: IncomingMessage,
@@ -791,6 +1359,13 @@ function streamProgress(
     ...corsHeaders(req, options),
   });
   res.write(": connected\n\n");
+
+  // Catch the reader up on whatever is already running before sending them
+  // anything new. Without this a reload during a turn showed an empty space
+  // where the thinking and the tool calls had been, until the turn ended.
+  for (const event of kernel.progress.snapshot()) {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  }
 
   const unsubscribe = kernel.progress.subscribe((event) => {
     res.write(`data: ${JSON.stringify(event)}\n\n`);
@@ -807,6 +1382,52 @@ function streamProgress(
   res.on("close", close);
 }
 
+
+/**
+ * Check a schedule the owner wrote, returning the reason when it cannot be
+ * used. The same shape the tool accepts, minus the approval queue: this is the
+ * owner acting directly.
+ */
+function parseCronInput(body: Record<string, unknown>): CreateCronInput | string {
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const schedule = typeof body.schedule === "string" ? body.schedule.trim() : "";
+  if (!name) return "name required";
+  if (!cron.validate(schedule)) return `invalid cron schedule: ${schedule || "(empty)"}`;
+
+  const type = body.type === "self_prompt" ? "self_prompt" : "actions";
+  const input: CreateCronInput = { name, schedule, type };
+  if (typeof body.query === "string" && body.query.trim()) input.query = body.query;
+  if (typeof body.projectSlug === "string" && body.projectSlug) {
+    input.projectSlug = body.projectSlug;
+  }
+
+  if (type === "self_prompt") {
+    const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+    if (!prompt) return "a self_prompt job needs a prompt";
+    input.prompt = prompt;
+    return input;
+  }
+
+  if (!Array.isArray(body.actions) || body.actions.length === 0) {
+    return "an actions job needs at least one tool call";
+  }
+  const actions: ToolCall[] = [];
+  for (const [i, entry] of body.actions.entries()) {
+    if (typeof entry !== "object" || entry === null) return `actions[${i}] must be an object`;
+    const call = entry as Record<string, unknown>;
+    if (typeof call.tool !== "string" || !call.tool) return `actions[${i}] needs a tool`;
+    const args = call.args;
+    if (args !== undefined && (typeof args !== "object" || args === null || Array.isArray(args))) {
+      return `actions[${i}]: args must be an object`;
+    }
+    actions.push({
+      tool: call.tool,
+      args: (args as Record<string, unknown> | undefined) ?? {},
+    });
+  }
+  input.actions = actions;
+  return input;
+}
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -876,6 +1497,11 @@ export function createDashboardServer(
 
       // Server-sent events need the raw response, so this cannot go through
       // the JSON handler that every other route uses.
+      if (method === "GET" && path === "/api/agents/stream") {
+        streamBuilds(kernel, req, res, options);
+        return;
+      }
+
       if (method === "GET" && path === "/api/events") {
         streamProgress(kernel, req, res, options);
         return;
@@ -900,6 +1526,9 @@ export function createDashboardServer(
           ...(result.headers ?? {}),
         });
         if (result.body === null) res.end();
+        // A route that answers with bytes has already said what they are; JSON
+        // encoding them would turn an image into a list of numbers.
+        else if (Buffer.isBuffer(result.body)) res.end(result.body);
         else res.end(JSON.stringify(result.body));
         return;
       }

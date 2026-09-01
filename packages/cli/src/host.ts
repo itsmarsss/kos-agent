@@ -1,3 +1,4 @@
+import type { Server } from "node:http";
 import { connect } from "node:net";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -11,8 +12,10 @@ import {
   connectChannel,
   createDashboardServer,
   primarySessionId,
+  startSiteServer,
 } from "@kos/harness";
 
+import { envFilePath } from "./env.js";
 import { clearDaemonState, writeDaemonState } from "./state.js";
 
 export interface HostOptions {
@@ -25,6 +28,13 @@ export interface HostOptions {
   discord?: boolean;
   /** Require Discord credentials or fail. */
   requireDiscord?: boolean;
+  /**
+   * Port for serving what the agent built. A different port from the dashboard
+   * on purpose: a site is agent-written markup, and sharing the dashboard's
+   * origin would let it drive the dashboard's API. Default is the dashboard
+   * port plus one; 0 turns site serving off.
+   */
+  sitesPort?: number;
 }
 
 function defaultUiDist(): string | undefined {
@@ -101,6 +111,9 @@ export async function runHost(options: HostOptions): Promise<void> {
 
   const server = createDashboardServer(kernel, {
     ...(staticDir ? { staticDir } : {}),
+    // So the settings page can save an API key without anyone opening a
+    // dotfile. Refused if it ever resolves inside the workspace.
+    envPath: envFilePath(),
     ...(options.token ? { token: options.token } : {}),
     host: options.host,
     meta,
@@ -130,9 +143,30 @@ export async function runHost(options: HostOptions): Promise<void> {
     discord: false,
   });
 
+  const sitesPort = options.sitesPort ?? options.port + 1;
+  let siteServer: Server | undefined;
+  if (sitesPort > 0) {
+    try {
+      siteServer = startSiteServer(kernel.workspace, sitesPort, options.host);
+      // So sites.list can tell the agent where its work ended up.
+      process.env.KOS_SITES_URL = `http://${options.host}:${sitesPort}`;
+      await new Promise<void>((resolveListen, reject) => {
+        siteServer?.once("error", reject);
+        siteServer?.once("listening", () => resolveListen());
+      });
+    } catch (err) {
+      // Not being able to show you a site is a smaller problem than the host
+      // refusing to start, so it is reported and stepped over.
+      siteServer = undefined;
+      delete process.env.KOS_SITES_URL;
+      console.log(`sites: not served (${err instanceof Error ? err.message : String(err)})`);
+    }
+  }
+
   console.log(`KOS host on http://${options.host}:${options.port}`);
   console.log(`workspace: ${kernel.workspace.root}`);
   console.log(`session: ${primarySessionId(kernel.profile.ownerId)}`);
+  if (siteServer) console.log(`sites: http://${options.host}:${sitesPort}`);
   if (staticDir) console.log(`ui: ${staticDir}`);
   else console.log("ui: not built (pnpm -C packages/ui build); API only");
 

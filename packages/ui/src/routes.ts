@@ -9,6 +9,8 @@ export type Route =
   | { name: "runs" }
   | { name: "chats"; id?: string }
   | { name: "files"; path?: string }
+  | { name: "settings" }
+  | { name: "agents"; id?: number }
   | { name: "page"; id: string };
 
 export function parseRoute(hash: string): Route {
@@ -18,6 +20,10 @@ export function parseRoute(hash: string): Route {
   if (path === "/projects") return { name: "projects" };
   if (path === "/chats") return { name: "chats" };
   if (path === "/files") return { name: "files" };
+  if (path === "/settings") return { name: "settings" };
+  if (path === "/agents") return { name: "agents" };
+  const agent = path.match(/^\/agents\/(\d+)$/);
+  if (agent?.[1]) return { name: "agents", id: Number(agent[1]) };
   const file = path.match(/^\/files\/(.+)$/);
   if (file?.[1]) return { name: "files", path: decodeURIComponent(file[1]) };
   const chat = path.match(/^\/chats\/([^/]+)$/);
@@ -43,21 +49,28 @@ export function hrefFor(route: Route): string {
       return route.id ? `#/chats/${encodeURIComponent(route.id)}` : "#/chats";
     case "files":
       return route.path ? `#/files/${encodeURIComponent(route.path)}` : "#/files";
+    case "agents":
+      return route.id ? `#/agents/${route.id}` : "#/agents";
     default:
       return `#/${route.name}`;
   }
 }
 
 /**
- * Primary nav. Labels name what you would go looking for, not the table the
+ * Primary nav.
+ *
+ * Home is deliberately absent: it is reached by the wordmark, the way a site's
+ * logo has meant home for thirty years, which buys back a slot in a bar that
+ * had nine.
+ * Labels name what you would go looking for, not the table the
  * data happens to live in: "Ops / Tools / Runs" told you nothing unless you
  * had read the source.
  */
 export const NAV: Array<{ route: Route; label: string }> = [
-  { route: { name: "home" }, label: "Home" },
   { route: { name: "chats" }, label: "Chats" },
   { route: { name: "files" }, label: "Files" },
   { route: { name: "projects" }, label: "Projects" },
+  { route: { name: "agents" }, label: "Agents" },
   { route: { name: "crons" }, label: "Schedule" },
   { route: { name: "memory" }, label: "Knowledge" },
   { route: { name: "tools" }, label: "Activity" },

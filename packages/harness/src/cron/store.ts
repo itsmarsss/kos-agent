@@ -99,6 +99,39 @@ export class CronStore {
     return this.get(Number(info.lastInsertRowid))!;
   }
 
+  /**
+   * Change an existing job in place.
+   *
+   * The same read-only rule as create: a query is the job's variable scope,
+   * and an edit is exactly as good a place to slip a write into it.
+   */
+  update(id: number, input: CreateCronInput): CronJob | undefined {
+    if (!this.get(id)) return undefined;
+    if (input.query && !isReadOnlyQuery(input.query)) {
+      throw new Error("cron query must be a single read-only SELECT/WITH");
+    }
+    this.db
+      .prepare(
+        `UPDATE crons SET name = @name, schedule = @schedule, type = @type,
+           query = @query, condition_json = @condition, actions_json = @actions,
+           prompt = @prompt, project_slug = @projectSlug, updated_at = @ts
+         WHERE id = @id`,
+      )
+      .run({
+        id,
+        name: input.name,
+        schedule: input.schedule,
+        type: input.type,
+        query: input.query ?? null,
+        condition: input.condition ? JSON.stringify(input.condition) : null,
+        actions: input.actions ? JSON.stringify(input.actions) : null,
+        prompt: input.prompt ?? null,
+        projectSlug: input.projectSlug ?? null,
+        ts: this.now(),
+      });
+    return this.get(id);
+  }
+
   get(id: number): CronJob | undefined {
     const row = this.db.prepare(`SELECT * FROM crons WHERE id = ?`).get(id) as
       | Row

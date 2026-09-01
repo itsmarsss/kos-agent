@@ -16,6 +16,8 @@ export type ChatCommand =
   | { kind: "switch"; target: string }
   | { kind: "rename"; title: string }
   | { kind: "archive" }
+  | { kind: "compact" }
+  | { kind: "clear" }
   | { kind: "help" };
 
 const ALIASES: Record<string, ChatCommand["kind"]> = {
@@ -33,6 +35,11 @@ const ALIASES: Record<string, ChatCommand["kind"]> = {
   archive: "archive",
   close: "archive",
   done: "archive",
+  compact: "compact",
+  summarise: "compact",
+  summarize: "compact",
+  clear: "clear",
+  reset: "clear",
   help: "help",
   "?": "help",
 };
@@ -117,6 +124,11 @@ export const CHAT_COMMANDS: CommandSpec[] = [
   { name: "switch", args: "<number|title>", description: "move to one" },
   { name: "rename", args: "<title>", description: "rename this conversation" },
   { name: "archive", description: "close this conversation" },
+  {
+    name: "compact",
+    description: "replace this chat's history with a summary of it",
+  },
+  { name: "clear", description: "forget this chat's history, keep the chat" },
   { name: "help", description: "show these commands" },
 ];
 
@@ -202,5 +214,25 @@ export function runChatCommand(
         switchedTo: next.id,
       };
     }
+
+    case "compact":
+    case "clear":
+      // Handled by the kernel, which owns the session history and (for
+      // compact) the model. Reaching here means a caller ran the command
+      // table without checking touchesHistory first.
+      return { reply: `\`/${command.kind}\` is not available on this surface.` };
   }
+}
+
+/**
+ * Commands that act on a conversation's history rather than on the list of
+ * conversations.
+ *
+ * They are split out because everything else here is pure bookkeeping over the
+ * conversation store, while these need the session history and, for compact,
+ * a model call. Keeping that distinction visible stops runChatCommand quietly
+ * becoming a second agent loop.
+ */
+export function touchesHistory(command: ChatCommand): boolean {
+  return command.kind === "compact" || command.kind === "clear";
 }
