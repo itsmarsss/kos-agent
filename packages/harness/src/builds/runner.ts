@@ -42,6 +42,21 @@ export interface BuildEvent {
   isError?: boolean;
 }
 
+/**
+ * What a build is doing at this instant, as opposed to what it has done.
+ *
+ * Between one tool call and the next there is nothing in the log, and silence
+ * reads exactly like a hang. This is the difference between "it is thinking"
+ * and "it has stopped".
+ */
+export interface BuildPhase {
+  phase: "thinking" | "writing" | "calling" | "idle";
+  /** The thinking or prose so far in the current block, capped. */
+  partial?: string;
+  /** Tool being prepared, when the model is assembling a call. */
+  tool?: string;
+}
+
 /** Tokens and money, as the SDK reports them. */
 export interface BuildUsage {
   inputTokens: number;
@@ -82,6 +97,10 @@ export interface BuildOptions {
   onEvent?: (event: BuildEvent) => void;
   /** Told after every turn what it has cost so far. */
   onUsage?: (usage: BuildUsage) => void;
+  /** Told, often, what it is doing right now. */
+  onPhase?: (phase: BuildPhase) => void;
+  /** Told which queued action is this build's, and when it is settled. */
+  onAsk?: (pendingId: number, settled: boolean) => void;
   /**
    * Handed the controls as soon as there are any, so a caller can offer them
    * without waiting for the build to finish and hand them back.
@@ -264,6 +283,26 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
   const allowedCommands = new Set<string>();
   let askedFor = 0;
   let approved = 0;
+  /*
+   * Phase updates are throttled.
+   *
+   * Deltas arrive many times a second, and each one reaching the reader as its
+   * own frame is a great deal of traffic to render the same word. A change of
+   * phase goes out at once because that is the interesting moment; the text
+   * accumulating within one is coalesced.
+   */
+  let partial = "";
+  let lastPhase = "";
+  let lastPhaseAt = 0;
+  const setPhase = (update: BuildPhase): void => {
+    const now = Date.now();
+    const changed = update.phase !== lastPhase;
+    if (!changed && now - lastPhaseAt < 250) return;
+    lastPhase = update.phase;
+    lastPhaseAt = now;
+    options.onPhase?.(update);
+  };
+
   const emit = (
     kind: BuildEvent["kind"],
     text: string,
@@ -348,7 +387,12 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
       ...(options.conversationId ? { conversationId: options.conversationId } : {}),
     });
 
+    // Reported so a reader can tell this build's requests from another's.
+    // The terminal listed every build.* awaiting a decision, which invites
+    // approving one build's shell command from a different build's log.
+    options.onAsk?.(action.id, false);
     const decision = await waitForDecision(options.approvals, action.id, controller.signal);
+    options.onAsk?.(action.id, true);
     if (decision === "denied") {
       return {
         behavior: "deny",
@@ -406,6 +450,9 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
         ...(options.model ? { model: options.model } : {}),
         canUseTool,
         maxTurns: options.maxTurns ?? DEFAULT_MAX_TURNS,
+        // Streaming frames, so the log can say "thinking" while it thinks
+        // rather than going quiet between tool calls and looking wedged.
+        includePartialMessages: true,
         env,
         abortController: controller,
         systemPrompt: {
@@ -437,7 +484,41 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
     });
 
     for await (const message of stream) {
-      if (message.type === "user") {
+      if (message.type === "stream_event") {
+        /*
+         * Frames of the turn in progress. Deliberately not pushed into the
+         * event log: they arrive in the hundreds and would bury the record of
+         * what actually happened. They update what the build is doing now.
+         */
+        const ev = message.event as {
+          type?: string;
+          content_block?: { type?: string; name?: string };
+          delta?: { type?: string; text?: string; thinking?: string; partial_json?: string };
+        };
+        if (ev.type === "content_block_start") {
+          const kind = ev.content_block?.type;
+          if (kind === "thinking") setPhase({ phase: "thinking", partial: "" });
+          else if (kind === "text") setPhase({ phase: "writing", partial: "" });
+          else if (kind === "tool_use") {
+            setPhase({
+              phase: "calling",
+              ...(ev.content_block?.name ? { tool: ev.content_block.name } : {}),
+            });
+          }
+        } else if (ev.type === "content_block_delta") {
+          const piece = ev.delta?.thinking ?? ev.delta?.text;
+          if (piece !== undefined) {
+            partial = (partial + piece).slice(-2000);
+            setPhase({
+              phase: ev.delta?.type === "thinking_delta" ? "thinking" : "writing",
+              partial,
+            });
+          }
+        } else if (ev.type === "content_block_stop" || ev.type === "message_stop") {
+          partial = "";
+          setPhase({ phase: "idle" });
+        }
+      } else if (message.type === "user") {
         // Tool results come back as user messages. Without them the log said
         // what was asked and never what came of it.
         const content = message.message.content;

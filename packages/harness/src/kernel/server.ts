@@ -680,11 +680,12 @@ export async function handleApiRequest(
     if (!build) return { status: 404, body: { error: "no such build" } };
     return ok({
       build,
-      // Its own pending requests, so they can be decided where it is read
-      // rather than only from Home.
+      // Its own requests and no other build's: listing every build.* awaiting
+      // a decision invites approving one build's shell command from a
+      // different build's log.
       approvals: kernel.approvals
         .pending()
-        .filter((a) => a.tool.startsWith("build.")),
+        .filter((a) => build.waitingOn.includes(a.id)),
     });
   }
 

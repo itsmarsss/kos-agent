@@ -96,6 +96,12 @@ function defineBuildTools(
             control,
           });
         },
+        onAsk: (pendingId, settled) => {
+          if (id) options.registry.asking(id, pendingId, settled);
+        },
+        onPhase: (phase) => {
+          if (id) options.registry.doing(id, phase);
+        },
         onUsage: (usage) => {
           if (id) options.registry.spent(id, usage);
         },
