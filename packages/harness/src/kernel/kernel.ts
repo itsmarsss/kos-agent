@@ -1147,7 +1147,10 @@ export class Kernel {
     userId: string,
     text: string,
     channel = "dashboard",
-  ): Promise<(HandleResult & { isCommand: true; switchedTo?: string }) | null> {
+  ): Promise<
+    | (HandleResult & { isCommand: true; switchedTo?: string; opens?: "tools" })
+    | null
+  > {
     const command = parseChatCommand(text);
     if (!command) return null;
 
@@ -1167,6 +1170,7 @@ export class Kernel {
       halted: false,
       isCommand: true,
       ...(result.switchedTo ? { switchedTo: result.switchedTo } : {}),
+      ...(result.opens ? { opens: result.opens } : {}),
     };
   }
 
