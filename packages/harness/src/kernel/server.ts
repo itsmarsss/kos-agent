@@ -606,7 +606,10 @@ export async function handleApiRequest(
     const params = queryParams(req.url);
     const q = params.get("q") ?? "";
     const kind = params.get("kind");
-    const kinds = ["project", "page", "file", "schedule"];
+    const kinds = ["project", "page", "file", "schedule", "chat", "site"];
+    // The palette and the @ menu ask the same question of the same index, so
+    // a thing reachable by one is reachable by the other.
+    const limit = clampLimit(params.get("limit"), 12);
     return ok({
       mentions: findMentions(
         {
@@ -614,9 +617,13 @@ export async function handleApiRequest(
           pages: kernel.pages.list(),
           crons: kernel.crons.list(),
           workspace: kernel.workspace,
+          chats: kernel.conversations
+            .list(kernel.profile.ownerId)
+            .map((c) => ({ id: c.id, title: c.title })),
+          sites: listSites(kernel.workspace),
         },
         q,
-        12,
+        limit,
         kind && kinds.includes(kind) ? (kind as MentionKind) : undefined,
       ),
       commands: CHAT_COMMANDS,
