@@ -54,6 +54,7 @@ import { cronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
 import { notifyModule } from "../tools/notify.js";
 import { sqlModule } from "../tools/sql.js";
+import { createBuildsModule } from "../tools/builds.js";
 import { sitesModule } from "../tools/sites.js";
 import { systemsModule } from "../tools/systems.js";
 import { tasksModule } from "../tools/tasks.js";
@@ -365,6 +366,24 @@ export class Kernel {
       createSearchModule(),
       systemsModule,
       sitesModule,
+      createBuildsModule({
+        approvals,
+        userId: profile.ownerId,
+        currentConversationId: () => kernelRef?.currentConversationId,
+        // A build runs for minutes inside one tool call. Its narration goes
+        // out on the reasoning stream, which is already where a reader looks
+        // to see what is happening rather than whether it has hung.
+        onEvent: (event) => {
+          const conversationId = kernelRef?.currentConversationId;
+          if (!conversationId) return;
+          kernelRef?.progress.emit({
+            kind: "delta",
+            conversationId,
+            of: "reasoning",
+            text: `${event.text}\n`,
+          });
+        },
+      }),
       tasksModule,
       exportModule,
       createSkillsModule(promoter),
