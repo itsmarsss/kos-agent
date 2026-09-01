@@ -38,7 +38,7 @@ import { AuditLog } from "../ops/audit.js";
 import { ApprovalQueue, type PendingAction } from "../ops/approvals.js";
 import { PersistentKillSwitch } from "../ops/killswitch.js";
 import { RunsLog } from "../ops/runs.js";
-import { WorkQueue } from "../ops/queue.js";
+import { SHARED_LANE, WorkQueue } from "../ops/queue.js";
 import { WorkspaceBackup } from "../ops/backup.js";
 import { injectSecrets } from "../secrets/inject.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
@@ -619,15 +619,18 @@ export class Kernel {
     // running rewrites it wholesale when it lands and would take the waiting
     // message with it.
     const useSession = !this.sessionless && !opts.noSession;
+    // Behind this conversation's own work, not behind the whole process. A
+    // turn in another chat used to park a message here for no reason the
+    // owner could see.
     const parked =
-      useSession && this.queue.depth > 0
+      useSession && this.queue.depthOf(sessionId) > 0
         ? this.pending.add(sessionId, text, opts.attachments ?? [])
         : undefined;
 
     return this.queue.enqueue(() => {
       if (parked !== undefined) this.pending.take(parked);
       return this.runTurn(text, userId, sessionId, opts);
-    });
+    }, sessionId);
   }
 
   /**
@@ -908,7 +911,9 @@ export class Kernel {
       // takes: approved here, never through the guarded executor.
       if (!r.isError) this.afterToolRan(action.tool);
       return r;
-    });
+      // The lane of the conversation that asked, so approving in one chat does
+      // not sit behind a long turn running in another.
+    }, action.conversationId ?? SHARED_LANE);
 
     const userId = decidedBy ?? this.profile.ownerId;
     // Resume the conversation that asked. Resuming the primary one left the
