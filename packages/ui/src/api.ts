@@ -11,6 +11,8 @@ export interface Status {
   pid?: number;
   workspace?: string;
   orchestratorId?: string;
+  /** Jobs failing right now, so the header can stop claiming all is well. */
+  unhealthy?: number;
   /** Which model answers each task class, when the router can say. */
   routes?: Record<
     string,
@@ -243,11 +245,28 @@ export interface PendingMessage {
   attachments: { name: string }[];
 }
 
+export interface FailingJob {
+  key: string;
+  label: string;
+  /** Consecutive failures, so "once" reads differently from "since Tuesday". */
+  streak: number;
+  error: string | null;
+  since: number;
+  lastAt: number;
+}
+
+export interface HealthReport {
+  ok: boolean;
+  failing: FailingJob[];
+  recent: { total: number; errors: number; rate: number };
+}
+
 export interface HomeData {
   layout: import("@kos/shared").HomeLayout;
   approvals: PendingAction[];
   agents: BuildRecord[];
   failures: RunRecord[];
+  health: HealthReport;
   activity: AuditRecord[];
   projects: Project[];
   chats: Conversation[];
@@ -431,6 +450,11 @@ export const api = {
       id,
       enabled,
     }),
+  runCron: (id: number) =>
+    post<{ ok: boolean; error?: string }>("/api/crons/run", { id }),
+  health: () => get<HealthReport>("/api/health/report"),
+  dismissFailure: (key: string) =>
+    post<{ dismissed: string }>("/api/health/dismiss", { key }),
   deleteCron: (id: number) =>
     post<{ id: number; removed: boolean }>("/api/crons/delete", { id }),
   failed: (limit = 100) => get<RunRecord[]>(`/api/failed?limit=${limit}`),
@@ -611,7 +635,10 @@ export const api = {
       ...(attachments?.length ? { attachments } : {}),
     }),
   snapshot: (message?: string) =>
-    post<{ sha: string | null }>("/api/snapshot", message ? { message } : {}),
+    post<{ sha: string | null; excluded: string[] }>(
+      "/api/snapshot",
+      message ? { message } : {},
+    ),
   clear: (sessionId?: string) =>
     post<{ cleared: string }>(
       "/api/clear",

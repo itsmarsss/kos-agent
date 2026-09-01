@@ -145,7 +145,43 @@ export async function handleApiRequest(
       workspace: options.meta?.workspace ?? kernel.workspace.root,
       orchestratorId: orchestratorId(kernel.profile.ownerId),
       routes: kernel.routes() ?? null,
+      // Carried on the status the dashboard already polls, so an unattended
+      // failure is visible on the next open rather than only in a message the
+      // owner may have missed.
+      unhealthy: kernel.health.failing().length,
     });
+  }
+
+  /**
+   * Is KOS well? Failing jobs with how long and how often, plus the recent
+   * failure rate. Its own endpoint because the detail is more than a status
+   * poll should carry.
+   */
+  if (method === "GET" && path === "/api/health/report") {
+    return ok(kernel.health.report());
+  }
+
+  /** Stop reporting a job as broken, for one the owner has dealt with. */
+  if (method === "POST" && path === "/api/health/dismiss") {
+    const key = typeof body?.key === "string" ? body.key : null;
+    if (!key) return { status: 400, body: { error: "key required" } };
+    kernel.health.forget(key);
+    return ok({ dismissed: key });
+  }
+
+  /**
+   * Run a job now. "Does this actually work" was otherwise answerable only by
+   * waiting for the schedule, which for a nightly job is a day per attempt.
+   */
+  if (method === "POST" && path === "/api/crons/run") {
+    const id = Number(body?.id);
+    if (!Number.isInteger(id)) {
+      return { status: 400, body: { error: "id required" } };
+    }
+    if (!kernel.crons.get(id)) {
+      return { status: 404, body: { error: "no such job" } };
+    }
+    return ok(await kernel.fireCron(id));
   }
 
   if (method === "GET" && path === "/api/settings/models") {
@@ -729,6 +765,7 @@ export async function handleApiRequest(
       approvals: kernel.approvals.pending(),
       agents: kernel.builds.list().slice(0, 8),
       failures: kernel.runs.failures(10),
+      health: kernel.health.report(),
       activity: kernel.audit.recent(20),
       projects: kernel.manifest.list(),
       chats: kernel.conversations.list(kernel.profile.ownerId).slice(0, 10),
@@ -943,7 +980,9 @@ export async function handleApiRequest(
         ? body.message
         : undefined;
     const sha = await kernel.backup.snapshot(message);
-    return ok({ sha });
+    // A folder with its own git repo is not covered by this, and silently
+    // omitting things from a backup is how a backup lies to you.
+    return ok({ sha, excluded: await kernel.backup.excluded() });
   }
 
   if (method === "POST" && path === "/api/conversations/stop") {
