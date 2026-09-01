@@ -3,6 +3,7 @@ import type { HomePanel } from "@kos/shared";
 import { summarizeAction } from "@kos/shared";
 
 import type { HomeData } from "./api.js";
+import { Decision } from "./Decision.js";
 import { hrefFor } from "./routes.js";
 
 /**
@@ -59,6 +60,7 @@ export function Panel({
   onOpenChat,
   onGo,
   onDecide,
+  deciding,
 }: {
   panel: HomePanel;
   data: HomeData;
@@ -67,6 +69,7 @@ export function Panel({
   onOpenChat: (id: string) => void;
   onGo: Go;
   onDecide: (id: number, approved: boolean) => void;
+  deciding: ReadonlySet<number>;
 }): ReactElement {
   const limit = panel.limit ?? 8;
   const title = panel.title;
@@ -91,20 +94,7 @@ export function Panel({
                       exists because something is waiting, and sending the
                       owner elsewhere to answer defeats it. */}
                   <span className="panel-approval-actions">
-                    <button
-                      type="button"
-                      className="btn btn--ok"
-                      onClick={() => onDecide(a.id, true)}
-                    >
-                      Approve
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--danger-ghost"
-                      onClick={() => onDecide(a.id, false)}
-                    >
-                      Deny
-                    </button>
+                    <Decision id={a.id} deciding={deciding} onDecide={onDecide} small />
                   </span>
                 </li>
               ))}
@@ -133,13 +123,21 @@ export function Panel({
             <ul className="panel-list">
               {live.slice(0, limit).map((b) => (
                 <li key={b.id}>
-                  <span className="panel-row">
+                  <button
+                    type="button"
+                    className="panel-row"
+                    onClick={() => onGo("agents")}
+                  >
                     <span className={`agent-dot agent-dot--${b.status}`} />
                     <span className="panel-row-main">{b.dir}</span>
                     <span className="panel-row-side">
-                      {b.status === "waiting" ? "waiting on you" : "working"}
+                      {b.quietFor
+                        ? "quiet"
+                        : b.status === "waiting"
+                          ? "waiting on you"
+                          : "working"}
                     </span>
-                  </span>
+                  </button>
                 </li>
               ))}
             </ul>

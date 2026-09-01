@@ -8,11 +8,14 @@ import {
 
 import { summarizeAction } from "@kos/shared";
 
+import { Decision } from "./Decision.js";
+
 import { ContextMeter } from "./ContextMeter.js";
 import {
   api,
   type ChatEvent,
   type Conversation,
+  type BuildRecord,
   type PendingAction,
   type PendingMessage,
 } from "./api.js";
@@ -63,6 +66,11 @@ export interface ChatsPageProps {
    * from a sub-agent, not from a tool call the conversation made.
    */
   approvals: PendingAction[];
+  /** Actions being decided right now. */
+  deciding: ReadonlySet<number>;
+  /** Coding sub-agents, so a chat that started one can link to it. */
+  agents: BuildRecord[];
+  onOpenAgent: (id: number) => void;
   onOpen: (id: string) => void;
   onChanged: () => void;
   onDecide: (pendingId: string, approved: boolean) => void;
@@ -81,6 +89,9 @@ export function ChatsPage({
   activeId,
   pendingApprovals,
   approvals,
+  deciding,
+  agents,
+  onOpenAgent,
   onOpen,
   onChanged,
   onDecide,
@@ -400,6 +411,20 @@ export function ChatsPage({
           a.conversationId === activeId && !shownPendingIds.has(String(a.id)),
       ),
     [approvals, activeId, shownPendingIds],
+  );
+
+  /** Builds this conversation started, running first. */
+  const mine = useMemo(
+    () =>
+      agents
+        .filter((b) => b.conversationId === activeId)
+        .sort((a, b) => {
+          const aLive = a.status === "running" || a.status === "waiting";
+          const bLive = b.status === "running" || b.status === "waiting";
+          return aLive === bLive ? b.startedAt - a.startedAt : aLive ? -1 : 1;
+        })
+        .slice(0, 3),
+    [agents, activeId],
   );
 
   /** What a running conversation is doing, for the list. */
@@ -773,6 +798,26 @@ export function ChatsPage({
                 )
               )}
 
+              {/* A build this conversation started. It runs somewhere else and
+                  for minutes, so the chat says it exists and links to it
+                  rather than going quiet and leaving the reader to find the
+                  Agents page on their own. */}
+              {mine.map((b) => (
+                <button
+                  type="button"
+                  className={`chat-agent chat-agent--${b.status}`}
+                  key={b.id}
+                  onClick={() => onOpenAgent(b.id)}
+                >
+                  <span className={`agent-dot agent-dot--${b.status}`} />
+                  <span className="chat-agent-main">
+                    <span className="chat-agent-dir">{b.dir}</span>
+                    <span className="chat-agent-latest">{b.latest}</span>
+                  </span>
+                  <span className="chat-agent-go">Open log →</span>
+                </button>
+              ))}
+
               {/* Waiting on a decision, and not attached to any tool call in
                   this transcript. A build's requests arrive this way: the
                   chat showed "I'll continue once the result comes through"
@@ -785,20 +830,11 @@ export function ChatsPage({
                     <span>{a.reason ?? summarizeAction(a.tool, a.args)}</span>
                   </div>
                   <div className="loose-approval-actions">
-                    <button
-                      type="button"
-                      className="btn btn--ok"
-                      onClick={() => onDecide(String(a.id), true)}
-                    >
-                      Approve
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--danger-ghost"
-                      onClick={() => onDecide(String(a.id), false)}
-                    >
-                      Deny
-                    </button>
+                    <Decision
+                      id={a.id}
+                      deciding={deciding}
+                      onDecide={(id, ok) => onDecide(String(id), ok)}
+                    />
                   </div>
                 </div>
               ))}

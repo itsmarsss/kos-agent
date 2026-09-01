@@ -4,6 +4,7 @@ import { summarizeAction } from "@kos/shared";
 import {
   api,
   type AuditRecord,
+  type BuildRecord,
   type CronJob,
   type FactRow,
   type PagePayload,
@@ -63,6 +64,8 @@ export function App(): React.ReactElement {
   const [facts, setFacts] = useState<FactRow[]>([]);
   const [factTags, setFactTags] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  /** Pending actions being decided right now. */
+  const [deciding, setDeciding] = useState<ReadonlySet<number>>(new Set());
   const [toast, setToast] = useState<Toast>(null);
   const [activePage, setActivePage] = useState<PagePayload | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -72,6 +75,7 @@ export function App(): React.ReactElement {
   const [paletteOpen, setPaletteOpen] = useState(false);
   // Where sites are served, so the palette can open one directly.
   const [sitesBase, setSitesBase] = useState<string | null>(null);
+  const [agents, setAgents] = useState<BuildRecord[]>([]);
   const [editingCron, setEditingCron] = useState<{ job?: CronJob } | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
 
@@ -90,7 +94,7 @@ export function App(): React.ReactElement {
     const apply = <T,>(r: PromiseSettledResult<T>, set: (v: T) => void): void => {
       if (r.status === "fulfilled") set(r.value);
     };
-    const [s, a, p, c, f, pg, act, mem, r, convos] = await Promise.allSettled([
+    const [s, a, p, c, f, pg, act, mem, r, convos, ag] = await Promise.allSettled([
       api.status(),
       api.approvals(),
       api.projects(),
@@ -101,9 +105,11 @@ export function App(): React.ReactElement {
       api.memory(300),
       api.runs(200, false),
       api.conversations(),
+      api.agents(),
     ]);
     apply(s, setStatus);
     apply(a, setApprovals);
+    apply(ag, (v) => setAgents(v.builds));
     apply(p, setProjects);
     apply(c, setCrons);
     apply(f, setFailed);
@@ -197,6 +203,10 @@ export function App(): React.ReactElement {
   };
 
   const decide = async (id: number, approved: boolean): Promise<void> => {
+    // Tracked per id rather than as one busy flag, so a second approval
+    // pending elsewhere is not disabled by this one, and every copy of the
+    // buttons for this action agrees about what is happening.
+    setDeciding((current) => new Set(current).add(id));
     setBusy(approved ? `approving #${id}` : `denying #${id}`);
     try {
       const res = await (approved ? api.approve(id) : api.deny(id));
@@ -208,6 +218,11 @@ export function App(): React.ReactElement {
       flash("err", err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(null);
+      setDeciding((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
     }
   };
 
@@ -270,6 +285,11 @@ export function App(): React.ReactElement {
     },
     snapshot: () => void doSnapshot(),
     refresh: () => void refresh(),
+    openAgent: (agentId) => {
+      // The route carries it, so the log opens straight from search rather
+      // than landing on the list and making you find it again.
+      go({ name: "agents", id: agentId });
+    },
     sitesBase,
   };
 
@@ -532,6 +552,9 @@ export function App(): React.ReactElement {
         {...(route.id ? { activeId: route.id } : {})}
         pendingApprovals={pendingIds}
         approvals={approvals}
+        deciding={deciding}
+        agents={agents}
+        onOpenAgent={(id) => go({ name: "agents", id })}
         onOpen={(id) => go({ name: "chats", id })}
         onChanged={() => void refresh()}
         onDecide={decideByPendingId}
@@ -549,7 +572,13 @@ export function App(): React.ReactElement {
   }
 
   if (route.name === "agents") {
-    return shell(<AgentsPage onDecide={(id, approved) => void decide(id, approved)} />);
+    return shell(
+      <AgentsPage
+        deciding={deciding}
+        onDecide={(id, approved) => void decide(id, approved)}
+        {...(route.id !== undefined ? { openId: route.id } : {})}
+      />,
+    );
   }
 
   if (route.name === "settings") {
@@ -776,6 +805,7 @@ export function App(): React.ReactElement {
     <HomePage
       onOpenChat={(id) => go({ name: "chats", id })}
       onGo={(to) => go({ name: to } as Route)}
+      deciding={deciding}
       onDecide={(id, approved) => void decide(id, approved)}
     />,
   );

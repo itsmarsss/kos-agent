@@ -976,7 +976,7 @@ export async function handleApiRequest(
     const params = queryParams(req.url);
     const q = params.get("q") ?? "";
     const kind = params.get("kind");
-    const kinds = ["project", "page", "file", "schedule", "chat", "site"];
+    const kinds = ["project", "page", "file", "schedule", "chat", "site", "agent"];
     // The palette and the @ menu ask the same question of the same index, so
     // a thing reachable by one is reachable by the other.
     const limit = clampLimit(params.get("limit"), 12);
@@ -991,6 +991,9 @@ export async function handleApiRequest(
             .list(kernel.profile.ownerId)
             .map((c) => ({ id: c.id, title: c.title })),
           sites: listSites(kernel.workspace),
+          agents: kernel.builds
+            .list()
+            .map((b) => ({ id: b.id, dir: b.dir, status: b.status })),
         },
         q,
         limit,
