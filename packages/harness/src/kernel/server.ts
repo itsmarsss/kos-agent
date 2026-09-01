@@ -27,9 +27,11 @@ import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
 import { RETENTION_DEFAULTS, RETENTION_KEY } from "./session.js";
 import { saveProfile } from "./profile.js";
 import {
+  findSecret,
   isInside,
   isWritableKey,
   maskSecret,
+  namesFor,
   writeEnvFile,
   WRITABLE_SECRETS,
   WRITABLE_SETTINGS,
@@ -469,11 +471,7 @@ export async function handleApiRequest(
     // Values are never sent back, only whether one is set and its last four
     // characters, which is enough to tell two keys apart and no use to anyone.
     const envPath = options.envPath;
-    const secrets: Record<string, { label: string; hint: string; masked: string | null }> =
-      {};
-    for (const [key, meta] of Object.entries(WRITABLE_SECRETS)) {
-      secrets[key] = { ...meta, masked: maskSecret(process.env[key]) };
-    }
+    const secrets = maskedSecrets();
     const settings: Record<string, { label: string; hint: string; value: string }> = {};
     for (const [key, meta] of Object.entries(WRITABLE_SETTINGS)) {
       settings[key] = { ...meta, value: process.env[key] ?? "" };
@@ -523,8 +521,10 @@ export async function handleApiRequest(
       // Applied to this process too, so a key saved here works on the next
       // turn rather than on the next restart.
       for (const [key, value] of Object.entries(values)) {
-        if (value === null || value === "") delete process.env[key];
-        else process.env[key] = value;
+        // Aliases as well: leaving DISCORD_TOKEN set in this process would
+        // keep Discord running after the owner cleared the field for it.
+        for (const name of namesFor(key)) delete process.env[name];
+        if (value !== null && value !== "") process.env[key] = value;
       }
       kernel.reloadSecrets();
       return ok({ ...result, secrets: maskedSecrets() });
@@ -1029,11 +1029,29 @@ function transcriptOf(
   return out;
 }
 
-/** Every writable secret, masked, as the settings page shows them. */
-function maskedSecrets(): Record<string, { label: string; hint: string; masked: string | null }> {
-  const out: Record<string, { label: string; hint: string; masked: string | null }> = {};
+/**
+ * Every writable secret, masked, as the settings page shows them.
+ *
+ * `storedAs` names where the value actually is when that is not the canonical
+ * name. The page said "not set" for a working Discord token because it looked
+ * only at KOS_SECRET_DISCORD while the token was under DISCORD_TOKEN.
+ */
+function maskedSecrets(): Record<
+  string,
+  { label: string; hint: string; masked: string | null; storedAs?: string }
+> {
+  const out: Record<
+    string,
+    { label: string; hint: string; masked: string | null; storedAs?: string }
+  > = {};
   for (const [key, meta] of Object.entries(WRITABLE_SECRETS)) {
-    out[key] = { ...meta, masked: maskSecret(process.env[key]) };
+    const found = findSecret(key);
+    out[key] = {
+      label: meta.label,
+      hint: meta.hint,
+      masked: maskSecret(found?.value),
+      ...(found && found.name !== key ? { storedAs: found.name } : {}),
+    };
   }
   return out;
 }

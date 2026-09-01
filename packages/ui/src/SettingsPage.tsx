@@ -313,7 +313,14 @@ export function SettingsPage(): ReactElement {
                 hint={meta.hint}
                 badge={
                   meta.masked ? (
-                    <span className="set-badge is-set">{meta.masked}</span>
+                    <>
+                      <span className="set-badge is-set">{meta.masked}</span>
+                      {meta.storedAs && (
+                        <span className="set-badge" title="An older name this host still accepts">
+                          as {meta.storedAs}
+                        </span>
+                      )}
+                    </>
                   ) : (
                     <span className="set-badge">not set</span>
                   )
