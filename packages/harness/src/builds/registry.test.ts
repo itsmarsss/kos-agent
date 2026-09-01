@@ -134,16 +134,23 @@ describe("builds that are running", () => {
     expect(r.list().length).toBeLessThanOrEqual(21);
   });
 
-  it("caps what it remembers of a chatty build", () => {
+  /*
+   * The cap exists so a runaway build cannot fill memory, not to summarise.
+   * It was 200, which meant opening a build that had worked for ten minutes
+   * showed the tail and nothing of how it got there; the log is meant to be
+   * read like a terminal.
+   */
+  it("keeps enough to read like a log, and still caps it", () => {
     const r = new BuildRegistry();
     const id = started(r);
-    for (let i = 0; i < 500; i++) {
+    for (let i = 0; i < 5000; i++) {
       r.record(id, { kind: "tool", text: `step ${i}` });
     }
     const record = r.get(id)!;
-    expect(record.events.length).toBeLessThanOrEqual(200);
+    expect(record.events.length).toBeGreaterThan(1000);
+    expect(record.events.length).toBeLessThanOrEqual(2000);
     // The newest are the ones kept: an old head is no use for "what is it
     // doing now".
-    expect(record.events.at(-1)?.text).toBe("step 499");
+    expect(record.events.at(-1)?.text).toBe("step 4999");
   });
 });

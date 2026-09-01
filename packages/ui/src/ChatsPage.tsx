@@ -6,11 +6,14 @@ import {
   type ReactElement,
 } from "react";
 
+import { summarizeAction } from "@kos/shared";
+
 import { ContextMeter } from "./ContextMeter.js";
 import {
   api,
   type ChatEvent,
   type Conversation,
+  type PendingAction,
   type PendingMessage,
 } from "./api.js";
 import { AttachButton, useAttachments, useDropZone } from "./Attachments.js";
@@ -54,6 +57,12 @@ export interface ChatsPageProps {
   activeId?: string;
   /** Pending-action ids still awaiting a decision. */
   pendingApprovals: Set<string>;
+  /**
+   * Every action waiting on the owner, so this chat can show the ones that
+   * belong to it but are not in its transcript: a build's own requests come
+   * from a sub-agent, not from a tool call the conversation made.
+   */
+  approvals: PendingAction[];
   onOpen: (id: string) => void;
   onChanged: () => void;
   onDecide: (pendingId: string, approved: boolean) => void;
@@ -71,6 +80,7 @@ export function ChatsPage({
   conversations,
   activeId,
   pendingApprovals,
+  approvals,
   onOpen,
   onChanged,
   onDecide,
@@ -366,6 +376,31 @@ export function ChatsPage({
       queuedError(err);
     }
   };
+
+  /**
+   * Approvals for this conversation that no tool call in it is showing.
+   *
+   * A tool the conversation called carries its pending id on the transcript
+   * event and offers the decision there. A build's own requests have no such
+   * event, so without this they were reachable only from Home.
+   */
+  const shownPendingIds = useMemo(
+    () =>
+      new Set(
+        events
+          .filter((e) => e.kind === "tool" && e.pendingId)
+          .map((e) => (e.kind === "tool" ? e.pendingId : undefined)),
+      ),
+    [events],
+  );
+  const loose = useMemo(
+    () =>
+      approvals.filter(
+        (a) =>
+          a.conversationId === activeId && !shownPendingIds.has(String(a.id)),
+      ),
+    [approvals, activeId, shownPendingIds],
+  );
 
   /** What a running conversation is doing, for the list. */
   const liveLabel = (l: Live | undefined): string => {
@@ -737,6 +772,36 @@ export function ChatsPage({
                   <div className="bubble bubble--kos is-thinking">sending…</div>
                 )
               )}
+
+              {/* Waiting on a decision, and not attached to any tool call in
+                  this transcript. A build's requests arrive this way: the
+                  chat showed "I'll continue once the result comes through"
+                  and then nothing, because the thing waiting on the owner was
+                  invisible from here. */}
+              {loose.map((a) => (
+                <div className="loose-approval" key={a.id}>
+                  <div className="loose-approval-main">
+                    <code>{a.tool}</code>
+                    <span>{a.reason ?? summarizeAction(a.tool, a.args)}</span>
+                  </div>
+                  <div className="loose-approval-actions">
+                    <button
+                      type="button"
+                      className="btn btn--ok"
+                      onClick={() => onDecide(String(a.id), true)}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--danger-ghost"
+                      onClick={() => onDecide(String(a.id), false)}
+                    >
+                      Deny
+                    </button>
+                  </div>
+                </div>
+              ))}
 
               {notes.map((n) => (
                 <div className="chats-note" key={n.id}>

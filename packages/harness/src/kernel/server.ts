@@ -653,7 +653,28 @@ export async function handleApiRequest(
   if (method === "GET" && path === "/api/agents") {
     // What is running inside the workspace right now. Builds are the only kind
     // so far; the shape leaves room for others without the page changing.
-    return ok({ builds: kernel.builds.list() });
+    //
+    // The list carries a short tail per build; the full log is fetched for the
+    // one being read, so a page listing ten builds does not ship ten
+    // transcripts to draw ten summaries.
+    return ok({
+      builds: kernel.builds.list().map((b) => ({ ...b, events: b.events.slice(-12) })),
+    });
+  }
+
+  if (method === "GET" && path.startsWith("/api/agents/")) {
+    const id = Number(path.slice("/api/agents/".length));
+    if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
+    const build = kernel.builds.get(id);
+    if (!build) return { status: 404, body: { error: "no such build" } };
+    return ok({
+      build,
+      // Its own pending requests, so they can be decided where it is read
+      // rather than only from Home.
+      approvals: kernel.approvals
+        .pending()
+        .filter((a) => a.tool.startsWith("build.")),
+    });
   }
 
   if (method === "POST" && path === "/api/agents/stop") {

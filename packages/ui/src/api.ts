@@ -486,6 +486,8 @@ export const api = {
   saveHome: (layout: import("@kos/shared").HomeLayout) =>
     post<{ layout: import("@kos/shared").HomeLayout }>("/api/home", { layout }),
   agents: () => get<{ builds: BuildRecord[] }>("/api/agents"),
+  agent: (id: number) =>
+    get<{ build: BuildRecord; approvals: PendingAction[] }>(`/api/agents/${id}`),
   stopAgent: (id: number) =>
     post<{ stopped: boolean; builds: BuildRecord[] }>("/api/agents/stop", { id }),
   sendToAgent: (id: number, text: string) =>
