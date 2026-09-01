@@ -1307,6 +1307,44 @@ async function readBody(stream: NodeJS.ReadableStream): Promise<unknown> {
  * agent is on; anything that has to survive a reconnect stays in the polled
  * conversation list, so a dropped connection loses nothing but liveness.
  */
+/**
+ * A build's log, as it happens.
+ *
+ * Polling is fine for a list and wrong for a log: output arrives in bursts,
+ * and a page that samples every second and a half renders them as stutter.
+ */
+function streamBuilds(
+  kernel: Kernel,
+  req: IncomingMessage,
+  res: ServerResponse,
+  options: DashboardServerOptions,
+): void {
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+    ...corsHeaders(req, options),
+  });
+  res.write(": connected\n\n");
+
+  const send = (id: number): void => {
+    const build = kernel.builds.get(id);
+    if (build) res.write(`data: ${JSON.stringify(build)}\n\n`);
+  };
+  // Everything currently known, so a reader that arrives mid-build sees the
+  // whole log rather than only what happens next.
+  for (const build of kernel.builds.list()) send(build.id);
+
+  const unwatch = kernel.builds.watch(send);
+  const beat = setInterval(() => res.write(": beat\n\n"), 25_000);
+  const close = (): void => {
+    clearInterval(beat);
+    unwatch();
+  };
+  req.on("close", close);
+  res.on("close", close);
+}
+
 function streamProgress(
   kernel: Kernel,
   req: IncomingMessage,
@@ -1458,6 +1496,11 @@ export function createDashboardServer(
 
       // Server-sent events need the raw response, so this cannot go through
       // the JSON handler that every other route uses.
+      if (method === "GET" && path === "/api/agents/stream") {
+        streamBuilds(kernel, req, res, options);
+        return;
+      }
+
       if (method === "GET" && path === "/api/events") {
         streamProgress(kernel, req, res, options);
         return;

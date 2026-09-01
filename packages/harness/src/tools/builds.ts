@@ -96,6 +96,9 @@ function defineBuildTools(
             control,
           });
         },
+        onUsage: (usage) => {
+          if (id) options.registry.spent(id, usage);
+        },
         onEvent: (event) => {
           if (id) options.registry.record(id, event);
           options.onEvent?.(event);
