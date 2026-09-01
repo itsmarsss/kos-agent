@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { summarizeAction } from "@kos/shared";
 
 import {
   api,
@@ -23,6 +22,7 @@ import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
 import { Modal } from "./Modal.js";
 import { CronEditor } from "./CronEditor.js";
 import { ease, spring } from "./motion.js";
+import { HistoryPage } from "./HistoryPage.js";
 import { HomePage } from "./HomePage.js";
 import { ChatsPage } from "./ChatsPage.js";
 import { FilesPage } from "./FilesPage.js";
@@ -33,19 +33,6 @@ import { KnowledgePage } from "./KnowledgePage.js";
 import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { PageRenderer } from "./widgets/PageRenderer.js";
-
-function timeAgo(ts: number): string {
-  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
-  return `${Math.floor(s / 86400)}d`;
-}
-
-function preview(text: string, n = 48): string {
-  const t = text.replace(/\s+/g, " ").trim();
-  return t.length <= n ? t : `${t.slice(0, n - 1)}…`;
-}
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
 
@@ -60,7 +47,6 @@ export function App(): React.ReactElement {
   /** The job being run by hand, so its own button can say so. */
   const [firing, setFiring] = useState<number | null>(null);
   const [runs, setRuns] = useState<RunRecord[]>([]);
-  const [failed, setFailed] = useState<RunRecord[]>([]);
   const [pages, setPages] = useState<PageSummary[]>([]);
   const [activity, setActivity] = useState<AuditRecord[]>([]);
   const [facts, setFacts] = useState<FactRow[]>([]);
@@ -71,7 +57,6 @@ export function App(): React.ReactElement {
   const [toast, setToast] = useState<Toast>(null);
   const [activePage, setActivePage] = useState<PagePayload | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
-  const [runsFailedOnly, setRunsFailedOnly] = useState(false);
   const [cronFilter, setCronFilter] = useState<"all" | "on" | "off">("all");
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -96,12 +81,13 @@ export function App(): React.ReactElement {
     const apply = <T,>(r: PromiseSettledResult<T>, set: (v: T) => void): void => {
       if (r.status === "fulfilled") set(r.value);
     };
-    const [s, a, p, c, f, pg, act, mem, r, convos, ag] = await Promise.allSettled([
+    // One fewer request than this used to make: the failures-only view was a
+    // separate fetch, and History filters the rows it already has.
+    const [s, a, p, c, pg, act, mem, r, convos, ag] = await Promise.allSettled([
       api.status(),
       api.approvals(),
       api.projects(),
       api.crons(),
-      api.failed(100),
       api.pages(),
       api.activity(200),
       api.memory(300),
@@ -114,7 +100,6 @@ export function App(): React.ReactElement {
     apply(ag, (v) => setAgents(v.builds));
     apply(p, setProjects);
     apply(c, setCrons);
-    apply(f, setFailed);
     apply(pg, setPages);
     apply(act, (v) => setActivity(v.tools));
     apply(mem, (v) => {
@@ -672,50 +657,14 @@ export function App(): React.ReactElement {
     );
   }
 
-  if (route.name === "tools") {
+  if (route.name === "history") {
     return shell(
-      <ListPage
-        title="Activity"
-        subtitle="Every tool KOS has run. Click a row for the arguments and result."
-        rows={activity}
-        rowKey={(t) => t.id}
-        empty="No tool calls yet"
-        onRowClick={(t) => setInspect({ kind: "tool", data: t })}
-        columns={[
-          {
-            key: "tool",
-            header: "Tool",
-            width: "18%",
-            searchText: (t) => t.tool,
-            render: (t) => <span className="ops-mono">{t.tool}</span>,
-          },
-          {
-            key: "preview",
-            header: "Preview",
-            searchText: (t) => summarizeAction(t.tool, t.args),
-            render: (t) => preview(summarizeAction(t.tool, t.args), 64),
-          },
-          {
-            key: "status",
-            header: "Status",
-            width: "10%",
-            searchText: (t) => (t.isError ? "error" : "ok"),
-            render: (t) =>
-              t.isError ? (
-                <span className="ops-tag ops-tag--danger">error</span>
-              ) : (
-                <span className="ops-tag ops-tag--ok">ok</span>
-              ),
-          },
-          {
-            key: "when",
-            header: "When",
-            width: "10%",
-            render: (t) => (
-              <span className="ops-muted">{timeAgo(t.createdAt)}</span>
-            ),
-          },
-        ]}
+      <HistoryPage
+        tools={activity}
+        runs={runs}
+        crons={crons}
+        onOpenTool={(t) => setInspect({ kind: "tool", data: t })}
+        onOpenRun={(r) => setInspect({ kind: "run", data: r })}
       />,
     );
   }
@@ -826,71 +775,6 @@ export function App(): React.ReactElement {
         facts={facts}
         tags={factTags}
         onChanged={() => void refresh()}
-      />,
-    );
-  }
-
-  if (route.name === "runs") {
-    const source = runsFailedOnly ? failed : runs;
-    return shell(
-      <ListPage
-        title="Runs"
-        subtitle="Every chat turn and scheduled job, with failures surfaced."
-        rows={source}
-        rowKey={(r) => r.id}
-        empty="No runs"
-        onRowClick={(r) => setInspect({ kind: "run", data: r })}
-        filters={
-          <label className="list-check">
-            <input
-              type="checkbox"
-              checked={runsFailedOnly}
-              onChange={(e) => setRunsFailedOnly(e.target.checked)}
-            />
-            Failures only
-          </label>
-        }
-        columns={[
-          {
-            key: "id",
-            header: "ID",
-            width: "8%",
-            render: (r) => <span className="ops-mono">#{r.id}</span>,
-          },
-          {
-            key: "kind",
-            header: "Kind",
-            searchText: (r) => r.kind,
-            render: (r) => r.kind,
-          },
-          {
-            key: "status",
-            header: "Status",
-            searchText: (r) => r.status,
-            render: (r) => (
-              <span
-                className={`ops-tag ${r.status === "error" ? "ops-tag--danger" : r.status === "ok" ? "ops-tag--ok" : "ops-tag--muted"}`}
-              >
-                {r.status}
-              </span>
-            ),
-          },
-          {
-            key: "error",
-            header: "Error",
-            searchText: (r) => r.error ?? "",
-            render: (r) => (
-              <span className="ops-muted">{preview(r.error ?? "—", 56)}</span>
-            ),
-          },
-          {
-            key: "when",
-            header: "When",
-            render: (r) => (
-              <span className="ops-muted">{timeAgo(r.startedAt)}</span>
-            ),
-          },
-        ]}
       />,
     );
   }

@@ -15,7 +15,7 @@ import { hrefFor } from "./routes.js";
  * makes a dashboard trustworthy.
  */
 
-type Go = (to: "agents" | "runs" | "projects" | "crons" | "chats" | "settings") => void;
+type Go = (to: "agents" | "history" | "projects" | "crons" | "chats" | "settings") => void;
 
 function ago(ts: number): string {
   const mins = Math.max(0, Math.round((Date.now() - ts) / 60000));
@@ -162,7 +162,7 @@ export function Panel({
           <Head
             title={title ?? "What broke"}
             count={report.failing.length}
-            onMore={() => onGo("runs")}
+            onMore={() => onGo("history")}
           />
           {rows.length === 0 ? (
             <Empty>
@@ -225,7 +225,7 @@ export function Panel({
       const rows = data.activity.slice(0, limit);
       return (
         <div className="panel">
-          <Head title={title ?? "Activity"} onMore={() => onGo("runs")} />
+          <Head title={title ?? "Activity"} onMore={() => onGo("history")} />
           {rows.length === 0 ? (
             <Empty>KOS has not done anything yet.</Empty>
           ) : (

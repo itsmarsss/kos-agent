@@ -5,8 +5,7 @@ export type Route =
   | { name: "projects" }
   | { name: "crons" }
   | { name: "memory" }
-  | { name: "tools" }
-  | { name: "runs" }
+  | { name: "history" }
   | { name: "chats"; id?: string }
   | { name: "files"; path?: string }
   | { name: "settings" }
@@ -32,8 +31,16 @@ export function parseRoute(hash: string): Route {
   // Without these, /knowledge silently rendered Home.
   if (path === "/crons" || path === "/schedule") return { name: "crons" };
   if (path === "/memory" || path === "/knowledge") return { name: "memory" };
-  if (path === "/tools" || path === "/activity") return { name: "tools" };
-  if (path === "/runs") return { name: "runs" };
+  // Activity and Runs were two pages of the same thing. Their paths still
+  // resolve, because a bookmark should not break when two pages become one.
+  if (
+    path === "/history" ||
+    path === "/tools" ||
+    path === "/activity" ||
+    path === "/runs"
+  ) {
+    return { name: "history" };
+  }
   const page = path.match(/^\/page\/([^/]+)$/);
   if (page?.[1]) return { name: "page", id: decodeURIComponent(page[1]) };
   return { name: "home" };
@@ -73,6 +80,5 @@ export const NAV: Array<{ route: Route; label: string }> = [
   { route: { name: "agents" }, label: "Agents" },
   { route: { name: "crons" }, label: "Schedule" },
   { route: { name: "memory" }, label: "Knowledge" },
-  { route: { name: "tools" }, label: "Activity" },
-  { route: { name: "runs" }, label: "Runs" },
+  { route: { name: "history" }, label: "History" },
 ];
