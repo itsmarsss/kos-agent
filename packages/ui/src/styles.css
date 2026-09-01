@@ -3761,3 +3761,39 @@ li:hover .chats-item-when { opacity: 0; }
 .insp-table td { padding: 0.3rem 0; border-bottom: 1px solid var(--line); }
 .insp-table tr:last-child td { border-bottom: 0; }
 .insp-num { color: var(--faint); text-align: right; font-family: var(--mono); font-size: var(--text-sm); }
+
+/* A command's reply. Not a message: it is not in the transcript and does not
+   survive a reload, because the command did not happen to the conversation. */
+.chats-note {
+  align-self: stretch;
+  padding: 0.6rem 0.8rem;
+  margin: 0.25rem 0;
+  color: var(--muted);
+  font-size: var(--text-base);
+  background: var(--panel);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.chats-note p:first-child { margin-top: 0; }
+.chats-note p:last-child { margin-bottom: 0; }
+.ctx-detail { color: var(--faint); }
+
+/* A queued message and what you can still do to it before it runs. */
+.queued { display: flex; flex-direction: column; align-items: flex-end; gap: 0.2rem; }
+.queued-actions { display: flex; gap: 0.15rem; }
+.queued-edit { width: 100%; display: flex; flex-direction: column; gap: 0.4rem; }
+.queued-edit .queued-actions { justify-content: flex-end; }
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  color: var(--faint);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+  line-height: 0;
+}
+.icon-btn:hover { color: var(--text); background: var(--panel-2); }
+.icon-btn--danger:hover { color: var(--danger); background: var(--danger-dim); }

@@ -87,6 +87,37 @@ export class PendingMessages {
     this.db.prepare(`DELETE FROM pending_messages WHERE id = ?`).run(id);
   }
 
+  /** One waiting message, or nothing if it has already been taken. */
+  get(id: number): PendingMessage | undefined {
+    const row = this.db
+      .prepare(`SELECT * FROM pending_messages WHERE id = ?`)
+      .get(id) as Row | undefined;
+    return row ? toMessage(row) : undefined;
+  }
+
+  /**
+   * Change what a waiting message says.
+   *
+   * Only while it is still waiting: once its turn has started the message has
+   * been asked, and editing it then would change the record of a question
+   * that was already answered. Returns false if it was already taken.
+   */
+  edit(id: number, text: string): boolean {
+    return (
+      this.db
+        .prepare(`UPDATE pending_messages SET text = ? WHERE id = ?`)
+        .run(text, id).changes > 0
+    );
+  }
+
+  /** Drop a waiting message. Returns false if its turn already started. */
+  remove(id: number): boolean {
+    return (
+      this.db.prepare(`DELETE FROM pending_messages WHERE id = ?`).run(id)
+        .changes > 0
+    );
+  }
+
   /** What is still waiting in a conversation, oldest first. */
   forConversation(conversationId: string): PendingMessage[] {
     const rows = this.db
