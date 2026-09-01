@@ -87,6 +87,45 @@ function Line({
   );
 }
 
+const DOING: Record<string, string> = {
+  thinking: "thinking",
+  writing: "writing",
+  calling: "preparing a call",
+};
+
+/** The live line: what it is doing, for how long, and the words as they come. */
+function Doing({
+  phase,
+  since,
+}: {
+  phase: NonNullable<BuildRecord["phase"]>;
+  since: number;
+}): ReactElement {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(t);
+  }, []);
+
+  const secs = Math.max(0, Math.round((now - since) / 1000));
+  const label = phase.tool
+    ? `preparing ${phase.tool}`
+    : (DOING[phase.phase] ?? phase.phase);
+
+  return (
+    <div className="term-doing">
+      <span className="term-time" />
+      <span className="term-mark term-spin">●</span>
+      <span className="term-body">
+        <span className="term-doing-label">
+          {label}… <span className="term-doing-secs">{secs}s</span>
+        </span>
+        {phase.partial && <span className="term-partial">{phase.partial}</span>}
+      </span>
+    </div>
+  );
+}
+
 function clock(ts: number): string {
   const d = new Date(ts);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
@@ -253,6 +292,12 @@ export function AgentTerminal({
           {build?.events.map((e, i) => (
             <Line key={i} event={e} />
           ))}
+          {/* What it is doing right now. Between one tool call and the next
+              the log is silent, and silence reads exactly like a hang. */}
+          {live && build?.phase && build.phase.phase !== "idle" && (
+            <Doing phase={build.phase} since={build.phaseSince ?? Date.now()} />
+          )}
+
           {build && !live && (
             <div className="term-line term-line--done">
               <span className="term-time" />

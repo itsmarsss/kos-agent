@@ -202,3 +202,45 @@ describe("a build that has gone quiet", () => {
     expect(r.list(1000 + 10 * 60_000)[0]?.quietFor).toBe(0);
   });
 });
+
+/**
+ * Which requests belong to which build.
+ *
+ * The terminal listed every build.* awaiting a decision, whichever build had
+ * raised it. Approving one build's shell command from a different build's log
+ * is the kind of mistake a careful owner would make once and not forgive.
+ */
+describe("a build's own pending requests", () => {
+  const control = () => ({
+    send: () => undefined,
+    interrupt: async () => undefined,
+    stop: () => undefined,
+  });
+
+  it("records what it is waiting on and forgets it once decided", () => {
+    const r = new BuildRegistry();
+    const id = r.start({ dir: "a", task: "t", control: control() });
+    r.asking(id, 42, false);
+    expect(r.get(id)?.waitingOn).toEqual([42]);
+    r.asking(id, 42, true);
+    expect(r.get(id)?.waitingOn).toEqual([]);
+  });
+
+  it("keeps two builds' requests apart", () => {
+    const r = new BuildRegistry();
+    const one = r.start({ dir: "a", task: "t", control: control() });
+    const two = r.start({ dir: "b", task: "t", control: control() });
+    r.asking(one, 1, false);
+    r.asking(two, 2, false);
+    expect(r.get(one)?.waitingOn).toEqual([1]);
+    expect(r.get(two)?.waitingOn).toEqual([2]);
+  });
+
+  it("does not list the same request twice", () => {
+    const r = new BuildRegistry();
+    const id = r.start({ dir: "a", task: "t", control: control() });
+    r.asking(id, 7, false);
+    r.asking(id, 7, false);
+    expect(r.get(id)?.waitingOn).toEqual([7]);
+  });
+});

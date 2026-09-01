@@ -4207,3 +4207,22 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
 }
 .term-usage b { color: var(--text); font-family: var(--mono); font-weight: 500; }
 .term-usage-model { margin-left: auto; font-family: var(--mono); }
+
+/* The live line at the foot of a build's log. */
+.term-doing { display: flex; gap: 0.6rem; padding: 0.15rem 0; }
+.term-spin { color: var(--ok); animation: doing 1.2s ease-in-out infinite; }
+@keyframes doing { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+.term-doing-label { color: var(--ok); }
+.term-doing-secs { color: var(--faint); }
+.term-partial {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  /* The tail of the thought, not the whole of it: this is a status line. */
+  max-height: 5.5rem;
+  overflow: hidden;
+}
+
+.agent-doing { color: var(--ok); margin-right: 0.5rem; }
