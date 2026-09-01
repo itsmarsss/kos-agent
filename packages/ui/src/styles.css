@@ -1219,7 +1219,6 @@ select {
   box-shadow: -12px 0 40px rgba(0, 0, 0, 0.35);
   display: flex;
   flex-direction: column;
-  animation: insp-in 0.14s ease-out;
 }
 
 @keyframes insp-in {
@@ -4309,4 +4308,15 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
   color: var(--danger);
   background: var(--danger-dim);
   animation: doing 1.4s ease-in-out infinite;
+}
+
+.queued-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-self: stretch;
+  padding: 0.4rem 0.1rem 0.2rem;
+  color: var(--faint);
+  font-size: var(--text-sm);
 }
