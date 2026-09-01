@@ -20,10 +20,72 @@ import { Decision } from "./Decision.js";
 const KIND_MARK: Record<string, string> = {
   text: "»",
   tool: "$",
+  result: "←",
   permission: "?",
   done: "✓",
   error: "✗",
 };
+
+/** The gist of a tool call, the way a shell prompt shows a command. */
+function command(tool: string | undefined, input?: Record<string, unknown>): string {
+  if (!input) return tool ?? "";
+  const v = (k: string): string | undefined =>
+    typeof input[k] === "string" ? (input[k] as string) : undefined;
+  const first =
+    v("command") ?? v("file_path") ?? v("path") ?? v("pattern") ?? v("url") ?? v("query");
+  return first ? `${tool} ${first}` : (tool ?? "");
+}
+
+function short(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(2)}M`;
+}
+
+/**
+ * One line of the log.
+ *
+ * A tool call opens to its full arguments and what came back, because the
+ * name alone tells you a tool ran and nothing about what it did, which is the
+ * difference between a log and a list.
+ */
+function Line({
+  event,
+}: {
+  event: BuildRecord["events"][number];
+}): ReactElement {
+  const [open, setOpen] = useState(false);
+  const detailed =
+    (event.kind === "tool" && event.input) || (event.kind === "result" && event.output);
+
+  const body =
+    event.kind === "tool"
+      ? command(event.tool, event.input)
+      : event.kind === "result"
+        ? (event.output ?? event.text).split("\n")[0]?.slice(0, 160)
+        : event.text;
+
+  return (
+    <div className={`term-line term-line--${event.kind} ${event.isError ? "is-error" : ""}`}>
+      <span className="term-time">{clock(event.at)}</span>
+      <span className="term-mark">{KIND_MARK[event.kind] ?? "·"}</span>
+      <span className="term-body">
+        {detailed ? (
+          <button type="button" className="term-open" onClick={() => setOpen((v) => !v)}>
+            <span className="term-text">{body}</span>
+            <span className="term-caret">{open ? "▾" : "▸"}</span>
+          </button>
+        ) : (
+          <span className="term-text">{body}</span>
+        )}
+        {open && event.input && (
+          <pre className="term-detail">{JSON.stringify(event.input, null, 2)}</pre>
+        )}
+        {open && event.output && <pre className="term-detail">{event.output}</pre>}
+      </span>
+    </div>
+  );
+}
 
 function clock(ts: number): string {
   const d = new Date(ts);
@@ -50,12 +112,28 @@ export function AgentTerminal({
 
   useEffect(() => {
     let cancelled = false;
-    const load = (): void => {
+
+    // Streamed, so output appears as it happens rather than in the stutter of
+    // a poll. The approvals still come from the endpoint: they change rarely
+    // and belong to the queue rather than to the build.
+    const source = new EventSource("/api/agents/stream");
+    source.onmessage = (e) => {
+      try {
+        const record = JSON.parse(e.data as string) as BuildRecord;
+        if (!cancelled && record.id === id) setBuild(record);
+      } catch {
+        // A frame we cannot read is one frame, not a broken log.
+      }
+    };
+
+    const loadAsks = (): void => {
       void api
         .agent(id)
         .then((r) => {
           if (cancelled) return;
-          setBuild(r.build);
+          // The stream is the source for the build itself; this only fills in
+          // what it has asked for, and seeds the first render.
+          setBuild((current) => current ?? r.build);
           setWaiting(r.approvals);
           setError(null);
         })
@@ -63,10 +141,12 @@ export function AgentTerminal({
           if (!cancelled) setError(err instanceof Error ? err.message : String(err));
         });
     };
-    load();
-    const t = setInterval(load, 1500);
+    loadAsks();
+    const t = setInterval(loadAsks, 2000);
+
     return () => {
       cancelled = true;
+      source.close();
       clearInterval(t);
     };
   }, [id]);
@@ -135,6 +215,29 @@ export function AgentTerminal({
           </p>
         )}
 
+        {build?.usage && (
+          <div className="term-usage">
+            <span title="Sent to the model on the last turn">
+              <b>{short(build.usage.contextTokens)}</b> context
+            </span>
+            <span title="Tokens produced">
+              <b>{short(build.usage.outputTokens)}</b> out
+            </span>
+            <span title="Read from cache rather than re-sent">
+              <b>{short(build.usage.cacheReadTokens)}</b> cached
+            </span>
+            <span>
+              <b>{build.usage.turns}</b> turns
+            </span>
+            {build.usage.costUsd > 0 && (
+              <span title="The SDK's own estimate, not a billing statement">
+                <b>${build.usage.costUsd.toFixed(3)}</b> est.
+              </span>
+            )}
+            {build.usage.model && <span className="term-usage-model">{build.usage.model}</span>}
+          </div>
+        )}
+
         <div
           className="term-log"
           ref={logRef}
@@ -148,11 +251,7 @@ export function AgentTerminal({
             <div className="term-line term-line--muted">Nothing logged yet.</div>
           )}
           {build?.events.map((e, i) => (
-            <div key={i} className={`term-line term-line--${e.kind}`}>
-              <span className="term-time">{clock(e.at)}</span>
-              <span className="term-mark">{KIND_MARK[e.kind] ?? "·"}</span>
-              <span className="term-text">{e.text}</span>
-            </div>
+            <Line key={i} event={e} />
           ))}
           {build && !live && (
             <div className="term-line term-line--done">

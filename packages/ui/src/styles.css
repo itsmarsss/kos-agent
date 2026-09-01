@@ -4162,3 +4162,48 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
   white-space: nowrap;
 }
 .chat-agent-go { flex: none; color: var(--accent); font-size: var(--text-sm); }
+
+/* A tool call in the log, openable for what it did and what came back. */
+.term-body { flex: 1; min-width: 0; }
+.term-open {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.term-open:hover .term-text { color: var(--accent); }
+.term-caret { color: var(--faint); font-size: var(--text-xs); }
+.term-detail {
+  margin: 0.25rem 0 0.35rem;
+  padding: 0.4rem 0.6rem;
+  max-height: 18rem;
+  overflow: auto;
+  background: var(--panel);
+  border-left: 2px solid var(--line-strong);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.term-line--result .term-text { color: var(--muted); }
+.term-line.is-error .term-text { color: var(--danger); }
+.term-usage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 0.45rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--faint);
+  font-size: var(--text-sm);
+}
+.term-usage b { color: var(--text); font-family: var(--mono); font-weight: 500; }
+.term-usage-model { margin-left: auto; font-family: var(--mono); }

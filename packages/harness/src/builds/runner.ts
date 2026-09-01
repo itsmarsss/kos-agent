@@ -31,8 +31,28 @@ import { decide, type Decision } from "./scope.js";
  */
 
 export interface BuildEvent {
-  kind: "text" | "tool" | "permission" | "done" | "error";
+  kind: "text" | "tool" | "result" | "permission" | "done" | "error";
   text: string;
+  /** Tool name, when this is a call or its result. */
+  tool?: string;
+  /** What the call was made with, so it reads like a command rather than a name. */
+  input?: Record<string, unknown>;
+  /** What came back, capped. */
+  output?: string;
+  isError?: boolean;
+}
+
+/** Tokens and money, as the SDK reports them. */
+export interface BuildUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  /** Cumulative estimate for this build, per the SDK. */
+  costUsd: number;
+  turns: number;
+  /** What the last turn was sent, which is how full its context is. */
+  contextTokens: number;
+  model?: string;
 }
 
 export interface BuildOptions {
@@ -60,6 +80,8 @@ export interface BuildOptions {
    */
   model?: string;
   onEvent?: (event: BuildEvent) => void;
+  /** Told after every turn what it has cost so far. */
+  onUsage?: (usage: BuildUsage) => void;
   /**
    * Handed the controls as soon as there are any, so a caller can offer them
    * without waiting for the build to finish and hand them back.
@@ -242,8 +264,11 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
   const allowedCommands = new Set<string>();
   let askedFor = 0;
   let approved = 0;
-  const emit = (kind: BuildEvent["kind"], text: string): void =>
-    options.onEvent?.({ kind, text });
+  const emit = (
+    kind: BuildEvent["kind"],
+    text: string,
+    extra: Omit<BuildEvent, "kind" | "text"> = {},
+  ): void => options.onEvent?.({ kind, text, ...extra });
 
   // Imported here rather than at module load: the SDK pulls in a lot, and a
   // workspace that never runs a build should not pay for it at boot.
@@ -352,6 +377,32 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
         // cwd. It is granted none.
         additionalDirectories: [],
         permissionMode: "default",
+        /*
+         * No filesystem settings.
+         *
+         * The CLI otherwise loads the owner's user, project and local
+         * settings, and those can carry permissions.allow rules that
+         * pre-approve commands. A build is meant to be contained by KOS's own
+         * gate, not by whatever the owner happens to have allowed themselves
+         * in another project, and a rule written months ago silently widening
+         * what a sub-agent may run is precisely the failure this design is
+         * supposed to prevent. Their CLAUDE.md is excluded by the same switch,
+         * which is right: a build takes its instructions from the task.
+         */
+        settingSources: [],
+        /*
+         * Force every shell command through the gate.
+         *
+         * canUseTool is not consulted for commands the CLI classifies as safe
+         * on its own: `ls -la` ran inside a build without ever being asked
+         * about, which made "every shell command asks" untrue. The policy tier
+         * is the one place that can override that classification, so Bash is
+         * pinned to ask and the decision comes back here where the owner sees
+         * it.
+         */
+        managedSettings: {
+          permissions: { ask: ["Bash", "WebFetch", "WebSearch"] },
+        },
         ...(options.model ? { model: options.model } : {}),
         canUseTool,
         maxTurns: options.maxTurns ?? DEFAULT_MAX_TURNS,
@@ -386,15 +437,52 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
     });
 
     for await (const message of stream) {
-      if (message.type === "assistant") {
+      if (message.type === "user") {
+        // Tool results come back as user messages. Without them the log said
+        // what was asked and never what came of it.
+        const content = message.message.content;
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (typeof block === "object" && block && "type" in block &&
+                block.type === "tool_result") {
+              const r = block as { content?: unknown; is_error?: boolean };
+              const text =
+                typeof r.content === "string"
+                  ? r.content
+                  : JSON.stringify(r.content ?? "");
+              emit("result", text.slice(0, 4000), {
+                output: text.slice(0, 4000),
+                ...(r.is_error ? { isError: true } : {}),
+              });
+            }
+          }
+        }
+      } else if (message.type === "assistant") {
         for (const block of message.message.content) {
           if (block.type === "text" && block.text.trim()) {
             emit("text", block.text);
           } else if (block.type === "tool_use") {
-            emit("tool", block.name);
+            // The name alone said a tool ran; the input says what it did,
+            // which is the difference between a log and a list.
+            emit("tool", block.name, {
+              tool: block.name,
+              input: block.input as Record<string, unknown>,
+            });
           }
         }
       } else if (message.type === "result") {
+        const u = (message as unknown as { usage?: Record<string, number> }).usage ?? {};
+        options.onUsage?.({
+          inputTokens: u.input_tokens ?? 0,
+          outputTokens: u.output_tokens ?? 0,
+          cacheReadTokens: u.cache_read_input_tokens ?? 0,
+          costUsd:
+            (message as unknown as { total_cost_usd?: number }).total_cost_usd ?? 0,
+          turns: (message as unknown as { num_turns?: number }).num_turns ?? 0,
+          contextTokens:
+            (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0),
+          ...(options.model ? { model: options.model } : {}),
+        });
         /*
          * The turn is over. Close the input unless something has been said
          * while it was working.
