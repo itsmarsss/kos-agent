@@ -119,6 +119,9 @@ const DEFAULT_SYSTEM =
 
 const DEFAULT_BACKUP_CRON = "0 3 * * *";
 
+/** Owner settings for build sub-agents. */
+export const BUILD_SETTINGS_KEY = "builds";
+
 /**
  * Prefix on a queued action that belongs to a build sub-agent rather than to
  * the tool registry. See approve(): these are decisions, not calls.
@@ -411,6 +414,23 @@ export class Kernel {
             conversationId,
             of: "reasoning",
             text: `${event.text}\n`,
+          });
+        },
+        model: () => settings.get<{ buildModel?: string }>(BUILD_SETTINGS_KEY)?.buildModel,
+        /*
+         * A build usually runs from an approval, which is outside any turn, so
+         * nothing had opened a live turn for it. Its progress arrived for a
+         * conversation the reader's view had no live entry for, and no
+         * turn-end ever came, so the chat sat on a thinking indicator that
+         * would not clear. Framing it makes the chat show the build working
+         * and then stop.
+         */
+        frame: (phase) => {
+          const conversationId = kernelRef?.currentConversationId;
+          if (!conversationId) return;
+          kernelRef?.progress.emit({
+            kind: phase === "start" ? "turn-start" : "turn-end",
+            conversationId,
           });
         },
       }),

@@ -50,6 +50,15 @@ export interface BuildOptions {
   timeoutMs?: number;
   /** Turn cap, so a confused sub-agent cannot spend the budget in a loop. */
   maxTurns?: number;
+  /**
+   * Which model does the building. An alias the CLI understands (sonnet,
+   * opus, fable) or a full model name.
+   *
+   * A build is many turns and each is a model call, so this is the single
+   * biggest lever on how long one takes: the subprocess costs about half a
+   * second to start, and everything else is the model thinking.
+   */
+  model?: string;
   onEvent?: (event: BuildEvent) => void;
   /**
    * Handed the controls as soon as there are any, so a caller can offer them
@@ -86,8 +95,8 @@ export interface BuildResult {
 
 const DEFAULT_TIMEOUT_MS = 15 * 60_000;
 const DEFAULT_MAX_TURNS = 60;
-/** How often a blocked permission request looks to see if it was decided. */
-const POLL_MS = 500;
+/** Backstop interval, for a decision made outside this process. */
+const POLL_MS = 3000;
 
 /**
  * Wait for the owner to decide a queued action.
@@ -102,14 +111,40 @@ async function waitForDecision(
   id: number,
   signal: AbortSignal,
 ): Promise<"approved" | "denied"> {
-  for (;;) {
-    if (signal.aborted) return "denied";
+  const settled = (): "approved" | "denied" | null => {
     const action = approvals.get(id);
-    if (action && action.status !== "pending") {
-      return action.status === "approved" ? "approved" : "denied";
-    }
-    await new Promise((r) => setTimeout(r, POLL_MS));
-  }
+    if (!action || action.status === "pending") return null;
+    return action.status === "approved" ? "approved" : "denied";
+  };
+
+  // Already decided, or the build is being stopped: no need to wait at all.
+  const now = settled();
+  if (now) return now;
+  if (signal.aborted) return "denied";
+
+  return new Promise<"approved" | "denied">((resolve) => {
+    const finish = (outcome: "approved" | "denied"): void => {
+      unsubscribe();
+      clearInterval(timer);
+      signal.removeEventListener("abort", onAbort);
+      resolve(outcome);
+    };
+    const onAbort = (): void => finish("denied");
+
+    const unsubscribe = approvals.onDecided((action) => {
+      if (action.id !== id) return;
+      finish(action.status === "approved" ? "approved" : "denied");
+    });
+    // A slow backstop as well as the event: a decision made in another process
+    // against the same database would never reach the listener, and a build
+    // waiting forever on one is worse than checking occasionally.
+    const timer = setInterval(() => {
+      const outcome = settled();
+      if (outcome) finish(outcome);
+    }, POLL_MS);
+
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 /**
@@ -317,6 +352,7 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
         // cwd. It is granted none.
         additionalDirectories: [],
         permissionMode: "default",
+        ...(options.model ? { model: options.model } : {}),
         canUseTool,
         maxTurns: options.maxTurns ?? DEFAULT_MAX_TURNS,
         env,
@@ -359,6 +395,22 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
           }
         }
       } else if (message.type === "result") {
+        /*
+         * The turn is over. Close the input unless something has been said
+         * while it was working.
+         *
+         * Streaming input keeps the session open for another instruction,
+         * which is what makes a build steerable; the cost is that it never
+         * ends by itself. Without this the generator parked forever waiting
+         * for input that was never coming, the stream never completed, and a
+         * build that had finished its work in five seconds sat "running"
+         * until the fifteen-minute timeout killed it. That is what "the SDK
+         * is slow" was.
+         */
+        if (inbox.length === 0) {
+          closed = true;
+          wakeUp();
+        }
         ok = message.subtype === "success";
         summary =
           "result" in message && typeof message.result === "string"

@@ -267,6 +267,8 @@ export interface BuildRecord {
   events: { at: number; kind: string; text: string }[];
   files: string[];
   askedFor: number;
+  /** Milliseconds of silence, when a working build has gone quiet. */
+  quietFor?: number;
 }
 
 export interface Retention {
@@ -280,6 +282,8 @@ export interface SettingsPayload {
   profile: { name: string; timezone: string; ownerId: string };
   retention: Retention;
   retentionDefaults: Retention;
+  /** Model used by build sub-agents; null means the CLI default. */
+  buildModel: string | null;
   halted: boolean;
   envPath: string | null;
   /** False when there is nowhere safe to write keys. */
@@ -502,6 +506,8 @@ export const api = {
       "/api/settings/profile",
       { name, timezone },
     ),
+  saveBuildModel: (buildModel: string) =>
+    post<{ buildModel: string | null }>("/api/settings/builds", { buildModel }),
   saveRetention: (retention: Partial<Retention>) =>
     post<{ retention: Retention }>("/api/settings/retention", retention),
   saveSettings: (values: Record<string, string>) =>

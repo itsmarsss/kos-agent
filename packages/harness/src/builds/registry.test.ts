@@ -154,3 +154,51 @@ describe("builds that are running", () => {
     expect(record.events.at(-1)?.text).toBe("step 4999");
   });
 });
+
+/**
+ * Telling thinking apart from wedged.
+ *
+ * Both say "running" and produce nothing, so from outside they are the same
+ * picture. A build that has gone quiet for minutes is worth naming rather than
+ * leaving the owner to watch a spinner and guess.
+ */
+describe("a build that has gone quiet", () => {
+  const control = () => ({
+    send: () => undefined,
+    interrupt: async () => undefined,
+    stop: () => undefined,
+  });
+
+  it("is not flagged while it is producing", () => {
+    const r = new BuildRegistry();
+    const id = r.start({ dir: "d", task: "t", control: control(), now: 0 });
+    r.record(id, { kind: "tool", text: "working" }, 1000);
+    expect(r.list(2000)[0]?.quietFor).toBe(0);
+  });
+
+  it("is flagged once it has said nothing for long enough", () => {
+    const r = new BuildRegistry();
+    const id = r.start({ dir: "d", task: "t", control: control(), now: 0 });
+    r.record(id, { kind: "tool", text: "working" }, 1000);
+    const quiet = r.list(1000 + 4 * 60_000)[0]?.quietFor ?? 0;
+    expect(quiet).toBeGreaterThan(3 * 60_000);
+  });
+
+  /*
+   * A build waiting on the owner is not stalled: it is doing exactly what it
+   * should, and calling that stuck would train them to ignore the flag.
+   */
+  it("is not flagged while it waits on the owner", () => {
+    const r = new BuildRegistry();
+    const id = r.start({ dir: "d", task: "t", control: control(), now: 0 });
+    r.record(id, { kind: "permission", text: "waiting on you: run: x" }, 1000);
+    expect(r.list(1000 + 10 * 60_000)[0]?.quietFor).toBe(0);
+  });
+
+  it("is not flagged once it has finished", () => {
+    const r = new BuildRegistry();
+    const id = r.start({ dir: "d", task: "t", control: control(), now: 0 });
+    r.finish(id, { ok: true, summary: "done", files: [] }, 1000);
+    expect(r.list(1000 + 10 * 60_000)[0]?.quietFor).toBe(0);
+  });
+});
