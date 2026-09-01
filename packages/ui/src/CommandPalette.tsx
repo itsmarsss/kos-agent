@@ -148,6 +148,17 @@ export function buildActions(ctx: PaletteContext): Action[] {
     },
   ];
 
+  // Home is not in the nav any more, it is behind the wordmark. It is still a
+  // place you can go, so the palette still offers it: a page reachable by
+  // exactly one unlabelled click is a page people do not find.
+  actions.push({
+    id: "go-Home",
+    label: "Go to Home",
+    group: "Go to",
+    keywords: "dashboard start overview panels",
+    run: () => ctx.go({ name: "home" }),
+  });
+
   for (const item of NAV) {
     actions.push({
       id: `go-${item.label}`,

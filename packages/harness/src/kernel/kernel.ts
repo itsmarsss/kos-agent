@@ -119,6 +119,12 @@ const DEFAULT_SYSTEM =
 
 const DEFAULT_BACKUP_CRON = "0 3 * * *";
 
+/**
+ * Prefix on a queued action that belongs to a build sub-agent rather than to
+ * the tool registry. See approve(): these are decisions, not calls.
+ */
+const BUILD_ACTION_PREFIX = "build.";
+
 /** The orchestrator's own conversation id. */
 export function orchestratorId(ownerId = "owner"): string {
   return `orchestrator:${ownerId}`;
@@ -814,6 +820,31 @@ export class Kernel {
     this.approvals.approve(id, decidedBy ?? this.profile.ownerId);
     const stored = JSON.parse(action.args) as Record<string, unknown>;
 
+    /*
+     * A build's permission request is a decision, not a call to make here.
+     *
+     * Builds queue their tool requests as build.Bash, build.Read and so on.
+     * Those are not registered tools: the sub-agent performs the action itself
+     * the moment it sees the row flip to approved. Executing them here looked
+     * up a tool that does not exist, recorded "unknown tool: build.Bash" in the
+     * audit log, and then resumed the parent agent with outcome=FAILED,
+     * telling it the thing it had just watched succeed had failed.
+     */
+    if (action.tool.startsWith(BUILD_ACTION_PREFIX)) {
+      const wanted = action.tool.slice(BUILD_ACTION_PREFIX.length);
+      this.audit.record({
+        tool: action.tool,
+        args: stored,
+        result: `approved; the build runs ${wanted} itself`,
+        isError: false,
+        riskTier: "risky",
+        userId: decidedBy ?? this.profile.ownerId,
+      });
+      // No resume turn either. The build is not a conversation waiting on a
+      // tool result; it is a process that was blocked and is now unblocked.
+      return { ok: true, message: `Approved. The build continues with ${wanted}.` };
+    }
+
     // Approvals arrive whenever the owner taps a button, so the execution has
     // to join the serial queue like any other job. Running it inline races
     // whatever is already in flight: two git snapshots in one repo, or a cron
@@ -887,6 +918,16 @@ export class Kernel {
     const denied = this.approvals.deny(id, decidedBy ?? this.profile.ownerId);
     if (!denied) {
       return { ok: false, message: `no pending action #${id}` };
+    }
+    // As with approve: the build sees the decision itself and adapts. Resuming
+    // the parent conversation would tell an agent that is not waiting on
+    // anything that something it never asked for was refused.
+    if (denied.tool.startsWith(BUILD_ACTION_PREFIX)) {
+      const wanted = denied.tool.slice(BUILD_ACTION_PREFIX.length);
+      return {
+        ok: true,
+        message: `Declined. The build was told it may not ${wanted}.`,
+      };
     }
     const sessionId =
       denied.conversationId ?? primarySessionId(this.profile.ownerId);
