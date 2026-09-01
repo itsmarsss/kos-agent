@@ -6,6 +6,7 @@ import {
   type ReactElement,
 } from "react";
 
+import { ContextMeter } from "./ContextMeter.js";
 import { api, type ChatEvent, type Conversation } from "./api.js";
 import { AttachButton, useAttachments, useDropZone } from "./Attachments.js";
 import { AttachmentStrip } from "./AttachmentStrip.js";
@@ -555,13 +556,23 @@ export function ChatsPage({
                 {/* Counts are not something anyone came here to read. Only
                     the tool scope is said, and only when it is not the
                     default, because that is a capability the chat lacks. */}
-                {active.toolAllow !== null && (
-                  <div className="chats-meta">
-                    {active.toolAllow.length === 0
-                      ? "no tools"
-                      : `scoped to ${active.toolAllow.join(", ")}`}
-                  </div>
-                )}
+                <div className="chats-meta">
+                  {active.toolAllow !== null && (
+                    <span>
+                      {active.toolAllow.length === 0
+                        ? "no tools"
+                        : `scoped to ${active.toolAllow.join(", ")}`}
+                    </span>
+                  )}
+                  {/* Keyed off sendingIn so it re-reads once a turn lands:
+                      context that only updated on a page load would be stale
+                      exactly when it matters, which is while you are filling
+                      it up. */}
+                  <ContextMeter
+                    conversationId={active.id}
+                    refreshKey={sendingIn === null ? 1 : 0}
+                  />
+                </div>
               </div>
               <div className="chats-view-actions">
                 <button

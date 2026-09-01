@@ -200,6 +200,32 @@ export interface FileContent {
   language: string;
 }
 
+export interface ModelRate {
+  inputPerMillion: number;
+  outputPerMillion: number;
+  /** Set when KOS does not know this model's window and you do. */
+  contextWindow?: number;
+}
+
+export interface ModelSpend {
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  calls: number;
+  /** Absent when no rate has been set for this model. */
+  cost?: number;
+}
+
+export interface ContextUse {
+  conversationId: string;
+  /** What the most recent turn was sent, as the provider counted it. */
+  last?: { inputTokens: number; provider: string; model: string; at: number };
+  total: { inputTokens: number; outputTokens: number; calls: number };
+  /** Absent when the model's window is not known. */
+  window?: number;
+}
+
 export interface SiteInfo {
   name: string;
   hasIndex: boolean;
@@ -331,6 +357,17 @@ export const api = {
     if (!res.ok) throw new Error(await readError(res, url));
     return URL.createObjectURL(await res.blob());
   },
+  spend: (days = 30) =>
+    get<{
+      days: number;
+      models: ModelSpend[];
+      byDay: { day: string; inputTokens: number; outputTokens: number }[];
+      rates: Record<string, ModelRate>;
+    }>(`/api/spend?days=${days}`),
+  saveRates: (rates: Record<string, ModelRate>) =>
+    post<{ rates: Record<string, ModelRate> }>("/api/spend/rates", { rates }),
+  context: (conversationId: string) =>
+    get<ContextUse>(`/api/context?conversationId=${encodeURIComponent(conversationId)}`),
   sites: () =>
     get<{ base: string | null; sites: SiteInfo[] }>("/api/sites"),
   openWorkspace: () => post<{ opened: string }>("/api/workspace/open", {}),
