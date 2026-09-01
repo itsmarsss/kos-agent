@@ -72,7 +72,12 @@ import { readFile as readWorkspaceFile } from "./files.js";
 import { summarizeAction } from "@kos/shared";
 import { attachmentBlocks, type Attachment } from "./attachments.js";
 import { ensureProfile, type Profile } from "./profile.js";
-import { SessionStore, primarySessionId } from "./session.js";
+import {
+  RETENTION_KEY,
+  SessionStore,
+  primarySessionId,
+  type Retention,
+} from "./session.js";
 import { ConversationStore, type Conversation } from "./conversations.js";
 import {
   parseChatCommand,
@@ -454,6 +459,10 @@ export class Kernel {
     }
 
     const settings = new SettingsStore(workspace.db);
+    // Retention the owner set, applied before any turn reads history, so a
+    // restart does not quietly go back to the defaults.
+    const retention = settings.get<Partial<Retention>>(RETENTION_KEY);
+    if (retention) sessions.configure(retention);
     const router = options.inference ? undefined : createDefaultRouter(secrets);
     // Saved model choices are applied before anything runs, so the first turn
     // after a restart uses what the owner picked rather than the default.
