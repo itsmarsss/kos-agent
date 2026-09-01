@@ -1,0 +1,111 @@
+import { runBuild, type BuildEvent } from "../builds/runner.js";
+import type { KosModule, ModuleContext } from "../modules/loader.js";
+import { requireServices } from "../modules/loader.js";
+import type { ApprovalQueue } from "../ops/approvals.js";
+import { RISKY } from "../risk/tiers.js";
+import type { Workspace } from "../store/workspace.js";
+
+/**
+ * The `builds` tool module: hand a real coding agent a corner of the workspace.
+ *
+ * KOS writes files well enough for one page. A project with several files,
+ * dependencies and tests is what a coding agent is for, so this starts one
+ * and holds it to the same approval queue everything else answers to.
+ *
+ * Risky at the floor and never escalated down. Starting a sub-agent is the
+ * most capable thing KOS can do, and the owner should be asked every time
+ * rather than KOS deciding that this particular build looked harmless.
+ */
+
+export interface BuildsModuleOptions {
+  approvals: ApprovalQueue;
+  userId?: string;
+  /** The conversation asking, so approvals come back to the right thread. */
+  currentConversationId?: () => string | undefined;
+  /** Progress, so a build that takes minutes does not look like a hang. */
+  onEvent?: (event: BuildEvent) => void;
+}
+
+function str(input: Record<string, unknown>, key: string): string {
+  const v = input[key];
+  if (typeof v !== "string" || !v.trim()) throw new Error(`missing string arg: ${key}`);
+  return v.trim();
+}
+
+function defineBuildTools(
+  ws: Workspace,
+  ctx: ModuleContext,
+  options: BuildsModuleOptions,
+): void {
+  ctx.registerTool(
+    {
+      name: "builds.run",
+      description:
+        "Hand a coding sub-agent a folder in the workspace and a task, for " +
+        "work too big to write file by file: a multi-file app, a backend, " +
+        "something that needs dependencies or tests. It works only inside " +
+        "that folder. Anything outside it, and every shell command, asks the " +
+        "owner first, so keep the task specific and expect it to take minutes. " +
+        "For a single page, write the file directly instead.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          dir: {
+            type: "string",
+            description:
+              "Workspace-relative folder to work in, e.g. sites/expenses. " +
+              "Created if missing. Cannot be the workspace root.",
+          },
+          task: {
+            type: "string",
+            description:
+              "What to build, in full. The sub-agent cannot see this " +
+              "conversation, so include anything it needs to know.",
+          },
+        },
+        required: ["dir", "task"],
+      },
+    },
+    async (input) => {
+      const result = await runBuild({
+        workspace: ws,
+        approvals: options.approvals,
+        dir: str(input, "dir"),
+        task: str(input, "task"),
+        ...(options.userId ? { userId: options.userId } : {}),
+        ...(options.currentConversationId?.()
+          ? { conversationId: options.currentConversationId()! }
+          : {}),
+        ...(options.onEvent ? { onEvent: options.onEvent } : {}),
+      });
+
+      const lines = [
+        result.ok ? "Build finished." : "Build did not finish.",
+        result.summary,
+      ];
+      if (result.filesTouched.length > 0) {
+        lines.push(`Files: ${result.filesTouched.slice(0, 20).join(", ")}`);
+      }
+      if (result.askedFor > 0) {
+        lines.push(`Asked the owner ${result.askedFor} time(s); ${result.approved} approved.`);
+      }
+      return lines.filter(Boolean).join("\n");
+    },
+    RISKY,
+  );
+}
+
+export function createBuildsModule(options: BuildsModuleOptions): KosModule {
+  return {
+    manifest: {
+      name: "builds",
+      version: "1.0.0",
+      provides: [{ kind: "tool", name: "builds.run", version: "1.0.0" }],
+      riskTier: "risky",
+    },
+    activate(ctx) {
+      const { workspace } = requireServices(ctx);
+      defineBuildTools(workspace, ctx, options);
+    },
+  };
+}
