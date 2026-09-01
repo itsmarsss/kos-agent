@@ -6,6 +6,7 @@ import type { EpisodicStore } from "../memory/episodic.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import type { Workspace } from "../store/workspace.js";
+import { scan } from "./scan.js";
 
 const exec = promisify(execFile);
 
@@ -48,9 +49,23 @@ async function grep(
     const e = err as { code?: number | string; stdout?: string };
     if (e.code === 1) return "(no matches)"; // ripgrep: no matches found
     if (e.code === "ENOENT") {
-      throw new Error(
-        `ripgrep (rg) not found on PATH; install it or set rgPath (tried: ${rgPath})`,
-      );
+      /*
+       * No ripgrep on this machine. Search anyway.
+       *
+       * This used to throw, which took a core capability away based on what
+       * the owner happened to have installed, and the agent had no way to know
+       * in advance: it would try, fail, and work around it badly. Note that
+       * `rg` being on an interactive PATH proves nothing, because it is often
+       * a shell function, and a spawned process cannot call one of those.
+       */
+      const result = scan(ws.root, target, pattern);
+      if (result.lines.length === 0) return "(no matches)";
+      return [
+        ...result.lines,
+        result.truncated ? "(stopped early: too many matches or files)" : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
     }
     throw err;
   }
