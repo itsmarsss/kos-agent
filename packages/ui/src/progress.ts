@@ -14,15 +14,36 @@ import { useEffect, useState } from "react";
 
 export type ProgressEvent =
   | { kind: "turn-start"; conversationId: string }
-  | { kind: "tool-start"; conversationId: string; tool: string; summary: string }
-  | { kind: "tool-end"; conversationId: string; tool: string; isError: boolean }
+  | {
+      kind: "tool-start";
+      conversationId: string;
+      tool: string;
+      summary: string;
+      input?: Record<string, unknown>;
+    }
+  | {
+      kind: "tool-end";
+      conversationId: string;
+      tool: string;
+      isError: boolean;
+      result?: string;
+    }
   | { kind: "delta"; conversationId: string; of: "reasoning" | "text"; text: string }
   | { kind: "turn-end"; conversationId: string };
 
 /** One thing that happened during a turn, in the order it happened. */
 export type LiveStep =
   | { kind: "reasoning"; text: string }
-  | { kind: "tool"; tool: string; summary: string; done: boolean; isError: boolean };
+  | {
+      kind: "tool";
+      tool: string;
+      summary: string;
+      done: boolean;
+      isError: boolean;
+      /** Carried so a running call can be opened like a finished one. */
+      input?: Record<string, unknown>;
+      result?: string;
+    };
 
 export interface Live {
   /** Everything so far this turn, oldest first. */
@@ -54,6 +75,7 @@ function reduce(live: Live, event: ProgressEvent): Live {
         summary: event.summary,
         done: false,
         isError: false,
+        ...(event.input ? { input: event.input } : {}),
       });
       return { ...live, steps };
 
@@ -62,7 +84,12 @@ function reduce(live: Live, event: ProgressEvent): Live {
       for (let i = steps.length - 1; i >= 0; i--) {
         const step = steps[i];
         if (step?.kind === "tool" && step.tool === event.tool && !step.done) {
-          steps[i] = { ...step, done: true, isError: event.isError };
+          steps[i] = {
+            ...step,
+            done: true,
+            isError: event.isError,
+            ...(event.result !== undefined ? { result: event.result } : {}),
+          };
           break;
         }
       }
