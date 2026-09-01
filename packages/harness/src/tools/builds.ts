@@ -1,3 +1,4 @@
+import { BuildRegistry } from "../builds/registry.js";
 import { runBuild, type BuildEvent } from "../builds/runner.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
@@ -19,6 +20,8 @@ import type { Workspace } from "../store/workspace.js";
 
 export interface BuildsModuleOptions {
   approvals: ApprovalQueue;
+  /** Where running builds are listed, so the owner can watch and stop them. */
+  registry: BuildRegistry;
   userId?: string;
   /** The conversation asking, so approvals come back to the right thread. */
   currentConversationId?: () => string | undefined;
@@ -67,17 +70,39 @@ function defineBuildTools(
       },
     },
     async (input) => {
+      const dir = str(input, "dir");
+      const task = str(input, "task");
+      const conversationId = options.currentConversationId?.();
+      let id = 0;
+
       const result = await runBuild({
         workspace: ws,
         approvals: options.approvals,
-        dir: str(input, "dir"),
-        task: str(input, "task"),
+        dir,
+        task,
         ...(options.userId ? { userId: options.userId } : {}),
-        ...(options.currentConversationId?.()
-          ? { conversationId: options.currentConversationId()! }
-          : {}),
-        ...(options.onEvent ? { onEvent: options.onEvent } : {}),
+        ...(conversationId ? { conversationId } : {}),
+        onStart: (control) => {
+          id = options.registry.start({
+            dir,
+            task,
+            ...(conversationId ? { conversationId } : {}),
+            stop: control.stop,
+          });
+        },
+        onEvent: (event) => {
+          if (id) options.registry.record(id, event);
+          options.onEvent?.(event);
+        },
       });
+
+      if (id) {
+        options.registry.finish(id, {
+          ok: result.ok,
+          summary: result.summary,
+          files: result.filesTouched,
+        });
+      }
 
       const lines = [
         result.ok ? "Build finished." : "Build did not finish.",

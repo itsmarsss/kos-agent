@@ -646,6 +646,23 @@ export async function handleApiRequest(
     }
   }
 
+  if (method === "GET" && path === "/api/agents") {
+    // What is running inside the workspace right now. Builds are the only kind
+    // so far; the shape leaves room for others without the page changing.
+    return ok({ builds: kernel.builds.list() });
+  }
+
+  if (method === "POST" && path === "/api/agents/stop") {
+    const id = Number(body.id);
+    if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
+    if (!kernel.builds.stop(id)) {
+      // The ordinary answer for one that finished while it was being read
+      // about, so it is not an error.
+      return ok({ stopped: false, builds: kernel.builds.list() });
+    }
+    return ok({ stopped: true, builds: kernel.builds.list() });
+  }
+
   if (method === "GET" && path === "/api/spend") {
     const days = clampLimit(queryParams(req.url).get("days"), 30);
     const since = Date.now() - days * 24 * 60 * 60 * 1000;
