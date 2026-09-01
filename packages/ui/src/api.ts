@@ -241,7 +241,16 @@ export interface SettingsPayload {
   envPath: string | null;
   /** False when there is nowhere safe to write keys. */
   envWritable: boolean;
-  secrets: Record<string, { label: string; hint: string; masked: string | null }>;
+  secrets: Record<
+    string,
+    {
+      label: string;
+      hint: string;
+      masked: string | null;
+      /** Set when the value lives under an older name the host still accepts. */
+      storedAs?: string;
+    }
+  >;
   settings: Record<
     string,
     { label: string; hint: string; value: string; group: "network" | "access" }

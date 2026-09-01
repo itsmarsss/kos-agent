@@ -19,12 +19,32 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
  *   its last few characters, which is enough to tell two keys apart.
  */
 
-/** Environment variables the dashboard is allowed to write. */
-export const WRITABLE_SECRETS: Record<string, { label: string; hint: string }> = {
+/**
+ * Environment variables the dashboard is allowed to write.
+ *
+ * `aliases` are the other names the running code will accept for the same
+ * thing. They matter more than they look: the host reads
+ * `KOS_SECRET_DISCORD ?? DISCORD_TOKEN ?? DISCORD_BOT_TOKEN`, so a settings
+ * page that knew only the first name reported a working Discord token as "not
+ * set", and clearing it would have left the bot running on a name the page
+ * never mentioned.
+ */
+export const WRITABLE_SECRETS: Record<
+  string,
+  { label: string; hint: string; aliases?: string[] }
+> = {
   OPENAI_API_KEY: { label: "OpenAI", hint: "sk-…" },
   ANTHROPIC_API_KEY: { label: "Anthropic", hint: "sk-ant-…" },
-  KOS_SECRET_DISCORD: { label: "Discord bot token", hint: "for DMs" },
-  KOS_OWNER_DISCORD: { label: "Discord owner id", hint: "your numeric user id" },
+  KOS_SECRET_DISCORD: {
+    label: "Discord bot token",
+    hint: "for DMs",
+    aliases: ["DISCORD_TOKEN", "DISCORD_BOT_TOKEN"],
+  },
+  KOS_OWNER_DISCORD: {
+    label: "Discord owner id",
+    hint: "your numeric user id",
+    aliases: ["DISCORD_OWNER_ID"],
+  },
   // A shared secret, so it is masked and write-only like any other. Forgetting
   // it means setting a new one, which is cheaper than having it readable by
   // anything that can reach this page.
@@ -69,6 +89,29 @@ export const WRITABLE_SETTINGS: Record<
 
 export function isWritableKey(key: string): boolean {
   return key in WRITABLE_SECRETS || key in WRITABLE_SETTINGS;
+}
+
+/** Every name a value may be stored under, canonical first. */
+export function namesFor(key: string): string[] {
+  return [key, ...(WRITABLE_SECRETS[key]?.aliases ?? [])];
+}
+
+/**
+ * Where a value actually is, and what it is.
+ *
+ * Reports the name it was found under, because "set" under a name the owner
+ * did not expect is a different fact from "set", and it is the one that
+ * explains why clearing the field they were looking at changed nothing.
+ */
+export function findSecret(
+  key: string,
+  source: NodeJS.ProcessEnv = process.env,
+): { value: string; name: string } | undefined {
+  for (const name of namesFor(key)) {
+    const value = source[name];
+    if (value) return { value, name };
+  }
+  return undefined;
 }
 
 /**
@@ -154,20 +197,36 @@ export function writeEnvFile(
   const written: string[] = [];
   const cleared: string[] = [];
 
-  for (const [key, value] of Object.entries(values)) {
-    if (!isWritableKey(key)) continue;
-    const index = lines.findIndex((line) => {
+  const indexOf = (name: string): number =>
+    lines.findIndex((line) => {
       const trimmed = line.trim();
-      return !trimmed.startsWith("#") && trimmed.startsWith(`${key}=`);
+      return !trimmed.startsWith("#") && trimmed.startsWith(`${name}=`);
     });
 
+  for (const [key, value] of Object.entries(values)) {
+    if (!isWritableKey(key)) continue;
+    const names = namesFor(key);
+
     if (value === null || value === "") {
-      if (index >= 0) lines.splice(index, 1);
+      // Every name it could be under. Removing only the canonical one left the
+      // credential live under an alias while the page said it was gone.
+      for (const name of names) {
+        const at = indexOf(name);
+        if (at >= 0) lines.splice(at, 1);
+      }
       cleared.push(key);
       continue;
     }
+
+    // One home per value: the new one goes under the canonical name and the
+    // aliases are removed, so there is never a second copy to wonder about.
+    for (const alias of names.slice(1)) {
+      const at = indexOf(alias);
+      if (at >= 0) lines.splice(at, 1);
+    }
     const line = `${key}=${quote(value)}`;
-    if (index >= 0) lines[index] = line;
+    const at = indexOf(key);
+    if (at >= 0) lines[at] = line;
     else lines.push(line);
     written.push(key);
   }
