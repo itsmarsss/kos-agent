@@ -264,7 +264,24 @@ export interface BuildRecord {
   startedAt: number;
   endedAt?: number;
   latest: string;
-  events: { at: number; kind: string; text: string }[];
+  events: {
+    at: number;
+    kind: string;
+    text: string;
+    tool?: string;
+    input?: Record<string, unknown>;
+    output?: string;
+    isError?: boolean;
+  }[];
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    costUsd: number;
+    turns: number;
+    contextTokens: number;
+    model?: string;
+  };
   files: string[];
   askedFor: number;
   /** Milliseconds of silence, when a working build has gone quiet. */

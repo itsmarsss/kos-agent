@@ -1,4 +1,4 @@
-import type { BuildControl, BuildEvent } from "./runner.js";
+import type { BuildControl, BuildEvent, BuildUsage } from "./runner.js";
 
 /**
  * The build sub-agents that are running right now.
@@ -29,7 +29,9 @@ export interface BuildRecord {
   /** Most recent thing it did, for a one-line view. */
   latest: string;
   /** What it has done, newest last, capped. */
-  events: { at: number; kind: BuildEvent["kind"]; text: string }[];
+  events: (BuildEvent & { at: number })[];
+  /** Tokens and money so far, once a turn has completed. */
+  usage?: BuildUsage;
   /** Files it has touched so far. */
   files: string[];
   /** Times it has stopped to ask the owner something. */
@@ -64,7 +66,28 @@ const SILENCE_MS = 3 * 60_000;
 export class BuildRegistry {
   private readonly records = new Map<number, BuildRecord>();
   private readonly controls = new Map<number, BuildControl>();
+  /**
+   * Told whenever a build changes, so a reader can be streamed rather than
+   * poll. Polling every second and a half is fine for a list and wrong for a
+   * log: output arrives in bursts and reads as stuttering.
+   */
+  private readonly watchers = new Set<(id: number) => void>();
   private nextId = 1;
+
+  watch(listener: (id: number) => void): () => void {
+    this.watchers.add(listener);
+    return () => this.watchers.delete(listener);
+  }
+
+  private changed(id: number): void {
+    for (const watcher of this.watchers) {
+      try {
+        watcher(id);
+      } catch {
+        // A broken reader is not a broken build.
+      }
+    }
+  }
 
   /** Register a build about to start. Returns its id. */
   start(input: {
@@ -89,6 +112,7 @@ export class BuildRegistry {
     });
     this.controls.set(id, input.control);
     this.prune();
+    this.changed(id);
     return id;
   }
 
@@ -96,8 +120,10 @@ export class BuildRegistry {
   record(id: number, event: BuildEvent, now = Date.now()): void {
     const record = this.records.get(id);
     if (!record) return;
-    record.latest = event.text.slice(0, 200);
-    record.events.push({ at: now, kind: event.kind, text: event.text.slice(0, 8000) });
+    // A result is what came back, not what the build is doing; letting it
+    // overwrite `latest` made the one-line summary a wall of tool output.
+    if (event.kind !== "result") record.latest = event.text.slice(0, 200);
+    record.events.push({ ...event, at: now, text: event.text.slice(0, 8000) });
     if (record.events.length > MAX_EVENTS) record.events.shift();
     // Waiting on the owner is a different state from working, and the
     // difference is the whole reason to look at this list.
@@ -109,6 +135,14 @@ export class BuildRegistry {
         record.status = "running";
       }
     }
+    this.changed(id);
+  }
+
+  /** Record what a turn cost. */
+  spent(id: number, usage: BuildUsage): void {
+    const record = this.records.get(id);
+    if (record) record.usage = usage;
+    this.changed(id);
   }
 
   /** A build has answered its permission prompt and is working again. */
@@ -133,6 +167,7 @@ export class BuildRegistry {
     if (!wasStopped) record.latest = outcome.summary.slice(0, 200);
     record.files = outcome.files;
     this.controls.delete(id);
+    this.changed(id);
   }
 
   /**
