@@ -16,6 +16,7 @@ import {
   summarizeAction,
 } from "@kos/shared";
 
+import { isImage, isTextual, type Attachment } from "../kernel/attachments.js";
 import type {
   ApprovalHandler,
   ApprovalRequest,
@@ -125,6 +126,65 @@ export interface DiscordAdapterOptions {
  * identity mapping) before it touches anything, so it enforces the gate without
  * knowing who the owner is.
  */
+/** Bytes per attachment, matching what the dashboard accepts. */
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Download what came with a Discord message.
+ *
+ * A photo of a receipt is an ordinary way to tell KOS something, so dropping
+ * attachments meant half of what the owner sent went unseen. Only what the
+ * model can actually use is fetched: images and text. Anything else is named
+ * in the reply rather than silently ignored, because "I do not see an image"
+ * is a much worse answer than "I cannot read a .zip".
+ */
+export async function collectAttachments(
+  message: Message,
+): Promise<{ attachments: Attachment[]; skipped: string[] }> {
+  const attachments: Attachment[] = [];
+  const skipped: string[] = [];
+
+  // A message with nothing attached is the common case, and a message shape
+  // without the collection at all must not take the whole inbound path down
+  // with it: dropping the text of what someone said is worse than dropping a file.
+  const files = message.attachments?.values?.() ?? [];
+  for (const file of files) {
+    const name = file.name;
+    const mediaType = file.contentType ?? "";
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      skipped.push(`${name} (too large)`);
+      continue;
+    }
+    if (!isImage(mediaType) && !isTextual(mediaType, name)) {
+      skipped.push(`${name} (${mediaType || "unknown type"})`);
+      continue;
+    }
+    try {
+      const res = await fetch(file.url);
+      if (!res.ok) {
+        skipped.push(`${name} (could not fetch)`);
+        continue;
+      }
+      const bytes = Buffer.from(await res.arrayBuffer());
+      // Checked again after the fact: the size Discord reported is not the
+      // size that arrived, and the cap exists to bound what is sent to a model.
+      if (bytes.byteLength > MAX_ATTACHMENT_BYTES) {
+        skipped.push(`${name} (too large)`);
+        continue;
+      }
+      attachments.push({
+        name,
+        mediaType: mediaType || "application/octet-stream",
+        data: bytes.toString("base64"),
+      });
+    } catch {
+      skipped.push(`${name} (could not fetch)`);
+    }
+  }
+
+  return { attachments, skipped };
+}
+
 export class DiscordAdapter implements ChannelAdapter {
   readonly name = "discord";
   private readonly client: Client;
@@ -173,10 +233,18 @@ export class DiscordAdapter implements ChannelAdapter {
       console.warn(`[discord] ignored DM from unknown sender ${message.author.id}`);
       return;
     }
+    const { attachments, skipped } = await collectAttachments(message);
+    // A file KOS cannot read is said out loud rather than dropped, so the
+    // owner is not left asking about a picture it was never shown.
+    const note = skipped.length
+      ? `\n\n(not read: ${skipped.join(", ")})`
+      : "";
+
     await this.messageHandler?.({
       channel: this.name,
       senderId: message.author.id,
-      text: message.content,
+      text: message.content + note,
+      ...(attachments.length ? { attachments } : {}),
       native: message,
     });
   }

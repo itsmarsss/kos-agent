@@ -951,6 +951,7 @@ export class Kernel {
     userId: string;
     channel: string;
     conversationKey?: string;
+    attachments?: Attachment[];
   }): Promise<HandleResult & { conversationId: string; isCommand: boolean }> {
     const conversation = this.conversationFor(
       input.channel,
@@ -979,6 +980,7 @@ export class Kernel {
       userId: input.userId,
       sessionId: conversation.id,
       channel: input.channel,
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     });
     return { ...res, conversationId: conversation.id, isCommand: false };
   }
