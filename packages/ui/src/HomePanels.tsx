@@ -61,6 +61,7 @@ export function Panel({
   onGo,
   onDecide,
   deciding,
+  onDismissFailure,
 }: {
   panel: HomePanel;
   data: HomeData;
@@ -70,6 +71,8 @@ export function Panel({
   onGo: Go;
   onDecide: (id: number, approved: boolean) => void;
   deciding: ReadonlySet<number>;
+  /** Stop reporting a failure the owner has dealt with. */
+  onDismissFailure: (key: string) => void;
 }): ReactElement {
   const limit = panel.limit ?? 8;
   const title = panel.title;
@@ -147,27 +150,72 @@ export function Panel({
     }
 
     case "failures": {
-      const rows = data.failures.slice(0, limit);
+      // What is broken now, rather than the last ten error rows ever recorded.
+      // A job that failed once on Tuesday and has worked since is not a
+      // problem, and listing it alongside one that has been failing all week
+      // makes the real one harder to find.
+      const report = data.health;
+      const rows = report.failing.slice(0, limit);
+      const rate = report.recent.total > 0 ? report.recent.rate : 0;
       return (
         <div className={`panel ${rows.length ? "panel--bad" : ""}`}>
           <Head
             title={title ?? "What broke"}
-            count={data.failures.length}
+            count={report.failing.length}
             onMore={() => onGo("runs")}
           />
           {rows.length === 0 ? (
-            <Empty>Nothing has failed.</Empty>
+            <Empty>
+              {report.recent.total === 0
+                ? "Nothing has run yet."
+                : "Everything is working."}
+            </Empty>
           ) : (
             <ul className="panel-list">
-              {rows.map((r) => (
-                <li key={r.id}>
-                  <span className="panel-row">
-                    <span className="panel-row-main">{r.error ?? r.kind}</span>
-                    <span className="panel-row-side">{ago(r.startedAt)}</span>
+              {rows.map((f) => (
+                <li key={f.key}>
+                  <span className="panel-row is-error">
+                    <span className="panel-row-main">
+                      <span className="fail-label">{f.label}</span>
+                      <span className="fail-why">{f.error ?? "failed"}</span>
+                    </span>
+                    <span className="panel-row-side">
+                      {f.streak > 1 ? `${f.streak}x · ` : ""}
+                      {ago(f.since)}
+                      {/* Without this the only way to clear a failure the
+                          owner has already handled is to wait for the job to
+                          succeed, which for a nightly job means a red header
+                          until tomorrow. */}
+                      <button
+                        type="button"
+                        className="icon-btn icon-btn--bare"
+                        title="Dismiss"
+                        onClick={() => onDismissFailure(f.key)}
+                      >
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M6 6l12 12M18 6L6 18" />
+                        </svg>
+                      </button>
+                    </span>
                   </span>
                 </li>
               ))}
             </ul>
+          )}
+          {report.recent.total > 0 && (
+            <p className="panel-foot">
+              {report.recent.errors} of the last {report.recent.total} runs
+              failed ({Math.round(rate * 100)}%)
+            </p>
           )}
         </div>
       );

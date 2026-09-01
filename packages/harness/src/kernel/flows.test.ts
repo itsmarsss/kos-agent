@@ -1339,3 +1339,112 @@ describe("a message survives the turn it started", () => {
     expect(wire).toContain("answered");
   });
 });
+
+/**
+ * The unattended path: a job that fails at 3am with nobody watching.
+ *
+ * This is the case the whole product rests on, and it used to end at a row in
+ * runs_log. Nothing was sent, nothing was shown, and a cron broken for a week
+ * was indistinguishable from a cron with nothing to do.
+ */
+describe("failures reach the owner", () => {
+  let root: string;
+  let kernel: Kernel;
+
+  afterEach(() => {
+    kernel?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  async function bootWithChannel(sent: string[]): Promise<Kernel> {
+    root = mkdtempSync(join(tmpdir(), "kos-health-"));
+    return Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: scripted([]).inference,
+      profileOverrides: { name: "Kenny", timezone: "UTC" },
+      notify: async (text: string) => {
+        sent.push(text);
+      },
+    });
+  }
+
+  it("messages the owner when an unattended job fails", async () => {
+    const sent: string[] = [];
+    kernel = await bootWithChannel(sent);
+    const job = kernel.crons.create({
+      name: "nightly digest",
+      schedule: "0 3 * * *",
+      type: "actions",
+      // Reads a file that is not there, so the action comes back as an error
+      // rather than throwing. An unknown tool would not do: the guard queues
+      // that for approval instead, which is a different outcome entirely.
+      actions: [{ tool: "files.read", args: { path: "nope/missing.md" } }],
+      enabled: true,
+    });
+    kernel.startCron();
+
+    await kernel.fireCron(job.id);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain("nightly digest");
+    expect(kernel.health.report().ok).toBe(false);
+  });
+
+  it("records the run as failed, not as a clean pass", async () => {
+    const sent: string[] = [];
+    kernel = await bootWithChannel(sent);
+    const job = kernel.crons.create({
+      name: "nightly digest",
+      schedule: "0 3 * * *",
+      type: "actions",
+      actions: [{ tool: "files.read", args: { path: "nope/missing.md" } }],
+      enabled: true,
+    });
+    kernel.startCron();
+
+    await kernel.fireCron(job.id);
+
+    // An erroring action does not throw, so this used to be logged "ok".
+    const run = kernel.runs.recent(5).find((r) => r.kind === "cron");
+    expect(run?.status).toBe("error");
+  });
+
+  it("does not repeat itself while the job stays broken", async () => {
+    const sent: string[] = [];
+    kernel = await bootWithChannel(sent);
+    const job = kernel.crons.create({
+      name: "nightly digest",
+      schedule: "* * * * *",
+      type: "actions",
+      actions: [{ tool: "files.read", args: { path: "nope/missing.md" } }],
+      enabled: true,
+    });
+    kernel.startCron();
+
+    await kernel.fireCron(job.id);
+    await kernel.fireCron(job.id);
+
+    // A minutely job that floods you is one you mute, and a muted assistant is
+    // worse than the silence this replaced.
+    expect(sent).toHaveLength(1);
+  });
+
+  it("keeps quiet about a job that is working", async () => {
+    const sent: string[] = [];
+    kernel = await bootWithChannel(sent);
+    const job = kernel.crons.create({
+      name: "healthy job",
+      schedule: "0 3 * * *",
+      type: "actions",
+      actions: [{ tool: "notify", args: { text: "tick" } }],
+      enabled: true,
+    });
+    kernel.startCron();
+
+    await kernel.fireCron(job.id);
+
+    expect(sent).toEqual(["tick"]);
+    expect(kernel.health.report().ok).toBe(true);
+  });
+});
