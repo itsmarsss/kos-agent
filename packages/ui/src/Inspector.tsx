@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { m } from "motion/react";
 import { summarizeAction } from "@kos/shared";
 
 import type {
@@ -10,6 +11,7 @@ import type {
   RunRecord,
 } from "./api.js";
 import { api, type ProjectDetail } from "./api.js";
+import { ease, spring } from "./motion.js";
 import { Select } from "./Select.js";
 
 export type InspectTarget =
@@ -460,12 +462,31 @@ export function Inspector(props: {
   }
 
   return (
-    <div className="insp-backdrop" role="presentation" onClick={onClose}>
-      <aside
+    /*
+     * Entering and leaving.
+     *
+     * The panel had a CSS keyframe on the way in and nothing on the way out,
+     * so it slid open and then vanished. A drawer that disappears rather than
+     * closing leaves you unsure whether you dismissed it or it failed.
+     */
+    <m.div
+      className="insp-backdrop"
+      role="presentation"
+      onClick={onClose}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={ease}
+    >
+      <m.aside
         className="insp-panel"
         role="dialog"
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
+        initial={{ x: 28, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        exit={{ x: 28, opacity: 0 }}
+        transition={spring}
       >
         <header className="insp-head">
           <div>
@@ -487,8 +508,8 @@ export function Inspector(props: {
             {actions}
           </footer>
         )}
-      </aside>
-    </div>
+      </m.aside>
+    </m.div>
   );
 }
 

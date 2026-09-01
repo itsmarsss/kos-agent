@@ -1,8 +1,11 @@
 import { useEffect, useState, type ReactElement } from "react";
 import type { HomeLayout, HomePanel, PanelKind, WidgetSpan } from "@kos/shared";
 
+import { AnimatePresence, m } from "motion/react";
+
 import { api, type HomeData } from "./api.js";
 import { Panel } from "./HomePanels.js";
+import { ease, spring } from "./motion.js";
 import { Select } from "./Select.js";
 
 /**
@@ -169,7 +172,15 @@ export function HomePage({
 
       <div className="home-grid">
         {layout.panels.map((panel, i) => (
-          <section key={panel.id} className={`home-cell home-cell--${panel.span}`}>
+          /* Laid out rather than snapped: moving a panel up or changing its
+             width is a spatial change, and seeing it travel is what tells you
+             the thing you pressed did what you meant. */
+          <m.section
+            key={panel.id}
+            layout
+            className={`home-cell home-cell--${panel.span}`}
+            transition={spring}
+          >
             {editing && (
               <div className="home-edit">
                 <Select
@@ -217,12 +228,19 @@ export function HomePage({
               onDecide={onDecide}
               deciding={deciding}
             />
-          </section>
+          </m.section>
         ))}
       </div>
 
+      <AnimatePresence>
       {editing && (
-        <div className="home-add">
+        <m.div
+          className="home-add"
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={ease}
+        >
           <span className="home-add-label">Add a panel</span>
           <div className="home-add-list">
             {CATALOGUE.map((c) => (
@@ -240,8 +258,9 @@ export function HomePage({
               </button>
             ))}
           </div>
-        </div>
+        </m.div>
       )}
+      </AnimatePresence>
     </div>
   );
 }

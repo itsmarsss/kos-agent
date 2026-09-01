@@ -7,12 +7,12 @@ import {
   type ReactElement,
 } from "react";
 
-import { m } from "motion/react";
+import { AnimatePresence, m } from "motion/react";
 import { summarizeAction } from "@kos/shared";
 
 import { Decision } from "./Decision.js";
 import { VoiceInput } from "./VoiceInput.js";
-import { ease } from "./motion.js";
+import { ease, listItem, spring } from "./motion.js";
 import { useDismiss } from "./useDismiss.js";
 
 import { ContextMeter } from "./ContextMeter.js";
@@ -833,8 +833,17 @@ export function ChatsPage({
                   chat showed "I'll continue once the result comes through"
                   and then nothing, because the thing waiting on the owner was
                   invisible from here. */}
+              <AnimatePresence initial={false}>
               {loose.map((a) => (
-                <div className="loose-approval" key={a.id}>
+                <m.div
+                  className="loose-approval"
+                  key={a.id}
+                  layout
+                  initial={{ opacity: 0, scale: 0.98, y: 6 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.12 } }}
+                  transition={spring}
+                >
                   <div className="loose-approval-main">
                     <code>{a.tool}</code>
                     <span>{a.reason ?? summarizeAction(a.tool, a.args)}</span>
@@ -846,20 +855,57 @@ export function ChatsPage({
                       onDecide={(id, ok) => onDecide(String(id), ok)}
                     />
                   </div>
-                </div>
+                </m.div>
               ))}
+              </AnimatePresence>
 
               {notes.map((n) => (
-                <div className="chats-note" key={n.id}>
+                <m.div
+                  className="chats-note"
+                  key={n.id}
+                  variants={listItem}
+                  initial="hidden"
+                  animate="show"
+                >
                   <Markdown text={n.text} />
-                </div>
+                </m.div>
               ))}
 
               {/* Sent, taken, and waiting for the turn ahead of it. Shown
                   after the running turn because that is the order they will
                   be answered in. */}
+              {/* Nothing queued runs until the turn ahead of it finishes, and
+                  the only lever on that is stopping the turn. Offered once,
+                  above the queue, rather than on every message: it acts on
+                  the running turn, not on any one of them. */}
+              {pending.length > 0 && running && (
+                <div className="queued-head">
+                  <span>
+                    {pending.length} waiting on the turn in progress
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn--sm"
+                    title="Stop what KOS is doing now so the next message starts"
+                    onClick={() => stop()}
+                  >
+                    Interrupt and send next
+                  </button>
+                </div>
+              )}
+
+              <AnimatePresence initial={false}>
               {pending.map((p) => (
-                <div className="queued" key={p.id}>
+                <m.div
+                  className="queued"
+                  key={p.id}
+                  layout
+                  variants={listItem}
+                  initial="hidden"
+                  animate="show"
+                  exit="exit"
+                  transition={ease}
+                >
                   {editingQueued?.id === p.id ? (
                     <div className="queued-edit">
                       <textarea
@@ -930,8 +976,9 @@ export function ChatsPage({
                       </div>
                     </>
                   )}
-                </div>
+                </m.div>
               ))}
+              </AnimatePresence>
             </div>
 
             <div

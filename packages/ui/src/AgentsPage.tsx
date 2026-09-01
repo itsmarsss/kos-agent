@@ -1,7 +1,10 @@
 import { useEffect, useState, type ReactElement } from "react";
 
+import { AnimatePresence, m } from "motion/react";
+
 import { AgentTerminal } from "./AgentTerminal.js";
 import { api, type BuildRecord } from "./api.js";
+import { listItem } from "./motion.js";
 
 /**
  * What is running inside the workspace.
@@ -201,15 +204,18 @@ export function AgentsPage({
       )}
 
       <div className="agents-list">
+        <AnimatePresence initial={false}>
         {builds?.map((b) => (
+          <m.div key={b.id} layout variants={listItem} initial="hidden" animate="show" exit="exit">
           <Build
-            key={b.id}
             build={b}
             onStop={(id) => act(api.stopAgent(id))}
             onInterrupt={(id) => act(api.interruptAgent(id))}
             onOpen={setReading}
           />
+          </m.div>
         ))}
+        </AnimatePresence>
       </div>
 
       {reading !== null && (
