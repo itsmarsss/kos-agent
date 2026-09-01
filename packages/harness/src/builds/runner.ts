@@ -52,10 +52,27 @@ export interface BuildOptions {
   maxTurns?: number;
   onEvent?: (event: BuildEvent) => void;
   /**
-   * Told how to stop this build as soon as it can be stopped, so a caller can
-   * offer that without waiting for the build to finish and hand it back.
+   * Handed the controls as soon as there are any, so a caller can offer them
+   * without waiting for the build to finish and hand them back.
    */
-  onStart?: (control: { stop: () => void }) => void;
+  onStart?: (control: BuildControl) => void;
+}
+
+/**
+ * What can be done to a build while it runs.
+ *
+ * Deliberately not `setPermissionMode`. The SDK offers it, and two of its
+ * values (bypassPermissions, dontAsk) skip the canUseTool callback entirely,
+ * which is the whole containment: a build could then run any shell command
+ * without asking. There is no button for that, and there should not be.
+ */
+export interface BuildControl {
+  /** Say something to it mid-run: a correction, a constraint, an answer. */
+  send: (text: string) => void;
+  /** Stop what it is doing now but leave it able to take a new instruction. */
+  interrupt: () => Promise<void>;
+  /** End it. */
+  stop: () => void;
 }
 
 export interface BuildResult {
@@ -179,12 +196,12 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
   }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   // Handed over before any work starts: a build that cannot be stopped until
   // it returns is one the owner cannot stop at all.
-  options.onStart?.({
-    stop: () => {
-      halted = "owner";
-      controller.abort();
-    },
-  });
+  const stopAll = (): void => {
+    halted = "owner";
+    closed = true;
+    wakeUp();
+    controller.abort();
+  };
 
   const filesTouched = new Set<string>();
   const allowedCommands = new Set<string>();
@@ -196,6 +213,51 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
   // Imported here rather than at module load: the SDK pulls in a lot, and a
   // workspace that never runs a build should not pay for it at boot.
   const { query } = await import("@anthropic-ai/claude-agent-sdk");
+
+  /*
+   * The task arrives as a stream rather than a string.
+   *
+   * A string prompt is one-shot: the SDK's control methods are only available
+   * in streaming input mode, so passing one meant a build could be killed and
+   * nothing else. Watching an agent go the wrong way with no way to say so is
+   * the thing this fixes.
+   */
+  type Inbound = { type: "user"; message: { role: "user"; content: string }; parent_tool_use_id: null };
+  const inbox: Inbound[] = [
+    { type: "user", message: { role: "user", content: options.task }, parent_tool_use_id: null },
+  ];
+  let wake: (() => void) | null = null;
+  let closed = false;
+
+  /** Release the generator if it is parked, exactly once. */
+  const wakeUp = (): void => {
+    const resume = wake;
+    wake = null;
+    resume?.();
+  };
+
+  const say = (text: string): void => {
+    if (closed) return;
+    inbox.push({
+      type: "user",
+      message: { role: "user", content: text },
+      parent_tool_use_id: null,
+    });
+    wakeUp();
+  };
+
+  async function* prompts(): AsyncGenerator<Inbound> {
+    for (;;) {
+      while (inbox.length > 0) yield inbox.shift()!;
+      if (closed || controller.signal.aborted) return;
+      // Nothing to say yet. Waiting here rather than returning is what keeps
+      // the session open for a later instruction.
+      await new Promise<void>((resolve) => {
+        wake = resolve;
+        controller.signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    }
+  }
 
   const canUseTool = async (
     tool: string,
@@ -248,7 +310,7 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
 
   try {
     const stream = query({
-      prompt: options.task,
+      prompt: prompts(),
       options: {
         cwd: scopeDir,
         // Additional directories are how a sub-agent is granted reach beyond
@@ -270,6 +332,21 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
             `you must run. If a request is declined, adapt rather than retrying it.`,
         },
       },
+    });
+
+    // Handed over now rather than before: interrupt belongs to the stream, and
+    // a control surface that promised it before there was one would have to
+    // fail the first time it was used.
+    options.onStart?.({
+      send: (text) => {
+        emit("text", `You: ${text}`);
+        say(text);
+      },
+      interrupt: async () => {
+        emit("permission", "you interrupted it");
+        await stream.interrupt();
+      },
+      stop: stopAll,
     });
 
     for await (const message of stream) {
@@ -295,6 +372,8 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
         }
       }
     }
+    closed = true;
+    wakeUp();
     emit("done", summary);
   } catch (err) {
     const text = err instanceof Error ? err.message : String(err);
@@ -307,6 +386,8 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
     emit(halted === "owner" ? "done" : "error", summary);
     ok = false;
   } finally {
+    closed = true;
+    wakeUp();
     clearTimeout(timer);
   }
 

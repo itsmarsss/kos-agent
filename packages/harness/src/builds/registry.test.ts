@@ -11,8 +11,14 @@ import { BuildRegistry } from "./registry.js";
  * stopped while it is still going.
  */
 describe("builds that are running", () => {
-  const started = (r: BuildRegistry, stop = vi.fn()): number =>
-    r.start({ dir: "sites/app", task: "build a thing", stop });
+  const control = () => ({
+    send: vi.fn(),
+    interrupt: vi.fn(async () => undefined),
+    stop: vi.fn(),
+  });
+
+  const started = (r: BuildRegistry, c = control()): number =>
+    r.start({ dir: "sites/app", task: "build a thing", control: c });
 
   it("lists a build as running once it starts", () => {
     const r = new BuildRegistry();
@@ -38,12 +44,51 @@ describe("builds that are running", () => {
   });
 
   it("stops a running build and says it did", () => {
-    const stop = vi.fn();
+    const c = control();
     const r = new BuildRegistry();
-    const id = started(r, stop);
+    const id = started(r, c);
     expect(r.stop(id)).toBe(true);
-    expect(stop).toHaveBeenCalled();
+    expect(c.stop).toHaveBeenCalled();
     expect(r.get(id)?.status).toBe("stopped");
+  });
+
+  /*
+   * The difference between watching an agent go the wrong way and being able
+   * to say so. A build that can only be killed is one you start over rather
+   * than correct.
+   */
+  it("passes a message to a build that is still going", () => {
+    const c = control();
+    const r = new BuildRegistry();
+    const id = started(r, c);
+    r.record(id, { kind: "permission", text: "waiting on you: run: rm -rf ." });
+    expect(r.get(id)?.status).toBe("waiting");
+
+    expect(r.send(id, "use the other folder")).toBe(true);
+    expect(c.send).toHaveBeenCalledWith("use the other folder");
+    // Still waiting: a message is not an answer to a permission prompt. The
+    // build is blocked on "may I run this" and stays blocked until that is
+    // decided, whatever else is said to it in the meantime.
+    expect(r.get(id)?.status).toBe("waiting");
+  });
+
+  it("interrupts without ending it", async () => {
+    const c = control();
+    const r = new BuildRegistry();
+    const id = started(r, c);
+    expect(await r.interrupt(id)).toBe(true);
+    expect(c.interrupt).toHaveBeenCalled();
+    // Still there to be redirected, which is the point of interrupting
+    // rather than stopping.
+    expect(r.get(id)?.status).toBe("running");
+  });
+
+  it("has nothing to say to a build that already finished", async () => {
+    const r = new BuildRegistry();
+    const id = started(r);
+    r.finish(id, { ok: true, summary: "done", files: [] });
+    expect(r.send(id, "hello")).toBe(false);
+    expect(await r.interrupt(id)).toBe(false);
   });
 
   /*

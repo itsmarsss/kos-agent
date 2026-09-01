@@ -663,6 +663,26 @@ export async function handleApiRequest(
     return ok({ stopped: true, builds: kernel.builds.list() });
   }
 
+  if (method === "POST" && path === "/api/agents/send") {
+    const id = Number(body.id);
+    const text = typeof body.text === "string" ? body.text.trim() : "";
+    if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
+    if (!text) return { status: 400, body: { error: "text required" } };
+    if (!kernel.builds.send(id, text)) {
+      return { status: 409, body: { error: "that build is no longer running" } };
+    }
+    return ok({ sent: true, builds: kernel.builds.list() });
+  }
+
+  if (method === "POST" && path === "/api/agents/interrupt") {
+    const id = Number(body.id);
+    if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
+    if (!(await kernel.builds.interrupt(id))) {
+      return { status: 409, body: { error: "that build is no longer running" } };
+    }
+    return ok({ interrupted: true, builds: kernel.builds.list() });
+  }
+
   if (method === "GET" && path === "/api/spend") {
     const days = clampLimit(queryParams(req.url).get("days"), 30);
     const since = Date.now() - days * 24 * 60 * 60 * 1000;
