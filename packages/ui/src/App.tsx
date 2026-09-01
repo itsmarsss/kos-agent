@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { summarizeAction } from "@kos/shared";
 
 import {
@@ -12,7 +12,6 @@ import {
   type Project,
   type RunRecord,
   type Status,
-  type ChatEvent,
   type Conversation,
 } from "./api.js";
 import { Inspector, type InspectTarget } from "./Inspector.js";
@@ -23,8 +22,6 @@ import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
 import { Modal } from "./Modal.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { CronEditor } from "./CronEditor.js";
-import { useAttachments } from "./Attachments.js";
-import { useProgress } from "./progress.js";
 import { ease, listItem, spring } from "./motion.js";
 import { Home } from "./Home.js";
 import { ChatsPage } from "./ChatsPage.js";
@@ -32,7 +29,7 @@ import { FilesPage } from "./FilesPage.js";
 import { SpendPanel } from "./SpendPanel.js";
 import { ProjectsPage } from "./ProjectsPage.js";
 import { KnowledgePage } from "./KnowledgePage.js";
-import { ChatPanel } from "./ChatPanel.js";
+import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { PageRenderer } from "./widgets/PageRenderer.js";
 
@@ -65,9 +62,6 @@ export function App(): React.ReactElement {
   const [activity, setActivity] = useState<AuditRecord[]>([]);
   const [facts, setFacts] = useState<FactRow[]>([]);
   const [factTags, setFactTags] = useState<string[]>([]);
-  const [prompt, setPrompt] = useState("");
-  const [thread, setThread] = useState<ChatEvent[]>([]);
-  const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast>(null);
   const [activePage, setActivePage] = useState<PagePayload | null>(null);
@@ -75,13 +69,12 @@ export function App(): React.ReactElement {
   const [runsFailedOnly, setRunsFailedOnly] = useState(false);
   const [cronFilter, setCronFilter] = useState<"all" | "on" | "off">("all");
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
-  const [chatOpen, setChatOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Where sites are served, so the palette can open one directly.
+  const [sitesBase, setSitesBase] = useState<string | null>(null);
   const [editingCron, setEditingCron] = useState<{ job?: CronJob } | null>(null);
-  const attachments = useAttachments();
-  const progress = useProgress();
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeChat, setActiveChat] = useState<string | null>(null);
 
   const flash = (kind: "ok" | "err", text: string): void => {
     setToast({ kind, text });
@@ -125,7 +118,6 @@ export function App(): React.ReactElement {
     apply(convos, setConversations);
     // The sheet's transcript is the orchestrator's own thread, not whichever
     // chat happens to be newest.
-    if (s.status === "fulfilled") setActiveChat(s.value.orchestratorId ?? null);
   }, []);
 
   useEffect(() => {
@@ -143,12 +135,23 @@ export function App(): React.ReactElement {
     };
   }, [refresh]);
 
-  // Chat is summoned, not resident. Cmd-K is the one shortcut worth having.
+  // Read once: the port sites are served on is a property of how the host was
+  // started, not something that changes while the page is open.
+  useEffect(() => {
+    void api
+      .sites()
+      .then((r) => setSitesBase(r.base))
+      .catch(() => undefined);
+  }, []);
+
+  // One shortcut, and it opens the thing that reaches everything. It used to
+  // open a chat with KOS, which Chats already does, so the most reachable key
+  // in the app was spent on a second way to do one thing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setChatOpen((v) => !v);
+        setPaletteOpen((v) => !v);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -198,13 +201,9 @@ export function App(): React.ReactElement {
     setBusy(approved ? `approving #${id}` : `denying #${id}`);
     try {
       const res = await (approved ? api.approve(id) : api.deny(id));
-      if (res.reply) {
-        setThread((t) => [
-          ...t,
-          { kind: "message", role: "kos", text: res.reply! },
-        ]);
-      }
-      flash("ok", approved ? `Approved #${id}` : `Denied #${id}`);
+      // The agent's continuation shows in the conversation it belongs to,
+      // which Chats is already watching; there is no panel to echo it into.
+      flash("ok", res.reply ? res.reply.slice(0, 120) : approved ? `Approved #${id}` : `Denied #${id}`);
       await refresh();
     } catch (err) {
       flash("err", err instanceof Error ? err.message : String(err));
@@ -239,17 +238,40 @@ export function App(): React.ReactElement {
     }
   };
 
-  const doClear = async (): Promise<void> => {
-    setBusy("clear session");
-    try {
-      const res = await api.clear();
-      setThread([]);
-      flash("ok", `Cleared ${res.cleared}`);
-    } catch (err) {
-      flash("err", err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(null);
-    }
+  // Everything the palette can do, in one place, so an action it offers is the
+  // same code path as the button that used to be the only way to reach it.
+  const paletteContext: PaletteContext = {
+    go,
+    openChat: (id) => {
+      const target =
+        id === "orchestrator"
+          ? conversations.find((c) => c.kind === "orchestrator")?.id
+          : id;
+      if (target) go({ name: "chats", id: target });
+    },
+    openSettings: () => setSettingsOpen(true),
+    newChat: () => {
+      void api
+        .newConversation()
+        .then((c) => {
+          void refresh();
+          go({ name: "chats", id: c.id });
+        })
+        .catch((err: unknown) =>
+          flash("err", err instanceof Error ? err.message : String(err)),
+        );
+    },
+    openWorkspace: () => {
+      void api
+        .openWorkspace()
+        .then((r) => flash("ok", `Opened ${r.opened}`))
+        .catch((err: unknown) =>
+          flash("err", err instanceof Error ? err.message : String(err)),
+        );
+    },
+    snapshot: () => void doSnapshot(),
+    refresh: () => void refresh(),
+    sitesBase,
   };
 
   const copyWorkspace = async (): Promise<void> => {
@@ -262,80 +284,6 @@ export function App(): React.ReactElement {
       flash("err", ws);
     }
   };
-
-  const send = async (): Promise<void> => {
-    const text = prompt.trim();
-    if ((text === "" && attachments.files.length === 0) || sending) return;
-    setSending(true);
-    // Attached on send, not when the answer lands: the files belong to the
-    // message the moment it goes.
-    const files = attachments.files;
-    setThread((t) => [
-      ...t,
-      {
-        kind: "message",
-        role: "you",
-        text,
-        ...(files.length
-          ? {
-              attachments: files.map((f) => ({
-                name: f.name,
-                ...(f.mediaType.startsWith("image/")
-                  ? { src: `data:${f.mediaType};base64,${f.data}` }
-                  : {}),
-              })),
-            }
-          : {}),
-      },
-    ]);
-    setPrompt("");
-    attachments.clear();
-    try {
-      const res = await api.orchestrator(text, files);
-      // Reload: the turn's tool calls belong in the transcript, and appending
-      // only the reply would hide the work that produced it.
-      const { events } = await api.conversation(res.conversationId);
-      setThread(events);
-      await refresh();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setThread((t) => [...t, { kind: "message", role: "kos", text: `Error: ${msg}` }]);
-      flash("err", msg);
-    } finally {
-      setSending(false);
-    }
-  };
-
-  /**
-   * One place loads a transcript: whenever the active conversation changes to
-   * one we have not loaded. Doing it only inside a click handler missed the
-   * first conversation, which is selected automatically after the initial poll.
-   */
-  const loadedChat = useRef<string | null>(null);
-  // Reloaded again whenever the conversation has moved on the server, so an
-  // approval resuming the agent shows its continuation without a reopen.
-  const chatStamp = conversations.find((c) => c.id === activeChat)?.updatedAt;
-  useEffect(() => {
-    if (!activeChat) return;
-    const key = `${activeChat}:${chatStamp ?? 0}`;
-    if (sending || loadedChat.current === key) return;
-    loadedChat.current = key;
-    let cancelled = false;
-    void api
-      .conversation(activeChat)
-      .then(({ events }) => {
-        if (!cancelled) setThread(events);
-      })
-      .catch(() => {
-        if (!cancelled) setThread([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeChat, chatStamp, sending]);
-
-
-
 
   /** Pending-action ids, so a queued tool call can offer a decision in place. */
   const pendingIds = useMemo(
@@ -461,9 +409,9 @@ export function App(): React.ReactElement {
             <button
               type="button"
               className="btn btn--primary"
-              onClick={() => setChatOpen(true)}
+              onClick={() => setPaletteOpen(true)}
             >
-              Ask KOS <kbd>⌘K</kbd>
+              Search <kbd>⌘K</kbd>
             </button>
             {/* A native details stays open when something inside it is
                 clicked, so the menu sat over whatever it had just opened. */}
@@ -550,19 +498,10 @@ export function App(): React.ReactElement {
           )}
         </Modal>
 
-        <ChatPanel
-          open={chatOpen}
-          thread={thread}
-          prompt={prompt}
-          sending={sending}
-          onPrompt={setPrompt}
-          onSend={() => void send()}
-          onClose={() => setChatOpen(false)}
-          onClear={() => void doClear()}
-          pendingApprovals={pendingIds}
-          onDecide={decideByPendingId}
-          attachments={attachments}
-          live={activeChat ? progress[activeChat] : undefined}
+        <CommandPalette
+          open={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          ctx={paletteContext}
         />
       </main>
     </ErrorBoundary>
