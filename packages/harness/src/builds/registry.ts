@@ -1,4 +1,4 @@
-import type { BuildEvent } from "./runner.js";
+import type { BuildControl, BuildEvent } from "./runner.js";
 
 /**
  * The build sub-agents that are running right now.
@@ -43,7 +43,7 @@ const MAX_FINISHED = 20;
 
 export class BuildRegistry {
   private readonly records = new Map<number, BuildRecord>();
-  private readonly stoppers = new Map<number, () => void>();
+  private readonly controls = new Map<number, BuildControl>();
   private nextId = 1;
 
   /** Register a build about to start. Returns its id. */
@@ -51,7 +51,7 @@ export class BuildRegistry {
     dir: string;
     task: string;
     conversationId?: string;
-    stop: () => void;
+    control: BuildControl;
     now?: number;
   }): number {
     const id = this.nextId++;
@@ -67,7 +67,7 @@ export class BuildRegistry {
       files: [],
       askedFor: 0,
     });
-    this.stoppers.set(id, input.stop);
+    this.controls.set(id, input.control);
     this.prune();
     return id;
   }
@@ -112,7 +112,7 @@ export class BuildRegistry {
     // with that told the owner it had failed when they had stopped it.
     if (!wasStopped) record.latest = outcome.summary.slice(0, 200);
     record.files = outcome.files;
-    this.stoppers.delete(id);
+    this.controls.delete(id);
   }
 
   /**
@@ -120,18 +120,47 @@ export class BuildRegistry {
    * normal answer for one that finished while the owner was reading about it.
    */
   stop(id: number): boolean {
-    const stopper = this.stoppers.get(id);
+    const control = this.controls.get(id);
     const record = this.records.get(id);
-    if (!stopper || !record) return false;
+    if (!control || !record) return false;
     record.status = "stopped";
     record.latest = "stopped by you";
-    this.stoppers.delete(id);
+    this.controls.delete(id);
     try {
-      stopper();
+      control.stop();
     } catch {
       // The build is marked stopped either way; a failed abort is not
       // something the owner can act on.
     }
+    return true;
+  }
+
+  /**
+   * Say something to a build that is still going.
+   *
+   * This is the difference between watching an agent go the wrong way and
+   * being able to tell it so. Returns false when there is nothing running to
+   * say it to.
+   */
+  send(id: number, text: string): boolean {
+    const control = this.controls.get(id);
+    if (!control) return false;
+    control.send(text);
+    // Status deliberately unchanged. A message is not an answer to a pending
+    // permission prompt: a build blocked on "may I run this" is still blocked
+    // after you say something else, and marking it running claimed it had
+    // moved on when it had not. It picks the message up once unblocked.
+    return true;
+  }
+
+  /**
+   * Stop what it is doing now without ending it, so it can be redirected.
+   * "That is the wrong file" is an interrupt, not a kill.
+   */
+  async interrupt(id: number): Promise<boolean> {
+    const control = this.controls.get(id);
+    if (!control) return false;
+    await control.interrupt();
     return true;
   }
 

@@ -473,6 +473,12 @@ export const api = {
   agents: () => get<{ builds: BuildRecord[] }>("/api/agents"),
   stopAgent: (id: number) =>
     post<{ stopped: boolean; builds: BuildRecord[] }>("/api/agents/stop", { id }),
+  sendToAgent: (id: number, text: string) =>
+    post<{ sent: boolean; builds: BuildRecord[] }>("/api/agents/send", { id, text }),
+  interruptAgent: (id: number) =>
+    post<{ interrupted: boolean; builds: BuildRecord[] }>("/api/agents/interrupt", {
+      id,
+    }),
   settings: () => get<SettingsPayload>("/api/settings"),
   saveProfile: (name: string, timezone: string) =>
     post<{ profile: { name: string; timezone: string } }>(

@@ -3874,3 +3874,8 @@ li:hover .chats-item-when { opacity: 0; }
 }
 .agent-event--permission { color: var(--warn); }
 .agent-event--error { color: var(--danger); }
+
+/* Saying something to a build while it works. */
+.agent-say { display: flex; gap: 0.5rem; margin-top: 0.75rem; padding-left: 1.35rem; }
+.agent-say .kos-input { flex: 1; }
+.agent-event--text { color: var(--text); }
