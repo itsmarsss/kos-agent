@@ -94,25 +94,29 @@ export function ChatConfig({
 
       <div className="chatcfg-field">
         <span className="chatcfg-label">Tools</span>
-        <div className="chatcfg-tools">
+        <div className="toolpick">
           {families.map((f) => {
             const on = unrestricted || allow.includes(f);
+            const owned = tools.filter((t) => t.name.split(".")[0] === f);
             return (
-              <button
-                key={f}
-                type="button"
-                className={`chip ${on ? "is-on" : ""}`}
-                onClick={() => toggle(f)}
-                title={
-                  unrestricted
-                    ? "Currently unrestricted; selecting one starts a scope"
-                    : on
-                      ? "Allowed"
-                      : "Withheld"
-                }
-              >
-                {f}
-              </button>
+              <label key={f} className={`toolpick-row ${on ? "is-on" : ""}`}>
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={() => toggle(f)}
+                />
+                <span className="toolpick-main">
+                  <span className="toolpick-name">{f}</span>
+                  {/* What it actually lets the chat do. A chip said only the
+                      family name, so choosing a scope meant already knowing
+                      what was inside each one. */}
+                  <span className="toolpick-tools">
+                    {owned.map((t) => t.name.split(".")[1] ?? t.name).join(", ") ||
+                      "no tools"}
+                  </span>
+                </span>
+                <span className="toolpick-count">{owned.length}</span>
+              </label>
             );
           })}
         </div>

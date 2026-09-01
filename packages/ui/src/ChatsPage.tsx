@@ -11,6 +11,7 @@ import { m } from "motion/react";
 import { summarizeAction } from "@kos/shared";
 
 import { Decision } from "./Decision.js";
+import { VoiceInput } from "./VoiceInput.js";
 import { ease } from "./motion.js";
 import { useDismiss } from "./useDismiss.js";
 
@@ -325,6 +326,9 @@ export function ChatsPage({
       if (res.isCommand && res.reply) {
         setNotes((n) => [...n, { id: Date.now(), text: res.reply }]);
       }
+      // A command may ask the surface to open something. The kernel has no UI,
+      // so it names the panel and the surface obliges.
+      if (res.opens === "tools") setEditing(true);
       // Reload rather than appending the reply: the turn may have made tool
       // calls, and those belong in the transcript too.
       const { events: got, pending: waiting } = await api.conversation(target);
@@ -1013,6 +1017,13 @@ export function ChatsPage({
               </div>
               <div className="sheet-composer-bar">
                 <AttachButton onAdd={(l) => void attachments.add(l)} />
+                <VoiceInput
+                  onText={(said) =>
+                    // Appended rather than replacing: dictation is usually one
+                    // sentence at a time, and typing around it should work.
+                    setDraft((d) => (d ? `${d.replace(/\s+$/, "")} ${said}` : said))
+                  }
+                />
                 <ModelPicker />
                 {/* The hint took the widest slot in the row to say something
                     every chat surface already does. The space is the model's. */}

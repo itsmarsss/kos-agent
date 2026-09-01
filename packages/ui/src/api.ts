@@ -600,7 +600,12 @@ export const api = {
     post<{ ok: boolean; message: string; reply?: string }>("/api/deny", { id }),
   setKill: (halted: boolean) => post<Status>("/api/kill", { halted }),
   message: (text: string, sessionId?: string, attachments?: Attachment[]) =>
-    post<{ reply: string; isCommand?: boolean; switchedTo?: string }>("/api/message", {
+    post<{
+      reply: string;
+      isCommand?: boolean;
+      switchedTo?: string;
+      opens?: "tools";
+    }>("/api/message", {
       text,
       ...(sessionId ? { sessionId } : {}),
       ...(attachments?.length ? { attachments } : {}),

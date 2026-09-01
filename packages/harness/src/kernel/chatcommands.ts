@@ -18,6 +18,7 @@ export type ChatCommand =
   | { kind: "archive" }
   | { kind: "compact" }
   | { kind: "clear" }
+  | { kind: "tools" }
   | { kind: "help" };
 
 const ALIASES: Record<string, ChatCommand["kind"]> = {
@@ -40,6 +41,8 @@ const ALIASES: Record<string, ChatCommand["kind"]> = {
   summarize: "compact",
   clear: "clear",
   reset: "clear",
+  tools: "tools",
+  scope: "tools",
   help: "help",
   "?": "help",
 };
@@ -101,6 +104,8 @@ export interface CommandContext {
 }
 
 export interface CommandResult {
+  /** A panel the surface should open, when the command is a request to. */
+  opens?: "tools";
   reply: string;
   /** Set when the command moved this surface to a different conversation. */
   switchedTo?: string;
@@ -129,6 +134,7 @@ export const CHAT_COMMANDS: CommandSpec[] = [
     description: "replace this chat's history with a summary of it",
   },
   { name: "clear", description: "forget this chat's history, keep the chat" },
+  { name: "tools", description: "choose which tools this chat may use" },
   { name: "help", description: "show these commands" },
 ];
 
@@ -214,6 +220,11 @@ export function runChatCommand(
         switchedTo: next.id,
       };
     }
+
+    case "tools":
+      // Opening a panel is the caller's job; the kernel has no UI. Saying so
+      // beats silence on a surface that cannot show one.
+      return { reply: "Opening the tool scope for this chat.", opens: "tools" };
 
     case "compact":
     case "clear":

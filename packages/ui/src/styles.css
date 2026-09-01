@@ -4265,3 +4265,48 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
 }
 .insp-facts dt { color: var(--faint); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em; }
 .insp-facts dd { margin: 0.1rem 0 0; font-size: var(--text-base); overflow-wrap: anywhere; }
+
+/* Choosing a scope: what each family lets the chat do, not just its name. */
+.toolpick {
+  display: flex;
+  flex-direction: column;
+  max-height: 17rem;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+}
+.toolpick-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.toolpick-row:last-child { border-bottom: 0; }
+.toolpick-row:hover { background: var(--panel); }
+.toolpick-row input { margin-top: 0.15rem; accent-color: var(--accent); }
+.toolpick-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.toolpick-name { font-family: var(--mono); font-size: var(--text-base); }
+.toolpick-row:not(.is-on) .toolpick-name { color: var(--faint); }
+.toolpick-tools {
+  color: var(--faint);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.toolpick-count {
+  flex: none;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+}
+
+/* Dictating: the button pulses while the microphone is live. */
+.icon-btn.is-listening {
+  color: var(--danger);
+  background: var(--danger-dim);
+  animation: doing 1.4s ease-in-out infinite;
+}
