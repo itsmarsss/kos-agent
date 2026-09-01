@@ -24,6 +24,14 @@ import { conversationEvents } from "./transcript.js";
 import { listDirectory, readFile, readImage } from "./files.js";
 import { listSites, sitesBaseUrl } from "../sites/server.js";
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
+import {
+  isInside,
+  isWritableKey,
+  maskSecret,
+  writeEnvFile,
+  WRITABLE_SECRETS,
+  WRITABLE_SETTINGS,
+} from "../secrets/envfile.js";
 import { contextWindowFor } from "../models/windows.js";
 
 export interface ApiRequest {
@@ -63,6 +71,11 @@ export interface DashboardServerOptions {
   host?: string;
   /** Hosted-mode metadata for /api/health and /api/status (daemon). */
   meta?: DaemonMeta;
+  /**
+   * The dotenv file this host reads, so the settings page can write it. Must
+   * be outside the workspace; writing is refused otherwise.
+   */
+  envPath?: string;
   /**
    * Explicit cross-origin allowlist. The dashboard is same-origin (the server
    * serves the built UI itself), so this is empty by default and no CORS
@@ -450,6 +463,69 @@ export async function handleApiRequest(
     }
   }
 
+  if (method === "GET" && path === "/api/settings") {
+    // Values are never sent back, only whether one is set and its last four
+    // characters, which is enough to tell two keys apart and no use to anyone.
+    const envPath = options.envPath;
+    const secrets: Record<string, { label: string; hint: string; masked: string | null }> =
+      {};
+    for (const [key, meta] of Object.entries(WRITABLE_SECRETS)) {
+      secrets[key] = { ...meta, masked: maskSecret(process.env[key]) };
+    }
+    const settings: Record<string, { label: string; hint: string; value: string }> = {};
+    for (const [key, meta] of Object.entries(WRITABLE_SETTINGS)) {
+      settings[key] = { ...meta, value: process.env[key] ?? "" };
+    }
+    return ok({
+      workspace: kernel.workspace.root,
+      envPath: envPath ?? null,
+      // Said plainly, because "why will it not save" is otherwise a mystery
+      // whose answer is in a comment in another file.
+      envWritable:
+        envPath !== undefined && !isInside(kernel.workspace.root, envPath),
+      secrets,
+      settings,
+      sitesUrl: sitesBaseUrl() ?? null,
+      routes: kernel.routes() ?? null,
+    });
+  }
+
+  if (method === "POST" && path === "/api/settings") {
+    const envPath = options.envPath;
+    if (!envPath) {
+      return {
+        status: 400,
+        body: { error: "this host was started without an env file to write to" },
+      };
+    }
+    const raw = body.values;
+    if (typeof raw !== "object" || raw === null) {
+      return { status: 400, body: { error: "values must be an object" } };
+    }
+    const values: Record<string, string | null> = {};
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (!isWritableKey(key)) continue;
+      values[key] = typeof value === "string" ? value : null;
+    }
+
+    try {
+      const result = writeEnvFile(envPath, kernel.workspace.root, values);
+      // Applied to this process too, so a key saved here works on the next
+      // turn rather than on the next restart.
+      for (const [key, value] of Object.entries(values)) {
+        if (value === null || value === "") delete process.env[key];
+        else process.env[key] = value;
+      }
+      kernel.reloadSecrets();
+      return ok({ ...result, secrets: maskedSecrets() });
+    } catch (err) {
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
+  }
+
   if (method === "GET" && path === "/api/spend") {
     const days = clampLimit(queryParams(req.url).get("days"), 30);
     const since = Date.now() - days * 24 * 60 * 60 * 1000;
@@ -816,6 +892,15 @@ function transcriptOf(
       .trim();
     if (text === "") continue;
     out.push({ role: message.role === "user" ? "you" : "kos", text });
+  }
+  return out;
+}
+
+/** Every writable secret, masked, as the settings page shows them. */
+function maskedSecrets(): Record<string, { label: string; hint: string; masked: string | null }> {
+  const out: Record<string, { label: string; hint: string; masked: string | null }> = {};
+  for (const [key, meta] of Object.entries(WRITABLE_SECRETS)) {
+    out[key] = { ...meta, masked: maskSecret(process.env[key]) };
   }
   return out;
 }

@@ -56,6 +56,16 @@ export class SecretsRegistry {
     return value;
   }
 
+  /** Every registered secret name, so a reload can spot ones that went away. */
+  names(): string[] {
+    return [...this.map.keys()];
+  }
+
+  /** Forget a secret, as when the owner clears a key. */
+  remove(name: string): void {
+    this.map.delete(name);
+  }
+
   /** Register or replace a secret (harness-side only). */
   set(name: string, value: string): void {
     this.map.set(name, value);

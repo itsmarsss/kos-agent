@@ -15,6 +15,7 @@ import {
   startSiteServer,
 } from "@kos/harness";
 
+import { envFilePath } from "./env.js";
 import { clearDaemonState, writeDaemonState } from "./state.js";
 
 export interface HostOptions {
@@ -110,6 +111,9 @@ export async function runHost(options: HostOptions): Promise<void> {
 
   const server = createDashboardServer(kernel, {
     ...(staticDir ? { staticDir } : {}),
+    // So the settings page can save an API key without anyone opening a
+    // dotfile. Refused if it ever resolves inside the workspace.
+    envPath: envFilePath(),
     ...(options.token ? { token: options.token } : {}),
     host: options.host,
     meta,
