@@ -42,6 +42,7 @@ export function connectChannel(
         userId: ctx.userId,
         channel: ctx.channel,
         ...(ctx.conversationKey ? { conversationKey: ctx.conversationKey } : {}),
+        ...(ctx.attachments?.length ? { attachments: ctx.attachments } : {}),
       });
       return res.reply || "(no reply)";
     },

@@ -1,3 +1,5 @@
+import type { Attachment } from "../kernel/attachments.js";
+
 /**
  * Channel adapters connect KOS to messaging surfaces (Discord first, SMS later,
  * voice eventually). The agent loop is channel-agnostic: it speaks these
@@ -18,6 +20,12 @@ export interface InboundMessage {
    * `/switch` instead.
    */
   conversationKey?: string;
+  /**
+   * Images and text files sent with the message. A photo of a receipt is a
+   * perfectly ordinary way to tell KOS something, so a surface that drops them
+   * is a surface where half of what you send goes unseen.
+   */
+  attachments?: Attachment[];
   /**
    * Adapter-private handle (e.g. Discord Message) for reactions/edits.
    * Runtime must not inspect this; only the adapter's acknowledge() may.
