@@ -856,6 +856,37 @@ select {
   border-top: none;
 }
 
+/* Delete on a list row is rare and irreversible, and it was drawn in danger
+   red at the same weight as the item itself, so every line of a checklist
+   ended in a button shouting at you. It stays out of the way until the row
+   is under the pointer, and keyboard users get it on focus. */
+.kos-list-item .kos-btn--danger {
+  margin-left: auto;
+  padding: 0.15rem 0.4rem;
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+.kos-list-item:hover .kos-btn--danger,
+.kos-list-item .kos-btn--danger:focus-visible {
+  opacity: 1;
+}
+
+.kos-list-item .kos-btn--danger:hover {
+  color: var(--danger);
+  background: var(--danger-dim);
+}
+
+@media (hover: none) {
+  /* Nothing hovers on a touch screen, so it simply stays visible. */
+  .kos-list-item .kos-btn--danger {
+    opacity: 1;
+  }
+}
+
 /* Adding to a list: the declared columns laid out across one row, so it reads
    as a new entry rather than as a separate form parked under the list. */
 .kos-list-add {
