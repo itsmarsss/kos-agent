@@ -29,7 +29,6 @@ import { ease, listItem, spring } from "./motion.js";
 import { Home } from "./Home.js";
 import { ChatsPage } from "./ChatsPage.js";
 import { FilesPage } from "./FilesPage.js";
-import { SitesPage } from "./SitesPage.js";
 import { SpendPanel } from "./SpendPanel.js";
 import { ProjectsPage } from "./ProjectsPage.js";
 import { KnowledgePage } from "./KnowledgePage.js";
@@ -616,12 +615,6 @@ export function App(): React.ReactElement {
         {...(route.path ? { path: route.path } : {})}
         onOpen={(p) => go({ name: "files", path: p })}
       />,
-    );
-  }
-
-  if (route.name === "sites") {
-    return shell(
-      <SitesPage onOpenFiles={(p) => go({ name: "files", path: p })} />,
     );
   }
 
