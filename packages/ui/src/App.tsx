@@ -349,38 +349,45 @@ export function App(): React.ReactElement {
             </m.div>
           )}
         </AnimatePresence>
-        <Inspector
-          key={inspectKey}
-          target={inspect}
-          onClose={() => setInspect(null)}
-          onOpenPage={openPage}
-          onSaved={() => void refresh()}
-          onSetProjectStatus={async (slug, st) => {
-            await api.setProjectStatus(slug, st);
-            flash("ok", `Project ${slug} → ${st}`);
-            await refresh();
-          }}
-          onToggleCron={async (id, enabled) => {
-            await api.setCronEnabled(id, enabled);
-            flash("ok", enabled ? `Cron #${id} enabled` : `Cron #${id} disabled`);
-            await refresh();
-          }}
-          onDeleteCron={async (id) => {
-            await api.deleteCron(id);
-            flash("ok", `Deleted cron #${id}`);
-            await refresh();
-          }}
-          onSaveFact={async (key, value, kind) => {
-            await api.saveMemory(key, value, kind);
-            flash("ok", `Saved ${key}`);
-            await refresh();
-          }}
-          onDeleteFact={async (key) => {
-            await api.deleteMemory(key);
-            flash("ok", `Deleted ${key}`);
-            await refresh();
-          }}
-        />
+        {/* Wrapped so it unmounts: the panel returned null when closed, which
+            skips the exit animation entirely and makes a drawer vanish rather
+            than close. */}
+        <AnimatePresence>
+          {inspect && (
+          <Inspector
+            key={inspectKey}
+            target={inspect}
+            onClose={() => setInspect(null)}
+            onOpenPage={openPage}
+            onSaved={() => void refresh()}
+            onSetProjectStatus={async (slug, st) => {
+              await api.setProjectStatus(slug, st);
+              flash("ok", `Project ${slug} → ${st}`);
+              await refresh();
+            }}
+            onToggleCron={async (id, enabled) => {
+              await api.setCronEnabled(id, enabled);
+              flash("ok", enabled ? `Cron #${id} enabled` : `Cron #${id} disabled`);
+              await refresh();
+            }}
+            onDeleteCron={async (id) => {
+              await api.deleteCron(id);
+              flash("ok", `Deleted cron #${id}`);
+              await refresh();
+            }}
+            onSaveFact={async (key, value, kind) => {
+              await api.saveMemory(key, value, kind);
+              flash("ok", `Saved ${key}`);
+              await refresh();
+            }}
+            onDeleteFact={async (key) => {
+              await api.deleteMemory(key);
+              flash("ok", `Deleted ${key}`);
+              await refresh();
+            }}
+          />
+          )}
+        </AnimatePresence>
 
         <header className="topbar">
           <div className="topbar-left">
