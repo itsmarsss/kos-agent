@@ -35,11 +35,16 @@ function elapsed(from: number, to: number): string {
 function Build({
   build,
   onStop,
+  onSend,
+  onInterrupt,
 }: {
   build: BuildRecord;
   onStop: (id: number) => void;
+  onSend: (id: number, text: string) => void;
+  onInterrupt: (id: number) => void;
 }): ReactElement {
   const [open, setOpen] = useState(build.status === "waiting");
+  const [say, setSay] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const live = build.status === "running" || build.status === "waiting";
 
@@ -66,17 +71,50 @@ function Build({
           </span>
         </button>
         {live && (
-          <button
-            type="button"
-            className="btn btn--danger"
-            onClick={() => onStop(build.id)}
-          >
-            Stop
-          </button>
+          <>
+            <button
+              type="button"
+              className="btn"
+              title="Stop what it is doing now, but keep it going so you can redirect it"
+              onClick={() => onInterrupt(build.id)}
+            >
+              Interrupt
+            </button>
+            <button
+              type="button"
+              className="btn btn--danger"
+              onClick={() => onStop(build.id)}
+            >
+              Stop
+            </button>
+          </>
         )}
       </header>
 
       <p className="agent-latest">{build.latest}</p>
+
+      {live && (
+        <form
+          className="agent-say"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const text = say.trim();
+            if (!text) return;
+            onSend(build.id, text);
+            setSay("");
+          }}
+        >
+          <input
+            className="kos-input"
+            value={say}
+            placeholder="Tell it something: a correction, a constraint, an answer…"
+            onChange={(e) => setSay(e.target.value)}
+          />
+          <button type="submit" className="btn btn--primary" disabled={!say.trim()}>
+            Send
+          </button>
+        </form>
+      )}
 
       {open && (
         <div className="agent-detail">
@@ -151,14 +189,17 @@ export function AgentsPage(): ReactElement {
     return () => clearInterval(t);
   }, []);
 
-  const stop = (id: number): void => {
-    void api
-      .stopAgent(id)
+  const act = (work: Promise<{ builds: BuildRecord[] }>): void => {
+    void work
       .then((r) => setBuilds(r.builds))
       .catch((err: unknown) =>
         setError(err instanceof Error ? err.message : String(err)),
       );
   };
+
+  const stop = (id: number): void => act(api.stopAgent(id));
+  const send = (id: number, text: string): void => act(api.sendToAgent(id, text));
+  const interrupt = (id: number): void => act(api.interruptAgent(id));
 
   const active = builds?.filter(
     (b) => b.status === "running" || b.status === "waiting",
@@ -171,7 +212,8 @@ export function AgentsPage(): ReactElement {
         <p className="hint">
           Coding sub-agents working inside the workspace. Each is confined to
           its own folder, and every shell command it wants to run comes back to
-          you for approval.
+          you for approval. You can talk to one while it works: a correction
+          lands before its next step rather than after the whole build.
         </p>
       </header>
 
@@ -194,7 +236,13 @@ export function AgentsPage(): ReactElement {
 
       <div className="agents-list">
         {builds?.map((b) => (
-          <Build key={b.id} build={b} onStop={stop} />
+          <Build
+            key={b.id}
+            build={b}
+            onStop={stop}
+            onSend={send}
+            onInterrupt={interrupt}
+          />
         ))}
       </div>
     </div>

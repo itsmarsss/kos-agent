@@ -87,7 +87,7 @@ function defineBuildTools(
             dir,
             task,
             ...(conversationId ? { conversationId } : {}),
-            stop: control.stop,
+            control,
           });
         },
         onEvent: (event) => {
