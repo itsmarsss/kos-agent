@@ -45,7 +45,10 @@ function ensureInstanceSchema(
       { name: "id", type: "INTEGER", primaryKey: true },
       { name: "title", type: "TEXT", notNull: true },
       { name: "done", type: "INTEGER", notNull: true, default: 0 },
-      { name: "created_at", type: "INTEGER", notNull: true },
+      // Computed by the database, so the checklist page can add a row. With
+      // no default this column could only be filled by the agent, and adding
+      // a task from its own page failed on the NOT NULL constraint.
+      { name: "created_at", type: "INTEGER", notNull: true, default: { expr: "now" } },
     ],
   });
 }
@@ -212,6 +215,11 @@ function writeTasksPage(
 ): void {
   const table = itemsTable(slug);
   const pageId = `tasks_${slug}`.replace(/[^a-z0-9_-]/gi, "_").toLowerCase();
+  // A list rather than a table. The table rendered `done` as the 0 or 1 it is
+  // in SQLite and offered no way to change it, so the one thing a task list
+  // exists for -- ticking something off -- could only be done by asking the
+  // agent to run a tool. The list widget already had a checkbox, an add row,
+  // and a strikethrough for completed items; this page simply never used it.
   pages.write(slug, {
     id: pageId,
     title,
@@ -220,15 +228,26 @@ function writeTasksPage(
         type: "stat",
         label: "Open",
         query: `SELECT COUNT(*) AS n FROM ${table} WHERE done = 0`,
+        span: "quarter",
       },
       {
-        type: "table",
+        type: "stat",
+        label: "Done",
+        query: `SELECT COUNT(*) AS n FROM ${table} WHERE done = 1`,
+        span: "quarter",
+      },
+      {
+        type: "list",
         title: "Items",
-        query: `SELECT id, title, done, created_at FROM ${table} ORDER BY done ASC, id DESC`,
-      },
-      {
-        type: "markdown",
-        content: `Add items via chat: tasks.add with instance="${slug}".`,
+        // done first so the checkbox column is found, then the title as the
+        // label. created_at is left out: on a list of four things, the date
+        // each was typed is noise.
+        query: `SELECT id, done, title FROM ${table} ORDER BY done ASC, id DESC`,
+        mutate: {
+          table,
+          columns: ["title", "done"],
+          allow: ["insert", "update", "delete"],
+        },
       },
     ],
   });

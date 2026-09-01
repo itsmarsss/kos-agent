@@ -98,11 +98,13 @@ export function CardWidget({ widget, rows, mutate }: WidgetProps): ReactElement 
           const [head, ...rest] = entries;
           const body = (
             <>
-              <div className="kos-card-title">{formatCell(head?.[1])}</div>
+              <div className="kos-card-title">
+                {formatCell(head?.[1], head?.[0])}
+              </div>
               {rest.map(([c, v]) => (
                 <div className="kos-card-field" key={c}>
                   <span className="kos-card-key">{humanize(c)}</span>
-                  <span>{formatCell(v)}</span>
+                  <span>{formatCell(v, c)}</span>
                 </div>
               ))}
             </>
