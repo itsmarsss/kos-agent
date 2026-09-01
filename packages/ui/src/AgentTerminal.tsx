@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 
 import { api, type BuildRecord, type PendingAction } from "./api.js";
+import { Decision } from "./Decision.js";
 
 /**
  * One build, read like a terminal.
@@ -33,10 +34,12 @@ export function AgentTerminal({
   id,
   onClose,
   onDecide,
+  deciding,
 }: {
   id: number;
   onClose: () => void;
   onDecide: (pendingId: number, approved: boolean) => void;
+  deciding: ReadonlySet<number>;
 }): ReactElement {
   const [build, setBuild] = useState<BuildRecord | null>(null);
   const [waiting, setWaiting] = useState<PendingAction[]>([]);
@@ -165,20 +168,7 @@ export function AgentTerminal({
             {waiting.map((a) => (
               <div className="term-ask" key={a.id}>
                 <span className="term-ask-text">{a.reason ?? a.tool}</span>
-                <button
-                  type="button"
-                  className="btn btn--ok"
-                  onClick={() => onDecide(a.id, true)}
-                >
-                  Approve
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--danger-ghost"
-                  onClick={() => onDecide(a.id, false)}
-                >
-                  Deny
-                </button>
+                <Decision id={a.id} deciding={deciding} onDecide={onDecide} small />
               </div>
             ))}
           </div>

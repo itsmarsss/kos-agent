@@ -10,7 +10,7 @@ export type Route =
   | { name: "chats"; id?: string }
   | { name: "files"; path?: string }
   | { name: "settings" }
-  | { name: "agents" }
+  | { name: "agents"; id?: number }
   | { name: "page"; id: string };
 
 export function parseRoute(hash: string): Route {
@@ -22,6 +22,8 @@ export function parseRoute(hash: string): Route {
   if (path === "/files") return { name: "files" };
   if (path === "/settings") return { name: "settings" };
   if (path === "/agents") return { name: "agents" };
+  const agent = path.match(/^\/agents\/(\d+)$/);
+  if (agent?.[1]) return { name: "agents", id: Number(agent[1]) };
   const file = path.match(/^\/files\/(.+)$/);
   if (file?.[1]) return { name: "files", path: decodeURIComponent(file[1]) };
   const chat = path.match(/^\/chats\/([^/]+)$/);
@@ -47,6 +49,8 @@ export function hrefFor(route: Route): string {
       return route.id ? `#/chats/${encodeURIComponent(route.id)}` : "#/chats";
     case "files":
       return route.path ? `#/files/${encodeURIComponent(route.path)}` : "#/files";
+    case "agents":
+      return route.id ? `#/agents/${route.id}` : "#/agents";
     default:
       return `#/${route.name}`;
   }

@@ -43,11 +43,21 @@ export interface PaletteContext {
   openWorkspace: () => void;
   snapshot: () => void;
   refresh: () => void;
+  /** Opens one coding sub-agent's log. */
+  openAgent: (id: number) => void;
   /** Where sites are served, when they are. */
   sitesBase: string | null;
 }
 
-const KINDS = ["project", "page", "file", "schedule", "chat", "site"] as const;
+const KINDS = [
+  "project",
+  "page",
+  "file",
+  "schedule",
+  "chat",
+  "site",
+  "agent",
+] as const;
 
 /** Split `file:budget` into the kind being narrowed to and the term. */
 export function parseQuery(raw: string): { kind?: string; term: string; actionsOnly: boolean } {
@@ -179,6 +189,7 @@ const KIND_GROUP: Record<string, string> = {
   schedule: "Schedule",
   chat: "Chats",
   site: "Sites",
+  agent: "Agents",
 };
 
 export function CommandPalette({
@@ -261,6 +272,7 @@ export function CommandPalette({
         else if (m.kind === "file") ctx.go({ name: "files", path: m.id });
         else if (m.kind === "schedule") ctx.go({ name: "crons" });
         else if (m.kind === "project") ctx.go({ name: "projects" });
+        else if (m.kind === "agent") ctx.openAgent(Number(m.id));
         else if (m.kind === "site" && ctx.sitesBase) {
           // Its own origin, so a new tab rather than in place.
           window.open(`${ctx.sitesBase}/${m.id}/`, "_blank", "noreferrer");

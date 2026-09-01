@@ -76,6 +76,7 @@ describe("what the palette does with what you type", () => {
       openWorkspace: vi.fn(),
       snapshot: vi.fn(),
       refresh: vi.fn(),
+      openAgent: vi.fn(),
       sitesBase: null,
     });
 

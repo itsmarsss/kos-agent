@@ -4123,3 +4123,42 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
   color: var(--warn);
   font-size: var(--text-sm);
 }
+
+.hl-ref--chat { color: var(--accent); }
+.hl-ref--site { color: var(--ok); }
+.hl-ref--agent { color: var(--warn); }
+.decision { display: inline-flex; gap: 0.4rem; }
+.btn--sm { padding: 0.2rem 0.5rem; font-size: var(--text-sm); }
+.spinner { animation: spin 0.8s linear infinite; margin-right: 0.3rem; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.btn .spinner { vertical-align: -1px; }
+
+/* A build this chat started, linked from the chat. */
+.chat-agent {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.6rem 0.85rem;
+  margin: 0.25rem 0;
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+.chat-agent:hover { border-color: var(--accent); }
+.chat-agent--waiting { border-color: var(--warn); }
+.chat-agent--failed { border-color: var(--danger); }
+.chat-agent-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.chat-agent-dir { font-family: var(--mono); font-size: var(--text-sm); }
+.chat-agent-latest {
+  color: var(--faint);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-agent-go { flex: none; color: var(--accent); font-size: var(--text-sm); }
