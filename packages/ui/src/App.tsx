@@ -531,6 +531,7 @@ export function App(): React.ReactElement {
         conversations={conversations}
         {...(route.id ? { activeId: route.id } : {})}
         pendingApprovals={pendingIds}
+        approvals={approvals}
         onOpen={(id) => go({ name: "chats", id })}
         onChanged={() => void refresh()}
         onDecide={decideByPendingId}
@@ -548,7 +549,7 @@ export function App(): React.ReactElement {
   }
 
   if (route.name === "agents") {
-    return shell(<AgentsPage />);
+    return shell(<AgentsPage onDecide={(id, approved) => void decide(id, approved)} />);
   }
 
   if (route.name === "settings") {

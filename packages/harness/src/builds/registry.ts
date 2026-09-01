@@ -36,8 +36,13 @@ export interface BuildRecord {
   askedFor: number;
 }
 
-/** Enough to see what happened without keeping a transcript per build. */
-const MAX_EVENTS = 200;
+/*
+ * Enough to read a build like a terminal.
+ *
+ * Was 200, which is a summary rather than a log: opening a build that had been
+ * working for ten minutes showed the tail and nothing of how it got there.
+ */
+const MAX_EVENTS = 2000;
 /** Finished builds worth still showing, newest first. */
 const MAX_FINISHED = 20;
 
@@ -77,7 +82,7 @@ export class BuildRegistry {
     const record = this.records.get(id);
     if (!record) return;
     record.latest = event.text.slice(0, 200);
-    record.events.push({ at: now, kind: event.kind, text: event.text.slice(0, 2000) });
+    record.events.push({ at: now, kind: event.kind, text: event.text.slice(0, 8000) });
     if (record.events.length > MAX_EVENTS) record.events.shift();
     // Waiting on the owner is a different state from working, and the
     // difference is the whole reason to look at this list.

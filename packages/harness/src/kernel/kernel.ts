@@ -854,10 +854,27 @@ export class Kernel {
     // handleMessage, which enqueues itself; nesting would wait on a chain that
     // includes this very task and deadlock.
     const result = await this.queue.enqueue(async () => {
-      const r = await this.registry.execute(
-        action.tool,
-        injectSecrets(stored, this.secrets),
-      );
+      /*
+       * The approved call belongs to the conversation that asked for it.
+       *
+       * currentConversationId was only ever set inside runTurn, so a tool
+       * executed from an approval ran with none. Anything that asks which
+       * conversation it is working for got nothing: a build started this way
+       * was orphaned from its own chat, so its permission requests carried no
+       * conversation and its progress was emitted for nobody. The chat that
+       * started it showed the request go out and then nothing at all.
+       */
+      const previous = this.currentConversationId;
+      if (action.conversationId) this.currentConversationId = action.conversationId;
+      let r;
+      try {
+        r = await this.registry.execute(
+          action.tool,
+          injectSecrets(stored, this.secrets),
+        );
+      } finally {
+        this.currentConversationId = previous;
+      }
       this.audit.record({
         tool: action.tool,
         args: stored,
