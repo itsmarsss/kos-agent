@@ -56,7 +56,7 @@ function readData(rows: Row[]): ChartData {
   const labelColumn = columns.find((c) => !numeric.includes(c));
 
   const labels = rows.map((r, i) =>
-    labelColumn ? formatCell(r[labelColumn]) : String(i + 1),
+    labelColumn ? formatCell(r[labelColumn], labelColumn) : String(i + 1),
   );
   const seriesColumns = numeric.filter((c) => c !== labelColumn);
   const kept = seriesColumns.slice(0, MAX_SERIES);
@@ -387,7 +387,7 @@ function DataTable({ rows }: { rows: Row[] }): ReactElement | null {
           {rows.map((r, i) => (
             <tr key={i}>
               {columns.map((c) => (
-                <td key={c}>{formatCell(r[c])}</td>
+                <td key={c}>{formatCell(r[c], c)}</td>
               ))}
             </tr>
           ))}

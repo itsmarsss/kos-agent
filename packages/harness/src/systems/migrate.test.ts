@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
 import { ProjectManifest } from "./manifest.js";
+import { openDatabase } from "../store/db.js";
 import { Migrator, buildMigrationSql, parseChangeSpec } from "./migrate.js";
 
 describe("buildMigrationSql", () => {
@@ -243,5 +244,103 @@ describe("re-creating a table", () => {
       // expected
     }
     expect(migrator.history("budget_tracker")).toHaveLength(1);
+  });
+});
+
+/**
+ * A NOT NULL column with no default is a column only the agent can fill.
+ *
+ * The tasks module's items table declared created_at NOT NULL, so its own
+ * generated page could not insert a row: adding a task through the checklist
+ * failed with "NOT NULL constraint failed". Any agent-authored table with a
+ * created_at and a form hits the same wall, so the fix belongs here rather
+ * than in that one module.
+ */
+describe("computed defaults", () => {
+  it("renders a now default as an expression, not a string", () => {
+    const sql = buildMigrationSql("p", {
+      op: "create_table",
+      table: "notes",
+      columns: [
+        { name: "id", type: "INTEGER", primaryKey: true },
+        { name: "created_at", type: "INTEGER", notNull: true, default: { expr: "now" } },
+      ],
+    });
+    expect(sql).toContain("DEFAULT (");
+    // Quoted, it would be the four-character string "now" in an INTEGER
+    // column, which is the bug this shape exists to avoid.
+    expect(sql).not.toContain("DEFAULT 'now'");
+  });
+
+  it("actually fills the column on insert", () => {
+    const db = openDatabase(":memory:");
+    db.exec(
+      buildMigrationSql("p", {
+        op: "create_table",
+        table: "notes",
+        columns: [
+          { name: "id", type: "INTEGER", primaryKey: true },
+          { name: "title", type: "TEXT", notNull: true },
+          {
+            name: "created_at",
+            type: "INTEGER",
+            notNull: true,
+            default: { expr: "now" },
+          },
+        ],
+      }),
+    );
+    db.prepare(`INSERT INTO p_notes (title) VALUES ('hi')`).run();
+    const row = db.prepare(`SELECT created_at FROM p_notes`).get() as {
+      created_at: number;
+    };
+    // Milliseconds, matching what the rest of KOS stores.
+    expect(row.created_at).toBeGreaterThan(1e12);
+    expect(Math.abs(row.created_at - Date.now())).toBeLessThan(60_000);
+  });
+
+  it("refuses an expression it does not know in an agent-written spec", () => {
+    expect(() =>
+      parseChangeSpec({
+        op: "create_table",
+        table: "t",
+        columns: [
+          { name: "c", type: "TEXT", default: { expr: "(SELECT k FROM keys)" } },
+        ],
+      }),
+    ).toThrow(/literal or one of/);
+  });
+
+  it("keeps accepting ordinary literal defaults", () => {
+    const spec = parseChangeSpec({
+      op: "create_table",
+      table: "t",
+      columns: [
+        { name: "a", type: "INTEGER", default: 0 },
+        { name: "b", type: "TEXT", default: "hi" },
+        { name: "c", type: "TEXT", default: null },
+      ],
+    });
+    expect(spec).toMatchObject({
+      columns: [{ default: 0 }, { default: "hi" }, { default: null }],
+    });
+  });
+
+  it("refuses an expression it does not know", () => {
+    expect(() =>
+      buildMigrationSql("p", {
+        op: "create_table",
+        table: "t",
+        columns: [
+          {
+            name: "c",
+            type: "TEXT",
+            // The whole point of a closed vocabulary: anything else is SQL
+            // arriving from a place SQL should not arrive from.
+            default: { expr: "(SELECT secret FROM keys)" } as never,
+          },
+        ],
+      }),
+    ).toThrow();
   });
 });

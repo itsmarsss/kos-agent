@@ -12,13 +12,32 @@ import type { ProjectManifest } from "./manifest.js";
 
 const COLUMN_TYPES = new Set(["TEXT", "INTEGER", "REAL", "BLOB", "NUMERIC"]);
 
+/**
+ * A default the database computes per row, from a closed vocabulary.
+ *
+ * A NOT NULL column with no default is a column only the agent can fill: the
+ * tasks module's own generated page could not add a row to its own table,
+ * because created_at had no way to be set from a form. Expressions are named
+ * rather than written so nothing here is a channel for arbitrary SQL.
+ */
+export interface ComputedDefault {
+  expr: keyof typeof EXPRESSIONS;
+}
+
+const EXPRESSIONS = {
+  /** Epoch milliseconds, matching what the rest of KOS stores. */
+  now: "(CAST(strftime('%s', 'now') AS INTEGER) * 1000)",
+  /** ISO-8601, for a column that wants to read as a date in SQL. */
+  today: "(date('now'))",
+} as const;
+
 export interface ColumnDef {
   name: string;
   type: string;
   notNull?: boolean;
   primaryKey?: boolean;
   unique?: boolean;
-  default?: string | number | boolean | null;
+  default?: string | number | boolean | null | ComputedDefault;
 }
 
 export type ChangeSpec =
@@ -55,8 +74,13 @@ function normalizeType(type: string): string {
   return t;
 }
 
-function renderDefault(value: string | number | boolean | null): string {
+function renderDefault(value: NonNullable<ColumnDef["default"]> | null): string {
   if (value === null) return "NULL";
+  if (typeof value === "object") {
+    const sql = EXPRESSIONS[value.expr];
+    if (!sql) throw new Error(`unknown default expression: ${String(value.expr)}`);
+    return sql;
+  }
   if (typeof value === "number") {
     if (!Number.isFinite(value)) throw new Error("non-finite default");
     return String(value);
@@ -99,6 +123,41 @@ function requireString(spec: Record<string, unknown>, field: string, op: string)
   return value;
 }
 
+/**
+ * A column default is a literal or a named expression, and nothing else.
+ * Checked here rather than only at render so a bad spec is rejected where the
+ * agent can read why, and so the set of expressions stays closed.
+ */
+function parseDefault(
+  raw: unknown,
+  op: string,
+  column: string,
+): NonNullable<ColumnDef["default"]> | null {
+  if (raw === null) return null;
+  if (
+    typeof raw === "string" ||
+    typeof raw === "number" ||
+    typeof raw === "boolean"
+  ) {
+    return raw;
+  }
+  const named = raw as { expr?: unknown };
+  if (
+    typeof raw === "object" &&
+    !Array.isArray(raw) &&
+    typeof named.expr === "string" &&
+    named.expr in EXPRESSIONS
+  ) {
+    return { expr: named.expr as ComputedDefault["expr"] };
+  }
+  throw new Error(
+    `${op}: column "${column}" default must be a literal or one of ` +
+      `${Object.keys(EXPRESSIONS)
+        .map((e) => `{"expr":"${e}"}`)
+        .join(", ")}`,
+  );
+}
+
 function parseColumn(raw: unknown, op: string, where: string): ColumnDef {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     throw new Error(
@@ -121,7 +180,7 @@ function parseColumn(raw: unknown, op: string, where: string): ColumnDef {
   if (col["primaryKey"] === true) parsed.primaryKey = true;
   if (col["unique"] === true) parsed.unique = true;
   if (col["default"] !== undefined) {
-    parsed.default = col["default"] as ColumnDef["default"];
+    parsed.default = parseDefault(col["default"], op, col["name"]);
   }
   return parsed;
 }

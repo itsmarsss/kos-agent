@@ -15,8 +15,12 @@ import { useMutationRunner } from "./useMutationRunner.js";
 const TOGGLE = /^(done|completed?|complete|active|enabled|checked|archived|paid|read)$/i;
 
 function toggleColumn(columns: string[], row: Row | undefined): string | null {
-  if (!row) return null;
-  return columns.find((c) => TOGGLE.test(c) && c in row) ?? null;
+  const named = columns.filter((c) => TOGGLE.test(c));
+  // With no rows there is nothing to check the name against, but the add row
+  // still needs to know -- and an empty list is exactly when you add the
+  // first item, which is where a stray "Done" box would have shown up.
+  if (!row) return named[0] ?? null;
+  return named.find((c) => c in row) ?? null;
 }
 
 export function ListWidget({ widget, rows, mutate }: WidgetProps): ReactElement {
@@ -27,7 +31,11 @@ export function ListWidget({ widget, rows, mutate }: WidgetProps): ReactElement 
   const toggle = toggleColumn(editable, rows[0]);
   const canToggle = toggle !== null && key !== null && allows(w.mutate, "update");
   const canDelete = key !== null && allows(w.mutate, "delete");
-  const canAdd = allows(w.mutate, "insert") && editable.length > 0;
+  // The toggle is not something you type. A task list declaring title and
+  // done offered a "Done" text box on its add row, where the answer is always
+  // no and the column has a default that says so.
+  const addable = editable.filter((c) => c !== toggle);
+  const canAdd = allows(w.mutate, "insert") && addable.length > 0;
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
 
@@ -36,7 +44,7 @@ export function ListWidget({ widget, rows, mutate }: WidgetProps): ReactElement 
   // never have a book put in it.
   const submit = (): void => {
     const values: Record<string, string> = {};
-    for (const column of editable) {
+    for (const column of addable) {
       const v = draft[column]?.trim();
       if (v) values[column] = v;
     }
@@ -69,18 +77,21 @@ export function ListWidget({ widget, rows, mutate }: WidgetProps): ReactElement 
                   type="checkbox"
                   checked={on}
                   disabled={runner.pending}
-                  aria-label={`${humanize(toggle)}: ${formatCell(label ? row[label] : "")}`}
+                  aria-label={`${humanize(toggle)}: ${formatCell(label ? row[label] : "", label)}`}
                   onChange={() =>
                     void runner.run("update", { [toggle]: on ? 0 : 1 }, rowKey)
                   }
                 />
               ) : null}
               <span className={on ? "kos-list-label is-done" : "kos-list-label"}>
-                {formatCell(label ? row[label] : "")}
+                {formatCell(label ? row[label] : "", label)}
               </span>
               {meta.length > 0 ? (
                 <span className="kos-list-meta">
-                  {meta.map((c) => formatCell(row[c])).filter(Boolean).join(" · ")}
+                  {meta
+                    .map((c) => formatCell(row[c], c))
+                    .filter(Boolean)
+                    .join(" · ")}
                 </span>
               ) : null}
               {canDelete && rowKey ? (
@@ -112,7 +123,7 @@ export function ListWidget({ widget, rows, mutate }: WidgetProps): ReactElement 
 
       {canAdd && adding ? (
         <div className="kos-list-add">
-          {editable.map((column) => (
+          {addable.map((column) => (
             <label className="kos-field" key={column}>
               <span className="kos-field-label">{humanize(column)}</span>
               <input

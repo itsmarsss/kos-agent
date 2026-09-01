@@ -623,6 +623,62 @@ describe("list widget", () => {
     expect(await screen.findByText("Dune")).toBeTruthy();
   });
 
+  /** A task list: a title you type, and a done you tick. */
+  const tasks: PageSpec = {
+    id: "tasks",
+    title: "Move flat",
+    widgets: [
+      {
+        type: "list",
+        query: "SELECT id, done, title FROM move_flat_items",
+        mutate: {
+          table: "move_flat_items",
+          columns: ["title", "done"],
+          allow: ["insert", "update", "delete"],
+        },
+      },
+    ],
+  };
+
+  it("does not ask you to type the checkbox column", () => {
+    render(
+      <PageRenderer
+        spec={tasks}
+        data={{ 0: [{ id: 1, done: 0, title: "Book a van" }] }}
+        onMutate={async () => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /add/i }));
+    expect(screen.getByLabelText("Title")).toBeTruthy();
+    // "Done" is not something you write in a box: it has a default, and the
+    // answer when you are adding the item is always no.
+    expect(screen.queryByLabelText("Done")).toBeNull();
+  });
+
+  it("does not ask for it on an empty list either", () => {
+    // Which is exactly when you add the first item, and where the column
+    // could not be checked against a row that does not exist yet.
+    render(<PageRenderer spec={tasks} data={{ 0: [] }} onMutate={async () => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /add/i }));
+    expect(screen.queryByLabelText("Done")).toBeNull();
+  });
+
+  it("ticks an item off", async () => {
+    const calls: Array<{ op: string; values?: Record<string, unknown> }> = [];
+    render(
+      <PageRenderer
+        spec={tasks}
+        data={{ 0: [{ id: 3, done: 0, title: "Return keys" }] }}
+        onMutate={async (_p, _i, op, values) => {
+          calls.push({ op, ...(values ? { values } : {}) });
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("checkbox"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]).toEqual({ op: "update", values: { done: 1 } });
+  });
+
   it("offers no add button when the list cannot insert", () => {
     render(
       <PageRenderer
