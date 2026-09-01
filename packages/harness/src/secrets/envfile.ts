@@ -25,12 +25,46 @@ export const WRITABLE_SECRETS: Record<string, { label: string; hint: string }> =
   ANTHROPIC_API_KEY: { label: "Anthropic", hint: "sk-ant-…" },
   KOS_SECRET_DISCORD: { label: "Discord bot token", hint: "for DMs" },
   KOS_OWNER_DISCORD: { label: "Discord owner id", hint: "your numeric user id" },
+  // A shared secret, so it is masked and write-only like any other. Forgetting
+  // it means setting a new one, which is cheaper than having it readable by
+  // anything that can reach this page.
+  KOS_DASHBOARD_TOKEN: {
+    label: "Dashboard token",
+    hint: "When set, every API request must carry it. Set one if KOS is reachable beyond this machine.",
+  },
 };
 
-/** Non-secret settings that also live in the env file. */
-export const WRITABLE_SETTINGS: Record<string, { label: string; hint: string }> = {
-  KOS_PORT: { label: "Dashboard port", hint: "default 4317" },
-  KOS_SITES_PORT: { label: "Sites port", hint: "default dashboard + 1, 0 to disable" },
+/**
+ * Non-secret settings that also live in the env file.
+ *
+ * These take effect when the host next starts, because they decide how it
+ * binds and what it trusts, which is not something to change underneath a
+ * running process.
+ */
+export const WRITABLE_SETTINGS: Record<
+  string,
+  { label: string; hint: string; group: "network" | "access" }
+> = {
+  KOS_PORT: {
+    label: "Dashboard port",
+    hint: "Where this dashboard listens. Default 4317.",
+    group: "network",
+  },
+  KOS_SITES_PORT: {
+    label: "Sites port",
+    hint: "Where built sites are served. Default is the dashboard port plus one; 0 turns serving off.",
+    group: "network",
+  },
+  KOS_HOST: {
+    label: "Bind address",
+    hint: "127.0.0.1 keeps KOS on this machine. Anything else exposes it to your network, so set a dashboard token as well.",
+    group: "network",
+  },
+  KOS_ALLOWED_HOSTS: {
+    label: "Hosts the agent may fetch",
+    hint: "Comma separated. Empty means http.fetch can reach nothing, which is the safe default.",
+    group: "access",
+  },
 };
 
 export function isWritableKey(key: string): boolean {

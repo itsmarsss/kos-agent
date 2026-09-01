@@ -226,13 +226,26 @@ export interface ContextUse {
   window?: number;
 }
 
+export interface Retention {
+  maxChars: number;
+  maxToolResultChars: number;
+  maxExchanges: number;
+}
+
 export interface SettingsPayload {
   workspace: string;
+  profile: { name: string; timezone: string; ownerId: string };
+  retention: Retention;
+  retentionDefaults: Retention;
+  halted: boolean;
   envPath: string | null;
   /** False when there is nowhere safe to write keys. */
   envWritable: boolean;
   secrets: Record<string, { label: string; hint: string; masked: string | null }>;
-  settings: Record<string, { label: string; hint: string; value: string }>;
+  settings: Record<
+    string,
+    { label: string; hint: string; value: string; group: "network" | "access" }
+  >;
   sitesUrl: string | null;
 }
 
@@ -389,6 +402,13 @@ export const api = {
   context: (conversationId: string) =>
     get<ContextUse>(`/api/context?conversationId=${encodeURIComponent(conversationId)}`),
   settings: () => get<SettingsPayload>("/api/settings"),
+  saveProfile: (name: string, timezone: string) =>
+    post<{ profile: { name: string; timezone: string } }>(
+      "/api/settings/profile",
+      { name, timezone },
+    ),
+  saveRetention: (retention: Partial<Retention>) =>
+    post<{ retention: Retention }>("/api/settings/retention", retention),
   saveSettings: (values: Record<string, string>) =>
     post<{ written: string[]; cleared: string[] }>("/api/settings", { values }),
   sites: () =>

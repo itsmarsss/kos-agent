@@ -105,10 +105,26 @@ function capMessage(
   };
 }
 
+/** What the owner may change about retention, all optional. */
+export const RETENTION_KEY = "session.retention";
+
+/** The retention in force, as the settings page shows it. */
+export interface Retention {
+  maxChars: number;
+  maxToolResultChars: number;
+  maxExchanges: number;
+}
+
+export const RETENTION_DEFAULTS: Retention = {
+  maxChars: DEFAULT_MAX_CHARS,
+  maxToolResultChars: DEFAULT_MAX_TOOL_RESULT_CHARS,
+  maxExchanges: DEFAULT_MAX_EXCHANGES,
+};
+
 export class SessionStore {
-  private readonly maxChars: number;
-  private readonly maxToolResultChars: number;
-  private readonly maxExchanges: number;
+  private maxChars: number;
+  private maxToolResultChars: number;
+  private maxExchanges: number;
 
   constructor(
     private readonly db: Db,
@@ -120,6 +136,30 @@ export class SessionStore {
     this.maxToolResultChars =
       options.maxToolResultChars ?? DEFAULT_MAX_TOOL_RESULT_CHARS;
     this.maxExchanges = options.maxExchanges ?? DEFAULT_MAX_EXCHANGES;
+  }
+
+  /** What is in force now. */
+  retention(): Retention {
+    return {
+      maxChars: this.maxChars,
+      maxToolResultChars: this.maxToolResultChars,
+      maxExchanges: this.maxExchanges,
+    };
+  }
+
+  /**
+   * Change how much history is kept, without a restart.
+   *
+   * Applied to the next trim rather than retroactively: shrinking the budget
+   * should not reach back and delete what is already in a conversation, which
+   * would be a settings change that silently destroyed data.
+   */
+  configure(options: SessionStoreOptions): void {
+    if (options.maxChars !== undefined) this.maxChars = options.maxChars;
+    if (options.maxToolResultChars !== undefined) {
+      this.maxToolResultChars = options.maxToolResultChars;
+    }
+    if (options.maxExchanges !== undefined) this.maxExchanges = options.maxExchanges;
   }
 
   get(sessionId: string): ModelMessage[] {
