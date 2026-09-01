@@ -4,6 +4,7 @@ import { AnimatePresence, m } from "motion/react";
 import { Markdown } from "./Markdown.js";
 import { listItem } from "./motion.js";
 import { Thinking } from "./Thinking.js";
+import { ToolCall } from "./ToolCall.js";
 import type { Live, LiveStep } from "./progress.js";
 
 /**
@@ -65,19 +66,24 @@ export function LiveTurn({ live }: { live: Live }): ReactElement {
           ) : (
             <m.div
               key={`t${i}`}
-              className={`livetool ${step.done ? "is-done" : ""} ${
-                step.isError ? "is-error" : ""
-              }`}
               variants={listItem}
               initial="hidden"
               animate="show"
               layout="position"
             >
-              <code className="livetool-name">{step.tool}</code>
-              <span className="livetool-what">{step.summary}</span>
-              <span className="livetool-state">
-                {step.done ? (step.isError ? "failed" : "ok") : "…"}
-              </span>
+              {/* The same component the finished transcript uses, so a call
+                  can be opened for its arguments and result while it is still
+                  running, and nothing rearranges when the turn lands. */}
+              <ToolCall
+                event={{
+                  kind: "tool",
+                  name: step.tool,
+                  summary: step.summary,
+                  args: step.input ?? {},
+                  ...(step.done ? { result: step.result ?? "" } : {}),
+                  ...(step.isError ? { isError: true } : {}),
+                }}
+              />
             </m.div>
           ),
         )}

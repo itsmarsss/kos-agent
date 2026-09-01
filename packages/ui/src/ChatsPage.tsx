@@ -77,6 +77,11 @@ export function ChatsPage({
   // Which conversation is mid-send, not whether any is: shared across chats it
   // showed "sending" in every other thread while one was working.
   const [sendingIn, setSendingIn] = useState<string | null>(null);
+  // Sent but not yet run. Read from the server rather than kept here, so a
+  // reload still shows what was already taken.
+  const [pending, setPending] = useState<
+    { id: number; text: string; attachments: { name: string }[] }[]
+  >([]);
   const attachments = useAttachments();
   const progress = useProgress();
 
@@ -182,9 +187,10 @@ export function ChatsPage({
     let cancelled = false;
     void api
       .conversation(activeId)
-      .then(({ events: got }) => {
+      .then(({ events: got, pending: waiting }) => {
         if (cancelled) return;
         setEvents(got);
+        setPending(waiting);
         setLoadedFor({ id: activeId, stamp });
       })
       .catch(() => {
@@ -211,9 +217,9 @@ export function ChatsPage({
   async function send(): Promise<void> {
     const text = draft.trim();
     const target = activeId;
-    if ((!text && attachments.files.length === 0) || !target || sendingIn === target) {
-      return;
-    }
+    if ((!text && attachments.files.length === 0) || !target) return;
+    // Not blocked while a turn runs. A follow-up is queued on the server and
+    // runs next, which is what the owner meant by sending it.
     setSendingIn(target);
 
     // The message is sent the moment Send is pressed, so it should read that
@@ -246,8 +252,11 @@ export function ChatsPage({
       await api.message(text, target, files);
       // Reload rather than appending the reply: the turn may have made tool
       // calls, and those belong in the transcript too.
-      const { events: got } = await api.conversation(target);
-      if (target === activeIdRef.current) setEvents(got);
+      const { events: got, pending: waiting } = await api.conversation(target);
+      if (target === activeIdRef.current) {
+        setEvents(got);
+        setPending(waiting);
+      }
       onChanged();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -627,6 +636,16 @@ export function ChatsPage({
                   <div className="bubble bubble--kos is-thinking">sending…</div>
                 )
               )}
+
+              {/* Sent, taken, and waiting for the turn ahead of it. Shown
+                  after the running turn because that is the order they will
+                  be answered in. */}
+              {pending.map((p) => (
+                <div className="bubble bubble--you is-queued" key={p.id}>
+                  {p.text}
+                  <span className="queued-mark">queued</span>
+                </div>
+              ))}
             </div>
 
             <div
@@ -717,10 +736,7 @@ export function ChatsPage({
                     type="button"
                     className="btn btn--primary"
                     onClick={() => void send()}
-                    disabled={
-                      sendingIn === activeId ||
-                      (draft.trim() === "" && attachments.files.length === 0)
-                    }
+                    disabled={draft.trim() === "" && attachments.files.length === 0}
                   >
                     Send
                   </button>
