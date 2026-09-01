@@ -147,6 +147,8 @@ export function AgentTerminal({
   const [say, setSay] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [stick, setStick] = useState(true);
+  /** A build log is long and wide; the dialog was neither. */
+  const [full, setFull] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -211,7 +213,11 @@ export function AgentTerminal({
   };
 
   return (
-    <div className="term-wrap" role="dialog" aria-label="Build log">
+    <div
+      className={`term-wrap ${full ? "is-full" : ""}`}
+      role="dialog"
+      aria-label="Build log"
+    >
       <div className="term-backdrop" onClick={onClose} />
       <div className="term">
         <header className="term-head">
@@ -236,6 +242,14 @@ export function AgentTerminal({
               </button>
             </>
           )}
+          <button
+            type="button"
+            className="btn"
+            title={full ? "Back to a window" : "Fill the screen"}
+            onClick={() => setFull((v) => !v)}
+          >
+            {full ? "Shrink" : "Full screen"}
+          </button>
           <button type="button" className="btn" onClick={onClose}>
             Close
           </button>
@@ -254,7 +268,7 @@ export function AgentTerminal({
           </p>
         )}
 
-        {build?.usage && (
+        {build?.usage && (build.usage.outputTokens > 0 || build.usage.contextTokens > 0) && (
           <div className="term-usage">
             <span title="Sent to the model on the last turn">
               <b>{short(build.usage.contextTokens)}</b> context

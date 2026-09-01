@@ -292,6 +292,15 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
    * accumulating within one is coalesced.
    */
   let partial = "";
+  /** What has been spent so far, updated as frames arrive. */
+  let live: BuildUsage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    costUsd: 0,
+    turns: 0,
+    contextTokens: 0,
+  };
   let lastPhase = "";
   let lastPhaseAt = 0;
   const setPhase = (update: BuildPhase): void => {
@@ -514,6 +523,27 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
               partial,
             });
           }
+        } else if (ev.type === "message_delta") {
+          // Usage rides the message_delta frame, so it can be reported while
+          // the turn is still going. Waiting for the result meant a running
+          // build showed no tokens and no model at all, which is exactly when
+          // you want to know what it is spending.
+          const u = (message.event as unknown as { usage?: Record<string, number> })
+            .usage;
+          if (u) {
+            live = {
+              inputTokens: u.input_tokens ?? live.inputTokens,
+              outputTokens: u.output_tokens ?? live.outputTokens,
+              cacheReadTokens: u.cache_read_input_tokens ?? live.cacheReadTokens,
+              costUsd: live.costUsd,
+              turns: live.turns,
+              contextTokens:
+                (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) ||
+                live.contextTokens,
+              ...(options.model ? { model: options.model } : {}),
+            };
+            options.onUsage?.(live);
+          }
         } else if (ev.type === "content_block_stop" || ev.type === "message_stop") {
           partial = "";
           setPhase({ phase: "idle" });
@@ -553,7 +583,7 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
         }
       } else if (message.type === "result") {
         const u = (message as unknown as { usage?: Record<string, number> }).usage ?? {};
-        options.onUsage?.({
+        live = {
           inputTokens: u.input_tokens ?? 0,
           outputTokens: u.output_tokens ?? 0,
           cacheReadTokens: u.cache_read_input_tokens ?? 0,
@@ -563,7 +593,8 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
           contextTokens:
             (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0),
           ...(options.model ? { model: options.model } : {}),
-        });
+        };
+        options.onUsage?.(live);
         /*
          * The turn is over. Close the input unless something has been said
          * while it was working.

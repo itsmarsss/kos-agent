@@ -137,14 +137,21 @@ export function Inspector(props: {
       const t = target.data;
       title = t.tool;
       subtitle = `Tool call #${t.id} · ${t.isError ? "error" : "ok"}`;
+      // What happened, then what it was asked, then who and when. The
+      // metadata was above the result, so the thing you opened the drawer to
+      // read was the last thing on it.
       body = (
         <>
-          <Field label="Summary" value={summarizeAction(t.tool, t.args)} />
-          <Field label="When" value={fmtTime(t.createdAt)} />
-          <Field label="Risk" value={t.riskTier ?? "—"} />
-          <Field label="User" value={t.userId ?? "—"} />
-          <Block label="Args" text={prettyJson(t.args)} />
+          <p className="insp-lead">{summarizeAction(t.tool, t.args)}</p>
           <Block label="Result" text={t.result || "—"} />
+          <Block label="Args" text={prettyJson(t.args)} />
+          <Facts
+            rows={[
+              ["When", fmtTime(t.createdAt)],
+              ["Risk", t.riskTier ?? "—"],
+              ["User", t.userId ?? "—"],
+            ]}
+          />
         </>
       );
       break;
@@ -482,6 +489,20 @@ export function Inspector(props: {
         )}
       </aside>
     </div>
+  );
+}
+
+/** Metadata as pairs: compact, and clearly not the point of the page. */
+function Facts({ rows }: { rows: [string, string][] }): React.ReactElement {
+  return (
+    <dl className="insp-facts">
+      {rows.map(([label, value]) => (
+        <div key={label}>
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
