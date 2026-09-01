@@ -30,6 +30,20 @@ describe("highlightPieces", () => {
     expect(highlightPieces("see docs/api")).toEqual([{ text: "see docs/api" }]);
   });
 
+  it("marks a command it has never heard of", () => {
+    // The list of real commands lives on the server and drives the menu. This
+    // file used to keep a second copy, which is how /compact and /clear ended
+    // up being the only commands that were not coloured.
+    expect(highlightPieces("/compact")[0]).toEqual({
+      text: "/compact",
+      kind: "command",
+    });
+    expect(highlightPieces("/clear")[0]).toEqual({
+      text: "/clear",
+      kind: "command",
+    });
+  });
+
   it("does not take the full stop that ends a sentence", () => {
     const pieces = highlightPieces("check @schedule:kos.backup.");
     expect(pieces[1]).toEqual({ text: "@schedule:kos.backup", kind: "schedule" });
