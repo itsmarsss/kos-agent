@@ -22,7 +22,7 @@ import {
 } from "../models/settings.js";
 import { conversationEvents } from "./transcript.js";
 import { listDirectory, readFile, readImage } from "./files.js";
-import { listSites, sitesBaseUrl } from "../sites/server.js";
+import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
 import { RETENTION_DEFAULTS, RETENTION_KEY } from "./session.js";
 import { saveProfile } from "./profile.js";
@@ -636,6 +636,64 @@ export async function handleApiRequest(
             contextWindowFor,
           )
         : undefined,
+    });
+  }
+
+  if (method === "GET" && path.startsWith("/api/projects/") && path.endsWith("/detail")) {
+    const slug = decodeURIComponent(
+      path.slice("/api/projects/".length).replace(/\/detail$/, ""),
+    );
+    const project = kernel.manifest.list().find((p) => p.slug === slug);
+    if (!project) return { status: 404, body: { error: "project not found" } };
+
+    // A project's tables are namespaced with its slug, so they can be found
+    // without a registry of them. Counted here rather than guessed at: "how
+    // much is actually in this thing" is the first question about a tracker.
+    const tables: { name: string; rows: number; columns: number }[] = [];
+    try {
+      // Filtered here rather than with LIKE: the separator is an underscore,
+      // which LIKE treats as a wildcard, so the pattern needed an ESCAPE
+      // clause to mean what it looked like it meant and silently matched
+      // nothing without one.
+      const prefix = `${slug}_`;
+      const rows = (
+        kernel.workspace.db
+          .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`)
+          .all() as { name: string }[]
+      ).filter((r) => r.name.startsWith(prefix));
+      for (const row of rows) {
+        try {
+          const count = kernel.workspace.db
+            .prepare(`SELECT COUNT(*) AS n FROM "${row.name}"`)
+            .get() as { n: number };
+          const cols = kernel.workspace.db
+            .prepare(`PRAGMA table_info("${row.name}")`)
+            .all() as unknown[];
+          tables.push({
+            name: row.name.slice(slug.length + 1),
+            rows: count.n,
+            columns: cols.length,
+          });
+        } catch {
+          // A table that cannot be counted is still worth naming.
+          tables.push({ name: row.name.slice(slug.length + 1), rows: -1, columns: 0 });
+        }
+      }
+    } catch {
+      // No tables yet is the normal state of a new project, not an error.
+    }
+
+    return ok({
+      project,
+      tables,
+      pages: kernel.pages.list().filter((pg) => pg.projectSlug === slug),
+      crons: kernel.crons.list().filter((c) => c.projectSlug === slug),
+      sites: listSitesFor(kernel.workspace, slug),
+      sitesBase: sitesBaseUrl() ?? null,
+      // What has been done to its shape, newest first: a schema is a thing
+      // that grows, and the history says how it got here.
+      migrations: kernel.migrator.history(slug).slice(-10).reverse(),
+      folder: `${PROJECTS_DIR}/${slug}`,
     });
   }
 
