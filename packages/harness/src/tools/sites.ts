@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { SAFE } from "../risk/tiers.js";
-import { listSites, SITES_DIR, sitesBaseUrl } from "../sites/server.js";
+import { listSites, listSitesFor, sitesDirFor, sitesBaseUrl } from "../sites/server.js";
 import type { Workspace } from "../store/workspace.js";
 
 /**
@@ -12,8 +12,12 @@ import type { Workspace } from "../store/workspace.js";
  * Deliberately thin. A site is a folder of files, and files.write already
  * writes files, so there is no sites.write here: a second way to put bytes on
  * disk would be a second thing to get right. What the agent cannot work out on
- * its own is the convention (sites/<name>/index.html) and the URL its work ends
- * up on, which is the whole job of these two tools.
+ * its own is the convention and the URL its work ends up on, which is the
+ * whole job of these two tools.
+ *
+ * A site belongs to a project. The tracker, its pages and its data are one
+ * thing, so they live in one folder rather than in two places that have to be
+ * kept in step.
  */
 
 function slug(input: Record<string, unknown>, key: string): string {
@@ -37,23 +41,34 @@ function defineSiteTools(ws: Workspace, ctx: ModuleContext): void {
       name: "sites.list",
       description:
         "List the web apps in this workspace and the URL each is served at. " +
-        "A site is the folder sites/<name>/, and sites/<name>/index.html is " +
-        "the page it opens on.",
-      inputSchema: { type: "object", properties: {} },
+        "A site belongs to a project and lives in " +
+        "projects/<project>/sites/<name>/, opening on its index.html.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          project: {
+            type: "string",
+            description: "Only this project's sites. Omit for all of them.",
+          },
+        },
+      },
     },
-    () => {
+    (input) => {
       const base = sitesBaseUrl();
-      const sites = listSites(ws);
+      const only = typeof input.project === "string" ? input.project.trim() : "";
+      const sites = only ? listSitesFor(ws, only) : listSites(ws);
       if (sites.length === 0) {
         return (
-          "No sites yet. Create one by writing sites/<name>/index.html with " +
-          "files.write, then call sites.list again for its URL."
+          "No sites yet. Make one with sites.create, giving the project it " +
+          "belongs to, then write its index.html with files.write."
         );
       }
       return sites
         .map((s) => {
-          const url = base ? `${base}/${encodeURIComponent(s.name)}/` : "(not served)";
-          return `${s.name} -> ${url}${s.hasIndex ? "" : " (no index.html yet)"}`;
+          const url = base
+            ? `${base}/${encodeURIComponent(s.project)}/${encodeURIComponent(s.name)}/`
+            : "(not served)";
+          return `${s.project}/${s.name} -> ${url}${s.hasIndex ? "" : " (no index.html yet)"}`;
         })
         .join("\n");
     },
@@ -64,25 +79,35 @@ function defineSiteTools(ws: Workspace, ctx: ModuleContext): void {
     {
       name: "sites.create",
       description:
-        "Make an empty site folder and return its URL. Write the pages into " +
-        "it with files.write. Use this before building a web app so the name " +
-        "and location are right.",
+        "Make an empty site folder inside a project and return its URL. Write " +
+        "the pages into it with files.write. Use this before building a web " +
+        "app so the name and location are right.",
       inputSchema: {
         type: "object",
-        properties: { name: { type: "string" } },
-        required: ["name"],
+        properties: {
+          project: {
+            type: "string",
+            description: "Slug of the project this site belongs to.",
+          },
+          name: { type: "string" },
+        },
+        required: ["project", "name"],
       },
     },
     (input) => {
+      const project = slug(input, "project");
       const name = slug(input, "name");
+      const dir = `${sitesDirFor(project)}/${name}`;
       // Through the jail like every other path, so a name that survived the
-      // pattern check still cannot land outside sites/.
-      mkdirSync(ws.resolve(`${SITES_DIR}/${name}`), { recursive: true });
+      // pattern check still cannot land outside the project.
+      mkdirSync(ws.resolve(dir), { recursive: true });
       const base = sitesBaseUrl();
       return [
-        `Created ${SITES_DIR}/${name}/.`,
-        `Write ${SITES_DIR}/${name}/index.html to give it a page.`,
-        base ? `It will be served at ${base}/${name}/` : "Site serving is off.",
+        `Created ${dir}/.`,
+        `Write ${dir}/index.html to give it a page.`,
+        base
+          ? `It will be served at ${base}/${project}/${name}/`
+          : "Site serving is off.",
         "The page is served on its own origin and cannot reach the network or the KOS API.",
       ].join("\n");
     },

@@ -27,8 +27,22 @@ import type { Workspace } from "../store/workspace.js";
  *    is still the whole perimeter.
  */
 
-/** Where sites live, relative to the workspace root. */
-export const SITES_DIR = "sites";
+/**
+ * Where a project's sites live, relative to the workspace root.
+ *
+ * Under the project rather than in a folder of their own, because a site is
+ * part of a project rather than a thing beside it: the tracker, its pages and
+ * its data belong together, and "everything about this is one folder" is the
+ * premise KOS is built on. The URL follows the same shape, so
+ * projects/expenses/sites/dashboard is served at /expenses/dashboard/.
+ */
+export const PROJECTS_DIR = "projects";
+export const SITES_SUBDIR = "sites";
+
+/** Workspace-relative folder holding one project's sites. */
+export function sitesDirFor(projectSlug: string): string {
+  return `${PROJECTS_DIR}/${projectSlug}/${SITES_SUBDIR}`;
+}
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -93,41 +107,64 @@ export function sitesBaseUrl(): string | undefined {
 }
 
 export interface Site {
-  /** Folder name under sites/, and the first path segment of its URL. */
+  /** Folder name, and the second path segment of its URL. */
   name: string;
+  /** Project it belongs to. */
+  project: string;
+  /** Workspace-relative path to the folder. */
+  path: string;
   /** Whether it has an index.html to land on. */
   hasIndex: boolean;
   modifiedAt: number;
 }
 
-/** The sites that exist, in name order. */
-export function listSites(ws: Workspace): Site[] {
-  let root: string;
+/** Directory names directly under a path, ignoring hidden ones. */
+function subdirectories(ws: Workspace, relative: string): string[] {
+  let dir: string;
   try {
-    root = ws.resolve(SITES_DIR);
+    dir = ws.resolve(relative);
   } catch {
     return [];
   }
-  if (!existsSync(root)) return [];
+  if (!existsSync(dir)) return [];
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+      .map((e) => e.name);
+  } catch {
+    return [];
+  }
+}
 
-  return readdirSync(root, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && !e.name.startsWith("."))
-    .map((e) => {
-      const dir = join(root, e.name);
+/** The sites in one project, in name order. */
+export function listSitesFor(ws: Workspace, projectSlug: string): Site[] {
+  const base = sitesDirFor(projectSlug);
+  return subdirectories(ws, base)
+    .map((name) => {
+      const path = `${base}/${name}`;
       let modifiedAt = 0;
       try {
-        modifiedAt = statSync(dir).mtimeMs;
+        modifiedAt = statSync(ws.resolve(path)).mtimeMs;
       } catch {
         // Vanished between readdir and stat; listing it without a time beats
         // failing the whole list.
       }
       return {
-        name: e.name,
-        hasIndex: existsSync(join(dir, "index.html")),
+        name,
+        project: projectSlug,
+        path,
+        hasIndex: existsSync(join(ws.resolve(path), "index.html")),
         modifiedAt,
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Every site in the workspace, across every project. */
+export function listSites(ws: Workspace): Site[] {
+  return subdirectories(ws, PROJECTS_DIR)
+    .flatMap((slug) => listSitesFor(ws, slug))
+    .sort((a, b) => a.project.localeCompare(b.project) || a.name.localeCompare(b.name));
 }
 
 export interface ResolvedRequest {
@@ -150,11 +187,17 @@ export function resolveSiteRequest(
   const rel = clean.replace(/^\/+/, "");
   if (rel === "") return { error: "not-found" };
 
+  // /<project>/<site>/rest. Both segments are needed before anything is
+  // resolved, so a request for /projects or /.. cannot land on a directory
+  // listing of the workspace.
+  const [project, site, ...rest] = rel.split("/");
+  if (!project || !site) return { error: "not-found" };
+
   let abs: string;
   try {
-    // The whole path, sites/ prefix included, goes through the jail. A request
-    // for ../../.env is rejected there rather than pattern-matched here.
-    abs = ws.resolve(`${SITES_DIR}/${rel}`);
+    // The whole path goes through the jail. A request for ../../.env is
+    // rejected there rather than pattern-matched here.
+    abs = ws.resolve([sitesDirFor(project), site, ...rest].join("/"));
   } catch {
     return { error: "forbidden" };
   }
@@ -178,7 +221,8 @@ function indexPage(sites: Site[]): string {
     ? sites
         .map(
           (s) =>
-            `<li><a href="/${encodeURIComponent(s.name)}/">${escapeHtml(s.name)}</a>` +
+            `<li><a href="/${encodeURIComponent(s.project)}/${encodeURIComponent(s.name)}/">` +
+            `${escapeHtml(s.project)} / ${escapeHtml(s.name)}</a>` +
             (s.hasIndex ? "" : " <em>no index.html</em>") +
             `</li>`,
         )
