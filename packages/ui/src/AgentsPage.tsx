@@ -91,7 +91,18 @@ function Build({
         </button>
       </header>
 
-      <p className="agent-latest">{build.latest}</p>
+      <p className="agent-latest">
+        {build.phase && build.phase.phase !== "idle" && live ? (
+          <span className="agent-doing">
+            <span className="term-spin">●</span>{" "}
+            {build.phase.tool
+              ? `preparing ${build.phase.tool}`
+              : build.phase.phase}
+            …
+          </span>
+        ) : null}
+        {build.latest}
+      </p>
 
       {/* Thinking and wedged look identical from outside: both say running and
           produce nothing. Silence for minutes is worth naming. */}

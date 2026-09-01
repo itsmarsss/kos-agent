@@ -1,4 +1,4 @@
-import type { BuildControl, BuildEvent, BuildUsage } from "./runner.js";
+import type { BuildControl, BuildEvent, BuildPhase, BuildUsage } from "./runner.js";
 
 /**
  * The build sub-agents that are running right now.
@@ -32,10 +32,16 @@ export interface BuildRecord {
   events: (BuildEvent & { at: number })[];
   /** Tokens and money so far, once a turn has completed. */
   usage?: BuildUsage;
+  /** What it is doing at this instant, as opposed to what it has done. */
+  phase?: BuildPhase;
+  /** When it started doing that, so a reader can see how long it has been. */
+  phaseSince?: number;
   /** Files it has touched so far. */
   files: string[];
   /** Times it has stopped to ask the owner something. */
   askedFor: number;
+  /** Queued actions this build is waiting on, so a reader sees only its own. */
+  waitingOn: number[];
   /**
    * Milliseconds of silence, when a working build has been quiet long enough
    * to be worth flagging. Zero otherwise.
@@ -109,6 +115,7 @@ export class BuildRegistry {
       events: [],
       files: [],
       askedFor: 0,
+      waitingOn: [],
     });
     this.controls.set(id, input.control);
     this.prune();
@@ -135,6 +142,27 @@ export class BuildRegistry {
         record.status = "running";
       }
     }
+    this.changed(id);
+  }
+
+  /** This build is waiting on a decision, or is no longer waiting on one. */
+  asking(id: number, pendingId: number, settled: boolean): void {
+    const record = this.records.get(id);
+    if (!record) return;
+    record.waitingOn = settled
+      ? record.waitingOn.filter((p) => p !== pendingId)
+      : [...new Set([...record.waitingOn, pendingId])];
+    this.changed(id);
+  }
+
+  /** What it is doing now. Cheap and frequent; never added to the log. */
+  doing(id: number, phase: BuildPhase, now = Date.now()): void {
+    const record = this.records.get(id);
+    if (!record) return;
+    // The clock only restarts when the phase itself changes, so "thinking for
+    // 40s" keeps counting rather than resetting on every delta.
+    if (record.phase?.phase !== phase.phase) record.phaseSince = now;
+    record.phase = phase;
     this.changed(id);
   }
 
@@ -166,6 +194,8 @@ export class BuildRegistry {
     // with that told the owner it had failed when they had stopped it.
     if (!wasStopped) record.latest = outcome.summary.slice(0, 200);
     record.files = outcome.files;
+    delete record.phase;
+    delete record.phaseSince;
     this.controls.delete(id);
     this.changed(id);
   }
@@ -231,7 +261,14 @@ export class BuildRegistry {
    */
   private stalled(record: BuildRecord, now: number): boolean {
     if (record.status !== "running") return false;
-    const last = record.events.at(-1)?.at ?? record.startedAt;
+    // Streaming frames count as signs of life. Without this a build thinking
+    // hard for four minutes, which is a perfectly healthy thing to do and now
+    // visibly reported as thinking, would be called stalled.
+    const last = Math.max(
+      record.events.at(-1)?.at ?? record.startedAt,
+      record.phaseSince ?? 0,
+      record.phase && record.phase.phase !== "idle" ? now : 0,
+    );
     return now - last > SILENCE_MS;
   }
 

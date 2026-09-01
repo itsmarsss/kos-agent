@@ -273,6 +273,12 @@ export interface BuildRecord {
     output?: string;
     isError?: boolean;
   }[];
+  phase?: {
+    phase: "thinking" | "writing" | "calling" | "idle";
+    partial?: string;
+    tool?: string;
+  };
+  phaseSince?: number;
   usage?: {
     inputTokens: number;
     outputTokens: number;
