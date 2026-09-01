@@ -3460,3 +3460,19 @@ li:hover .chats-item-when { opacity: 0; }
 .ctx.is-high .ctx-fill { background: var(--danger); }
 .ctx.is-high .ctx-text { color: var(--danger); }
 .chats-meta { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+
+/* A project's sites, on its card. */
+.project-sites { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.4rem; }
+.site-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.75rem;
+  color: var(--ok);
+  background: var(--ok-dim);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  text-decoration: none;
+}
+.site-chip:hover { border-color: var(--ok); }

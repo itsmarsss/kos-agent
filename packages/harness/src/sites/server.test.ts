@@ -14,10 +14,11 @@ describe("serving what the agent built", () => {
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "kos-sites-"));
     ws = Workspace.open(root);
-    mkdirSync(join(ws.root, "sites", "tracker", "assets"), { recursive: true });
-    writeFileSync(join(ws.root, "sites", "tracker", "index.html"), "<h1>Tracker</h1>");
-    writeFileSync(join(ws.root, "sites", "tracker", "assets", "app.js"), "console.log(1)");
-    mkdirSync(join(ws.root, "sites", "draft"), { recursive: true });
+    const budget = join(ws.root, "projects", "budget", "sites");
+    mkdirSync(join(budget, "tracker", "assets"), { recursive: true });
+    writeFileSync(join(budget, "tracker", "index.html"), "<h1>Tracker</h1>");
+    writeFileSync(join(budget, "tracker", "assets", "app.js"), "console.log(1)");
+    mkdirSync(join(budget, "draft"), { recursive: true });
     // Something private, in the workspace but not in sites/.
     writeFileSync(join(ws.root, "kos.db"), "secrets");
   });
@@ -31,6 +32,7 @@ describe("serving what the agent built", () => {
     it("lists site folders, noting which have somewhere to land", () => {
       const sites = listSites(ws);
       expect(sites.map((s) => s.name)).toEqual(["draft", "tracker"]);
+      expect(sites.every((s) => s.project === "budget")).toBe(true);
       expect(sites.find((s) => s.name === "tracker")?.hasIndex).toBe(true);
       expect(sites.find((s) => s.name === "draft")?.hasIndex).toBe(false);
     });
@@ -46,14 +48,14 @@ describe("serving what the agent built", () => {
 
   describe("what a url can reach", () => {
     it("serves a file inside a site, typed by extension", () => {
-      const found = resolveSiteRequest(ws, "/tracker/assets/app.js");
+      const found = resolveSiteRequest(ws, "/budget/tracker/assets/app.js");
       expect("error" in found).toBe(false);
       if ("error" in found) return;
       expect(found.contentType).toMatch(/javascript/);
     });
 
     it("lands a bare site url on its index", () => {
-      const found = resolveSiteRequest(ws, "/tracker/");
+      const found = resolveSiteRequest(ws, "/budget/tracker/");
       expect("error" in found).toBe(false);
       if ("error" in found) return;
       expect(found.file.endsWith("index.html")).toBe(true);
@@ -67,10 +69,14 @@ describe("serving what the agent built", () => {
     it("cannot climb out of sites/ into the workspace", () => {
       for (const attempt of [
         "/../kos.db",
-        "/tracker/../../kos.db",
-        "/tracker/../../../etc/passwd",
+        "/budget/tracker/../../../kos.db",
+        "/budget/tracker/../../../../etc/passwd",
         "/%2e%2e/kos.db",
-        "/tracker/%2e%2e/%2e%2e/kos.db",
+        "/budget/tracker/%2e%2e/%2e%2e/%2e%2e/kos.db",
+        // A single segment names a project, not a site, and must not serve a
+        // listing of it.
+        "/budget/",
+        "/projects/",
       ]) {
         const found = resolveSiteRequest(ws, attempt);
         expect("error" in found, `${attempt} was served`).toBe(true);
@@ -80,14 +86,14 @@ describe("serving what the agent built", () => {
     it("does not follow a symlink pointed out of the workspace", () => {
       const outside = mkdtempSync(join(tmpdir(), "kos-outside-"));
       writeFileSync(join(outside, "secret.txt"), "not yours");
-      symlinkSync(join(outside, "secret.txt"), join(ws.root, "sites", "tracker", "leak.txt"));
-      const found = resolveSiteRequest(ws, "/tracker/leak.txt");
+      symlinkSync(join(outside, "secret.txt"), join(ws.root, "projects", "budget", "sites", "tracker", "leak.txt"));
+      const found = resolveSiteRequest(ws, "/budget/tracker/leak.txt");
       expect("error" in found).toBe(true);
       rmSync(outside, { recursive: true, force: true });
     });
 
     it("says not found for a missing file", () => {
-      const found = resolveSiteRequest(ws, "/tracker/nope.html");
+      const found = resolveSiteRequest(ws, "/budget/tracker/nope.html");
       expect(found).toEqual({ error: "not-found" });
     });
   });
@@ -109,7 +115,7 @@ describe("serving what the agent built", () => {
     });
 
     it("serves a site's page", async () => {
-      const res = await fetch(`${base}/tracker/`);
+      const res = await fetch(`${base}/budget/tracker/`);
       expect(res.status).toBe(200);
       expect(await res.text()).toContain("Tracker");
     });
@@ -120,7 +126,7 @@ describe("serving what the agent built", () => {
      * are worth asserting rather than trusting.
      */
     it("forbids a page from reaching anything off the machine", async () => {
-      const res = await fetch(`${base}/tracker/`);
+      const res = await fetch(`${base}/budget/tracker/`);
       const csp = res.headers.get("content-security-policy") ?? "";
       expect(csp).toContain("default-src 'self'");
       expect(csp).toContain("connect-src 'self'");
@@ -129,13 +135,13 @@ describe("serving what the agent built", () => {
     });
 
     it("refuses a traversal over the wire too", async () => {
-      const res = await fetch(`${base}/tracker/../../kos.db`, { redirect: "manual" });
+      const res = await fetch(`${base}/budget/tracker/../../../kos.db`, { redirect: "manual" });
       expect(res.status).toBeGreaterThanOrEqual(400);
       expect(await res.text()).not.toContain("secrets");
     });
 
     it("is read-only: a write method is refused", async () => {
-      const res = await fetch(`${base}/tracker/index.html`, {
+      const res = await fetch(`${base}/budget/tracker/index.html`, {
         method: "POST",
         body: "x",
       });
@@ -147,6 +153,9 @@ describe("serving what the agent built", () => {
       const body = await res.text();
       expect(body).toContain("tracker");
       expect(body).toContain("draft");
+      // Grouped by the project they belong to, since that is what a site is
+      // part of.
+      expect(body).toContain("budget");
     });
   });
 });

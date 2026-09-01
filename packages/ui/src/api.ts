@@ -228,6 +228,10 @@ export interface ContextUse {
 
 export interface SiteInfo {
   name: string;
+  /** Project it belongs to. */
+  project: string;
+  /** Workspace-relative folder, for the file browser. */
+  path: string;
   hasIndex: boolean;
   modifiedAt: number;
 }
