@@ -213,6 +213,71 @@ describe("handleApiRequest", () => {
     expect(body.errors[1]).toContain("no_such_table");
   });
 
+  describe("health and running a job by hand", () => {
+    it("reports well when nothing is broken", async () => {
+      const res = await handleApiRequest(kernel, {
+        method: "GET",
+        path: "/api/health/report",
+      });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ ok: true, failing: [] });
+    });
+
+    it("runs a job now and says what happened", async () => {
+      const job = kernel.crons.create({
+        name: "check",
+        schedule: "0 3 * * *",
+        type: "actions",
+        actions: [{ tool: "files.read", args: { path: "nope.md" } }],
+        enabled: true,
+      });
+      const res = await handleApiRequest(kernel, {
+        method: "POST",
+        path: "/api/crons/run",
+        body: { id: job.id },
+      });
+      expect(res.status).toBe(200);
+      // It fired, and every action in it errored. Reporting that as a success
+      // is how someone checks a broken job and walks away satisfied.
+      expect(res.body).toMatchObject({ ok: false });
+      expect((res.body as { error: string }).error).toContain("files.read");
+
+      // Firing it by hand goes through the schedule's own path, so the failure
+      // it produced is a real one and shows up as such.
+      const report = await handleApiRequest(kernel, {
+        method: "GET",
+        path: "/api/health/report",
+      });
+      expect(report.body).toMatchObject({ ok: false });
+
+      const status = await handleApiRequest(kernel, {
+        method: "GET",
+        path: "/api/status",
+      });
+      expect(status.body).toMatchObject({ unhealthy: 1 });
+    });
+
+    it("refuses a job that does not exist", async () => {
+      const res = await handleApiRequest(kernel, {
+        method: "POST",
+        path: "/api/crons/run",
+        body: { id: 9999 },
+      });
+      expect(res.status).toBe(404);
+    });
+
+    it("forgets a failure the owner has dealt with", async () => {
+      kernel.health.observe("cron:1", "check", false, "boom");
+      const res = await handleApiRequest(kernel, {
+        method: "POST",
+        path: "/api/health/dismiss",
+        body: { key: "cron:1" },
+      });
+      expect(res.status).toBe(200);
+      expect(kernel.health.report().ok).toBe(true);
+    });
+  });
+
   describe("token auth", () => {
     it("applies a configured token to reads as well as writes", async () => {
       for (const path of ["/api/memory", "/api/projects", "/api/activity"]) {

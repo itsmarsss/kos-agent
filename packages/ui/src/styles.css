@@ -4320,3 +4320,53 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
   color: var(--faint);
   font-size: var(--text-sm);
 }
+
+/* A failing job reads as a name and a reason, not one run-on line. */
+.fail-label {
+  display: block;
+  font-weight: 500;
+}
+.fail-why {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.panel-foot {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--line);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.health--bad {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+}
+.health--bad .health-dot {
+  background: var(--danger);
+}
+a.health {
+  text-decoration: none;
+}
+
+/* A dismiss that stays out of the way until the row is under the pointer. */
+.icon-btn--bare {
+  width: 18px;
+  height: 18px;
+  margin-left: var(--space-2);
+  border: 0;
+  background: none;
+  opacity: 0;
+  color: var(--muted);
+}
+.panel-list li:hover .icon-btn--bare,
+.icon-btn--bare:focus-visible {
+  opacity: 1;
+}
+.icon-btn--bare:hover {
+  color: var(--text);
+}

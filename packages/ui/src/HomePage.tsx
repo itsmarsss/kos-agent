@@ -26,7 +26,7 @@ import { Select } from "./Select.js";
 const CATALOGUE: { kind: PanelKind; label: string; blurb: string }[] = [
   { kind: "approvals", label: "Needs you", blurb: "Actions waiting on a decision" },
   { kind: "agents", label: "Agents", blurb: "Coding sub-agents running now" },
-  { kind: "failures", label: "What broke", blurb: "Recent failed runs" },
+  { kind: "failures", label: "What broke", blurb: "Jobs failing now" },
   { kind: "activity", label: "Activity", blurb: "Recent tool calls" },
   { kind: "projects", label: "Projects", blurb: "What KOS is keeping for you" },
   { kind: "chats", label: "Chats", blurb: "Recent conversations" },
@@ -47,11 +47,13 @@ export function HomePage({
   onGo,
   onDecide,
   deciding,
+  onDismissFailure,
 }: {
   onOpenChat: (id: string) => void;
   onGo: (to: "agents" | "runs" | "projects" | "crons" | "chats" | "settings") => void;
   onDecide: (id: number, approved: boolean) => void;
   deciding: ReadonlySet<number>;
+  onDismissFailure: (key: string) => void;
 }): ReactElement {
   const [data, setData] = useState<HomeData | null>(null);
   const [layout, setLayout] = useState<HomeLayout | null>(null);
@@ -227,6 +229,7 @@ export function HomePage({
               onGo={onGo}
               onDecide={onDecide}
               deciding={deciding}
+              onDismissFailure={onDismissFailure}
             />
           </m.section>
         ))}

@@ -1,7 +1,11 @@
 import { runAgent, type Inference } from "../agent/loop.js";
 import { ToolRegistry } from "../agent/registry.js";
-import { runCronJob } from "../cron/executor.js";
-import { CronScheduler } from "../cron/scheduler.js";
+import {
+  cronFailure,
+  runCronJob,
+  type CronExecResult,
+} from "../cron/executor.js";
+import { CronScheduler, type FireOutcome } from "../cron/scheduler.js";
 import { CronStore } from "../cron/store.js";
 import type { CronJob } from "../cron/types.js";
 import {
@@ -37,6 +41,7 @@ import {
 import { AuditLog } from "../ops/audit.js";
 import { ApprovalQueue, type PendingAction } from "../ops/approvals.js";
 import { PersistentKillSwitch } from "../ops/killswitch.js";
+import { HealthMonitor } from "../ops/health.js";
 import { RunsLog } from "../ops/runs.js";
 import { SHARED_LANE, WorkQueue } from "../ops/queue.js";
 import { WorkspaceBackup } from "../ops/backup.js";
@@ -107,6 +112,14 @@ export interface KernelOptions {
   onApprovalRequested?: (action: PendingAction) => void;
   /** Disable session history (tests). */
   sessionless?: boolean;
+}
+
+/** What running a job by hand produced, in terms the caller can report. */
+export interface CronFireResult {
+  outcome: FireOutcome;
+  /** Fired and every action succeeded. */
+  ok: boolean;
+  error?: string;
 }
 
 export interface HandleResult {
@@ -213,6 +226,7 @@ export class Kernel {
   readonly builds: BuildRegistry;
   readonly audit: AuditLog;
   readonly runs: RunsLog;
+  readonly health: HealthMonitor;
   readonly approvals: ApprovalQueue;
   readonly killSwitch: PersistentKillSwitch;
   readonly queue: WorkQueue;
@@ -274,6 +288,7 @@ export class Kernel {
     builds: BuildRegistry;
     audit: AuditLog;
     runs: RunsLog;
+    health: HealthMonitor;
     approvals: ApprovalQueue;
     killSwitch: PersistentKillSwitch;
     queue: WorkQueue;
@@ -308,6 +323,7 @@ export class Kernel {
     this.builds = args.builds;
     this.audit = args.audit;
     this.runs = args.runs;
+    this.health = args.health;
     this.approvals = args.approvals;
     this.killSwitch = args.killSwitch;
     this.queue = args.queue;
@@ -347,6 +363,7 @@ export class Kernel {
     const crons = new CronStore(workspace.db);
     const audit = new AuditLog(workspace.db, secrets);
     const runs = new RunsLog(workspace.db);
+    const health = new HealthMonitor(workspace.db);
     const approvals = new ApprovalQueue(workspace.db, secrets);
     const spend = new SpendStore(workspace.db);
     const pending = new PendingMessages(workspace.db);
@@ -541,6 +558,7 @@ export class Kernel {
       builds,
       audit,
       runs,
+      health,
       approvals,
       killSwitch,
       queue,
@@ -1370,12 +1388,14 @@ export class Kernel {
       (job) =>
         this.queue.enqueue(async () => {
           const runId = this.runs.start("cron", String(job.id));
+          const key = `cron:${job.id}`;
           try {
             // Built-in workspace backup job runs outside the tool path.
             if (job.name === "kos.backup" && job.type === "actions") {
               await this.backup.ensureRepo();
               await this.backup.snapshot("scheduled backup");
               this.runs.finish(runId, "ok");
+              this.reportHealth(key, job.name, true, null);
               return { ran: true, results: [] };
             }
             const result = await runCronJob(job, {
@@ -1388,14 +1408,20 @@ export class Kernel {
               inference: this.inference,
               buildSystem: (j) => this.cronSystemPrompt(j),
             });
-            this.runs.finish(runId, result.ran ? "ok" : "skipped");
-            return result;
-          } catch (err) {
+            const problem = cronFailure(result);
+            // A job whose condition said "not now" did what it was written to
+            // do, so it is healthy rather than nothing having happened.
             this.runs.finish(
               runId,
-              "error",
-              err instanceof Error ? err.message : String(err),
+              problem ? "error" : result.ran ? "ok" : "skipped",
+              problem,
             );
+            this.reportHealth(key, job.name, problem === null, problem);
+            return result;
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            this.runs.finish(runId, "error", message);
+            this.reportHealth(key, job.name, false, message);
             throw err;
           }
         }),
@@ -1411,6 +1437,38 @@ export class Kernel {
    * CLI and a DM use, so unattended work is readable in Chats rather than
    * thrown away with "no notify channel is wired".
    */
+  /**
+   * Say something to the owner without being asked.
+   *
+   * Goes to the channel when one is wired, and to the owner's primary
+   * conversation when it is not, on the principle that an unattended failure
+   * should never be lost because Discord happens to be unconfigured.
+   */
+  private tellOwner(text: string): void {
+    if (this.notify) {
+      // Not awaited: a channel that is slow or down must not hold up the job
+      // that is reporting, and the health row is already written either way.
+      void this.notify(text).catch(() => this.recordNotice(text));
+      return;
+    }
+    this.recordNotice(text);
+  }
+
+  /**
+   * Record how an unattended run went, and pass on whatever the owner needs
+   * to hear about it. The monitor decides whether this is worth saying; a job
+   * that has been failing for an hour has already been reported.
+   */
+  private reportHealth(
+    key: string,
+    label: string,
+    ok: boolean,
+    error: string | null,
+  ): void {
+    const notice = this.health.observe(key, label, ok, error);
+    if (notice) this.tellOwner(notice.text);
+  }
+
   recordNotice(text: string): void {
     const sessionId = primarySessionId(this.profile.ownerId);
     // record() replaces the transcript, so the existing one comes with it.
@@ -1732,6 +1790,34 @@ export class Kernel {
 
   reloadCron(): void {
     this.scheduler?.reload();
+  }
+
+  /**
+   * Run one job now, through the same path the schedule uses.
+   *
+   * "Does this job actually work" was previously answerable only by waiting
+   * for its schedule to come round, which for a nightly job means a day per
+   * attempt. Going through fire() rather than the runner directly means the
+   * kill switch, the rate limit, the run log, and the health report all see it
+   * exactly as they would at 3am.
+   */
+  async fireCron(id: number): Promise<CronFireResult> {
+    const job = this.crons.get(id);
+    if (!job) throw new Error(`no such cron: ${id}`);
+    if (!this.scheduler) {
+      this.startCron();
+    }
+    const outcome = await this.scheduler!.fire(job);
+    if (!outcome.fired) {
+      return { outcome, ok: false, error: outcome.error ?? outcome.reason };
+    }
+    // "It fired" is not "it worked": a job every one of whose actions errored
+    // fires perfectly well, and reporting that as a success is how a broken
+    // job gets confirmed as healthy by the person checking it.
+    const failure = cronFailure(outcome.result as CronExecResult);
+    return failure
+      ? { outcome, ok: false, error: failure }
+      : { outcome, ok: true };
   }
 
   /** Jobs the running scheduler actually holds, as opposed to rows in the table. */

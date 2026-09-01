@@ -57,6 +57,8 @@ export function App(): React.ReactElement {
   const [approvals, setApprovals] = useState<PendingAction[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [crons, setCrons] = useState<CronJob[]>([]);
+  /** The job being run by hand, so its own button can say so. */
+  const [firing, setFiring] = useState<number | null>(null);
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [failed, setFailed] = useState<RunRecord[]>([]);
   const [pages, setPages] = useState<PageSummary[]>([]);
@@ -226,6 +228,41 @@ export function App(): React.ReactElement {
     }
   };
 
+  /**
+   * Run a scheduled job by hand, through the same path the schedule uses, and
+   * say what came back. A job that fires and fails is a more useful answer
+   * than one that quietly did nothing.
+   */
+  const runCronNow = async (id: number, name: string): Promise<void> => {
+    setFiring(id);
+    try {
+      const result = await api.runCron(id);
+      await refresh();
+      if (result.ok) {
+        flash("ok", `${name} ran`);
+      } else {
+        // "It fired" is not "it worked". A job whose every action errored
+        // fires perfectly well, and calling that a success is how someone
+        // checks a broken job and walks away satisfied.
+        flash("err", `${name} failed: ${result.error ?? "unknown error"}`);
+      }
+    } catch (err) {
+      flash("err", err instanceof Error ? err.message : String(err));
+    } finally {
+      setFiring(null);
+    }
+  };
+
+  /** Clear a failure the owner has handled, so the header stops shouting. */
+  const dismissFailure = async (key: string): Promise<void> => {
+    try {
+      await api.dismissFailure(key);
+      await refresh();
+    } catch (err) {
+      flash("err", err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const toggleKill = async (): Promise<void> => {
     if (!status) return;
     setBusy(status.halted ? "resuming" : "halting");
@@ -244,7 +281,20 @@ export function App(): React.ReactElement {
     setBusy("snapshot");
     try {
       const res = await api.snapshot("dashboard snapshot");
-      flash("ok", res.sha ? `Snapshot ${res.sha.slice(0, 10)}` : "Nothing to snapshot");
+      // Folders with their own git repo are not in it. A backup that quietly
+      // leaves things out is worse than one you know the edges of.
+      const omitted =
+        res.excluded.length > 0
+          ? ` · ${res.excluded.length} folder${
+              res.excluded.length === 1 ? "" : "s"
+            } with own repo not included`
+          : "";
+      flash(
+        "ok",
+        res.sha
+          ? `Snapshot ${res.sha.slice(0, 10)}${omitted}`
+          : `Nothing to snapshot${omitted}`,
+      );
     } catch (err) {
       flash("err", err instanceof Error ? err.message : String(err));
     } finally {
@@ -413,13 +463,31 @@ export function App(): React.ReactElement {
           </div>
           <div className="topbar-right">
             {busy && <span className="hint">{busy}…</span>}
-            <span
-              className={`health ${status?.halted ? "health--halted" : "health--ok"}`}
-              title={status?.workspace ?? ""}
+            {/* Three states, in the order that matters: stopped, broken,
+                fine. It said "Running" regardless, so a job that had been
+                failing for two days sat behind a green dot. */}
+            <a
+              className={`health ${
+                status?.halted
+                  ? "health--halted"
+                  : (status?.unhealthy ?? 0) > 0
+                    ? "health--bad"
+                    : "health--ok"
+              }`}
+              href="#/"
+              title={
+                (status?.unhealthy ?? 0) > 0
+                  ? "Something is failing. Open home for what and for how long."
+                  : (status?.workspace ?? "")
+              }
             >
               <span className="health-dot" />
-              {status?.halted ? "Halted" : "Running"}
-            </span>
+              {status?.halted
+                ? "Halted"
+                : (status?.unhealthy ?? 0) > 0
+                  ? `${status?.unhealthy} failing`
+                  : "Running"}
+            </a>
             {/* Which model is answering. The routing table is picked from
                 whichever API keys are present, so a workspace with one
                 provider gets a different agent from the default; without this
@@ -728,6 +796,25 @@ export function App(): React.ReactElement {
               <span className="ops-mono ops-muted">{c.projectSlug ?? "—"}</span>
             ),
           },
+          {
+            // Whether a job works was otherwise answerable only by waiting for
+            // its schedule, which for a nightly job is a day per attempt.
+            key: "run",
+            header: "",
+            render: (c) => (
+              <button
+                type="button"
+                className="btn btn--sm"
+                disabled={firing === c.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void runCronNow(c.id, c.name);
+                }}
+              >
+                {firing === c.id ? "Running…" : "Run now"}
+              </button>
+            ),
+          },
         ]}
       />,
     );
@@ -814,6 +901,7 @@ export function App(): React.ReactElement {
       onGo={(to) => go({ name: to } as Route)}
       deciding={deciding}
       onDecide={(id, approved) => void decide(id, approved)}
+      onDismissFailure={(key) => void dismissFailure(key)}
     />,
   );
 }
