@@ -43,10 +43,12 @@ export function HomePage({
   onOpenChat,
   onGo,
   onDecide,
+  deciding,
 }: {
   onOpenChat: (id: string) => void;
   onGo: (to: "agents" | "runs" | "projects" | "crons" | "chats" | "settings") => void;
   onDecide: (id: number, approved: boolean) => void;
+  deciding: ReadonlySet<number>;
 }): ReactElement {
   const [data, setData] = useState<HomeData | null>(null);
   const [layout, setLayout] = useState<HomeLayout | null>(null);
@@ -213,6 +215,7 @@ export function HomePage({
               onOpenChat={onOpenChat}
               onGo={onGo}
               onDecide={onDecide}
+              deciding={deciding}
             />
           </section>
         ))}

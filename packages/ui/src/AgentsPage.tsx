@@ -113,13 +113,23 @@ function Build({
 
 export function AgentsPage({
   onDecide,
+  deciding,
+  /** Opened straight from a link or a search result. */
+  openId,
 }: {
   onDecide: (pendingId: number, approved: boolean) => void;
+  deciding: ReadonlySet<number>;
+  openId?: number;
 }): ReactElement {
   const [builds, setBuilds] = useState<BuildRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** The build being read as a terminal, if any. */
-  const [reading, setReading] = useState<number | null>(null);
+  const [reading, setReading] = useState<number | null>(openId ?? null);
+
+  // Following a link to a different agent opens that one.
+  useEffect(() => {
+    if (openId !== undefined) setReading(openId);
+  }, [openId]);
 
   const load = (): void => {
     void api
@@ -196,6 +206,7 @@ export function AgentsPage({
           id={reading}
           onClose={() => setReading(null)}
           onDecide={onDecide}
+          deciding={deciding}
         />
       )}
     </div>

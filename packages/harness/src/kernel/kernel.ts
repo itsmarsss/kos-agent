@@ -19,6 +19,7 @@ import type { ContentBlock, ModelMessage } from "../models/types.js";
 import { createDefaultRouter, type RouteSummary } from "../models/router.js";
 import { SpendStore } from "../ops/spend.js";
 import { BuildRegistry } from "../builds/registry.js";
+import { sitesBaseUrl } from "../sites/server.js";
 import { PendingMessages, type PendingMessage } from "./pending.js";
 import {
   applyModelSettings,
@@ -1522,6 +1523,48 @@ export class Kernel {
           job
             ? `Schedule ${job.name}: ${job.schedule}, type ${job.type}, ${job.enabled ? "enabled" : "disabled"}`
             : `Schedule ${ref.id}: not found.`,
+        );
+        continue;
+      }
+      if (ref.kind === "agent") {
+        const build = this.builds.get(Number(ref.id));
+        if (!build) {
+          parts.push(`Agent ${ref.id}: not found, or its process has ended.`);
+          continue;
+        }
+        // The tail rather than the whole log: enough to answer "what is it
+        // doing" without spending the turn's context on a transcript.
+        const tail = build.events
+          .slice(-15)
+          .map((e) => `  [${e.kind}] ${e.text.slice(0, 300)}`)
+          .join("\n");
+        parts.push(
+          [
+            `Agent ${build.id} in ${build.dir}: ${build.status}.`,
+            `Asked to: ${build.task}`,
+            build.askedFor > 0 ? `Has asked the owner ${build.askedFor} time(s).` : "",
+            tail ? `Recent steps:\n${tail}` : "Nothing logged yet.",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        );
+        continue;
+      }
+      if (ref.kind === "chat") {
+        const chat = this.conversations.get(ref.id);
+        parts.push(
+          chat
+            ? `Chat "${chat.title}" (${chat.id})${chat.brief ? `: ${chat.brief}` : ""}`
+            : `Chat ${ref.id}: not found.`,
+        );
+        continue;
+      }
+      if (ref.kind === "site") {
+        // Addressed as project/name, which is also where it lives.
+        const base = sitesBaseUrl();
+        parts.push(
+          `Site ${ref.id}: folder projects/${ref.id.replace("/", "/sites/")}` +
+            (base ? `, served at ${base}/${ref.id}/` : ", not currently served"),
         );
         continue;
       }
