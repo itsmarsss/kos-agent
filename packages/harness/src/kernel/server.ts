@@ -10,7 +10,7 @@ import { runDisplayQuery } from "../systems/display.js";
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
-import { orchestratorId } from "./kernel.js";
+import { BUILD_SETTINGS_KEY, orchestratorId } from "./kernel.js";
 import { parseAttachments } from "./attachments.js";
 import cron from "node-cron";
 import type { CreateCronInput, ToolCall } from "../cron/types.js";
@@ -488,6 +488,9 @@ export async function handleApiRequest(
         ownerId: kernel.profile.ownerId,
       },
       retention: kernel.sessions.retention(),
+      buildModel:
+        kernel.settings.get<{ buildModel?: string }>(BUILD_SETTINGS_KEY)?.buildModel ??
+        null,
       retentionDefaults: RETENTION_DEFAULTS,
       halted: kernel.killSwitch.halted,
       envPath: envPath ?? null,
@@ -564,6 +567,14 @@ export async function handleApiRequest(
     saveProfile(kernel.workspace, next);
     Object.assign(kernel.profile, next);
     return ok({ profile: next });
+  }
+
+  if (method === "POST" && path === "/api/settings/builds") {
+    const raw = typeof body.buildModel === "string" ? body.buildModel.trim() : "";
+    // Empty means "whatever the CLI defaults to", which is a real choice and
+    // the one a workspace starts on.
+    kernel.settings.set(BUILD_SETTINGS_KEY, raw ? { buildModel: raw } : {});
+    return ok({ buildModel: raw || null });
   }
 
   if (method === "POST" && path === "/api/settings/retention") {

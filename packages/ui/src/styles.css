@@ -4116,3 +4116,10 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
 }
 .term-input input::placeholder { color: var(--faint); }
 .agent-asked { margin: 0.3rem 0 0; padding-left: 1.35rem; color: var(--warn); font-size: var(--text-sm); }
+
+.agent-quiet {
+  margin: 0.35rem 0 0;
+  padding-left: 1.35rem;
+  color: var(--warn);
+  font-size: var(--text-sm);
+}

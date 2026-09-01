@@ -30,7 +30,7 @@ type SectionId =
 const SECTIONS: { id: SectionId; label: string; blurb: string }[] = [
   { id: "you", label: "You", blurb: "Who KOS thinks it is working for" },
   { id: "providers", label: "Providers", blurb: "API keys and channel credentials" },
-  { id: "models", label: "Models", blurb: "Which model answers what" },
+  { id: "models", label: "Models", blurb: "Which model answers, and which builds" },
   { id: "conversation", label: "Conversation", blurb: "How much history is kept" },
   { id: "network", label: "Network", blurb: "Ports, binding, and what the agent may reach" },
   { id: "spend", label: "Spend", blurb: "Tokens used and what they cost" },
@@ -122,6 +122,7 @@ export function SettingsPage(): ReactElement {
   const [profile, setProfile] = useState({ name: "", timezone: "" });
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [ports, setPorts] = useState<Record<string, string>>({});
+  const [buildModel, setBuildModel] = useState("");
   const [retention, setRetention] = useState({
     maxChars: "",
     maxToolResultChars: "",
@@ -136,6 +137,7 @@ export function SettingsPage(): ReactElement {
       .then((r) => {
         setData(r);
         setProfile({ name: r.profile.name, timezone: r.profile.timezone });
+        setBuildModel(r.buildModel ?? "");
         setRetention({
           maxChars: String(r.retention.maxChars),
           maxToolResultChars: String(r.retention.maxToolResultChars),
@@ -356,9 +358,36 @@ export function SettingsPage(): ReactElement {
         )}
 
         {active === "models" && (
-          <Section title="Models" blurb="Which model answers what, and how hard it thinks.">
-            <ModelSettings />
-          </Section>
+          <>
+            <Section title="Models" blurb="Which model answers what, and how hard it thinks.">
+              <ModelSettings />
+            </Section>
+            <Section
+              title="Build agents"
+              blurb="Which model does the building when KOS hands work to a coding sub-agent."
+              saving={busy === "models"}
+              saved={saved.models ?? null}
+              onSave={() => run("models", api.saveBuildModel(buildModel), "Saved")}
+            >
+              <Field
+                label="Build model"
+                hint="A build is many turns and each is a model call, so this is the biggest lever on how long one takes. Sonnet is markedly faster than Opus for scaffolding work. Leave blank to use whatever Claude Code defaults to."
+              >
+                <Select
+                  className="set-select"
+                  label="Build model"
+                  value={buildModel}
+                  options={[
+                    { value: "", label: "Claude Code default" },
+                    { value: "sonnet", label: "Sonnet — faster" },
+                    { value: "opus", label: "Opus — more capable" },
+                    { value: "fable", label: "Fable" },
+                  ]}
+                  onChange={setBuildModel}
+                />
+              </Field>
+            </Section>
+          </>
         )}
 
         {active === "conversation" && (

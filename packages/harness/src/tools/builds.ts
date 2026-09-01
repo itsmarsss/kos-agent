@@ -27,6 +27,10 @@ export interface BuildsModuleOptions {
   currentConversationId?: () => string | undefined;
   /** Progress, so a build that takes minutes does not look like a hang. */
   onEvent?: (event: BuildEvent) => void;
+  /** Which model builds, read fresh so a settings change applies at once. */
+  model?: () => string | undefined;
+  /** Opens and closes a live turn around the build, so a reader sees it work. */
+  frame?: (phase: "start" | "end") => void;
 }
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -75,6 +79,7 @@ function defineBuildTools(
       const conversationId = options.currentConversationId?.();
       let id = 0;
 
+      options.frame?.("start");
       const result = await runBuild({
         workspace: ws,
         approvals: options.approvals,
@@ -82,6 +87,7 @@ function defineBuildTools(
         task,
         ...(options.userId ? { userId: options.userId } : {}),
         ...(conversationId ? { conversationId } : {}),
+        ...(options.model?.() ? { model: options.model()! } : {}),
         onStart: (control) => {
           id = options.registry.start({
             dir,
@@ -96,6 +102,7 @@ function defineBuildTools(
         },
       });
 
+      options.frame?.("end");
       if (id) {
         options.registry.finish(id, {
           ok: result.ok,

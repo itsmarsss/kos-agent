@@ -34,6 +34,11 @@ export interface BuildRecord {
   files: string[];
   /** Times it has stopped to ask the owner something. */
   askedFor: number;
+  /**
+   * Milliseconds of silence, when a working build has been quiet long enough
+   * to be worth flagging. Zero otherwise.
+   */
+  quietFor?: number;
 }
 
 /*
@@ -45,6 +50,16 @@ export interface BuildRecord {
 const MAX_EVENTS = 2000;
 /** Finished builds worth still showing, newest first. */
 const MAX_FINISHED = 20;
+
+/**
+ * How long a working build may say nothing before it is called stalled.
+ *
+ * A build that is thinking and a build that is wedged look identical from
+ * outside: both say "running" and produce nothing. Most turns produce output
+ * within seconds, so silence for minutes is worth naming rather than leaving
+ * the owner to watch a spinner and guess.
+ */
+const SILENCE_MS = 3 * 60_000;
 
 export class BuildRegistry {
   private readonly records = new Map<number, BuildRecord>();
@@ -173,14 +188,28 @@ export class BuildRegistry {
     return this.records.get(id);
   }
 
+  /**
+   * Whether a build has gone quiet for long enough to be worth flagging.
+   *
+   * Derived on read rather than stored, so it becomes true on its own without
+   * a timer having to fire.
+   */
+  private stalled(record: BuildRecord, now: number): boolean {
+    if (record.status !== "running") return false;
+    const last = record.events.at(-1)?.at ?? record.startedAt;
+    return now - last > SILENCE_MS;
+  }
+
   /** Running first, then most recently finished. */
-  list(): BuildRecord[] {
-    return [...this.records.values()].sort((a, b) => {
+  list(now = Date.now()): BuildRecord[] {
+    return [...this.records.values()]
+      .map((r) => ({ ...r, quietFor: this.stalled(r, now) ? now - (r.events.at(-1)?.at ?? r.startedAt) : 0 }))
+      .sort((a, b) => {
       const aLive = a.status === "running" || a.status === "waiting";
       const bLive = b.status === "running" || b.status === "waiting";
       if (aLive !== bLive) return aLive ? -1 : 1;
       return b.startedAt - a.startedAt;
-    });
+      });
   }
 
   /** Builds still going, which is what "is anything happening" means. */
