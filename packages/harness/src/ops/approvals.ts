@@ -84,6 +84,21 @@ function toAction(row: Row): PendingAction {
  * redacted through the secrets registry so the queue never stores key values.
  */
 export class ApprovalQueue {
+  /**
+   * Told when an action is decided.
+   *
+   * A build blocked on a permission prompt polled the row every 500ms, which
+   * is a busy loop that also makes the owner wait up to half a second after
+   * they have already answered. Listeners are woken the moment the decision
+   * lands instead.
+   */
+  private readonly listeners = new Set<(action: PendingAction) => void>();
+
+  onDecided(listener: (action: PendingAction) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
   constructor(
     private readonly db: Db,
     private readonly secrets?: SecretsRegistry,
@@ -155,7 +170,18 @@ export class ApprovalQueue {
          WHERE id = ? AND status = 'pending'`,
       )
       .run(status, this.now(), decidedBy, id);
-    return info.changes > 0 ? this.get(id) : undefined;
+    if (info.changes === 0) return undefined;
+    const decided = this.get(id);
+    if (decided) {
+      for (const listener of this.listeners) {
+        try {
+          listener(decided);
+        } catch {
+          // A listener that throws is a broken waiter, not a broken decision.
+        }
+      }
+    }
+    return decided;
   }
 }
 

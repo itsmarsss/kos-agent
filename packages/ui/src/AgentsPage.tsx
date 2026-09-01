@@ -93,6 +93,15 @@ function Build({
 
       <p className="agent-latest">{build.latest}</p>
 
+      {/* Thinking and wedged look identical from outside: both say running and
+          produce nothing. Silence for minutes is worth naming. */}
+      {build.quietFor ? (
+        <p className="agent-quiet">
+          No output for {Math.round(build.quietFor / 60000)}m. It may be working
+          on something long, or it may be stuck — open it to see, or stop it.
+        </p>
+      ) : null}
+
       {build.askedFor > 0 && (
         <p className="agent-asked">
           Asked you {build.askedFor} time{build.askedFor === 1 ? "" : "s"}
