@@ -14,7 +14,12 @@ describe("parseRoute", () => {
     // after their tables, so those URLs silently rendered Home.
     expect(parseRoute("#/knowledge")).toEqual({ name: "memory" });
     expect(parseRoute("#/schedule")).toEqual({ name: "crons" });
-    expect(parseRoute("#/activity")).toEqual({ name: "tools" });
+    expect(parseRoute("#/activity")).toEqual({ name: "history" });
+    // Activity and Runs became one page. Their paths still resolve, because a
+    // bookmark should not break when two pages merge.
+    expect(parseRoute("#/runs")).toEqual({ name: "history" });
+    expect(parseRoute("#/tools")).toEqual({ name: "history" });
+    expect(parseRoute("#/history")).toEqual({ name: "history" });
   });
 
   it("keeps ids and paths through a round trip", () => {
