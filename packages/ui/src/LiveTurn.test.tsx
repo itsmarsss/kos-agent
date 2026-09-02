@@ -150,6 +150,32 @@ describe("joining a turn already in progress", () => {
     expect(screen.getByText("Still working")).toBeTruthy();
   });
 
+  it("keeps its steps but stops saying it is working once the turn ends", () => {
+    // The steps stay until the transcript that contains them arrives, so the
+    // end of a turn does not flash an empty gap. What must go is the claim
+    // that anything is still happening.
+    const { container } = render(
+      <LiveTurn
+        live={{
+          ...base,
+          ended: true,
+          steps: [
+            {
+              kind: "tool",
+              tool: "sql",
+              summary: "SELECT 1",
+              done: true,
+              isError: false,
+            },
+          ],
+        }}
+      />,
+    );
+    expect(container.querySelector(".toolcall")?.textContent).toContain("SELECT 1");
+    expect(screen.queryByText("Thinking")).toBeNull();
+    expect(container.querySelector(".live-dots")).toBeNull();
+  });
+
   it("still shows tool calls it did see", () => {
     const { container } = render(
       <LiveTurn

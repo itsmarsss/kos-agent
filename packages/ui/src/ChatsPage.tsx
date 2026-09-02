@@ -150,11 +150,16 @@ export function ChatsPage({
       conversations.filter((c) => c.activity === "working").map((c) => c.id),
     );
     for (const c of conversations) {
-      if (c.activity !== "working" && progress[c.id] && progress[c.id]!.steps.length === 0) {
+      const live = progress[c.id];
+      if (!live || c.activity === "working") continue;
+      // Nothing left to hand over, or nobody here to hand it to: a turn that
+      // ended in a conversation the reader is not looking at has no transcript
+      // to be swapped into.
+      if (live.steps.length === 0 || (live.ended && c.id !== activeId)) {
         clearProgress(c.id);
       }
     }
-  }, [conversations, progress]);
+  }, [conversations, progress, activeId]);
   const [creating, setCreating] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
@@ -181,7 +186,11 @@ export function ChatsPage({
   }, [showArchived, conversations]);
   const drop = useDropZone((l) => void attachments.add(l));
   const live = activeId ? progress[activeId] : undefined;
-  const running = Boolean(live) || sendingIn === activeId;
+  // A finished turn keeps its steps on screen until the transcript arrives,
+  // so "there is a live view" and "work is happening" are no longer the same
+  // question.
+  const working = Boolean(live) && !live?.ended;
+  const running = working || sendingIn === activeId;
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -243,10 +252,10 @@ export function ChatsPage({
     null,
   );
   // A turn ending is worth a reload straight away rather than at the next
-  // poll, which is up to five seconds later.
-  const wasLive = useRef(false);
-  const justEnded = wasLive.current && !live;
-  wasLive.current = Boolean(live);
+  // poll, which is up to five seconds later. The store says so directly: a
+  // ref written during render gave the wrong answer under StrictMode, which
+  // renders twice and reads the value the first pass had already moved on.
+  const justEnded = Boolean(live?.ended);
 
   // Notes belong to the conversation that produced them.
   useEffect(() => setNotes([]), [activeId]);
@@ -277,16 +286,23 @@ export function ChatsPage({
       setEditingIndex(null);
     }
     let cancelled = false;
+    const id = activeId;
     void api
-      .conversation(activeId)
+      .conversation(id)
       .then(({ events: got, pending: waiting }) => {
         if (cancelled) return;
         setEvents(got);
         setPending(waiting);
-        setLoadedFor({ id: activeId, stamp });
+        setLoadedFor({ id, stamp });
+        // The transcript now holds what the live view was holding, so the
+        // handover is done and the steps can go. Doing this on turn-end
+        // instead left the screen without either for the length of a fetch.
+        if (justEnded) clearProgress(id);
       })
       .catch(() => {
-        if (!cancelled) setEvents([]);
+        // Emptying the transcript on a failed fetch turned one dropped
+        // request into a chat that looks deleted. What is on screen is
+        // still the last thing that was true.
       });
     return () => {
       cancelled = true;
@@ -751,7 +767,7 @@ export function ChatsPage({
                   {/* A thread mid-turn or sitting on an approval looked
                       exactly like an idle one, and the only way to find out
                       was to open it. */}
-                  {progress[c.id] ? (
+                  {progress[c.id] && !progress[c.id]!.ended ? (
                     <span className="chats-flag chats-flag--working">
                       {liveLabel(progress[c.id])}
                     </span>

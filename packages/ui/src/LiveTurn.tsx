@@ -49,6 +49,12 @@ export function LiveTurn({ live }: { live: Live }): ReactElement {
    */
   const answering = live.text !== "" && !live.resumed;
 
+  /*
+   * A turn that has ended is still on screen, holding its steps until the
+   * transcript that contains them arrives. What it must not do is keep
+   * saying it is thinking: the work is over, only the handover is not.
+   */
+
   return (
     <>
       <AnimatePresence initial={false}>
@@ -94,7 +100,7 @@ export function LiveTurn({ live }: { live: Live }): ReactElement {
         <div className="bubble bubble--kos">
           <Markdown text={live.text} />
         </div>
-      ) : (
+      ) : live.ended ? null : (
         <div className="bubble bubble--kos live">
           <div className="live-head">
             <span className="live-dots" aria-hidden="true">
