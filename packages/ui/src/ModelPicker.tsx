@@ -13,6 +13,7 @@ export function ModelPicker(): ReactElement | null {
   const [models, setModels] = useState<string[]>([]);
   const [current, setCurrent] = useState<string>("");
   const [busy, setBusy] = useState(false);
+  const [engine, setEngine] = useState<"api" | "sdk">("api");
 
   useEffect(() => {
     void api
@@ -23,7 +24,24 @@ export function ModelPicker(): ReactElement | null {
       .availableModels()
       .then((r) => setModels(r.models))
       .catch(() => setModels([]));
+    void api
+      .behaviour()
+      .then((r) => setEngine(r.behaviour.engine))
+      .catch(() => undefined);
   }, []);
+
+  /*
+   * On the subscription the model is the SDK's to choose, and this control
+   * writes the provider routing, which that path does not read. Showing a
+   * pickable model there would be a lie about what answers.
+   */
+  if (engine === "sdk") {
+    return (
+      <span className="composer-engine" title="Answering on your Claude Code subscription. Change it in Settings, Models.">
+        Claude Agent SDK
+      </span>
+    );
+  }
 
   // Nothing to choose between is not a control, it is clutter.
   if (!current || models.length === 0) return null;

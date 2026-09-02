@@ -38,7 +38,12 @@ const BEHAVIOUR_FALLBACK: Behaviour = {
   stallMinutes: 3,
 };
 
+/**
+ * Also a save key, not only a nav section: two independent saves can live on
+ * one tab, and each needs its own busy and saved state.
+ */
 type SectionId =
+  | "engine"
   | "you"
   | "providers"
   | "models"
@@ -468,6 +473,38 @@ export function SettingsPage(): ReactElement {
 
         {active === "models" && (
           <>
+            {/* First, because it decides whether the rest of this tab even
+                applies: on the subscription the model is the SDK's to pick. */}
+            <Section
+              title="Who does the thinking"
+              blurb="A turn can go to the model provider, which bills API credits, or through the Claude Agent SDK, which is what coding agents already use and spends a Claude Code subscription instead."
+              saving={busy === "engine"}
+              saved={saved.engine ?? null}
+              onSave={() => run("engine", api.saveBehaviour(how), "Saved")}
+            >
+              <Field
+                label="Chat engine"
+                hint="Either way the only tools are KOS's own, inside the same workspace jail, and risky ones still ask you first. The SDK path needs a signed-in Claude Code on this machine, or an Anthropic key."
+              >
+                <Select
+                  className="set-select"
+                  label="Chat engine"
+                  value={how.engine}
+                  options={[
+                    { value: "api", label: "Model provider", hint: "API credits" },
+                    {
+                      value: "sdk",
+                      label: "Claude Agent SDK",
+                      hint: "Claude Code subscription",
+                    },
+                  ]}
+                  onChange={(v) =>
+                    setHow({ ...how, engine: v === "sdk" ? "sdk" : "api" })
+                  }
+                />
+              </Field>
+            </Section>
+
             <Section
               title="Models"
               blurb="Which model answers what, and how hard it thinks."
@@ -527,36 +564,10 @@ export function SettingsPage(): ReactElement {
             </Section>
 
             <Section
-              title="Who does the thinking"
-              blurb="A turn can go to the model provider, which bills API credits, or through the Claude Agent SDK, which is what coding agents already use and spends a Claude Code subscription instead."
-            >
-              <Field
-                label="Chat engine"
-                hint="Either way the only tools are KOS's own, inside the same workspace jail, and risky ones still ask you first. The SDK path needs a signed-in Claude Code on this machine, or an Anthropic key."
-              >
-                <Select
-                  className="set-select"
-                  label="Chat engine"
-                  value={how.engine}
-                  options={[
-                    { value: "api", label: "Model provider", hint: "API credits" },
-                    {
-                      value: "sdk",
-                      label: "Claude Agent SDK",
-                      hint: "Claude Code subscription",
-                    },
-                  ]}
-                  onChange={(v) =>
-                    setHow({ ...how, engine: v === "sdk" ? "sdk" : "api" })
-                  }
-                />
-              </Field>
-            </Section>
-
-            <Section
               title="How hard it tries"
               blurb="A step is one round-trip to the model, which is roughly one thought and one tool call. Past the limit a turn stops and says it got stuck rather than running on."
             >
+              <div className="set-grid">
               <Limit
                 label="Steps in a turn"
                 hint={`What an ordinary message gets. Default ${defaults.maxSteps}.`}
@@ -571,12 +582,14 @@ export function SettingsPage(): ReactElement {
                 range={limits.fixSteps}
                 onChange={(fixSteps) => setHow({ ...how, fixSteps })}
               />
+              </div>
             </Section>
 
             <Section
               title="Unattended work"
               blurb="Limits on what KOS may do while nobody is watching. These are the guards against a loop that runs all night."
             >
+              <div className="set-grid">
               <Limit
                 label="Self-prompted jobs per hour"
                 hint={`A scheduled job that thinks rather than running fixed actions. Zero stops them entirely. Default ${defaults.selfPromptsPerHour}.`}
@@ -607,6 +620,7 @@ export function SettingsPage(): ReactElement {
                 range={limits.stallMinutes}
                 onChange={(stallMinutes) => setHow({ ...how, stallMinutes })}
               />
+              </div>
             </Section>
 
             {/* One set of buttons, because these three cards are one stored

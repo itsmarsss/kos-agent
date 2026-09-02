@@ -23,6 +23,8 @@ export interface BuildRecord {
   task: string;
   /** The conversation that started it. */
   conversationId?: string;
+  /** The SDK's session, so a finished agent can be woken and carry on. */
+  sessionId?: string;
   status: BuildStatus;
   startedAt: number;
   endedAt?: number;
@@ -280,6 +282,30 @@ export class BuildRegistry {
       record.phase && record.phase.phase !== "idle" ? now : 0,
     );
     return now - last > this.silenceMs();
+  }
+
+  /**
+   * Drop a finished agent from the list. Its files stay: this is the record
+   * being cleared, not the work undone. A running one is left alone, since
+   * forgetting something that is still writing would lose the only handle on
+   * it.
+   */
+  forget(id: number): boolean {
+    const record = this.records.get(id);
+    if (!record || record.status === "running" || record.status === "waiting") {
+      return false;
+    }
+    this.records.delete(id);
+    this.controls.delete(id);
+    return true;
+  }
+
+  /** Remember the SDK's id for this run, for waking it later. */
+  session(id: number, sessionId: string): void {
+    const record = this.records.get(id);
+    if (!record || record.sessionId === sessionId) return;
+    record.sessionId = sessionId;
+    this.changed(id);
   }
 
   /** Running first, then most recently finished. */

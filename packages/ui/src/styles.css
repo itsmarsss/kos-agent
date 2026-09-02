@@ -4962,3 +4962,38 @@ a.health {
 .spend-rate-field { display: flex; flex-direction: column; gap: 0.2rem; }
 .spend-rate-field > span { color: var(--faint); font-size: var(--text-xs); }
 .spend-rate-field .kos-input { width: 8rem; }
+
+/* Folders already in the workspace, as one-click choices under the field. */
+.agent-folder-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.35rem;
+}
+
+/* On the subscription there is nothing to pick, so it states rather than
+   offers. */
+.composer-engine {
+  padding: 0.3rem 0.5rem;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--text-md);
+  cursor: default;
+}
+
+/* Room between the things on the composer's bottom row: they were touching
+   at the left while the middle of the bar sat empty. */
+.sheet-composer-bar { gap: 0.75rem; }
+.sheet-composer-bar > *:first-child { display: flex; align-items: center; gap: 0.55rem; }
+
+/* Bounded numbers read as a set, not as a column of unrelated questions:
+   four short fields down a page made the tab look longer than it is. */
+.set-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem 1.5rem;
+}
+
+@media (max-width: 720px) {
+  .set-grid { grid-template-columns: 1fr; }
+}
