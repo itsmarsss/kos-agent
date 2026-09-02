@@ -13,7 +13,19 @@
 
 export const BEHAVIOUR_KEY = "behaviour";
 
+/**
+ * Which engine answers a chat turn.
+ *
+ * "api" calls the model provider directly and bills API credits. "sdk" runs
+ * the turn through the Claude Agent SDK, which is what builds already use, so
+ * it spends a Claude Code subscription instead. Either way the only tools are
+ * KOS's own, behind the same jail and the same approvals.
+ */
+export type ChatEngine = "api" | "sdk";
+
 export interface Behaviour {
+  /** Which engine answers a chat turn. */
+  engine: ChatEngine;
   /** Start a fix attempt on the first failure of an unattended job. */
   autoFix: boolean;
   /** Model round-trips a turn may take before it stops and says so. */
@@ -31,6 +43,7 @@ export interface Behaviour {
 }
 
 export const BEHAVIOUR_DEFAULTS: Behaviour = {
+  engine: "api",
   autoFix: false,
   maxSteps: 10,
   fixSteps: 24,
@@ -42,7 +55,7 @@ export const BEHAVIOUR_DEFAULTS: Behaviour = {
 
 /** Range for each number, as [min, max]. */
 export const BEHAVIOUR_LIMITS: Record<
-  Exclude<keyof Behaviour, "autoFix">,
+  Exclude<keyof Behaviour, "autoFix" | "engine">,
   [number, number]
 > = {
   maxSteps: [1, 100],
@@ -77,6 +90,7 @@ export function parseBehaviour(raw: unknown, legacyAutoFix?: unknown): Behaviour
       : false;
 
   return {
+    engine: input["engine"] === "sdk" ? "sdk" : "api",
     autoFix:
       typeof input["autoFix"] === "boolean" ? input["autoFix"] : legacy,
     maxSteps: clamp(input["maxSteps"], "maxSteps"),

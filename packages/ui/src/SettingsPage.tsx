@@ -28,6 +28,7 @@ import { SpendPanel } from "./SpendPanel.js";
  * harness defaults to, so an unread settings page is not also a wrong one.
  */
 const BEHAVIOUR_FALLBACK: Behaviour = {
+  engine: "api",
   autoFix: false,
   maxSteps: 10,
   fixSteps: 24,
@@ -522,6 +523,33 @@ export function SettingsPage(): ReactElement {
                   />
                   <span>{how.autoFix ? "On" : "Off"}</span>
                 </label>
+              </Field>
+            </Section>
+
+            <Section
+              title="Who does the thinking"
+              blurb="A turn can go to the model provider, which bills API credits, or through the Claude Agent SDK, which is what coding agents already use and spends a Claude Code subscription instead."
+            >
+              <Field
+                label="Chat engine"
+                hint="Either way the only tools are KOS's own, inside the same workspace jail, and risky ones still ask you first. The SDK path needs a signed-in Claude Code on this machine, or an Anthropic key."
+              >
+                <Select
+                  className="set-select"
+                  label="Chat engine"
+                  value={how.engine}
+                  options={[
+                    { value: "api", label: "Model provider", hint: "API credits" },
+                    {
+                      value: "sdk",
+                      label: "Claude Agent SDK",
+                      hint: "Claude Code subscription",
+                    },
+                  ]}
+                  onChange={(v) =>
+                    setHow({ ...how, engine: v === "sdk" ? "sdk" : "api" })
+                  }
+                />
               </Field>
             </Section>
 

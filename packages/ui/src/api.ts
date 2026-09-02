@@ -258,6 +258,8 @@ export interface PendingMessage {
 
 /** How KOS behaves when nobody is telling it what to do. */
 export interface Behaviour {
+  /** "api" bills the provider; "sdk" spends a Claude Code subscription. */
+  engine: "api" | "sdk";
   autoFix: boolean;
   maxSteps: number;
   fixSteps: number;
