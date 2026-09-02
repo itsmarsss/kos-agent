@@ -896,8 +896,9 @@ export class Kernel {
 
           if (first.kind === "waiting") {
             void sdkRun
-              .then(settleSdk)
+              .then((r) => (this.closed ? "" : settleSdk(r)))
               .catch((err: unknown) => {
+                if (this.closed) return;
                 this.runs.finish(
                   runId,
                   "error",
@@ -954,16 +955,19 @@ export class Kernel {
           // would have here.
           void running
             .then((r) =>
-              this.settleTurn(r, {
+              this.closed
+                ? ""
+                : this.settleTurn(r, {
                 sessionId,
                 userId,
                 text,
                 ...(opts.origin ? { origin: opts.origin } : {}),
-                runId,
-                useSession,
-              }),
+                    runId,
+                    useSession,
+                  }),
             )
             .catch((err: unknown) => {
+              if (this.closed) return;
               this.runs.finish(
                 runId,
                 "error",
@@ -1594,6 +1598,14 @@ export class Kernel {
     },
   ): Promise<string> {
     const { sessionId, userId, text, origin, runId, useSession } = ctx;
+
+    /*
+     * A turn can now land here long after it started, once the owner has
+     * decided about a call it was suspended on. By then the host may have
+     * gone away: writing to a closed database throws somewhere nobody is
+     * looking, which is how this first showed up, in CI rather than here.
+     */
+    if (this.closed) return "";
 
     // A turn that ends on a tool call has no text in it. Handed straight to
     // the reader that is silence: the agent looks like it ignored them. It
