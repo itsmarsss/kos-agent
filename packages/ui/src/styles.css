@@ -4730,3 +4730,9 @@ a.health {
   color: var(--faint);
   font-size: var(--text-sm);
 }
+
+.spend-pop-only {
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
