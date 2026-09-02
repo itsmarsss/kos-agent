@@ -29,6 +29,21 @@ function prettyJson(raw: string): string {
   }
 }
 
+/**
+ * How long ago, in the same words the rest of the app uses. The drawer said
+ * "9/1/2026, 7:43:16 AM" twice, to the second, next to a card reading "20h
+ * ago"; the exact time is kept on hover for when it matters.
+ */
+function ago(ts?: number | null): string {
+  if (ts == null) return "—";
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  if (s < 2592000) return `${Math.floor(s / 86400)}d ago`;
+  return fmtTime(ts);
+}
+
 function fmtTime(ts?: number | null): string {
   if (ts == null) return "—";
   try {
@@ -61,6 +76,8 @@ export function Inspector(props: {
   target: InspectTarget | null;
   onClose: () => void;
   onOpenPage?: (id: string) => void;
+  /** Show a project's folder in the file browser. */
+  onOpenFolder?: (path: string) => void;
   onSaved?: () => void;
   onSetProjectStatus?: (slug: string, status: string) => Promise<void>;
   onToggleCron?: (id: number, enabled: boolean) => Promise<void>;
@@ -310,152 +327,240 @@ export function Inspector(props: {
     case "project": {
       const p = target.data;
       title = p.name;
-      subtitle = `${p.slug} · ${p.status}`;
+      // The live value, not the one the card was holding when it was clicked:
+      // the header went on saying "active" after the status had been changed
+      // to dormant a few pixels below it.
       const status = editStatus ?? p.status;
+      subtitle = `${p.slug} · ${status}`;
       const pages = detail?.pages ?? target.pages;
+      const sites = detail?.sites ?? [];
+      const schedules = detail?.crons ?? [];
+      const tables = detail?.tables ?? [];
+      const empty =
+        detail !== null &&
+        tables.length === 0 &&
+        pages.length === 0 &&
+        sites.length === 0 &&
+        schedules.length === 0;
+
+      // Contents on the left, controls and metadata on the right. It was one
+      // column down the middle of a 720px panel, so every row stretched its
+      // value to the far edge and the eye had to travel the width of the
+      // drawer to read "5 rows".
       body = (
         <>
           {p.description && <p className="insp-desc">{p.description}</p>}
 
-          {/* What is actually in it, before what it is called. "How much data
-              does this hold" is the first question about a tracker, and the
-              drawer used to answer it nowhere. */}
           <div className="insp-stats">
             <Stat label="Rows" value={rowTotal(detail)} />
-            <Stat label="Tables" value={detail ? String(detail.tables.length) : "—"} />
+            <Stat label="Tables" value={detail ? String(tables.length) : "—"} />
             <Stat label="Pages" value={String(pages.length)} />
-            <Stat label="Sites" value={detail ? String(detail.sites.length) : "—"} />
+            <Stat label="Sites" value={detail ? String(sites.length) : "—"} />
             <Stat
               label="Schedules"
-              value={detail ? String(detail.crons.length) : "—"}
+              value={detail ? String(schedules.length) : "—"}
             />
           </div>
 
-          <div className="insp-field">
-            <div className="insp-label">Status</div>
-            <Select
-              className="insp-select"
-              label="Status"
-              value={status}
-              options={STATUSES.map((s) => ({ value: s, label: s }))}
-              onChange={setEditStatus}
-            />
+          <div className="insp-cols">
+            <div className="insp-main">
+              {empty && (
+                <p className="ops-muted">
+                  Nothing in it yet. Ask KOS to add a table or a page.
+                </p>
+              )}
+
+              {tables.length > 0 && (
+                <Section title="Data">
+                  <ul className="insp-rows">
+                    {tables.map((t) => (
+                      <li key={t.name}>
+                        <span className="ops-mono">{t.name}</span>
+                        <span className="insp-meta">
+                          {t.rows < 0
+                            ? "unreadable"
+                            : `${t.rows.toLocaleString()} ${
+                                t.rows === 1 ? "row" : "rows"
+                              }`}
+                          {" · "}
+                          {t.columns} cols
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </Section>
+              )}
+
+              {pages.length > 0 && (
+                <Section title="Pages">
+                  <ul className="insp-rows">
+                    {pages.map((pg) => (
+                      <li key={pg.id}>
+                        <button
+                          type="button"
+                          className="ops-link"
+                          onClick={() => props.onOpenPage?.(pg.id)}
+                        >
+                          {pg.title}
+                        </button>
+                        <span className="insp-meta ops-mono">{pg.id}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </Section>
+              )}
+
+              {sites.length > 0 && (
+                <Section title="Sites">
+                  <ul className="insp-rows">
+                    {sites.map((site) => (
+                      <li key={site.path}>
+                        {detail?.sitesBase && site.hasIndex ? (
+                          <a
+                            className="ops-link"
+                            href={`${detail.sitesBase}/${site.project}/${site.name}/`}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                          >
+                            {site.name}
+                          </a>
+                        ) : (
+                          <span>{site.name}</span>
+                        )}
+                        <span className="insp-meta">
+                          {site.hasIndex ? "live" : "no index.html"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </Section>
+              )}
+
+              {schedules.length > 0 && (
+                <Section title="Schedules">
+                  <ul className="insp-rows">
+                    {schedules.map((c) => (
+                      <li key={c.id}>
+                        <span>{c.name}</span>
+                        <span className="insp-meta ops-mono">{c.schedule}</span>
+                        <span
+                          className={`ops-tag ${
+                            c.enabled ? "ops-tag--ok" : "ops-tag--muted"
+                          }`}
+                        >
+                          {c.enabled ? "on" : "off"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </Section>
+              )}
+
+              {detail && detail.activity.length > 0 && (
+                <Section title="Recent">
+                  <ul className="insp-rows insp-rows--stacked">
+                    {detail.activity.map((a) => (
+                      <li key={a.id}>
+                        <span className="insp-act">
+                          <span className="ops-mono">{a.tool}</span>
+                          <span className="insp-meta">
+                            {summarizeAction(a.tool, a.args)}
+                          </span>
+                        </span>
+                        <span className="insp-meta" title={fmtTime(a.createdAt)}>
+                          {a.isError ? "failed · " : ""}
+                          {ago(a.createdAt)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </Section>
+              )}
+            </div>
+
+            <aside className="insp-side">
+              <Section title="Status">
+                {/* Saved on change. The select was at the top of the drawer
+                    and its Save button at the very bottom, so the control and
+                    the thing that committed it were never on screen together. */}
+                <Select
+                  className="insp-select"
+                  label="Status"
+                  value={status}
+                  options={STATUSES.map((s) => ({ value: s, label: s }))}
+                  onChange={(v: string) => {
+                    setEditStatus(v);
+                    if (props.onSetProjectStatus) {
+                      void run(() => props.onSetProjectStatus!(p.slug, v));
+                    }
+                  }}
+                />
+                {busy && <span className="insp-meta">Saving…</span>}
+                {!busy && editStatus !== null && editStatus === p.status && (
+                  <span className="insp-meta">Saved</span>
+                )}
+              </Section>
+
+              <Section title="About">
+                <dl className="insp-about">
+                  <div>
+                    <dt>Type</dt>
+                    <dd>{p.type}</dd>
+                  </div>
+                  <div>
+                    <dt>Module</dt>
+                    <dd className="ops-mono">{p.module ?? "embedded"}</dd>
+                  </div>
+                  <div>
+                    <dt>Folder</dt>
+                    <dd>
+                      {detail?.folder ? (
+                        <button
+                          type="button"
+                          className="ops-link ops-mono"
+                          onClick={() => props.onOpenFolder?.(detail.folder)}
+                        >
+                          {detail.folder}
+                        </button>
+                      ) : (
+                        "—"
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Created</dt>
+                    <dd title={fmtTime(p.createdAt)}>{ago(p.createdAt)}</dd>
+                  </div>
+                  {/* Within a minute of creation these say the same thing
+                      twice, which is two rows to read and nothing learned. */}
+                  {Math.abs((p.lastTouchedAt ?? 0) - (p.createdAt ?? 0)) >
+                    60_000 && (
+                    <div>
+                      <dt>Last touched</dt>
+                      <dd title={fmtTime(p.lastTouchedAt)}>
+                        {ago(p.lastTouchedAt)}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+              </Section>
+
+              {detail && detail.migrations.length > 0 && (
+                <Section title="Schema">
+                  <ul className="insp-rows">
+                    {detail.migrations.map((mig) => (
+                      <li key={mig.id}>
+                        <span className="ops-mono">v{mig.version}</span>
+                        <span className="insp-meta">{mig.op}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </Section>
+              )}
+            </aside>
           </div>
-
-          {detail && detail.tables.length > 0 && (
-            <div className="insp-field">
-              <div className="insp-label">Data</div>
-              <table className="insp-table">
-                <tbody>
-                  {detail.tables.map((t) => (
-                    <tr key={t.name}>
-                      <td className="ops-mono">{t.name}</td>
-                      <td className="insp-num">{t.columns} cols</td>
-                      <td className="insp-num">
-                        {t.rows < 0 ? "—" : `${t.rows.toLocaleString()} rows`}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          <div className="insp-field">
-            <div className="insp-label">Pages</div>
-            {pages.length === 0 && <div className="ops-muted">No pages linked</div>}
-            <ul className="insp-pages">
-              {pages.map((pg) => (
-                <li key={pg.id}>
-                  <button
-                    type="button"
-                    className="ops-link"
-                    onClick={() => props.onOpenPage?.(pg.id)}
-                  >
-                    {pg.title}
-                  </button>
-                  <span className="ops-mono ops-muted">{pg.id}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {detail && detail.sites.length > 0 && (
-            <div className="insp-field">
-              <div className="insp-label">Sites</div>
-              <ul className="insp-pages">
-                {detail.sites.map((site) => (
-                  <li key={site.path}>
-                    {detail.sitesBase && site.hasIndex ? (
-                      <a
-                        className="ops-link"
-                        href={`${detail.sitesBase}/${site.project}/${site.name}/`}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                      >
-                        {site.name}
-                      </a>
-                    ) : (
-                      <span>{site.name}</span>
-                    )}
-                    <span className="ops-mono ops-muted">
-                      {site.hasIndex ? site.path : "no index.html"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {detail && detail.crons.length > 0 && (
-            <div className="insp-field">
-              <div className="insp-label">Schedules</div>
-              <ul className="insp-pages">
-                {detail.crons.map((c) => (
-                  <li key={c.id}>
-                    <span>{c.name}</span>
-                    <span className="ops-mono ops-muted">
-                      {c.schedule} · {c.enabled ? "on" : "off"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {detail && detail.migrations.length > 0 && (
-            <div className="insp-field">
-              <div className="insp-label">Schema history</div>
-              <ul className="insp-pages">
-                {detail.migrations.map((m) => (
-                  <li key={m.id}>
-                    <span className="ops-mono">v{m.version}</span>
-                    <span className="ops-mono ops-muted">{m.op}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <Field label="Type" value={p.type} />
-          <Field label="Module" value={p.module ?? "embedded"} mono />
-          <Field label="Folder" value={detail?.folder ?? "—"} mono />
-          <Field label="Created" value={fmtTime(p.createdAt)} />
-          <Field label="Last touched" value={fmtTime(p.lastTouchedAt)} />
         </>
       );
-      actions = props.onSetProjectStatus ? (
-        <button
-          type="button"
-          className="ops-btn ops-btn--primary"
-          disabled={busy || status === p.status}
-          onClick={() =>
-            void run(() => props.onSetProjectStatus!(p.slug, status))
-          }
-        >
-          Save status
-        </button>
-      ) : null;
       void projectSlug;
       break;
     }
@@ -502,7 +607,10 @@ export function Inspector(props: {
           {err && <div className="ops-alert ops-alert--err">{err}</div>}
           {body}
         </div>
-        {(actions || busy) && (
+        {/* Only when there is something to press. A project saves its status
+            from the control itself now, so a footer here would be an empty
+            bar that says "saving..." somewhere the eye is not. */}
+        {actions && (
           <footer className="insp-foot">
             {busy && <span className="ops-busy">saving…</span>}
             {actions}
@@ -524,6 +632,19 @@ function Facts({ rows }: { rows: [string, string][] }): React.ReactElement {
         </div>
       ))}
     </dl>
+  );
+}
+
+/** A labelled group. One heading style everywhere, rather than nine. */
+function Section(props: {
+  title: string;
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <section className="insp-section">
+      <h3 className="insp-label">{props.title}</h3>
+      {props.children}
+    </section>
   );
 }
 

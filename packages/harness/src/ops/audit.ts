@@ -96,6 +96,27 @@ export class AuditLog {
     return Number(info.lastInsertRowid);
   }
 
+  /**
+   * Tool calls that mention a project, newest first.
+   *
+   * A project's tables, pages and folders are all named after its slug, so
+   * the slug appearing in a call's arguments is a good enough answer to
+   * "what has been done to this thing". Matched with instr rather than LIKE:
+   * a slug contains underscores, LIKE reads those as wildcards, and a pattern
+   * that looks exact but is not has already caused one silent bug here.
+   */
+  touching(slug: string, limit = 20): AuditRecord[] {
+    if (slug === "") return [];
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM audit_log
+         WHERE instr(args, ?) > 0 OR instr(result, ?) > 0
+         ORDER BY id DESC LIMIT ?`,
+      )
+      .all(slug, slug, limit) as Row[];
+    return rows.map(toRecord);
+  }
+
   recent(limit = 50): AuditRecord[] {
     const rows = this.db
       .prepare(`SELECT * FROM audit_log ORDER BY id DESC LIMIT ?`)
