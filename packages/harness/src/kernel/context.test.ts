@@ -57,6 +57,10 @@ describe("inferScopeTags", () => {
     expect(inferScopeTags("create a task list")).toEqual(
       expect.arrayContaining(["tasks", "systems"]),
     );
+    // Without this the daemon tools existed and were never offered: they are
+    // tagged, and nothing an owner says about an app inferred the tag.
+    expect(inferScopeTags("is the api server still running")).toContain("daemons");
+    expect(inferScopeTags("show me the logs for that worker")).toContain("daemons");
   });
 });
 
