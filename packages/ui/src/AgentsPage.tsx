@@ -74,9 +74,9 @@ function Build({
           <span className={`agent-dot agent-dot--${build.status}`} />
           <span className="agent-dir">{build.dir}</span>
           <span className="agent-state">{LABEL[build.status] ?? build.status}</span>
-          <span className="agent-time">
-            {elapsed(build.startedAt, build.endedAt ?? now)}
-          </span>
+        </span>
+        <span className="agent-time">
+          {elapsed(build.startedAt, build.endedAt ?? now)}
         </span>
         {live && (
           <>
