@@ -267,6 +267,8 @@ export interface Behaviour {
   agentMinutes: number;
   agentTurns: number;
   stallMinutes: number;
+  /** Minutes a turn holds, suspended, waiting for you to decide. */
+  approvalMinutes: number;
 }
 
 export interface FailingJob {

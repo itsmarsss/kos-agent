@@ -36,6 +36,7 @@ const BEHAVIOUR_FALLBACK: Behaviour = {
   agentMinutes: 15,
   agentTurns: 60,
   stallMinutes: 3,
+  approvalMinutes: 30,
 };
 
 /**
@@ -130,6 +131,103 @@ function Limit({
   );
 }
 
+/**
+ * A set of hostnames, edited one at a time.
+ *
+ * Stored as the comma-separated string the environment file wants, because
+ * that is what the host reads; shown as what it is.
+ */
+function HostList({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}): ReactElement {
+  const [draft, setDraft] = useState("");
+  const hosts = value
+    .split(",")
+    .map((h) => h.trim())
+    .filter(Boolean);
+
+  const write = (next: string[]): void => onChange(next.join(", "));
+
+  const add = (): void => {
+    // Typed with a scheme or a path, which is the natural thing to paste.
+    const cleaned = draft
+      .trim()
+      .replace(/^[a-z]+:\/\//i, "")
+      .replace(/\/.*$/, "")
+      .toLowerCase();
+    if (!cleaned || hosts.includes(cleaned)) {
+      setDraft("");
+      return;
+    }
+    write([...hosts, cleaned]);
+    setDraft("");
+  };
+
+  return (
+    <div className="hostlist">
+      {hosts.length > 0 && (
+        <ul className="hostlist-items">
+          {hosts.map((h) => (
+            <li key={h}>
+              <span className="ops-mono">{h}</span>
+              <button
+                type="button"
+                className="icon-btn icon-btn--bare"
+                title={`Stop allowing ${h}`}
+                onClick={() => write(hosts.filter((x) => x !== h))}
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  aria-hidden="true"
+                >
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="hostlist-add">
+        <input
+          className="kos-input"
+          value={draft}
+          placeholder="rss.nytimes.com"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+        />
+        <button
+          type="button"
+          className="btn"
+          disabled={!draft.trim()}
+          onClick={add}
+        >
+          Allow
+        </button>
+      </div>
+      {hosts.length === 0 && (
+        <span className="hint">
+          Nothing is allowed, so http.fetch can reach nothing.
+        </span>
+      )}
+    </div>
+  );
+}
+
 function Section({
   title,
   blurb,
@@ -137,6 +235,8 @@ function Section({
   onSave,
   saving,
   saved,
+  canSave,
+  extra,
 }: {
   title: string;
   blurb: string;
@@ -144,6 +244,10 @@ function Section({
   onSave?: () => void;
   saving?: boolean;
   saved?: string | null;
+  /** Withhold Save until something has changed. Undefined means always on. */
+  canSave?: boolean;
+  /** Another action beside Save, in the same footer as every other tab. */
+  extra?: ReactNode;
 }): ReactElement {
   return (
     <section className="set-card">
@@ -157,12 +261,19 @@ function Section({
           <button
             type="button"
             className="btn btn--primary"
-            disabled={saving}
+            disabled={saving || canSave === false}
             onClick={onSave}
           >
             {saving ? "Saving…" : "Save"}
           </button>
-          {saved && <span className="set-saved">{saved}</span>}
+          {extra}
+          {saved && (
+            <span
+              className={`set-saved ${saved === "Not saved yet" ? "is-unsaved" : ""}`}
+            >
+              {saved}
+            </span>
+          )}
         </footer>
       )}
     </section>
@@ -543,14 +654,37 @@ export function SettingsPage(): ReactElement {
         )}
 
         {active === "behaviour" && (
-          <>
-            <Section
-              title="When something fails"
-              blurb="A job that fails at 3am tells you either way. This decides whether KOS also tries to do something about it before you wake up."
-            >
+          /* One card, like every other tab. It was three chained cards and a
+             footer of its own, which is why this tab read as a different
+             application from the rest of Settings. */
+          <Section
+            title="Behaviour"
+            blurb="How KOS acts when you are not watching. These are one set of settings, saved together."
+            saving={busy === "behaviour"}
+            saved={changed ? "Not saved yet" : (saved.behaviour ?? null)}
+            onSave={saveHow}
+            canSave={changed}
+            extra={
+              <button
+                type="button"
+                className="btn"
+                disabled={busy === "behaviour" || atDefaults}
+                onClick={() => setHow(defaults)}
+              >
+                Reset to defaults
+              </button>
+            }
+          >
+            <div className="set-group">
+              <h3>When something fails</h3>
+              <p className="hint">
+                A job that fails at 3am tells you either way. This decides
+                whether KOS also tries to do something about it before you wake
+                up.
+              </p>
               <Field
                 label="Try to fix failures on its own"
-                hint="On the first failure of a job, KOS opens a chat, works out why, and repairs it if it safely can. Later failures of the same job do not start another attempt. Everything it does there still asks you before anything risky, and you can read or steer the attempt in Chats."
+                hint="On the first failure of a job, KOS opens a chat, works out why, and repairs it if it safely can. Later failures of the same job do not start another attempt. Everything it does there still asks you before anything risky."
               >
                 <label className="set-toggle">
                   <input
@@ -561,100 +695,82 @@ export function SettingsPage(): ReactElement {
                   <span>{how.autoFix ? "On" : "Off"}</span>
                 </label>
               </Field>
-            </Section>
+            </div>
 
-            <Section
-              title="How hard it tries"
-              blurb="A step is one round-trip to the model, which is roughly one thought and one tool call. Past the limit a turn stops and says it got stuck rather than running on."
-            >
+            <div className="set-group">
+              <h3>How hard it tries</h3>
+              <p className="hint">
+                A step is one round-trip to the model, roughly one thought and
+                one tool call. Past the limit a turn stops and says it got stuck
+                rather than running on.
+              </p>
               <div className="set-grid">
-              <Limit
-                label="Steps in a turn"
-                hint={`What an ordinary message gets. Default ${defaults.maxSteps}.`}
-                value={how.maxSteps}
-                range={limits.maxSteps}
-                onChange={(maxSteps) => setHow({ ...how, maxSteps })}
-              />
-              <Limit
-                label="Steps in a fix attempt"
-                hint={`Diagnosing a failure is mostly reading, so it is worth more than a normal turn. Default ${defaults.fixSteps}.`}
-                value={how.fixSteps}
-                range={limits.fixSteps}
-                onChange={(fixSteps) => setHow({ ...how, fixSteps })}
-              />
+                <Limit
+                  label="Steps in a turn"
+                  hint={`What an ordinary message gets. Default ${defaults.maxSteps}.`}
+                  value={how.maxSteps}
+                  range={limits.maxSteps}
+                  onChange={(maxSteps) => setHow({ ...how, maxSteps })}
+                />
+                <Limit
+                  label="Steps in a fix attempt"
+                  hint={`Diagnosing a failure is mostly reading, so it is worth more than a normal turn. Default ${defaults.fixSteps}.`}
+                  value={how.fixSteps}
+                  range={limits.fixSteps}
+                  onChange={(fixSteps) => setHow({ ...how, fixSteps })}
+                />
               </div>
-            </Section>
+            </div>
 
-            <Section
-              title="Unattended work"
-              blurb="Limits on what KOS may do while nobody is watching. These are the guards against a loop that runs all night."
-            >
+            <div className="set-group">
+              <h3>Unattended work</h3>
+              <p className="hint">
+                Limits on what KOS may do while nobody is watching: the guards
+                against a loop that runs all night.
+              </p>
               <div className="set-grid">
-              <Limit
-                label="Self-prompted jobs per hour"
-                hint={`A scheduled job that thinks rather than running fixed actions. Zero stops them entirely. Default ${defaults.selfPromptsPerHour}.`}
-                value={how.selfPromptsPerHour}
-                range={limits.selfPromptsPerHour}
-                onChange={(selfPromptsPerHour) =>
-                  setHow({ ...how, selfPromptsPerHour })
-                }
-              />
-              <Limit
-                label="Minutes a coding agent may run"
-                hint={`Stopped at this regardless of what it is doing. Default ${defaults.agentMinutes}.`}
-                value={how.agentMinutes}
-                range={limits.agentMinutes}
-                onChange={(agentMinutes) => setHow({ ...how, agentMinutes })}
-              />
-              <Limit
-                label="Turns a coding agent may take"
-                hint={`The other end of the same leash, counted in steps rather than time. Default ${defaults.agentTurns}.`}
-                value={how.agentTurns}
-                range={limits.agentTurns}
-                onChange={(agentTurns) => setHow({ ...how, agentTurns })}
-              />
-              <Limit
-                label="Minutes of silence before an agent looks stuck"
-                hint={`Only changes what the Agents list says about it; nothing is stopped. Default ${defaults.stallMinutes}.`}
-                value={how.stallMinutes}
-                range={limits.stallMinutes}
-                onChange={(stallMinutes) => setHow({ ...how, stallMinutes })}
-              />
+                <Limit
+                  label="Self-prompted jobs per hour"
+                  hint={`A scheduled job that thinks rather than running fixed actions. Zero stops them entirely. Default ${defaults.selfPromptsPerHour}.`}
+                  value={how.selfPromptsPerHour}
+                  range={limits.selfPromptsPerHour}
+                  onChange={(selfPromptsPerHour) =>
+                    setHow({ ...how, selfPromptsPerHour })
+                  }
+                />
+                <Limit
+                  label="Minutes to wait for your approval"
+                  hint={`A turn suspended on a risky call holds its conversation until you decide. After this it treats the silence as a refusal. Default ${defaults.approvalMinutes}.`}
+                  value={how.approvalMinutes}
+                  range={limits.approvalMinutes}
+                  onChange={(approvalMinutes) =>
+                    setHow({ ...how, approvalMinutes })
+                  }
+                />
+                <Limit
+                  label="Minutes a coding agent may run"
+                  hint={`Stopped at this regardless of what it is doing. Default ${defaults.agentMinutes}.`}
+                  value={how.agentMinutes}
+                  range={limits.agentMinutes}
+                  onChange={(agentMinutes) => setHow({ ...how, agentMinutes })}
+                />
+                <Limit
+                  label="Turns a coding agent may take"
+                  hint={`The other end of the same leash, counted in steps rather than time. Default ${defaults.agentTurns}.`}
+                  value={how.agentTurns}
+                  range={limits.agentTurns}
+                  onChange={(agentTurns) => setHow({ ...how, agentTurns })}
+                />
+                <Limit
+                  label="Minutes of silence before an agent looks stuck"
+                  hint={`Only changes what the Agents list says about it; nothing is stopped. Default ${defaults.stallMinutes}.`}
+                  value={how.stallMinutes}
+                  range={limits.stallMinutes}
+                  onChange={(stallMinutes) => setHow({ ...how, stallMinutes })}
+                />
               </div>
-            </Section>
-
-            {/* One set of buttons, because these three cards are one stored
-                document. A Save under each would each write all of them,
-                which reads as three independent settings and is not. Drawn
-                as a card footer so it matches every other Save on the page. */}
-            <footer className="set-card set-card-foot">
-              <button
-                type="button"
-                className="btn btn--primary"
-                disabled={busy === "behaviour" || !changed}
-                onClick={saveHow}
-              >
-                {busy === "behaviour" ? "Saving…" : "Save behaviour"}
-              </button>
-              {/* Fills the fields rather than writing them: you get to see
-                  what reverting would do before it is the setting. */}
-              <button
-                type="button"
-                className="btn"
-                disabled={busy === "behaviour" || atDefaults}
-                onClick={() => setHow(defaults)}
-              >
-                Reset to defaults
-              </button>
-              {changed ? (
-                <span className="set-unsaved">Not saved yet</span>
-              ) : (
-                saved.behaviour && (
-                  <span className="set-saved">{saved.behaviour}</span>
-                )
-              )}
-            </footer>
-          </>
+            </div>
+          </Section>
         )}
 
         {active === "conversation" && (
@@ -751,19 +867,14 @@ export function SettingsPage(): ReactElement {
               </Field>
             ))}
             {accessKeys.map(([key, meta]) => (
-              <Field
-                key={key}
-                label={meta.label}
-                hint={meta.hint}
-                badge={
-                  meta.value ? <span className="set-badge is-set">{meta.value}</span> : null
-                }
-              >
-                <input
-                  className="kos-input"
-                  value={ports[key] ?? ""}
-                  placeholder={meta.value || "none"}
-                  onChange={(e) => setPorts((p) => ({ ...p, [key]: e.target.value }))}
+              <Field key={key} label={meta.label} hint={meta.hint}>
+                {/* A list, edited as a list. It was one text box holding
+                    comma-separated hosts, which reads as a sentence and
+                    edits like one: no way to see what is on it at a glance,
+                    and removing the middle entry meant surgery on a string. */}
+                <HostList
+                  value={ports[key] ?? meta.value ?? ""}
+                  onChange={(next) => setPorts((p) => ({ ...p, [key]: next }))}
                 />
               </Field>
             ))}
