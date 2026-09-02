@@ -394,6 +394,10 @@ export function App(): React.ReactElement {
             target={inspect}
             onClose={() => setInspect(null)}
             onOpenPage={openPage}
+            onOpenFolder={(path) => {
+              setInspect(null);
+              go({ name: "files", path });
+            }}
             onSaved={() => void refresh()}
             onSetProjectStatus={async (slug, st) => {
               await api.setProjectStatus(slug, st);

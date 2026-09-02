@@ -899,6 +899,10 @@ export async function handleApiRequest(
       // What has been done to its shape, newest first: a schema is a thing
       // that grows, and the history says how it got here.
       migrations: kernel.migrator.history(slug).slice(-10).reverse(),
+      // What has been done to it lately. The drawer could say what a project
+      // contained and nothing about what had happened to it, which is the
+      // question you open it to ask when a tracker looks wrong.
+      activity: kernel.audit.touching(slug, 12),
       folder: `${PROJECTS_DIR}/${slug}`,
     });
   }
