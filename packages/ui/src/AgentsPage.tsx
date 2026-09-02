@@ -218,14 +218,19 @@ export function AgentsPage({
         </AnimatePresence>
       </div>
 
-      {reading !== null && (
-        <AgentTerminal
-          id={reading}
-          onClose={() => setReading(null)}
-          onDecide={onDecide}
-          deciding={deciding}
-        />
-      )}
+      {/* Presence so the drawer can animate out; returning null on close
+          skips the exit entirely and it vanishes instead. */}
+      <AnimatePresence>
+        {reading !== null && (
+          <AgentTerminal
+            key={reading}
+            id={reading}
+            onClose={() => setReading(null)}
+            onDecide={onDecide}
+            deciding={deciding}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

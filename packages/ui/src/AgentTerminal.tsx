@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
+import { m } from "motion/react";
+
+import { ease, spring } from "./motion.js";
 
 import { api, type BuildRecord, type PendingAction } from "./api.js";
 import { Decision } from "./Decision.js";
@@ -199,6 +202,14 @@ export function AgentTerminal({
     if (el) el.scrollTop = el.scrollHeight;
   }, [build?.events.length, stick]);
 
+  useEffect(() => {
+    const key = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", key);
+    return () => document.removeEventListener("keydown", key);
+  }, [onClose]);
+
   const live = build?.status === "running" || build?.status === "waiting";
 
   const send = (): void => {
@@ -213,13 +224,31 @@ export function AgentTerminal({
   };
 
   return (
-    <div
+    /*
+     * A drawer rather than a dialog in the middle of the screen.
+     *
+     * A build log is something you read alongside the list you opened it
+     * from, and a centred modal put a wall between the two: it covered the
+     * page, and going from one agent to the next meant closing and reopening.
+     * Full screen is still a click away for when the log is the whole task.
+     */
+    <m.div
       className={`term-wrap ${full ? "is-full" : ""}`}
       role="dialog"
       aria-label="Build log"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={ease}
     >
       <div className="term-backdrop" onClick={onClose} />
-      <div className="term">
+      <m.div
+        className="term"
+        initial={{ x: 28, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        exit={{ x: 28, opacity: 0 }}
+        transition={spring}
+      >
         <header className="term-head">
           <span className={`agent-dot agent-dot--${build?.status ?? "done"}`} />
           <span className="term-dir">{build?.dir ?? "…"}</span>
@@ -349,7 +378,7 @@ export function AgentTerminal({
             onChange={(e) => setSay(e.target.value)}
           />
         </form>
-      </div>
-    </div>
+      </m.div>
+    </m.div>
   );
 }
