@@ -454,6 +454,19 @@ export class Kernel {
          * would not clear. Framing it makes the chat show the build working
          * and then stop.
          */
+        // A build outlives the turn that started it, so its ending is news
+        // rather than part of the conversation: shown where a command's
+        // answer is shown, and told to the owner wherever they are.
+        onFinished: (summary, conversationId) => {
+          if (conversationId) {
+            kernelRef?.progress.emit({
+              kind: "note",
+              conversationId,
+              text: summary,
+            });
+          }
+          kernelRef?.tellOwnerPublic(summary);
+        },
         frame: (phase) => {
           const conversationId = kernelRef?.currentConversationId;
           if (!conversationId) return;
@@ -814,9 +827,11 @@ export class Kernel {
           });
           const reply = sdk.text || "I do not have anything to add to that.";
           if (useSession) {
+            // Only the reply. What the owner said was written to the
+            // transcript before the turn started, so appending it here put it
+            // in twice and every message in an SDK chat appeared as a pair.
             this.sessions.record(sessionId, [
               ...this.sessions.get(sessionId),
-              { role: "user", content: [{ type: "text", text }] },
               { role: "assistant", content: [{ type: "text", text: reply }] },
             ]);
             this.conversations.touch(
@@ -1538,6 +1553,11 @@ export class Kernel {
    * conversation when it is not, on the principle that an unattended failure
    * should never be lost because Discord happens to be unconfigured.
    */
+  /** Same as tellOwner, reachable from the modules wired at boot. */
+  tellOwnerPublic(text: string): void {
+    this.tellOwner(text);
+  }
+
   private tellOwner(text: string): void {
     if (this.notify) {
       // Not awaited: a channel that is slow or down must not hold up the job

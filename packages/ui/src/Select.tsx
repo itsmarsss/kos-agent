@@ -122,9 +122,22 @@ export function Select({
         }}
       >
         <span className="sel-value">{current?.label ?? value}</span>
-        <span className="sel-caret" aria-hidden="true">
-          ⌄
-        </span>
+        {/* Drawn, not a glyph: the character sat high and off-centre and
+            differed between fonts. */}
+        <svg
+          className="sel-caret"
+          width="10"
+          height="10"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M6 9l6 6 6-6" />
+        </svg>
       </button>
 
       {createPortal(

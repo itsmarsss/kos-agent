@@ -2255,9 +2255,12 @@ select {
 .sel-button {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  background: none;
-  border: 1px solid transparent;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: var(--bg);
+  /* A visible edge. It was transparent until hover, so a dropdown looked
+     like text until you happened to be over it. */
+  border: 1px solid var(--line);
   border-radius: var(--r-sm);
   color: var(--muted);
   font: inherit;
@@ -2267,10 +2270,10 @@ select {
   cursor: pointer;
   max-width: 14rem;
 }
-.sel-button:hover:not(:disabled) { color: var(--text); border-color: var(--line); }
+.sel-button:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); }
 .sel-button:disabled { opacity: 0.5; cursor: default; }
 .sel-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sel-caret { color: var(--faint); font-size: var(--text-xs); line-height: 1; }
+.sel-caret { color: var(--faint); flex: none; }
 
 .sel-menu {
   /* Fixed and placed from script: as an absolutely positioned child it was
