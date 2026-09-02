@@ -48,7 +48,7 @@ import {
 import { LiveTurn } from "./LiveTurn.js";
 import { ToolCall } from "./ToolCall.js";
 import { ChatConfig } from "./ChatConfig.js";
-import { Markdown } from "./Markdown.js";
+import { Markdown, MentionNames } from "./Markdown.js";
 import { Modal } from "./Modal.js";
 import { hrefFor } from "./routes.js";
 import { composerKeyDown, useAutoGrow, useStickToBottom } from "./composer.js";
@@ -209,6 +209,19 @@ export function ChatsPage({
 
   const active = conversations.find((c) => c.id === activeId);
   const visible = [...seeded, ...events];
+
+  /**
+   * The words for a reference, where this view knows them. A chat and an
+   * agent are addressed by id, and an id is not a name.
+   */
+  const nameFor = (kind: string, id: string): string | undefined => {
+    if (kind === "chat") return conversations.find((c) => c.id === id)?.title;
+    if (kind === "agent") {
+      const build = agents.find((b) => String(b.id) === id);
+      return build ? build.dir : undefined;
+    }
+    return undefined;
+  };
 
   /**
    * Reload on the conversation changing, and again whenever it has moved on
@@ -808,6 +821,9 @@ export function ChatsPage({
               />
             </Modal>
 
+            {/* The thread knows the chats and agents by name, so a chip can
+                read "Lane A" rather than the id it is addressed by. */}
+            <MentionNames resolve={nameFor}>
             <div className="chats-thread" ref={boxRef}>
               {visible.length === 0 && <p className="hint">Nothing said yet.</p>}
               {(() => {
@@ -999,6 +1015,7 @@ export function ChatsPage({
               ))}
               </AnimatePresence>
             </div>
+            </MentionNames>
 
             <div
               className={`chats-composer composer ${drop.over ? "is-over" : ""}`}
