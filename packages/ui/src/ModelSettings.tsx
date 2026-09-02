@@ -25,11 +25,12 @@ export function ModelSettings({
   /** Absent on the settings page, where there is no sheet to close. */
   onClose?: () => void;
   /**
-   * Hands the save back to whoever is wrapping this, so the button can live
-   * in the card's own footer with every other section's. Given one, the
-   * inline button is not drawn.
+   * Hands the save back to whoever is wrapping this, along with whether the
+   * draft differs from what is stored, so the button can live in the card's
+   * own footer with every other section's and behave the same way. Given
+   * one, the inline button is not drawn.
    */
-  onReady?: (save: () => void) => void;
+  onReady?: (save: () => void, dirty: boolean) => void;
 }): ReactElement {
   const [saved, setSaved] = useState<Settings>({});
   const [routes, setRoutes] = useState<Record<
@@ -38,6 +39,8 @@ export function ModelSettings({
   > | null>(null);
   const [efforts, setEfforts] = useState<string[]>([]);
   const [models, setModels] = useState<string[]>([]);
+  /** What the server last confirmed, so an edit can be told from a load. */
+  const [stored, setStored] = useState<Settings>({});
   const [status, setStatus] = useState<string | null>(null);
   const [listError, setListError] = useState<string | null>(null);
 
@@ -46,6 +49,7 @@ export function ModelSettings({
       .modelSettings()
       .then((s) => {
         setSaved(s.saved ?? {});
+        setStored(s.saved ?? {});
         setRoutes(s.routes);
         setEfforts(s.efforts ?? []);
       })
@@ -65,10 +69,16 @@ export function ModelSettings({
     setStatus(null);
   };
 
+  /** Whether anything here differs from what the server last confirmed. */
+  const dirty = JSON.stringify(saved) !== JSON.stringify(stored);
+
   const save = (): void => {
     void api
       .saveModelSettings(saved)
-      .then(() => setStatus("Saved. Takes effect on the next turn."))
+      .then(() => {
+        setStored(saved);
+        setStatus("Saved. Takes effect on the next turn.");
+      })
       .catch((err: unknown) =>
         setStatus(err instanceof Error ? err.message : String(err)),
       );
@@ -77,7 +87,7 @@ export function ModelSettings({
   // Registered after every render so the callback closes over current state
   // rather than over whatever it was on mount.
   useEffect(() => {
-    onReady?.(save);
+    onReady?.(save, dirty);
   });
 
   return (
