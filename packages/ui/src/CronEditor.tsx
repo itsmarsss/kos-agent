@@ -21,6 +21,48 @@ const PRESETS: { label: string; value: string }[] = [
   { label: "First of the month", value: "0 9 1 * *" },
 ];
 
+/**
+ * A cron line, in words.
+ *
+ * Only the shapes people actually write: a fixed time, an interval, a
+ * weekday. Anything else is left to the expression itself rather than
+ * guessed at, because a confident wrong reading is worse than none.
+ */
+export function describeCron(expr: string): string | null {
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length !== 5) return null;
+  const [min, hour, dom, mon, dow] = parts as [string, string, string, string, string];
+
+  const everyMinutes = /^\*\/(\d+)$/.exec(min);
+  if (everyMinutes && hour === "*" && dom === "*" && mon === "*" && dow === "*") {
+    return `Every ${everyMinutes[1]} minutes`;
+  }
+  if (min === "*" && hour === "*") return "Every minute";
+
+  if (!/^\d+$/.test(min)) return null;
+  const at = (h: string): string =>
+    `${h.padStart(2, "0")}:${min.padStart(2, "0")}`;
+
+  const everyHours = /^\*\/(\d+)$/.exec(hour);
+  if (everyHours && dom === "*" && mon === "*" && dow === "*") {
+    return `Every ${everyHours[1]} hours, at ${min.padStart(2, "0")} past`;
+  }
+  if (!/^\d+$/.test(hour)) return null;
+
+  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  if (dom === "*" && mon === "*" && dow === "*") return `Every day at ${at(hour)}`;
+  if (dom === "*" && mon === "*" && /^[0-6]$/.test(dow)) {
+    return `Every ${days[Number(dow)]} at ${at(hour)}`;
+  }
+  if (dom === "*" && mon === "*" && dow === "1-5") {
+    return `Weekdays at ${at(hour)}`;
+  }
+  if (/^\d+$/.test(dom) && mon === "*" && dow === "*") {
+    return `On day ${dom} of each month at ${at(hour)}`;
+  }
+  return null;
+}
+
 export function CronEditor({
   job,
   onDone,
@@ -72,8 +114,10 @@ export function CronEditor({
       .finally(() => setSaving(false));
   };
 
+  const readable = describeCron(schedule);
+
   return (
-    <div className="settings">
+    <div className="settings cron-editor">
       <label className="kos-field">
         <span className="kos-field-label">Name</span>
         <input
@@ -88,7 +132,7 @@ export function CronEditor({
         <span className="kos-field-label">When</span>
         <div className="settings-row">
           <input
-            className="kos-input"
+            className="kos-input kos-mono"
             value={schedule}
             spellCheck={false}
             onChange={(e) => setSchedule(e.target.value)}
@@ -104,8 +148,11 @@ export function CronEditor({
             onChange={(v) => v && setSchedule(v)}
           />
         </div>
-        <span className="hint">
-          Five fields: minute, hour, day of month, month, day of week.
+        {/* Read back in words. Five numbers and three stars is a format you
+            either know or do not, and getting it wrong means a job that runs
+            at a time you did not intend and no way to notice from here. */}
+        <span className={`cron-reads ${readable ? "" : "is-bad"}`}>
+          {readable ?? "Not a schedule yet: five fields, minute to day of week."}
         </span>
       </div>
 
@@ -168,7 +215,7 @@ export function CronEditor({
         </p>
       )}
 
-      <div className="settings-actions">
+      <div className="settings-actions cron-actions">
         <button
           type="button"
           className="btn btn--primary"

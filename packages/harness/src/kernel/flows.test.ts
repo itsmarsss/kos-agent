@@ -387,10 +387,15 @@ describe("KOS end-to-end flows", () => {
     expect(recallPrompt).toContain("America/New_York");
   });
 
-  it("keeps harness resume turns out of the owner's memory", async () => {
+  it("keeps what the harness does out of the owner's memory", async () => {
+    // A write, which asks whatever the host: a plain read of an allowed host
+    // no longer does, because listing the host is the permission.
     const model = scripted([
-      toolCall("c1", "http.fetch", { url: "https://example.com" }),
-      text("Queued."),
+      toolCall("c1", "http.fetch", {
+        url: "https://example.com",
+        method: "POST",
+        body: "hi",
+      }),
       text("Done."),
     ]);
     kernel = await boot(model.inference);
@@ -401,8 +406,8 @@ describe("KOS end-to-end flows", () => {
 
     await kernel.approve(pending[0]!.id);
 
-    // The resume prompt is harness plumbing, not something the owner said, so
-    // it must not become an episode or a remembered fact.
+    // Nothing about the approval machinery is something the owner said, so
+    // none of it should become an episode or a remembered fact.
     const facts = kernel.facts.all("owner");
     expect(facts.some((f) => f.value.includes("pending action"))).toBe(false);
   });

@@ -114,8 +114,24 @@ export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
         },
         (input) => doFetch(input, resolved, secrets),
         {
-          floor: "risky",
-          escalate: () => true,
+          /*
+           * The allow-list is the permission.
+           *
+           * Every fetch used to queue for approval, including to a host the
+           * owner had explicitly listed -- so the answer to "may it reach
+           * rss.nytimes.com" was given twice, once in settings and again on
+           * every call. A host that is not on the list is refused by the
+           * tool regardless, so asking about that one is theatre too.
+           *
+           * What still asks is a write. Reading a page the owner allowed is
+           * what the list is for; posting to it is a different act, and one
+           * that can carry data out of the workspace.
+           */
+          floor: "safe",
+          escalate: (input) => {
+            const method = String(input["method"] ?? "GET").toUpperCase();
+            return method !== "GET" && method !== "HEAD";
+          },
         },
       );
     },
