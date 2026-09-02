@@ -1580,6 +1580,11 @@ export class Kernel {
       // Swallowing this leaves a chat containing a question and no answer,
       // which is worse than never having offered to look: the owner is told
       // something is being done about the failure and nothing is.
+      //
+      // Unless the host is going away, in which case there is nothing to
+      // write to: this runs long after the call that started it, and the
+      // database may well have been closed in between.
+      if (this.closed) return;
       const why = err instanceof Error ? err.message : String(err);
       this.sessions.record(conversation.id, [
         ...this.sessions.get(conversation.id),
@@ -1634,6 +1639,12 @@ export class Kernel {
     return null;
   }
 
+  /**
+   * True once close() has run. Work started before a shutdown can land after
+   * it, and a write to a closed database throws somewhere nobody is looking.
+   */
+  private closed = false;
+
   /** Whether a failure should start a fix attempt on its own. */
   private autoFixOn(): boolean {
     return (
@@ -1642,6 +1653,7 @@ export class Kernel {
   }
 
   recordNotice(text: string): void {
+    if (this.closed) return;
     const sessionId = primarySessionId(this.profile.ownerId);
     // record() replaces the transcript, so the existing one comes with it.
     this.sessions.record(sessionId, [
@@ -2041,6 +2053,7 @@ export class Kernel {
   }
 
   close(): void {
+    this.closed = true;
     this.stopCron();
     this.workspace.close();
   }
