@@ -13,8 +13,12 @@ export type CronRunner = (job: CronJob) => Promise<unknown>;
 
 export interface SchedulerOptions {
   killSwitch?: KillSwitch;
-  /** Hard cap on self_prompt fires per rolling hour (runaway-loop guard). */
-  maxSelfPromptsPerHour?: number;
+  /**
+   * Hard cap on self_prompt fires per rolling hour (runaway-loop guard).
+   * A function so the owner changing it takes effect on the next fire rather
+   * than on the next restart.
+   */
+  maxSelfPromptsPerHour?: number | (() => number);
   clock?: () => number;
 }
 
@@ -87,8 +91,10 @@ export class CronScheduler {
   }
 
   private rateLimited(): boolean {
+    const configured = this.options.maxSelfPromptsPerHour;
     const max =
-      this.options.maxSelfPromptsPerHour ?? DEFAULT_MAX_SELF_PROMPTS_PER_HOUR;
+      (typeof configured === "function" ? configured() : configured) ??
+      DEFAULT_MAX_SELF_PROMPTS_PER_HOUR;
     const cutoff = this.now() - HOUR_MS;
     this.selfPromptFires = this.selfPromptFires.filter((t) => t >= cutoff);
     return this.selfPromptFires.length >= max;

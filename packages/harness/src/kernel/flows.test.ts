@@ -10,6 +10,7 @@ import type { Task } from "../models/router.js";
 import type { GenerateRequest, ModelResponse } from "../models/types.js";
 import type { KosModule } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
+import { BEHAVIOUR_KEY } from "./behaviour.js";
 import { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
 
@@ -1384,6 +1385,32 @@ describe("a turn that runs out of steps", () => {
     const last = stored.at(-1);
     expect(last?.role).toBe("assistant");
     expect(JSON.stringify(last?.content)).toContain("stuck");
+  });
+
+  it("takes its step limit from the settings", async () => {
+    root = mkdtempSync(join(tmpdir(), "kos-steps-"));
+    let calls = 0;
+    const model: Inference = {
+      async generate(task: Task): Promise<ModelResponse> {
+        if (task === "cheap") return text('{"facts":[]}');
+        calls += 1;
+        return toolCall(`c${calls}`, "files.ls", { path: "." });
+      },
+    };
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: model,
+      profileOverrides: { name: "Kenny", timezone: "UTC" },
+    });
+    // The number was a constant in the loop, so "how hard should it try"
+    // could only be answered by editing the source.
+    kernel.settings.set(BEHAVIOUR_KEY, { maxSteps: 2 });
+    const convo = kernel.conversations.create({ userId: "owner", title: "T" });
+
+    await kernel.handleMessage("go", { sessionId: convo.id });
+
+    expect(calls).toBe(2);
   });
 
   it("does not add one when the model actually answered", async () => {

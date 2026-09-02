@@ -10,7 +10,13 @@ import { runDisplayQuery } from "../systems/display.js";
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
-import { AUTOFIX_KEY, BUILD_SETTINGS_KEY, orchestratorId } from "./kernel.js";
+import {
+  BEHAVIOUR_DEFAULTS,
+  BEHAVIOUR_KEY,
+  BEHAVIOUR_LIMITS,
+  parseBehaviour,
+} from "./behaviour.js";
+import { BUILD_SETTINGS_KEY, orchestratorId } from "./kernel.js";
 import { parseAttachments } from "./attachments.js";
 import cron from "node-cron";
 import type { CreateCronInput, ToolCall } from "../cron/types.js";
@@ -184,18 +190,25 @@ export async function handleApiRequest(
     return ok(started);
   }
 
-  if (method === "GET" && path === "/api/settings/autofix") {
+  /**
+   * How KOS behaves unattended. One document rather than a setting per
+   * endpoint: they are read together, edited together, and a half-saved set
+   * of limits is not a state worth being able to reach.
+   */
+  if (method === "GET" && path === "/api/settings/behaviour") {
     return ok({
-      enabled:
-        kernel.settings.get<{ enabled?: boolean }>(AUTOFIX_KEY)?.enabled ===
-        true,
+      behaviour: kernel.behaviour(),
+      defaults: BEHAVIOUR_DEFAULTS,
+      limits: BEHAVIOUR_LIMITS,
     });
   }
 
-  if (method === "POST" && path === "/api/settings/autofix") {
-    const enabled = body.enabled === true;
-    kernel.settings.set(AUTOFIX_KEY, { enabled });
-    return ok({ enabled });
+  if (method === "POST" && path === "/api/settings/behaviour") {
+    // Parsed, not trusted: these govern spend and runaway loops, so every
+    // number is clamped to a range before it is stored.
+    const behaviour = parseBehaviour(body.behaviour ?? body);
+    kernel.settings.set(BEHAVIOUR_KEY, behaviour);
+    return ok({ behaviour });
   }
 
   /** Stop reporting a job as broken, for one the owner has dealt with. */
