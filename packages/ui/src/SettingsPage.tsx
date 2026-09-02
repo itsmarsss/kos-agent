@@ -180,6 +180,8 @@ export function SettingsPage(): ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState<SectionId>("you");
   const [how, setHow] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
+  /** The last values the server confirmed, so an edit can be seen as one. */
+  const [savedHow, setSavedHow] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
   const [defaults, setDefaults] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
   const [limits, setLimits] = useState<Record<string, [number, number]>>({});
   const [busy, setBusy] = useState<SectionId | null>(null);
@@ -222,6 +224,7 @@ export function SettingsPage(): ReactElement {
       .behaviour()
       .then((r) => {
         setHow(r.behaviour);
+        setSavedHow(r.behaviour);
         setDefaults(r.defaults);
         setLimits(r.limits);
       })
@@ -250,6 +253,31 @@ export function SettingsPage(): ReactElement {
       )
       .finally(() => setBusy(null));
   };
+
+  /**
+   * Saved, then adopted from the reply: the server clamps every number, so
+   * what comes back is what is in force. Keeping the typed value instead
+   * would show 500 in a field that actually holds 100.
+   */
+  const saveHow = (): void => {
+    setBusy("behaviour");
+    void api
+      .saveBehaviour(how)
+      .then((r) => {
+        setHow(r.behaviour);
+        setSavedHow(r.behaviour);
+        done("behaviour", "Saved");
+      })
+      .catch((err: unknown) =>
+        setError(err instanceof Error ? err.message : String(err)),
+      )
+      .finally(() => setBusy(null));
+  };
+
+  const same = (a: Behaviour, b: Behaviour): boolean =>
+    (Object.keys(a) as (keyof Behaviour)[]).every((k) => a[k] === b[k]);
+  const changed = !same(how, savedHow);
+  const atDefaults = same(how, defaults);
 
   const saveEnv = (
     section: SectionId,
@@ -545,20 +573,34 @@ export function SettingsPage(): ReactElement {
               />
             </Section>
 
-            {/* One button, because these three cards are one stored document.
-                A Save under each would each write all of them, which reads
-                as three independent settings and is not. */}
+            {/* One set of buttons, because these three cards are one stored
+                document. A Save under each would each write all of them,
+                which reads as three independent settings and is not. */}
             <footer className="set-card set-card-foot set-tab-foot">
               <button
                 type="button"
                 className="btn btn--primary"
-                disabled={busy === "behaviour"}
-                onClick={() => run("behaviour", api.saveBehaviour(how), "Saved")}
+                disabled={busy === "behaviour" || !changed}
+                onClick={saveHow}
               >
                 {busy === "behaviour" ? "Saving…" : "Save behaviour"}
               </button>
-              {saved.behaviour && (
-                <span className="set-saved">{saved.behaviour}</span>
+              {/* Fills the fields rather than writing them: you get to see
+                  what reverting would do before it is the setting. */}
+              <button
+                type="button"
+                className="btn"
+                disabled={busy === "behaviour" || atDefaults}
+                onClick={() => setHow(defaults)}
+              >
+                Reset to defaults
+              </button>
+              {changed ? (
+                <span className="set-unsaved">Not saved yet</span>
+              ) : (
+                saved.behaviour && (
+                  <span className="set-saved">{saved.behaviour}</span>
+                )
               )}
             </footer>
           </>
