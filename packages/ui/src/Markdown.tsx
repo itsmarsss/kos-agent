@@ -1,4 +1,10 @@
-import { Fragment, type ReactElement, type ReactNode } from "react";
+import {
+  createContext,
+  Fragment,
+  useContext,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 
 import { hrefFor } from "./routes.js";
 
@@ -20,8 +26,43 @@ import { hrefFor } from "./routes.js";
  * a project at a glance.
  */
 const MENTION =
-  /@(project|page|file|schedule):(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*[A-Za-z0-9_/-]))/;
+  /@(project|page|file|schedule|chat|site|agent):(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*[A-Za-z0-9_/-]))/;
 const COMMAND = /(^|\s)(\/(?:new|chats|switch|rename|archive|help))\b/;
+
+/**
+ * What to call a reference, where the surface knows.
+ *
+ * A chat and an agent are addressed by id, and an id is not a name: a chip
+ * reading "cmtjz26wu1:owner" tells the reader nothing. Whoever is rendering
+ * usually has the list to hand, so they can supply the words.
+ */
+const Names = createContext<
+  ((kind: string, id: string) => string | undefined) | null
+>(null);
+
+export function MentionNames({
+  resolve,
+  children,
+}: {
+  resolve: (kind: string, id: string) => string | undefined;
+  children: ReactNode;
+}): ReactElement {
+  return <Names.Provider value={resolve}>{children}</Names.Provider>;
+}
+
+function MentionChip({ kind, id }: { kind: string; id: string }): ReactElement {
+  const resolve = useContext(Names);
+  const label = resolve?.(kind, id) ?? id;
+  return (
+    <a
+      className={`chip-ref chip-ref--${kind}`}
+      href={refHref(kind, id)}
+      title={`${kind}: ${id}`}
+    >
+      {label}
+    </a>
+  );
+}
 
 /** Where a reference goes when it is clicked. */
 function refHref(kind: string, id: string): string {
@@ -32,6 +73,18 @@ function refHref(kind: string, id: string): string {
       return hrefFor({ name: "files", path: id });
     case "schedule":
       return hrefFor({ name: "crons" });
+    case "chat":
+      return hrefFor({ name: "chats", id });
+    case "agent":
+      return hrefFor({ name: "agents", id: Number(id) });
+    case "site":
+      // Written as project/name, which is also where it lives. The site
+      // server is a different origin, so this goes to the folder rather than
+      // to a URL this page cannot know.
+      return hrefFor({
+        name: "files",
+        path: `projects/${id.replace("/", "/sites/")}`,
+      });
     default:
       return hrefFor({ name: "projects" });
   }
@@ -53,22 +106,11 @@ const INLINE: Array<{
   { re: CODE, render: (m, k) => <code key={k}>{m[1]}</code> },
   {
     re: MENTION,
-    render: (m, k) => {
-      const kind = m[1] ?? "";
+    render: (m, k) => (
       // Bracketed or plain, whichever branch matched. A schedule is named by
       // its owner and usually has spaces, so the plain form cannot carry it.
-      const id = m[2] ?? m[3] ?? "";
-      return (
-        <a
-          key={k}
-          className={`chip-ref chip-ref--${kind}`}
-          href={refHref(kind, id)}
-          title={`${kind}: ${id}`}
-        >
-          {id}
-        </a>
-      );
-    },
+      <MentionChip key={k} kind={m[1] ?? ""} id={m[2] ?? m[3] ?? ""} />
+    ),
   },
   {
     re: COMMAND,
