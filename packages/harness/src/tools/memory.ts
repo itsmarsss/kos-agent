@@ -130,16 +130,32 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       const hits = facts.search(ownerId, query, limit, {
         ...(tags.length ? { tags } : {}),
       });
-      return JSON.stringify(
-        hits.map((f) => ({
-          key: f.key,
-          value: f.value,
-          kind: f.kind,
-          tags: f.tags,
-          pinned: f.pinned,
-          source: f.source,
-        })),
-      );
+      const found = hits.map((f) => ({
+        key: f.key,
+        value: f.value,
+        kind: f.kind,
+        tags: f.tags,
+        pinned: f.pinned,
+        source: f.source,
+      }));
+      /*
+       * An empty array reads as "nothing is known", and the reply that
+       * follows says so. Usually the words were wrong rather than the store
+       * being empty, so a miss reports what there is to aim at instead: the
+       * tags in use and how much is stored under them.
+       */
+      if (found.length === 0) {
+        const known = facts.tags(ownerId);
+        return JSON.stringify({
+          found,
+          searched: query || "(everything, by recency)",
+          stored: facts.all(ownerId).length,
+          tags: known,
+          hint:
+            "Nothing matched those words. Search again with a single plain noun, or list a tag.",
+        });
+      }
+      return JSON.stringify(found);
     },
     { floor: "safe" },
     { tags: ["memory"] },

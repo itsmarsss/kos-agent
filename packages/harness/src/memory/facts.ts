@@ -81,6 +81,29 @@ const MAX_TOKENS = 12;
  * and very short words dropped, deduped, capped so one long message cannot
  * match everything.
  */
+/**
+ * A token reduced to what a related word shares with it.
+ *
+ * Matching is substring containment, so a query token that is shorter than
+ * the stored word already matches: "budget" finds "budgets". The reverse did
+ * not, and asking about "meetings" or "expenses" when the entry says
+ * "meeting" or "expense" is the ordinary way to ask. Cutting a plural suffix
+ * off the query makes the two meet in the middle.
+ *
+ * Deliberately not a stemmer. It handles the suffixes an owner's phrasing
+ * actually varies by, and leaves anything shorter than five letters alone so
+ * "gas" does not become "ga".
+ */
+export function stem(token: string): string {
+  if (token.length < 5) return token;
+  if (token.endsWith("ies")) return `${token.slice(0, -3)}y`;
+  if (token.endsWith("sses") || token.endsWith("shes") || token.endsWith("ches")) {
+    return token.slice(0, -2);
+  }
+  if (token.endsWith("s") && !token.endsWith("ss")) return token.slice(0, -1);
+  return token;
+}
+
 export function tokenize(text: string): string[] {
   const raw = text.toLowerCase().match(/[a-z0-9][a-z0-9'_-]*/g) ?? [];
   const seen = new Set<string>();
@@ -239,6 +262,14 @@ export class FactsStore {
         // A hit on the key is a stronger signal than one buried in the value.
         if (key.includes(token)) score += 2;
         else if (value.includes(token)) score += 1;
+        else {
+          // The same word in a different number is still the same word, and
+          // worth slightly less only because it is a looser match.
+          const root = stem(token);
+          if (root === token) continue;
+          if (key.includes(root)) score += 1.5;
+          else if (value.includes(root)) score += 0.5;
+        }
       }
       // Whole-phrase containment stays the strongest signal when it happens.
       if (needle && (key.includes(needle) || value.includes(needle))) score += 5;
