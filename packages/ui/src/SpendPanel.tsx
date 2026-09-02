@@ -14,6 +14,7 @@ import {
   type ModelSpend,
 } from "./api.js";
 import { fitInside, place, type Placement } from "./popover.js";
+import { Drawer } from "./Drawer.js";
 import { Select } from "./Select.js";
 
 /**
@@ -463,76 +464,93 @@ export function SpendPanel(): ReactElement {
       )}
 
       <div className="spend-rates">
-        <button
-          type="button"
-          className="btn"
-          onClick={() => setEditing((e) => !e)}
-        >
-          {editing ? "Done" : "Set rates"}
+        <button type="button" className="btn" onClick={() => setEditing(true)}>
+          Set rates
         </button>
-        {editing && (
-          <div className="spend-rate-list">
-            <p className="hint">
-              Price per million tokens, from your provider's pricing page, and
-              the model's context window if KOS does not already know it. A
-              model with no rate shows tokens only rather than a made-up
-              figure, and an unknown window means the chat meter shows a count
-              without a percentage.
-            </p>
-            {models.map((m) => {
-              const key = `${m.provider}:${m.model}`;
-              const rate = draft[key];
-              return (
-                <div className="spend-rate" key={key}>
-                  <span className="spend-rate-name">{m.model}</span>
-                  <div className="spend-rate-fields">
-                    <label className="spend-rate-field">
-                      <span>$ / M in</span>
-                      <input
-                        className="kos-input kos-input--num"
-                        inputMode="decimal"
-                        value={rate?.inputPerMillion ?? ""}
-                        placeholder="0.00"
-                        onChange={(e) => setRate(key, "inputPerMillion", e.target.value)}
-                      />
-                    </label>
-                    <label className="spend-rate-field">
-                      <span>$ / M out</span>
-                      <input
-                        className="kos-input kos-input--num"
-                        inputMode="decimal"
-                        value={rate?.outputPerMillion ?? ""}
-                        placeholder="0.00"
-                        onChange={(e) => setRate(key, "outputPerMillion", e.target.value)}
-                      />
-                    </label>
-                    <label className="spend-rate-field">
-                      <span>Context window</span>
-                      <input
-                        className="kos-input kos-input--num"
-                        inputMode="numeric"
-                        value={rate?.contextWindow ?? ""}
-                        placeholder="tokens"
-                        onChange={(e) => setRate(key, "contextWindow", e.target.value)}
-                      />
-                    </label>
-                  </div>
-                </div>
-              );
-            })}
-            <div>
-              <button
-                type="button"
-                className="btn btn--primary"
-                disabled={saving}
-                onClick={save}
-              >
-                {saving ? "Saving…" : "Save rates"}
-              </button>
-            </div>
-          </div>
-        )}
       </div>
+
+      {/* A drawer: this is a table of numbers per model, which unfolding
+          inside the panel pushed the rest of the page around and left the
+          Done button stranded above what it was closing. */}
+      <Drawer
+        open={editing}
+        title="Rates"
+        subtitle="What each model costs, and how much it can hold"
+        onClose={() => setEditing(false)}
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn btn--primary"
+              disabled={saving}
+              onClick={save}
+            >
+              {saving ? "Saving…" : "Save rates"}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setEditing(false)}
+            >
+              Cancel
+            </button>
+          </>
+        }
+      >
+        <p className="hint">
+          Price per million tokens, from your provider&apos;s pricing page, and
+          the model&apos;s context window if KOS does not already know it. A
+          model with no rate shows tokens only rather than a made-up figure,
+          and an unknown window means the chat meter shows a count without a
+          percentage.
+        </p>
+        <div className="spend-rate-list">
+          {models.map((m) => {
+            const key = `${m.provider}:${m.model}`;
+            const rate = draft[key];
+            return (
+              <div className="spend-rate" key={key}>
+                <div className="spend-rate-name">
+                  <strong>{m.model}</strong>
+                  <span className="hint">{m.provider}</span>
+                </div>
+                <div className="spend-rate-fields">
+                  <label className="spend-rate-field">
+                    <span>$ / M in</span>
+                    <input
+                      className="kos-input kos-input--num"
+                      inputMode="decimal"
+                      value={rate?.inputPerMillion ?? ""}
+                      placeholder="0.00"
+                      onChange={(e) => setRate(key, "inputPerMillion", e.target.value)}
+                    />
+                  </label>
+                  <label className="spend-rate-field">
+                    <span>$ / M out</span>
+                    <input
+                      className="kos-input kos-input--num"
+                      inputMode="decimal"
+                      value={rate?.outputPerMillion ?? ""}
+                      placeholder="0.00"
+                      onChange={(e) => setRate(key, "outputPerMillion", e.target.value)}
+                    />
+                  </label>
+                  <label className="spend-rate-field">
+                    <span>Context window</span>
+                    <input
+                      className="kos-input kos-input--num"
+                      inputMode="numeric"
+                      value={rate?.contextWindow ?? ""}
+                      placeholder="tokens"
+                      onChange={(e) => setRate(key, "contextWindow", e.target.value)}
+                    />
+                  </label>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Drawer>
     </section>
   );
 }

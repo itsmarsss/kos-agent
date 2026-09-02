@@ -184,6 +184,8 @@ export function SettingsPage(): ReactElement {
   const [savedHow, setSavedHow] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
   const [defaults, setDefaults] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
   const [limits, setLimits] = useState<Record<string, [number, number]>>({});
+  /** ModelSettings owns its draft, so it hands its save up to the footer. */
+  const saveModels = useRef<(() => void) | null>(null);
   const [busy, setBusy] = useState<SectionId | null>(null);
   const [saved, setSaved] = useState<Partial<Record<SectionId, string>>>({});
 
@@ -465,8 +467,14 @@ export function SettingsPage(): ReactElement {
 
         {active === "models" && (
           <>
-            <Section title="Models" blurb="Which model answers what, and how hard it thinks.">
-              <ModelSettings />
+            <Section
+              title="Models"
+              blurb="Which model answers what, and how hard it thinks."
+              saving={busy === "models"}
+              saved={saved.models ?? null}
+              onSave={() => saveModels.current?.()}
+            >
+              <ModelSettings onReady={(fn) => (saveModels.current = fn)} />
             </Section>
             <Section
               title="Build agents"
@@ -575,8 +583,9 @@ export function SettingsPage(): ReactElement {
 
             {/* One set of buttons, because these three cards are one stored
                 document. A Save under each would each write all of them,
-                which reads as three independent settings and is not. */}
-            <footer className="set-card set-card-foot set-tab-foot">
+                which reads as three independent settings and is not. Drawn
+                as a card footer so it matches every other Save on the page. */}
+            <footer className="set-card set-card-foot">
               <button
                 type="button"
                 className="btn btn--primary"

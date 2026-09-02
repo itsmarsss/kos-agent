@@ -904,15 +904,18 @@ export function ChatsPage({
                 <LiveTurn live={live} />
               ) : (
                 sendingIn === activeId && (
-                  // Dots and a word, the same shape a running turn uses.
-                  // Italic prose read as the agent saying "sending".
-                  <div className="bubble bubble--kos is-thinking">
-                    <span className="live-dots" aria-hidden="true">
-                      <i />
-                      <i />
-                      <i />
-                    </span>
-                    <span className="live-what">sending</span>
+                  // The same markup a running turn uses, not a lookalike:
+                  // built separately it picked up the bubble's font size and
+                  // colour and read as a different kind of thing.
+                  <div className="bubble bubble--kos live">
+                    <div className="live-head">
+                      <span className="live-dots" aria-hidden="true">
+                        <i />
+                        <i />
+                        <i />
+                      </span>
+                      <span className="live-what">sending</span>
+                    </div>
                   </div>
                 )
               )}
