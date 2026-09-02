@@ -252,7 +252,7 @@ async function cmdStart(
 
   await runHost({
     rootDir,
-    allowedHosts: allowedHosts(),
+    allowedHosts,
     host,
     port,
     ...(dashboardToken() ? { token: dashboardToken() } : {}),
@@ -389,7 +389,7 @@ async function main(): Promise<void> {
   if (command === "chat") {
     const kernel = await Kernel.boot({
       rootDir,
-      allowedHosts: allowedHosts(),
+      allowedHosts,
     });
     await localRepl(kernel);
     return;
@@ -397,7 +397,7 @@ async function main(): Promise<void> {
 
   const kernel = await Kernel.boot({
     rootDir,
-    allowedHosts: allowedHosts(),
+    allowedHosts,
   });
   try {
     if (command === "once") {

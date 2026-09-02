@@ -379,7 +379,9 @@ export function ChatsPage({
       // so it names the panel and the surface obliges.
       if (res.opens === "tools") setEditing(true);
       // Reload rather than appending the reply: the turn may have made tool
-      // calls, and those belong in the transcript too.
+      // calls, and those belong in the transcript too. A turn suspended on an
+      // approval answers here too, and the reload is what puts its approval
+      // card on screen.
       const { events: got, pending: waiting } = await api.conversation(target);
       if (target === activeIdRef.current) {
         setEvents(got);

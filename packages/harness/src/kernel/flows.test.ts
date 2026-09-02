@@ -241,6 +241,44 @@ describe("KOS end-to-end flows", () => {
     expect(kernel.approvals.pending()).toHaveLength(0);
   });
 
+  it("keeps the turn alive while it waits on the owner", async () => {
+    const model = scripted([
+      toolCall("c1", "shell", { command: "rm -rf build" }),
+      text("Removed the build directory."),
+    ]);
+    kernel = await boot(model.inference);
+
+    const seen: string[] = [];
+    let ended!: () => void;
+    const finished = new Promise<void>((resolve) => {
+      ended = resolve;
+    });
+    const off = kernel.progress.subscribe((event) => {
+      if (event.kind !== "turn-start" && event.kind !== "turn-end") return;
+      seen.push(event.kind);
+      if (event.kind === "turn-end") ended();
+    });
+
+    // Answers straight away rather than holding the caller for as long as the
+    // owner takes to decide.
+    const first = await kernel.handleMessage("delete the build directory");
+    expect(first.reply).toContain("Waiting on you");
+
+    /*
+     * The turn is suspended, not finished. turn-end drops the live view, so
+     * emitting it here wiped every thought and tool call on screen at exactly
+     * the moment the approval card appeared.
+     */
+    expect(seen).toEqual(["turn-start"]);
+
+    // The decision releases the suspended call, and the turn it belongs to
+    // ends once the rest of the plan has run.
+    await kernel.approve(kernel.approvals.pending()[0]!.id);
+    await finished;
+    expect(seen).toEqual(["turn-start", "turn-end"]);
+    off();
+  });
+
   it("continues in the conversation that asked, and only there", async () => {
     const model = scripted([
       toolCall("c1", "shell", { command: "rm -rf build" }),

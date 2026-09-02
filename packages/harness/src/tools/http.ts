@@ -7,7 +7,13 @@ export type FetchImpl = typeof fetch;
 
 export interface HttpModuleOptions {
   /** Hostnames the agent may fetch. Empty means deny all (allowlist-only). */
-  allowedHosts?: string[];
+  /**
+   * Hosts the agent may reach. A function is read at call time, which is what
+   * lets the owner add one in Settings and have the next message use it:
+   * captured once at boot, a host added at noon did nothing until the daemon
+   * was restarted.
+   */
+  allowedHosts?: string[] | (() => string[]);
   timeoutMs?: number;
   /** Response body cap in bytes. */
   maxBytes?: number;
@@ -28,14 +34,16 @@ function hostAllowed(url: string, allowed: Set<string>): boolean {
 
 async function doFetch(
   input: Record<string, unknown>,
-  opts: Required<Omit<HttpModuleOptions, "allowedHosts">> & { allowed: Set<string> },
+  opts: Required<Omit<HttpModuleOptions, "allowedHosts">> & {
+    allowed: () => Set<string>;
+  },
   secrets: SecretsRegistry,
 ): Promise<string> {
   const rawUrl = input.url;
   if (typeof rawUrl !== "string") throw new Error("http.fetch requires a url");
   // Inject secrets after reasoning, just before the request leaves.
   const url = injectSecretsInString(rawUrl, secrets);
-  if (!hostAllowed(url, opts.allowed)) {
+  if (!hostAllowed(url, opts.allowed())) {
     throw new Error(`host not allowlisted: ${new URL(url).hostname}`);
   }
 
@@ -77,9 +85,13 @@ async function doFetch(
  * Risky tier: queues for approval; a non-allowlisted host is rejected outright.
  */
 export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
-  const allowed = new Set(
-    (options.allowedHosts ?? []).map((h) => h.toLowerCase()),
-  );
+  const allowed = (): Set<string> => {
+    const list =
+      typeof options.allowedHosts === "function"
+        ? options.allowedHosts()
+        : (options.allowedHosts ?? []);
+    return new Set(list.map((h) => h.trim().toLowerCase()).filter(Boolean));
+  };
   const resolved = {
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxBytes: options.maxBytes ?? DEFAULT_MAX_BYTES,
