@@ -1,7 +1,19 @@
-import { useEffect, useState, type ReactElement } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
 
-import { api, type ModelRate, type ModelSpend } from "./api.js";
-import { Select } from "./Select.js";
+import {
+  api,
+  type ModelDaySpend,
+  type ModelRate,
+  type ModelSpend,
+} from "./api.js";
+import { place, Select, type Placement } from "./Select.js";
 
 /**
  * What KOS has spent.
@@ -99,11 +111,87 @@ function Trend({ days }: { days: DayTotal[] }): ReactElement | null {
   );
 }
 
+/**
+ * The days behind a total, on hover.
+ *
+ * Anchored with the same viewport placement the dropdowns use, and portalled,
+ * because a table cell is inside a card that scrolls and an absolutely
+ * positioned panel would be clipped by it.
+ */
+function Breakdown({
+  days,
+  children,
+}: {
+  days: ModelDaySpend[];
+  children: ReactNode;
+}): ReactElement {
+  const [at, setAt] = useState<Placement | null>(null);
+  const cell = useRef<HTMLSpanElement>(null);
+
+  const busiest = Math.max(1, ...days.map((d) => d.inputTokens + d.outputTokens));
+  const show = (): void => {
+    const rect = cell.current?.getBoundingClientRect();
+    if (rect && days.length > 0) setAt(place(rect));
+  };
+
+  return (
+    <span
+      className="spend-hover"
+      ref={cell}
+      onMouseEnter={show}
+      onMouseLeave={() => setAt(null)}
+      onFocus={show}
+      onBlur={() => setAt(null)}
+      tabIndex={days.length > 0 ? 0 : -1}
+    >
+      {children}
+      {days.length > 0 && <span className="spend-hint" aria-hidden="true" />}
+      {at &&
+        createPortal(
+          <div
+            className="spend-pop"
+            role="tooltip"
+            style={{
+              left: at.left,
+              ...(at.top !== undefined ? { top: at.top } : {}),
+              ...(at.bottom !== undefined ? { bottom: at.bottom } : {}),
+              maxHeight: at.maxHeight,
+            }}
+          >
+            <div className="spend-pop-head">
+              {days.length} {days.length === 1 ? "day" : "days"} with usage
+            </div>
+            <ul className="spend-pop-list">
+              {[...days].reverse().map((d) => {
+                const total = d.inputTokens + d.outputTokens;
+                return (
+                  <li key={d.day}>
+                    <span className="spend-pop-day">{d.day}</span>
+                    <span
+                      className="spend-pop-bar"
+                      style={{ width: `${(total / busiest) * 100}%` }}
+                    />
+                    <span className="spend-pop-num">
+                      {tokens(total)}
+                      {d.cost !== undefined ? ` · ${money(d.cost)}` : ""}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>,
+          document.body,
+        )}
+    </span>
+  );
+}
+
 export function SpendPanel(): ReactElement {
   const [days, setDays] = useState("30");
   const [data, setData] = useState<{
     models: ModelSpend[];
     byDay: { day: string; inputTokens: number; outputTokens: number }[];
+    byModelDay: ModelDaySpend[];
     rates: Record<string, ModelRate>;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -227,11 +315,20 @@ export function SpendPanel(): ReactElement {
                   <td>{tokens(m.inputTokens)}</td>
                   <td>{tokens(m.outputTokens)}</td>
                   <td>
-                    {m.cost === undefined ? (
-                      <span className="hint">no rate set</span>
-                    ) : (
-                      money(m.cost)
-                    )}
+                    {/* A total over thirty days is the one number you cannot
+                        act on: it does not say whether that was steady or one
+                        bad afternoon. Hovering opens the days behind it. */}
+                    <Breakdown
+                      days={(data?.byModelDay ?? []).filter(
+                        (d) => d.model === m.model && d.provider === m.provider,
+                      )}
+                    >
+                      {m.cost === undefined ? (
+                        <span className="hint">no rate set</span>
+                      ) : (
+                        money(m.cost)
+                      )}
+                    </Breakdown>
                   </td>
                 </tr>
               ))}

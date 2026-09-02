@@ -11,7 +11,7 @@ import { useEffect, useRef, type ReactElement, type ReactNode } from "react";
  */
 
 const MENTION =
-  /@(?:project|page|file|schedule|chat|site|agent):[A-Za-z0-9._/-]*[A-Za-z0-9_/-]/g;
+  /@(?:project|page|file|schedule|chat|site|agent):(?:\[[^\]]+\]|[A-Za-z0-9._/-]*[A-Za-z0-9_/-])/g;
 /*
  * Any word-shaped slash at the very start of the message. Deliberately not a
  * list of the commands: this file kept its own copy, so /compact and /clear

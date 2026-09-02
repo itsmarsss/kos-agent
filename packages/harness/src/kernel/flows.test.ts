@@ -1519,6 +1519,58 @@ describe("failures reach the owner", () => {
     expect(kernel.health.report().ok).toBe(true);
   });
 
+  it("points the fix at the job that broke", async () => {
+    const sent: string[] = [];
+    kernel = await bootWithChannel(sent);
+    const job = kernel.crons.create({
+      name: "9 AM Pinger Test",
+      schedule: "0 9 * * *",
+      type: "actions",
+      actions: [{ tool: "notify", args: { text: "ping" } }],
+      enabled: true,
+    });
+
+    const started = await kernel.startFix({
+      label: job.name,
+      error: "Cannot convert undefined or null to object",
+      what: "scheduled job",
+      ref: `cron #${job.id}`,
+    });
+
+    // Bracketed, because the name has spaces and the plain form would be
+    // read as far as the first one. Worked out from the failure rather than
+    // written into the prompt by the caller.
+    expect(started.prompt).toContain("@schedule:[9 AM Pinger Test]");
+  });
+
+  it("falls back to the project a failure names", async () => {
+    const sent: string[] = [];
+    kernel = await bootWithChannel(sent);
+    kernel.manifest.createProject({ name: "Budget Tracker", type: "budget" });
+
+    const started = await kernel.startFix({
+      label: "sql",
+      error: "no such column: amount in budget_tracker_tx",
+      what: "tool call",
+    });
+
+    expect(started.prompt).toContain("@project:budget_tracker");
+  });
+
+  it("says nothing it cannot back up", async () => {
+    const sent: string[] = [];
+    kernel = await bootWithChannel(sent);
+    const started = await kernel.startFix({
+      label: "something",
+      error: "it broke",
+      what: "tool call",
+    });
+    // No schedule and no project matched, so it names the thing plainly
+    // rather than inventing a reference that resolves to "not found".
+    expect(started.prompt).not.toContain("@schedule:");
+    expect(started.prompt).not.toContain("@project:");
+  });
+
   it("keeps quiet about a job that is working", async () => {
     const sent: string[] = [];
     kernel = await bootWithChannel(sent);

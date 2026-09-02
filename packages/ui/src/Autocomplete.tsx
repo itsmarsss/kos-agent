@@ -112,7 +112,13 @@ export function useSuggestions(trigger: Trigger | null): Suggestion[] {
         if (cancelled) return;
         setMentions(
           r.mentions.map((mn) => ({
-            insert: `@${mn.kind}:${mn.id}`,
+            // Bracketed when the id has anything the plain form cannot
+            // carry. A schedule is named by the owner and usually has spaces
+            // in it, so this inserted a reference that read as far as the
+            // first space and pointed at nothing.
+            insert: /^[A-Za-z0-9._/-]*[A-Za-z0-9_/-]$/.test(mn.id)
+              ? `@${mn.kind}:${mn.id}`
+              : `@${mn.kind}:[${mn.id}]`,
             label: mn.label,
             kind: mn.kind,
             ...(mn.hint ? { hint: mn.hint } : {}),
