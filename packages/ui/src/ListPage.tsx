@@ -1,5 +1,7 @@
 import { Fragment, useMemo, useState } from "react";
 
+import { PageHead } from "./PageHead.js";
+
 export interface Column<T> {
   key: string;
   header: string;
@@ -58,13 +60,10 @@ export function ListPage<T>(props: {
 
   return (
     <section className="list-page">
-      <header className="list-head">
-        <div>
-          <h1 className="list-title">{props.title}</h1>
-          {props.subtitle && <p className="ops-muted">{props.subtitle}</p>}
-        </div>
-        <div className="list-head-tools">
-          {props.toolbar}
+      <PageHead
+        title={props.title}
+        {...(props.subtitle ? { subtitle: props.subtitle } : {})}
+        search={
           <input
             className="list-search"
             value={q}
@@ -72,8 +71,9 @@ export function ListPage<T>(props: {
             placeholder="Search…"
             aria-label={`Search ${props.title}`}
           />
-        </div>
-      </header>
+        }
+        {...(props.toolbar ? { actions: props.toolbar } : {})}
+      />
       {props.filters && <div className="list-filters">{props.filters}</div>}
       <div className="list-meta ops-muted">
         {filtered.length} of {props.rows.length}

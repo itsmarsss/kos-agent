@@ -4,6 +4,7 @@ import { AnimatePresence, m } from "motion/react";
 
 import { AgentTerminal } from "./AgentTerminal.js";
 import { Modal } from "./Modal.js";
+import { PageHead } from "./PageHead.js";
 import { api, type BuildRecord } from "./api.js";
 import { listItem } from "./motion.js";
 
@@ -181,25 +182,21 @@ export function AgentsPage({
 
   return (
     <div className="agents">
-      <header className="agents-head">
-        <div>
-          <h1>Agents</h1>
-          <p className="hint">
-            Coding sub-agents working inside the workspace. Each is confined to
-            its own folder, and every shell command it wants to run comes back
-            to you. Open one to read its log and talk to it.
-          </p>
-        </div>
-        {/* Starting one was only possible by asking KOS to, which is a long
-            way round when you already know the folder and the job. */}
-        <button
-          type="button"
-          className="btn btn--primary"
-          onClick={() => setStarting(true)}
-        >
-          New agent
-        </button>
-      </header>
+      <PageHead
+        title="Agents"
+        subtitle="Coding sub-agents working inside the workspace. Each is confined to its own folder, and every shell command comes back to you."
+        actions={
+          /* Starting one was only possible by asking KOS to, which is a long
+             way round when you already know the folder and the job. */
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => setStarting(true)}
+          >
+            New agent
+          </button>
+        }
+      />
 
       <Modal
         open={starting}
