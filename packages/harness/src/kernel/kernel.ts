@@ -41,6 +41,7 @@ import {
 import { AuditLog } from "../ops/audit.js";
 import { ApprovalQueue, type PendingAction } from "../ops/approvals.js";
 import { PersistentKillSwitch } from "../ops/killswitch.js";
+import { runSdkChat } from "../chat/sdkchat.js";
 import { HealthMonitor } from "../ops/health.js";
 import { RunsLog } from "../ops/runs.js";
 import { SHARED_LANE, WorkQueue } from "../ops/queue.js";
@@ -784,6 +785,58 @@ export class Kernel {
           );
         } else if (userContent.length > 1) {
           input = [{ role: "user", content: userContent }];
+        }
+
+        // The subscription path. Same tools, same jail, same approvals; the
+        // difference is which account pays for the thinking.
+        if (this.behaviour().engine === "sdk") {
+          const sdk = await runSdkChat({
+            prompt: text,
+            system,
+            tools,
+            cwd: this.workspace.root,
+            maxTurns: this.behaviour().maxSteps,
+            onDelta: (delta) =>
+              this.progress.emit({
+                kind: "delta",
+                conversationId: sessionId,
+                of: delta.kind === "reasoning" ? "reasoning" : "text",
+                text: delta.text,
+              }),
+            onToolStart: (name, args) =>
+              this.progress.emit({
+                kind: "tool-start",
+                conversationId: sessionId,
+                tool: name,
+                summary: summarizeAction(name, args),
+                input: args,
+              }),
+          });
+          const reply = sdk.text || "I do not have anything to add to that.";
+          if (useSession) {
+            this.sessions.record(sessionId, [
+              ...this.sessions.get(sessionId),
+              { role: "user", content: [{ type: "text", text }] },
+              { role: "assistant", content: [{ type: "text", text: reply }] },
+            ]);
+            this.conversations.touch(
+              sessionId,
+              ...(opts.origin === "system" ? [] : [text]),
+            );
+          }
+          // Recorded like any other turn, so Spend still adds up. The model
+          // is whatever the subscription picked, which the SDK does not tell
+          // us, so it is named for the engine rather than guessed at.
+          this.spend.record({
+            conversationId: sessionId,
+            task: "reasoning",
+            provider: "anthropic",
+            model: "claude-agent-sdk",
+            inputTokens: sdk.usage.inputTokens,
+            outputTokens: sdk.usage.outputTokens,
+          });
+          this.runs.finish(runId, "ok");
+          return { reply, halted: false, sessionId };
         }
 
         const result = await runAgent(this.inference, tools, input, {
