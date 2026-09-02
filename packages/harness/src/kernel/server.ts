@@ -836,6 +836,12 @@ export async function handleApiRequest(
       days,
       models,
       byDay: kernel.spend.byDay(since),
+      // Per model per day, so a total in the table can be opened up into the
+      // days that made it. Costed here rather than in the browser: the rate
+      // lookup has a fallback in it and two copies of that rule would drift.
+      byModelDay: kernel.spend
+        .byModelDay(since)
+        .map((d) => ({ ...d, cost: costOf(d, rates) })),
       rates,
     });
   }

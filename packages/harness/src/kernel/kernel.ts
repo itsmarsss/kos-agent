@@ -74,7 +74,7 @@ import {
 } from "./context.js";
 import { GuardedTools } from "./guarded.js";
 import { ProgressBus } from "./progress.js";
-import { parseMentions } from "./mentions.js";
+import { parseMentions, writeMention } from "./mentions.js";
 import { readFile as readWorkspaceFile } from "./files.js";
 import { summarizeAction } from "@kos/shared";
 import { attachmentBlocks, type Attachment } from "./attachments.js";
@@ -1542,16 +1542,17 @@ export class Kernel {
     what: string;
     /** Where to look it up, e.g. "cron #4". */
     ref?: string;
-  }): Promise<{ conversationId: string; title: string }> {
+  }): Promise<{ conversationId: string; title: string; prompt: string }> {
     const title = `Fix: ${input.label}`.slice(0, 60);
     const conversation = this.conversations.create({
       userId: this.profile.ownerId,
       title,
     });
+    const subject = this.subjectOf(input);
     const prompt = [
       `A ${input.what} of mine failed and I would like you to fix it.`,
       "",
-      `What: ${input.label}${input.ref ? ` (${input.ref})` : ""}`,
+      `What: ${subject ?? input.label}${input.ref ? ` (${input.ref})` : ""}`,
       "The error, exactly as it was recorded:",
       "<<<recorded-error",
       input.error.slice(0, 2000),
@@ -1579,6 +1580,11 @@ export class Kernel {
       // Swallowing this leaves a chat containing a question and no answer,
       // which is worse than never having offered to look: the owner is told
       // something is being done about the failure and nothing is.
+      //
+      // Unless the host is going away, in which case there is nothing to
+      // write to: this runs long after the call that started it, and the
+      // database may well have been closed in between.
+      if (this.closed) return;
       const why = err instanceof Error ? err.message : String(err);
       this.sessions.record(conversation.id, [
         ...this.sessions.get(conversation.id),
@@ -1595,8 +1601,49 @@ export class Kernel {
       this.conversations.touch(conversation.id);
     });
 
-    return { conversationId: conversation.id, title };
+    // The prompt comes back with it: the turn records itself only once it
+    // finishes, so this is the only way for a caller to see what was asked.
+    return { conversationId: conversation.id, title, prompt };
   }
+
+  /**
+   * Point the fix at the thing that broke, in the agent's own reference
+   * syntax, so the turn opens with the job's definition already in front of
+   * it instead of spending steps hunting for it.
+   *
+   * Worked out from the failure rather than written into the prompt: the
+   * caller knows a run failed, not what kind of thing it was attached to.
+   */
+  private subjectOf(input: {
+    label: string;
+    error: string;
+    ref?: string;
+  }): string | null {
+    const byId = input.ref?.match(/(\d+)/);
+    const job =
+      this.crons.list().find((c) => c.name === input.label) ??
+      (input.ref?.startsWith("cron") && byId
+        ? this.crons.get(Number(byId[1]))
+        : undefined);
+    if (job) return writeMention("schedule", job.name);
+
+    // Nothing scheduled: fall back to a project the failure names. Longest
+    // slug first, so "budget" does not win over "budget_tracker".
+    const haystack = `${input.label} ${input.error}`;
+    const project = this.manifest
+      .list()
+      .filter((p) => haystack.includes(p.slug))
+      .sort((a, b) => b.slug.length - a.slug.length)[0];
+    if (project) return writeMention("project", project.slug);
+
+    return null;
+  }
+
+  /**
+   * True once close() has run. Work started before a shutdown can land after
+   * it, and a write to a closed database throws somewhere nobody is looking.
+   */
+  private closed = false;
 
   /** Whether a failure should start a fix attempt on its own. */
   private autoFixOn(): boolean {
@@ -1606,6 +1653,7 @@ export class Kernel {
   }
 
   recordNotice(text: string): void {
+    if (this.closed) return;
     const sessionId = primarySessionId(this.profile.ownerId);
     // record() replaces the transcript, so the existing one comes with it.
     this.sessions.record(sessionId, [
@@ -1721,11 +1769,30 @@ export class Kernel {
         continue;
       }
       if (ref.kind === "schedule") {
-        const job = this.crons.list().find((c) => c.name === ref.id);
+        // By name, then by id: a failure knows the id it fired, and a job
+        // renamed since is still the job that broke.
+        const job =
+          this.crons.list().find((c) => c.name === ref.id) ??
+          (/^\d+$/.test(ref.id) ? this.crons.get(Number(ref.id)) : undefined);
+        if (!job) {
+          parts.push(`Schedule ${ref.id}: not found.`);
+          continue;
+        }
+        // What it does, not just when. Anyone asked to repair a job had to
+        // go and query the table for its actions before they could start.
         parts.push(
-          job
-            ? `Schedule ${job.name}: ${job.schedule}, type ${job.type}, ${job.enabled ? "enabled" : "disabled"}`
-            : `Schedule ${ref.id}: not found.`,
+          [
+            `Schedule "${job.name}" (id ${job.id}): ${job.schedule}, type ${job.type}, ${job.enabled ? "enabled" : "disabled"}.`,
+            job.projectSlug ? `Project: ${job.projectSlug}` : "",
+            job.query ? `Query: ${job.query}` : "",
+            job.condition?.test ? `Runs only if: ${job.condition.test}` : "",
+            job.actions && job.actions.length > 0
+              ? `Actions: ${JSON.stringify(job.actions)}`
+              : "",
+            job.prompt ? `Prompt: ${job.prompt}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
         );
         continue;
       }
@@ -1986,6 +2053,7 @@ export class Kernel {
   }
 
   close(): void {
+    this.closed = true;
     this.stopCron();
     this.workspace.close();
   }
