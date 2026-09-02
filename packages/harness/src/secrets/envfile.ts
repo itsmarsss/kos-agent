@@ -57,9 +57,11 @@ export const WRITABLE_SECRETS: Record<
 /**
  * Non-secret settings that also live in the env file.
  *
- * These take effect when the host next starts, because they decide how it
- * binds and what it trusts, which is not something to change underneath a
- * running process.
+ * The ports and the bind address take effect when the host next starts: they
+ * decide how it binds, which is not something to change underneath a running
+ * process. The allow list is read afresh on every fetch, so adding a host to
+ * it is enough -- having to restart the daemon to reach a host you had just
+ * allowed made the setting look broken.
  */
 export const WRITABLE_SETTINGS: Record<
   string,

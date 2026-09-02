@@ -31,10 +31,22 @@ const PRESETS: { label: string; value: string }[] = [
 export function describeCron(expr: string): string | null {
   const parts = expr.trim().split(/\s+/);
   if (parts.length !== 5) return null;
-  const [min, hour, dom, mon, dow] = parts as [string, string, string, string, string];
+  const [min, hour, dom, mon, dow] = parts as [
+    string,
+    string,
+    string,
+    string,
+    string,
+  ];
 
   const everyMinutes = /^\*\/(\d+)$/.exec(min);
-  if (everyMinutes && hour === "*" && dom === "*" && mon === "*" && dow === "*") {
+  if (
+    everyMinutes &&
+    hour === "*" &&
+    dom === "*" &&
+    mon === "*" &&
+    dow === "*"
+  ) {
     return `Every ${everyMinutes[1]} minutes`;
   }
   if (min === "*" && hour === "*") return "Every minute";
@@ -49,8 +61,17 @@ export function describeCron(expr: string): string | null {
   }
   if (!/^\d+$/.test(hour)) return null;
 
-  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  if (dom === "*" && mon === "*" && dow === "*") return `Every day at ${at(hour)}`;
+  const days = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
+  if (dom === "*" && mon === "*" && dow === "*")
+    return `Every day at ${at(hour)}`;
   if (dom === "*" && mon === "*" && /^[0-6]$/.test(dow)) {
     return `Every ${days[Number(dow)]} at ${at(hour)}`;
   }
@@ -67,11 +88,17 @@ export function CronEditor({
   job,
   onDone,
   onCancel,
+  onRunNow,
+  onToggle,
 }: {
   /** Absent when writing a new one. */
   job?: CronJob;
   onDone: () => void;
   onCancel: () => void;
+  /** Fire it now, so "does this work" is not a day's wait per attempt. */
+  onRunNow?: (id: number) => void;
+  /** Turn it off without deleting it. */
+  onToggle?: (id: number, enabled: boolean) => void;
 }): ReactElement {
   const [name, setName] = useState(job?.name ?? "");
   const [schedule, setSchedule] = useState(job?.schedule ?? "0 9 * * *");
@@ -80,7 +107,11 @@ export function CronEditor({
   );
   const [prompt, setPrompt] = useState(job?.prompt ?? "");
   const [actions, setActions] = useState(
-    JSON.stringify(job?.actions ?? [{ tool: "notify", args: { text: "" } }], null, 2),
+    JSON.stringify(
+      job?.actions ?? [{ tool: "notify", args: { text: "" } }],
+      null,
+      2,
+    ),
   );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -118,96 +149,149 @@ export function CronEditor({
 
   return (
     <div className="settings cron-editor">
-      <label className="kos-field">
-        <span className="kos-field-label">Name</span>
-        <input
-          className="kos-input"
-          value={name}
-          placeholder="Morning summary"
-          onChange={(e) => setName(e.target.value)}
-        />
-      </label>
-
-      <div className="kos-field">
-        <span className="kos-field-label">When</span>
-        <div className="settings-row">
-          <input
-            className="kos-input kos-mono"
-            value={schedule}
-            spellCheck={false}
-            onChange={(e) => setSchedule(e.target.value)}
-          />
-          <Select
-            className="settings-select"
-            label="Common schedules"
-            value=""
-            options={[
-              { value: "", label: "presets…" },
-              ...PRESETS.map((p) => ({ value: p.value, label: p.label, hint: p.value })),
-            ]}
-            onChange={(v) => v && setSchedule(v)}
-          />
+      {/* What this job is doing right now, and the two things worth doing to
+          it while reading it. Trying a schedule meant closing the drawer and
+          finding the row again, and waiting for tomorrow to find out. */}
+      {job && (
+        <div className="cron-state">
+          <span className={`cron-badge ${job.enabled ? "is-on" : "is-off"}`}>
+            {job.enabled ? "On schedule" : "Paused"}
+          </span>
+          <span className="cron-extra">
+            {onRunNow && (
+              <button
+                type="button"
+                className="btn btn--sm"
+                title="Run it now, through the same path the schedule uses"
+                onClick={() => onRunNow(job.id)}
+              >
+                Run now
+              </button>
+            )}
+            {onToggle && (
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={() => onToggle(job.id, !job.enabled)}
+              >
+                {job.enabled ? "Pause" : "Resume"}
+              </button>
+            )}
+          </span>
         </div>
-        {/* Read back in words. Five numbers and three stars is a format you
+      )}
+
+      <div className="set-group">
+        <h3>When it runs</h3>
+        <p className="hint">
+          The name is how it is referred to everywhere else, including in a
+          message about it failing.
+        </p>
+        <label className="kos-field">
+          <span className="kos-field-label">Name</span>
+          <input
+            className="kos-input"
+            value={name}
+            placeholder="Morning summary"
+            onChange={(e) => setName(e.target.value)}
+          />
+        </label>
+
+        <div className="kos-field">
+          <span className="kos-field-label">When</span>
+          <div className="settings-row">
+            <input
+              className="kos-input kos-mono"
+              value={schedule}
+              spellCheck={false}
+              onChange={(e) => setSchedule(e.target.value)}
+            />
+            <Select
+              className="settings-select"
+              label="Common schedules"
+              value=""
+              options={[
+                { value: "", label: "presets…" },
+                ...PRESETS.map((p) => ({
+                  value: p.value,
+                  label: p.label,
+                  hint: p.value,
+                })),
+              ]}
+              onChange={(v) => v && setSchedule(v)}
+            />
+          </div>
+          {/* Read back in words. Five numbers and three stars is a format you
             either know or do not, and getting it wrong means a job that runs
             at a time you did not intend and no way to notice from here. */}
-        <span className={`cron-reads ${readable ? "" : "is-bad"}`}>
-          {readable ?? "Not a schedule yet: five fields, minute to day of week."}
-        </span>
+          <span className={`cron-reads ${readable ? "" : "is-bad"}`}>
+            {readable ??
+              "Not a schedule yet: five fields, minute to day of week."}
+          </span>
+        </div>
       </div>
 
-      <div className="kos-field">
-        <span className="kos-field-label">What it does</span>
-        <Select
-          className="settings-select"
-          label="Job type"
-          value={type}
-          options={[
-            {
-              value: "self_prompt",
-              label: "Ask KOS",
-              hint: "reads, decides, then acts",
-            },
-            {
-              value: "actions",
-              label: "Fixed tool calls",
-              hint: "exactly these, every time",
-            },
-          ]}
-          onChange={(v) => setType(v === "actions" ? "actions" : "self_prompt")}
-        />
-      </div>
+      <div className="set-group">
+        <h3>What it does</h3>
+        <p className="hint">
+          Either KOS decides what to do each time, or the same calls run
+          unchanged.
+        </p>
+        <div className="kos-field">
+          <span className="kos-field-label">Kind</span>
+          <Select
+            className="settings-select"
+            label="Job type"
+            value={type}
+            options={[
+              {
+                value: "self_prompt",
+                label: "Ask KOS",
+                hint: "reads, decides, then acts",
+              },
+              {
+                value: "actions",
+                label: "Fixed tool calls",
+                hint: "exactly these, every time",
+              },
+            ]}
+            onChange={(v) =>
+              setType(v === "actions" ? "actions" : "self_prompt")
+            }
+          />
+        </div>
 
-      {type === "self_prompt" ? (
-        <label className="kos-field">
-          <span className="kos-field-label">Prompt</span>
-          <textarea
-            className="kos-input"
-            rows={4}
-            value={prompt}
-            placeholder="Look at this week's expenses and message me anything unusual."
-            onChange={(e) => setPrompt(e.target.value)}
-          />
-          <span className="hint">
-            Written as an instruction to KOS, the way you would say it.
-          </span>
-        </label>
-      ) : (
-        <label className="kos-field">
-          <span className="kos-field-label">Tool calls</span>
-          <textarea
-            className="kos-input kos-mono"
-            rows={7}
-            value={actions}
-            spellCheck={false}
-            onChange={(e) => setActions(e.target.value)}
-          />
-          <span className="hint">
-            Run in order. Nothing is substituted into them, so anything that has
-            to read data and then report on it belongs in Ask KOS instead.
-          </span>
-        </label>
-      )}
+        {type === "self_prompt" ? (
+          <label className="kos-field">
+            <span className="kos-field-label">Prompt</span>
+            <textarea
+              className="kos-input"
+              rows={4}
+              value={prompt}
+              placeholder="Look at this week's expenses and message me anything unusual."
+              onChange={(e) => setPrompt(e.target.value)}
+            />
+            <span className="hint">
+              Written as an instruction to KOS, the way you would say it.
+            </span>
+          </label>
+        ) : (
+          <label className="kos-field">
+            <span className="kos-field-label">Tool calls</span>
+            <textarea
+              className="kos-input kos-mono"
+              rows={7}
+              value={actions}
+              spellCheck={false}
+              onChange={(e) => setActions(e.target.value)}
+            />
+            <span className="hint">
+              Run in order. Nothing is substituted into them, so anything that
+              has to read data and then report on it belongs in Ask KOS instead.
+            </span>
+          </label>
+        )}
+      </div>
 
       {error && (
         <p className="ops-alert ops-alert--err" role="alert">
