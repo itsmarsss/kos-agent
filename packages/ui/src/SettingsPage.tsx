@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
-import { api, type ModelRate, type SettingsPayload } from "./api.js";
+import {
+  api,
+  type Behaviour,
+  type ModelRate,
+  type SettingsPayload,
+} from "./api.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { Select } from "./Select.js";
 import { SpendPanel } from "./SpendPanel.js";
@@ -18,12 +23,26 @@ import { SpendPanel } from "./SpendPanel.js";
  * anyone; the value itself never leaves the machine it is stored on.
  */
 
+/**
+ * What the fields show before the server has answered. The same numbers the
+ * harness defaults to, so an unread settings page is not also a wrong one.
+ */
+const BEHAVIOUR_FALLBACK: Behaviour = {
+  autoFix: false,
+  maxSteps: 10,
+  fixSteps: 24,
+  selfPromptsPerHour: 10,
+  agentMinutes: 15,
+  agentTurns: 60,
+  stallMinutes: 3,
+};
+
 type SectionId =
   | "you"
   | "providers"
   | "models"
   | "conversation"
-  | "failures"
+  | "behaviour"
   | "network"
   | "spend"
   | "workspace";
@@ -34,9 +53,9 @@ const SECTIONS: { id: SectionId; label: string; blurb: string }[] = [
   { id: "models", label: "Models", blurb: "Which model answers, and which builds" },
   { id: "conversation", label: "Conversation", blurb: "How much history is kept" },
   {
-    id: "failures",
-    label: "Failures",
-    blurb: "What happens when something breaks",
+    id: "behaviour",
+    label: "Behaviour",
+    blurb: "How KOS acts when you are not watching",
   },
   { id: "network", label: "Network", blurb: "Ports, binding, and what the agent may reach" },
   { id: "spend", label: "Spend", blurb: "Tokens used and what they cost" },
@@ -64,6 +83,44 @@ function Field({
       {children}
       {hint && <p className="set-hint">{hint}</p>}
     </div>
+  );
+}
+
+/**
+ * A bounded number. Typed or nudged, and never outside its range: these
+ * govern spend and runaway loops, so the field itself should not be able to
+ * express "loop for a day".
+ */
+function Limit({
+  label,
+  hint,
+  value,
+  range,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  value: number;
+  range?: [number, number];
+  onChange: (value: number) => void;
+}): ReactElement {
+  const [min, max] = range ?? [1, 1000];
+  return (
+    <Field label={label} hint={`${hint} Between ${min} and ${max}.`}>
+      <input
+        className="kos-input set-limit"
+        type="number"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => {
+          const next = Number(e.target.value);
+          if (Number.isFinite(next)) {
+            onChange(Math.min(max, Math.max(min, Math.round(next))));
+          }
+        }}
+      />
+    </Field>
   );
 }
 
@@ -122,7 +179,9 @@ export function SettingsPage(): ReactElement {
   const [data, setData] = useState<SettingsPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState<SectionId>("you");
-  const [autofix, setAutofix] = useState(false);
+  const [how, setHow] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
+  const [defaults, setDefaults] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
+  const [limits, setLimits] = useState<Record<string, [number, number]>>({});
   const [busy, setBusy] = useState<SectionId | null>(null);
   const [saved, setSaved] = useState<Partial<Record<SectionId, string>>>({});
 
@@ -160,10 +219,15 @@ export function SettingsPage(): ReactElement {
   useEffect(load, []);
   useEffect(() => {
     void api
-      .autofix()
-      .then((r) => setAutofix(r.enabled))
-      // A setting that cannot be read stays off, which is the safe reading.
-      .catch(() => setAutofix(false));
+      .behaviour()
+      .then((r) => {
+        setHow(r.behaviour);
+        setDefaults(r.defaults);
+        setLimits(r.limits);
+      })
+      // Unreadable settings stay at the conservative values rather than
+      // showing numbers that are not the ones in force.
+      .catch(() => undefined);
   }, []);
 
   const done = (section: SectionId, message: string): void => {
@@ -404,31 +468,100 @@ export function SettingsPage(): ReactElement {
           </>
         )}
 
-        {active === "failures" && (
-          <Section
-            title="Failures"
-            blurb="A job that fails at 3am tells you either way. This decides whether KOS also tries to do something about it before you wake up."
-          >
-            <Field
-              label="Try to fix failures on its own"
-              hint="On the first failure of a job, KOS opens a chat, works out why, and repairs it if it safely can. Later failures of the same job do not start another attempt. Everything it does there still asks you before anything risky, and you can read or steer the attempt in Chats."
+        {active === "behaviour" && (
+          <>
+            <Section
+              title="When something fails"
+              blurb="A job that fails at 3am tells you either way. This decides whether KOS also tries to do something about it before you wake up."
             >
-              <label className="set-toggle">
-                <input
-                  type="checkbox"
-                  checked={autofix}
-                  onChange={(e) => {
-                    const next = e.target.checked;
-                    setAutofix(next);
-                    // Saved as it is flipped: one switch does not need a
-                    // Save button parked underneath it.
-                    void api.setAutofix(next).catch(() => setAutofix(!next));
-                  }}
-                />
-                <span>{autofix ? "On" : "Off"}</span>
-              </label>
-            </Field>
-          </Section>
+              <Field
+                label="Try to fix failures on its own"
+                hint="On the first failure of a job, KOS opens a chat, works out why, and repairs it if it safely can. Later failures of the same job do not start another attempt. Everything it does there still asks you before anything risky, and you can read or steer the attempt in Chats."
+              >
+                <label className="set-toggle">
+                  <input
+                    type="checkbox"
+                    checked={how.autoFix}
+                    onChange={(e) => setHow({ ...how, autoFix: e.target.checked })}
+                  />
+                  <span>{how.autoFix ? "On" : "Off"}</span>
+                </label>
+              </Field>
+            </Section>
+
+            <Section
+              title="How hard it tries"
+              blurb="A step is one round-trip to the model, which is roughly one thought and one tool call. Past the limit a turn stops and says it got stuck rather than running on."
+            >
+              <Limit
+                label="Steps in a turn"
+                hint={`What an ordinary message gets. Default ${defaults.maxSteps}.`}
+                value={how.maxSteps}
+                range={limits.maxSteps}
+                onChange={(maxSteps) => setHow({ ...how, maxSteps })}
+              />
+              <Limit
+                label="Steps in a fix attempt"
+                hint={`Diagnosing a failure is mostly reading, so it is worth more than a normal turn. Default ${defaults.fixSteps}.`}
+                value={how.fixSteps}
+                range={limits.fixSteps}
+                onChange={(fixSteps) => setHow({ ...how, fixSteps })}
+              />
+            </Section>
+
+            <Section
+              title="Unattended work"
+              blurb="Limits on what KOS may do while nobody is watching. These are the guards against a loop that runs all night."
+            >
+              <Limit
+                label="Self-prompted jobs per hour"
+                hint={`A scheduled job that thinks rather than running fixed actions. Zero stops them entirely. Default ${defaults.selfPromptsPerHour}.`}
+                value={how.selfPromptsPerHour}
+                range={limits.selfPromptsPerHour}
+                onChange={(selfPromptsPerHour) =>
+                  setHow({ ...how, selfPromptsPerHour })
+                }
+              />
+              <Limit
+                label="Minutes a coding agent may run"
+                hint={`Stopped at this regardless of what it is doing. Default ${defaults.agentMinutes}.`}
+                value={how.agentMinutes}
+                range={limits.agentMinutes}
+                onChange={(agentMinutes) => setHow({ ...how, agentMinutes })}
+              />
+              <Limit
+                label="Turns a coding agent may take"
+                hint={`The other end of the same leash, counted in steps rather than time. Default ${defaults.agentTurns}.`}
+                value={how.agentTurns}
+                range={limits.agentTurns}
+                onChange={(agentTurns) => setHow({ ...how, agentTurns })}
+              />
+              <Limit
+                label="Minutes of silence before an agent looks stuck"
+                hint={`Only changes what the Agents list says about it; nothing is stopped. Default ${defaults.stallMinutes}.`}
+                value={how.stallMinutes}
+                range={limits.stallMinutes}
+                onChange={(stallMinutes) => setHow({ ...how, stallMinutes })}
+              />
+            </Section>
+
+            {/* One button, because these three cards are one stored document.
+                A Save under each would each write all of them, which reads
+                as three independent settings and is not. */}
+            <footer className="set-card set-card-foot set-tab-foot">
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={busy === "behaviour"}
+                onClick={() => run("behaviour", api.saveBehaviour(how), "Saved")}
+              >
+                {busy === "behaviour" ? "Saving…" : "Save behaviour"}
+              </button>
+              {saved.behaviour && (
+                <span className="set-saved">{saved.behaviour}</span>
+              )}
+            </footer>
+          </>
         )}
 
         {active === "conversation" && (

@@ -70,6 +70,16 @@ const MAX_FINISHED = 20;
 const SILENCE_MS = 3 * 60_000;
 
 export class BuildRegistry {
+  /**
+   * How long an agent may be quiet before it is called stalled. A function
+   * because the owner sets it, and a build already running should respect a
+   * change rather than keeping whatever was configured when it started.
+   */
+  private readonly silenceMs: () => number;
+
+  constructor(silenceMs: () => number = () => SILENCE_MS) {
+    this.silenceMs = silenceMs;
+  }
   private readonly records = new Map<number, BuildRecord>();
   private readonly controls = new Map<number, BuildControl>();
   /**
@@ -269,7 +279,7 @@ export class BuildRegistry {
       record.phaseSince ?? 0,
       record.phase && record.phase.phase !== "idle" ? now : 0,
     );
-    return now - last > SILENCE_MS;
+    return now - last > this.silenceMs();
   }
 
   /** Running first, then most recently finished. */

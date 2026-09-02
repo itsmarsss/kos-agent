@@ -256,6 +256,17 @@ export interface PendingMessage {
   attachments: { name: string }[];
 }
 
+/** How KOS behaves when nobody is telling it what to do. */
+export interface Behaviour {
+  autoFix: boolean;
+  maxSteps: number;
+  fixSteps: number;
+  selfPromptsPerHour: number;
+  agentMinutes: number;
+  agentTurns: number;
+  stallMinutes: number;
+}
+
 export interface FailingJob {
   key: string;
   label: string;
@@ -471,9 +482,14 @@ export const api = {
       "/api/fix",
       input,
     ),
-  autofix: () => get<{ enabled: boolean }>("/api/settings/autofix"),
-  setAutofix: (enabled: boolean) =>
-    post<{ enabled: boolean }>("/api/settings/autofix", { enabled }),
+  behaviour: () =>
+    get<{
+      behaviour: Behaviour;
+      defaults: Behaviour;
+      limits: Record<string, [number, number]>;
+    }>("/api/settings/behaviour"),
+  saveBehaviour: (behaviour: Behaviour) =>
+    post<{ behaviour: Behaviour }>("/api/settings/behaviour", { behaviour }),
   dismissFailure: (key: string) =>
     post<{ dismissed: string }>("/api/health/dismiss", { key }),
   deleteCron: (id: number) =>

@@ -31,6 +31,12 @@ export interface BuildsModuleOptions {
   model?: () => string | undefined;
   /** Opens and closes a live turn around the build, so a reader sees it work. */
   frame?: (phase: "start" | "end") => void;
+  /**
+   * How long a build may run and how many turns it may take, read fresh so
+   * the owner changing them applies to the next build rather than the next
+   * restart.
+   */
+  limits?: () => { timeoutMs: number; maxTurns: number };
 }
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -80,11 +86,15 @@ function defineBuildTools(
       let id = 0;
 
       options.frame?.("start");
+      const limits = options.limits?.();
       const result = await runBuild({
         workspace: ws,
         approvals: options.approvals,
         dir,
         task,
+        ...(limits
+          ? { timeoutMs: limits.timeoutMs, maxTurns: limits.maxTurns }
+          : {}),
         ...(options.userId ? { userId: options.userId } : {}),
         ...(conversationId ? { conversationId } : {}),
         ...(options.model?.() ? { model: options.model()! } : {}),
