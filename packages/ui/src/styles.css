@@ -4826,12 +4826,6 @@ a.health {
   font-variant-numeric: tabular-nums;
 }
 
-/* One footer for a tab whose cards are all one document. */
-.set-tab-foot {
-  border-top: 1px solid var(--line);
-  border-radius: var(--r-md);
-}
-
 .set-unsaved {
   color: var(--warn);
   font-size: var(--text-sm);
@@ -4952,3 +4946,19 @@ a.health {
 
 .note-done { align-self: flex-start; margin-top: 0.6rem; }
 .chats-note { display: flex; flex-direction: column; }
+
+/* Rates, in a drawer: one model per row, its numbers under its name. */
+.spend-rate-list { display: flex; flex-direction: column; gap: 0.9rem; margin-top: 0.9rem; }
+.spend-rate {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid var(--line);
+}
+.spend-rate:last-child { border-bottom: 0; padding-bottom: 0; }
+.spend-rate-name { display: flex; align-items: baseline; gap: 0.5rem; font-family: var(--mono); }
+.spend-rate-fields { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.spend-rate-field { display: flex; flex-direction: column; gap: 0.2rem; }
+.spend-rate-field > span { color: var(--faint); font-size: var(--text-xs); }
+.spend-rate-field .kos-input { width: 8rem; }
