@@ -19,7 +19,8 @@ import { hrefFor } from "./routes.js";
  * middle of a sentence, and coloured by kind so a file is distinguishable from
  * a project at a glance.
  */
-const MENTION = /@(project|page|file|schedule):([A-Za-z0-9._/-]*[A-Za-z0-9_/-])/;
+const MENTION =
+  /@(project|page|file|schedule):(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*[A-Za-z0-9_/-]))/;
 const COMMAND = /(^|\s)(\/(?:new|chats|switch|rename|archive|help))\b/;
 
 /** Where a reference goes when it is clicked. */
@@ -54,7 +55,9 @@ const INLINE: Array<{
     re: MENTION,
     render: (m, k) => {
       const kind = m[1] ?? "";
-      const id = m[2] ?? "";
+      // Bracketed or plain, whichever branch matched. A schedule is named by
+      // its owner and usually has spaces, so the plain form cannot carry it.
+      const id = m[2] ?? m[3] ?? "";
       return (
         <a
           key={k}

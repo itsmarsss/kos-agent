@@ -78,6 +78,15 @@ export function Inspector(props: {
   onOpenPage?: (id: string) => void;
   /** Show a project's folder in the file browser. */
   onOpenFolder?: (path: string) => void;
+  /** Put KOS on this failure, in its own chat. */
+  onFix?: (detail: {
+    label: string;
+    error: string;
+    what: string;
+    ref?: string;
+  }) => void;
+  /** So a run can name the job it belongs to rather than its id. */
+  crons?: CronJob[];
   onSaved?: () => void;
   onSetProjectStatus?: (slug: string, status: string) => Promise<void>;
   onToggleCron?: (id: number, enabled: boolean) => Promise<void>;
@@ -173,6 +182,25 @@ export function Inspector(props: {
           />
         </>
       );
+      actions =
+        t.isError && props.onFix ? (
+          <button
+            type="button"
+            className="ops-btn ops-btn--primary"
+            disabled={busy}
+            onClick={() => {
+              props.onFix?.({
+                label: t.tool,
+                error: t.result || "the tool reported an error",
+                what: "tool call",
+                ref: `tool call #${t.id}`,
+              });
+              onClose();
+            }}
+          >
+            Fix this
+          </button>
+        ) : null;
       break;
     }
     case "cron": {
@@ -233,20 +261,93 @@ export function Inspector(props: {
     }
     case "run": {
       const r = target.data;
-      title = `${r.kind} run`;
-      subtitle = `#${r.id} · ${r.status}`;
+      const job = props.crons?.find((c) => String(c.id) === r.ref);
+      title = job?.name ?? `${r.kind} run`;
+      subtitle = `${r.kind} #${r.id} · ${r.status}`;
+      // The error first, because on a failed run it is the only reason the
+      // drawer was opened. It used to be last, under four rows of timing.
       body = (
         <>
-          <Field label="Ref" value={r.ref ?? "—"} mono />
-          <Field label="Started" value={fmtTime(r.startedAt)} />
-          <Field label="Finished" value={fmtTime(r.finishedAt)} />
-          <Field
-            label="Duration"
-            value={r.durationMs != null ? `${r.durationMs} ms` : "—"}
-          />
-          <Block label="Error" text={r.error ?? "(none)"} />
+          {r.error && <p className="insp-lead insp-lead--bad">{r.error}</p>}
+          <div className="insp-cols">
+            <div className="insp-main">
+              {r.error ? (
+                <Section title="What it said">
+                  <pre className="insp-pre">{r.error}</pre>
+                </Section>
+              ) : (
+                <p className="ops-muted">This run finished without an error.</p>
+              )}
+              {job && (
+                <Section title="The job">
+                  <ul className="insp-rows">
+                    <li>
+                      <span className="ops-mono">{job.schedule}</span>
+                      <span className="insp-meta">{job.type}</span>
+                      <span
+                        className={`ops-tag ${
+                          job.enabled ? "ops-tag--ok" : "ops-tag--muted"
+                        }`}
+                      >
+                        {job.enabled ? "on" : "off"}
+                      </span>
+                    </li>
+                    {(job.actions ?? []).map((a, i) => (
+                      <li key={i}>
+                        <span className="ops-mono">{a.tool}</span>
+                        <span className="insp-meta">{JSON.stringify(a.args)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </Section>
+              )}
+            </div>
+            <aside className="insp-side">
+              <Section title="Run">
+                <dl className="insp-about">
+                  <div>
+                    <dt>Status</dt>
+                    <dd>{r.status}</dd>
+                  </div>
+                  <div>
+                    <dt>Started</dt>
+                    <dd title={fmtTime(r.startedAt)}>{ago(r.startedAt)}</dd>
+                  </div>
+                  <div>
+                    <dt>Took</dt>
+                    <dd>{r.durationMs != null ? `${r.durationMs} ms` : "—"}</dd>
+                  </div>
+                  {r.ref && (
+                    <div>
+                      <dt>Ref</dt>
+                      <dd className="ops-mono">{r.ref}</dd>
+                    </div>
+                  )}
+                </dl>
+              </Section>
+            </aside>
+          </div>
         </>
       );
+      actions =
+        r.status === "error" && props.onFix ? (
+          <button
+            type="button"
+            className="ops-btn ops-btn--primary"
+            disabled={busy}
+            onClick={() => {
+              props.onFix?.({
+                label: job?.name ?? `${r.kind} run`,
+                error: r.error ?? "the run reported an error",
+                what: r.kind === "cron" ? "scheduled job" : "run",
+                ...(r.ref ? { ref: `${r.kind} #${r.ref}` } : {}),
+              });
+              onClose();
+            }}
+          >
+            Fix this
+          </button>
+        ) : null;
       break;
     }
     case "fact": {

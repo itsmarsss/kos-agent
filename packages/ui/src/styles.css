@@ -1959,7 +1959,18 @@ select {
   margin-bottom: 0.5rem;
 }
 .lately-head h2 { margin: 0; font-size: var(--text-xl); font-weight: 600; }
-.link { color: var(--accent); text-decoration: none; font-size: var(--text-md); }
+/* Used on both anchors and buttons. Without the reset a button kept the
+   browser's own grey chrome, so "All ->" rendered as a raised box in the
+   corner of every panel. */
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  text-decoration: none;
+  font-size: var(--text-md);
+  cursor: pointer;
+}
 .link:hover { text-decoration: underline; }
 
 .feed { list-style: none; margin: 0; padding: 0; }
@@ -3218,6 +3229,10 @@ li:hover .chats-item-when { opacity: 0; }
   margin: 0 0 0.5rem;
   padding: 0.6rem 0.7rem;
   background: var(--bg);
+  /* Its own colour, not the bubble's. On the owner's bubble the text is dark
+     because the background is the accent, and inheriting that put near-black
+     text on this near-black block: the code was there and invisible. */
+  color: var(--text);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   overflow-x: auto;
@@ -4748,4 +4763,30 @@ a.health {
 .set-unsaved {
   color: var(--warn);
   font-size: var(--text-sm);
+}
+
+/* A failed run leads with what it said. */
+.insp-lead--bad {
+  color: var(--danger);
+}
+
+/* The clickable part of a failure row: the name and the reason. The actions
+   are siblings, because a button inside a button is invalid and the browser
+   un-nests it. */
+.panel-row-open {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.panel-row-open:hover .fail-label {
+  text-decoration: underline;
 }
