@@ -914,7 +914,7 @@ export function ChatsPage({
                         <i />
                         <i />
                       </span>
-                      <span className="live-what">sending</span>
+                      <span className="live-what">Sending</span>
                     </div>
                   </div>
                 )

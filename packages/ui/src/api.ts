@@ -581,6 +581,13 @@ export const api = {
     get<{ build: BuildRecord; approvals: PendingAction[] }>(`/api/agents/${id}`),
   startAgent: (dir: string, task: string) =>
     post<{ started: boolean; dir: string }>("/api/agents/start", { dir, task }),
+  wakeAgent: (id: number, text: string) =>
+    post<{ woke: boolean; dir: string; resumed: boolean }>("/api/agents/wake", {
+      id,
+      text,
+    }),
+  forgetAgent: (id: number) =>
+    post<{ builds: BuildRecord[] }>("/api/agents/forget", { id }),
   stopAgent: (id: number) =>
     post<{ stopped: boolean; builds: BuildRecord[] }>("/api/agents/stop", { id }),
   sendToAgent: (id: number, text: string) =>
@@ -612,6 +619,7 @@ export const api = {
   ) => post<Conversation>("/api/conversations/configure", { id, ...config }),
   newConversation: (title?: string) =>
     post<Conversation>("/api/conversations/new", title ? { title } : {}),
+  folders: () => get<{ folders: string[] }>("/api/folders"),
   mentions: (q: string, kind?: string, limit?: number) =>
     get<{
       mentions: { kind: string; id: string; label: string; hint?: string }[];

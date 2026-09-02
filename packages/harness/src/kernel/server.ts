@@ -22,7 +22,9 @@ import { BUILD_SETTINGS_KEY, orchestratorId } from "./kernel.js";
 import { parseAttachments } from "./attachments.js";
 import cron from "node-cron";
 import type { CreateCronInput, ToolCall } from "../cron/types.js";
-import { findMentions, type MentionKind } from "./mentions.js";
+import { findMentions, type MentionKind,
+  walkFolders,
+} from "./mentions.js";
 import { } from "./chatcommands.js";
 import {
   EFFORTS,
@@ -803,6 +805,49 @@ export async function handleApiRequest(
     return ok({ started: true, dir });
   }
 
+  /**
+   * Say something to an agent that has finished.
+   *
+   * A finished build's process is gone, so this starts another one in the
+   * same folder resuming the same SDK session: it keeps what it already
+   * worked out rather than reading the folder again from nothing. Without
+   * this, a build that stopped one step short was a dead end.
+   */
+  if (method === "POST" && path === "/api/agents/wake") {
+    const id = Number(body.id);
+    const text = typeof body.text === "string" ? body.text.trim() : "";
+    const build = Number.isInteger(id) ? kernel.builds.get(id) : undefined;
+    if (!build || !text) {
+      return { status: 400, body: { error: "id and text required" } };
+    }
+    if (build.status === "running" || build.status === "waiting") {
+      return { status: 409, body: { error: "it is still running" } };
+    }
+    if (kernel.killSwitch.halted) {
+      return { status: 409, body: { error: "KOS is halted" } };
+    }
+    void kernel.registry
+      .execute("builds.run", {
+        dir: build.dir,
+        task: text,
+        ...(build.sessionId ? { resume: build.sessionId } : {}),
+      })
+      .catch(() => undefined);
+    return ok({ woke: true, dir: build.dir, resumed: Boolean(build.sessionId) });
+  }
+
+  /** Remove a finished agent from the list. */
+  if (method === "POST" && path === "/api/agents/forget") {
+    const id = Number(body.id);
+    if (!Number.isInteger(id)) {
+      return { status: 400, body: { error: "id required" } };
+    }
+    if (!kernel.builds.forget(id)) {
+      return { status: 409, body: { error: "still running" } };
+    }
+    return ok({ builds: kernel.builds.list() });
+  }
+
   if (method === "POST" && path === "/api/agents/stop") {
     const id = Number(body.id);
     if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
@@ -1098,6 +1143,11 @@ export async function handleApiRequest(
         body: { error: err instanceof Error ? err.message : String(err) },
       };
     }
+  }
+
+  /** Folders in the workspace, for anything that asks the owner to name one. */
+  if (method === "GET" && path === "/api/folders") {
+    return ok({ folders: walkFolders(kernel.workspace) });
   }
 
   if (method === "GET" && path === "/api/mentions") {

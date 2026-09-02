@@ -216,11 +216,13 @@ export function AgentTerminal({
     const text = say.trim();
     if (!text) return;
     setSay("");
-    void api
-      .sendToAgent(id, text)
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : String(err)),
-      );
+    // A finished agent is woken rather than refused: its process is gone but
+    // its session is not, so it carries on with what it already worked out
+    // instead of reading the folder again from nothing.
+    const work = live ? api.sendToAgent(id, text) : api.wakeAgent(id, text);
+    void work.catch((err: unknown) =>
+      setError(err instanceof Error ? err.message : String(err)),
+    );
   };
 
   return (
@@ -371,9 +373,8 @@ export function AgentTerminal({
           <span className="term-prompt">›</span>
           <input
             value={say}
-            disabled={!live}
             placeholder={
-              live ? "Say something to it…" : "This build has finished."
+              live ? "Say something to it…" : "Say something to wake it…"
             }
             onChange={(e) => setSay(e.target.value)}
           />
