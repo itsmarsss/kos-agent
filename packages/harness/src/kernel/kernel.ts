@@ -1,4 +1,5 @@
 import { runAgent, type Inference } from "../agent/loop.js";
+import { PressRoutes } from "../channels/presses.js";
 import { ToolRegistry } from "../agent/registry.js";
 import {
   cronFailure,
@@ -66,7 +67,11 @@ import { createChatsModule, CHAT_TOOLS } from "../tools/chats.js";
 import { createMemoryModule } from "../tools/memory.js";
 import { cronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
-import { notifyModule } from "../tools/notify.js";
+import {
+  createNotifyModule,
+  noticeText,
+  type NotifyPayload,
+} from "../tools/notify.js";
 import { sqlModule } from "../tools/sql.js";
 import { createBuildsModule } from "../tools/builds.js";
 import { sitesModule } from "../tools/sites.js";
@@ -111,7 +116,7 @@ export interface KernelOptions {
   /** Inference override (tests inject a stub); defaults to the model router. */
   inference?: Inference;
   /** Send a message to the owner via the active channel adapter. */
-  notify?: (text: string) => Promise<void>;
+  notify?: (payload: NotifyPayload) => Promise<void>;
   /** Additional (e.g. agent-promoted or third-party) modules to load. */
   extraModules?: KosModule[];
   /** Hosts the http.fetch tool may reach. */
@@ -143,6 +148,8 @@ const DEFAULT_SYSTEM =
   "You are KOS, a personal assistant operating inside a sandboxed workspace. Use the available tools to help. Risky actions are queued for owner approval — tell the user the pending id, then wait; when approval results arrive (as a System message), continue the plan without repeating completed creates. Prefer short checklist-style replies when the user asks. For tasks: create_list once, then tasks.add/list/complete with the returned slug as instance.";
 
 const DEFAULT_BACKUP_CRON = "0 3 * * *";
+/** How long a button KOS sent stays pressable. */
+const PRESS_ROUTE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Owner settings for build sub-agents. */
 /** Whether an unattended failure starts a fix attempt on its own. */
@@ -251,6 +258,8 @@ export class Kernel {
   readonly sessions: SessionStore;
   readonly conversations: ConversationStore;
   readonly facts: FactsStore;
+  /** Where a button press belongs, for the surface that receives one. */
+  readonly presses: PressRoutes;
   readonly settings: SettingsStore;
   readonly memoryWriter: MemoryWriter;
   readonly memoryRetriever: MemoryRetriever;
@@ -258,7 +267,7 @@ export class Kernel {
   private readonly inference: Inference;
   private readonly system: string;
   private readonly onApprovalRequested?: (action: PendingAction) => void;
-  private readonly notify?: (text: string) => Promise<void>;
+  private readonly notify?: (payload: NotifyPayload) => Promise<void>;
   private readonly sessionless: boolean;
   private readonly embedder: EmbeddingProvider;
   private readonly episodic: EpisodicStore;
@@ -313,6 +322,7 @@ export class Kernel {
     sessions: SessionStore;
     conversations: ConversationStore;
     facts: FactsStore;
+    presses: PressRoutes;
     settings: SettingsStore;
     memoryWriter: MemoryWriter;
     memoryRetriever: MemoryRetriever;
@@ -321,7 +331,7 @@ export class Kernel {
     inference: Inference;
     system: string;
     sessionless: boolean;
-    notify?: (text: string) => Promise<void>;
+    notify?: (payload: NotifyPayload) => Promise<void>;
     onApprovalRequested?: (action: PendingAction) => void;
   }) {
     this.workspace = args.workspace;
@@ -348,6 +358,7 @@ export class Kernel {
     this.sessions = args.sessions;
     this.conversations = args.conversations;
     this.facts = args.facts;
+    this.presses = args.presses;
     this.settings = args.settings;
     this.memoryWriter = args.memoryWriter;
     this.memoryRetriever = args.memoryRetriever;
@@ -379,6 +390,13 @@ export class Kernel {
     const runs = new RunsLog(workspace.db);
     const health = new HealthMonitor(workspace.db);
     const approvals = new ApprovalQueue(workspace.db, secrets);
+    // Where a button press goes. A row, because the message it is on outlives
+    // the process that sent it.
+    const presses = new PressRoutes(workspace.db);
+    // A button on a month-old message is not something anyone is about to
+    // press, and the table only ever grows otherwise. Swept once at boot
+    // rather than on a schedule of its own.
+    presses.prune(PRESS_ROUTE_TTL_MS);
     const spend = new SpendStore(workspace.db);
     const pending = new PendingMessages(workspace.db);
     const builds = new BuildRegistry(
@@ -414,19 +432,34 @@ export class Kernel {
       // Always wired. Without a channel this used to be absent, so `notify`
       // threw and every unattended job that ended in "tell me" lost its
       // message. The fallback puts it where the owner already looks.
-      notify: async (text: string) => {
+      notify: async (payload: NotifyPayload) => {
         if (options.notify) {
-          await options.notify(text);
+          await options.notify(payload);
           return;
         }
-        kernelRef?.recordNotice(text);
+        // No channel: the dashboard is where the owner already looks, and a
+        // card there is its title and body rather than nothing.
+        kernelRef?.recordNotice(noticeText(payload));
       },
     };
 
     const modules: KosModule[] = [
       filesModule,
       sqlModule,
-      notifyModule,
+      createNotifyModule({
+        // A press is a message, so it needs somewhere to be a message in. The
+        // caller may name a conversation; otherwise it lands back in the one
+        // that put the button there.
+        routePress: (button, replyTo) =>
+          presses.register({
+            conversationId:
+              replyTo ??
+              kernelRef?.currentConversationId ??
+              primarySessionId(profile.ownerId),
+            buttonId: button.id,
+            label: button.label,
+          }),
+      }),
       cronModule,
       createHttpModule({
         // Passed through as given: the host supplies a function that reads
@@ -617,6 +650,7 @@ export class Kernel {
       sessions,
       conversations,
       facts,
+      presses,
       settings,
       memoryWriter,
       memoryRetriever,
@@ -1803,7 +1837,9 @@ export class Kernel {
     if (this.notify) {
       // Not awaited: a channel that is slow or down must not hold up the job
       // that is reporting, and the health row is already written either way.
-      void this.notify(text).catch(() => this.recordNotice(text));
+      void this.notify({ text, target: { kind: "owner" } }).catch(() =>
+        this.recordNotice(text),
+      );
       return;
     }
     this.recordNotice(text);

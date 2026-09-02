@@ -33,8 +33,64 @@ export interface InboundMessage {
   native?: unknown;
 }
 
+/**
+ * A card attached to a message: a title, a body, and labelled fields.
+ *
+ * Modality-neutral on purpose. Discord renders it as an embed; a surface with
+ * no notion of one renders the same content as text, so an agent that decides
+ * to use a card does not have to know where the message is going.
+ */
+export interface MessageCard {
+  title?: string;
+  body?: string;
+  url?: string;
+  /** Accent colour as 0xRRGGBB, where the surface has one. */
+  color?: number;
+  fields?: { name: string; value: string; inline?: boolean }[];
+  footer?: string;
+  imageUrl?: string;
+  thumbnailUrl?: string;
+}
+
+/**
+ * Something to press. `id` comes back on the press, and is the agent's own
+ * name for what it means; `url` makes it a link instead, which nothing comes
+ * back from.
+ */
+export interface MessageButton {
+  label: string;
+  id?: string;
+  url?: string;
+  style?: "primary" | "secondary" | "success" | "danger";
+}
+
 export interface OutboundMessage {
   text: string;
+  card?: MessageCard;
+  buttons?: MessageButton[];
+}
+
+/**
+ * Where a message goes.
+ *
+ * "owner" is the default and the only one that needs no permission: it is the
+ * person KOS belongs to. Anything else is a message somewhere the owner may
+ * not be watching, which is why the tool escalates it.
+ */
+export type MessageTarget =
+  | { kind: "owner" }
+  | { kind: "user"; id: string }
+  | { kind: "channel"; id: string };
+
+/** A button that was pressed, on its way back to the conversation that sent it. */
+export interface ButtonPress {
+  /** The agent's own id for the button, as given when it was sent. */
+  buttonId: string;
+  label: string;
+  /** Opaque token the runtime uses to find where the press belongs. */
+  token: string;
+  /** Channel-native id of whoever pressed it. */
+  pressedBy: string;
 }
 
 export interface ApprovalRequest {
@@ -71,6 +127,7 @@ export type MessageHandler = (msg: InboundMessage) => Promise<void> | void;
 export type ApprovalHandler = (
   decision: ApprovalDecision,
 ) => Promise<void> | void;
+export type ButtonPressHandler = (press: ButtonPress) => Promise<void> | void;
 
 /**
  * Is this channel-native sender allowed to talk to KOS? The runtime derives it
@@ -89,6 +146,15 @@ export interface ChannelAdapter {
   stop(): Promise<void>;
   onMessage(handler: MessageHandler): void;
   send(recipientId: string, msg: OutboundMessage): Promise<void>;
+  /**
+   * Optional: send somewhere other than a direct message to one person, which
+   * for a bot on a server is most of the point of being on it. An adapter
+   * without the notion refuses, and the caller is told rather than the message
+   * being delivered somewhere it did not ask for.
+   */
+  sendTo?(target: MessageTarget, msg: OutboundMessage): Promise<void>;
+  /** Optional: told when a button KOS sent was pressed. */
+  onButton?(handler: ButtonPressHandler): void;
   requestApproval(recipientId: string, req: ApprovalRequest): Promise<void>;
   onApproval(handler: ApprovalHandler): void;
   /**

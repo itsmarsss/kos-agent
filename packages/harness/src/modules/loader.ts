@@ -5,6 +5,7 @@ import type { ToolRisk } from "../risk/tiers.js";
 import type { ToolHandler, ToolMeta, ToolRegistry } from "../agent/registry.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import type { Db } from "../store/db.js";
+import type { NotifyPayload } from "../tools/notify.js";
 import type { Workspace } from "../store/workspace.js";
 import type { ProjectManifest } from "../systems/manifest.js";
 import type { Migrator } from "../systems/migrate.js";
@@ -20,8 +21,14 @@ export interface ModuleServices {
   workspace: Workspace;
   db: Db;
   secrets: SecretsRegistry;
-  /** Send a message to the owner via the active channel adapter, if wired. */
-  notify?: (text: string) => Promise<void>;
+  /**
+   * Say something on the active channel, if one is wired.
+   *
+   * Takes a payload rather than a string because a message is no longer only
+   * text: it may carry a card, buttons, and a destination other than the
+   * owner. A surface that cannot render part of it renders what it can.
+   */
+  notify?: (payload: NotifyPayload) => Promise<void>;
   /** Project manifest (systems/tasks modules). */
   manifest?: ProjectManifest;
   /** Guarded schema migrator. */

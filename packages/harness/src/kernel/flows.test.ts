@@ -1564,8 +1564,8 @@ describe("failures reach the owner", () => {
       secrets: new SecretsRegistry(),
       inference: scripted([]).inference,
       profileOverrides: { name: "Kenny", timezone: "UTC" },
-      notify: async (text: string) => {
-        sent.push(text);
+      notify: async (payload) => {
+        sent.push(payload.text);
       },
     });
   }
