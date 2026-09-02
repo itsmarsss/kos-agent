@@ -303,6 +303,8 @@ export function SettingsPage(): ReactElement {
   const [limits, setLimits] = useState<Record<string, [number, number]>>({});
   /** ModelSettings owns its draft, so it hands its save up to the footer. */
   const saveModels = useRef<(() => void) | null>(null);
+  /** ModelSettings owns its draft, so it reports whether that draft differs. */
+  const [modelsDirty, setModelsDirty] = useState(false);
   const [busy, setBusy] = useState<SectionId | null>(null);
   const [saved, setSaved] = useState<Partial<Record<SectionId, string>>>({});
 
@@ -393,6 +395,32 @@ export function SettingsPage(): ReactElement {
       .finally(() => setBusy(null));
   };
 
+  /**
+   * The same Save on every tab.
+   *
+   * Each tab used to wire its own: some always pressable, some not; some
+   * saying "Saved", some silent; Models with three of them. One helper, so a
+   * tab cannot express a different idea of what saving is.
+   */
+  const saveBar = (
+    section: SectionId,
+    dirty: boolean,
+    onSave: () => void,
+    extra?: ReactNode,
+  ): {
+    saving: boolean;
+    saved: string | null;
+    canSave: boolean;
+    onSave: () => void;
+    extra?: ReactNode;
+  } => ({
+    saving: busy === section,
+    saved: dirty ? "Not saved yet" : (saved[section] ?? null),
+    canSave: dirty,
+    onSave,
+    ...(extra ? { extra } : {}),
+  });
+
   const same = (a: Behaviour, b: Behaviour): boolean =>
     (Object.keys(a) as (keyof Behaviour)[]).every((k) => a[k] === b[k]);
   const changed = !same(how, savedHow);
@@ -480,15 +508,17 @@ export function SettingsPage(): ReactElement {
           <Section
             title="You"
             blurb="Used in the system prompt and to decide what today means for a schedule."
-            saving={busy === "you"}
-            saved={saved.you ?? null}
-            onSave={() =>
-              run(
-                "you",
-                api.saveProfile(profile.name, profile.timezone),
-                "Saved",
-              )
-            }
+            {...saveBar(
+              "you",
+              profile.name !== (data.profile?.name ?? "") ||
+                profile.timezone !== (data.profile?.timezone ?? ""),
+              () =>
+                run(
+                  "you",
+                  api.saveProfile(profile.name, profile.timezone),
+                  "Saved",
+                ),
+            )}
           >
             <Field label="Name" hint="What KOS calls you.">
               <input
@@ -529,9 +559,9 @@ export function SettingsPage(): ReactElement {
           <Section
             title="Providers"
             blurb="Stored outside the workspace, readable only by you. KOS shows the last four characters so you can tell two keys apart; it never sends the value back."
-            saving={busy === "providers"}
-            saved={saved.providers ?? null}
-            onSave={() => saveEnv("providers", keys, () => setKeys({}))}
+            {...saveBar("providers", Object.keys(keys).length > 0, () =>
+              saveEnv("providers", keys, () => setKeys({})),
+            )}
           >
             {Object.entries(data.secrets).map(([key, meta]) => (
               <Field
@@ -583,16 +613,39 @@ export function SettingsPage(): ReactElement {
         )}
 
         {active === "models" && (
-          <>
-            {/* First, because it decides whether the rest of this tab even
-                applies: on the subscription the model is the SDK's to pick. */}
-            <Section
-              title="Who does the thinking"
-              blurb="A turn can go to the model provider, which bills API credits, or through the Claude Agent SDK, which is what coding agents already use and spends a Claude Code subscription instead."
-              saving={busy === "engine"}
-              saved={saved.engine ?? null}
-              onSave={() => run("engine", api.saveBehaviour(how), "Saved")}
-            >
+          /* One card, one Save, like every other tab. This was three cards
+             with three Saves, which is the shape the rest of Settings was
+             changed away from. */
+          <Section
+            title="Models"
+            blurb="Who answers, which model, and how hard it thinks."
+            {...saveBar(
+              "models",
+              how.engine !== savedHow.engine ||
+                modelsDirty ||
+                buildModel !== (data.buildModel ?? ""),
+              () => {
+                // One press writes all three, in the order that matters: the
+                // engine decides whether the model choices below apply.
+                void run(
+                  "models",
+                  api
+                    .saveBehaviour(how)
+                    .then(() => api.saveBuildModel(buildModel)),
+                  "Saved",
+                );
+                saveModels.current?.();
+                setSavedHow(how);
+              },
+            )}
+          >
+            <div className="set-group">
+              <h3>Who does the thinking</h3>
+              <p className="hint">
+                A turn can go to the model provider, which bills API credits,
+                or through the Claude Agent SDK, which is what coding agents
+                already use and spends a Claude Code subscription instead.
+              </p>
               <Field
                 label="Chat engine"
                 hint="Either way the only tools are KOS's own, inside the same workspace jail, and risky ones still ask you first. The SDK path needs a signed-in Claude Code on this machine, or an Anthropic key."
@@ -614,27 +667,35 @@ export function SettingsPage(): ReactElement {
                   }
                 />
               </Field>
-            </Section>
+            </div>
 
-            <Section
-              title="Models"
-              blurb="Which model answers what, and how hard it thinks."
-              saving={busy === "models"}
-              saved={saved.models ?? null}
-              onSave={() => saveModels.current?.()}
-            >
-              <ModelSettings onReady={(fn) => (saveModels.current = fn)} />
-            </Section>
-            <Section
-              title="Build agents"
-              blurb="Which model does the building when KOS hands work to a coding sub-agent."
-              saving={busy === "models"}
-              saved={saved.models ?? null}
-              onSave={() => run("models", api.saveBuildModel(buildModel), "Saved")}
-            >
+            <div className="set-group">
+              <h3>Which model answers</h3>
+              <p className="hint">
+                Applied on the next turn, no restart. Blank keeps the default.
+                Ignored while the Claude Agent SDK is answering, which picks
+                its own.
+              </p>
+              <ModelSettings
+                onReady={(fn, dirty) => {
+                  saveModels.current = fn;
+                  // Only on a change. This is called after every render of
+                  // the child, so setting state unconditionally re-rendered
+                  // it, which called this again: the page locked solid.
+                  setModelsDirty((was) => (was === dirty ? was : dirty));
+                }}
+              />
+            </div>
+
+            <div className="set-group">
+              <h3>Build agents</h3>
+              <p className="hint">
+                Which model does the building when KOS hands work to a coding
+                sub-agent.
+              </p>
               <Field
                 label="Build model"
-                hint="A build is many turns and each is a model call, so this is the biggest lever on how long one takes. Sonnet is markedly faster than Opus for scaffolding work. Leave blank to use whatever Claude Code defaults to."
+                hint="A build is many turns and each is a model call, so this is the biggest lever on how long one takes. Sonnet is markedly faster than Opus for scaffolding work."
               >
                 <Select
                   className="set-select"
@@ -649,8 +710,8 @@ export function SettingsPage(): ReactElement {
                   onChange={setBuildModel}
                 />
               </Field>
-            </Section>
-          </>
+            </div>
+          </Section>
         )}
 
         {active === "behaviour" && (
@@ -660,11 +721,10 @@ export function SettingsPage(): ReactElement {
           <Section
             title="Behaviour"
             blurb="How KOS acts when you are not watching. These are one set of settings, saved together."
-            saving={busy === "behaviour"}
-            saved={changed ? "Not saved yet" : (saved.behaviour ?? null)}
-            onSave={saveHow}
-            canSave={changed}
-            extra={
+            {...saveBar(
+              "behaviour",
+              changed,
+              saveHow,
               <button
                 type="button"
                 className="btn"
@@ -672,8 +732,8 @@ export function SettingsPage(): ReactElement {
                 onClick={() => setHow(defaults)}
               >
                 Reset to defaults
-              </button>
-            }
+              </button>,
+            )}
           >
             <div className="set-group">
               <h3>When something fails</h3>
@@ -777,19 +837,23 @@ export function SettingsPage(): ReactElement {
           <Section
             title="Conversation"
             blurb="How much of a chat is carried into the next turn. Past these, the oldest exchanges fall off the front; /compact turns them into a summary instead."
-            saving={busy === "conversation"}
-            saved={saved.conversation ?? null}
-            onSave={() =>
-              run(
-                "conversation",
-                api.saveRetention({
-                  maxChars: Number(retention.maxChars),
-                  maxToolResultChars: Number(retention.maxToolResultChars),
-                  maxExchanges: Number(retention.maxExchanges),
-                }),
-                "Saved",
-              )
-            }
+            {...saveBar(
+              "conversation",
+              retention.maxChars !== String(data.retention.maxChars) ||
+                retention.maxToolResultChars !==
+                  String(data.retention.maxToolResultChars) ||
+                retention.maxExchanges !== String(data.retention.maxExchanges),
+              () =>
+                run(
+                  "conversation",
+                  api.saveRetention({
+                    maxChars: Number(retention.maxChars),
+                    maxToolResultChars: Number(retention.maxToolResultChars),
+                    maxExchanges: Number(retention.maxExchanges),
+                  }),
+                  "Saved",
+                ),
+            )}
           >
             <Field
               label="History budget"
@@ -845,9 +909,9 @@ export function SettingsPage(): ReactElement {
           <Section
             title="Network"
             blurb="Where KOS listens and what it may reach. Applied the next time the host starts."
-            saving={busy === "network"}
-            saved={saved.network ?? null}
-            onSave={() => saveEnv("network", ports, () => setPorts({}))}
+            {...saveBar("network", Object.keys(ports).length > 0, () =>
+              saveEnv("network", ports, () => setPorts({})),
+            )}
           >
             {networkKeys.map(([key, meta]) => (
               <Field
