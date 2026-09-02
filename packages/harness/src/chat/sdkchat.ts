@@ -64,7 +64,6 @@ export interface SdkChatOptions {
   maxTurns?: number;
   /** Streamed reasoning and text, for the live view. */
   onDelta?: (delta: { kind: "reasoning" | "text"; text: string }) => void;
-  onToolStart?: (name: string, input: Record<string, unknown>) => void;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -85,14 +84,13 @@ export function sdkName(name: string): string {
  * Names are flattened because MCP tool names may not contain dots, and
  * mapped back before execution so the registry still sees files.read.
  */
-function serverFor(tools: ToolBox, onToolStart: SdkChatOptions["onToolStart"]) {
+function serverFor(tools: ToolBox) {
   const defined = tools.defs().map((spec) =>
     tool(
       spec.name.replace(/\./g, "_"),
       spec.description,
       toZodShape(spec.inputSchema),
       async (args: Record<string, unknown>) => {
-        onToolStart?.(spec.name, args);
         const result = await tools.execute(spec.name, args ?? {});
         return {
           content: [{ type: "text" as const, text: result.content }],
@@ -107,7 +105,7 @@ function serverFor(tools: ToolBox, onToolStart: SdkChatOptions["onToolStart"]) {
 export async function runSdkChat(
   options: SdkChatOptions,
 ): Promise<SdkChatResult> {
-  const { server } = serverFor(options.tools, options.onToolStart);
+  const { server } = serverFor(options.tools);
   const allowed = options.tools.defs().map((d) => sdkName(d.name));
   const { env, home } = credentials(options.cwd, options.env ?? process.env);
 
