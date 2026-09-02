@@ -4677,3 +4677,56 @@ a.health {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* A hovered bar is worth pointing at, and the whole column is the target so
+   a quiet day's hairline is still reachable. */
+.spend-bar-slot {
+  cursor: default;
+  outline: none;
+}
+
+.spend-bar-slot:hover .spend-bar,
+.spend-bar-slot:focus-visible .spend-bar {
+  background: var(--accent);
+}
+
+.spend-bar-slot:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.spend-pop-facts {
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+  gap: 0.15rem 0.9rem;
+  margin: 0.1rem 0 0;
+  padding: 0 0.25rem;
+}
+
+.spend-pop-facts dt {
+  color: var(--faint);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.spend-pop-facts dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.spend-pop-list--models {
+  margin-top: 0.5rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--line);
+}
+
+.spend-pop-none,
+.spend-pop-note {
+  margin: 0.25rem;
+  color: var(--faint);
+  font-size: var(--text-sm);
+}
