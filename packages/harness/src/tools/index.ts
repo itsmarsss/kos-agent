@@ -1,6 +1,12 @@
 export { filesModule, outsideScratch } from "./files.js";
 export { sqlModule, defineSqlTool } from "./sql.js";
 export {
+  createDaemonsModule,
+  daemonName,
+  nextPort,
+  PORT_RANGE,
+} from "./daemons.js";
+export {
   createNotifyModule,
   noticeText,
   notifyModule,

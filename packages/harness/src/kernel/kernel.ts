@@ -1,5 +1,7 @@
 import { runAgent, type Inference } from "../agent/loop.js";
 import { PressRoutes } from "../channels/presses.js";
+import { DaemonStore } from "../daemons/store.js";
+import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry } from "../agent/registry.js";
 import {
   cronFailure,
@@ -60,6 +62,7 @@ import { ProjectManifest } from "../systems/manifest.js";
 import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
 import { createHttpModule } from "../tools/http.js";
+import { createDaemonsModule } from "../tools/daemons.js";
 import { createSearchModule } from "../tools/search.js";
 import { exportModule } from "../tools/export.js";
 import { createSkillsModule } from "../tools/skills.js";
@@ -260,6 +263,9 @@ export class Kernel {
   readonly facts: FactsStore;
   /** Where a button press belongs, for the surface that receives one. */
   readonly presses: PressRoutes;
+  /** The agent's long-running programs, and what is keeping them up. */
+  readonly daemons: DaemonStore;
+  readonly supervisor: DaemonSupervisor;
   readonly settings: SettingsStore;
   readonly memoryWriter: MemoryWriter;
   readonly memoryRetriever: MemoryRetriever;
@@ -323,6 +329,8 @@ export class Kernel {
     conversations: ConversationStore;
     facts: FactsStore;
     presses: PressRoutes;
+    daemons: DaemonStore;
+    supervisor: DaemonSupervisor;
     settings: SettingsStore;
     memoryWriter: MemoryWriter;
     memoryRetriever: MemoryRetriever;
@@ -359,6 +367,8 @@ export class Kernel {
     this.conversations = args.conversations;
     this.facts = args.facts;
     this.presses = args.presses;
+    this.daemons = args.daemons;
+    this.supervisor = args.supervisor;
     this.settings = args.settings;
     this.memoryWriter = args.memoryWriter;
     this.memoryRetriever = args.memoryRetriever;
@@ -397,6 +407,14 @@ export class Kernel {
     // press, and the table only ever grows otherwise. Swept once at boot
     // rather than on a schedule of its own.
     presses.prune(PRESS_ROUTE_TTL_MS);
+
+    const daemons = new DaemonStore(workspace.db);
+    const supervisor = new DaemonSupervisor({
+      workspaceRoot: workspace.root,
+      // A daemon that has given up is news: it was running unattended, and
+      // nobody is looking at a log they do not know to open.
+      onCrash: (_daemon, reason) => kernelRef?.tellOwnerPublic(reason),
+    });
     const spend = new SpendStore(workspace.db);
     const pending = new PendingMessages(workspace.db);
     const builds = new BuildRegistry(
@@ -468,6 +486,13 @@ export class Kernel {
         allowedHosts: options.allowedHosts ?? [],
       }),
       createSearchModule(),
+      createDaemonsModule({
+        store: daemons,
+        supervisor,
+        workspaceRoot: workspace.root,
+        urlFor: (daemon) =>
+          daemon.port === null ? null : `/apps/${daemon.project}/${daemon.name}/`,
+      }),
       systemsModule,
       sitesModule,
       createBuildsModule({
@@ -651,6 +676,8 @@ export class Kernel {
       conversations,
       facts,
       presses,
+      daemons,
+      supervisor,
       settings,
       memoryWriter,
       memoryRetriever,
@@ -2424,9 +2451,34 @@ export class Kernel {
     this.scheduler = undefined;
   }
 
+  /**
+   * Bring up everything that is supposed to be running.
+   *
+   * Separate from boot so a test or a one-shot CLI command does not start the
+   * owner's programs just by opening the workspace. The host calls it; the
+   * REPL does not.
+   */
+  startDaemons(): void {
+    for (const daemon of this.daemons.list()) {
+      if (!daemon.enabled) continue;
+      try {
+        this.supervisor.start(daemon);
+      } catch (err) {
+        // One daemon that cannot start is not a reason for the host to fail
+        // to come up, or for the other daemons to stay down.
+        console.warn(
+          `[daemons] ${daemon.project}/${daemon.name}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  }
+
   close(): void {
     this.closed = true;
     this.stopCron();
+    // Not awaited: close is synchronous everywhere it is called from, and the
+    // children are killed either way once this process goes.
+    void this.supervisor.stopAll();
     this.workspace.close();
   }
 }

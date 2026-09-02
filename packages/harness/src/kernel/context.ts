@@ -124,6 +124,11 @@ export function inferScopeTags(text: string): string[] {
   if (/\b(file|read|write|edit|folder|directory|scratch)\b/.test(t)) {
     tags.add("files");
   }
+  // A long-running program of its own: the app behind a tracker, a worker, a
+  // bot. "server" and "app" are here because that is what an owner calls one.
+  if (/\b(daemon|server|service|worker|backend|app|running|logs?)\b/.test(t)) {
+    tags.add("daemons");
+  }
   // Always allow systems when talking about building things.
   if (/\b(build|track|create a|make me|set up)\b/.test(t)) {
     tags.add("systems");
