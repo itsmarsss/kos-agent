@@ -7,7 +7,13 @@ import { ToolRegistry } from "../agent/registry.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
-import { notifyModule } from "./notify.js";
+import {
+  createNotifyModule,
+  noticeText,
+  notifyModule,
+  parseTarget,
+  type NotifyPayload,
+} from "./notify.js";
 
 describe("notifyModule", () => {
   let root: string;
@@ -23,7 +29,10 @@ describe("notifyModule", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  async function load(notify?: (t: string) => Promise<void>): Promise<ToolRegistry> {
+  async function load(
+    notify?: (payload: NotifyPayload) => Promise<void>,
+    routePress?: (b: { id: string; label: string }, replyTo?: string) => string,
+  ): Promise<ToolRegistry> {
     const registry = new ToolRegistry();
     const ctx = toolRegistryContext(registry, {
       workspace: ws,
@@ -31,19 +40,85 @@ describe("notifyModule", () => {
       secrets: new SecretsRegistry(),
       ...(notify ? { notify } : {}),
     });
-    await new ModuleLoader(ctx).load([notifyModule]);
+    await new ModuleLoader(ctx).load([
+      routePress ? createNotifyModule({ routePress }) : notifyModule,
+    ]);
     return registry;
   }
 
   it("sends via the wired channel and is safe-tier", async () => {
-    const sent: string[] = [];
-    const registry = await load(async (t) => {
-      sent.push(t);
+    const sent: NotifyPayload[] = [];
+    const registry = await load(async (p) => {
+      sent.push(p);
     });
     const res = await registry.execute("notify", { text: "hello" });
     expect(res.isError).toBe(false);
-    expect(sent).toEqual(["hello"]);
+    expect(sent).toEqual([{ text: "hello", target: { kind: "owner" } }]);
     expect(registry.classify("notify", { text: "x" }).tier).toBe("safe");
+  });
+
+  it("asks first before speaking anywhere but to the owner", () => {
+    // Messaging the owner is the whole point of the tool. Posting in a channel
+    // is KOS talking in a place the owner did not pick for it.
+    const registry = new ToolRegistry();
+    void registry;
+    expect(parseTarget("channel:123")).toEqual({ kind: "channel", id: "123" });
+    expect(parseTarget(undefined)).toEqual({ kind: "owner" });
+    expect(() => parseTarget("123")).toThrow(/unrecognised destination/);
+  });
+
+  it("escalates a message aimed somewhere else", async () => {
+    const registry = await load(async () => undefined);
+    expect(registry.classify("notify", { text: "x" }).tier).toBe("safe");
+    expect(
+      registry.classify("notify", { text: "x", to: "channel:99" }).tier,
+    ).toBe("risky");
+  });
+
+  it("carries a card and mints a token for each button", async () => {
+    const sent: NotifyPayload[] = [];
+    let minted = 0;
+    const registry = await load(
+      async (p) => {
+        sent.push(p);
+      },
+      () => `tok${++minted}`,
+    );
+    const res = await registry.execute("notify", {
+      text: "Deploy?",
+      card: { title: "Ready", fields: [{ name: "Target", value: "iad", inline: true }] },
+      buttons: [
+        { label: "Ship it", id: "ship", style: "success" },
+        { label: "Docs", url: "https://example.com" },
+      ],
+    });
+    expect(res.isError).toBe(false);
+    expect(sent[0]?.card?.fields).toEqual([
+      { name: "Target", value: "iad", inline: true },
+    ]);
+    // A link button comes back from nothing, so it needs no token.
+    expect(sent[0]?.buttons?.map((b) => b.token)).toEqual(["tok1", undefined]);
+  });
+
+  it("refuses a button on a surface that cannot take one back", async () => {
+    const registry = await load(async () => undefined);
+    const res = await registry.execute("notify", {
+      text: "pick",
+      buttons: [{ label: "Yes", id: "yes" }],
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content).toMatch(/cannot take a button back/);
+  });
+
+  it("reads a card back as prose where there is no card", () => {
+    const text = noticeText({
+      text: "Heads up",
+      target: { kind: "owner" },
+      card: { title: "Backup", body: "done", fields: [{ name: "Size", value: "2MB" }] },
+    });
+    expect(text).toContain("Heads up");
+    expect(text).toContain("**Backup**");
+    expect(text).toContain("Size: 2MB");
   });
 
   it("errors when no channel is wired", async () => {

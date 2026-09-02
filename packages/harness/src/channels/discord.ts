@@ -20,9 +20,13 @@ import { isImage, isTextual, type Attachment } from "../kernel/attachments.js";
 import type {
   ApprovalHandler,
   ApprovalRequest,
+  ButtonPressHandler,
   ChannelAdapter,
   InboundMessage,
+  MessageButton,
+  MessageCard,
   MessageHandler,
+  MessageTarget,
   OutboundMessage,
   SenderAuthorizer,
   TurnPresence,
@@ -30,6 +34,8 @@ import type {
 
 export const APPROVE_PREFIX = "kos:approve:";
 export const DENY_PREFIX = "kos:deny:";
+/** A button the agent put there, as opposed to one the risk gate did. */
+export const PRESS_PREFIX = "kos:press:";
 
 const REACT_WORKING = "⏳";
 const REACT_DONE = "✅";
@@ -115,6 +121,11 @@ export function chunkText(text: string, max = 1900): string[] {
 export interface DiscordAdapterOptions {
   /** Bot token, resolved from the secrets registry by the harness. */
   token: string;
+  /**
+   * The owner's Discord id, so a message addressed to "owner" has somewhere to
+   * go without the caller knowing who that is.
+   */
+  ownerId?: string;
 }
 
 /**
@@ -185,12 +196,79 @@ export async function collectAttachments(
   return { attachments, skipped };
 }
 
+const STYLES: Record<string, ButtonStyle> = {
+  primary: ButtonStyle.Primary,
+  secondary: ButtonStyle.Secondary,
+  success: ButtonStyle.Success,
+  danger: ButtonStyle.Danger,
+};
+
+/** Discord's own limits, applied here so a long field is trimmed not refused. */
+const CARD_TITLE_MAX = 256;
+const CARD_BODY_MAX = 4096;
+const FIELD_NAME_MAX = 256;
+const FIELD_VALUE_MAX = 1024;
+const FIELDS_MAX = 25;
+const BUTTONS_PER_ROW = 5;
+const ROWS_MAX = 5;
+
+/** Turn a neutral card into a Discord embed. */
+export function buildCard(card: MessageCard): EmbedBuilder {
+  const embed = new EmbedBuilder();
+  if (card.title) embed.setTitle(card.title.slice(0, CARD_TITLE_MAX));
+  if (card.body) embed.setDescription(card.body.slice(0, CARD_BODY_MAX));
+  if (card.url) embed.setURL(card.url);
+  if (typeof card.color === "number") embed.setColor(card.color);
+  if (card.footer) embed.setFooter({ text: card.footer.slice(0, CARD_TITLE_MAX) });
+  if (card.imageUrl) embed.setImage(card.imageUrl);
+  if (card.thumbnailUrl) embed.setThumbnail(card.thumbnailUrl);
+  const fields = (card.fields ?? []).slice(0, FIELDS_MAX).map((f) => ({
+    name: f.name.slice(0, FIELD_NAME_MAX) || "\u200b",
+    value: f.value.slice(0, FIELD_VALUE_MAX) || "\u200b",
+    ...(f.inline ? { inline: true } : {}),
+  }));
+  if (fields.length) embed.addFields(fields);
+  return embed;
+}
+
+/**
+ * Turn neutral buttons into rows.
+ *
+ * A button with a url is a link and never comes back; one with an id is a
+ * press, and its custom id is the token the runtime handed out. Anything past
+ * what Discord will show is dropped rather than making the whole message fail.
+ */
+export function buildButtons(
+  buttons: (MessageButton & { token?: string })[],
+): ActionRowBuilder<ButtonBuilder>[] {
+  const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+  const usable = buttons.slice(0, BUTTONS_PER_ROW * ROWS_MAX);
+  for (let i = 0; i < usable.length; i += BUTTONS_PER_ROW) {
+    const row = new ActionRowBuilder<ButtonBuilder>();
+    for (const button of usable.slice(i, i + BUTTONS_PER_ROW)) {
+      const built = new ButtonBuilder().setLabel(button.label.slice(0, 80));
+      if (button.url) {
+        built.setStyle(ButtonStyle.Link).setURL(button.url);
+      } else {
+        built
+          .setStyle(STYLES[button.style ?? "secondary"] ?? ButtonStyle.Secondary)
+          .setCustomId(`${PRESS_PREFIX}${button.token ?? ""}`);
+      }
+      row.addComponents(built);
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
 export class DiscordAdapter implements ChannelAdapter {
   readonly name = "discord";
   private readonly client: Client;
   private readonly token: string;
   private messageHandler?: MessageHandler;
   private approvalHandler?: ApprovalHandler;
+  private buttonHandler?: ButtonPressHandler;
+  private readonly ownerId?: string;
   private isAuthorized: SenderAuthorizer = () => true;
 
   setAuthorizer(isAuthorized: SenderAuthorizer): void {
@@ -199,6 +277,7 @@ export class DiscordAdapter implements ChannelAdapter {
 
   constructor(options: DiscordAdapterOptions) {
     this.token = options.token;
+    if (options.ownerId) this.ownerId = options.ownerId;
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
@@ -252,6 +331,43 @@ export class DiscordAdapter implements ChannelAdapter {
   /** Gateway InteractionCreate handler. Internal; separated for tests. */
   async receiveInteraction(interaction: Interaction): Promise<void> {
     if (!interaction.isButton()) return;
+
+    // A button the agent put on a message of its own, rather than one the risk
+    // gate put on an approval prompt.
+    if (interaction.customId.startsWith(PRESS_PREFIX)) {
+      const token = interaction.customId.slice(PRESS_PREFIX.length);
+      if (!this.isAuthorized(interaction.user.id)) {
+        try {
+          await interaction.reply({
+            content: "Not authorized.",
+            flags: MessageFlags.Ephemeral,
+          });
+        } catch {
+          // interaction may already be acknowledged
+        }
+        return;
+      }
+      // The component type is a union and only some members carry a label;
+      // reading it defensively is cheaper than narrowing a wire shape.
+      const label =
+        (interaction.component as { label?: string | null }).label ?? "";
+      try {
+        // Acknowledged without changing the message: the buttons stay usable,
+        // because a press is a message to KOS rather than a decision that
+        // consumes the thing it was on.
+        await interaction.deferUpdate();
+      } catch {
+        // interaction may already be acknowledged
+      }
+      await this.buttonHandler?.({
+        buttonId: "",
+        label,
+        token,
+        pressedBy: interaction.user.id,
+      });
+      return;
+    }
+
     const decision = parseApprovalCustomId(interaction.customId);
     if (!decision) return;
 
@@ -307,11 +423,66 @@ export class DiscordAdapter implements ChannelAdapter {
     this.approvalHandler = handler;
   }
 
+  onButton(handler: ButtonPressHandler): void {
+    this.buttonHandler = handler;
+  }
+
   async send(recipientId: string, msg: OutboundMessage): Promise<void> {
     const user = await this.client.users.fetch(recipientId);
-    const chunks = chunkText(msg.text);
-    for (const chunk of chunks) {
-      await user.send(chunk);
+    await this.deliver((payload) => user.send(payload), msg);
+  }
+
+  /**
+   * Send somewhere other than the owner's DM.
+   *
+   * A bot that can only DM one person is not much of a bot on a server, and
+   * the surface already has the notion of a place to post in. Owner still
+   * means the DM, so the ordinary path is unchanged.
+   */
+  async sendTo(target: MessageTarget, msg: OutboundMessage): Promise<void> {
+    if (target.kind === "channel") {
+      const channel = await this.client.channels.fetch(target.id);
+      if (!channel || !channel.isSendable()) {
+        throw new Error(
+          `discord channel ${target.id} is not somewhere this bot can post`,
+        );
+      }
+      await this.deliver((payload) => channel.send(payload), msg);
+      return;
+    }
+    const id = target.kind === "user" ? target.id : this.ownerId;
+    if (!id) throw new Error("no owner is configured to send to");
+    await this.send(id, msg);
+  }
+
+  /**
+   * One place that turns a neutral message into what Discord takes.
+   *
+   * The text is chunked because Discord refuses anything over 2000 characters,
+   * and the card and the buttons ride on the last chunk so they end up under
+   * the whole message rather than in the middle of it.
+   */
+  private async deliver(
+    post: (payload: {
+      content?: string;
+      embeds?: EmbedBuilder[];
+      components?: ActionRowBuilder<ButtonBuilder>[];
+    }) => Promise<unknown>,
+    msg: OutboundMessage,
+  ): Promise<void> {
+    const chunks = msg.text ? chunkText(msg.text) : [];
+    const embeds = msg.card ? [buildCard(msg.card)] : [];
+    const components = buildButtons(msg.buttons ?? []);
+    if (chunks.length === 0 && embeds.length === 0) {
+      throw new Error("nothing to send: no text and no card");
+    }
+    for (let i = 0; i < Math.max(chunks.length, 1); i++) {
+      const last = i === Math.max(chunks.length, 1) - 1;
+      await post({
+        ...(chunks[i] ? { content: chunks[i] } : {}),
+        ...(last && embeds.length ? { embeds } : {}),
+        ...(last && components.length ? { components } : {}),
+      });
     }
   }
 
