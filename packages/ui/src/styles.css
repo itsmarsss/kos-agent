@@ -4047,25 +4047,32 @@ li:hover .chats-item-when { opacity: 0; }
 .agents-head .hint { max-width: 46rem; margin-bottom: 1.25rem; }
 .agents-list { display: flex; flex-direction: column; gap: 0.6rem; }
 .agent {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
   padding: 0.85rem 1rem;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
+  /* The card is the target, so the whole card says so. It used to be one
+     region inside the card that changed the cursor, which read as two
+     different things to click on one card. */
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
 }
+.agent:hover { border-color: var(--line-strong); background: var(--panel-2); }
 .agent--waiting { border-color: var(--warn); }
 .agent--failed { border-color: var(--danger); }
-.agent-head { display: flex; align-items: center; gap: 0.75rem; }
+.agent-head { display: flex; align-items: center; gap: 0.6rem; }
+/* Buttons sit together at the end, after the elapsed time. */
+.agent-head .btn { flex: none; }
+/* No longer a control of its own: it is the left-hand half of the head. */
 .agent-toggle {
   flex: 1;
   display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0;
-  text-align: left;
-  background: transparent;
-  border: 0;
-  color: inherit;
-  cursor: pointer;
+  align-items: baseline;
+  gap: 0.55rem;
+  min-width: 0;
   font-size: var(--text-md);
 }
 .agent-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
@@ -4076,9 +4083,9 @@ li:hover .chats-item-when { opacity: 0; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .agent-dir { font-family: var(--mono); font-size: var(--text-base); }
 .agent-state { color: var(--muted); font-size: var(--text-sm); }
-.agent-time { margin-left: auto; color: var(--faint); font-size: var(--text-sm); font-family: var(--mono); }
+.agent-time { color: var(--faint); font-size: var(--text-sm); font-family: var(--mono); }
 .agent-latest {
-  margin: 0.5rem 0 0;
+  margin: 0;
   padding-left: 1.35rem;
   color: var(--muted);
   font-size: var(--text-base);
@@ -4362,10 +4369,10 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
   font-size: var(--text-base);
 }
 .term-input input::placeholder { color: var(--faint); }
-.agent-asked { margin: 0.3rem 0 0; padding-left: 1.35rem; color: var(--warn); font-size: var(--text-sm); }
+.agent-asked { margin: 0; padding-left: 1.35rem; color: var(--warn); font-size: var(--text-sm); }
 
 .agent-quiet {
-  margin: 0.35rem 0 0;
+  margin: 0;
   padding-left: 1.35rem;
   color: var(--warn);
   font-size: var(--text-sm);
