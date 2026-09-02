@@ -1,6 +1,11 @@
 export { filesModule, outsideScratch } from "./files.js";
 export { sqlModule, defineSqlTool } from "./sql.js";
-export { notifyModule } from "./notify.js";
+export {
+  createNotifyModule,
+  noticeText,
+  notifyModule,
+  type NotifyPayload,
+} from "./notify.js";
 export {
   createHttpModule,
   type FetchImpl,

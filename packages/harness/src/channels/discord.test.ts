@@ -5,11 +5,14 @@ import {
   APPROVE_PREFIX,
   DENY_PREFIX,
   DiscordAdapter,
+  PRESS_PREFIX,
   approvalCustomIds,
+  buildButtons,
+  buildCard,
   chunkText,
   parseApprovalCustomId,
 } from "./discord.js";
-import type { ApprovalDecision, InboundMessage } from "./types.js";
+import type { ApprovalDecision, ButtonPress, InboundMessage } from "./types.js";
 
 describe("discord approval customId codec", () => {
   it("encodes approve and deny ids for a pending action", () => {
@@ -65,8 +68,48 @@ function fakeButton(authorId: string, customId: string): FakeInteraction {
     user: { id: authorId },
     update: vi.fn(async () => undefined),
     reply: vi.fn(async () => undefined),
-  };
+    deferUpdate: vi.fn(async () => undefined),
+    component: { label: "Ship it" },
+  } as unknown as FakeInteraction;
 }
+
+describe("agent-authored cards and buttons", () => {
+  it("renders a card with its fields", () => {
+    const embed = buildCard({
+      title: "Backup",
+      body: "done",
+      fields: [{ name: "Size", value: "2MB", inline: true }],
+    }).toJSON();
+    expect(embed.title).toBe("Backup");
+    expect(embed.fields).toEqual([{ name: "Size", value: "2MB", inline: true }]);
+  });
+
+  it("trims a field rather than refusing the whole message", () => {
+    const embed = buildCard({ fields: [{ name: "n", value: "x".repeat(2000) }] }).toJSON();
+    expect(embed.fields?.[0]?.value).toHaveLength(1024);
+  });
+
+  it("carries the press token as the custom id, and a link instead of one", () => {
+    const rows = buildButtons([
+      { label: "Ship it", id: "ship", style: "success", token: "tok1" },
+      { label: "Docs", url: "https://example.com" },
+    ]);
+    const json = rows[0]!.toJSON();
+    expect(json.components[0]).toMatchObject({
+      custom_id: `${PRESS_PREFIX}tok1`,
+      label: "Ship it",
+    });
+    expect(json.components[1]).toMatchObject({ url: "https://example.com" });
+  });
+
+  it("wraps past five into a second row", () => {
+    const rows = buildButtons(
+      Array.from({ length: 7 }, (_, i) => ({ label: `b${i}`, token: `t${i}` })),
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows[1]!.toJSON().components).toHaveLength(2);
+  });
+});
 
 describe("DiscordAdapter authorization", () => {
   function adapterFor(ownerId: string): {
@@ -100,6 +143,36 @@ describe("DiscordAdapter authorization", () => {
     await adapter.receiveMessage(fakeMessage("stranger"));
     expect(messages).toEqual([]);
     vi.restoreAllMocks();
+  });
+
+  it("hands a press on an agent button back with its token", async () => {
+    const adapter = new DiscordAdapter({ token: "t" });
+    const presses: ButtonPress[] = [];
+    adapter.setAuthorizer((senderId) => senderId === "owner-id");
+    adapter.onButton((press) => {
+      presses.push(press);
+    });
+    const button = fakeButton("owner-id", `${PRESS_PREFIX}tok9`);
+    await adapter.receiveInteraction(button as unknown as Interaction);
+    expect(presses).toEqual([
+      { buttonId: "", label: "Ship it", token: "tok9", pressedBy: "owner-id" },
+    ]);
+    // Acknowledged without editing the message: the buttons stay usable,
+    // because a press is a message rather than a decision that consumes it.
+    expect((button as unknown as { deferUpdate: () => void }).deferUpdate).toHaveBeenCalled();
+  });
+
+  it("drops a press from a stranger", async () => {
+    const adapter = new DiscordAdapter({ token: "t" });
+    const presses: ButtonPress[] = [];
+    adapter.setAuthorizer((senderId) => senderId === "owner-id");
+    adapter.onButton((press) => {
+      presses.push(press);
+    });
+    await adapter.receiveInteraction(
+      fakeButton("stranger", `${PRESS_PREFIX}tok9`) as unknown as Interaction,
+    );
+    expect(presses).toEqual([]);
   });
 
   it("passes an approval click from the authorized sender", async () => {

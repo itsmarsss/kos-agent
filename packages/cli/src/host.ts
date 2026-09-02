@@ -13,6 +13,7 @@ import {
   createDashboardServer,
   primarySessionId,
   startSiteServer,
+  type NotifyPayload,
 } from "@kos/harness";
 
 import { envFilePath } from "./env.js";
@@ -71,9 +72,21 @@ export async function runHost(options: HostOptions): Promise<void> {
 
   const notify =
     creds && wantDiscord
-      ? async (text: string) => {
+      ? async (payload: NotifyPayload) => {
           // runtime's adapter is only available after start; capture adapter ref.
-          if (adapter) await adapter.send(creds.ownerId, { text });
+          if (!adapter) return;
+          const msg = {
+            text: payload.text,
+            ...(payload.card ? { card: payload.card } : {}),
+            ...(payload.buttons ? { buttons: payload.buttons } : {}),
+          };
+          // An addressed message goes through sendTo; the owner's DM is the
+          // path everything took before and still takes.
+          if (payload.target.kind === "owner") {
+            await adapter.send(creds.ownerId, msg);
+            return;
+          }
+          await adapter.sendTo(payload.target, msg);
         }
       : undefined;
 
@@ -171,7 +184,26 @@ export async function runHost(options: HostOptions): Promise<void> {
   else console.log("ui: not built (pnpm -C packages/ui build); API only");
 
   if (wantDiscord && creds) {
-    adapter = new DiscordAdapter({ token: creds.token });
+    adapter = new DiscordAdapter({ token: creds.token, ownerId: creds.ownerId });
+    /*
+     * A button KOS sent comes back as a message.
+     *
+     * Rather than a second way for a surface to drive the agent, the press is
+     * turned into what the owner would have typed and handed to the ordinary
+     * turn machinery, in the conversation recorded when the button went out.
+     * The reply goes back the way any reply does.
+     */
+    adapter.onButton(async (press) => {
+      const route = kernel.presses.get(press.token);
+      if (!route) {
+        console.warn(`[discord] press on an unknown or expired button: ${press.token}`);
+        return;
+      }
+      await kernel.handleMessage(`[pressed ${route.label}]`, {
+        sessionId: route.conversationId,
+        origin: "system",
+      });
+    });
     runtime = connectChannel(adapter, kernel, {
       ownerRecipientId: creds.ownerId,
       // The sender->user table, seeded from config: only the configured Discord
