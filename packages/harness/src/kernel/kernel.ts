@@ -492,6 +492,20 @@ export class Kernel {
         ownerId: profile.ownerId,
         // Bound late: the kernel does not exist yet while modules are built.
         dispatch: (id, text) => kernelRef!.dispatchTo(id, text),
+        currentConversationId: () => kernelRef?.currentConversationId,
+        // The answer lands as a note in the chat that delegated, and is told
+        // to the owner as well so it is not lost if they are elsewhere.
+        onDispatchDone: (id, title, reply, from) => {
+          const summary = `${title} answered: ${reply.slice(0, 600)}`;
+          if (from) {
+            kernelRef?.progress.emit({
+              kind: "note",
+              conversationId: from,
+              text: summary,
+            });
+          }
+          kernelRef?.tellOwnerPublic(summary);
+        },
         // It should not offer you its own thread as somewhere to put work.
         hide: [orchestratorId(profile.ownerId)],
       }),
@@ -816,14 +830,9 @@ export class Kernel {
                 of: delta.kind === "reasoning" ? "reasoning" : "text",
                 text: delta.text,
               }),
-            onToolStart: (name, args) =>
-              this.progress.emit({
-                kind: "tool-start",
-                conversationId: sessionId,
-                tool: name,
-                summary: summarizeAction(name, args),
-                input: args,
-              }),
+            // No tool-start here: the guarded toolbox already emits one for
+            // every call, and emitting a second left each bubble with two
+            // starts and one end, so half of them never stopped running.
           });
           const reply = sdk.text || "I do not have anything to add to that.";
           if (useSession) {
