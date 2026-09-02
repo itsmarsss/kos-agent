@@ -238,7 +238,15 @@ function DayCard({
 
   return (
     <>
-      <div className="spend-pop-head">{day.day}</div>
+      <div className="spend-pop-head">
+        {day.day}
+        {/* Which model, even when there was only one. The split below is
+            only drawn for a day with several, so a single-model day used to
+            answer "how much" and never "what". */}
+        {models.length === 1 && (
+          <span className="spend-pop-only"> · {models[0]!.model}</span>
+        )}
+      </div>
       {total === 0 ? (
         <p className="spend-pop-none">Nothing ran.</p>
       ) : (
