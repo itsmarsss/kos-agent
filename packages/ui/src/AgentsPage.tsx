@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
 
 import { AgentTerminal } from "./AgentTerminal.js";
+import { Modal } from "./Modal.js";
 import { api, type BuildRecord } from "./api.js";
 import { listItem } from "./motion.js";
 
@@ -139,6 +140,9 @@ export function AgentsPage({
   const [error, setError] = useState<string | null>(null);
   /** The build being read as a terminal, if any. */
   const [reading, setReading] = useState<number | null>(openId ?? null);
+  const [starting, setStarting] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState({ dir: "", task: "" });
 
   // Following a link to a different agent opens that one.
   useEffect(() => {
@@ -178,13 +182,97 @@ export function AgentsPage({
   return (
     <div className="agents">
       <header className="agents-head">
-        <h1>Agents</h1>
-        <p className="hint">
-          Coding sub-agents working inside the workspace. Each is confined to
-          its own folder, and every shell command it wants to run comes back to
-          you. Open one to read its log and talk to it.
-        </p>
+        <div>
+          <h1>Agents</h1>
+          <p className="hint">
+            Coding sub-agents working inside the workspace. Each is confined to
+            its own folder, and every shell command it wants to run comes back
+            to you. Open one to read its log and talk to it.
+          </p>
+        </div>
+        {/* Starting one was only possible by asking KOS to, which is a long
+            way round when you already know the folder and the job. */}
+        <button
+          type="button"
+          className="btn btn--primary"
+          onClick={() => setStarting(true)}
+        >
+          New agent
+        </button>
       </header>
+
+      <Modal
+        open={starting}
+        title="Start a coding agent"
+        onClose={() => setStarting(false)}
+      >
+        <form
+          className="agent-start"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const dir = draft.dir.trim();
+            const task = draft.task.trim();
+            if (!dir || !task) return;
+            setBusy(true);
+            void api
+              .startAgent(dir, task)
+              .then(() => {
+                setStarting(false);
+                setDraft({ dir: "", task: "" });
+                load();
+              })
+              .catch((err: unknown) =>
+                setError(err instanceof Error ? err.message : String(err)),
+              )
+              .finally(() => setBusy(false));
+          }}
+        >
+          <label className="kos-field">
+            <span className="kos-field-label">Folder</span>
+            <input
+              className="kos-input"
+              autoFocus
+              placeholder="sites/expenses"
+              value={draft.dir}
+              onChange={(e) => setDraft({ ...draft, dir: e.target.value })}
+            />
+            <span className="hint">
+              Workspace-relative, created if missing. The agent works only in
+              here; anything outside it comes back to you for approval.
+            </span>
+          </label>
+          <label className="kos-field">
+            <span className="kos-field-label">Task</span>
+            <textarea
+              className="ops-textarea"
+              rows={5}
+              placeholder="What to build, in full."
+              value={draft.task}
+              onChange={(e) => setDraft({ ...draft, task: e.target.value })}
+            />
+            <span className="hint">
+              It cannot see this page or any chat, so say everything it needs
+              to know.
+            </span>
+          </label>
+          <div className="agent-start-actions">
+            <button
+              type="submit"
+              className="btn btn--primary"
+              disabled={busy || !draft.dir.trim() || !draft.task.trim()}
+            >
+              {busy ? "Starting…" : "Start"}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setStarting(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       {error && (
         <p className="ops-alert ops-alert--err" role="alert">

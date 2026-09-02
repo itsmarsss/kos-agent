@@ -3,7 +3,9 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { extname, join, normalize, relative, resolve, sep } from "node:path";
 
-import { parseHomeLayout } from "@kos/shared";
+import { parseHomeLayout,
+  CHAT_COMMANDS,
+} from "@kos/shared";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
 import { runDisplayQuery } from "../systems/display.js";
@@ -21,7 +23,7 @@ import { parseAttachments } from "./attachments.js";
 import cron from "node-cron";
 import type { CreateCronInput, ToolCall } from "../cron/types.js";
 import { findMentions, type MentionKind } from "./mentions.js";
-import { CHAT_COMMANDS } from "./chatcommands.js";
+import { } from "./chatcommands.js";
 import {
   EFFORTS,
   MODEL_SETTINGS_KEY,
@@ -773,6 +775,32 @@ export async function handleApiRequest(
         .pending()
         .filter((a) => build.waitingOn.includes(a.id)),
     });
+  }
+
+  /**
+   * Start a coding agent from the Agents page.
+   *
+   * builds.run is a risky tool because the agent normally decides to reach
+   * for it and the owner should get a say. Here the owner is the one asking,
+   * with the folder and the task in front of them, which is the same decision
+   * the approval would have asked for. What the sub-agent then does is
+   * unchanged: every shell command and everything outside its folder still
+   * comes back for approval.
+   */
+  if (method === "POST" && path === "/api/agents/start") {
+    const dir = typeof body.dir === "string" ? body.dir.trim() : "";
+    const task = typeof body.task === "string" ? body.task.trim() : "";
+    if (!dir || !task) {
+      return { status: 400, body: { error: "dir and task required" } };
+    }
+    if (kernel.killSwitch.halted) {
+      return { status: 409, body: { error: "KOS is halted" } };
+    }
+    // Not awaited: a build runs for minutes and the page watches the list.
+    void kernel.registry
+      .execute("builds.run", { dir, task })
+      .catch(() => undefined);
+    return ok({ started: true, dir });
   }
 
   if (method === "POST" && path === "/api/agents/stop") {

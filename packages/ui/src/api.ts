@@ -577,6 +577,8 @@ export const api = {
   agents: () => get<{ builds: BuildRecord[] }>("/api/agents"),
   agent: (id: number) =>
     get<{ build: BuildRecord; approvals: PendingAction[] }>(`/api/agents/${id}`),
+  startAgent: (dir: string, task: string) =>
+    post<{ started: boolean; dir: string }>("/api/agents/start", { dir, task }),
   stopAgent: (id: number) =>
     post<{ stopped: boolean; builds: BuildRecord[] }>("/api/agents/stop", { id }),
   sendToAgent: (id: number, text: string) =>
