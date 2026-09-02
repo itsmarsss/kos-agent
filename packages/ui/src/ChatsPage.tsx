@@ -43,6 +43,7 @@ import {
   clearProgress,
   seedProgress,
   useProgress,
+  onNote,
   type Live,
 } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
@@ -249,6 +250,18 @@ export function ChatsPage({
 
   // Notes belong to the conversation that produced them.
   useEffect(() => setNotes([]), [activeId]);
+
+  // Work that outlives the turn that started it: a dispatched agent
+  // finishing, say. Shown where a command's answer is shown rather than
+  // written into the conversation.
+  useEffect(
+    () =>
+      onNote((conversationId, text) => {
+        if (conversationId !== activeId) return;
+        setNotes((n) => [...n, { id: Date.now(), text }]);
+      }),
+    [activeId],
+  );
 
   useEffect(() => {
     if (!activeId) return;
