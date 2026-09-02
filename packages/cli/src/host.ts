@@ -113,6 +113,9 @@ export async function runHost(options: HostOptions): Promise<void> {
   });
 
   kernel.startCron();
+  // Whatever the owner left running stays running across a restart of the
+  // host, the same way a schedule does.
+  kernel.startDaemons();
 
   const staticDir = process.env.KOS_UI_DIST ?? defaultUiDist();
   const meta = {

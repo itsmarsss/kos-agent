@@ -119,11 +119,25 @@ export class GuardedTools implements ToolBox {
   }
 
   defs(): ReturnType<ToolRegistry["defs"]> {
-    const { registry, scopeTags, toolLimit, grant } = this.deps;
+    const { allow, registry, scopeTags, toolLimit, grant } = this.deps;
     const granted = grant?.length ? registry.restrictedDefs(grant) : [];
     const all = [...registry.defs(), ...granted].filter((d) =>
       this.permitted(d.name),
     );
+
+    /*
+     * An allow-list is already the answer to "which tools".
+     *
+     * Narrowing it again by inferred scope dropped tools the caller had
+     * explicitly allowed, because the two filters answer different questions:
+     * the allow-list says what this conversation may reach, and scope tags
+     * guess at what this message is about. The orchestrator is allowed the
+     * memory tools and lost them the moment the registry grew past the cap,
+     * because nothing it says infers the memory tag.
+     */
+    if (allow !== undefined) {
+      return toolLimit !== undefined ? all.slice(0, toolLimit) : all;
+    }
 
     // Scoping exists for the many-modules case. While every tool still fits
     // under the cap, narrowing only makes the offered set change shape from

@@ -1197,6 +1197,44 @@ describe("KOS end-to-end flows", () => {
     expect(wire).toContain("Nothing matched those words");
   });
 
+  it("asks before starting a program that keeps running", async () => {
+    const model = scripted([
+      toolCall("d1", "files.write", {
+        path: "projects/app/server.js",
+        content: "setInterval(() => {}, 1000);",
+      }),
+      toolCall("d2", "daemons.create", {
+        project: "app",
+        name: "api",
+        entry: "projects/app/server.js",
+      }),
+      text("Queued that for your approval."),
+    ]);
+    kernel = await boot(model.inference);
+
+    await kernel.handleMessage("run that server for me");
+
+    /*
+     * Registering a daemon runs code nobody read, on its own schedule, until
+     * something stops it. Writing the file it runs is an ordinary write; it is
+     * starting the thing that is the decision.
+     */
+    const pending = kernel.approvals.pending();
+    expect(pending.map((p) => p.tool)).toEqual(["daemons.create"]);
+    expect(kernel.daemons.list()).toEqual([]);
+  });
+
+  it("stops a daemon without asking, and lists without starting one", async () => {
+    const model = scripted([toolCall("d1", "daemons.list", {}), text("None yet.")]);
+    kernel = await boot(model.inference);
+    await kernel.handleMessage("what is running");
+    // Neither reading the register nor stopping something should ever be the
+    // call that waits: a daemon misbehaving is when you least want a queue.
+    expect(kernel.approvals.pending()).toEqual([]);
+    expect(kernel.registry.classify("daemons.stop", { id: 1 }).tier).toBe("safe");
+    expect(kernel.registry.classify("daemons.logs", { id: 1 }).tier).toBe("safe");
+  });
+
   it("attributes an entry to the conversation that wrote it", async () => {
     const model = scripted([
       toolCall("m1", "memory.remember", { key: "x", value: "y" }),
