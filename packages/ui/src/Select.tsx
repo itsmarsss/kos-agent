@@ -10,6 +10,7 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, m } from "motion/react";
 
 import { ease } from "./motion.js";
+import { fitInside, place, type Placement } from "./popover.js";
 
 /**
  * A dropdown that belongs to this surface.
@@ -25,39 +26,6 @@ import { ease } from "./motion.js";
  * Being taken out of the flow it also has to be told where to go, and to
  * close when the page moves underneath it.
  */
-
-/** Space to leave between the menu and the edge of the window. */
-const MARGIN = 8;
-
-export interface Placement {
-  left: number;
-  top?: number;
-  bottom?: number;
-  minWidth: number;
-  maxHeight: number;
-}
-
-/**
- * Put the menu under its button, or above it when there is more room there.
- * Measured against the viewport because the menu is positioned fixed.
- */
-export function place(button: DOMRect): Placement {
-  const below = window.innerHeight - button.bottom - MARGIN;
-  const above = button.top - MARGIN;
-  const openUp = below < 180 && above > below;
-  const left = Math.max(
-    MARGIN,
-    Math.min(button.left, window.innerWidth - button.width - MARGIN),
-  );
-  return {
-    left,
-    ...(openUp
-      ? { bottom: window.innerHeight - button.top + 6 }
-      : { top: button.bottom + 6 }),
-    minWidth: button.width,
-    maxHeight: Math.max(140, (openUp ? above : below) - 6),
-  };
-}
 
 export interface SelectOption {
   value: string;
@@ -180,7 +148,11 @@ export function Select({
               // Focused on mount so the keys work without a second click.
               ref={(el) => {
                 menu.current = el;
-                el?.focus();
+                if (el) {
+                  // A menu wider than its button can still overrun the edge.
+                  fitInside(el);
+                  el.focus();
+                }
               }}
               onKeyDown={(e) => {
                 if (e.key === "Escape") setOpen(false);
