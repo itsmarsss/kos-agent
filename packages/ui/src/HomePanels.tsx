@@ -2,7 +2,7 @@ import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
 import { summarizeAction } from "@kos/shared";
 
-import type { HomeData } from "./api.js";
+import type { FailingJob, HomeData } from "./api.js";
 import { Decision } from "./Decision.js";
 import { hrefFor } from "./routes.js";
 
@@ -62,6 +62,8 @@ export function Panel({
   onDecide,
   deciding,
   onDismissFailure,
+  onOpenFailure,
+  onFixFailure,
 }: {
   panel: HomePanel;
   data: HomeData;
@@ -73,6 +75,10 @@ export function Panel({
   deciding: ReadonlySet<number>;
   /** Stop reporting a failure the owner has dealt with. */
   onDismissFailure: (key: string) => void;
+  /** Open whatever a failure belongs to. */
+  onOpenFailure: (key: string) => void;
+  /** Put KOS on a failure, in its own chat. */
+  onFixFailure: (failure: FailingJob) => void;
 }): ReactElement {
   const limit = panel.limit ?? 8;
   const title = panel.title;
@@ -174,11 +180,19 @@ export function Panel({
             <ul className="panel-list">
               {rows.map((f) => (
                 <li key={f.key}>
+                  {/* The label opens the job; the actions sit beside it as
+                      siblings. Wrapping the whole row in a button put these
+                      buttons inside a button, which is invalid, and the
+                      browser un-nests it: Fix then also opened the editor. */}
                   <span className="panel-row is-error">
-                    <span className="panel-row-main">
+                    <button
+                      type="button"
+                      className="panel-row-open"
+                      onClick={() => onOpenFailure(f.key)}
+                    >
                       <span className="fail-label">{f.label}</span>
                       <span className="fail-why">{f.error ?? "failed"}</span>
-                    </span>
+                    </button>
                     <span className="panel-row-side">
                       {f.streak > 1 ? `${f.streak}x · ` : ""}
                       {ago(f.since)}
@@ -186,6 +200,14 @@ export function Panel({
                           owner has already handled is to wait for the job to
                           succeed, which for a nightly job means a red header
                           until tomorrow. */}
+                      <button
+                        type="button"
+                        className="btn btn--sm"
+                        title="Open a chat where KOS looks into this"
+                        onClick={() => onFixFailure(f)}
+                      >
+                        Fix
+                      </button>
                       <button
                         type="button"
                         className="icon-btn icon-btn--bare"
@@ -212,9 +234,12 @@ export function Panel({
             </ul>
           )}
           {report.recent.total > 0 && (
+            // Labelled, because the count in the header is jobs broken right
+            // now and this is runs over time: "What broke 1" above "5 of the
+            // last 100 failed" read as a contradiction.
             <p className="panel-foot">
-              {report.recent.errors} of the last {report.recent.total} runs
-              failed ({Math.round(rate * 100)}%)
+              Failure rate: {report.recent.errors} of the last{" "}
+              {report.recent.total} runs ({Math.round(rate * 100)}%)
             </p>
           )}
         </div>

@@ -3,7 +3,7 @@ import type { HomeLayout, HomePanel, PanelKind, WidgetSpan } from "@kos/shared";
 
 import { AnimatePresence, m } from "motion/react";
 
-import { api, type HomeData } from "./api.js";
+import { api, type FailingJob, type HomeData } from "./api.js";
 import { Panel } from "./HomePanels.js";
 import { ease, spring } from "./motion.js";
 import { Select } from "./Select.js";
@@ -48,12 +48,16 @@ export function HomePage({
   onDecide,
   deciding,
   onDismissFailure,
+  onOpenFailure,
+  onFixFailure,
 }: {
   onOpenChat: (id: string) => void;
   onGo: (to: "agents" | "history" | "projects" | "crons" | "chats" | "settings") => void;
   onDecide: (id: number, approved: boolean) => void;
   deciding: ReadonlySet<number>;
   onDismissFailure: (key: string) => void;
+  onOpenFailure: (key: string) => void;
+  onFixFailure: (failure: FailingJob) => void;
 }): ReactElement {
   const [data, setData] = useState<HomeData | null>(null);
   const [layout, setLayout] = useState<HomeLayout | null>(null);
@@ -230,6 +234,8 @@ export function HomePage({
               onDecide={onDecide}
               deciding={deciding}
               onDismissFailure={onDismissFailure}
+              onOpenFailure={onOpenFailure}
+              onFixFailure={onFixFailure}
             />
           </m.section>
         ))}
