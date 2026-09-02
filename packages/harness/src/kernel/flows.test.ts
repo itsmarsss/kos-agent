@@ -1173,6 +1173,30 @@ describe("KOS end-to-end flows", () => {
     expect(wire).toContain("Fly.io");
   });
 
+  it("says what there is to search when a recall misses", async () => {
+    const model = scripted([
+      toolCall("m1", "memory.recall", { query: "quantum chromodynamics" }),
+      text("Nothing on that."),
+    ]);
+    kernel = await boot(model.inference);
+    kernel.facts.upsert("owner", {
+      key: "deploy_target",
+      value: "Fly.io",
+      kind: "fact",
+      tags: ["infra"],
+    });
+
+    await kernel.handleMessage("what do we know");
+    const wire = JSON.stringify(model.calls.at(-1)!.request.messages);
+    /*
+     * An empty array reads as "nothing is known" and the reply says so. A
+     * miss is usually the wrong words rather than an empty store, so it
+     * comes back with something to aim at.
+     */
+    expect(wire).toContain("infra");
+    expect(wire).toContain("Nothing matched those words");
+  });
+
   it("attributes an entry to the conversation that wrote it", async () => {
     const model = scripted([
       toolCall("m1", "memory.remember", { key: "x", value: "y" }),

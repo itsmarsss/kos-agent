@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
-import { FactsStore } from "./facts.js";
+import { FactsStore, stem } from "./facts.js";
 
 describe("FactsStore", () => {
   let root: string;
@@ -105,6 +105,29 @@ describe("FactsStore.search keyword recall", () => {
 
   it("returns nothing when no token matches", () => {
     expect(facts.search("u1", "quantum chromodynamics")).toEqual([]);
+  });
+
+  it("finds a singular entry from a plural word", () => {
+    facts.upsert("u1", {
+      key: "standing_meeting",
+      value: "Tuesdays at 10",
+      kind: "fact",
+    });
+    // Asking about "meetings" when the entry says "meeting" is the ordinary
+    // way to ask, and used to match nothing at all.
+    expect(facts.search("u1", "what are my meetings")[0]?.key).toBe(
+      "standing_meeting",
+    );
+    expect(facts.search("u1", "recurring expenses")).toEqual([]);
+  });
+
+  it("does not cut a short word down to a fragment", () => {
+    facts.upsert("u1", { key: "gas_provider", value: "Con Edison", kind: "fact" });
+    // "gas" must not stem to "ga", which would match almost anything.
+    expect(stem("gas")).toBe("gas");
+    expect(stem("class")).toBe("class");
+    expect(stem("expenses")).toBe("expense");
+    expect(stem("categories")).toBe("category");
   });
 
   it("scopes results to the requesting user", () => {
