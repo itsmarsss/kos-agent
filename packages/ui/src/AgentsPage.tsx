@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
 
 import { AgentTerminal } from "./AgentTerminal.js";
-import { Modal } from "./Modal.js";
+import { Drawer } from "./Drawer.js";
 import { PageHead } from "./PageHead.js";
 import { api, type BuildRecord } from "./api.js";
 import { listItem } from "./motion.js";
@@ -198,9 +198,12 @@ export function AgentsPage({
         }
       />
 
-      <Modal
+      {/* A drawer, like the build log it will become and like everything
+          else with more than a field or two in it. */}
+      <Drawer
         open={starting}
         title="Start a coding agent"
+        subtitle="It works inside one folder, and asks before anything outside it"
         onClose={() => setStarting(false)}
       >
         <form
@@ -269,7 +272,7 @@ export function AgentsPage({
             </button>
           </div>
         </form>
-      </Modal>
+      </Drawer>
 
       {error && (
         <p className="ops-alert ops-alert--err" role="alert">

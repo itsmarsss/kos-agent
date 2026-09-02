@@ -20,9 +20,16 @@ const TASKS: Array<{ key: "reasoning" | "cheap"; label: string; hint: string }> 
 
 export function ModelSettings({
   onClose,
+  onReady,
 }: {
   /** Absent on the settings page, where there is no sheet to close. */
   onClose?: () => void;
+  /**
+   * Hands the save back to whoever is wrapping this, so the button can live
+   * in the card's own footer with every other section's. Given one, the
+   * inline button is not drawn.
+   */
+  onReady?: (save: () => void) => void;
 }): ReactElement {
   const [saved, setSaved] = useState<Settings>({});
   const [routes, setRoutes] = useState<Record<
@@ -66,6 +73,12 @@ export function ModelSettings({
         setStatus(err instanceof Error ? err.message : String(err)),
       );
   };
+
+  // Registered after every render so the callback closes over current state
+  // rather than over whatever it was on mount.
+  useEffect(() => {
+    onReady?.(save);
+  });
 
   return (
     <div className="settings">
@@ -157,9 +170,11 @@ export function ModelSettings({
       )}
 
       <div className="settings-actions">
-        <button type="button" className="btn btn--primary" onClick={save}>
-          Save
-        </button>
+        {!onReady && (
+          <button type="button" className="btn btn--primary" onClick={save}>
+            Save
+          </button>
+        )}
         {onClose && (
           <button type="button" className="btn" onClick={onClose}>
             Close
