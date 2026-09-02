@@ -82,7 +82,7 @@ export const WRITABLE_SETTINGS: Record<
   },
   KOS_ALLOWED_HOSTS: {
     label: "Hosts the agent may fetch",
-    hint: "Comma separated. Empty means http.fetch can reach nothing, which is the safe default.",
+    hint: "Listing a host is the permission: reading one of these no longer asks you every time. Writing to one still does. Anything not listed is refused outright, and an empty list means http.fetch can reach nothing.",
     group: "access",
   },
 };

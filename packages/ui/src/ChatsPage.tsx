@@ -1131,7 +1131,21 @@ export function ChatsPage({
                           title="Drop it before it runs"
                           onClick={() => void dropQueued(p.id)}
                         >
-                          ✕
+                          {/* Drawn like the others. A text cross sat on a
+                              different baseline and at a different weight
+                              from the icons beside it. */}
+                          <svg
+                            width="15"
+                            height="15"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M6 6l12 12M18 6L6 18" />
+                          </svg>
                         </button>
                       </div>
                     </>
