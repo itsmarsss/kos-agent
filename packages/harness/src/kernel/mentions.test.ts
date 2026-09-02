@@ -4,7 +4,13 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
-import { findMentions, mentionToken, parseMentions, walkFiles } from "./mentions.js";
+import {
+  findMentions,
+  mentionToken,
+  parseMentions,
+  walkFiles,
+  writeMention,
+} from "./mentions.js";
 
 describe("parseMentions", () => {
   it("pulls references out in order", () => {
@@ -150,5 +156,66 @@ describe("narrowing to one kind", () => {
 
   it("returns nothing for a kind with no matches", () => {
     expect(findMentions(sources(), "nothingmatches", 12, "page")).toEqual([]);
+  });
+});
+
+/**
+ * Names with spaces in them.
+ *
+ * The token pattern allowed no spaces, and a schedule is mentioned by its
+ * name, which the owner wrote and which usually has spaces in it. The picker
+ * inserted "@schedule:9 AM Pinger Test" and the parser read "@schedule:9",
+ * so mentioning most jobs quietly resolved to nothing or to the wrong thing.
+ */
+describe("mentions with spaces", () => {
+  it("reads a bracketed id whole", () => {
+    expect(parseMentions("look at @schedule:[9 AM Pinger Test] please")).toEqual([
+      { kind: "schedule", id: "9 AM Pinger Test" },
+    ]);
+  });
+
+  it("still reads the plain form", () => {
+    expect(parseMentions("@project:budget_tracker")).toEqual([
+      { kind: "project", id: "budget_tracker" },
+    ]);
+  });
+
+  it("does not run past the closing bracket", () => {
+    expect(parseMentions("@schedule:[nightly digest] and @project:kitchen_redo")).toEqual([
+      { kind: "schedule", id: "nightly digest" },
+      { kind: "project", id: "kitchen_redo" },
+    ]);
+  });
+
+  it("ignores an unclosed bracket rather than swallowing the message", () => {
+    expect(parseMentions("@schedule:[never closed")).toEqual([]);
+  });
+
+  it("dedupes across the two forms", () => {
+    expect(parseMentions("@project:[budget_tracker] @project:budget_tracker")).toEqual([
+      { kind: "project", id: "budget_tracker" },
+    ]);
+  });
+});
+
+describe("writing a mention", () => {
+  it("brackets an id that needs it", () => {
+    expect(writeMention("schedule", "9 AM Pinger Test")).toBe(
+      "@schedule:[9 AM Pinger Test]",
+    );
+  });
+
+  it("leaves a plain id alone", () => {
+    expect(writeMention("project", "budget_tracker")).toBe(
+      "@project:budget_tracker",
+    );
+  });
+
+  it("round-trips whatever it writes", () => {
+    for (const id of ["a b", "plain", "with-dash", "a/b", "9 AM Pinger Test"]) {
+      expect(parseMentions(writeMention("schedule", id))).toEqual([
+        { kind: "schedule", id },
+      ]);
+    }
   });
 });

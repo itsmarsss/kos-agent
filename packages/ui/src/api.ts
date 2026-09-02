@@ -209,6 +209,17 @@ export interface ModelRate {
   contextWindow?: number;
 }
 
+export interface ModelDaySpend {
+  provider: string;
+  model: string;
+  day: string;
+  inputTokens: number;
+  outputTokens: number;
+  calls: number;
+  /** Undefined when the model has no rate set. */
+  cost?: number;
+}
+
 export interface ModelSpend {
   provider: string;
   model: string;
@@ -456,7 +467,10 @@ export const api = {
     post<{ ok: boolean; error?: string }>("/api/crons/run", { id }),
   health: () => get<HealthReport>("/api/health/report"),
   fix: (input: { label: string; error: string; what?: string; ref?: string }) =>
-    post<{ conversationId: string; title: string }>("/api/fix", input),
+    post<{ conversationId: string; title: string; prompt: string }>(
+      "/api/fix",
+      input,
+    ),
   autofix: () => get<{ enabled: boolean }>("/api/settings/autofix"),
   setAutofix: (enabled: boolean) =>
     post<{ enabled: boolean }>("/api/settings/autofix", { enabled }),
@@ -521,6 +535,7 @@ export const api = {
       days: number;
       models: ModelSpend[];
       byDay: { day: string; inputTokens: number; outputTokens: number }[];
+      byModelDay: ModelDaySpend[];
       rates: Record<string, ModelRate>;
     }>(`/api/spend?days=${days}`),
   saveRates: (rates: Record<string, ModelRate>) =>
