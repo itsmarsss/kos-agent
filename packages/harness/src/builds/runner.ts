@@ -106,6 +106,14 @@ export interface BuildOptions {
    * without waiting for the build to finish and hand them back.
    */
   onStart?: (control: BuildControl) => void;
+  /**
+   * The SDK's id for this conversation, as soon as it says. Kept so a
+   * finished agent can be woken and carry on with what it already knows,
+   * rather than starting again from an empty head in the same folder.
+   */
+  onSession?: (sessionId: string) => void;
+  /** Continue an earlier agent's session instead of starting a new one. */
+  resumeSession?: string;
 }
 
 /**
@@ -292,6 +300,15 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
    * accumulating within one is coalesced.
    */
   let partial = "";
+  /** What has been spent so far, updated as frames arrive. */
+  let live: BuildUsage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    costUsd: 0,
+    turns: 0,
+    contextTokens: 0,
+  };
   let lastPhase = "";
   let lastPhaseAt = 0;
   const setPhase = (update: BuildPhase): void => {
@@ -448,6 +465,7 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
           permissions: { ask: ["Bash", "WebFetch", "WebSearch"] },
         },
         ...(options.model ? { model: options.model } : {}),
+        ...(options.resumeSession ? { resume: options.resumeSession } : {}),
         canUseTool,
         maxTurns: options.maxTurns ?? DEFAULT_MAX_TURNS,
         // Streaming frames, so the log can say "thinking" while it thinks
@@ -484,6 +502,10 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
     });
 
     for await (const message of stream) {
+      const anyMessage = message as unknown as Record<string, unknown>;
+      if (typeof anyMessage["session_id"] === "string") {
+        options.onSession?.(anyMessage["session_id"]);
+      }
       if (message.type === "stream_event") {
         /*
          * Frames of the turn in progress. Deliberately not pushed into the
@@ -513,6 +535,27 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
               phase: ev.delta?.type === "thinking_delta" ? "thinking" : "writing",
               partial,
             });
+          }
+        } else if (ev.type === "message_delta") {
+          // Usage rides the message_delta frame, so it can be reported while
+          // the turn is still going. Waiting for the result meant a running
+          // build showed no tokens and no model at all, which is exactly when
+          // you want to know what it is spending.
+          const u = (message.event as unknown as { usage?: Record<string, number> })
+            .usage;
+          if (u) {
+            live = {
+              inputTokens: u.input_tokens ?? live.inputTokens,
+              outputTokens: u.output_tokens ?? live.outputTokens,
+              cacheReadTokens: u.cache_read_input_tokens ?? live.cacheReadTokens,
+              costUsd: live.costUsd,
+              turns: live.turns,
+              contextTokens:
+                (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) ||
+                live.contextTokens,
+              ...(options.model ? { model: options.model } : {}),
+            };
+            options.onUsage?.(live);
           }
         } else if (ev.type === "content_block_stop" || ev.type === "message_stop") {
           partial = "";
@@ -553,7 +596,7 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
         }
       } else if (message.type === "result") {
         const u = (message as unknown as { usage?: Record<string, number> }).usage ?? {};
-        options.onUsage?.({
+        live = {
           inputTokens: u.input_tokens ?? 0,
           outputTokens: u.output_tokens ?? 0,
           cacheReadTokens: u.cache_read_input_tokens ?? 0,
@@ -563,7 +606,8 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
           contextTokens:
             (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0),
           ...(options.model ? { model: options.model } : {}),
-        });
+        };
+        options.onUsage?.(live);
         /*
          * The turn is over. Close the input unless something has been said
          * while it was working.

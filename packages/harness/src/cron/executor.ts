@@ -62,3 +62,18 @@ export async function runCronJob(
   });
   return { ran: true, type: "self_prompt", finalText: result.finalText };
 }
+
+/**
+ * Did this run actually fail?
+ *
+ * An action that errors does not throw: it comes back with isError set, and a
+ * job whose every step failed would otherwise be indistinguishable from a
+ * clean run. Written once because the scheduled path and the run-it-now path
+ * must agree on what "failed" means, and they did not.
+ */
+export function cronFailure(result: CronExecResult): string | null {
+  if (!result.ran || result.type !== "actions") return null;
+  const failed = result.results.filter((r) => r.isError);
+  if (failed.length === 0) return null;
+  return `${failed[0]!.tool}: ${failed[0]!.content}`;
+}

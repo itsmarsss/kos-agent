@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -6,9 +7,13 @@ import {
   type ReactElement,
 } from "react";
 
+import { AnimatePresence, m } from "motion/react";
 import { summarizeAction } from "@kos/shared";
 
 import { Decision } from "./Decision.js";
+import { VoiceInput } from "./VoiceInput.js";
+import { ease, listItem, spring } from "./motion.js";
+import { useDismiss } from "./useDismiss.js";
 
 import { ContextMeter } from "./ContextMeter.js";
 import {
@@ -38,12 +43,13 @@ import {
   clearProgress,
   seedProgress,
   useProgress,
+  onNote,
   type Live,
 } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
 import { ToolCall } from "./ToolCall.js";
 import { ChatConfig } from "./ChatConfig.js";
-import { Markdown } from "./Markdown.js";
+import { Markdown, MentionNames } from "./Markdown.js";
 import { Modal } from "./Modal.js";
 import { hrefFor } from "./routes.js";
 import { composerKeyDown, useAutoGrow, useStickToBottom } from "./composer.js";
@@ -74,6 +80,12 @@ export interface ChatsPageProps {
   onOpen: (id: string) => void;
   onChanged: () => void;
   onDecide: (pendingId: string, approved: boolean) => void;
+  /**
+   * A message handed to the server rather than typed here, shown until the
+   * transcript has it. Without it a fix attempt opened on an agent thinking
+   * about nothing, and the question it was answering appeared a minute later.
+   */
+  seed?: { id: string; text: string };
 }
 
 function relative(ts: number): string {
@@ -95,9 +107,22 @@ export function ChatsPage({
   onOpen,
   onChanged,
   onDecide,
+  seed,
 }: ChatsPageProps): ReactElement {
   const [query, setQuery] = useState("");
   const [events, setEvents] = useState<ChatEvent[]>([]);
+  /**
+   * A message the server was given directly, shown until the transcript
+   * catches up. A fix attempt is started by the harness rather than typed
+   * here, so the chat opened on an agent apparently thinking about nothing
+   * and the question appeared a minute later when the turn recorded itself.
+   */
+  const seeded =
+    seed &&
+    seed.id === activeId &&
+    !events.some((e) => e.kind === "message" && e.role === "you")
+      ? ([{ kind: "message", role: "you", text: seed.text }] as ChatEvent[])
+      : [];
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   // Which conversation is mid-send, not whether any is: shared across chats it
@@ -134,6 +159,13 @@ export function ChatsPage({
   const [collapsed, setCollapsed] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  /** The chat being renamed, with its title as the field starts. */
+  const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(
+    null,
+  );
+  const menuRef = useRef<HTMLDivElement>(null);
+  const closeMenu = useCallback(() => setMenuFor(null), []);
+  useDismiss(menuRef, menuFor !== null, closeMenu);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [rewinding, setRewinding] = useState(false);
   const [archived, setArchived] = useState<Conversation[]>([]);
@@ -181,7 +213,20 @@ export function ChatsPage({
   const boxRef = useRef<HTMLDivElement>(null);
 
   const active = conversations.find((c) => c.id === activeId);
-  const visible = events;
+  const visible = [...seeded, ...events];
+
+  /**
+   * The words for a reference, where this view knows them. A chat and an
+   * agent are addressed by id, and an id is not a name.
+   */
+  const nameFor = (kind: string, id: string): string | undefined => {
+    if (kind === "chat") return conversations.find((c) => c.id === id)?.title;
+    if (kind === "agent") {
+      const build = agents.find((b) => String(b.id) === id);
+      return build ? build.dir : undefined;
+    }
+    return undefined;
+  };
 
   /**
    * Reload on the conversation changing, and again whenever it has moved on
@@ -205,6 +250,18 @@ export function ChatsPage({
 
   // Notes belong to the conversation that produced them.
   useEffect(() => setNotes([]), [activeId]);
+
+  // Work that outlives the turn that started it: a dispatched agent
+  // finishing, say. Shown where a command's answer is shown rather than
+  // written into the conversation.
+  useEffect(
+    () =>
+      onNote((conversationId, text) => {
+        if (conversationId !== activeId) return;
+        setNotes((n) => [...n, { id: Date.now(), text }]);
+      }),
+    [activeId],
+  );
 
   useEffect(() => {
     if (!activeId) return;
@@ -318,6 +375,9 @@ export function ChatsPage({
       if (res.isCommand && res.reply) {
         setNotes((n) => [...n, { id: Date.now(), text: res.reply }]);
       }
+      // A command may ask the surface to open something. The kernel has no UI,
+      // so it names the panel and the surface obliges.
+      if (res.opens === "tools") setEditing(true);
       // Reload rather than appending the reply: the turn may have made tool
       // calls, and those belong in the transcript too.
       const { events: got, pending: waiting } = await api.conversation(target);
@@ -620,7 +680,26 @@ export function ChatsPage({
                   <MoreIcon />
                 </button>
                 {menuFor === c.id && (
-                  <div className="chats-menu" role="menu">
+                  <m.div
+                    className="chats-menu"
+                    role="menu"
+                    ref={menuRef}
+                    initial={{ opacity: 0, scale: 0.96, y: -4 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    transition={ease}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuFor(null);
+                        // Renaming was only reachable by typing /rename, which
+                        // is a strange thing to have to know for the one bit
+                        // of a chat the owner is most likely to change.
+                        setRenaming({ id: c.id, title: c.title });
+                      }}
+                    >
+                      Rename
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -654,7 +733,7 @@ export function ChatsPage({
                     >
                       Delete
                     </button>
-                  </div>
+                  </m.div>
                 )}
               </div>
               <a
@@ -734,14 +813,6 @@ export function ChatsPage({
                         : `scoped to ${active.toolAllow.join(", ")}`}
                     </span>
                   )}
-                  {/* Keyed off sendingIn so it re-reads once a turn lands:
-                      context that only updated on a page load would be stale
-                      exactly when it matters, which is while you are filling
-                      it up. */}
-                  <ContextMeter
-                    conversationId={active.id}
-                    refreshKey={sendingIn === null ? 1 : 0}
-                  />
                 </div>
               </div>
               <div className="chats-view-actions">
@@ -779,6 +850,58 @@ export function ChatsPage({
               />
             </Modal>
 
+            {/* Renaming is the one thing about a chat an owner changes most,
+                and it was reachable only by knowing to type /rename. */}
+            <Modal
+              open={renaming !== null}
+              title="Rename chat"
+              onClose={() => setRenaming(null)}
+            >
+              <form
+                className="rename-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const next = renaming?.title.trim();
+                  if (!renaming || !next) return;
+                  void api
+                    .renameConversation(renaming.id, next)
+                    .then(() => {
+                      setRenaming(null);
+                      onChanged();
+                    })
+                    .catch(() => setRenaming(null));
+                }}
+              >
+                <input
+                  className="kos-input"
+                  autoFocus
+                  value={renaming?.title ?? ""}
+                  onChange={(e) =>
+                    setRenaming((r) => (r ? { ...r, title: e.target.value } : r))
+                  }
+                />
+                <div className="rename-actions">
+                  <button
+                    type="submit"
+                    className="btn btn--primary"
+                    disabled={!renaming?.title.trim()}
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => setRenaming(null)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </Modal>
+
+            {/* The thread knows the chats and agents by name, so a chip can
+                read "Lane A" rather than the id it is addressed by. */}
+            <MentionNames resolve={nameFor}>
             <div className="chats-thread" ref={boxRef}>
               {visible.length === 0 && <p className="hint">Nothing said yet.</p>}
               {(() => {
@@ -794,7 +917,19 @@ export function ChatsPage({
                 <LiveTurn live={live} />
               ) : (
                 sendingIn === activeId && (
-                  <div className="bubble bubble--kos is-thinking">sending…</div>
+                  // The same markup a running turn uses, not a lookalike:
+                  // built separately it picked up the bubble's font size and
+                  // colour and read as a different kind of thing.
+                  <div className="bubble bubble--kos live">
+                    <div className="live-head">
+                      <span className="live-dots" aria-hidden="true">
+                        <i />
+                        <i />
+                        <i />
+                      </span>
+                      <span className="live-what">Sending</span>
+                    </div>
+                  </div>
                 )
               )}
 
@@ -823,8 +958,17 @@ export function ChatsPage({
                   chat showed "I'll continue once the result comes through"
                   and then nothing, because the thing waiting on the owner was
                   invisible from here. */}
+              <AnimatePresence initial={false}>
               {loose.map((a) => (
-                <div className="loose-approval" key={a.id}>
+                <m.div
+                  className="loose-approval"
+                  key={a.id}
+                  layout
+                  initial={{ opacity: 0, scale: 0.98, y: 6 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.12 } }}
+                  transition={spring}
+                >
                   <div className="loose-approval-main">
                     <code>{a.tool}</code>
                     <span>{a.reason ?? summarizeAction(a.tool, a.args)}</span>
@@ -836,20 +980,92 @@ export function ChatsPage({
                       onDecide={(id, ok) => onDecide(String(id), ok)}
                     />
                   </div>
-                </div>
+                </m.div>
               ))}
+              </AnimatePresence>
 
               {notes.map((n) => (
-                <div className="chats-note" key={n.id}>
+                <m.div
+                  className="chats-note"
+                  key={n.id}
+                  variants={listItem}
+                  initial="hidden"
+                  animate="show"
+                >
+                  {/* A command's answer is a reply to something you did, not
+                      part of the conversation, and it sat there until the
+                      chat was reloaded. */}
+                  <button
+                    type="button"
+                    className="icon-btn note-close"
+                    title="Dismiss"
+                    onClick={() =>
+                      setNotes((all) => all.filter((x) => x.id !== n.id))
+                    }
+                  >
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
                   <Markdown text={n.text} />
-                </div>
+                  {/* Also at the end: a long answer meant scrolling back to
+                      the top to reach the corner. */}
+                  <button
+                    type="button"
+                    className="btn btn--sm note-done"
+                    onClick={() =>
+                      setNotes((all) => all.filter((x) => x.id !== n.id))
+                    }
+                  >
+                    Dismiss
+                  </button>
+                </m.div>
               ))}
 
               {/* Sent, taken, and waiting for the turn ahead of it. Shown
                   after the running turn because that is the order they will
                   be answered in. */}
+              {/* Nothing queued runs until the turn ahead of it finishes, and
+                  the only lever on that is stopping the turn. Offered once,
+                  above the queue, rather than on every message: it acts on
+                  the running turn, not on any one of them. */}
+              {pending.length > 0 && running && (
+                <div className="queued-head">
+                  <span>
+                    {pending.length} waiting on the turn in progress
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn--sm"
+                    title="Stop what KOS is doing now so the next message starts"
+                    onClick={() => stop()}
+                  >
+                    Interrupt and send next
+                  </button>
+                </div>
+              )}
+
+              <AnimatePresence initial={false}>
               {pending.map((p) => (
-                <div className="queued" key={p.id}>
+                <m.div
+                  className="queued"
+                  key={p.id}
+                  layout
+                  variants={listItem}
+                  initial="hidden"
+                  animate="show"
+                  exit="exit"
+                  transition={ease}
+                >
                   {editingQueued?.id === p.id ? (
                     <div className="queued-edit">
                       <textarea
@@ -920,9 +1136,11 @@ export function ChatsPage({
                       </div>
                     </>
                   )}
-                </div>
+                </m.div>
               ))}
+              </AnimatePresence>
             </div>
+            </MentionNames>
 
             <div
               className={`chats-composer composer ${drop.over ? "is-over" : ""}`}
@@ -992,6 +1210,14 @@ export function ChatsPage({
                         return;
                       }
                     }
+                    // Cmd or Ctrl with Enter stops the turn. Enter alone
+                    // sends, so the interrupt needs a modifier or every
+                    // message would be a stop.
+                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                      e.preventDefault();
+                      if (running) stop();
+                      return;
+                    }
                     composerKeyDown(e, () => void send());
                   }}
                 />
@@ -999,9 +1225,23 @@ export function ChatsPage({
               </div>
               <div className="sheet-composer-bar">
                 <AttachButton onAdd={(l) => void attachments.add(l)} />
+                <VoiceInput
+                  onText={(said) =>
+                    // Appended rather than replacing: dictation is usually one
+                    // sentence at a time, and typing around it should work.
+                    setDraft((d) => (d ? `${d.replace(/\s+$/, "")} ${said}` : said))
+                  }
+                />
                 <ModelPicker />
                 {/* The hint took the widest slot in the row to say something
                     every chat surface already does. The space is the model's. */}
+                {/* Beside Send rather than under the title: how full the chat
+                    is matters when you are about to add to it, which is here.
+                    Keyed off sendingIn so it re-reads once a turn lands. */}
+                <ContextMeter
+                  conversationId={active.id}
+                  refreshKey={sendingIn === null ? 1 : 0}
+                />
                 <span className="composer-spacer" />
                 {running ? (
                   <button type="button" className="btn btn--stop" onClick={stop}>

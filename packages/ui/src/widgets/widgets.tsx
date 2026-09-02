@@ -22,10 +22,11 @@ export type { Row, WidgetMutation, WidgetProps, WidgetRenderer } from "./types.j
 function Stat({ widget, rows }: WidgetProps): ReactElement {
   const w = widget as StatWidget;
   const first = rows[0] ?? {};
-  const value = Object.values(first)[0];
+  const [column, value] = Object.entries(first)[0] ?? [];
   // SUM over no rows is null, and formatCell renders null as "" -- right for a
   // table cell, but a stat whose number is an empty string just looks broken.
-  const text = value === undefined || value === null ? "-" : formatCell(value);
+  const text =
+    value === undefined || value === null ? "-" : formatCell(value, column);
   return (
     <div className="kos-widget kos-stat">
       <div className="kos-stat-label">{w.label}</div>
@@ -62,7 +63,7 @@ function Table({ widget, rows }: WidgetProps): ReactElement {
           {rows.map((r, i) => (
             <tr key={i}>
               {cols.map((c) => (
-                <td key={c}>{formatCell(r[c])}</td>
+                <td key={c}>{formatCell(r[c], c)}</td>
               ))}
             </tr>
           ))}

@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
+import { m } from "motion/react";
+
+import { ease, spring } from "./motion.js";
 
 import { api, type BuildRecord, type PendingAction } from "./api.js";
 import { Decision } from "./Decision.js";
@@ -147,6 +150,8 @@ export function AgentTerminal({
   const [say, setSay] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [stick, setStick] = useState(true);
+  /** A build log is long and wide; the dialog was neither. */
+  const [full, setFull] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -197,23 +202,55 @@ export function AgentTerminal({
     if (el) el.scrollTop = el.scrollHeight;
   }, [build?.events.length, stick]);
 
+  useEffect(() => {
+    const key = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", key);
+    return () => document.removeEventListener("keydown", key);
+  }, [onClose]);
+
   const live = build?.status === "running" || build?.status === "waiting";
 
   const send = (): void => {
     const text = say.trim();
     if (!text) return;
     setSay("");
-    void api
-      .sendToAgent(id, text)
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : String(err)),
-      );
+    // A finished agent is woken rather than refused: its process is gone but
+    // its session is not, so it carries on with what it already worked out
+    // instead of reading the folder again from nothing.
+    const work = live ? api.sendToAgent(id, text) : api.wakeAgent(id, text);
+    void work.catch((err: unknown) =>
+      setError(err instanceof Error ? err.message : String(err)),
+    );
   };
 
   return (
-    <div className="term-wrap" role="dialog" aria-label="Build log">
+    /*
+     * A drawer rather than a dialog in the middle of the screen.
+     *
+     * A build log is something you read alongside the list you opened it
+     * from, and a centred modal put a wall between the two: it covered the
+     * page, and going from one agent to the next meant closing and reopening.
+     * Full screen is still a click away for when the log is the whole task.
+     */
+    <m.div
+      className={`term-wrap ${full ? "is-full" : ""}`}
+      role="dialog"
+      aria-label="Build log"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={ease}
+    >
       <div className="term-backdrop" onClick={onClose} />
-      <div className="term">
+      <m.div
+        className="term"
+        initial={{ x: 28, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        exit={{ x: 28, opacity: 0 }}
+        transition={spring}
+      >
         <header className="term-head">
           <span className={`agent-dot agent-dot--${build?.status ?? "done"}`} />
           <span className="term-dir">{build?.dir ?? "…"}</span>
@@ -236,6 +273,14 @@ export function AgentTerminal({
               </button>
             </>
           )}
+          <button
+            type="button"
+            className="btn"
+            title={full ? "Back to a window" : "Fill the screen"}
+            onClick={() => setFull((v) => !v)}
+          >
+            {full ? "Shrink" : "Full screen"}
+          </button>
           <button type="button" className="btn" onClick={onClose}>
             Close
           </button>
@@ -254,7 +299,7 @@ export function AgentTerminal({
           </p>
         )}
 
-        {build?.usage && (
+        {build?.usage && (build.usage.outputTokens > 0 || build.usage.contextTokens > 0) && (
           <div className="term-usage">
             <span title="Sent to the model on the last turn">
               <b>{short(build.usage.contextTokens)}</b> context
@@ -328,14 +373,13 @@ export function AgentTerminal({
           <span className="term-prompt">›</span>
           <input
             value={say}
-            disabled={!live}
             placeholder={
-              live ? "Say something to it…" : "This build has finished."
+              live ? "Say something to it…" : "Say something to wake it…"
             }
             onChange={(e) => setSay(e.target.value)}
           />
         </form>
-      </div>
-    </div>
+      </m.div>
+    </m.div>
   );
 }

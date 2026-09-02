@@ -42,6 +42,18 @@ export interface ChatToolDeps {
     conversationId: string,
     text: string,
   ) => Promise<{ reply: string; conversationId: string }>;
+  /**
+   * Told when a dispatched conversation answers, so the chat that delegated
+   * can say so without having waited for it.
+   */
+  onDispatchDone?: (
+    conversationId: string,
+    title: string,
+    reply: string,
+    dispatchedFrom?: string,
+  ) => void;
+  /** Which conversation is dispatching, for routing the answer back to it. */
+  currentConversationId?: () => string | undefined;
 }
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -244,7 +256,7 @@ function defineDispatchTool(deps: ChatToolDeps, ctx: ModuleContext): void {
     {
       name: "chats.dispatch",
       description:
-        "Give a task to one of the owner's conversations and get its answer back. That conversation runs with its own brief and tools, so use this to actually get work done rather than only creating somewhere for it to happen. Returns its reply. Summarise it in a line or two; do not paste it back, the owner can open that conversation and read it there.",
+        "Give a task to one of the owner's conversations. That conversation runs with its own brief and tools, so use this to actually get work done rather than only creating somewhere for it to happen. It returns as soon as the work is handed over, not when it is done: say what you have delegated and end your turn. The owner is told separately when that conversation answers.",
       inputSchema: {
         type: "object",
         properties: {
@@ -259,16 +271,39 @@ function defineDispatchTool(deps: ChatToolDeps, ctx: ModuleContext): void {
     },
     async (input) => {
       const id = str(input, "id");
+      const from = (): string | undefined => deps.currentConversationId?.();
       if (hidden.has(id)) throw new Error("cannot dispatch to this conversation");
       const target = conversations.get(id);
       if (!target || target.userId !== ownerId) {
         throw new Error(`no such conversation: ${id}`);
       }
-      const res = await deps.dispatch(id, str(input, "message"));
+      /*
+       * Handed over, not waited on.
+       *
+       * The other conversation runs a full turn, minutes of it if there is
+       * work in it, and awaiting that held this turn open for all of them:
+       * KOS looked hung while something it had already delegated got on with
+       * it. The answer comes back as its own note when it lands.
+       */
+      void deps
+        .dispatch(id, str(input, "message"))
+        .then((res) =>
+          deps.onDispatchDone?.(id, target.title, res.reply, from()),
+        )
+        .catch((err: unknown) =>
+          deps.onDispatchDone?.(
+            id,
+            target.title,
+            `It failed: ${err instanceof Error ? err.message : String(err)}`,
+            from(),
+          ),
+        );
+
       return JSON.stringify({
-        conversationId: res.conversationId,
+        conversationId: id,
         title: target.title,
-        reply: res.reply,
+        started: true,
+        note: "Handed over. Do not wait for it: say it is running and end your turn. The owner is told when it answers.",
       });
     },
     // The dispatched turn is governed by its own conversation's risk tiers, so

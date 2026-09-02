@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Inference } from "../agent/loop.js";
 import type { GenerateRequest, ModelResponse } from "../models/types.js";
@@ -201,7 +201,7 @@ describe("Kernel", () => {
     expect(res.halted).toBe(true);
   });
 
-  it("resumes the agent after approving a queued action", async () => {
+  it("carries one turn through an approval rather than starting another", async () => {
     kernel = await boot(
       stubInference([
         {
@@ -217,13 +217,9 @@ describe("Kernel", () => {
           usage: { inputTokens: 0, outputTokens: 0 },
           model: "stub",
         },
-        {
-          content: [{ type: "text", text: "queued it" }],
-          stopReason: "end_turn",
-          usage: { inputTokens: 0, outputTokens: 0 },
-          model: "stub",
-        },
-        // resume after approve
+        // The next thing the model says comes after the tool actually ran.
+        // There is no second turn to script: approval releases the call
+        // inside the turn that made it.
         {
           content: [{ type: "text", text: "continued after approve" }],
           stopReason: "end_turn",
@@ -232,11 +228,20 @@ describe("Kernel", () => {
         },
       ]),
     );
-    await kernel.handleMessage("delete stuff");
+    // The turn answers straight away that it is waiting, and keeps waiting.
+    const first = await kernel.handleMessage("delete stuff");
+    expect(first.reply).toMatch(/needs approval/);
+
     const pending = kernel.approvals.pending()[0]!;
     const res = await kernel.approve(pending.id);
     expect(res.ok).toBe(true);
-    expect(res.reply).toBe("continued after approve");
+
+    // The same turn carries on and lands in the same transcript, rather than
+    // a second turn starting to continue the first.
+    await vi.waitFor(() => {
+      const said = JSON.stringify(kernel.sessions.get("chat:owner"));
+      expect(said).toContain("continued after approve");
+    });
   });
 
   it("runs a scheduled actions job through the guarded path", async () => {

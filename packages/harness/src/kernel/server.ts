@@ -3,19 +3,29 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { extname, join, normalize, relative, resolve, sep } from "node:path";
 
-import { parseHomeLayout } from "@kos/shared";
+import { parseHomeLayout,
+  CHAT_COMMANDS,
+} from "@kos/shared";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
 import { runDisplayQuery } from "../systems/display.js";
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
+import {
+  BEHAVIOUR_DEFAULTS,
+  BEHAVIOUR_KEY,
+  BEHAVIOUR_LIMITS,
+  parseBehaviour,
+} from "./behaviour.js";
 import { BUILD_SETTINGS_KEY, orchestratorId } from "./kernel.js";
 import { parseAttachments } from "./attachments.js";
 import cron from "node-cron";
 import type { CreateCronInput, ToolCall } from "../cron/types.js";
-import { findMentions, type MentionKind } from "./mentions.js";
-import { CHAT_COMMANDS } from "./chatcommands.js";
+import { findMentions, type MentionKind,
+  walkFolders,
+} from "./mentions.js";
+import { } from "./chatcommands.js";
 import {
   EFFORTS,
   MODEL_SETTINGS_KEY,
@@ -145,7 +155,87 @@ export async function handleApiRequest(
       workspace: options.meta?.workspace ?? kernel.workspace.root,
       orchestratorId: orchestratorId(kernel.profile.ownerId),
       routes: kernel.routes() ?? null,
+      // Carried on the status the dashboard already polls, so an unattended
+      // failure is visible on the next open rather than only in a message the
+      // owner may have missed.
+      unhealthy: kernel.health.failing().length,
     });
+  }
+
+  /**
+   * Is KOS well? Failing jobs with how long and how often, plus the recent
+   * failure rate. Its own endpoint because the detail is more than a status
+   * poll should carry.
+   */
+  if (method === "GET" && path === "/api/health/report") {
+    return ok(kernel.health.report());
+  }
+
+  /**
+   * Put KOS on a failure. Named by what failed rather than by an id the
+   * caller had to look up, so History can hand over exactly what it is
+   * already showing in the row.
+   */
+  if (method === "POST" && path === "/api/fix") {
+    const label = typeof body.label === "string" ? body.label.trim() : "";
+    const error = typeof body.error === "string" ? body.error.trim() : "";
+    if (!label || !error) {
+      return { status: 400, body: { error: "label and error required" } };
+    }
+    if (kernel.killSwitch.halted) {
+      return { status: 409, body: { error: "KOS is halted" } };
+    }
+    const started = await kernel.startFix({
+      label: label.slice(0, 200),
+      error,
+      what: typeof body.what === "string" ? body.what.slice(0, 40) : "job",
+      ...(typeof body.ref === "string" ? { ref: body.ref.slice(0, 60) } : {}),
+    });
+    return ok(started);
+  }
+
+  /**
+   * How KOS behaves unattended. One document rather than a setting per
+   * endpoint: they are read together, edited together, and a half-saved set
+   * of limits is not a state worth being able to reach.
+   */
+  if (method === "GET" && path === "/api/settings/behaviour") {
+    return ok({
+      behaviour: kernel.behaviour(),
+      defaults: BEHAVIOUR_DEFAULTS,
+      limits: BEHAVIOUR_LIMITS,
+    });
+  }
+
+  if (method === "POST" && path === "/api/settings/behaviour") {
+    // Parsed, not trusted: these govern spend and runaway loops, so every
+    // number is clamped to a range before it is stored.
+    const behaviour = parseBehaviour(body.behaviour ?? body);
+    kernel.settings.set(BEHAVIOUR_KEY, behaviour);
+    return ok({ behaviour });
+  }
+
+  /** Stop reporting a job as broken, for one the owner has dealt with. */
+  if (method === "POST" && path === "/api/health/dismiss") {
+    const key = typeof body?.key === "string" ? body.key : null;
+    if (!key) return { status: 400, body: { error: "key required" } };
+    kernel.health.forget(key);
+    return ok({ dismissed: key });
+  }
+
+  /**
+   * Run a job now. "Does this actually work" was otherwise answerable only by
+   * waiting for the schedule, which for a nightly job is a day per attempt.
+   */
+  if (method === "POST" && path === "/api/crons/run") {
+    const id = Number(body?.id);
+    if (!Number.isInteger(id)) {
+      return { status: 400, body: { error: "id required" } };
+    }
+    if (!kernel.crons.get(id)) {
+      return { status: 404, body: { error: "no such job" } };
+    }
+    return ok(await kernel.fireCron(id));
   }
 
   if (method === "GET" && path === "/api/settings/models") {
@@ -689,6 +779,75 @@ export async function handleApiRequest(
     });
   }
 
+  /**
+   * Start a coding agent from the Agents page.
+   *
+   * builds.run is a risky tool because the agent normally decides to reach
+   * for it and the owner should get a say. Here the owner is the one asking,
+   * with the folder and the task in front of them, which is the same decision
+   * the approval would have asked for. What the sub-agent then does is
+   * unchanged: every shell command and everything outside its folder still
+   * comes back for approval.
+   */
+  if (method === "POST" && path === "/api/agents/start") {
+    const dir = typeof body.dir === "string" ? body.dir.trim() : "";
+    const task = typeof body.task === "string" ? body.task.trim() : "";
+    if (!dir || !task) {
+      return { status: 400, body: { error: "dir and task required" } };
+    }
+    if (kernel.killSwitch.halted) {
+      return { status: 409, body: { error: "KOS is halted" } };
+    }
+    // Not awaited: a build runs for minutes and the page watches the list.
+    void kernel.registry
+      .execute("builds.run", { dir, task })
+      .catch(() => undefined);
+    return ok({ started: true, dir });
+  }
+
+  /**
+   * Say something to an agent that has finished.
+   *
+   * A finished build's process is gone, so this starts another one in the
+   * same folder resuming the same SDK session: it keeps what it already
+   * worked out rather than reading the folder again from nothing. Without
+   * this, a build that stopped one step short was a dead end.
+   */
+  if (method === "POST" && path === "/api/agents/wake") {
+    const id = Number(body.id);
+    const text = typeof body.text === "string" ? body.text.trim() : "";
+    const build = Number.isInteger(id) ? kernel.builds.get(id) : undefined;
+    if (!build || !text) {
+      return { status: 400, body: { error: "id and text required" } };
+    }
+    if (build.status === "running" || build.status === "waiting") {
+      return { status: 409, body: { error: "it is still running" } };
+    }
+    if (kernel.killSwitch.halted) {
+      return { status: 409, body: { error: "KOS is halted" } };
+    }
+    void kernel.registry
+      .execute("builds.run", {
+        dir: build.dir,
+        task: text,
+        ...(build.sessionId ? { resume: build.sessionId } : {}),
+      })
+      .catch(() => undefined);
+    return ok({ woke: true, dir: build.dir, resumed: Boolean(build.sessionId) });
+  }
+
+  /** Remove a finished agent from the list. */
+  if (method === "POST" && path === "/api/agents/forget") {
+    const id = Number(body.id);
+    if (!Number.isInteger(id)) {
+      return { status: 400, body: { error: "id required" } };
+    }
+    if (!kernel.builds.forget(id)) {
+      return { status: 409, body: { error: "still running" } };
+    }
+    return ok({ builds: kernel.builds.list() });
+  }
+
   if (method === "POST" && path === "/api/agents/stop") {
     const id = Number(body.id);
     if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
@@ -729,6 +888,7 @@ export async function handleApiRequest(
       approvals: kernel.approvals.pending(),
       agents: kernel.builds.list().slice(0, 8),
       failures: kernel.runs.failures(10),
+      health: kernel.health.report(),
       activity: kernel.audit.recent(20),
       projects: kernel.manifest.list(),
       chats: kernel.conversations.list(kernel.profile.ownerId).slice(0, 10),
@@ -762,6 +922,12 @@ export async function handleApiRequest(
       days,
       models,
       byDay: kernel.spend.byDay(since),
+      // Per model per day, so a total in the table can be opened up into the
+      // days that made it. Costed here rather than in the browser: the rate
+      // lookup has a fallback in it and two copies of that rule would drift.
+      byModelDay: kernel.spend
+        .byModelDay(since)
+        .map((d) => ({ ...d, cost: costOf(d, rates) })),
       rates,
     });
   }
@@ -862,6 +1028,10 @@ export async function handleApiRequest(
       // What has been done to its shape, newest first: a schema is a thing
       // that grows, and the history says how it got here.
       migrations: kernel.migrator.history(slug).slice(-10).reverse(),
+      // What has been done to it lately. The drawer could say what a project
+      // contained and nothing about what had happened to it, which is the
+      // question you open it to ask when a tracker looks wrong.
+      activity: kernel.audit.touching(slug, 12),
       folder: `${PROJECTS_DIR}/${slug}`,
     });
   }
@@ -943,7 +1113,9 @@ export async function handleApiRequest(
         ? body.message
         : undefined;
     const sha = await kernel.backup.snapshot(message);
-    return ok({ sha });
+    // A folder with its own git repo is not covered by this, and silently
+    // omitting things from a backup is how a backup lies to you.
+    return ok({ sha, excluded: await kernel.backup.excluded() });
   }
 
   if (method === "POST" && path === "/api/conversations/stop") {
@@ -971,6 +1143,11 @@ export async function handleApiRequest(
         body: { error: err instanceof Error ? err.message : String(err) },
       };
     }
+  }
+
+  /** Folders in the workspace, for anything that asks the owner to name one. */
+  if (method === "GET" && path === "/api/folders") {
+    return ok({ folders: walkFolders(kernel.workspace) });
   }
 
   if (method === "GET" && path === "/api/mentions") {

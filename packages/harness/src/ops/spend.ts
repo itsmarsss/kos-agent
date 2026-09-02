@@ -35,6 +35,15 @@ export interface ModelTotal {
   calls: number;
 }
 
+export interface ModelDayTotal {
+  provider: string;
+  model: string;
+  day: string;
+  inputTokens: number;
+  outputTokens: number;
+  calls: number;
+}
+
 export interface DayTotal {
   /** YYYY-MM-DD, local time, because that is the day the owner had. */
   day: string;
@@ -103,6 +112,28 @@ export class SpendStore {
          ORDER BY (SUM(input_tokens) + SUM(output_tokens)) DESC`,
       )
       .all(since) as unknown as ModelTotal[];
+  }
+
+  /**
+   * Daily totals per model, oldest first.
+   *
+   * The table says a model cost you a figure over thirty days, which is the
+   * one number you cannot act on: it does not say whether that was steady or
+   * one bad afternoon.
+   */
+  byModelDay(since = 0): ModelDayTotal[] {
+    return this.db
+      .prepare(
+        `SELECT provider, model,
+                date(at / 1000, 'unixepoch', 'localtime') AS day,
+                SUM(input_tokens) AS inputTokens,
+                SUM(output_tokens) AS outputTokens,
+                COUNT(*) AS calls
+         FROM token_usage WHERE at >= ?
+         GROUP BY provider, model, day
+         ORDER BY day`,
+      )
+      .all(since) as unknown as ModelDayTotal[];
   }
 
   /** Daily totals, oldest first, for a simple trend. */

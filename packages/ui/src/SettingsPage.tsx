@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
-import { api, type ModelRate, type SettingsPayload } from "./api.js";
+import {
+  api,
+  type Behaviour,
+  type ModelRate,
+  type SettingsPayload,
+} from "./api.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { Select } from "./Select.js";
 import { SpendPanel } from "./SpendPanel.js";
@@ -18,11 +23,32 @@ import { SpendPanel } from "./SpendPanel.js";
  * anyone; the value itself never leaves the machine it is stored on.
  */
 
+/**
+ * What the fields show before the server has answered. The same numbers the
+ * harness defaults to, so an unread settings page is not also a wrong one.
+ */
+const BEHAVIOUR_FALLBACK: Behaviour = {
+  engine: "api",
+  autoFix: false,
+  maxSteps: 10,
+  fixSteps: 24,
+  selfPromptsPerHour: 10,
+  agentMinutes: 15,
+  agentTurns: 60,
+  stallMinutes: 3,
+};
+
+/**
+ * Also a save key, not only a nav section: two independent saves can live on
+ * one tab, and each needs its own busy and saved state.
+ */
 type SectionId =
+  | "engine"
   | "you"
   | "providers"
   | "models"
   | "conversation"
+  | "behaviour"
   | "network"
   | "spend"
   | "workspace";
@@ -32,6 +58,11 @@ const SECTIONS: { id: SectionId; label: string; blurb: string }[] = [
   { id: "providers", label: "Providers", blurb: "API keys and channel credentials" },
   { id: "models", label: "Models", blurb: "Which model answers, and which builds" },
   { id: "conversation", label: "Conversation", blurb: "How much history is kept" },
+  {
+    id: "behaviour",
+    label: "Behaviour",
+    blurb: "How KOS acts when you are not watching",
+  },
   { id: "network", label: "Network", blurb: "Ports, binding, and what the agent may reach" },
   { id: "spend", label: "Spend", blurb: "Tokens used and what they cost" },
   { id: "workspace", label: "Workspace", blurb: "Where everything lives" },
@@ -58,6 +89,44 @@ function Field({
       {children}
       {hint && <p className="set-hint">{hint}</p>}
     </div>
+  );
+}
+
+/**
+ * A bounded number. Typed or nudged, and never outside its range: these
+ * govern spend and runaway loops, so the field itself should not be able to
+ * express "loop for a day".
+ */
+function Limit({
+  label,
+  hint,
+  value,
+  range,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  value: number;
+  range?: [number, number];
+  onChange: (value: number) => void;
+}): ReactElement {
+  const [min, max] = range ?? [1, 1000];
+  return (
+    <Field label={label} hint={`${hint} Between ${min} and ${max}.`}>
+      <input
+        className="kos-input set-limit"
+        type="number"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => {
+          const next = Number(e.target.value);
+          if (Number.isFinite(next)) {
+            onChange(Math.min(max, Math.max(min, Math.round(next))));
+          }
+        }}
+      />
+    </Field>
   );
 }
 
@@ -116,6 +185,13 @@ export function SettingsPage(): ReactElement {
   const [data, setData] = useState<SettingsPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState<SectionId>("you");
+  const [how, setHow] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
+  /** The last values the server confirmed, so an edit can be seen as one. */
+  const [savedHow, setSavedHow] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
+  const [defaults, setDefaults] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
+  const [limits, setLimits] = useState<Record<string, [number, number]>>({});
+  /** ModelSettings owns its draft, so it hands its save up to the footer. */
+  const saveModels = useRef<(() => void) | null>(null);
   const [busy, setBusy] = useState<SectionId | null>(null);
   const [saved, setSaved] = useState<Partial<Record<SectionId, string>>>({});
 
@@ -151,6 +227,19 @@ export function SettingsPage(): ReactElement {
   };
 
   useEffect(load, []);
+  useEffect(() => {
+    void api
+      .behaviour()
+      .then((r) => {
+        setHow(r.behaviour);
+        setSavedHow(r.behaviour);
+        setDefaults(r.defaults);
+        setLimits(r.limits);
+      })
+      // Unreadable settings stay at the conservative values rather than
+      // showing numbers that are not the ones in force.
+      .catch(() => undefined);
+  }, []);
 
   const done = (section: SectionId, message: string): void => {
     setSaved((s) => ({ ...s, [section]: message }));
@@ -172,6 +261,31 @@ export function SettingsPage(): ReactElement {
       )
       .finally(() => setBusy(null));
   };
+
+  /**
+   * Saved, then adopted from the reply: the server clamps every number, so
+   * what comes back is what is in force. Keeping the typed value instead
+   * would show 500 in a field that actually holds 100.
+   */
+  const saveHow = (): void => {
+    setBusy("behaviour");
+    void api
+      .saveBehaviour(how)
+      .then((r) => {
+        setHow(r.behaviour);
+        setSavedHow(r.behaviour);
+        done("behaviour", "Saved");
+      })
+      .catch((err: unknown) =>
+        setError(err instanceof Error ? err.message : String(err)),
+      )
+      .finally(() => setBusy(null));
+  };
+
+  const same = (a: Behaviour, b: Behaviour): boolean =>
+    (Object.keys(a) as (keyof Behaviour)[]).every((k) => a[k] === b[k]);
+  const changed = !same(how, savedHow);
+  const atDefaults = same(how, defaults);
 
   const saveEnv = (
     section: SectionId,
@@ -359,8 +473,46 @@ export function SettingsPage(): ReactElement {
 
         {active === "models" && (
           <>
-            <Section title="Models" blurb="Which model answers what, and how hard it thinks.">
-              <ModelSettings />
+            {/* First, because it decides whether the rest of this tab even
+                applies: on the subscription the model is the SDK's to pick. */}
+            <Section
+              title="Who does the thinking"
+              blurb="A turn can go to the model provider, which bills API credits, or through the Claude Agent SDK, which is what coding agents already use and spends a Claude Code subscription instead."
+              saving={busy === "engine"}
+              saved={saved.engine ?? null}
+              onSave={() => run("engine", api.saveBehaviour(how), "Saved")}
+            >
+              <Field
+                label="Chat engine"
+                hint="Either way the only tools are KOS's own, inside the same workspace jail, and risky ones still ask you first. The SDK path needs a signed-in Claude Code on this machine, or an Anthropic key."
+              >
+                <Select
+                  className="set-select"
+                  label="Chat engine"
+                  value={how.engine}
+                  options={[
+                    { value: "api", label: "Model provider", hint: "API credits" },
+                    {
+                      value: "sdk",
+                      label: "Claude Agent SDK",
+                      hint: "Claude Code subscription",
+                    },
+                  ]}
+                  onChange={(v) =>
+                    setHow({ ...how, engine: v === "sdk" ? "sdk" : "api" })
+                  }
+                />
+              </Field>
+            </Section>
+
+            <Section
+              title="Models"
+              blurb="Which model answers what, and how hard it thinks."
+              saving={busy === "models"}
+              saved={saved.models ?? null}
+              onSave={() => saveModels.current?.()}
+            >
+              <ModelSettings onReady={(fn) => (saveModels.current = fn)} />
             </Section>
             <Section
               title="Build agents"
@@ -387,6 +539,121 @@ export function SettingsPage(): ReactElement {
                 />
               </Field>
             </Section>
+          </>
+        )}
+
+        {active === "behaviour" && (
+          <>
+            <Section
+              title="When something fails"
+              blurb="A job that fails at 3am tells you either way. This decides whether KOS also tries to do something about it before you wake up."
+            >
+              <Field
+                label="Try to fix failures on its own"
+                hint="On the first failure of a job, KOS opens a chat, works out why, and repairs it if it safely can. Later failures of the same job do not start another attempt. Everything it does there still asks you before anything risky, and you can read or steer the attempt in Chats."
+              >
+                <label className="set-toggle">
+                  <input
+                    type="checkbox"
+                    checked={how.autoFix}
+                    onChange={(e) => setHow({ ...how, autoFix: e.target.checked })}
+                  />
+                  <span>{how.autoFix ? "On" : "Off"}</span>
+                </label>
+              </Field>
+            </Section>
+
+            <Section
+              title="How hard it tries"
+              blurb="A step is one round-trip to the model, which is roughly one thought and one tool call. Past the limit a turn stops and says it got stuck rather than running on."
+            >
+              <div className="set-grid">
+              <Limit
+                label="Steps in a turn"
+                hint={`What an ordinary message gets. Default ${defaults.maxSteps}.`}
+                value={how.maxSteps}
+                range={limits.maxSteps}
+                onChange={(maxSteps) => setHow({ ...how, maxSteps })}
+              />
+              <Limit
+                label="Steps in a fix attempt"
+                hint={`Diagnosing a failure is mostly reading, so it is worth more than a normal turn. Default ${defaults.fixSteps}.`}
+                value={how.fixSteps}
+                range={limits.fixSteps}
+                onChange={(fixSteps) => setHow({ ...how, fixSteps })}
+              />
+              </div>
+            </Section>
+
+            <Section
+              title="Unattended work"
+              blurb="Limits on what KOS may do while nobody is watching. These are the guards against a loop that runs all night."
+            >
+              <div className="set-grid">
+              <Limit
+                label="Self-prompted jobs per hour"
+                hint={`A scheduled job that thinks rather than running fixed actions. Zero stops them entirely. Default ${defaults.selfPromptsPerHour}.`}
+                value={how.selfPromptsPerHour}
+                range={limits.selfPromptsPerHour}
+                onChange={(selfPromptsPerHour) =>
+                  setHow({ ...how, selfPromptsPerHour })
+                }
+              />
+              <Limit
+                label="Minutes a coding agent may run"
+                hint={`Stopped at this regardless of what it is doing. Default ${defaults.agentMinutes}.`}
+                value={how.agentMinutes}
+                range={limits.agentMinutes}
+                onChange={(agentMinutes) => setHow({ ...how, agentMinutes })}
+              />
+              <Limit
+                label="Turns a coding agent may take"
+                hint={`The other end of the same leash, counted in steps rather than time. Default ${defaults.agentTurns}.`}
+                value={how.agentTurns}
+                range={limits.agentTurns}
+                onChange={(agentTurns) => setHow({ ...how, agentTurns })}
+              />
+              <Limit
+                label="Minutes of silence before an agent looks stuck"
+                hint={`Only changes what the Agents list says about it; nothing is stopped. Default ${defaults.stallMinutes}.`}
+                value={how.stallMinutes}
+                range={limits.stallMinutes}
+                onChange={(stallMinutes) => setHow({ ...how, stallMinutes })}
+              />
+              </div>
+            </Section>
+
+            {/* One set of buttons, because these three cards are one stored
+                document. A Save under each would each write all of them,
+                which reads as three independent settings and is not. Drawn
+                as a card footer so it matches every other Save on the page. */}
+            <footer className="set-card set-card-foot">
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={busy === "behaviour" || !changed}
+                onClick={saveHow}
+              >
+                {busy === "behaviour" ? "Saving…" : "Save behaviour"}
+              </button>
+              {/* Fills the fields rather than writing them: you get to see
+                  what reverting would do before it is the setting. */}
+              <button
+                type="button"
+                className="btn"
+                disabled={busy === "behaviour" || atDefaults}
+                onClick={() => setHow(defaults)}
+              >
+                Reset to defaults
+              </button>
+              {changed ? (
+                <span className="set-unsaved">Not saved yet</span>
+              ) : (
+                saved.behaviour && (
+                  <span className="set-saved">{saved.behaviour}</span>
+                )
+              )}
+            </footer>
           </>
         )}
 

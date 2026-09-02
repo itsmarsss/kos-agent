@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { summarizeAction } from "@kos/shared";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  type FailingJob,
   api,
   type AuditRecord,
   type BuildRecord,
@@ -20,9 +20,11 @@ import { ListPage } from "./ListPage.js";
 import { AnimatePresence, m } from "motion/react";
 
 import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
-import { Modal } from "./Modal.js";
+import { Drawer } from "./Drawer.js";
 import { CronEditor } from "./CronEditor.js";
 import { ease, spring } from "./motion.js";
+import { HistoryPage, type HistoryRow } from "./HistoryPage.js";
+import { useDismiss } from "./useDismiss.js";
 import { HomePage } from "./HomePage.js";
 import { ChatsPage } from "./ChatsPage.js";
 import { FilesPage } from "./FilesPage.js";
@@ -34,19 +36,6 @@ import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { PageRenderer } from "./widgets/PageRenderer.js";
 
-function timeAgo(ts: number): string {
-  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
-  return `${Math.floor(s / 86400)}d`;
-}
-
-function preview(text: string, n = 48): string {
-  const t = text.replace(/\s+/g, " ").trim();
-  return t.length <= n ? t : `${t.slice(0, n - 1)}…`;
-}
-
 type Toast = { kind: "ok" | "err"; text: string } | null;
 
 export function App(): React.ReactElement {
@@ -57,8 +46,11 @@ export function App(): React.ReactElement {
   const [approvals, setApprovals] = useState<PendingAction[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [crons, setCrons] = useState<CronJob[]>([]);
+  /** The job being run by hand, so its own button can say so. */
+  const [firing, setFiring] = useState<number | null>(null);
+  /** A message the harness sent, until the transcript has it. */
+  const [seed, setSeed] = useState<{ id: string; text: string } | null>(null);
   const [runs, setRuns] = useState<RunRecord[]>([]);
-  const [failed, setFailed] = useState<RunRecord[]>([]);
   const [pages, setPages] = useState<PageSummary[]>([]);
   const [activity, setActivity] = useState<AuditRecord[]>([]);
   const [facts, setFacts] = useState<FactRow[]>([]);
@@ -69,10 +61,13 @@ export function App(): React.ReactElement {
   const [toast, setToast] = useState<Toast>(null);
   const [activePage, setActivePage] = useState<PagePayload | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
-  const [runsFailedOnly, setRunsFailedOnly] = useState(false);
   const [cronFilter, setCronFilter] = useState<"all" | "on" | "off">("all");
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  /** The topbar overflow menu, controlled so it can be dismissed. */
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDetailsElement>(null);
+  useDismiss(moreRef, moreOpen, () => setMoreOpen(false));
   // Where sites are served, so the palette can open one directly.
   const [sitesBase, setSitesBase] = useState<string | null>(null);
   const [agents, setAgents] = useState<BuildRecord[]>([]);
@@ -94,12 +89,13 @@ export function App(): React.ReactElement {
     const apply = <T,>(r: PromiseSettledResult<T>, set: (v: T) => void): void => {
       if (r.status === "fulfilled") set(r.value);
     };
-    const [s, a, p, c, f, pg, act, mem, r, convos, ag] = await Promise.allSettled([
+    // One fewer request than this used to make: the failures-only view was a
+    // separate fetch, and History filters the rows it already has.
+    const [s, a, p, c, pg, act, mem, r, convos, ag] = await Promise.allSettled([
       api.status(),
       api.approvals(),
       api.projects(),
       api.crons(),
-      api.failed(100),
       api.pages(),
       api.activity(200),
       api.memory(300),
@@ -112,7 +108,6 @@ export function App(): React.ReactElement {
     apply(ag, (v) => setAgents(v.builds));
     apply(p, setProjects);
     apply(c, setCrons);
-    apply(f, setFailed);
     apply(pg, setPages);
     apply(act, (v) => setActivity(v.tools));
     apply(mem, (v) => {
@@ -226,6 +221,116 @@ export function App(): React.ReactElement {
     }
   };
 
+  /**
+   * Run a scheduled job by hand, through the same path the schedule uses, and
+   * say what came back. A job that fires and fails is a more useful answer
+   * than one that quietly did nothing.
+   */
+  const runCronNow = async (id: number, name: string): Promise<void> => {
+    setFiring(id);
+    try {
+      const result = await api.runCron(id);
+      await refresh();
+      if (result.ok) {
+        flash("ok", `${name} ran`);
+      } else {
+        // "It fired" is not "it worked". A job whose every action errored
+        // fires perfectly well, and calling that a success is how someone
+        // checks a broken job and walks away satisfied.
+        flash("err", `${name} failed: ${result.error ?? "unknown error"}`);
+      }
+    } catch (err) {
+      flash("err", err instanceof Error ? err.message : String(err));
+    } finally {
+      setFiring(null);
+    }
+  };
+
+  /** Clear a failure the owner has handled, so the header stops shouting. */
+  const dismissFailure = async (key: string): Promise<void> => {
+    try {
+      await api.dismissFailure(key);
+      await refresh();
+    } catch (err) {
+      flash("err", err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  /**
+   * Hand a failure to KOS in its own chat, and go there. The agent that can
+   * fix a broken schedule or a missing file is this one; a coding sub-agent
+   * sandboxed to a folder cannot reach either.
+   */
+  const beginFix = async (detail: {
+    label: string;
+    error: string;
+    what: string;
+    ref?: string;
+  }): Promise<void> => {
+    try {
+      const started = await api.fix({
+        label: detail.label,
+        error: detail.error,
+        what: detail.what,
+        ...(detail.ref ? { ref: detail.ref } : {}),
+      });
+      // Carried into the chat so the question is on screen the moment it
+      // opens, rather than appearing when the turn finishes recording.
+      setSeed({ id: started.conversationId, text: started.prompt });
+      await refresh();
+      go({ name: "chats", id: started.conversationId });
+      flash("ok", "KOS is looking into it");
+    } catch (err) {
+      flash("err", err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  /** A failure as the health report describes it. */
+  const fixFailure = (failure: FailingJob): void => {
+    const cron = /^cron:(\d+)$/.exec(failure.key);
+    void beginFix({
+      label: failure.label,
+      error: failure.error ?? "the job reported an error",
+      what: cron ? "scheduled job" : "job",
+      ...(cron ? { ref: `cron #${cron[1]}` } : {}),
+    });
+  };
+
+  const startFix = async (row: HistoryRow): Promise<void> => {
+    const detail =
+      row.kind === "tool"
+        ? {
+            label: row.tool.tool,
+            error: row.tool.result || "the tool reported an error",
+            what: "tool call",
+            ref: `tool call #${row.tool.id}`,
+          }
+        : {
+            label:
+              crons.find((c) => String(c.id) === row.run.ref)?.name ??
+              `${row.run.kind} run`,
+            error: row.run.error ?? "the run reported an error",
+            what: row.run.kind === "cron" ? "scheduled job" : "run",
+            ref: row.run.ref ? `${row.run.kind} #${row.run.ref}` : undefined,
+          };
+    await beginFix(detail);
+  };
+
+  /**
+   * Open whatever a failure belongs to. The key names the kind and the id,
+   * so a broken schedule opens its own editor rather than dropping the owner
+   * on a list to find it again.
+   */
+  const openFailure = (key: string): void => {
+    const cron = /^cron:(\d+)$/.exec(key);
+    const job = cron ? crons.find((c) => c.id === Number(cron[1])) : undefined;
+    if (job) {
+      setEditingCron({ job });
+      return;
+    }
+    go({ name: "history" });
+  };
+
   const toggleKill = async (): Promise<void> => {
     if (!status) return;
     setBusy(status.halted ? "resuming" : "halting");
@@ -244,7 +349,20 @@ export function App(): React.ReactElement {
     setBusy("snapshot");
     try {
       const res = await api.snapshot("dashboard snapshot");
-      flash("ok", res.sha ? `Snapshot ${res.sha.slice(0, 10)}` : "Nothing to snapshot");
+      // Folders with their own git repo are not in it. A backup that quietly
+      // leaves things out is worse than one you know the edges of.
+      const omitted =
+        res.excluded.length > 0
+          ? ` · ${res.excluded.length} folder${
+              res.excluded.length === 1 ? "" : "s"
+            } with own repo not included`
+          : "";
+      flash(
+        "ok",
+        res.sha
+          ? `Snapshot ${res.sha.slice(0, 10)}${omitted}`
+          : `Nothing to snapshot${omitted}`,
+      );
     } catch (err) {
       flash("err", err instanceof Error ? err.message : String(err));
     } finally {
@@ -349,38 +467,51 @@ export function App(): React.ReactElement {
             </m.div>
           )}
         </AnimatePresence>
-        <Inspector
-          key={inspectKey}
-          target={inspect}
-          onClose={() => setInspect(null)}
-          onOpenPage={openPage}
-          onSaved={() => void refresh()}
-          onSetProjectStatus={async (slug, st) => {
-            await api.setProjectStatus(slug, st);
-            flash("ok", `Project ${slug} → ${st}`);
-            await refresh();
-          }}
-          onToggleCron={async (id, enabled) => {
-            await api.setCronEnabled(id, enabled);
-            flash("ok", enabled ? `Cron #${id} enabled` : `Cron #${id} disabled`);
-            await refresh();
-          }}
-          onDeleteCron={async (id) => {
-            await api.deleteCron(id);
-            flash("ok", `Deleted cron #${id}`);
-            await refresh();
-          }}
-          onSaveFact={async (key, value, kind) => {
-            await api.saveMemory(key, value, kind);
-            flash("ok", `Saved ${key}`);
-            await refresh();
-          }}
-          onDeleteFact={async (key) => {
-            await api.deleteMemory(key);
-            flash("ok", `Deleted ${key}`);
-            await refresh();
-          }}
-        />
+        {/* Wrapped so it unmounts: the panel returned null when closed, which
+            skips the exit animation entirely and makes a drawer vanish rather
+            than close. */}
+        <AnimatePresence>
+          {inspect && (
+          <Inspector
+            key={inspectKey}
+            target={inspect}
+            onClose={() => setInspect(null)}
+            onOpenPage={openPage}
+            crons={crons}
+            onFix={(detail) => void beginFix(detail)}
+            onOpenFolder={(path) => {
+              setInspect(null);
+              go({ name: "files", path });
+            }}
+            onSaved={() => void refresh()}
+            onSetProjectStatus={async (slug, st) => {
+              await api.setProjectStatus(slug, st);
+              flash("ok", `Project ${slug} → ${st}`);
+              await refresh();
+            }}
+            onToggleCron={async (id, enabled) => {
+              await api.setCronEnabled(id, enabled);
+              flash("ok", enabled ? `Cron #${id} enabled` : `Cron #${id} disabled`);
+              await refresh();
+            }}
+            onDeleteCron={async (id) => {
+              await api.deleteCron(id);
+              flash("ok", `Deleted cron #${id}`);
+              await refresh();
+            }}
+            onSaveFact={async (key, value, kind) => {
+              await api.saveMemory(key, value, kind);
+              flash("ok", `Saved ${key}`);
+              await refresh();
+            }}
+            onDeleteFact={async (key) => {
+              await api.deleteMemory(key);
+              flash("ok", `Deleted ${key}`);
+              await refresh();
+            }}
+          />
+          )}
+        </AnimatePresence>
 
         <header className="topbar">
           <div className="topbar-left">
@@ -406,13 +537,31 @@ export function App(): React.ReactElement {
           </div>
           <div className="topbar-right">
             {busy && <span className="hint">{busy}…</span>}
-            <span
-              className={`health ${status?.halted ? "health--halted" : "health--ok"}`}
-              title={status?.workspace ?? ""}
+            {/* Three states, in the order that matters: stopped, broken,
+                fine. It said "Running" regardless, so a job that had been
+                failing for two days sat behind a green dot. */}
+            <a
+              className={`health ${
+                status?.halted
+                  ? "health--halted"
+                  : (status?.unhealthy ?? 0) > 0
+                    ? "health--bad"
+                    : "health--ok"
+              }`}
+              href="#/"
+              title={
+                (status?.unhealthy ?? 0) > 0
+                  ? "Something is failing. Open home for what and for how long."
+                  : (status?.workspace ?? "")
+              }
             >
               <span className="health-dot" />
-              {status?.halted ? "Halted" : "Running"}
-            </span>
+              {status?.halted
+                ? "Halted"
+                : (status?.unhealthy ?? 0) > 0
+                  ? `${status?.unhealthy} failing`
+                  : "Running"}
+            </a>
             {/* Which model is answering. The routing table is picked from
                 whichever API keys are present, so a workspace with one
                 provider gets a different agent from the default; without this
@@ -433,14 +582,18 @@ export function App(): React.ReactElement {
               Search <kbd>⌘K</kbd>
             </button>
             {/* A native details stays open when something inside it is
-                clicked, so the menu sat over whatever it had just opened. */}
+                clicked, so the menu sat over whatever it had just opened.
+                It also stays open when you click anywhere else on the page,
+                or scroll away from it, which is why this is controlled now
+                rather than left to the element. */}
             <details
               className="menu"
+              ref={moreRef}
+              open={moreOpen}
+              onToggle={(e) => setMoreOpen(e.currentTarget.open)}
               onClick={(e) => {
                 const target = e.target as HTMLElement;
-                if (target.closest("button, a")) {
-                  e.currentTarget.removeAttribute("open");
-                }
+                if (target.closest("button, a")) setMoreOpen(false);
               }}
             >
               <summary className="btn btn--ghost" aria-label="More">⋯</summary>
@@ -491,9 +644,15 @@ export function App(): React.ReactElement {
 
         {body}
 
-        <Modal
+        {/* A drawer: a schedule has a name, a cron line, a type and a body
+            of actions, which is more than a dialog in the middle of the page
+            should be asked to hold. */}
+        <Drawer
           open={editingCron !== null}
-          title={editingCron?.job ? `Edit “${editingCron.job.name}”` : "New schedule"}
+          title={editingCron?.job ? editingCron.job.name : "New schedule"}
+          {...(editingCron?.job
+            ? { subtitle: `Cron #${editingCron.job.id}` }
+            : { subtitle: "Runs on its own, on a schedule you set" })}
           onClose={() => setEditingCron(null)}
         >
           {editingCron && (
@@ -506,7 +665,7 @@ export function App(): React.ReactElement {
               onCancel={() => setEditingCron(null)}
             />
           )}
-        </Modal>
+        </Drawer>
 
         <CommandPalette
           open={paletteOpen}
@@ -558,6 +717,7 @@ export function App(): React.ReactElement {
         onOpen={(id) => go({ name: "chats", id })}
         onChanged={() => void refresh()}
         onDecide={decideByPendingId}
+        {...(seed ? { seed } : {})}
       />,
     );
   }
@@ -597,50 +757,15 @@ export function App(): React.ReactElement {
     );
   }
 
-  if (route.name === "tools") {
+  if (route.name === "history") {
     return shell(
-      <ListPage
-        title="Activity"
-        subtitle="Every tool KOS has run. Click a row for the arguments and result."
-        rows={activity}
-        rowKey={(t) => t.id}
-        empty="No tool calls yet"
-        onRowClick={(t) => setInspect({ kind: "tool", data: t })}
-        columns={[
-          {
-            key: "tool",
-            header: "Tool",
-            width: "18%",
-            searchText: (t) => t.tool,
-            render: (t) => <span className="ops-mono">{t.tool}</span>,
-          },
-          {
-            key: "preview",
-            header: "Preview",
-            searchText: (t) => summarizeAction(t.tool, t.args),
-            render: (t) => preview(summarizeAction(t.tool, t.args), 64),
-          },
-          {
-            key: "status",
-            header: "Status",
-            width: "10%",
-            searchText: (t) => (t.isError ? "error" : "ok"),
-            render: (t) =>
-              t.isError ? (
-                <span className="ops-tag ops-tag--danger">error</span>
-              ) : (
-                <span className="ops-tag ops-tag--ok">ok</span>
-              ),
-          },
-          {
-            key: "when",
-            header: "When",
-            width: "10%",
-            render: (t) => (
-              <span className="ops-muted">{timeAgo(t.createdAt)}</span>
-            ),
-          },
-        ]}
+      <HistoryPage
+        tools={activity}
+        runs={runs}
+        crons={crons}
+        onOpenTool={(t) => setInspect({ kind: "tool", data: t })}
+        onOpenRun={(r) => setInspect({ kind: "run", data: r })}
+        onFix={(row) => void startFix(row)}
       />,
     );
   }
@@ -659,18 +784,21 @@ export function App(): React.ReactElement {
         rowKey={(c) => c.id}
         empty="No crons match"
         onRowClick={(c) => setEditingCron({ job: c })}
+        toolbar={
+          /* Writing one by hand: everything here could be asked for in a
+             sentence, but a schedule runs while nobody is watching, so it is
+             worth being able to read exactly what will happen. Sat among the
+             filters it read as one of them. */
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => setEditingCron({})}
+          >
+            New schedule
+          </button>
+        }
         filters={
           <div className="list-filter-group">
-            {/* Writing one by hand: everything here could be asked for in a
-                sentence, but a schedule runs while nobody is watching, so it
-                is worth being able to read exactly what will happen. */}
-            <button
-              type="button"
-              className="btn btn--primary"
-              onClick={() => setEditingCron({})}
-            >
-              New schedule
-            </button>
             {(["all", "on", "off"] as const).map((f) => (
               <button
                 key={f}
@@ -721,6 +849,25 @@ export function App(): React.ReactElement {
               <span className="ops-mono ops-muted">{c.projectSlug ?? "—"}</span>
             ),
           },
+          {
+            // Whether a job works was otherwise answerable only by waiting for
+            // its schedule, which for a nightly job is a day per attempt.
+            key: "run",
+            header: "",
+            render: (c) => (
+              <button
+                type="button"
+                className="btn btn--sm"
+                disabled={firing === c.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void runCronNow(c.id, c.name);
+                }}
+              >
+                {firing === c.id ? "Running…" : "Run now"}
+              </button>
+            ),
+          },
         ]}
       />,
     );
@@ -736,77 +883,15 @@ export function App(): React.ReactElement {
     );
   }
 
-  if (route.name === "runs") {
-    const source = runsFailedOnly ? failed : runs;
-    return shell(
-      <ListPage
-        title="Runs"
-        subtitle="Every chat turn and scheduled job, with failures surfaced."
-        rows={source}
-        rowKey={(r) => r.id}
-        empty="No runs"
-        onRowClick={(r) => setInspect({ kind: "run", data: r })}
-        filters={
-          <label className="list-check">
-            <input
-              type="checkbox"
-              checked={runsFailedOnly}
-              onChange={(e) => setRunsFailedOnly(e.target.checked)}
-            />
-            Failures only
-          </label>
-        }
-        columns={[
-          {
-            key: "id",
-            header: "ID",
-            width: "8%",
-            render: (r) => <span className="ops-mono">#{r.id}</span>,
-          },
-          {
-            key: "kind",
-            header: "Kind",
-            searchText: (r) => r.kind,
-            render: (r) => r.kind,
-          },
-          {
-            key: "status",
-            header: "Status",
-            searchText: (r) => r.status,
-            render: (r) => (
-              <span
-                className={`ops-tag ${r.status === "error" ? "ops-tag--danger" : r.status === "ok" ? "ops-tag--ok" : "ops-tag--muted"}`}
-              >
-                {r.status}
-              </span>
-            ),
-          },
-          {
-            key: "error",
-            header: "Error",
-            searchText: (r) => r.error ?? "",
-            render: (r) => (
-              <span className="ops-muted">{preview(r.error ?? "—", 56)}</span>
-            ),
-          },
-          {
-            key: "when",
-            header: "When",
-            render: (r) => (
-              <span className="ops-muted">{timeAgo(r.startedAt)}</span>
-            ),
-          },
-        ]}
-      />,
-    );
-  }
-
   return shell(
     <HomePage
       onOpenChat={(id) => go({ name: "chats", id })}
       onGo={(to) => go({ name: to } as Route)}
       deciding={deciding}
       onDecide={(id, approved) => void decide(id, approved)}
+      onDismissFailure={(key) => void dismissFailure(key)}
+      onOpenFailure={(key) => openFailure(key)}
+      onFixFailure={fixFailure}
     />,
   );
 }

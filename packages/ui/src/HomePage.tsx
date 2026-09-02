@@ -1,8 +1,11 @@
 import { useEffect, useState, type ReactElement } from "react";
 import type { HomeLayout, HomePanel, PanelKind, WidgetSpan } from "@kos/shared";
 
-import { api, type HomeData } from "./api.js";
+import { AnimatePresence, m } from "motion/react";
+
+import { api, type FailingJob, type HomeData } from "./api.js";
 import { Panel } from "./HomePanels.js";
+import { ease, spring } from "./motion.js";
 import { Select } from "./Select.js";
 
 /**
@@ -23,7 +26,7 @@ import { Select } from "./Select.js";
 const CATALOGUE: { kind: PanelKind; label: string; blurb: string }[] = [
   { kind: "approvals", label: "Needs you", blurb: "Actions waiting on a decision" },
   { kind: "agents", label: "Agents", blurb: "Coding sub-agents running now" },
-  { kind: "failures", label: "What broke", blurb: "Recent failed runs" },
+  { kind: "failures", label: "What broke", blurb: "Jobs failing now" },
   { kind: "activity", label: "Activity", blurb: "Recent tool calls" },
   { kind: "projects", label: "Projects", blurb: "What KOS is keeping for you" },
   { kind: "chats", label: "Chats", blurb: "Recent conversations" },
@@ -44,11 +47,17 @@ export function HomePage({
   onGo,
   onDecide,
   deciding,
+  onDismissFailure,
+  onOpenFailure,
+  onFixFailure,
 }: {
   onOpenChat: (id: string) => void;
-  onGo: (to: "agents" | "runs" | "projects" | "crons" | "chats" | "settings") => void;
+  onGo: (to: "agents" | "history" | "projects" | "crons" | "chats" | "settings") => void;
   onDecide: (id: number, approved: boolean) => void;
   deciding: ReadonlySet<number>;
+  onDismissFailure: (key: string) => void;
+  onOpenFailure: (key: string) => void;
+  onFixFailure: (failure: FailingJob) => void;
 }): ReactElement {
   const [data, setData] = useState<HomeData | null>(null);
   const [layout, setLayout] = useState<HomeLayout | null>(null);
@@ -169,7 +178,15 @@ export function HomePage({
 
       <div className="home-grid">
         {layout.panels.map((panel, i) => (
-          <section key={panel.id} className={`home-cell home-cell--${panel.span}`}>
+          /* Laid out rather than snapped: moving a panel up or changing its
+             width is a spatial change, and seeing it travel is what tells you
+             the thing you pressed did what you meant. */
+          <m.section
+            key={panel.id}
+            layout
+            className={`home-cell home-cell--${panel.span}`}
+            transition={spring}
+          >
             {editing && (
               <div className="home-edit">
                 <Select
@@ -216,13 +233,23 @@ export function HomePage({
               onGo={onGo}
               onDecide={onDecide}
               deciding={deciding}
+              onDismissFailure={onDismissFailure}
+              onOpenFailure={onOpenFailure}
+              onFixFailure={onFixFailure}
             />
-          </section>
+          </m.section>
         ))}
       </div>
 
+      <AnimatePresence>
       {editing && (
-        <div className="home-add">
+        <m.div
+          className="home-add"
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={ease}
+        >
           <span className="home-add-label">Add a panel</span>
           <div className="home-add-list">
             {CATALOGUE.map((c) => (
@@ -240,8 +267,9 @@ export function HomePage({
               </button>
             ))}
           </div>
-        </div>
+        </m.div>
       )}
+      </AnimatePresence>
     </div>
   );
 }

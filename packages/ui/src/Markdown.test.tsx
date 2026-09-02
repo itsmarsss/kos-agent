@@ -2,7 +2,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { Markdown } from "./Markdown.js";
+import { Markdown, MentionNames } from "./Markdown.js";
 import { formatElapsed } from "./LiveTurn.js";
 
 function html(text: string): string {
@@ -202,6 +202,52 @@ describe("references are links", () => {
     const { container } = render(<Markdown text="@schedule:nightly" />);
     expect(container.querySelector("a.chip-ref--schedule")?.getAttribute("href")).toBe(
       "#/crons",
+    );
+  });
+});
+
+/**
+ * Every kind the picker offers should render as a chip. Only four of the
+ * seven did, so a message naming a chat, a site or an agent showed the raw
+ * reference in the middle of a sentence.
+ */
+describe("every kind of reference", () => {
+  const kinds = [
+    ["project", "budget_tracker"],
+    ["page", "budget-dashboard"],
+    ["file", "notes/today.md"],
+    ["schedule", "[9 AM Pinger Test]"],
+    ["chat", "[abc123:owner]"],
+    ["site", "budget_tracker/expenses"],
+    ["agent", "7"],
+  ] as const;
+
+  for (const [kind, id] of kinds) {
+    it(`chips a ${kind}`, () => {
+      const { container } = render(<Markdown text={`See @${kind}:${id} here.`} />);
+      const chip = container.querySelector(`.chip-ref--${kind}`);
+      expect(chip).toBeTruthy();
+      expect(chip?.getAttribute("href")).toBeTruthy();
+      // The reference must not also survive as literal text beside the chip.
+      expect(container.textContent).not.toContain(`@${kind}:`);
+    });
+  }
+
+  it("uses the name the surface knows over the id", () => {
+    const { container } = render(
+      <MentionNames resolve={(k, id) => (k === "chat" ? `Lane A (${id})` : undefined)}>
+        <Markdown text="see @chat:[abc123:owner]" />
+      </MentionNames>,
+    );
+    expect(container.querySelector(".chip-ref--chat")?.textContent).toBe(
+      "Lane A (abc123:owner)",
+    );
+  });
+
+  it("falls back to the id when nothing knows better", () => {
+    const { container } = render(<Markdown text="see @chat:[abc123:owner]" />);
+    expect(container.querySelector(".chip-ref--chat")?.textContent).toBe(
+      "abc123:owner",
     );
   });
 });

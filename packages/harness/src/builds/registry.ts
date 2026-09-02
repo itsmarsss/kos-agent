@@ -23,6 +23,8 @@ export interface BuildRecord {
   task: string;
   /** The conversation that started it. */
   conversationId?: string;
+  /** The SDK's session, so a finished agent can be woken and carry on. */
+  sessionId?: string;
   status: BuildStatus;
   startedAt: number;
   endedAt?: number;
@@ -70,6 +72,16 @@ const MAX_FINISHED = 20;
 const SILENCE_MS = 3 * 60_000;
 
 export class BuildRegistry {
+  /**
+   * How long an agent may be quiet before it is called stalled. A function
+   * because the owner sets it, and a build already running should respect a
+   * change rather than keeping whatever was configured when it started.
+   */
+  private readonly silenceMs: () => number;
+
+  constructor(silenceMs: () => number = () => SILENCE_MS) {
+    this.silenceMs = silenceMs;
+  }
   private readonly records = new Map<number, BuildRecord>();
   private readonly controls = new Map<number, BuildControl>();
   /**
@@ -269,7 +281,31 @@ export class BuildRegistry {
       record.phaseSince ?? 0,
       record.phase && record.phase.phase !== "idle" ? now : 0,
     );
-    return now - last > SILENCE_MS;
+    return now - last > this.silenceMs();
+  }
+
+  /**
+   * Drop a finished agent from the list. Its files stay: this is the record
+   * being cleared, not the work undone. A running one is left alone, since
+   * forgetting something that is still writing would lose the only handle on
+   * it.
+   */
+  forget(id: number): boolean {
+    const record = this.records.get(id);
+    if (!record || record.status === "running" || record.status === "waiting") {
+      return false;
+    }
+    this.records.delete(id);
+    this.controls.delete(id);
+    return true;
+  }
+
+  /** Remember the SDK's id for this run, for waking it later. */
+  session(id: number, sessionId: string): void {
+    const record = this.records.get(id);
+    if (!record || record.sessionId === sessionId) return;
+    record.sessionId = sessionId;
+    this.changed(id);
   }
 
   /** Running first, then most recently finished. */

@@ -11,6 +11,8 @@ export interface Status {
   pid?: number;
   workspace?: string;
   orchestratorId?: string;
+  /** Jobs failing right now, so the header can stop claiming all is well. */
+  unhealthy?: number;
   /** Which model answers each task class, when the router can say. */
   routes?: Record<
     string,
@@ -207,6 +209,17 @@ export interface ModelRate {
   contextWindow?: number;
 }
 
+export interface ModelDaySpend {
+  provider: string;
+  model: string;
+  day: string;
+  inputTokens: number;
+  outputTokens: number;
+  calls: number;
+  /** Undefined when the model has no rate set. */
+  cost?: number;
+}
+
 export interface ModelSpend {
   provider: string;
   model: string;
@@ -243,11 +256,41 @@ export interface PendingMessage {
   attachments: { name: string }[];
 }
 
+/** How KOS behaves when nobody is telling it what to do. */
+export interface Behaviour {
+  /** "api" bills the provider; "sdk" spends a Claude Code subscription. */
+  engine: "api" | "sdk";
+  autoFix: boolean;
+  maxSteps: number;
+  fixSteps: number;
+  selfPromptsPerHour: number;
+  agentMinutes: number;
+  agentTurns: number;
+  stallMinutes: number;
+}
+
+export interface FailingJob {
+  key: string;
+  label: string;
+  /** Consecutive failures, so "once" reads differently from "since Tuesday". */
+  streak: number;
+  error: string | null;
+  since: number;
+  lastAt: number;
+}
+
+export interface HealthReport {
+  ok: boolean;
+  failing: FailingJob[];
+  recent: { total: number; errors: number; rate: number };
+}
+
 export interface HomeData {
   layout: import("@kos/shared").HomeLayout;
   approvals: PendingAction[];
   agents: BuildRecord[];
   failures: RunRecord[];
+  health: HealthReport;
   activity: AuditRecord[];
   projects: Project[];
   chats: Conversation[];
@@ -341,6 +384,8 @@ export interface ProjectDetail {
     op: string;
     appliedAt?: number;
   }[];
+  /** Recent tool calls that mention this project, newest first. */
+  activity: AuditRecord[];
   folder: string;
 }
 
@@ -431,6 +476,24 @@ export const api = {
       id,
       enabled,
     }),
+  runCron: (id: number) =>
+    post<{ ok: boolean; error?: string }>("/api/crons/run", { id }),
+  health: () => get<HealthReport>("/api/health/report"),
+  fix: (input: { label: string; error: string; what?: string; ref?: string }) =>
+    post<{ conversationId: string; title: string; prompt: string }>(
+      "/api/fix",
+      input,
+    ),
+  behaviour: () =>
+    get<{
+      behaviour: Behaviour;
+      defaults: Behaviour;
+      limits: Record<string, [number, number]>;
+    }>("/api/settings/behaviour"),
+  saveBehaviour: (behaviour: Behaviour) =>
+    post<{ behaviour: Behaviour }>("/api/settings/behaviour", { behaviour }),
+  dismissFailure: (key: string) =>
+    post<{ dismissed: string }>("/api/health/dismiss", { key }),
   deleteCron: (id: number) =>
     post<{ id: number; removed: boolean }>("/api/crons/delete", { id }),
   failed: (limit = 100) => get<RunRecord[]>(`/api/failed?limit=${limit}`),
@@ -490,6 +553,7 @@ export const api = {
       days: number;
       models: ModelSpend[];
       byDay: { day: string; inputTokens: number; outputTokens: number }[];
+      byModelDay: ModelDaySpend[];
       rates: Record<string, ModelRate>;
     }>(`/api/spend?days=${days}`),
   saveRates: (rates: Record<string, ModelRate>) =>
@@ -515,6 +579,15 @@ export const api = {
   agents: () => get<{ builds: BuildRecord[] }>("/api/agents"),
   agent: (id: number) =>
     get<{ build: BuildRecord; approvals: PendingAction[] }>(`/api/agents/${id}`),
+  startAgent: (dir: string, task: string) =>
+    post<{ started: boolean; dir: string }>("/api/agents/start", { dir, task }),
+  wakeAgent: (id: number, text: string) =>
+    post<{ woke: boolean; dir: string; resumed: boolean }>("/api/agents/wake", {
+      id,
+      text,
+    }),
+  forgetAgent: (id: number) =>
+    post<{ builds: BuildRecord[] }>("/api/agents/forget", { id }),
   stopAgent: (id: number) =>
     post<{ stopped: boolean; builds: BuildRecord[] }>("/api/agents/stop", { id }),
   sendToAgent: (id: number, text: string) =>
@@ -546,6 +619,7 @@ export const api = {
   ) => post<Conversation>("/api/conversations/configure", { id, ...config }),
   newConversation: (title?: string) =>
     post<Conversation>("/api/conversations/new", title ? { title } : {}),
+  folders: () => get<{ folders: string[] }>("/api/folders"),
   mentions: (q: string, kind?: string, limit?: number) =>
     get<{
       mentions: { kind: string; id: string; label: string; hint?: string }[];
@@ -600,13 +674,21 @@ export const api = {
     post<{ ok: boolean; message: string; reply?: string }>("/api/deny", { id }),
   setKill: (halted: boolean) => post<Status>("/api/kill", { halted }),
   message: (text: string, sessionId?: string, attachments?: Attachment[]) =>
-    post<{ reply: string; isCommand?: boolean; switchedTo?: string }>("/api/message", {
+    post<{
+      reply: string;
+      isCommand?: boolean;
+      switchedTo?: string;
+      opens?: "tools";
+    }>("/api/message", {
       text,
       ...(sessionId ? { sessionId } : {}),
       ...(attachments?.length ? { attachments } : {}),
     }),
   snapshot: (message?: string) =>
-    post<{ sha: string | null }>("/api/snapshot", message ? { message } : {}),
+    post<{ sha: string | null; excluded: string[] }>(
+      "/api/snapshot",
+      message ? { message } : {},
+    ),
   clear: (sessionId?: string) =>
     post<{ cleared: string }>(
       "/api/clear",

@@ -61,7 +61,12 @@ export function ContextMeter({
   // long one of one-liners runs out of exchanges.
   const byChars = historyChars / maxChars;
   const byExchanges = exchanges / maxExchanges;
+  // Clamped once, here, so the bar and the number agree. The bar was clamped
+  // and the label was not, so a conversation past its budget read "100% full ·
+  // 18/12 turns" — a percentage that cannot exist beside the counts that
+  // explain it.
   const fraction = Math.min(1, Math.max(byChars, byExchanges));
+  const over = byChars > 1 || byExchanges > 1;
   const level = fraction > 0.85 ? " is-high" : fraction > 0.6 ? " is-mid" : "";
 
   const window = use.window;
@@ -85,10 +90,11 @@ export function ContextMeter({
         <span className="ctx-fill" style={{ width: `${(fraction * 100).toFixed(1)}%` }} />
       </span>
       <span className="ctx-text">
-        {Math.round(fraction * 100)}% full
+        {over ? "full" : `${Math.round(fraction * 100)}% full`}
         <span className="ctx-detail">
           {" · "}
-          {exchanges}/{maxExchanges} turns
+          {Math.min(exchanges, maxExchanges)}/{maxExchanges} turns
+          {over ? " · trimming" : ""}
         </span>
       </span>
     </div>

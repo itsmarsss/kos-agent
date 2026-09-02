@@ -36,9 +36,12 @@ export interface SessionStoreOptions {
   maxExchanges?: number;
 }
 
-const DEFAULT_MAX_CHARS = 48_000;
+// Room for a real working conversation rather than a few questions. The old
+// 48k/12 dropped the start of a session that had done any tool work in it,
+// which is where the owner said what they actually wanted.
+const DEFAULT_MAX_CHARS = 128_000;
 const DEFAULT_MAX_TOOL_RESULT_CHARS = 4_000;
-const DEFAULT_MAX_EXCHANGES = 12;
+const DEFAULT_MAX_EXCHANGES = 36;
 
 /**
  * True when a user message is purely the tool_result half of an exchange

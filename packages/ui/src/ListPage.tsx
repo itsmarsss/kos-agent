@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
+
+import { PageHead } from "./PageHead.js";
 
 export interface Column<T> {
   key: string;
@@ -22,6 +24,22 @@ export function ListPage<T>(props: {
   empty?: string;
   filters?: React.ReactNode;
   toolbar?: React.ReactNode;
+  /**
+   * Break the rows into labelled runs, in the order they already appear.
+   * A flat list of the last hundred things, newest first forever, gives no
+   * sense of when anything happened; "Today" and "Yesterday" do most of that
+   * work for free.
+   */
+  groupBy?: (row: T) => string;
+  /**
+   * Honour the declared column widths instead of sizing to content.
+   *
+   * Under the browser's automatic layout a cell that refuses to wrap grows the
+   * table until it overflows, which pushed the columns after it off the side
+   * of the page entirely. Fixed layout is right when the widths are known and
+   * the content is what should give.
+   */
+  fixedLayout?: boolean;
 }): React.ReactElement {
   const [q, setQ] = useState("");
 
@@ -42,13 +60,10 @@ export function ListPage<T>(props: {
 
   return (
     <section className="list-page">
-      <header className="list-head">
-        <div>
-          <h1 className="list-title">{props.title}</h1>
-          {props.subtitle && <p className="ops-muted">{props.subtitle}</p>}
-        </div>
-        <div className="list-head-tools">
-          {props.toolbar}
+      <PageHead
+        title={props.title}
+        {...(props.subtitle ? { subtitle: props.subtitle } : {})}
+        search={
           <input
             className="list-search"
             value={q}
@@ -56,14 +71,17 @@ export function ListPage<T>(props: {
             placeholder="Search…"
             aria-label={`Search ${props.title}`}
           />
-        </div>
-      </header>
+        }
+        {...(props.toolbar ? { actions: props.toolbar } : {})}
+      />
       {props.filters && <div className="list-filters">{props.filters}</div>}
       <div className="list-meta ops-muted">
         {filtered.length} of {props.rows.length}
       </div>
       <div className="ops-table-wrap list-table">
-        <table className="ops-table">
+        <table
+          className={`ops-table ${props.fixedLayout ? "ops-table--fixed" : ""}`}
+        >
           <thead>
             <tr>
               {props.columns.map((c) => (
@@ -81,17 +99,30 @@ export function ListPage<T>(props: {
                 </td>
               </tr>
             )}
-            {filtered.map((row) => (
-              <tr
-                key={props.rowKey(row)}
-                className="ops-row-click"
-                onClick={() => props.onRowClick(row)}
-              >
-                {props.columns.map((c) => (
-                  <td key={c.key}>{c.render(row)}</td>
-                ))}
-              </tr>
-            ))}
+            {filtered.map((row, i) => {
+              const group = props.groupBy?.(row);
+              const previous =
+                i > 0 ? props.groupBy?.(filtered[i - 1]!) : undefined;
+              return (
+                <Fragment key={props.rowKey(row)}>
+                  {group && group !== previous ? (
+                    <tr className="list-group">
+                      <th colSpan={props.columns.length} scope="colgroup">
+                        {group}
+                      </th>
+                    </tr>
+                  ) : null}
+                  <tr
+                    className="ops-row-click"
+                    onClick={() => props.onRowClick(row)}
+                  >
+                    {props.columns.map((c) => (
+                      <td key={c.key}>{c.render(row)}</td>
+                    ))}
+                  </tr>
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>

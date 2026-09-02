@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { isValidPageSpec, type PageSpec } from "@kos/shared";
 
@@ -10,6 +10,7 @@ import type { Task } from "../models/router.js";
 import type { GenerateRequest, ModelResponse } from "../models/types.js";
 import type { KosModule } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
+import { BEHAVIOUR_KEY } from "./behaviour.js";
 import { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
 
@@ -240,10 +241,9 @@ describe("KOS end-to-end flows", () => {
     expect(kernel.approvals.pending()).toHaveLength(0);
   });
 
-  it("resumes an approval in the conversation that asked for it", async () => {
+  it("continues in the conversation that asked, and only there", async () => {
     const model = scripted([
       toolCall("c1", "shell", { command: "rm -rf build" }),
-      text("Queued that for you."),
       text("Removed the build directory."),
     ]);
     kernel = await boot(model.inference);
@@ -256,21 +256,22 @@ describe("KOS end-to-end flows", () => {
 
     await kernel.approve(pending[0]!.id);
 
-    // The agent that was waiting is the one that gets the result. Resuming in
-    // the primary conversation left it waiting and told the wrong reader.
-    const there = JSON.stringify(kernel.sessions.get(scoped.id));
-    expect(there).toContain("the owner approved pending action");
-    expect(there).toContain("Removed the build directory.");
+    // The agent that was waiting is the one that carries on, in its own
+    // transcript. Nothing about it appears anywhere else.
+    await vi.waitFor(() => {
+      expect(JSON.stringify(kernel.sessions.get(scoped.id))).toContain(
+        "Removed the build directory.",
+      );
+    });
     const main = JSON.stringify(
       kernel.sessions.get(primarySessionId(kernel.profile.ownerId)),
     );
-    expect(main).not.toContain("the owner approved pending action");
+    expect(main).not.toContain("Removed the build directory.");
   });
 
-  it("moves a conversation when an approval resumes it, without renaming", async () => {
+  it("moves a conversation when an approval lets it finish, without renaming", async () => {
     const model = scripted([
       toolCall("c1", "files.rm", { path: "notes/x.md" }),
-      text("Queued."),
       text("Deleted it."),
     ]);
     kernel = await boot(model.inference);
@@ -279,6 +280,9 @@ describe("KOS end-to-end flows", () => {
     // Something else moves ahead of it while the action sits in the queue.
     // Compared against that stamp rather than list position, because two
     // touches in the same millisecond fall back to insertion order.
+    // A real gap: stamps are milliseconds, and two touches inside one of them
+    // fall back to insertion order, which is not what this is testing.
+    await new Promise((r) => setTimeout(r, 3));
     const other = kernel.conversations.create({ userId: "owner", title: "Later" });
     kernel.conversations.touch(other.id);
     const ahead = kernel.conversations.get(other.id)!.updatedAt;
@@ -286,9 +290,14 @@ describe("KOS end-to-end flows", () => {
 
     await kernel.approve(kernel.approvals.pending()[0]!.id);
 
-    // A reader watching the list has to see the thread move on, but the resume
-    // prompt is plumbing and must not become the title.
-    expect(kernel.conversations.get(c.id)!.updatedAt).toBeGreaterThanOrEqual(ahead);
+    // A reader watching the list has to see the thread move on when the turn
+    // finishes, and its title must survive: the message that started it is
+    // what names a conversation, not anything the approval did.
+    await vi.waitFor(() => {
+      expect(kernel.conversations.get(c.id)!.updatedAt).toBeGreaterThanOrEqual(
+        ahead,
+      );
+    });
     expect(kernel.conversations.get(c.id)!.title).toBe("Ops");
   });
 
@@ -300,7 +309,6 @@ describe("KOS end-to-end flows", () => {
         type: "actions",
         actions: [{ tool: "notify", args: { text: "tick" } }],
       }),
-      text("Queued for approval."),
       text("Scheduled."),
     ]);
     kernel = await boot(model.inference);
@@ -310,11 +318,16 @@ describe("KOS end-to-end flows", () => {
     await kernel.handleMessage("check every minute");
     await kernel.approve(kernel.approvals.pending()[0]!.id);
 
+    // Awaited: the call runs inside the turn that was suspended on it, so
+    // the job exists once that turn gets going again, not when approve
+    // returns.
     // The scheduler builds its tasks from the table when the host starts. A
     // job scheduled after that was stored and enabled and never fired, so the
     // owner had an unattended job that did nothing until a restart.
-    expect(kernel.crons.list()).toHaveLength(before + 1);
-    expect(kernel.scheduledCronCount()).toBe(before + 1);
+    await vi.waitFor(() => {
+      expect(kernel.crons.list()).toHaveLength(before + 1);
+      expect(kernel.scheduledCronCount()).toBe(before + 1);
+    });
   });
 
   it("keeps an agent's message when there is no channel to send it on", async () => {
@@ -475,9 +488,39 @@ describe("KOS end-to-end flows", () => {
     expect(rows.n).toBe(0);
   });
 
-  it("runs an approved action through the serial queue, not alongside it", async () => {
-    // Observe when the TOOL runs, not when approve() resolves: approve waits
-    // on its own resume turn, which is queued anyway and would mask the race.
+  it("holds one bubble per call, not one for asking and one for doing", async () => {
+    // The queued placeholder used to be the tool_result, and the real result
+    // arrived in a second turn under a second call: two bubbles for one
+    // thing, the first of them permanently unfinished.
+    const model = scripted([
+      toolCall("c1", "files.rm", { path: "notes/x.md" }),
+      text("Deleted it."),
+    ]);
+    kernel = await boot(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "Ops" });
+
+    await kernel.handleMessage("delete notes/x.md", { sessionId: c.id });
+    await kernel.approve(kernel.approvals.pending()[0]!.id);
+
+    await vi.waitFor(() => {
+      expect(JSON.stringify(kernel.sessions.get(c.id))).toContain("Deleted it.");
+    });
+    const stored = kernel.sessions.get(c.id);
+    const calls = stored.flatMap((m) =>
+      (Array.isArray(m.content) ? m.content : []).filter(
+        (b) => (b as { type?: string }).type === "tool_use",
+      ),
+    );
+    expect(calls).toHaveLength(1);
+    // And the one call carries what actually happened, not a placeholder.
+    expect(JSON.stringify(stored)).not.toContain("queued for approval");
+  });
+
+  it("keeps a suspended turn's lane to itself", async () => {
+    // Observe when the TOOL runs, not when approve() resolves. A turn waiting
+    // on the owner still owns its conversation's lane, so anything else sent
+    // to that conversation waits for it rather than interleaving with the
+    // call it is about to make.
     const order: string[] = [];
     const marker: KosModule = {
       manifest: {
@@ -498,11 +541,7 @@ describe("KOS end-to-end flows", () => {
       },
     };
 
-    const model = scripted([
-      toolCall("c1", "test.mark", {}),
-      text("Queued."),
-      text("Done."),
-    ]);
+    const model = scripted([toolCall("c1", "test.mark", {}), text("Done.")]);
     root = mkdtempSync(join(tmpdir(), "kos-flow-"));
     kernel = await Kernel.boot({
       rootDir: root,
@@ -518,20 +557,48 @@ describe("KOS end-to-end flows", () => {
 
     let release!: () => void;
     const blocker = new Promise<void>((r) => (release = r));
+    // The lane the approval belongs to. Work in *this* conversation must not
+    // be overtaken; work elsewhere is not this conversation's problem, which
+    // is the whole point of lanes.
+    const lane = pending[0]!.conversationId ?? primarySessionId("owner");
     const occupied = kernel.queue.enqueue(async () => {
       await blocker;
       order.push("in-flight job");
-    });
+    }, lane);
 
-    const approval = kernel.approve(pending[0]!.id);
-
-    // Ample time for an inline execution to run ahead of the blocked job.
+    // Nothing has run yet: the queued job is behind the suspended turn, and
+    // the turn is behind the owner.
     await new Promise((r) => setTimeout(r, 50));
+    expect(order).toEqual([]);
+
+    await kernel.approve(pending[0]!.id);
     release();
     await occupied;
-    await approval;
 
-    expect(order).toEqual(["in-flight job", "approved action"]);
+    // The call finishes inside the turn that made it, and only then does the
+    // next thing in that conversation get its turn. Never both at once.
+    expect(order).toEqual(["approved action", "in-flight job"]);
+  });
+
+  /*
+   * The other half of the same contract. One serial queue for everything meant
+   * a long turn in one chat stopped every other chat, every cron job and every
+   * approval, with nothing on screen to say why.
+   */
+  it("does not make one conversation wait on another", async () => {
+    const model = scripted([text("Done here.")]);
+    kernel = await boot(model.inference);
+    const other = kernel.conversations.create({ userId: "owner", title: "Other" });
+
+    let release!: () => void;
+    const blocker = new Promise<void>((r) => (release = r));
+    const busyElsewhere = kernel.queue.enqueue(() => blocker, "some-other-chat");
+
+    const res = await kernel.handleMessage("anything", { sessionId: other.id });
+    expect(res.reply).toContain("Done here.");
+
+    release();
+    await busyElsewhere;
   });
 
   it("keeps parallel conversations from leaking into each other", async () => {
@@ -1312,5 +1379,281 @@ describe("a message survives the turn it started", () => {
     const wire = JSON.stringify(kernel.sessions.get("chat:owner"));
     expect(wire).toContain("ask");
     expect(wire).toContain("answered");
+  });
+});
+
+/**
+ * A turn that runs out of room still has to say so, in the transcript.
+ *
+ * The loop's own messages end on a tool result when it hits the iteration
+ * cap, and the "I got stuck" line was only ever the return value. Anything
+ * that does not watch that value -- an unattended fix attempt, a reload of
+ * the page -- saw a chat containing a question and no answer.
+ */
+describe("a turn that runs out of steps", () => {
+  let root: string;
+  let kernel: Kernel;
+
+  afterEach(() => {
+    kernel?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("leaves an answer in the transcript, not just in the reply", async () => {
+    root = mkdtempSync(join(tmpdir(), "kos-exhaust-"));
+    // Never stops calling tools, so the loop always hits its cap.
+    const model: Inference = {
+      async generate(task: Task): Promise<ModelResponse> {
+        if (task === "cheap") return text('{"facts":[]}');
+        return toolCall(`c${Math.random()}`, "files.ls", { path: "." });
+      },
+    };
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: model,
+      profileOverrides: { name: "Kenny", timezone: "UTC" },
+    });
+    const convo = kernel.conversations.create({ userId: "owner", title: "T" });
+
+    const res = await kernel.handleMessage("do something", {
+      sessionId: convo.id,
+      maxIterations: 3,
+    });
+
+    expect(res.reply).toContain("stuck");
+    const stored = kernel.sessions.get(convo.id);
+    const last = stored.at(-1);
+    expect(last?.role).toBe("assistant");
+    expect(JSON.stringify(last?.content)).toContain("stuck");
+  });
+
+  it("takes its step limit from the settings", async () => {
+    root = mkdtempSync(join(tmpdir(), "kos-steps-"));
+    let calls = 0;
+    const model: Inference = {
+      async generate(task: Task): Promise<ModelResponse> {
+        if (task === "cheap") return text('{"facts":[]}');
+        calls += 1;
+        return toolCall(`c${calls}`, "files.ls", { path: "." });
+      },
+    };
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: model,
+      profileOverrides: { name: "Kenny", timezone: "UTC" },
+    });
+    // The number was a constant in the loop, so "how hard should it try"
+    // could only be answered by editing the source.
+    kernel.settings.set(BEHAVIOUR_KEY, { maxSteps: 2 });
+    const convo = kernel.conversations.create({ userId: "owner", title: "T" });
+
+    await kernel.handleMessage("go", { sessionId: convo.id });
+
+    expect(calls).toBe(2);
+  });
+
+  it("does not add one when the model actually answered", async () => {
+    root = mkdtempSync(join(tmpdir(), "kos-exhaust2-"));
+    const model = scripted([text("Here you go.")]);
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: model.inference,
+      profileOverrides: { name: "Kenny", timezone: "UTC" },
+    });
+    const convo = kernel.conversations.create({ userId: "owner", title: "T" });
+
+    await kernel.handleMessage("hello", { sessionId: convo.id });
+
+    const stored = kernel.sessions.get(convo.id);
+    const assistants = stored.filter((m) => m.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(JSON.stringify(assistants[0]!.content)).toContain("Here you go.");
+  });
+});
+
+/**
+ * The unattended path: a job that fails at 3am with nobody watching.
+ *
+ * This is the case the whole product rests on, and it used to end at a row in
+ * runs_log. Nothing was sent, nothing was shown, and a cron broken for a week
+ * was indistinguishable from a cron with nothing to do.
+ */
+describe("failures reach the owner", () => {
+  let root: string;
+  let kernel: Kernel;
+
+  afterEach(() => {
+    kernel?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  async function bootWithChannel(sent: string[]): Promise<Kernel> {
+    root = mkdtempSync(join(tmpdir(), "kos-health-"));
+    return Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: scripted([]).inference,
+      profileOverrides: { name: "Kenny", timezone: "UTC" },
+      notify: async (text: string) => {
+        sent.push(text);
+      },
+    });
+  }
+
+  it("messages the owner when an unattended job fails", async () => {
+    const sent: string[] = [];
+    kernel = await bootWithChannel(sent);
+    const job = kernel.crons.create({
+      name: "nightly digest",
+      schedule: "0 3 * * *",
+      type: "actions",
+      // Reads a file that is not there, so the action comes back as an error
+      // rather than throwing. An unknown tool would not do: the guard queues
+      // that for approval instead, which is a different outcome entirely.
+      actions: [{ tool: "files.read", args: { path: "nope/missing.md" } }],
+      enabled: true,
+    });
+    kernel.startCron();
+
+    await kernel.fireCron(job.id);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain("nightly digest");
+    expect(kernel.health.report().ok).toBe(false);
+  });
+
+  it("records the run as failed, not as a clean pass", async () => {
+    const sent: string[] = [];
+    kernel = await bootWithChannel(sent);
+    const job = kernel.crons.create({
+      name: "nightly digest",
+      schedule: "0 3 * * *",
+      type: "actions",
+      actions: [{ tool: "files.read", args: { path: "nope/missing.md" } }],
+      enabled: true,
+    });
+    kernel.startCron();
+
+    await kernel.fireCron(job.id);
+
+    // An erroring action does not throw, so this used to be logged "ok".
+    const run = kernel.runs.recent(5).find((r) => r.kind === "cron");
+    expect(run?.status).toBe("error");
+  });
+
+  it("does not repeat itself while the job stays broken", async () => {
+    const sent: string[] = [];
+    kernel = await bootWithChannel(sent);
+    const job = kernel.crons.create({
+      name: "nightly digest",
+      schedule: "* * * * *",
+      type: "actions",
+      actions: [{ tool: "files.read", args: { path: "nope/missing.md" } }],
+      enabled: true,
+    });
+    kernel.startCron();
+
+    await kernel.fireCron(job.id);
+    await kernel.fireCron(job.id);
+
+    // A minutely job that floods you is one you mute, and a muted assistant is
+    // worse than the silence this replaced.
+    expect(sent).toHaveLength(1);
+  });
+
+  it("stops reporting a failure once the job is gone", async () => {
+    const sent: string[] = [];
+    kernel = await bootWithChannel(sent);
+    const job = kernel.crons.create({
+      name: "nightly digest",
+      schedule: "0 3 * * *",
+      type: "actions",
+      actions: [{ tool: "files.read", args: { path: "nope/missing.md" } }],
+      enabled: true,
+    });
+    kernel.startCron();
+    await kernel.fireCron(job.id);
+    expect(kernel.health.report().ok).toBe(false);
+
+    // Deleting a broken job is a repair, and one a fix attempt may well
+    // choose. Its failure used to outlive it in the report and in the header
+    // count, with Dismiss the only way to be rid of it.
+    kernel.crons.delete(job.id);
+    kernel.reloadCron();
+
+    expect(kernel.health.report().ok).toBe(true);
+  });
+
+  it("points the fix at the job that broke", async () => {
+    const sent: string[] = [];
+    kernel = await bootWithChannel(sent);
+    const job = kernel.crons.create({
+      name: "9 AM Pinger Test",
+      schedule: "0 9 * * *",
+      type: "actions",
+      actions: [{ tool: "notify", args: { text: "ping" } }],
+      enabled: true,
+    });
+
+    const started = await kernel.startFix({
+      label: job.name,
+      error: "Cannot convert undefined or null to object",
+      what: "scheduled job",
+      ref: `cron #${job.id}`,
+    });
+
+    // Bracketed, because the name has spaces and the plain form would be
+    // read as far as the first one. Worked out from the failure rather than
+    // written into the prompt by the caller.
+    expect(started.prompt).toContain("@schedule:[9 AM Pinger Test]");
+  });
+
+  it("falls back to the project a failure names", async () => {
+    const sent: string[] = [];
+    kernel = await bootWithChannel(sent);
+    kernel.manifest.createProject({ name: "Budget Tracker", type: "budget" });
+
+    const started = await kernel.startFix({
+      label: "sql",
+      error: "no such column: amount in budget_tracker_tx",
+      what: "tool call",
+    });
+
+    expect(started.prompt).toContain("@project:budget_tracker");
+  });
+
+  it("says nothing it cannot back up", async () => {
+    const sent: string[] = [];
+    kernel = await bootWithChannel(sent);
+    const started = await kernel.startFix({
+      label: "something",
+      error: "it broke",
+      what: "tool call",
+    });
+    // No schedule and no project matched, so it names the thing plainly
+    // rather than inventing a reference that resolves to "not found".
+    expect(started.prompt).not.toContain("@schedule:");
+    expect(started.prompt).not.toContain("@project:");
+  });
+
+  it("keeps quiet about a job that is working", async () => {
+    const sent: string[] = [];
+    kernel = await bootWithChannel(sent);
+    const job = kernel.crons.create({
+      name: "healthy job",
+      schedule: "0 3 * * *",
+      type: "actions",
+      actions: [{ tool: "notify", args: { text: "tick" } }],
+      enabled: true,
+    });
+    kernel.startCron();
+
+    await kernel.fireCron(job.id);
+
+    expect(sent).toEqual(["tick"]);
+    expect(kernel.health.report().ok).toBe(true);
   });
 });

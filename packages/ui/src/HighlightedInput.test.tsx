@@ -3,6 +3,25 @@ import { describe, expect, it } from "vitest";
 
 import { highlightPieces } from "./HighlightedInput.js";
 
+describe("bracketed references", () => {
+  it("colours a name with spaces in it as one reference", () => {
+    // The composer inserts the bracketed form for ids the plain one cannot
+    // carry, and the highlighter used to stop at the first space, colouring
+    // half a job name and leaving the rest as prose.
+    const pieces = highlightPieces("check @schedule:[9 AM Pinger Test] now");
+    expect(pieces.find((p) => p.kind === "schedule")?.text).toBe(
+      "@schedule:[9 AM Pinger Test]",
+    );
+  });
+
+  it("still colours the plain form", () => {
+    expect(
+      highlightPieces("@project:budget_tracker").find((p) => p.kind === "project")
+        ?.text,
+    ).toBe("@project:budget_tracker");
+  });
+});
+
 describe("highlightPieces", () => {
   it("marks a reference and leaves the rest alone", () => {
     expect(highlightPieces("look at @file:a/b.md now")).toEqual([

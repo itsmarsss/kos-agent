@@ -29,6 +29,7 @@ export type ProgressEvent =
       result?: string;
     }
   | { kind: "delta"; conversationId: string; of: "reasoning" | "text"; text: string }
+  | { kind: "note"; conversationId: string; text: string }
   | { kind: "turn-end"; conversationId: string };
 
 /** One thing that happened during a turn, in the order it happened. */
@@ -174,6 +175,12 @@ class ProgressStore {
         return;
       }
       const id = event.conversationId;
+      if (event.kind === "note") {
+        // Not part of the live turn: it arrives after one, from work that
+        // outlived it. Handed to whoever is listening for notes.
+        for (const listener of noteListeners) listener(id, event.text);
+        return;
+      }
       if (event.kind === "turn-end") {
         const next = { ...this.map };
         delete next[id];
@@ -203,6 +210,16 @@ class ProgressStore {
 const store = new ProgressStore();
 
 /** Tell the store about work the server says is in flight. */
+/** Told when something finishes on its own, after the turn that started it. */
+const noteListeners = new Set<(conversationId: string, text: string) => void>();
+
+export function onNote(
+  listener: (conversationId: string, text: string) => void,
+): () => void {
+  noteListeners.add(listener);
+  return () => noteListeners.delete(listener);
+}
+
 export function seedProgress(working: string[]): void {
   for (const id of working) store.seed(id);
 }

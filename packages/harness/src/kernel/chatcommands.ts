@@ -1,3 +1,4 @@
+import { CHAT_COMMANDS } from "@kos/shared";
 import type { Conversation, ConversationStore } from "./conversations.js";
 
 /**
@@ -18,6 +19,7 @@ export type ChatCommand =
   | { kind: "archive" }
   | { kind: "compact" }
   | { kind: "clear" }
+  | { kind: "tools" }
   | { kind: "help" };
 
 const ALIASES: Record<string, ChatCommand["kind"]> = {
@@ -40,6 +42,8 @@ const ALIASES: Record<string, ChatCommand["kind"]> = {
   summarize: "compact",
   clear: "clear",
   reset: "clear",
+  tools: "tools",
+  scope: "tools",
   help: "help",
   "?": "help",
 };
@@ -101,6 +105,8 @@ export interface CommandContext {
 }
 
 export interface CommandResult {
+  /** A panel the surface should open, when the command is a request to. */
+  opens?: "tools";
   reply: string;
   /** Set when the command moved this surface to a different conversation. */
   switchedTo?: string;
@@ -112,26 +118,6 @@ export interface CommandResult {
  * The dashboard's autocomplete and the help text both read this, so a command
  * cannot exist in one and be missing from the other.
  */
-export interface CommandSpec {
-  name: string;
-  args?: string;
-  description: string;
-}
-
-export const CHAT_COMMANDS: CommandSpec[] = [
-  { name: "new", args: "[title]", description: "start another conversation" },
-  { name: "chats", description: "list your conversations" },
-  { name: "switch", args: "<number|title>", description: "move to one" },
-  { name: "rename", args: "<title>", description: "rename this conversation" },
-  { name: "archive", description: "close this conversation" },
-  {
-    name: "compact",
-    description: "replace this chat's history with a summary of it",
-  },
-  { name: "clear", description: "forget this chat's history, keep the chat" },
-  { name: "help", description: "show these commands" },
-];
-
 const HELP = [
   "Conversation commands:",
   ...CHAT_COMMANDS.map(
@@ -214,6 +200,11 @@ export function runChatCommand(
         switchedTo: next.id,
       };
     }
+
+    case "tools":
+      // Opening a panel is the caller's job; the kernel has no UI. Saying so
+      // beats silence on a surface that cannot show one.
+      return { reply: "Opening the tool scope for this chat.", opens: "tools" };
 
     case "compact":
     case "clear":

@@ -16,7 +16,8 @@
     "discord.js": "^14.26.0",
     "node-cron": "^4.5.0",
     "openai": "^6.10.0",
-    "sqlite-vec": "^0.1.9"
+    "sqlite-vec": "^0.1.9",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12"

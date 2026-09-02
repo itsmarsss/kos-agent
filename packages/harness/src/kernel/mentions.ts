@@ -74,6 +74,40 @@ const MAX_FILES = 400;
  * picker is for reaching something you already have in mind, and a workspace
  * with a large project in it should not make typing @ slow.
  */
+/**
+ * Folders, for anything that asks the owner to name one.
+ *
+ * Starting a coding agent needs a folder, and a free-text box gives no idea
+ * what is already there or what the paths look like. Same walk as the file
+ * index, collecting the directories rather than what is in them.
+ */
+export function walkFolders(workspace: Workspace, limit = MAX_FILES): string[] {
+  const out: string[] = [];
+  const root = workspace.root;
+
+  const walk = (dir: string, depth: number): void => {
+    if (out.length >= limit || depth > 5) return;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (out.length >= limit) return;
+      if (entry.name.startsWith(".")) continue;
+      if (!entry.isDirectory()) continue;
+      if (SKIP.has(entry.name)) continue;
+      const full = join(dir, entry.name);
+      out.push(relative(root, full));
+      walk(full, depth + 1);
+    }
+  };
+
+  walk(root, 0);
+  return out.sort();
+}
+
 export function walkFiles(workspace: Workspace, limit = MAX_FILES): string[] {
   const out: string[] = [];
   const root = workspace.root;
@@ -174,15 +208,38 @@ export function findMentions(
 
 /** A reference as it appears in a message: `@project:budget_tracker`. */
 export function mentionToken(mention: Mention): string {
-  return `@${mention.kind}:${mention.id}`;
+  return writeMention(mention.kind, mention.id);
 }
+
+/**
+ * Write a reference to something, bracketing the id when it needs it.
+ *
+ * A schedule is named by the owner and usually has spaces in it. The plain
+ * form allowed none, so the picker inserted "@schedule:9 AM Pinger Test" and
+ * the parser read "@schedule:9": most jobs could not be pointed at at all.
+ */
+export function writeMention(kind: MentionKind, id: string): string {
+  return PLAIN_ID.test(id) ? `@${kind}:${id}` : `@${kind}:[${id}]`;
+}
+
+/** Ids that need no brackets, matching the unbracketed half of TOKEN. */
+const PLAIN_ID = /^[A-Za-z0-9._/-]*[A-Za-z0-9_/-]$/;
 
 /*
  * The id may contain dots but must not end on one, or a mention finishing a
  * sentence eats the full stop: "@schedule:kos.backup." resolved as the job
  * "kos.backup." and was reported as not existing.
  */
-const TOKEN = /@(project|page|file|schedule|chat|site|agent):([A-Za-z0-9._/-]*[A-Za-z0-9_/-])/g;
+const KINDS = "project|page|file|schedule|chat|site|agent";
+
+/**
+ * Either bracketed, which may hold anything but a bracket, or plain. The
+ * bracketed branch is tried first so "[a b]" is not read as the plain id "".
+ */
+const TOKEN = new RegExp(
+  `@(${KINDS}):(?:\\[([^\\]]+)\\]|([A-Za-z0-9._/-]*[A-Za-z0-9_/-]))`,
+  "g",
+);
 
 /**
  * Pull the references out of a message.
@@ -194,10 +251,13 @@ export function parseMentions(text: string): { kind: MentionKind; id: string }[]
   const out: { kind: MentionKind; id: string }[] = [];
   const seen = new Set<string>();
   for (const match of text.matchAll(TOKEN)) {
-    const key = `${match[1]}:${match[2]}`;
+    // Bracketed or plain, whichever branch matched.
+    const id = match[2] ?? match[3];
+    if (!id) continue;
+    const key = `${match[1]}:${id}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ kind: match[1] as MentionKind, id: match[2] as string });
+    out.push({ kind: match[1] as MentionKind, id });
   }
   return out;
 }
