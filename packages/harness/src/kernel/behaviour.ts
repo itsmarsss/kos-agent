@@ -40,6 +40,12 @@ export interface Behaviour {
   agentTurns: number;
   /** Minutes of silence after which an agent is reported as stalled. */
   stallMinutes: number;
+  /**
+   * Minutes a turn will hold, suspended, waiting for the owner to decide
+   * about a risky call. After this it treats the silence as a refusal rather
+   * than holding that conversation's queue indefinitely.
+   */
+  approvalMinutes: number;
 }
 
 export const BEHAVIOUR_DEFAULTS: Behaviour = {
@@ -51,6 +57,7 @@ export const BEHAVIOUR_DEFAULTS: Behaviour = {
   agentMinutes: 15,
   agentTurns: 60,
   stallMinutes: 3,
+  approvalMinutes: 30,
 };
 
 /** Range for each number, as [min, max]. */
@@ -64,6 +71,7 @@ export const BEHAVIOUR_LIMITS: Record<
   agentMinutes: [1, 240],
   agentTurns: [1, 500],
   stallMinutes: [1, 120],
+  approvalMinutes: [1, 1440],
 };
 
 function clamp(value: unknown, key: keyof typeof BEHAVIOUR_LIMITS): number {
@@ -99,5 +107,6 @@ export function parseBehaviour(raw: unknown, legacyAutoFix?: unknown): Behaviour
     agentMinutes: clamp(input["agentMinutes"], "agentMinutes"),
     agentTurns: clamp(input["agentTurns"], "agentTurns"),
     stallMinutes: clamp(input["stallMinutes"], "stallMinutes"),
+    approvalMinutes: clamp(input["approvalMinutes"], "approvalMinutes"),
   };
 }

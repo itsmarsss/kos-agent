@@ -84,6 +84,9 @@ function toAction(row: Row): PendingAction {
  * redacted through the secrets registry so the queue never stores key values.
  */
 export class ApprovalQueue {
+  /** Turns suspended on a decision, by pending-action id. */
+  private readonly waiters = new Map<number, (status: ApprovalStatus) => void>();
+
   /**
    * Told when an action is decided.
    *
@@ -150,6 +153,44 @@ export class ApprovalQueue {
     return rows.map(toAction);
   }
 
+  /**
+   * Wait for the owner to decide about one action.
+   *
+   * A queued call used to end the turn: the model was told to stop, and
+   * approving started a fresh turn to continue. That is why the live view
+   * emptied on approval, why a second tool bubble appeared for the same call,
+   * and why several calls queued at once could not be resolved together.
+   * Awaiting instead suspends the turn where it stands, so it carries on with
+   * the real result in the same breath.
+   *
+   * Bounded, because a turn that waits forever holds its conversation's queue
+   * forever. A decision that never comes reads as a refusal.
+   */
+  waitFor(id: number, timeoutMs: number): Promise<ApprovalStatus> {
+    const current = this.get(id);
+    if (current && current.status !== "pending") {
+      return Promise.resolve(current.status);
+    }
+    return new Promise<ApprovalStatus>((resolve) => {
+      const timer = setTimeout(() => {
+        this.waiters.delete(id);
+        resolve("denied");
+      }, timeoutMs);
+      // Unref so a pending decision cannot keep the process alive on its own.
+      if (typeof timer === "object" && "unref" in timer) timer.unref();
+      this.waiters.set(id, (status) => {
+        clearTimeout(timer);
+        this.waiters.delete(id);
+        resolve(status);
+      });
+    });
+  }
+
+  /** Whether a turn is currently suspended on this action. */
+  isAwaited(id: number): boolean {
+    return this.waiters.has(id);
+  }
+
   approve(id: number, decidedBy: string): PendingAction | undefined {
     return this.decide(id, "approved", decidedBy);
   }
@@ -172,6 +213,9 @@ export class ApprovalQueue {
       .run(status, this.now(), decidedBy, id);
     if (info.changes === 0) return undefined;
     const decided = this.get(id);
+    // Before the listeners: whoever is suspended on this should be moving
+    // again before anything else reacts to the decision.
+    this.waiters.get(id)?.(status);
     if (decided) {
       for (const listener of this.listeners) {
         try {

@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { isValidPageSpec, type PageSpec } from "@kos/shared";
 
@@ -241,10 +241,9 @@ describe("KOS end-to-end flows", () => {
     expect(kernel.approvals.pending()).toHaveLength(0);
   });
 
-  it("resumes an approval in the conversation that asked for it", async () => {
+  it("continues in the conversation that asked, and only there", async () => {
     const model = scripted([
       toolCall("c1", "shell", { command: "rm -rf build" }),
-      text("Queued that for you."),
       text("Removed the build directory."),
     ]);
     kernel = await boot(model.inference);
@@ -257,21 +256,22 @@ describe("KOS end-to-end flows", () => {
 
     await kernel.approve(pending[0]!.id);
 
-    // The agent that was waiting is the one that gets the result. Resuming in
-    // the primary conversation left it waiting and told the wrong reader.
-    const there = JSON.stringify(kernel.sessions.get(scoped.id));
-    expect(there).toContain("the owner approved pending action");
-    expect(there).toContain("Removed the build directory.");
+    // The agent that was waiting is the one that carries on, in its own
+    // transcript. Nothing about it appears anywhere else.
+    await vi.waitFor(() => {
+      expect(JSON.stringify(kernel.sessions.get(scoped.id))).toContain(
+        "Removed the build directory.",
+      );
+    });
     const main = JSON.stringify(
       kernel.sessions.get(primarySessionId(kernel.profile.ownerId)),
     );
-    expect(main).not.toContain("the owner approved pending action");
+    expect(main).not.toContain("Removed the build directory.");
   });
 
-  it("moves a conversation when an approval resumes it, without renaming", async () => {
+  it("moves a conversation when an approval lets it finish, without renaming", async () => {
     const model = scripted([
       toolCall("c1", "files.rm", { path: "notes/x.md" }),
-      text("Queued."),
       text("Deleted it."),
     ]);
     kernel = await boot(model.inference);
@@ -280,6 +280,9 @@ describe("KOS end-to-end flows", () => {
     // Something else moves ahead of it while the action sits in the queue.
     // Compared against that stamp rather than list position, because two
     // touches in the same millisecond fall back to insertion order.
+    // A real gap: stamps are milliseconds, and two touches inside one of them
+    // fall back to insertion order, which is not what this is testing.
+    await new Promise((r) => setTimeout(r, 3));
     const other = kernel.conversations.create({ userId: "owner", title: "Later" });
     kernel.conversations.touch(other.id);
     const ahead = kernel.conversations.get(other.id)!.updatedAt;
@@ -287,9 +290,14 @@ describe("KOS end-to-end flows", () => {
 
     await kernel.approve(kernel.approvals.pending()[0]!.id);
 
-    // A reader watching the list has to see the thread move on, but the resume
-    // prompt is plumbing and must not become the title.
-    expect(kernel.conversations.get(c.id)!.updatedAt).toBeGreaterThanOrEqual(ahead);
+    // A reader watching the list has to see the thread move on when the turn
+    // finishes, and its title must survive: the message that started it is
+    // what names a conversation, not anything the approval did.
+    await vi.waitFor(() => {
+      expect(kernel.conversations.get(c.id)!.updatedAt).toBeGreaterThanOrEqual(
+        ahead,
+      );
+    });
     expect(kernel.conversations.get(c.id)!.title).toBe("Ops");
   });
 
@@ -301,7 +309,6 @@ describe("KOS end-to-end flows", () => {
         type: "actions",
         actions: [{ tool: "notify", args: { text: "tick" } }],
       }),
-      text("Queued for approval."),
       text("Scheduled."),
     ]);
     kernel = await boot(model.inference);
@@ -311,11 +318,16 @@ describe("KOS end-to-end flows", () => {
     await kernel.handleMessage("check every minute");
     await kernel.approve(kernel.approvals.pending()[0]!.id);
 
+    // Awaited: the call runs inside the turn that was suspended on it, so
+    // the job exists once that turn gets going again, not when approve
+    // returns.
     // The scheduler builds its tasks from the table when the host starts. A
     // job scheduled after that was stored and enabled and never fired, so the
     // owner had an unattended job that did nothing until a restart.
-    expect(kernel.crons.list()).toHaveLength(before + 1);
-    expect(kernel.scheduledCronCount()).toBe(before + 1);
+    await vi.waitFor(() => {
+      expect(kernel.crons.list()).toHaveLength(before + 1);
+      expect(kernel.scheduledCronCount()).toBe(before + 1);
+    });
   });
 
   it("keeps an agent's message when there is no channel to send it on", async () => {
@@ -476,9 +488,39 @@ describe("KOS end-to-end flows", () => {
     expect(rows.n).toBe(0);
   });
 
-  it("runs an approved action behind its own conversation's work, not alongside it", async () => {
-    // Observe when the TOOL runs, not when approve() resolves: approve waits
-    // on its own resume turn, which is queued anyway and would mask the race.
+  it("holds one bubble per call, not one for asking and one for doing", async () => {
+    // The queued placeholder used to be the tool_result, and the real result
+    // arrived in a second turn under a second call: two bubbles for one
+    // thing, the first of them permanently unfinished.
+    const model = scripted([
+      toolCall("c1", "files.rm", { path: "notes/x.md" }),
+      text("Deleted it."),
+    ]);
+    kernel = await boot(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "Ops" });
+
+    await kernel.handleMessage("delete notes/x.md", { sessionId: c.id });
+    await kernel.approve(kernel.approvals.pending()[0]!.id);
+
+    await vi.waitFor(() => {
+      expect(JSON.stringify(kernel.sessions.get(c.id))).toContain("Deleted it.");
+    });
+    const stored = kernel.sessions.get(c.id);
+    const calls = stored.flatMap((m) =>
+      (Array.isArray(m.content) ? m.content : []).filter(
+        (b) => (b as { type?: string }).type === "tool_use",
+      ),
+    );
+    expect(calls).toHaveLength(1);
+    // And the one call carries what actually happened, not a placeholder.
+    expect(JSON.stringify(stored)).not.toContain("queued for approval");
+  });
+
+  it("keeps a suspended turn's lane to itself", async () => {
+    // Observe when the TOOL runs, not when approve() resolves. A turn waiting
+    // on the owner still owns its conversation's lane, so anything else sent
+    // to that conversation waits for it rather than interleaving with the
+    // call it is about to make.
     const order: string[] = [];
     const marker: KosModule = {
       manifest: {
@@ -499,11 +541,7 @@ describe("KOS end-to-end flows", () => {
       },
     };
 
-    const model = scripted([
-      toolCall("c1", "test.mark", {}),
-      text("Queued."),
-      text("Done."),
-    ]);
+    const model = scripted([toolCall("c1", "test.mark", {}), text("Done.")]);
     root = mkdtempSync(join(tmpdir(), "kos-flow-"));
     kernel = await Kernel.boot({
       rootDir: root,
@@ -528,15 +566,18 @@ describe("KOS end-to-end flows", () => {
       order.push("in-flight job");
     }, lane);
 
-    const approval = kernel.approve(pending[0]!.id);
-
-    // Ample time for an inline execution to run ahead of the blocked job.
+    // Nothing has run yet: the queued job is behind the suspended turn, and
+    // the turn is behind the owner.
     await new Promise((r) => setTimeout(r, 50));
+    expect(order).toEqual([]);
+
+    await kernel.approve(pending[0]!.id);
     release();
     await occupied;
-    await approval;
 
-    expect(order).toEqual(["in-flight job", "approved action"]);
+    // The call finishes inside the turn that made it, and only then does the
+    // next thing in that conversation get its turn. Never both at once.
+    expect(order).toEqual(["approved action", "in-flight job"]);
   });
 
   /*

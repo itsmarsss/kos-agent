@@ -67,6 +67,47 @@ export interface SdkChatOptions {
   env?: NodeJS.ProcessEnv;
 }
 
+/**
+ * The conversation so far, in front of what was just said.
+ *
+ * The SDK keeps its own session, but KOS's transcript is the one the owner
+ * edits, compacts and rewinds, so that is the one that must be authoritative.
+ * Rendering it into the prompt each turn keeps a single source of truth at
+ * the cost of re-sending it -- which on a subscription is the cheaper of the
+ * two mistakes.
+ */
+export function priorForSdk(
+  history: { role: string; content: unknown }[],
+  text: string,
+): string {
+  const spoken = history
+    .map((m) => {
+      const blocks = Array.isArray(m.content) ? m.content : [];
+      const said = blocks
+        .filter((b): b is { type: "text"; text: string } => {
+          const block = b as { type?: string; text?: unknown };
+          return block.type === "text" && typeof block.text === "string";
+        })
+        .map((b) => b.text)
+        .join("\n")
+        .trim();
+      if (!said) return "";
+      return `${m.role === "user" ? "Owner" : "You"}: ${said}`;
+    })
+    .filter(Boolean);
+
+  if (spoken.length === 0) return text;
+  return [
+    "The conversation so far, oldest first:",
+    "<<<history",
+    ...spoken,
+    "history>>>",
+    "",
+    "The owner now says:",
+    text,
+  ].join("\n");
+}
+
 /** Strip the MCP prefix the SDK adds, so callers see KOS's own tool names. */
 export function plainName(name: string): string {
   const prefix = `mcp__${SERVER}__`;

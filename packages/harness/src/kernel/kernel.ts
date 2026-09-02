@@ -41,7 +41,11 @@ import {
 import { AuditLog } from "../ops/audit.js";
 import { ApprovalQueue, type PendingAction } from "../ops/approvals.js";
 import { PersistentKillSwitch } from "../ops/killswitch.js";
-import { runSdkChat } from "../chat/sdkchat.js";
+import {
+  priorForSdk,
+  runSdkChat,
+  type SdkChatResult,
+} from "../chat/sdkchat.js";
 import { HealthMonitor } from "../ops/health.js";
 import { RunsLog } from "../ops/runs.js";
 import { SHARED_LANE, WorkQueue } from "../ops/queue.js";
@@ -728,9 +732,19 @@ export class Kernel {
         const conversation = this.conversations.get(sessionId);
         const inferred = opts.scopeTags ?? inferScopeTags(text);
         const scopeTags = this.accumulateScope(sessionId, inferred);
+        /*
+         * Told the first time a call in this turn suspends on the owner, so
+         * the caller can be answered while the turn itself keeps waiting.
+         */
+        let suspend: ((action: PendingAction) => void) | undefined;
+        const waiting = new Promise<PendingAction>((resolve) => {
+          suspend = resolve;
+        });
+
         const tools = this.guardedTools({
           userId,
           conversationId: sessionId,
+          onQueued: (action) => suspend?.(action),
           ...(scopeTags.length ? { scopeTags } : {}),
           // null is unrestricted; an array is the exact scope, empty included.
           // An explicit override wins: it says what this caller is, and the
@@ -817,8 +831,16 @@ export class Kernel {
         // The subscription path. Same tools, same jail, same approvals; the
         // difference is which account pays for the thinking.
         if (this.behaviour().engine === "sdk") {
-          const sdk = await runSdkChat({
-            prompt: text,
+          /*
+           * The conversation so far, rendered into the prompt.
+           *
+           * This path was stateless: every turn arrived with only the latest
+           * message, so the agent had no idea what had just been said to it.
+           * KOS's own transcript stays the source of truth, which is what
+           * keeps retention, /compact and rewind meaning something here.
+           */
+          const sdkRun = runSdkChat({
+            prompt: priorForSdk(this.sessions.historyForPrompt(sessionId), text),
             system,
             tools,
             cwd: this.workspace.root,
@@ -834,36 +856,69 @@ export class Kernel {
             // every call, and emitting a second left each bubble with two
             // starts and one end, so half of them never stopped running.
           });
-          const reply = sdk.text || "I do not have anything to add to that.";
-          if (useSession) {
-            // Only the reply. What the owner said was written to the
-            // transcript before the turn started, so appending it here put it
-            // in twice and every message in an SDK chat appeared as a pair.
-            this.sessions.record(sessionId, [
-              ...this.sessions.get(sessionId),
-              { role: "assistant", content: [{ type: "text", text: reply }] },
-            ]);
-            this.conversations.touch(
+
+          const settleSdk = (sdk: SdkChatResult): string => {
+            const reply = sdk.text || "I do not have anything to add to that.";
+            if (useSession) {
+              // Only the reply. What the owner said was written to the
+              // transcript before the turn started.
+              this.sessions.record(sessionId, [
+                ...this.sessions.get(sessionId),
+                { role: "assistant", content: [{ type: "text", text: reply }] },
+              ]);
+              this.conversations.touch(
+                sessionId,
+                ...(opts.origin === "system" ? [] : [text]),
+              );
+            }
+            // Recorded like any other turn so Spend still adds up. The model
+            // is whatever the subscription picked, which the SDK does not
+            // say, so it is named for the engine rather than guessed at.
+            this.spend.record({
+              conversationId: sessionId,
+              task: "reasoning",
+              provider: "anthropic",
+              model: "claude-agent-sdk",
+              inputTokens: sdk.usage.inputTokens,
+              outputTokens: sdk.usage.outputTokens,
+            });
+            this.runs.finish(runId, "ok");
+            return reply;
+          };
+
+          // Same bargain as the other engine: the call stays suspended inside
+          // the turn, and the caller is answered rather than held for as long
+          // as the owner takes to decide.
+          const first = await Promise.race([
+            sdkRun.then((r) => ({ kind: "done" as const, sdk: r })),
+            waiting.then((action) => ({ kind: "waiting" as const, action })),
+          ]);
+
+          if (first.kind === "waiting") {
+            void sdkRun
+              .then(settleSdk)
+              .catch((err: unknown) => {
+                this.runs.finish(
+                  runId,
+                  "error",
+                  err instanceof Error ? err.message : String(err),
+                );
+              })
+              .finally(() => {
+                this.working.delete(sessionId);
+                this.progress.emit({ kind: "turn-end", conversationId: sessionId });
+              });
+            return {
+              reply: `Waiting on you: ${first.action.tool} needs approval (#${first.action.id}). I will carry on as soon as you decide.`,
+              halted: false,
               sessionId,
-              ...(opts.origin === "system" ? [] : [text]),
-            );
+            };
           }
-          // Recorded like any other turn, so Spend still adds up. The model
-          // is whatever the subscription picked, which the SDK does not tell
-          // us, so it is named for the engine rather than guessed at.
-          this.spend.record({
-            conversationId: sessionId,
-            task: "reasoning",
-            provider: "anthropic",
-            model: "claude-agent-sdk",
-            inputTokens: sdk.usage.inputTokens,
-            outputTokens: sdk.usage.outputTokens,
-          });
-          this.runs.finish(runId, "ok");
-          return { reply, halted: false, sessionId };
+
+          return { reply: settleSdk(first.sdk), halted: false, sessionId };
         }
 
-        const result = await runAgent(this.inference, tools, input, {
+        const running = runAgent(this.inference, tools, input, {
           system,
           maxIterations: opts.maxIterations ?? this.behaviour().maxSteps,
           // Watched turns stream. A reader was shown one static word for the
@@ -879,56 +934,63 @@ export class Kernel {
             }),
         });
 
-        // Memory write path (salience) + episodic note for the exchange. Only
-        // owner turns are remembered; harness-generated turns are plumbing.
-        // Awaited so a write cannot be lost when the process exits right after
-        // a reply, and so failures surface in the runs log instead of vanishing.
-        // A turn that ends on a tool call has no text in it. Handed straight
-        // to the reader that is silence: the agent looks like it ignored them.
-        // It happens when the loop hits its iteration cap, which is exactly
-        // when the reader most needs to hear that it got stuck.
-        const reply =
-          result.stopped && result.finalText.trim() === ""
-            ? "Stopped."
-            : result.finalText.trim() !== ""
-              ? result.finalText
-              : result.exhausted
-                ? "I got stuck on that and stopped after too many steps without reaching an answer. Tell me what to try instead, or narrow it down."
-                : "I do not have anything to add to that.";
+        /*
+         * A turn that is waiting on the owner answers the owner.
+         *
+         * The call itself stays suspended inside the loop, which is what
+         * keeps one turn, one live view and one tool bubble. But the caller
+         * -- an HTTP request, a Discord message -- must not hang for as long
+         * as the owner takes to decide, so the first suspension is answered
+         * immediately and the rest of the turn carries on behind it.
+         */
+        const outcome = await Promise.race([
+          running.then((r) => ({ kind: "done" as const, result: r })),
+          waiting.then((action) => ({ kind: "waiting" as const, action })),
+        ]);
 
-        if (useSession) {
-          // Persist the loop's own message list so tool calls and their results
-          // survive into the next turn, not just the final text.
-          //
-          // A turn that ends on a tool call has no assistant text of its own,
-          // so recording the loop's messages alone left the transcript ending
-          // mid-thought: the reply above was returned to the caller and shown
-          // once, and on the next load the chat read as though nothing had
-          // been said. Anything that does not watch the return value -- an
-          // unattended fix attempt, for one -- saw only its own question.
-          const spoke = result.finalText.trim() !== "";
-          this.sessions.record(
+        if (outcome.kind === "waiting") {
+          // Finishes on its own, once the decision comes. The transcript, the
+          // memory write and the run log all happen there, exactly as they
+          // would have here.
+          void running
+            .then((r) =>
+              this.settleTurn(r, {
+                sessionId,
+                userId,
+                text,
+                ...(opts.origin ? { origin: opts.origin } : {}),
+                runId,
+                useSession,
+              }),
+            )
+            .catch((err: unknown) => {
+              this.runs.finish(
+                runId,
+                "error",
+                err instanceof Error ? err.message : String(err),
+              );
+            })
+            .finally(() => {
+              this.working.delete(sessionId);
+              this.progress.emit({ kind: "turn-end", conversationId: sessionId });
+            });
+          return {
+            reply: `Waiting on you: ${outcome.action.tool} needs approval (#${outcome.action.id}). I will carry on as soon as you decide.`,
+            halted: false,
             sessionId,
-            spoke
-              ? result.messages
-              : [
-                  ...result.messages,
-                  { role: "assistant", content: [{ type: "text", text: reply }] },
-                ],
-          );
-          // The conversation moved either way, and a reader watching it needs
-          // to see that. Only the auto-title is withheld from a resume prompt,
-          // which is harness plumbing and must not rename anything.
-          this.conversations.touch(
-            sessionId,
-            ...(opts.origin === "system" ? [] : [text]),
-          );
+          };
         }
 
-        if (opts.origin !== "system") {
-          await this.rememberExchange(userId, text, reply);
-        }
+        const result = outcome.result;
 
+        const reply = await this.settleTurn(result, {
+          sessionId,
+          userId,
+          text,
+          ...(opts.origin ? { origin: opts.origin } : {}),
+          runId,
+          useSession,
+        });
         this.runs.finish(runId, "ok");
         return {
           reply,
@@ -970,7 +1032,23 @@ export class Kernel {
     if (!action || action.status !== "pending") {
       return { ok: false, message: `no pending action #${id}` };
     }
+    /*
+     * A turn suspended on this decision does the rest itself.
+     *
+     * The call is still sitting inside the turn that made it, waiting; the
+     * decision releases it, and it runs the tool, records it, and carries on
+     * in the same turn with the same live view. Everything below is the
+     * recovery path for an action nobody is waiting on any more, which is
+     * what a pending row becomes when the host restarts under it.
+     */
+    const awaited = this.approvals.isAwaited(id);
     this.approvals.approve(id, decidedBy ?? this.profile.ownerId);
+    if (awaited) {
+      return {
+        ok: true,
+        message: `Approved #${id}. ${action.tool} is running.`,
+      };
+    }
     const stored = JSON.parse(action.args) as Record<string, unknown>;
 
     /*
@@ -1087,9 +1165,15 @@ export class Kernel {
     id: number,
     decidedBy?: string,
   ): Promise<{ ok: boolean; message: string; reply?: string }> {
+    // As with approve: a turn waiting on this handles the refusal itself,
+    // inside the turn that asked. Only an orphaned row needs telling.
+    const awaited = this.approvals.isAwaited(id);
     const denied = this.approvals.deny(id, decidedBy ?? this.profile.ownerId);
     if (!denied) {
       return { ok: false, message: `no pending action #${id}` };
+    }
+    if (awaited) {
+      return { ok: true, message: `Declined #${id}.` };
     }
     // As with approve: the build sees the decision itself and adapts. Resuming
     // the parent conversation would tell an agent that is not waiting on
@@ -1435,6 +1519,8 @@ export class Kernel {
     allow?: string[];
     /** Restricted tools granted for this turn. */
     grant?: string[];
+    /** Told the first time a call in this turn suspends on the owner. */
+    onQueued?: (action: PendingAction) => void;
   } = {}): GuardedTools {
     return new GuardedTools({
       registry: this.registry,
@@ -1447,9 +1533,10 @@ export class Kernel {
       ...(opts.scopeTags ? { scopeTags: opts.scopeTags } : {}),
       ...(opts.allow !== undefined ? { allow: opts.allow } : {}),
       ...(opts.grant?.length ? { grant: opts.grant } : {}),
-      ...(this.onApprovalRequested
-        ? { onQueued: this.onApprovalRequested }
-        : {}),
+      onQueued: (action) => {
+        opts.onQueued?.(action);
+        this.onApprovalRequested?.(action);
+      },
       onExecuted: (tool, result) => {
         this.afterToolRan(tool);
         if (opts.conversationId) {
@@ -1467,6 +1554,7 @@ export class Kernel {
           });
         }
       },
+      approvalTimeoutMs: this.behaviour().approvalMinutes * 60_000,
       onStarted: (tool, input) => {
         if (!opts.conversationId) return;
         this.progress.emit({
@@ -1478,6 +1566,81 @@ export class Kernel {
         });
       },
     });
+  }
+
+  /**
+   * Everything a finished turn owes: the reply it settled on, the transcript,
+   * the memory write and the run log.
+   *
+   * Its own method because a turn can finish in two places now. One that
+   * suspends on an approval answers the caller straight away and lands here
+   * later, when the owner has decided, and doing that work in two copies is
+   * how the two paths drift apart.
+   */
+  private async settleTurn(
+    result: {
+      messages: ModelMessage[];
+      finalText: string;
+      stopped?: boolean;
+      exhausted: boolean;
+    },
+    ctx: {
+      sessionId: string;
+      userId: string;
+      text: string;
+      origin?: "owner" | "system";
+      runId: number;
+      useSession: boolean;
+    },
+  ): Promise<string> {
+    const { sessionId, userId, text, origin, runId, useSession } = ctx;
+
+    // A turn that ends on a tool call has no text in it. Handed straight to
+    // the reader that is silence: the agent looks like it ignored them. It
+    // happens when the loop hits its iteration cap, which is exactly when the
+    // reader most needs to hear that it got stuck.
+    const reply =
+      result.stopped && result.finalText.trim() === ""
+        ? "Stopped."
+        : result.finalText.trim() !== ""
+          ? result.finalText
+          : result.exhausted
+            ? "I got stuck on that and stopped after too many steps without reaching an answer. Tell me what to try instead, or narrow it down."
+            : "I do not have anything to add to that.";
+
+    if (useSession) {
+      // Persist the loop's own message list so tool calls and their results
+      // survive into the next turn, not just the final text. Where the loop
+      // produced no text of its own, the synthesised reply is appended, or
+      // the transcript ends mid-thought and the chat reads as though nothing
+      // was said.
+      const spoke = result.finalText.trim() !== "";
+      this.sessions.record(
+        sessionId,
+        spoke
+          ? result.messages
+          : [
+              ...result.messages,
+              { role: "assistant", content: [{ type: "text", text: reply }] },
+            ],
+      );
+      // Only the auto-title is withheld from a resume prompt, which is
+      // harness plumbing and must not rename anything.
+      this.conversations.touch(
+        sessionId,
+        ...(origin === "system" ? [] : [text]),
+      );
+    }
+
+    // Only owner turns are remembered; harness-generated ones are plumbing.
+    // Awaited so a write cannot be lost when the process exits right after a
+    // reply, and so failures surface in the runs log instead of vanishing.
+    if (origin !== "system") {
+      await this.rememberExchange(userId, text, reply);
+    }
+
+    this.runs.finish(runId, "ok");
+    return reply;
   }
 
   /**
