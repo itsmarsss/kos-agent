@@ -4744,3 +4744,8 @@ a.health {
   border-top: 1px solid var(--line);
   border-radius: var(--r-md);
 }
+
+.set-unsaved {
+  color: var(--warn);
+  font-size: var(--text-sm);
+}
