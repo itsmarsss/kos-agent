@@ -11,6 +11,10 @@ import { useEffect, type RefObject } from "react";
  * Bound on pointerdown rather than click: a click fires after the press, by
  * which time the thing under the pointer may have moved, and a menu that
  * closes on the way back up feels late.
+ *
+ * Scrolling counts as leaving. A menu anchored to a row stays where it was
+ * put while the row travels out from under it, which looks like the menu has
+ * come loose from whatever it belongs to.
  */
 export function useDismiss(
   ref: RefObject<HTMLElement | null>,
@@ -33,11 +37,19 @@ export function useDismiss(
       }
     };
 
+    // Capture, because the scroll may happen in a panel rather than the page
+    // and scroll events from an element do not bubble to window.
+    const scrolled = (): void => onClose();
+
     document.addEventListener("pointerdown", away, true);
     document.addEventListener("keydown", escape, true);
+    window.addEventListener("scroll", scrolled, true);
+    window.addEventListener("resize", scrolled);
     return () => {
       document.removeEventListener("pointerdown", away, true);
       document.removeEventListener("keydown", escape, true);
+      window.removeEventListener("scroll", scrolled, true);
+      window.removeEventListener("resize", scrolled);
     };
   }, [ref, open, onClose]);
 }

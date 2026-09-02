@@ -455,6 +455,11 @@ export const api = {
   runCron: (id: number) =>
     post<{ ok: boolean; error?: string }>("/api/crons/run", { id }),
   health: () => get<HealthReport>("/api/health/report"),
+  fix: (input: { label: string; error: string; what?: string; ref?: string }) =>
+    post<{ conversationId: string; title: string }>("/api/fix", input),
+  autofix: () => get<{ enabled: boolean }>("/api/settings/autofix"),
+  setAutofix: (enabled: boolean) =>
+    post<{ enabled: boolean }>("/api/settings/autofix", { enabled }),
   dismissFailure: (key: string) =>
     post<{ dismissed: string }>("/api/health/dismiss", { key }),
   deleteCron: (id: number) =>

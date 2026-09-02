@@ -48,6 +48,12 @@ export interface HealthNotice {
   kind: "failing" | "recovered";
   key: string;
   text: string;
+  /**
+   * Consecutive failures at the point this was raised. Callers that act on a
+   * failure rather than just report it need to know whether this is the first
+   * one or the thirtieth, or they act again on every escalation.
+   */
+  streak: number;
 }
 
 export interface FailingJob {
@@ -126,6 +132,7 @@ export class HealthMonitor {
       return {
         kind: "recovered",
         key,
+        streak: previous.streak,
         text: `${label} is working again, after ${previous.streak} failed ${
           previous.streak === 1 ? "run" : "runs"
         } over ${howLong(at - previous.since)}.`,
@@ -172,6 +179,7 @@ export class HealthMonitor {
     return {
       kind: "failing",
       key,
+      streak,
       text: `${label} failed: ${message ?? "no error given"}.${context}`,
     };
   }

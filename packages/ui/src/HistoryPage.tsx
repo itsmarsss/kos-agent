@@ -97,6 +97,7 @@ export function HistoryPage({
   crons,
   onOpenTool,
   onOpenRun,
+  onFix,
 }: {
   tools: AuditRecord[];
   runs: RunRecord[];
@@ -104,7 +105,10 @@ export function HistoryPage({
   crons: CronJob[];
   onOpenTool: (record: AuditRecord) => void;
   onOpenRun: (record: RunRecord) => void;
+  /** Put KOS on a failure, in its own chat. */
+  onFix?: (row: HistoryRow) => void;
 }): ReactElement {
+  const [fixing, setFixing] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const jobNames = useMemo(
     () => new Map(crons.map((c) => [String(c.id), c.name])),
@@ -200,6 +204,32 @@ export function HistoryPage({
             ) : (
               <span className="ops-tag ops-tag--ok">ok</span>
             ),
+        },
+        {
+          // Only on the rows that failed. A row that worked has nothing to
+          // fix, and a button there would be noise on every line.
+          key: "fix",
+          header: "",
+          width: "8%",
+          render: (r) => {
+            if (!r.failed || !onFix) return null;
+            const id = `${r.kind}-${r.kind === "tool" ? r.tool.id : r.run.id}`;
+            return (
+              <button
+                type="button"
+                className="btn btn--sm"
+                disabled={fixing !== null}
+                title="Open a chat where KOS looks into this and tries to fix it"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFixing(id);
+                  onFix(r);
+                }}
+              >
+                {fixing === id ? "Starting…" : "Fix"}
+              </button>
+            );
+          },
         },
         {
           key: "when",
