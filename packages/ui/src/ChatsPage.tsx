@@ -41,6 +41,7 @@ import { MessageActions, MessageEditor } from "./MessageActions.js";
 import { CopyIcon, EditIcon, ForkIcon, MoreIcon } from "./icons.js";
 import {
   clearProgress,
+  settleProgress,
   seedProgress,
   useProgress,
   onNote,
@@ -297,7 +298,7 @@ export function ChatsPage({
         // The transcript now holds what the live view was holding, so the
         // handover is done and the steps can go. Doing this on turn-end
         // instead left the screen without either for the length of a fetch.
-        if (justEnded) clearProgress(id);
+        settleProgress(id);
       })
       .catch(() => {
         // Emptying the transcript on a failed fetch turned one dropped
@@ -403,6 +404,10 @@ export function ChatsPage({
         setEvents(got);
         setPending(waiting);
       }
+      // Every path that replaces the transcript is a handover: leaving the
+      // finished steps up as well shows each tool call twice until something
+      // else happens to clear them.
+      settleProgress(target);
       onChanged();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -525,8 +530,19 @@ export function ChatsPage({
     opts: { text?: string; forkTitle?: string } = {},
   ): void => {
     if (!activeId) return;
+    const target = activeId;
     setRewinding(true);
     setEditingIndex(null);
+    /*
+     * A rewind runs a whole turn, so it holds the view the way sending does.
+     *
+     * Without this the turn was running while the transcript effect was still
+     * free to refetch on every stamp: the cut-back thread was replaced by the
+     * server's copy mid-turn, so the edited message vanished and came back,
+     * and the reply that was streaming underneath was rebuilt from scratch
+     * each time -- which is what "it gets removed live" was.
+     */
+    setSendingIn(target);
     // Cut the thread back now. Waiting for the reply left the old answer on
     // screen while a new one was being written for a question it no longer
     // matched.
@@ -548,11 +564,19 @@ export function ChatsPage({
       }
     }
     void api
-      .rewind(activeId, index, opts)
-      .then((r) => {
+      .rewind(target, index, opts)
+      .then(async (r) => {
         onChanged();
-        if (r.conversationId !== activeId) onOpen(r.conversationId);
-        else void api.conversation(activeId).then(({ events: got }) => setEvents(got));
+        if (r.conversationId !== target) {
+          onOpen(r.conversationId);
+          return;
+        }
+        // The turn is over, so the transcript is the authority again.
+        const { events: got, pending: waiting } = await api.conversation(target);
+        settleProgress(target);
+        if (target !== activeIdRef.current) return;
+        setEvents(got);
+        setPending(waiting);
       })
       .catch((err: unknown) =>
         setEvents((e) => [
@@ -564,7 +588,10 @@ export function ChatsPage({
           },
         ]),
       )
-      .finally(() => setRewinding(false));
+      .finally(() => {
+        setRewinding(false);
+        setSendingIn((id) => (id === target ? null : id));
+      });
   };
 
   const renderEvent = (e: ChatEvent, i: number, turn: number): ReactElement => {

@@ -159,6 +159,17 @@ class ProgressStore {
     this.emit();
   }
 
+  /**
+   * Drop a finished turn now that its transcript is on screen.
+   *
+   * Checked here rather than by the caller: whoever fetched a transcript did
+   * so a moment ago, and a turn that has started again since must not have
+   * its steps thrown away because of a decision made against the old state.
+   */
+  settled(conversationId: string): void {
+    if (this.map[conversationId]?.ended) this.clear(conversationId);
+  }
+
   /** Drop a conversation the server no longer reports as working. */
   clear(conversationId: string): void {
     if (!this.map[conversationId]) return;
@@ -236,6 +247,11 @@ export function seedProgress(working: string[]): void {
 
 export function clearProgress(conversationId: string): void {
   store.clear(conversationId);
+}
+
+/** Hand a finished turn over to the transcript that now holds it. */
+export function settleProgress(conversationId: string): void {
+  store.settled(conversationId);
 }
 
 export function useProgress(): ProgressMap {
