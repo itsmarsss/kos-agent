@@ -82,6 +82,17 @@ function defineBuildTools(
     async (input) => {
       const dir = str(input, "dir");
       const task = str(input, "task");
+      /*
+       * Continue an earlier agent's session. Deliberately absent from the
+       * schema above: it is for the dashboard waking a finished build, not
+       * something the model should be choosing, and a session id is not
+       * anything it could know. Read here rather than given a second tool so
+       * there is one path that starts a build.
+       */
+      const resumeSession =
+        typeof input["resume"] === "string" && input["resume"].length > 0
+          ? input["resume"]
+          : undefined;
       const conversationId = options.currentConversationId?.();
       let id = 0;
 
@@ -97,6 +108,7 @@ function defineBuildTools(
           : {}),
         ...(options.userId ? { userId: options.userId } : {}),
         ...(conversationId ? { conversationId } : {}),
+        ...(resumeSession ? { resumeSession } : {}),
         ...(options.model?.() ? { model: options.model()! } : {}),
         onStart: (control) => {
           id = options.registry.start({
@@ -105,6 +117,9 @@ function defineBuildTools(
             ...(conversationId ? { conversationId } : {}),
             control,
           });
+        },
+        onSession: (sessionId) => {
+          if (id) options.registry.session(id, sessionId);
         },
         onAsk: (pendingId, settled) => {
           if (id) options.registry.asking(id, pendingId, settled);

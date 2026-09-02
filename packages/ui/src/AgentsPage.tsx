@@ -41,11 +41,17 @@ function Build({
   onStop,
   onInterrupt,
   onOpen,
+  onAgain,
+  onForget,
 }: {
   build: BuildRecord;
   onStop: (id: number) => void;
   onInterrupt: (id: number) => void;
   onOpen: (id: number) => void;
+  /** Run the same task in the same folder again. */
+  onAgain: (build: BuildRecord) => void;
+  /** Remove a finished agent from the list. */
+  onForget: (id: number) => void;
 }): ReactElement {
   const [now, setNow] = useState(() => Date.now());
   const live = build.status === "running" || build.status === "waiting";
@@ -57,43 +63,72 @@ function Build({
   }, [live]);
 
   return (
-    <article className={`agent agent--${build.status}`}>
+    // The whole card opens it. The card was inert except for one button on
+    // it, which is not how anything else in the app behaves.
+    <article
+      className={`agent agent--${build.status}`}
+      onClick={() => onOpen(build.id)}
+    >
       <header className="agent-head">
-        <button
-          type="button"
-          className="agent-toggle"
-          title="Open the full log"
-          onClick={() => onOpen(build.id)}
-        >
+        <span className="agent-toggle">
           <span className={`agent-dot agent-dot--${build.status}`} />
           <span className="agent-dir">{build.dir}</span>
           <span className="agent-state">{LABEL[build.status] ?? build.status}</span>
           <span className="agent-time">
             {elapsed(build.startedAt, build.endedAt ?? now)}
           </span>
-        </button>
+        </span>
         {live && (
           <>
             <button
               type="button"
               className="btn"
               title="Stop what it is doing now, but keep it going so you can redirect it"
-              onClick={() => onInterrupt(build.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onInterrupt(build.id);
+              }}
             >
               Interrupt
             </button>
             <button
               type="button"
               className="btn btn--danger"
-              onClick={() => onStop(build.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onStop(build.id);
+              }}
             >
               Stop
             </button>
           </>
         )}
-        <button type="button" className="btn" onClick={() => onOpen(build.id)}>
-          Open
-        </button>
+        {!live && (
+          <>
+            <button
+              type="button"
+              className="btn"
+              title="Run the same task in the same folder again"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAgain(build);
+              }}
+            >
+              Again
+            </button>
+            <button
+              type="button"
+              className="btn btn--danger-ghost"
+              title="Remove it from this list. The files it wrote stay."
+              onClick={(e) => {
+                e.stopPropagation();
+                onForget(build.id);
+              }}
+            >
+              Forget
+            </button>
+          </>
+        )}
       </header>
 
       <p className="agent-latest">
@@ -144,6 +179,15 @@ export function AgentsPage({
   const [starting, setStarting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState({ dir: "", task: "" });
+  const [folders, setFolders] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!starting || folders.length > 0) return;
+    void api
+      .folders()
+      .then((r) => setFolders(r.folders))
+      .catch(() => setFolders([]));
+  }, [starting, folders.length]);
 
   // Following a link to a different agent opens that one.
   useEffect(() => {
@@ -229,13 +273,36 @@ export function AgentsPage({
         >
           <label className="kos-field">
             <span className="kos-field-label">Folder</span>
+            {/* A list of what is already there, and still typeable: the
+                folder may not exist yet. A free-text box gave no idea what
+                the paths in this workspace even look like. */}
             <input
               className="kos-input"
               autoFocus
+              list="agent-folders"
               placeholder="sites/expenses"
               value={draft.dir}
               onChange={(e) => setDraft({ ...draft, dir: e.target.value })}
             />
+            <datalist id="agent-folders">
+              {folders.map((f) => (
+                <option key={f} value={f} />
+              ))}
+            </datalist>
+            {folders.length > 0 && (
+              <div className="agent-folder-picks">
+                {folders.slice(0, 8).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    className={`ops-btn ${draft.dir === f ? "ops-btn--primary" : ""}`}
+                    onClick={() => setDraft({ ...draft, dir: f })}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+            )}
             <span className="hint">
               Workspace-relative, created if missing. The agent works only in
               here; anything outside it comes back to you for approval.
@@ -300,6 +367,11 @@ export function AgentsPage({
             onStop={(id) => act(api.stopAgent(id))}
             onInterrupt={(id) => act(api.interruptAgent(id))}
             onOpen={setReading}
+            onAgain={(b) => {
+              setDraft({ dir: b.dir, task: b.task });
+              setStarting(true);
+            }}
+            onForget={(id) => act(api.forgetAgent(id))}
           />
           </m.div>
         ))}

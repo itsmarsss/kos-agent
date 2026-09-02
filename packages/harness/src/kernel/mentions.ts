@@ -74,6 +74,40 @@ const MAX_FILES = 400;
  * picker is for reaching something you already have in mind, and a workspace
  * with a large project in it should not make typing @ slow.
  */
+/**
+ * Folders, for anything that asks the owner to name one.
+ *
+ * Starting a coding agent needs a folder, and a free-text box gives no idea
+ * what is already there or what the paths look like. Same walk as the file
+ * index, collecting the directories rather than what is in them.
+ */
+export function walkFolders(workspace: Workspace, limit = MAX_FILES): string[] {
+  const out: string[] = [];
+  const root = workspace.root;
+
+  const walk = (dir: string, depth: number): void => {
+    if (out.length >= limit || depth > 5) return;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (out.length >= limit) return;
+      if (entry.name.startsWith(".")) continue;
+      if (!entry.isDirectory()) continue;
+      if (SKIP.has(entry.name)) continue;
+      const full = join(dir, entry.name);
+      out.push(relative(root, full));
+      walk(full, depth + 1);
+    }
+  };
+
+  walk(root, 0);
+  return out.sort();
+}
+
 export function walkFiles(workspace: Workspace, limit = MAX_FILES): string[] {
   const out: string[] = [];
   const root = workspace.root;
