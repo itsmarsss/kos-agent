@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   api,
@@ -22,7 +22,8 @@ import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
 import { Modal } from "./Modal.js";
 import { CronEditor } from "./CronEditor.js";
 import { ease, spring } from "./motion.js";
-import { HistoryPage } from "./HistoryPage.js";
+import { HistoryPage, type HistoryRow } from "./HistoryPage.js";
+import { useDismiss } from "./useDismiss.js";
 import { HomePage } from "./HomePage.js";
 import { ChatsPage } from "./ChatsPage.js";
 import { FilesPage } from "./FilesPage.js";
@@ -60,6 +61,10 @@ export function App(): React.ReactElement {
   const [cronFilter, setCronFilter] = useState<"all" | "on" | "off">("all");
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  /** The topbar overflow menu, controlled so it can be dismissed. */
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDetailsElement>(null);
+  useDismiss(moreRef, moreOpen, () => setMoreOpen(false));
   // Where sites are served, so the palette can open one directly.
   const [sitesBase, setSitesBase] = useState<string | null>(null);
   const [agents, setAgents] = useState<BuildRecord[]>([]);
@@ -243,6 +248,43 @@ export function App(): React.ReactElement {
     try {
       await api.dismissFailure(key);
       await refresh();
+    } catch (err) {
+      flash("err", err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  /**
+   * Hand a failure to KOS in its own chat, and go there. The agent that can
+   * fix a broken schedule or a missing file is this one; a coding sub-agent
+   * sandboxed to a folder cannot reach either.
+   */
+  const startFix = async (row: HistoryRow): Promise<void> => {
+    const detail =
+      row.kind === "tool"
+        ? {
+            label: row.tool.tool,
+            error: row.tool.result || "the tool reported an error",
+            what: "tool call",
+            ref: `tool call #${row.tool.id}`,
+          }
+        : {
+            label:
+              crons.find((c) => String(c.id) === row.run.ref)?.name ??
+              `${row.run.kind} run`,
+            error: row.run.error ?? "the run reported an error",
+            what: row.run.kind === "cron" ? "scheduled job" : "run",
+            ref: row.run.ref ? `${row.run.kind} #${row.run.ref}` : undefined,
+          };
+    try {
+      const started = await api.fix({
+        label: detail.label,
+        error: detail.error,
+        what: detail.what,
+        ...(detail.ref ? { ref: detail.ref } : {}),
+      });
+      await refresh();
+      go({ name: "chats", id: started.conversationId });
+      flash("ok", "KOS is looking into it");
     } catch (err) {
       flash("err", err instanceof Error ? err.message : String(err));
     }
@@ -497,14 +539,18 @@ export function App(): React.ReactElement {
               Search <kbd>⌘K</kbd>
             </button>
             {/* A native details stays open when something inside it is
-                clicked, so the menu sat over whatever it had just opened. */}
+                clicked, so the menu sat over whatever it had just opened.
+                It also stays open when you click anywhere else on the page,
+                or scroll away from it, which is why this is controlled now
+                rather than left to the element. */}
             <details
               className="menu"
+              ref={moreRef}
+              open={moreOpen}
+              onToggle={(e) => setMoreOpen(e.currentTarget.open)}
               onClick={(e) => {
                 const target = e.target as HTMLElement;
-                if (target.closest("button, a")) {
-                  e.currentTarget.removeAttribute("open");
-                }
+                if (target.closest("button, a")) setMoreOpen(false);
               }}
             >
               <summary className="btn btn--ghost" aria-label="More">⋯</summary>
@@ -669,6 +715,7 @@ export function App(): React.ReactElement {
         crons={crons}
         onOpenTool={(t) => setInspect({ kind: "tool", data: t })}
         onOpenRun={(r) => setInspect({ kind: "run", data: r })}
+        onFix={(row) => void startFix(row)}
       />,
     );
   }

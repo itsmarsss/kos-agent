@@ -23,6 +23,7 @@ type SectionId =
   | "providers"
   | "models"
   | "conversation"
+  | "failures"
   | "network"
   | "spend"
   | "workspace";
@@ -32,6 +33,11 @@ const SECTIONS: { id: SectionId; label: string; blurb: string }[] = [
   { id: "providers", label: "Providers", blurb: "API keys and channel credentials" },
   { id: "models", label: "Models", blurb: "Which model answers, and which builds" },
   { id: "conversation", label: "Conversation", blurb: "How much history is kept" },
+  {
+    id: "failures",
+    label: "Failures",
+    blurb: "What happens when something breaks",
+  },
   { id: "network", label: "Network", blurb: "Ports, binding, and what the agent may reach" },
   { id: "spend", label: "Spend", blurb: "Tokens used and what they cost" },
   { id: "workspace", label: "Workspace", blurb: "Where everything lives" },
@@ -116,6 +122,7 @@ export function SettingsPage(): ReactElement {
   const [data, setData] = useState<SettingsPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState<SectionId>("you");
+  const [autofix, setAutofix] = useState(false);
   const [busy, setBusy] = useState<SectionId | null>(null);
   const [saved, setSaved] = useState<Partial<Record<SectionId, string>>>({});
 
@@ -151,6 +158,13 @@ export function SettingsPage(): ReactElement {
   };
 
   useEffect(load, []);
+  useEffect(() => {
+    void api
+      .autofix()
+      .then((r) => setAutofix(r.enabled))
+      // A setting that cannot be read stays off, which is the safe reading.
+      .catch(() => setAutofix(false));
+  }, []);
 
   const done = (section: SectionId, message: string): void => {
     setSaved((s) => ({ ...s, [section]: message }));
@@ -388,6 +402,33 @@ export function SettingsPage(): ReactElement {
               </Field>
             </Section>
           </>
+        )}
+
+        {active === "failures" && (
+          <Section
+            title="Failures"
+            blurb="A job that fails at 3am tells you either way. This decides whether KOS also tries to do something about it before you wake up."
+          >
+            <Field
+              label="Try to fix failures on its own"
+              hint="On the first failure of a job, KOS opens a chat, works out why, and repairs it if it safely can. Later failures of the same job do not start another attempt. Everything it does there still asks you before anything risky, and you can read or steer the attempt in Chats."
+            >
+              <label className="set-toggle">
+                <input
+                  type="checkbox"
+                  checked={autofix}
+                  onChange={(e) => {
+                    const next = e.target.checked;
+                    setAutofix(next);
+                    // Saved as it is flipped: one switch does not need a
+                    // Save button parked underneath it.
+                    void api.setAutofix(next).catch(() => setAutofix(!next));
+                  }}
+                />
+                <span>{autofix ? "On" : "Off"}</span>
+              </label>
+            </Field>
+          </Section>
         )}
 
         {active === "conversation" && (

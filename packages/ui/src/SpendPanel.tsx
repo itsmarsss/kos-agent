@@ -30,12 +30,47 @@ const WINDOWS = [
   { value: "365", label: "Last year" },
 ];
 
+export interface DayTotal {
+  day: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/** Local calendar date as YYYY-MM-DD, matching what the query groups by. */
+function isoDay(d: Date): string {
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+/**
+ * One entry per day of the window, including the quiet ones.
+ *
+ * The query groups by day and so returns only days that had usage. Two busy
+ * days in a month came back as two bars, which drew a stub in the corner of a
+ * wide chart and, worse, read as "the last two days" rather than "twice in a
+ * month". The gaps are the information.
+ */
+export function padDays(
+  rows: DayTotal[],
+  windowDays: number,
+  today = new Date(),
+): DayTotal[] {
+  const known = new Map(rows.map((r) => [r.day, r]));
+  const out: DayTotal[] = [];
+  for (let i = windowDays - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const day = isoDay(d);
+    out.push(known.get(day) ?? { day, inputTokens: 0, outputTokens: 0 });
+  }
+  return out;
+}
+
 /** A bar per day, scaled to the busiest one. */
-function Trend({
-  days,
-}: {
-  days: { day: string; inputTokens: number; outputTokens: number }[];
-}): ReactElement | null {
+function Trend({ days }: { days: DayTotal[] }): ReactElement | null {
   if (days.length < 2) return null;
   const peak = Math.max(...days.map((d) => d.inputTokens + d.outputTokens));
   if (peak <= 0) return null;
@@ -47,9 +82,15 @@ function Trend({
         return (
           <div className="spend-bar-slot" key={d.day}>
             <div
-              className="spend-bar"
-              title={`${d.day}: ${tokens(total)} tokens`}
-              style={{ height: `${Math.max(2, (total / peak) * 100)}%` }}
+              className={`spend-bar ${total === 0 ? "is-empty" : ""}`}
+              title={
+                total === 0
+                  ? `${d.day}: nothing`
+                  : `${d.day}: ${tokens(total)} tokens`
+              }
+              // A quiet day gets a hairline rather than nothing, so the axis
+              // stays readable and a gap looks deliberate.
+              style={{ height: total === 0 ? "1px" : `${Math.max(2, (total / peak) * 100)}%` }}
             />
           </div>
         );
@@ -163,7 +204,7 @@ export function SpendPanel(): ReactElement {
             )}
           </div>
 
-          <Trend days={data?.byDay ?? []} />
+          <Trend days={padDays(data?.byDay ?? [], Number(days))} />
 
           <table className="spend-table">
             <thead>

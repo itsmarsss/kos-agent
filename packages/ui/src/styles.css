@@ -2238,12 +2238,12 @@ select {
 .sel-caret { color: var(--faint); font-size: var(--text-xs); line-height: 1; }
 
 .sel-menu {
-  position: absolute;
-  bottom: calc(100% + 0.35rem);
-  left: 0;
-  z-index: 40;
+  /* Fixed and placed from script: as an absolutely positioned child it was
+     clipped by any scrolling ancestor and stacked below anything higher up
+     the tree, so a long list came out cut off or covered. */
+  position: fixed;
+  z-index: 120;
   min-width: 12rem;
-  max-height: 17rem;
   overflow-y: auto;
   list-style: none;
   margin: 0;
@@ -2998,7 +2998,6 @@ li:hover .chats-item-when { opacity: 0; }
   max-width: none;
   font-family: var(--font);
 }
-.insp-select .sel-menu { bottom: auto; top: calc(100% + 0.3rem); right: 0; }
 .settings-select .sel-button {
   width: 100%;
   justify-content: space-between;
@@ -3007,7 +3006,6 @@ li:hover .chats-item-when { opacity: 0; }
   padding: 0.35rem 0.5rem;
   max-width: none;
 }
-.settings-select .sel-menu { bottom: auto; top: calc(100% + 0.3rem); right: 0; }
 .settings .kos-input {
   padding: 0.35rem 0.5rem;
   font-size: var(--text-md);
@@ -3624,15 +3622,19 @@ li:hover .chats-item-when { opacity: 0; }
   height: 2.5rem;
   margin-bottom: 0.85rem;
 }
-/* A fixed-width slot per day, so two days of use read as two days rather than
-   stretching to fill a month's worth of chart. */
+/* Slots share the width so a month of data fills the chart, but they stop
+   growing at 2rem so two days of use still read as two days rather than as
+   two enormous columns. A fixed 0.75rem left most of the panel empty. */
 .spend-bar-slot {
   display: flex;
   align-items: flex-end;
-  width: 0.75rem;
+  flex: 1 1 0;
+  min-width: 2px;
+  max-width: 2rem;
   height: 100%;
 }
 .spend-bar { width: 100%; background: var(--accent-dim); border-radius: 1px; }
+.spend-bar.is-empty { background: var(--line); }
 .spend-bar-slot:hover .spend-bar { background: var(--accent); }
 .spend-table { width: 100%; border-collapse: collapse; font-size: var(--text-md); }
 .spend-table th {
@@ -4183,20 +4185,20 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
   inset: 0;
   z-index: 70;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 3vh 1rem;
+  /* A drawer, not a dialog in the middle of the page: a build log is read
+     alongside the list it was opened from, and a centred box covered it. */
+  justify-content: flex-end;
 }
 .term-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.6); }
 .term {
   position: relative;
   display: flex;
   flex-direction: column;
-  width: min(60rem, 100%);
-  height: 94vh;
+  width: min(56rem, 100%);
+  height: 100%;
   background: var(--panel);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-lg);
+  border-left: 1px solid var(--line-strong);
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.35);
   overflow: hidden;
 }
 .term-head {
@@ -4580,4 +4582,19 @@ a.health {
 .ops-table--fixed td {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* A switch that saves as it is flipped, so it needs no button beside it. */
+.set-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--text-md);
+  cursor: pointer;
+}
+
+.set-toggle input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
 }

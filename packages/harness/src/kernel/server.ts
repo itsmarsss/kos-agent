@@ -10,7 +10,7 @@ import { runDisplayQuery } from "../systems/display.js";
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
-import { BUILD_SETTINGS_KEY, orchestratorId } from "./kernel.js";
+import { AUTOFIX_KEY, BUILD_SETTINGS_KEY, orchestratorId } from "./kernel.js";
 import { parseAttachments } from "./attachments.js";
 import cron from "node-cron";
 import type { CreateCronInput, ToolCall } from "../cron/types.js";
@@ -159,6 +159,43 @@ export async function handleApiRequest(
    */
   if (method === "GET" && path === "/api/health/report") {
     return ok(kernel.health.report());
+  }
+
+  /**
+   * Put KOS on a failure. Named by what failed rather than by an id the
+   * caller had to look up, so History can hand over exactly what it is
+   * already showing in the row.
+   */
+  if (method === "POST" && path === "/api/fix") {
+    const label = typeof body.label === "string" ? body.label.trim() : "";
+    const error = typeof body.error === "string" ? body.error.trim() : "";
+    if (!label || !error) {
+      return { status: 400, body: { error: "label and error required" } };
+    }
+    if (kernel.killSwitch.halted) {
+      return { status: 409, body: { error: "KOS is halted" } };
+    }
+    const started = await kernel.startFix({
+      label: label.slice(0, 200),
+      error,
+      what: typeof body.what === "string" ? body.what.slice(0, 40) : "job",
+      ...(typeof body.ref === "string" ? { ref: body.ref.slice(0, 60) } : {}),
+    });
+    return ok(started);
+  }
+
+  if (method === "GET" && path === "/api/settings/autofix") {
+    return ok({
+      enabled:
+        kernel.settings.get<{ enabled?: boolean }>(AUTOFIX_KEY)?.enabled ===
+        true,
+    });
+  }
+
+  if (method === "POST" && path === "/api/settings/autofix") {
+    const enabled = body.enabled === true;
+    kernel.settings.set(AUTOFIX_KEY, { enabled });
+    return ok({ enabled });
   }
 
   /** Stop reporting a job as broken, for one the owner has dealt with. */

@@ -1341,6 +1341,72 @@ describe("a message survives the turn it started", () => {
 });
 
 /**
+ * A turn that runs out of room still has to say so, in the transcript.
+ *
+ * The loop's own messages end on a tool result when it hits the iteration
+ * cap, and the "I got stuck" line was only ever the return value. Anything
+ * that does not watch that value -- an unattended fix attempt, a reload of
+ * the page -- saw a chat containing a question and no answer.
+ */
+describe("a turn that runs out of steps", () => {
+  let root: string;
+  let kernel: Kernel;
+
+  afterEach(() => {
+    kernel?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("leaves an answer in the transcript, not just in the reply", async () => {
+    root = mkdtempSync(join(tmpdir(), "kos-exhaust-"));
+    // Never stops calling tools, so the loop always hits its cap.
+    const model: Inference = {
+      async generate(task: Task): Promise<ModelResponse> {
+        if (task === "cheap") return text('{"facts":[]}');
+        return toolCall(`c${Math.random()}`, "files.ls", { path: "." });
+      },
+    };
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: model,
+      profileOverrides: { name: "Kenny", timezone: "UTC" },
+    });
+    const convo = kernel.conversations.create({ userId: "owner", title: "T" });
+
+    const res = await kernel.handleMessage("do something", {
+      sessionId: convo.id,
+      maxIterations: 3,
+    });
+
+    expect(res.reply).toContain("stuck");
+    const stored = kernel.sessions.get(convo.id);
+    const last = stored.at(-1);
+    expect(last?.role).toBe("assistant");
+    expect(JSON.stringify(last?.content)).toContain("stuck");
+  });
+
+  it("does not add one when the model actually answered", async () => {
+    root = mkdtempSync(join(tmpdir(), "kos-exhaust2-"));
+    const model = scripted([text("Here you go.")]);
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: model.inference,
+      profileOverrides: { name: "Kenny", timezone: "UTC" },
+    });
+    const convo = kernel.conversations.create({ userId: "owner", title: "T" });
+
+    await kernel.handleMessage("hello", { sessionId: convo.id });
+
+    const stored = kernel.sessions.get(convo.id);
+    const assistants = stored.filter((m) => m.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(JSON.stringify(assistants[0]!.content)).toContain("Here you go.");
+  });
+});
+
+/**
  * The unattended path: a job that fails at 3am with nobody watching.
  *
  * This is the case the whole product rests on, and it used to end at a row in
@@ -1428,6 +1494,29 @@ describe("failures reach the owner", () => {
     // A minutely job that floods you is one you mute, and a muted assistant is
     // worse than the silence this replaced.
     expect(sent).toHaveLength(1);
+  });
+
+  it("stops reporting a failure once the job is gone", async () => {
+    const sent: string[] = [];
+    kernel = await bootWithChannel(sent);
+    const job = kernel.crons.create({
+      name: "nightly digest",
+      schedule: "0 3 * * *",
+      type: "actions",
+      actions: [{ tool: "files.read", args: { path: "nope/missing.md" } }],
+      enabled: true,
+    });
+    kernel.startCron();
+    await kernel.fireCron(job.id);
+    expect(kernel.health.report().ok).toBe(false);
+
+    // Deleting a broken job is a repair, and one a fix attempt may well
+    // choose. Its failure used to outlive it in the report and in the header
+    // count, with Dismiss the only way to be rid of it.
+    kernel.crons.delete(job.id);
+    kernel.reloadCron();
+
+    expect(kernel.health.report().ok).toBe(true);
   });
 
   it("keeps quiet about a job that is working", async () => {
