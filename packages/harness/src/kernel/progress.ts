@@ -35,6 +35,16 @@ export type ProgressEvent =
       of: "reasoning" | "text";
       text: string;
     }
+  | {
+      /**
+       * Something finished on its own, after the turn that started it ended.
+       * Shown where a command's answer is shown: it is news, not part of the
+       * conversation.
+       */
+      kind: "note";
+      conversationId: string;
+      text: string;
+    }
   | { kind: "turn-end"; conversationId: string };
 
 export type ProgressListener = (event: ProgressEvent) => void;
