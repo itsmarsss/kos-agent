@@ -74,6 +74,11 @@ import {
 } from "./context.js";
 import { GuardedTools } from "./guarded.js";
 import { ProgressBus } from "./progress.js";
+import {
+  BEHAVIOUR_KEY,
+  parseBehaviour,
+  type Behaviour,
+} from "./behaviour.js";
 import { parseMentions, writeMention } from "./mentions.js";
 import { readFile as readWorkspaceFile } from "./files.js";
 import { summarizeAction } from "@kos/shared";
@@ -136,9 +141,6 @@ const DEFAULT_BACKUP_CRON = "0 3 * * *";
 /** Owner settings for build sub-agents. */
 /** Whether an unattended failure starts a fix attempt on its own. */
 export const AUTOFIX_KEY = "autofix";
-
-/** Round-trips a fix attempt gets. Diagnosis is mostly reading. */
-const FIX_ITERATIONS = 24;
 
 export const BUILD_SETTINGS_KEY = "builds";
 
@@ -373,7 +375,9 @@ export class Kernel {
     const approvals = new ApprovalQueue(workspace.db, secrets);
     const spend = new SpendStore(workspace.db);
     const pending = new PendingMessages(workspace.db);
-    const builds = new BuildRegistry();
+    const builds = new BuildRegistry(
+      () => (kernelRef?.behaviour().stallMinutes ?? 3) * 60_000,
+    );
     const killSwitch = new PersistentKillSwitch(workspace.db);
     const queue = new WorkQueue();
     const backup = new WorkspaceBackup(workspace.root);
@@ -784,7 +788,7 @@ export class Kernel {
 
         const result = await runAgent(this.inference, tools, input, {
           system,
-          ...(opts.maxIterations ? { maxIterations: opts.maxIterations } : {}),
+          maxIterations: opts.maxIterations ?? this.behaviour().maxSteps,
           // Watched turns stream. A reader was shown one static word for the
           // whole of a turn, and with a reasoning model most of that time is
           // the model working rather than any tool running.
@@ -1455,7 +1459,10 @@ export class Kernel {
             throw err;
           }
         }),
-      { killSwitch: this.killSwitch },
+      {
+        killSwitch: this.killSwitch,
+        maxSelfPromptsPerHour: () => this.behaviour().selfPromptsPerHour,
+      },
     );
     this.scheduler.start();
     // Also at boot, not only on reload: a job deleted while the host was down
@@ -1509,7 +1516,7 @@ export class Kernel {
     if (
       notice.kind === "failing" &&
       notice.streak === 1 &&
-      this.autoFixOn() &&
+      this.behaviour().autoFix &&
       !this.killSwitch.halted
     ) {
       void this.startFix({
@@ -1575,7 +1582,7 @@ export class Kernel {
       // Reading comes before fixing, and the default allowance was spent on
       // looking: the first attempt ran out of steps having found the broken
       // job but before it could say so, let alone repair it.
-      maxIterations: FIX_ITERATIONS,
+      maxIterations: this.behaviour().fixSteps,
     }).catch((err: unknown) => {
       // Swallowing this leaves a chat containing a question and no answer,
       // which is worse than never having offered to look: the owner is told
@@ -1640,17 +1647,22 @@ export class Kernel {
   }
 
   /**
+   * How much rope unattended work gets, as the owner has set it. Read each
+   * time rather than cached: a change in settings should take effect on the
+   * next turn, not the next restart.
+   */
+  behaviour(): Behaviour {
+    return parseBehaviour(
+      this.settings.get(BEHAVIOUR_KEY),
+      this.settings.get(AUTOFIX_KEY),
+    );
+  }
+
+  /**
    * True once close() has run. Work started before a shutdown can land after
    * it, and a write to a closed database throws somewhere nobody is looking.
    */
   private closed = false;
-
-  /** Whether a failure should start a fix attempt on its own. */
-  private autoFixOn(): boolean {
-    return (
-      this.settings.get<{ enabled?: boolean }>(AUTOFIX_KEY)?.enabled === true
-    );
-  }
 
   recordNotice(text: string): void {
     if (this.closed) return;

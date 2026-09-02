@@ -4730,3 +4730,17 @@ a.health {
   color: var(--faint);
   font-size: var(--text-sm);
 }
+
+/* A bounded number reads as a number, not as a text field that happens to
+   hold digits. */
+.set-limit {
+  width: 8rem;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* One footer for a tab whose cards are all one document. */
+.set-tab-foot {
+  border-top: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
