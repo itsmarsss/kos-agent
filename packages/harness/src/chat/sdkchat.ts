@@ -48,8 +48,25 @@ const BUILTINS = [
 /** The MCP name the SDK exposes KOS's tools under. */
 const SERVER = "kos";
 
+/** One call the agent made, in the shape the transcript stores. */
+export interface SdkToolCall {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+  result: string;
+  isError: boolean;
+}
+
 export interface SdkChatResult {
   text: string;
+  /**
+   * What it did on the way, so the transcript can hold it.
+   *
+   * The tools run inside the MCP bridge rather than through KOS's own loop,
+   * so nothing was written down: the calls streamed live and then vanished
+   * the moment the turn ended and the transcript reloaded.
+   */
+  calls: SdkToolCall[];
   usage: { inputTokens: number; outputTokens: number };
   /** True when the SDK stopped for its own reasons rather than answering. */
   stopped: boolean;
@@ -125,7 +142,8 @@ export function sdkName(name: string): string {
  * Names are flattened because MCP tool names may not contain dots, and
  * mapped back before execution so the registry still sees files.read.
  */
-function serverFor(tools: ToolBox) {
+function serverFor(tools: ToolBox, record: (call: SdkToolCall) => void) {
+  let n = 0;
   const defined = tools.defs().map((spec) =>
     tool(
       spec.name.replace(/\./g, "_"),
@@ -133,6 +151,13 @@ function serverFor(tools: ToolBox) {
       toZodShape(spec.inputSchema),
       async (args: Record<string, unknown>) => {
         const result = await tools.execute(spec.name, args ?? {});
+        record({
+          id: `sdk-${++n}`,
+          name: spec.name,
+          input: args ?? {},
+          result: result.content,
+          isError: result.isError === true,
+        });
         return {
           content: [{ type: "text" as const, text: result.content }],
           ...(result.isError ? { isError: true } : {}),
@@ -146,7 +171,8 @@ function serverFor(tools: ToolBox) {
 export async function runSdkChat(
   options: SdkChatOptions,
 ): Promise<SdkChatResult> {
-  const { server } = serverFor(options.tools);
+  const calls: SdkToolCall[] = [];
+  const { server } = serverFor(options.tools, (call) => calls.push(call));
   const allowed = options.tools.defs().map((d) => sdkName(d.name));
   const { env, home } = credentials(options.cwd, options.env ?? process.env);
 
@@ -214,5 +240,5 @@ export async function runSdkChat(
     }
   }
 
-  return { text: text.trim(), usage, stopped };
+  return { text: text.trim(), calls, usage, stopped };
 }

@@ -20,7 +20,7 @@ import { clearDaemonState, writeDaemonState } from "./state.js";
 
 export interface HostOptions {
   rootDir: string;
-  allowedHosts: string[];
+  allowedHosts: string[] | (() => string[]);
   host: string;
   port: number;
   token?: string;

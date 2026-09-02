@@ -5078,3 +5078,37 @@ a.health {
   border-top: 1px solid var(--line);
 }
 .cron-editor { gap: 1.1rem; }
+/* The drawer already spaces its blocks, so the rule that separates groups
+   inside a settings card would space them twice over. */
+.cron-editor .set-group { display: flex; flex-direction: column; gap: 0.8rem; }
+.cron-editor .set-group + .set-group { margin-top: 0; padding-top: 1.1rem; }
+.cron-editor .set-group h3 { margin-bottom: -0.35rem; }
+.cron-editor .set-group > .hint { margin: 0; }
+
+/* What an existing job is doing, and what can be done to it, above the form
+   that changes it. Save and Cancel stay at the foot on their own. */
+.cron-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+.cron-extra { display: flex; gap: 0.4rem; }
+.cron-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.cron-badge::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+.cron-badge.is-on { color: var(--ok); }
+.cron-badge.is-off { color: var(--muted); }

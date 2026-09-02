@@ -140,3 +140,58 @@ describe("what a fetch asks about", () => {
     expect(tier({ url: "https://example.com/x", method: "delete" })).toBe("risky");
   });
 });
+
+/**
+ * A host added in Settings should work on the next message.
+ *
+ * The list was read once at boot, so adding one at noon did nothing until the
+ * daemon was restarted, which is not something an owner should have to know.
+ */
+describe("adding a host without a restart", () => {
+  let root: string;
+  let ws: Workspace;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-http-live-"));
+    ws = Workspace.open(root);
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("reads the list at call time", async () => {
+    let hosts: string[] = [];
+    const reached: string[] = [];
+    const registry = new ToolRegistry();
+    const loader = new ModuleLoader(
+      toolRegistryContext(registry, {
+        workspace: ws,
+        db: ws.db,
+        secrets: new SecretsRegistry(),
+      } as never),
+    );
+    await loader.load([
+      createHttpModule({
+        allowedHosts: () => hosts,
+        fetchImpl: async (url) => {
+          reached.push(String(url));
+          return new Response("ok");
+        },
+      }),
+    ]);
+
+    const call = () =>
+      registry.execute("http.fetch", { url: "https://late.example.com/x" });
+
+    // Nothing is allowed yet.
+    expect((await call()).isError).toBe(true);
+    expect(reached).toEqual([]);
+
+    // The owner adds it. No restart.
+    hosts = ["late.example.com"];
+    expect((await call()).isError).toBeFalsy();
+    expect(reached).toHaveLength(1);
+  });
+});

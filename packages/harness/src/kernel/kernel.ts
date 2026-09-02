@@ -115,7 +115,8 @@ export interface KernelOptions {
   /** Additional (e.g. agent-promoted or third-party) modules to load. */
   extraModules?: KosModule[];
   /** Hosts the http.fetch tool may reach. */
-  allowedHosts?: string[];
+  /** A function is re-read per call, so a host added in Settings works now. */
+  allowedHosts?: string[] | (() => string[]);
   profileOverrides?: Partial<Profile>;
   system?: string;
   /** Notified when a risky action is queued (e.g. to render Discord buttons). */
@@ -427,7 +428,12 @@ export class Kernel {
       sqlModule,
       notifyModule,
       cronModule,
-      createHttpModule({ allowedHosts: options.allowedHosts ?? [] }),
+      createHttpModule({
+        // Passed through as given: the host supplies a function that reads
+        // the environment, so saving in Settings takes effect on the next
+        // call rather than the next restart.
+        allowedHosts: options.allowedHosts ?? [],
+      }),
       createSearchModule(),
       systemsModule,
       sitesModule,
@@ -727,6 +733,8 @@ export class Kernel {
       this.currentConversationId = sessionId;
       this.working.add(sessionId);
       this.progress.emit({ kind: "turn-start", conversationId: sessionId });
+      /** Set when the turn hands its ending over to a deferred settle. */
+      let suspended = false;
       try {
         // A conversation may be a scoped agent: its own brief, its own reach.
         const conversation = this.conversations.get(sessionId);
@@ -860,10 +868,42 @@ export class Kernel {
           const settleSdk = (sdk: SdkChatResult): string => {
             const reply = sdk.text || "I do not have anything to add to that.";
             if (useSession) {
-              // Only the reply. What the owner said was written to the
-              // transcript before the turn started.
+              /*
+               * The calls, then the reply.
+               *
+               * These run inside the MCP bridge rather than through KOS's own
+               * loop, so nothing was written down: they streamed live and
+               * vanished the moment the turn ended and the transcript
+               * reloaded. Stored in the same shape the other engine uses, so
+               * the transcript renders them the same way.
+               */
+              const madeCalls = sdk.calls.flatMap((c) => [
+                {
+                  role: "assistant" as const,
+                  content: [
+                    {
+                      type: "tool_use" as const,
+                      id: c.id,
+                      name: c.name,
+                      input: c.input,
+                    },
+                  ],
+                },
+                {
+                  role: "user" as const,
+                  content: [
+                    {
+                      type: "tool_result" as const,
+                      toolUseId: c.id,
+                      content: c.result,
+                      ...(c.isError ? { isError: true } : {}),
+                    },
+                  ],
+                },
+              ]);
               this.sessions.record(sessionId, [
                 ...this.sessions.get(sessionId),
+                ...madeCalls,
                 { role: "assistant", content: [{ type: "text", text: reply }] },
               ]);
               this.conversations.touch(
@@ -895,6 +935,7 @@ export class Kernel {
           ]);
 
           if (first.kind === "waiting") {
+            suspended = true;
             void sdkRun
               .then((r) => (this.closed ? "" : settleSdk(r)))
               .catch((err: unknown) => {
@@ -905,10 +946,7 @@ export class Kernel {
                   err instanceof Error ? err.message : String(err),
                 );
               })
-              .finally(() => {
-                this.working.delete(sessionId);
-                this.progress.emit({ kind: "turn-end", conversationId: sessionId });
-              });
+              .finally(() => this.endTurn(sessionId));
             return {
               reply: `Waiting on you: ${first.action.tool} needs approval (#${first.action.id}). I will carry on as soon as you decide.`,
               halted: false,
@@ -950,6 +988,7 @@ export class Kernel {
         ]);
 
         if (outcome.kind === "waiting") {
+          suspended = true;
           // Finishes on its own, once the decision comes. The transcript, the
           // memory write and the run log all happen there, exactly as they
           // would have here.
@@ -974,10 +1013,7 @@ export class Kernel {
                 err instanceof Error ? err.message : String(err),
               );
             })
-            .finally(() => {
-              this.working.delete(sessionId);
-              this.progress.emit({ kind: "turn-end", conversationId: sessionId });
-            });
+            .finally(() => this.endTurn(sessionId));
           return {
             reply: `Waiting on you: ${outcome.action.tool} needs approval (#${outcome.action.id}). I will carry on as soon as you decide.`,
             halted: false,
@@ -1012,11 +1048,32 @@ export class Kernel {
         // Restored rather than cleared: a dispatched turn runs inside another,
         // and the outer one still has work to attribute.
         this.currentConversationId = previousConversation;
-        this.working.delete(sessionId);
-        this.stopping.delete(sessionId);
-        this.progress.emit({ kind: "turn-end", conversationId: sessionId });
+        /*
+         * A suspended turn has returned, not finished.
+         *
+         * Ending it here emitted turn-end the instant an approval was asked
+         * for, and the live view is dropped on turn-end: every thought and
+         * tool call the reader had watched build up vanished at exactly the
+         * moment the approval card appeared, on both engines. The deferred
+         * settle above ends the turn instead, once the decision has actually
+         * been made and the rest of it has run.
+         */
+        if (!suspended) this.endTurn(sessionId);
       }
     }
+  }
+
+  /**
+   * The end of a turn, wherever it happens.
+   *
+   * A turn that suspends on an approval returns to its caller long before it
+   * is over, so this is called from the deferred settle in that case and from
+   * the turn's own finally in every other.
+   */
+  private endTurn(sessionId: string): void {
+    this.working.delete(sessionId);
+    this.stopping.delete(sessionId);
+    this.progress.emit({ kind: "turn-end", conversationId: sessionId });
   }
 
   /**

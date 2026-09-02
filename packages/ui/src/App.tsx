@@ -663,6 +663,20 @@ export function App(): React.ReactElement {
                 void refresh();
               }}
               onCancel={() => setEditingCron(null)}
+              onRunNow={(id) => {
+                const job = crons.find((c) => c.id === id);
+                setEditingCron(null);
+                void runCronNow(id, job?.name ?? `cron #${id}`);
+              }}
+              onToggle={(id, enabled) => {
+                setEditingCron(null);
+                void api
+                  .setCronEnabled(id, enabled)
+                  .then(() => refresh())
+                  .catch((err: unknown) =>
+                    flash("err", err instanceof Error ? err.message : String(err)),
+                  );
+              }}
             />
           )}
         </Drawer>
