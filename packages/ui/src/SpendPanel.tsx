@@ -238,15 +238,7 @@ function DayCard({
 
   return (
     <>
-      <div className="spend-pop-head">
-        {day.day}
-        {/* Which model, even when there was only one. The split below is
-            only drawn for a day with several, so a single-model day used to
-            answer "how much" and never "what". */}
-        {models.length === 1 && (
-          <span className="spend-pop-only"> · {models[0]!.model}</span>
-        )}
-      </div>
+      <div className="spend-pop-head">{day.day}</div>
       {total === 0 ? (
         <p className="spend-pop-none">Nothing ran.</p>
       ) : (
@@ -275,7 +267,11 @@ function DayCard({
               </dd>
             </div>
           </dl>
-          {models.length > 1 && (
+          {/* Every day the same shape, one model or five. Drawing the split
+              only for a day with several meant the card changed layout
+              depending on what happened to have run, and a single-model day
+              answered "how much" and never "what". */}
+          {models.length > 0 && (
             <ul className="spend-pop-list spend-pop-list--models">
               {models.map((m) => (
                 <li key={m.model}>
