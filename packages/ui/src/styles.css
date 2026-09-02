@@ -1337,6 +1337,126 @@ select {
   align-items: center;
 }
 
+/* Contents down the left, controls and metadata on the right. A single
+   column down the middle of a 720px panel meant every row pushed its value
+   to the far edge, so reading "5 rows" was a trip across the whole drawer. */
+.insp-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 1.6rem;
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .insp-cols {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+  }
+}
+
+.insp-side {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  padding-left: 1.25rem;
+  border-left: 1px solid var(--line);
+}
+
+@media (max-width: 720px) {
+  .insp-side {
+    padding-left: 0;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding-top: 1rem;
+  }
+}
+
+.insp-main,
+.insp-side {
+  min-width: 0;
+}
+
+.insp-section + .insp-section {
+  margin-top: 1.1rem;
+}
+
+/* Rows read left to right and stop. The value sits next to its subject
+   rather than at the far edge of the panel. */
+.insp-rows {
+  list-style: none;
+  margin: 0.3rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: var(--text-base);
+}
+
+.insp-rows li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.insp-rows--stacked li {
+  align-items: flex-start;
+  justify-content: space-between;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.insp-rows--stacked li:last-child {
+  border-bottom: 0;
+}
+
+/* The time is short and fixed; the description is long and elastic. Without
+   this the description took the width and "21h ago" was squeezed to "21...". */
+.insp-rows--stacked > li > .insp-meta:last-child {
+  flex: none;
+  white-space: nowrap;
+}
+
+.insp-act {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+}
+
+.insp-act .insp-meta,
+.insp-rows li > span:not(.ops-tag) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.insp-meta {
+  color: var(--faint);
+  font-size: var(--text-sm);
+}
+
+/* Metadata: quiet, and in the sidebar where it belongs. */
+.insp-about {
+  margin: 0.3rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.insp-about dt {
+  color: var(--faint);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.insp-about dd {
+  margin: 0.1rem 0 0;
+  font-size: var(--text-base);
+  overflow-wrap: anywhere;
+}
+
 .insp-foot {
   margin-top: auto;
   padding: 0.65rem 0.9rem;

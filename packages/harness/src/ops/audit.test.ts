@@ -58,3 +58,60 @@ describe("AuditLog", () => {
     expect(rec?.riskTier).toBe("risky");
   });
 });
+
+/**
+ * What has KOS actually done to this project?
+ *
+ * The project drawer could say what a project contains but nothing about what
+ * had happened to it, which is the question you open a drawer to ask when a
+ * tracker looks wrong.
+ */
+describe("AuditLog.touching", () => {
+  let root: string;
+  let ws: Workspace;
+  let log: AuditLog;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-audit-touch-"));
+    ws = Workspace.open(root);
+    log = new AuditLog(ws.db, new SecretsRegistry());
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function record(tool: string, args: Record<string, unknown>): void {
+    log.record({ tool, args, result: "ok", isError: false });
+  }
+
+  it("finds calls that name the project in their arguments", () => {
+    record("sql.query", { sql: "SELECT * FROM kitchen_redo_items" });
+    record("pages.write", { project: "kitchen_redo", spec: {} });
+    record("files.read", { path: "notes.md" });
+
+    const rows = log.touching("kitchen_redo");
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.tool)).toEqual(["pages.write", "sql.query"]);
+  });
+
+  it("does not treat the underscore in a slug as a wildcard", () => {
+    // LIKE reads _ as "any character", so a slug match written with LIKE
+    // silently matches the wrong projects. This bit once already.
+    record("sql.query", { sql: "SELECT * FROM kitchenXredo_items" });
+    expect(log.touching("kitchen_redo")).toHaveLength(0);
+  });
+
+  it("newest first, and bounded", () => {
+    for (let i = 0; i < 30; i++) record("sql.query", { t: `trip_prep_${i}` });
+    const rows = log.touching("trip_prep", 5);
+    expect(rows).toHaveLength(5);
+    expect(rows[0]!.args).toContain("trip_prep_29");
+  });
+
+  it("returns nothing for a project nothing has touched", () => {
+    record("files.read", { path: "notes.md" });
+    expect(log.touching("nothing_here")).toEqual([]);
+  });
+});

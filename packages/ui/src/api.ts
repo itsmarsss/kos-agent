@@ -360,6 +360,8 @@ export interface ProjectDetail {
     op: string;
     appliedAt?: number;
   }[];
+  /** Recent tool calls that mention this project, newest first. */
+  activity: AuditRecord[];
   folder: string;
 }
 
