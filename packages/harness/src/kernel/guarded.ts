@@ -43,6 +43,10 @@ export interface GuardedToolsDeps {
   onExecuted?: (tool: string, result: ToolExecution) => void;
   /** Called as a call begins, so a reader can see the step it is on. */
   onStarted?: (tool: string, input: Record<string, unknown>) => void;
+  /** Called once the owner has decided about a queued call. */
+  onDecided?: (action: PendingAction, status: string) => void;
+  /** How long to hold a suspended turn before treating silence as refusal. */
+  approvalTimeoutMs?: number;
 }
 
 /**
@@ -52,6 +56,16 @@ export interface GuardedToolsDeps {
  * parse, rather than each guessing from prose.
  */
 export const QUEUED_PREFIX = "queued for approval (pending #";
+
+/** The other end of the same decision, so a reader can tell them apart. */
+export const DENIED_PREFIX = "not approved (pending #";
+
+/**
+ * How long a turn will hold, waiting on the owner, before treating silence as
+ * a refusal. Long enough to walk away from the screen; short enough that a
+ * conversation is not wedged for a day.
+ */
+const DEFAULT_APPROVAL_WAIT_MS = 30 * 60_000;
 
 /** Identical calls allowed in one turn before the harness calls it a loop. */
 const REPEAT_LIMIT = 2;
@@ -181,15 +195,47 @@ export class GuardedTools implements ToolBox {
         ...(conversationId ? { conversationId } : {}),
       });
       this.deps.onQueued?.(action);
-      return {
-        content: [
-          `${QUEUED_PREFIX}${action.id}); not executed.`,
-          `Tell the user to approve #${action.id}.`,
-          "Do not re-call this tool until you receive an approval result.",
-          "After approval the harness will resume you with the result; continue the plan then.",
-        ].join(" "),
-        isError: false,
-      };
+
+      /*
+       * Suspend here rather than end the turn.
+       *
+       * Returning "queued" told the model to stop and left the harness to
+       * start a fresh turn on approval. That fresh turn cleared the live view,
+       * ran the tool a second time under its own bubble, and made several
+       * calls queued at once impossible to resolve together. Waiting keeps one
+       * turn, one bubble, and one result: the owner's decision arrives and the
+       * call carries on from where it was.
+       */
+      const decision = await approvals.waitFor(
+        action.id,
+        this.deps.approvalTimeoutMs ?? DEFAULT_APPROVAL_WAIT_MS,
+      );
+      this.deps.onDecided?.(action, decision);
+
+      if (decision !== "approved") {
+        return {
+          content: [
+            `${DENIED_PREFIX}${action.id}).`,
+            "The owner did not approve it, so nothing was done.",
+            "Do not try it again. Say what you would have done and stop, or",
+            "offer something that does not need it.",
+          ].join(" "),
+          isError: false,
+        };
+      }
+
+      const approvedInput = injectSecrets(input, secrets);
+      const approvedResult = await registry.execute(name, approvedInput);
+      audit.record({
+        tool: name,
+        args: input,
+        result: approvedResult.content,
+        isError: approvedResult.isError,
+        riskTier: "risky",
+        ...(userId ? { userId } : {}),
+      });
+      this.deps.onExecuted?.(name, approvedResult);
+      return approvedResult;
     }
 
     // Safe: inject secrets just before execution, then run and audit.

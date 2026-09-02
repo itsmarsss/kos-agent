@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
 import { AuditLog } from "../ops/audit.js";
@@ -33,8 +33,8 @@ describe("GuardedTools", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  function guarded(): GuardedTools {
-    return new GuardedTools({ registry, secrets, audit, approvals });
+  function guarded(over: Partial<GuardedToolsDeps> = {}): GuardedTools {
+    return new GuardedTools({ registry, secrets, audit, approvals, ...over });
   }
 
   it("runs a safe tool, injecting secrets and auditing", async () => {
@@ -54,7 +54,7 @@ describe("GuardedTools", () => {
     expect(entry?.args).toContain("{{secret:openai}}"); // audit stays redacted
   });
 
-  it("queues a risky tool for approval and does not execute it", async () => {
+  it("holds a risky call until the owner decides, then runs it", async () => {
     let ran = false;
     registry.register(
       { name: "danger", description: "d", inputSchema: { type: "object" } },
@@ -64,10 +64,50 @@ describe("GuardedTools", () => {
       },
       RISKY,
     );
-    const res = await guarded().execute("danger", {});
+
+    // The call does not return while it waits: the turn is suspended inside
+    // it. Returning early is what used to end the turn and start a second one
+    // on approval, which cleared the live view and ran the tool under a new
+    // bubble.
+    const call = guarded().execute("danger", {});
+    await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
     expect(ran).toBe(false);
-    expect(res.content).toMatch(/queued for approval/);
-    expect(approvals.pending()).toHaveLength(1);
+
+    approvals.approve(approvals.pending()[0]!.id, "owner");
+    const res = await call;
+
+    expect(ran).toBe(true);
+    expect(res.content).toBe("ran");
+    expect(res.isError).toBeFalsy();
+  });
+
+  it("does not run it when the owner says no", async () => {
+    registry.register(
+      { name: "danger", description: "d", inputSchema: { type: "object" } },
+      () => "ran",
+      RISKY,
+    );
+    const call = guarded().execute("danger", {});
+    await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+
+    approvals.deny(approvals.pending()[0]!.id, "owner");
+    const res = await call;
+
+    // Told plainly, and told not to try again: a refusal the model reads as a
+    // transient failure is a refusal it will work around.
+    expect(res.content).toMatch(/not approved/);
+    expect(res.content).toMatch(/Do not try it again/);
+  });
+
+  it("treats silence as a refusal rather than waiting forever", async () => {
+    registry.register(
+      { name: "danger", description: "d", inputSchema: { type: "object" } },
+      () => "ran",
+      RISKY,
+    );
+    // A turn that waits forever holds its conversation's queue forever.
+    const res = await guarded({ approvalTimeoutMs: 10 }).execute("danger", {});
+    expect(res.content).toMatch(/not approved/);
   });
 
   it("offers only scoped tools to the model", () => {
