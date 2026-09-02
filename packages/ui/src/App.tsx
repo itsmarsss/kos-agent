@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  type FailingJob,
   api,
   type AuditRecord,
   type BuildRecord,
@@ -47,6 +48,8 @@ export function App(): React.ReactElement {
   const [crons, setCrons] = useState<CronJob[]>([]);
   /** The job being run by hand, so its own button can say so. */
   const [firing, setFiring] = useState<number | null>(null);
+  /** A message the harness sent, until the transcript has it. */
+  const [seed, setSeed] = useState<{ id: string; text: string } | null>(null);
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [pages, setPages] = useState<PageSummary[]>([]);
   const [activity, setActivity] = useState<AuditRecord[]>([]);
@@ -258,6 +261,41 @@ export function App(): React.ReactElement {
    * fix a broken schedule or a missing file is this one; a coding sub-agent
    * sandboxed to a folder cannot reach either.
    */
+  const beginFix = async (detail: {
+    label: string;
+    error: string;
+    what: string;
+    ref?: string;
+  }): Promise<void> => {
+    try {
+      const started = await api.fix({
+        label: detail.label,
+        error: detail.error,
+        what: detail.what,
+        ...(detail.ref ? { ref: detail.ref } : {}),
+      });
+      // Carried into the chat so the question is on screen the moment it
+      // opens, rather than appearing when the turn finishes recording.
+      setSeed({ id: started.conversationId, text: started.prompt });
+      await refresh();
+      go({ name: "chats", id: started.conversationId });
+      flash("ok", "KOS is looking into it");
+    } catch (err) {
+      flash("err", err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  /** A failure as the health report describes it. */
+  const fixFailure = (failure: FailingJob): void => {
+    const cron = /^cron:(\d+)$/.exec(failure.key);
+    void beginFix({
+      label: failure.label,
+      error: failure.error ?? "the job reported an error",
+      what: cron ? "scheduled job" : "job",
+      ...(cron ? { ref: `cron #${cron[1]}` } : {}),
+    });
+  };
+
   const startFix = async (row: HistoryRow): Promise<void> => {
     const detail =
       row.kind === "tool"
@@ -275,19 +313,22 @@ export function App(): React.ReactElement {
             what: row.run.kind === "cron" ? "scheduled job" : "run",
             ref: row.run.ref ? `${row.run.kind} #${row.run.ref}` : undefined,
           };
-    try {
-      const started = await api.fix({
-        label: detail.label,
-        error: detail.error,
-        what: detail.what,
-        ...(detail.ref ? { ref: detail.ref } : {}),
-      });
-      await refresh();
-      go({ name: "chats", id: started.conversationId });
-      flash("ok", "KOS is looking into it");
-    } catch (err) {
-      flash("err", err instanceof Error ? err.message : String(err));
+    await beginFix(detail);
+  };
+
+  /**
+   * Open whatever a failure belongs to. The key names the kind and the id,
+   * so a broken schedule opens its own editor rather than dropping the owner
+   * on a list to find it again.
+   */
+  const openFailure = (key: string): void => {
+    const cron = /^cron:(\d+)$/.exec(key);
+    const job = cron ? crons.find((c) => c.id === Number(cron[1])) : undefined;
+    if (job) {
+      setEditingCron({ job });
+      return;
     }
+    go({ name: "history" });
   };
 
   const toggleKill = async (): Promise<void> => {
@@ -436,6 +477,8 @@ export function App(): React.ReactElement {
             target={inspect}
             onClose={() => setInspect(null)}
             onOpenPage={openPage}
+            crons={crons}
+            onFix={(detail) => void beginFix(detail)}
             onOpenFolder={(path) => {
               setInspect(null);
               go({ name: "files", path });
@@ -668,6 +711,7 @@ export function App(): React.ReactElement {
         onOpen={(id) => go({ name: "chats", id })}
         onChanged={() => void refresh()}
         onDecide={decideByPendingId}
+        {...(seed ? { seed } : {})}
       />,
     );
   }
@@ -837,6 +881,8 @@ export function App(): React.ReactElement {
       deciding={deciding}
       onDecide={(id, approved) => void decide(id, approved)}
       onDismissFailure={(key) => void dismissFailure(key)}
+      onOpenFailure={(key) => openFailure(key)}
+      onFixFailure={fixFailure}
     />,
   );
 }

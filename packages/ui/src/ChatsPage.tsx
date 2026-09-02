@@ -79,6 +79,12 @@ export interface ChatsPageProps {
   onOpen: (id: string) => void;
   onChanged: () => void;
   onDecide: (pendingId: string, approved: boolean) => void;
+  /**
+   * A message handed to the server rather than typed here, shown until the
+   * transcript has it. Without it a fix attempt opened on an agent thinking
+   * about nothing, and the question it was answering appeared a minute later.
+   */
+  seed?: { id: string; text: string };
 }
 
 function relative(ts: number): string {
@@ -100,9 +106,22 @@ export function ChatsPage({
   onOpen,
   onChanged,
   onDecide,
+  seed,
 }: ChatsPageProps): ReactElement {
   const [query, setQuery] = useState("");
   const [events, setEvents] = useState<ChatEvent[]>([]);
+  /**
+   * A message the server was given directly, shown until the transcript
+   * catches up. A fix attempt is started by the harness rather than typed
+   * here, so the chat opened on an agent apparently thinking about nothing
+   * and the question appeared a minute later when the turn recorded itself.
+   */
+  const seeded =
+    seed &&
+    seed.id === activeId &&
+    !events.some((e) => e.kind === "message" && e.role === "you")
+      ? ([{ kind: "message", role: "you", text: seed.text }] as ChatEvent[])
+      : [];
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   // Which conversation is mid-send, not whether any is: shared across chats it
@@ -189,7 +208,7 @@ export function ChatsPage({
   const boxRef = useRef<HTMLDivElement>(null);
 
   const active = conversations.find((c) => c.id === activeId);
-  const visible = events;
+  const visible = [...seeded, ...events];
 
   /**
    * Reload on the conversation changing, and again whenever it has moved on

@@ -219,3 +219,26 @@ describe("writing a mention", () => {
     }
   });
 });
+
+/**
+ * The agent writes these too, not only the picker. It produced
+ * "@schedule:9 AM Pinger Test" from its own prose, which rendered as a chip
+ * reading "9" with the rest of the name left as text beside it.
+ */
+describe("what the agent is told to write", () => {
+  it("round-trips a job name with spaces", () => {
+    const written = writeMention("schedule", "9 AM Pinger Test");
+    expect(parseMentions(`Turning off ${written} for now.`)).toEqual([
+      { kind: "schedule", id: "9 AM Pinger Test" },
+    ]);
+  });
+
+  it("still reads a bare name as far as it can, rather than not at all", () => {
+    // The unbracketed form remains valid for ids that have no spaces, and a
+    // name with one degrades to its first word rather than breaking the
+    // message around it.
+    expect(parseMentions("@schedule:9 AM Pinger Test")).toEqual([
+      { kind: "schedule", id: "9" },
+    ]);
+  });
+});
