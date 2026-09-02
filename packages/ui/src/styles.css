@@ -1746,6 +1746,10 @@ select {
 
 /* —— buttons —— */
 .btn {
+  /* Used on anchors too, which otherwise keep the browser's underline: the
+     file browser's "Back to ..." rendered as an underlined link inside a
+     button-shaped box. */
+  text-decoration: none;
   border: 1px solid var(--line);
   background: var(--panel);
   color: var(--text);
@@ -2338,6 +2342,9 @@ li:hover .chats-item-when { opacity: 0; }
 
 /* —— references written into a message —— */
 .chip-ref {
+  /* The shape and the background already say it is a thing you can click.
+     Inherited from `.md a`, the underline just made it noisier. */
+  text-decoration: none;
   display: inline-block;
   padding: 0.02em 0.4em;
   border-radius: 0.5em;
@@ -2354,6 +2361,9 @@ li:hover .chats-item-when { opacity: 0; }
 .chip-ref--file { color: var(--muted); background: var(--panel-2); border-color: var(--line); }
 .chip-ref--schedule { color: var(--warn); background: var(--warn-dim); }
 .chip-ref--command { color: var(--accent); background: var(--accent-dim); }
+.chip-ref--chat { color: var(--accent); background: var(--accent-dim); border-color: color-mix(in srgb, var(--accent) 28%, transparent); }
+.chip-ref--site { color: var(--ok); background: var(--ok-dim); border-color: color-mix(in srgb, var(--ok) 28%, transparent); }
+.chip-ref--agent { color: var(--warn); background: var(--warn-dim); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
 /* On the owner's own bubble the accent is the background, so the chips need
    to sit against it rather than disappear into it. */
 .bubble--you .chip-ref {
@@ -3238,7 +3248,14 @@ li:hover .chats-item-when { opacity: 0; }
   overflow-x: auto;
 }
 .md-code code { background: none; padding: 0; font-size: var(--text-base); }
-.md a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+/* Prose links are underlined; a chip is not. The chip's own rule lost to
+   this one on specificity, so every reference in a message carried an
+   underline it did not need. */
+.md a:not(.chip-ref) {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .bubble--kos .md a { color: var(--accent); }
 
 /* —— modal —— */
