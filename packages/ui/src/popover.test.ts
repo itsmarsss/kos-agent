@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { place } from "./Select.js";
+import { fitInside, place } from "./popover.js";
 
 /**
  * Where the menu goes.
@@ -71,5 +71,44 @@ describe("placing a dropdown", () => {
     // than a two-pixel sliver.
     const cramped = place(rect({ top: 780, bottom: 795 }));
     expect(cramped.maxHeight).toBeGreaterThanOrEqual(140);
+  });
+});
+
+/**
+ * place() can only clamp by the width of the thing it is anchored to, which
+ * is right for a menu that is at least as wide as its button and wrong for a
+ * wide card hanging off a 20px bar in a chart. That ran off the right edge
+ * with its last column cut off, which is how this was found.
+ */
+describe("fitting a rendered panel", () => {
+  function panel(left: number, width: number): HTMLElement {
+    return {
+      style: {} as CSSStyleDeclaration,
+      getBoundingClientRect: () =>
+        ({ left, right: left + width, width }) as DOMRect,
+    } as HTMLElement;
+  }
+
+  it("pulls a panel back inside the right edge", () => {
+    vi.stubGlobal("window", { innerWidth: 1000, innerHeight: 800 });
+    const el = panel(900, 260);
+    fitInside(el);
+    // 900 + 260 = 1160, which is 168 past the 992 it is allowed.
+    expect(el.style.left).toBe("732px");
+  });
+
+  it("leaves a panel that already fits alone", () => {
+    vi.stubGlobal("window", { innerWidth: 1000, innerHeight: 800 });
+    const el = panel(100, 260);
+    fitInside(el);
+    expect(el.style.left).toBe(undefined);
+  });
+
+  it("prefers the left edge when the panel cannot fit at all", () => {
+    vi.stubGlobal("window", { innerWidth: 200, innerHeight: 800 });
+    const el = panel(150, 400);
+    fitInside(el);
+    // Cut off on one side either way; better the end than the beginning.
+    expect(el.style.left).toBe("8px");
   });
 });
