@@ -158,6 +158,10 @@ export function ChatsPage({
   const [collapsed, setCollapsed] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  /** The chat being renamed, with its title as the field starts. */
+  const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(
+    null,
+  );
   const menuRef = useRef<HTMLDivElement>(null);
   const closeMenu = useCallback(() => setMenuFor(null), []);
   useDismiss(menuRef, menuFor !== null, closeMenu);
@@ -675,6 +679,18 @@ export function ChatsPage({
                       type="button"
                       onClick={() => {
                         setMenuFor(null);
+                        // Renaming was only reachable by typing /rename, which
+                        // is a strange thing to have to know for the one bit
+                        // of a chat the owner is most likely to change.
+                        setRenaming({ id: c.id, title: c.title });
+                      }}
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuFor(null);
                         void api.rewind(c.id, 0, { forkTitle: `${c.title} copy` })
                           .then((r) => {
                             onChanged();
@@ -821,6 +837,55 @@ export function ChatsPage({
               />
             </Modal>
 
+            {/* Renaming is the one thing about a chat an owner changes most,
+                and it was reachable only by knowing to type /rename. */}
+            <Modal
+              open={renaming !== null}
+              title="Rename chat"
+              onClose={() => setRenaming(null)}
+            >
+              <form
+                className="rename-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const next = renaming?.title.trim();
+                  if (!renaming || !next) return;
+                  void api
+                    .renameConversation(renaming.id, next)
+                    .then(() => {
+                      setRenaming(null);
+                      onChanged();
+                    })
+                    .catch(() => setRenaming(null));
+                }}
+              >
+                <input
+                  className="kos-input"
+                  autoFocus
+                  value={renaming?.title ?? ""}
+                  onChange={(e) =>
+                    setRenaming((r) => (r ? { ...r, title: e.target.value } : r))
+                  }
+                />
+                <div className="rename-actions">
+                  <button
+                    type="submit"
+                    className="btn btn--primary"
+                    disabled={!renaming?.title.trim()}
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => setRenaming(null)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </Modal>
+
             {/* The thread knows the chats and agents by name, so a chip can
                 read "Lane A" rather than the id it is addressed by. */}
             <MentionNames resolve={nameFor}>
@@ -839,7 +904,16 @@ export function ChatsPage({
                 <LiveTurn live={live} />
               ) : (
                 sendingIn === activeId && (
-                  <div className="bubble bubble--kos is-thinking">sending…</div>
+                  // The same three dots a running turn shows. "sending..." in
+                  // italics read as the agent saying the word.
+                  <div className="bubble bubble--kos is-thinking">
+                    <span className="live-dots" aria-hidden="true">
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                    <span className="sr-only">Sending</span>
+                  </div>
                 )
               )}
 
@@ -902,6 +976,30 @@ export function ChatsPage({
                   initial="hidden"
                   animate="show"
                 >
+                  {/* A command's answer is a reply to something you did, not
+                      part of the conversation, and it sat there until the
+                      chat was reloaded. */}
+                  <button
+                    type="button"
+                    className="icon-btn note-close"
+                    title="Dismiss"
+                    onClick={() =>
+                      setNotes((all) => all.filter((x) => x.id !== n.id))
+                    }
+                  >
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
                   <Markdown text={n.text} />
                 </m.div>
               ))}

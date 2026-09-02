@@ -60,7 +60,9 @@ export function ToolCall({
 
       {queued && awaitingApproval && onDecide && (
         <div className="toolcall-approve">
-          <span>This needs your approval before it runs.</span>
+          <span className="toolcall-approve-text">
+            This needs your approval before it runs.
+          </span>
           <Decision id={Number(event.pendingId)} deciding={deciding} onDecide={(id, ok) => onDecide?.(String(id), ok)} small />
         </div>
       )}

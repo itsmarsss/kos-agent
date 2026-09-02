@@ -49,3 +49,9 @@ export {
   formatApprovalPrompt,
   summarizeAction,
 } from "./format-action.js";
+
+export {
+  CHAT_COMMANDS,
+  COMMAND_NAMES,
+  type CommandSpec,
+} from "./commands.js";
