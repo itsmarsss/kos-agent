@@ -6,6 +6,8 @@ import {
   type ReactNode,
 } from "react";
 
+import { COMMAND_NAMES } from "@kos/shared";
+
 import { hrefFor } from "./routes.js";
 
 /**
@@ -27,7 +29,12 @@ import { hrefFor } from "./routes.js";
  */
 const MENTION =
   /@(project|page|file|schedule|chat|site|agent):(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*[A-Za-z0-9_/-]))/;
-const COMMAND = /(^|\s)(\/(?:new|chats|switch|rename|archive|help))\b/;
+/*
+ * Built from the shared list rather than spelled out here. The private copy
+ * went stale: /compact, /clear and /tools were added to the harness and the
+ * renderer never learned them, so they were not recognised as commands.
+ */
+const COMMAND = new RegExp(`(^|\\s)(/(?:${COMMAND_NAMES.join("|")}))\\b`);
 
 /**
  * What to call a reference, where the surface knows.
@@ -50,6 +57,44 @@ export function MentionNames({
   return <Names.Provider value={resolve}>{children}</Names.Provider>;
 }
 
+/**
+ * A mark per kind.
+ *
+ * Seven kinds of reference in one colour scheme is four more than colour can
+ * carry, and two of them (project and chat) sat on the same accent. Drawn
+ * rather than emoji so they take the chip's own colour and line up with the
+ * text beside them.
+ */
+function KindMark({ kind }: { kind: string }): ReactElement | null {
+  const paths: Record<string, string> = {
+    project: "M3 7h6l2 2h10v10H3z",
+    page: "M6 3h8l4 4v14H6zM14 3v4h4",
+    file: "M7 3h7l4 4v14H7zM13 3v5h5",
+    schedule: "M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0",
+    chat: "M4 5h16v11H9l-5 4z",
+    site: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M3 12h18M12 3c3 4 3 14 0 18M12 3c-3 4-3 14 0 18",
+    agent: "M8 4h8v4H8zM5 8h14v9H5zM9 12h.01M15 12h.01M12 4V2",
+  };
+  const d = paths[kind];
+  if (!d) return null;
+  return (
+    <svg
+      className="chip-mark"
+      width="11"
+      height="11"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d={d} />
+    </svg>
+  );
+}
+
 function MentionChip({ kind, id }: { kind: string; id: string }): ReactElement {
   const resolve = useContext(Names);
   const label = resolve?.(kind, id) ?? id;
@@ -59,6 +104,7 @@ function MentionChip({ kind, id }: { kind: string; id: string }): ReactElement {
       href={refHref(kind, id)}
       title={`${kind}: ${id}`}
     >
+      <KindMark kind={kind} />
       {label}
     </a>
   );

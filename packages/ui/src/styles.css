@@ -2361,6 +2361,14 @@ li:hover .chats-item-when { opacity: 0; }
 .chip-ref--file { color: var(--muted); background: var(--panel-2); border-color: var(--line); }
 .chip-ref--schedule { color: var(--warn); background: var(--warn-dim); }
 .chip-ref--command { color: var(--accent); background: var(--accent-dim); }
+
+/* The mark sits with the text rather than above it, and takes the chip's
+   own colour so each kind reads as one thing. */
+.chip-mark {
+  vertical-align: -0.12em;
+  margin-right: 0.3em;
+  opacity: 0.85;
+}
 .chip-ref--chat { color: var(--accent); background: var(--accent-dim); border-color: color-mix(in srgb, var(--accent) 28%, transparent); }
 .chip-ref--site { color: var(--ok); background: var(--ok-dim); border-color: color-mix(in srgb, var(--ok) 28%, transparent); }
 .chip-ref--agent { color: var(--warn); background: var(--warn-dim); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
@@ -2959,19 +2967,20 @@ li:hover .chats-item-when { opacity: 0; }
 .viewer-count { color: var(--faint); font-variant-numeric: tabular-nums; }
 
 /* The model swap sits with the send controls, not behind a modal. */
-.composer-model {
-  background: none;
-  border: 1px solid transparent;
-  border-radius: var(--r-sm);
-  color: var(--faint);
-  font: inherit;
-  font-size: var(--text-base);
-  font-family: var(--mono);
-  padding: 0.15rem 0.3rem;
+/* The class is on the Select's wrapper; the chrome is on the button inside
+   it, so all of this used to style a div and the control kept the default
+   box. Quiet by default, like the other things on the composer row. */
+.composer-model .sel-button {
+  padding: 0.1rem 0.35rem;
   max-width: 11rem;
-  cursor: pointer;
+  color: var(--faint);
+  font-size: var(--text-sm);
 }
-.composer-model:hover { color: var(--text); border-color: var(--line); }
+.composer-model .sel-button:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--line);
+}
+.composer-model .sel-caret { font-size: 0.6rem; }
 
 /* —— markdown tables —— */
 .md-table-wrap { overflow-x: auto; margin: 0.5rem 0; }
@@ -3313,7 +3322,11 @@ li:hover .chats-item-when { opacity: 0; }
   background: var(--warn-dim);
   font-size: var(--text-md);
 }
-.toolcall-approve > span { flex: 1; min-width: 12rem; }
+/* The message grows; the buttons do not. This matched Decision's own
+   wrapper span as well, so both grew and the buttons started halfway across
+   the row with empty space after them. */
+.toolcall-approve-text { flex: 1; min-width: 12rem; }
+.toolcall-approve .decision { flex: none; }
 
 /* —— file browser —— */
 .files-crumbs {
@@ -4198,7 +4211,9 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
 /* An approval that belongs to this chat but to no tool call in it. */
 .loose-approval {
   display: flex;
-  align-items: center;
+  /* Aligned to the top rather than centred: the description wraps to two or
+     three lines and the buttons drifted to the middle of it. */
+  align-items: flex-start;
   gap: 0.85rem;
   padding: 0.7rem 0.85rem;
   margin: 0.25rem 0;
@@ -4210,6 +4225,7 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
 .loose-approval-main code { color: var(--warn); font-size: var(--text-xs); }
 .loose-approval-main span { font-size: var(--text-base); }
 .loose-approval-actions { display: flex; gap: 0.4rem; flex: none; }
+.loose-approval-main { padding-top: 0.1rem; }
 
 /* A build read like a terminal. */
 .term-wrap {
@@ -4807,3 +4823,46 @@ a.health {
 .panel-row-open:hover .fail-label {
   text-decoration: underline;
 }
+
+/* Present for a screen reader, absent for everyone else. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* A command's answer is a reply to something you did; it can be put away. */
+.chats-note { position: relative; }
+.note-close {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  opacity: 0;
+}
+.chats-note:hover .note-close,
+.note-close:focus-visible { opacity: 1; }
+.note-close:hover { color: var(--text); }
+
+.rename-form { display: flex; flex-direction: column; gap: 0.75rem; }
+.rename-actions { display: flex; gap: 0.5rem; }
+
+.agents-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.agent-start { display: flex; flex-direction: column; gap: 0.9rem; }
+.agent-start-actions { display: flex; gap: 0.5rem; }
+.kos-field { display: flex; flex-direction: column; gap: 0.3rem; }
+.kos-field-label { font-size: var(--text-md); }
