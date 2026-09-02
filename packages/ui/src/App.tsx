@@ -20,7 +20,7 @@ import { ListPage } from "./ListPage.js";
 import { AnimatePresence, m } from "motion/react";
 
 import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
-import { Modal } from "./Modal.js";
+import { Drawer } from "./Drawer.js";
 import { CronEditor } from "./CronEditor.js";
 import { ease, spring } from "./motion.js";
 import { HistoryPage, type HistoryRow } from "./HistoryPage.js";
@@ -644,9 +644,15 @@ export function App(): React.ReactElement {
 
         {body}
 
-        <Modal
+        {/* A drawer: a schedule has a name, a cron line, a type and a body
+            of actions, which is more than a dialog in the middle of the page
+            should be asked to hold. */}
+        <Drawer
           open={editingCron !== null}
-          title={editingCron?.job ? `Edit “${editingCron.job.name}”` : "New schedule"}
+          title={editingCron?.job ? editingCron.job.name : "New schedule"}
+          {...(editingCron?.job
+            ? { subtitle: `Cron #${editingCron.job.id}` }
+            : { subtitle: "Runs on its own, on a schedule you set" })}
           onClose={() => setEditingCron(null)}
         >
           {editingCron && (
@@ -659,7 +665,7 @@ export function App(): React.ReactElement {
               onCancel={() => setEditingCron(null)}
             />
           )}
-        </Modal>
+        </Drawer>
 
         <CommandPalette
           open={paletteOpen}
@@ -778,18 +784,21 @@ export function App(): React.ReactElement {
         rowKey={(c) => c.id}
         empty="No crons match"
         onRowClick={(c) => setEditingCron({ job: c })}
+        toolbar={
+          /* Writing one by hand: everything here could be asked for in a
+             sentence, but a schedule runs while nobody is watching, so it is
+             worth being able to read exactly what will happen. Sat among the
+             filters it read as one of them. */
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => setEditingCron({})}
+          >
+            New schedule
+          </button>
+        }
         filters={
           <div className="list-filter-group">
-            {/* Writing one by hand: everything here could be asked for in a
-                sentence, but a schedule runs while nobody is watching, so it
-                is worth being able to read exactly what will happen. */}
-            <button
-              type="button"
-              className="btn btn--primary"
-              onClick={() => setEditingCron({})}
-            >
-              New schedule
-            </button>
             {(["all", "on", "off"] as const).map((f) => (
               <button
                 key={f}

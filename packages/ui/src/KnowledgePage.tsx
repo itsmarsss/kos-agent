@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactElement } from "react";
 
 import { api, type FactRow } from "./api.js";
+import { PageHead } from "./PageHead.js";
 
 /**
  * Knowledge: what KOS and every conversation know.
@@ -117,29 +118,27 @@ export function KnowledgePage({
 
   return (
     <div className="know">
-      <div className="projects-head">
-        <div>
-          <h1>Knowledge</h1>
-          <p className="hint">
-            Shared across every conversation. Agents read this and write to it.
-          </p>
-        </div>
-        <div className="know-head-actions">
+      <PageHead
+        title="Knowledge"
+        subtitle="Shared across every conversation. Agents read this and write to it."
+        search={
           <input
-            className="chats-search projects-search"
+            className="list-search"
             value={query}
             placeholder="Search knowledge…"
             onChange={(e) => setQuery(e.target.value)}
           />
+        }
+        actions={
           <button
             type="button"
             className="btn btn--primary"
             onClick={() => setAdding((v) => !v)}
           >
-            {adding ? "Cancel" : "+ Add"}
+            {adding ? "Cancel" : "New fact"}
           </button>
-        </div>
-      </div>
+        }
+      />
 
       {adding && (
         <div className="know-add">

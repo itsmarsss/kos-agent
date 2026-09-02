@@ -904,15 +904,15 @@ export function ChatsPage({
                 <LiveTurn live={live} />
               ) : (
                 sendingIn === activeId && (
-                  // The same three dots a running turn shows. "sending..." in
-                  // italics read as the agent saying the word.
+                  // Dots and a word, the same shape a running turn uses.
+                  // Italic prose read as the agent saying "sending".
                   <div className="bubble bubble--kos is-thinking">
                     <span className="live-dots" aria-hidden="true">
                       <i />
                       <i />
                       <i />
                     </span>
-                    <span className="sr-only">Sending</span>
+                    <span className="live-what">sending</span>
                   </div>
                 )
               )}
@@ -1001,6 +1001,17 @@ export function ChatsPage({
                     </svg>
                   </button>
                   <Markdown text={n.text} />
+                  {/* Also at the end: a long answer meant scrolling back to
+                      the top to reach the corner. */}
+                  <button
+                    type="button"
+                    className="btn btn--sm note-done"
+                    onClick={() =>
+                      setNotes((all) => all.filter((x) => x.id !== n.id))
+                    }
+                  >
+                    Dismiss
+                  </button>
                 </m.div>
               ))}
 
