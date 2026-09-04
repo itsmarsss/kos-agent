@@ -19,19 +19,6 @@ function text(body: string): ModelResponse {
   };
 }
 
-function toolCall(
-  id: string,
-  name: string,
-  input: Record<string, unknown>,
-): ModelResponse {
-  return {
-    content: [{ type: "tool_use", id, name, input }],
-    stopReason: "tool_use",
-    usage: { inputTokens: 0, outputTokens: 0 },
-    model: "stub",
-  };
-}
-
 function scripted(responses: ModelResponse[]): Inference {
   let i = 0;
   return {
@@ -81,20 +68,23 @@ describe("answering a press", () => {
     });
   }
 
-  it("answers with a card, not with the card spelled out in words", async () => {
+  it("tells the turn which surface its answer is for", async () => {
     /*
-     * The defect: the press turn never said which surface its answer was for,
-     * so the kernel folded the card into the reply text and the reader got an
-     * embed written out as prose.
+     * A press answer is written for the surface the press came from, so the
+     * turn has to be told which one. It was not, and the answer came back
+     * formatted for nowhere in particular; the same omission had already cost
+     * a card, back when a card could ride on a reply.
      */
-    const model = scripted([
-      toolCall("n1", "notify", {
-        text: "",
-        asReply: true,
-        card: { title: "Budget", fields: [{ name: "Spent", value: "40" }] },
-      }),
-      text("You are 40 dollars in."),
-    ]);
+    // generate takes the task first, and the cheap task is the salience pass
+    // rather than the turn: reading its prompt would test the wrong call.
+    const seen: string[] = [];
+    const model: Inference = {
+      generate: async (task: string, req: { system?: string }) => {
+        if (task === "cheap") return text('{"facts":[]}');
+        seen.push(req.system ?? "");
+        return text("Done.");
+      },
+    } as unknown as Inference;
     kernel = await boot(model);
     const token = kernel.presses.register({
       conversationId: "primary:owner",
@@ -109,8 +99,8 @@ describe("answering a press", () => {
       spy.responder,
     );
 
-    expect(spy.sent[0]?.card?.title).toBe("Budget");
-    expect(spy.sent[0]?.text).not.toContain("Spent: 40");
+    expect(seen[0]).toContain("Replying on Discord");
+    expect(spy.sent[0]?.text).toContain("Done.");
   });
 
   it("shows the form, then works, then answers", async () => {
