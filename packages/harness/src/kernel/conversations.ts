@@ -127,6 +127,40 @@ export interface CreateConversationInput {
   id?: string;
 }
 
+/**
+ * What sort of thread this is.
+ *
+ * Three of the four are not conversations the owner started, and none of
+ * those three is theirs to rename, archive or delete: the router is what KOS
+ * is, a surface's stream is where a channel talks and would simply be remade
+ * on the next message, and a job's thread is the record of its runs. They
+ * were protected by not being shown, which is not the same as protected --
+ * the endpoints took any id at all.
+ */
+export type ConversationKind = "orchestrator" | "surface" | "schedule" | "chat";
+
+export function conversationKind(
+  conversation: Pick<Conversation, "id" | "channel">,
+  ownerId: string,
+): ConversationKind {
+  if (conversation.id === `orchestrator:${ownerId}`) return "orchestrator";
+  if (conversation.id.startsWith("cron:")) return "schedule";
+  // A surface's own stream is the channel's name and the owner's. A thread
+  // on a surface that has them is `channel:threadId`, which is not this.
+  if (conversation.channel && conversation.id === `${conversation.channel}:${ownerId}`) {
+    return "surface";
+  }
+  return "chat";
+}
+
+/** Threads the owner cannot rename, archive or delete. */
+export function isFixed(
+  conversation: Pick<Conversation, "id" | "channel">,
+  ownerId: string,
+): boolean {
+  return conversationKind(conversation, ownerId) !== "chat";
+}
+
 export class ConversationStore {
   private counter = 0;
 

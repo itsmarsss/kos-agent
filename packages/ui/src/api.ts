@@ -158,7 +158,7 @@ export interface Conversation {
   toolAllow: string[] | null;
   /** The orchestrator is a conversation, but not one of the owner's chats. */
   /** What sort of thread this is, for grouping in the list. */
-  kind?: "orchestrator" | "schedule" | "chat";
+  kind?: "orchestrator" | "surface" | "schedule" | "chat";
   /** What the thread is doing, so the list can say rather than look idle. */
   activity?: "working" | "needs-you" | "idle";
 }
