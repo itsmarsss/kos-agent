@@ -223,6 +223,17 @@ export function ChatsPage({
   const boxRef = useRef<HTMLDivElement>(null);
 
   const active = conversations.find((c) => c.id === activeId);
+  /*
+   * A turn is running here, on both accounts.
+   *
+   * The live view alone is not enough to hold the transcript still. A
+   * turn-end that never arrives -- a dropped stream, a sleeping tab -- leaves
+   * a live entry that no longer corresponds to anything, and keying only on
+   * that would block every refresh from then on: a transcript frozen at
+   * whatever it last held, which is the failure the holding was meant to
+   * prevent. The list is the other account, and it comes from the server.
+   */
+  const turnRunningHere = working && active?.activity === "working";
   const visible = [...seeded, ...events];
 
   /**
@@ -288,7 +299,7 @@ export function ChatsPage({
      * button press look like it was constantly redrawing itself. The one
      * fetch that matters is the one after it ends.
      */
-    if (mine && working && !justEnded) return;
+    if (mine && turnRunningHere && !justEnded) return;
     if (mine && loadedFor.stamp === stamp && !justEnded) return;
     if (!mine) {
       // Nothing from the previous conversation stays visible while this one
@@ -319,7 +330,7 @@ export function ChatsPage({
     return () => {
       cancelled = true;
     };
-  }, [activeId, stamp, sendingIn, loadedFor, justEnded, working]);
+  }, [activeId, stamp, sendingIn, loadedFor, justEnded, turnRunningHere]);
 
   // The live turn grows as it streams, so it is part of what pins the scroll.
   useStickToBottom(boxRef, [events, sendingIn, activeId, live?.steps.length, live?.text]);
