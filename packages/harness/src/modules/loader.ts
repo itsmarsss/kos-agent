@@ -28,7 +28,7 @@ export interface ModuleServices {
    * text: it may carry a card, buttons, and a destination other than the
    * owner. A surface that cannot render part of it renders what it can.
    */
-  notify?: (payload: NotifyPayload) => Promise<void>;
+  notify?: (payload: NotifyPayload) => Promise<string | undefined>;
   /** Project manifest (systems/tasks modules). */
   manifest?: ProjectManifest;
   /** Guarded schema migrator. */

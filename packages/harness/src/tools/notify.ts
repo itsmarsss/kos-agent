@@ -200,6 +200,21 @@ export function parseTarget(raw: unknown): MessageTarget {
   const parts = raw.split(":").filter((p) => p !== "");
   const head = parts[0]!;
 
+  /*
+   * Not a destination, and one that gets invented anyway.
+   *
+   * "reply" reads as a place to send to, so it gets tried, and it used to
+   * name a real thing here. Falling through to the surface check answered
+   * "no reply surface here", which reads as a broken bridge rather than a
+   * word that does not mean anything. Answering a press already goes back to
+   * whoever pressed, so there is nothing to ask for.
+   */
+  if (head === "reply" || head === "interaction") {
+    throw new Error(
+      `${head} is not a destination. Leave "to" out: while you are answering a press, that already goes back to whoever pressed, privately if the button asked for it.`,
+    );
+  }
+
   // A destination with no surface: whichever one is wired.
   if (head === "channel" || head === "user") {
     const id = parts[1];
@@ -275,6 +290,8 @@ export function noticeText(payload: NotifyPayload): string {
  */
 export function describeSend(args: {
   target: MessageTarget;
+  /** What the surface said about delivery, when it knows better than we do. */
+  delivered?: string;
   text: string;
   card?: MessageCard;
   buttons: MessageButton[];
@@ -283,9 +300,11 @@ export function describeSend(args: {
 }): string {
   const { target, card, buttons } = args;
 
-  const where = `Sent to ${
-    target.kind === "owner" ? "the owner" : `${target.kind} ${target.id}`
-  }${target.surface ? ` on ${target.surface}` : ""}.`;
+  const where =
+    args.delivered ??
+    `Sent to ${
+      target.kind === "owner" ? "the owner" : `${target.kind} ${target.id}`
+    }${target.surface ? ` on ${target.surface}` : ""}.`;
 
   const carried: string[] = [];
   if (args.text) carried.push("text");
@@ -498,7 +517,7 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
             };
           });
 
-          await services.notify({
+          const delivered = await services.notify({
             text,
             target,
             ...(card ? { card } : {}),
@@ -507,6 +526,7 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
 
           return describeSend({
             target,
+            ...(delivered ? { delivered } : {}),
             text,
             ...(card ? { card } : {}),
             buttons,
