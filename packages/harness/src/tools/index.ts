@@ -1,5 +1,6 @@
 export { filesModule, outsideScratch } from "./files.js";
 export { sqlModule, defineSqlTool } from "./sql.js";
+export { createCronModule, cronModule, type CronToolDeps } from "./cron.js";
 export {
   createDaemonsModule,
   daemonName,
@@ -22,7 +23,6 @@ export {
   defineSearchTools,
   type SearchModuleOptions,
 } from "./search.js";
-export { cronModule } from "./cron.js";
 export { systemsModule } from "./systems.js";
 export { tasksModule } from "./tasks.js";
 export { exportModule, toCsv, toMarkdown } from "./export.js";
