@@ -12,6 +12,7 @@ import {
   Kernel,
   connectChannel,
   createDashboardServer,
+  createPressHandler,
   primarySessionId,
   startSiteServer,
   type NotifyPayload,
@@ -225,58 +226,14 @@ export async function runHost(options: HostOptions): Promise<void> {
      * turn machinery, in the conversation recorded when the button went out.
      * The reply goes back the way any reply does.
      */
-    adapter.onButton(async (press, respond) => {
-      const route = kernel.presses.get(press.token);
-      if (!route) {
-        console.warn(`[discord] press on an unknown or expired button: ${press.token}`);
-        await respond.send({
-          text: "That button is from a message too old to still be live.",
-        });
-        return;
-      }
-
-      /*
-       * A form first, if the button opens one, because the surface will not
-       * show one once the interaction has been acknowledged any other way.
-       * A reader who closes it has decided not to answer, and that is the end
-       * of it rather than a turn run on nothing.
-       */
-      let filled: Record<string, string> | undefined;
-      if (route.modal) {
-        filled = await respond.openForm(route.modal);
-        if (!filled) return;
-      }
-
-      // Said before the work starts, because a turn takes longer than the
-      // surface will wait, and whether the answer is private is settled here.
-      await respond.working({ ...(route.ephemeral ? { ephemeral: true } : {}) });
-
-      // What the agent is told. A press is a message from a person, so it
-      // says who, which button, and what they typed -- not merely that
-      // something was pressed.
-      const said = [
-        `[${press.pressedBy === creds.ownerId ? "you" : press.pressedBy} pressed "${route.label}"`,
-        route.buttonId && route.buttonId !== route.label ? ` (${route.buttonId})` : "",
-        "]",
-        filled && Object.keys(filled).length
-          ? `\n${Object.entries(filled)
-              .map(([name, value]) => `${name}: ${value}`)
-              .join("\n")}`
-          : "",
-      ].join("");
-
-      const res = await kernel.handleMessage(said, {
-        sessionId: route.conversationId,
-        origin: "system",
-      });
-      // The answer goes back to the press rather than into the void, which is
-      // where it went before: the turn ran and the presser saw nothing.
-      await respond.send({
-        text: res.reply,
-        ...(res.card ? { card: res.card } : {}),
-        ...(res.buttons?.length ? { buttons: res.buttons } : {}),
-      });
-    });
+    adapter.onButton(
+      createPressHandler({
+        kernel,
+        // The surface the answer is going to, so a card comes back as a card.
+        channel: adapter.name,
+        ownerRecipientId: creds.ownerId,
+      }),
+    );
     runtime = connectChannel(adapter, kernel, {
       ownerRecipientId: creds.ownerId,
       // The sender->user table, seeded from config: only the configured Discord

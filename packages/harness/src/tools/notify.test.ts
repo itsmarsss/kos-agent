@@ -168,8 +168,8 @@ describe("notifyModule", () => {
       card: { title: "Status" },
     });
     expect(res.isError).toBe(false);
-    expect(res.content).toContain("Nothing has been sent yet");
-    expect(res.content).toContain("Write that answer now");
+    expect(res.content).toContain("Not sent.");
+    expect(res.content).toContain("write that reply now");
     expect(res.content).not.toMatch(/^sent/);
   });
 
@@ -230,10 +230,10 @@ describe("notifyModule", () => {
     expect(res.isError).toBe(false);
     expect(res.content).toContain("Sent to the owner on discord");
     expect(res.content).toContain("3 buttons");
-    expect(res.content).toContain("A press comes back to you as a message");
-    expect(res.content).toContain('"Add a note" opens a form');
-    expect(res.content).toContain('"Just me" answers only to whoever pressed');
-    expect(res.content).toContain("A link button is a link");
+    expect(res.content).toContain("Presses arrive as a message");
+    expect(res.content).toContain('Opens a form: "Add a note"');
+    expect(res.content).toContain('Answers privately: "Just me"');
+    expect(res.content).toContain("Link buttons send nothing back");
   });
 
   it("does not describe a card by the fields it does not have", () => {
