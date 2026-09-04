@@ -836,7 +836,7 @@ export function SettingsPage(): ReactElement {
         {active === "conversation" && (
           <Section
             title="Conversation"
-            blurb="How much of a chat is carried into the next turn. Past these, the oldest exchanges fall off the front; /compact turns them into a summary instead."
+            blurb="How much of a chat is carried into the next turn. Past these, the oldest exchanges fall off the front; /compact turns them into a summary instead. Set any of them to 0 to stop trimming on that count, at the cost of a history that grows without bound and is re-sent every turn."
             {...saveBar(
               "conversation",
               retention.maxChars !== String(data.retention.maxChars) ||
@@ -857,7 +857,7 @@ export function SettingsPage(): ReactElement {
           >
             <Field
               label="History budget"
-              hint={`Characters of a conversation kept. Default ${data.retentionDefaults.maxChars.toLocaleString()}.`}
+              hint={`Characters of a conversation kept. 0 for no limit. Default ${data.retentionDefaults.maxChars.toLocaleString()}.`}
             >
               <input
                 className="kos-input"
@@ -870,7 +870,7 @@ export function SettingsPage(): ReactElement {
             </Field>
             <Field
               label="Exchanges kept"
-              hint={`Hard ceiling regardless of size. Default ${data.retentionDefaults.maxExchanges}.`}
+              hint={`Hard ceiling regardless of size. 0 for no limit. Default ${data.retentionDefaults.maxExchanges}.`}
             >
               <input
                 className="kos-input"
@@ -883,7 +883,7 @@ export function SettingsPage(): ReactElement {
             </Field>
             <Field
               label="Tool result cap"
-              hint={`A single result longer than this is truncated rather than dropped. Default ${data.retentionDefaults.maxToolResultChars.toLocaleString()}.`}
+              hint={`A single result longer than this is truncated rather than dropped. 0 for no limit. Default ${data.retentionDefaults.maxToolResultChars.toLocaleString()}.`}
             >
               <input
                 className="kos-input"
