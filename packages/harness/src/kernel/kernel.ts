@@ -957,6 +957,10 @@ export class Kernel {
            */
           const sdkRun = runSdkChat({
             prompt: priorForSdk(this.sessions.historyForPrompt(sessionId), text),
+            // The turn's own pictures, which a prompt string cannot carry.
+            ...(opts.attachments?.length
+              ? { attachments: opts.attachments }
+              : {}),
             system,
             tools,
             cwd: this.workspace.root,

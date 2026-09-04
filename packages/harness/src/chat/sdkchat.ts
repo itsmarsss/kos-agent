@@ -74,6 +74,15 @@ export interface SdkChatResult {
 
 export interface SdkChatOptions {
   prompt: string;
+  /**
+   * Pictures and files that came with the message.
+   *
+   * Sent as content blocks rather than folded into the prompt, because a
+   * prompt is a string and a picture is not. Without this the SDK path saw
+   * only text: an owner who attached a photo got an answer written as though
+   * nothing had been attached.
+   */
+  attachments?: { mediaType: string; data: string }[];
   system: string;
   tools: ToolBox;
   cwd: string;
@@ -100,12 +109,28 @@ export function priorForSdk(
   const spoken = history
     .map((m) => {
       const blocks = Array.isArray(m.content) ? m.content : [];
+      /*
+       * Text, plus a note where something was not text.
+       *
+       * Dropping non-text blocks silently made an earlier picture look like
+       * it had never been sent, so a follow-up question about it read as the
+       * owner asking about nothing.
+       */
       const said = blocks
-        .filter((b): b is { type: "text"; text: string } => {
-          const block = b as { type?: string; text?: unknown };
-          return block.type === "text" && typeof block.text === "string";
+        .map((b) => {
+          const block = b as { type?: string; text?: unknown; name?: unknown };
+          if (block.type === "text" && typeof block.text === "string") {
+            return block.text;
+          }
+          if (block.type === "image") {
+            return `[a picture${typeof block.name === "string" ? `: ${block.name}` : ""}]`;
+          }
+          if (block.type === "file" && typeof block.text === "string") {
+            return `[${typeof block.name === "string" ? block.name : "a file"}]\n${block.text}`;
+          }
+          return "";
         })
-        .map((b) => b.text)
+        .filter(Boolean)
         .join("\n")
         .trim();
       if (!said) return "";
@@ -180,8 +205,39 @@ export async function runSdkChat(
   const usage = { inputTokens: 0, outputTokens: 0 };
   let stopped = false;
 
+  /*
+   * A string prompt cannot carry a picture, so a turn with one is sent as a
+   * message instead. One message either way; the shape differs because the
+   * content does.
+   */
+  const images = (options.attachments ?? []).filter((a) =>
+    a.mediaType.startsWith("image/"),
+  );
+  const prompt = images.length
+    ? (async function* () {
+        yield {
+          type: "user" as const,
+          parent_tool_use_id: null,
+          message: {
+            role: "user" as const,
+            content: [
+              { type: "text" as const, text: options.prompt },
+              ...images.map((a) => ({
+                type: "image" as const,
+                source: {
+                  type: "base64" as const,
+                  media_type: a.mediaType as "image/png",
+                  data: a.data,
+                },
+              })),
+            ],
+          },
+        };
+      })()
+    : options.prompt;
+
   const stream = query({
-    prompt: options.prompt,
+    prompt,
     options: {
       cwd: options.cwd,
       additionalDirectories: [],

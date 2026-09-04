@@ -675,16 +675,16 @@ export async function handleApiRequest(
       const raw = (body as Record<string, unknown>)[key];
       if (raw === undefined) continue;
       const value = Number(raw);
-      // A zero or negative budget would retain nothing, which reads as KOS
-      // having forgotten everything rather than as a setting.
-      if (Number.isFinite(value) && value > 0) accepted[key] = Math.floor(value);
+      // Zero is off for that budget, which the owner may genuinely want.
+      // Negative is not a smaller budget, it is a typo.
+      if (Number.isFinite(value) && value >= 0) accepted[key] = Math.floor(value);
       else rejected.push(key);
     }
     if (rejected.length > 0) {
       return {
         status: 400,
         body: {
-          error: `must be a positive number: ${rejected.join(", ")}`,
+          error: `must be a number, 0 for no limit: ${rejected.join(", ")}`,
         },
       };
     }
