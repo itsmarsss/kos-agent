@@ -53,6 +53,32 @@ describe("PressRoutes", () => {
     expect(a).not.toBe(b);
   });
 
+  it("remembers the form a button opens", () => {
+    // The surface hands back the button on a press, never the form, and the
+    // button may be days older than the process.
+    const token = routes.register({
+      conversationId: "c1",
+      buttonId: "note",
+      label: "Add a note",
+      modal: { title: "A note", fields: [{ id: "note", label: "Note" }] },
+      ephemeral: true,
+    });
+    const found = routes.get(token);
+    expect(found?.modal?.fields[0]?.id).toBe("note");
+    expect(found?.ephemeral).toBe(true);
+  });
+
+  it("opens a table written before forms existed", () => {
+    // The column is added after the fact, so a workspace that predates it
+    // still opens rather than failing at boot.
+    const token = routes.register({
+      conversationId: "c1",
+      buttonId: "plain",
+      label: "Plain",
+    });
+    expect(new PressRoutes(ws.db).get(token)?.modal).toBeUndefined();
+  });
+
   it("knows nothing about a token it never gave out", () => {
     expect(routes.get("made-up")).toBeUndefined();
   });

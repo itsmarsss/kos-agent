@@ -110,8 +110,12 @@ export function channelGuidance(channel?: string): string | undefined {
     "A card suits a handful of named values, a status, or one thing with a few facts about it.",
     "Prose suits everything else: a card around a paragraph is a box around a paragraph.",
     "A button needs a label that says what pressing it does, because the press comes back to",
-    "you as that label and nothing else. Offer them when the next step is one of a few known",
-    "choices, not as decoration on an answer that needed none.",
+    "you as a message naming that label. Offer them when the next step is one of a few known",
+    "choices, not as decoration on an answer that needed none. Your answer to a press goes",
+    "back to whoever pressed it, so write it as a reply to them.",
+    "For an answer that is not one of a fixed few -- a note, an amount, a name -- give the",
+    "button a `modal`: a form of up to five boxes, whose contents arrive with the press.",
+    "Set `ephemeral` on a button when its answer is for the presser alone.",
   ].join("\n");
 }
 

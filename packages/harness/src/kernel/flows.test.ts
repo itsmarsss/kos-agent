@@ -1338,6 +1338,47 @@ describe("KOS end-to-end flows", () => {
     expect(here.isError).toBe(false);
   });
 
+  it("keeps the form a button opens, all the way to where a press looks", async () => {
+    /*
+     * The surface hands back the button on a press and never the form, so the
+     * only place it can come from is the row written when the button was
+     * sent. It was being parsed off the call and then dropped on the way
+     * there, so every button opened nothing.
+     */
+    const model = scripted([
+      toolCall("n1", "notify", {
+        text: "log it",
+        asReply: true,
+        buttons: [
+          {
+            label: "Log an expense",
+            id: "log",
+            ephemeral: true,
+            modal: {
+              title: "Log an expense",
+              fields: [
+                { id: "amount", label: "Amount" },
+                { id: "note", label: "Note", style: "paragraph" },
+              ],
+            },
+          },
+        ],
+      }),
+      text("Use the button."),
+    ]);
+    kernel = await boot(model.inference);
+    const res = await kernel.handleMessage("track an expense", {
+      channel: "discord",
+    });
+
+    const token = res.buttons?.[0]?.token;
+    expect(token).toBeTruthy();
+    const route = kernel.presses.get(token!);
+    expect(route?.modal?.title).toBe("Log an expense");
+    expect(route?.modal?.fields.map((f) => f.id)).toEqual(["amount", "note"]);
+    expect(route?.ephemeral).toBe(true);
+  });
+
   it("refuses to shape a reply when there is no turn to shape", async () => {
     const model = scripted([text("ok")]);
     kernel = await boot(model.inference);

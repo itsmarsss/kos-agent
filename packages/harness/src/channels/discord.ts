@@ -7,9 +7,14 @@ import {
   Events,
   GatewayIntentBits,
   MessageFlags,
+  ModalBuilder,
   Partials,
+  TextInputBuilder,
+  TextInputStyle,
+  type ButtonInteraction,
   type Interaction,
   type Message,
+  type ModalSubmitInteraction,
 } from "discord.js";
 import {
   formatApprovalPrompt,
@@ -27,7 +32,9 @@ import type {
   MessageCard,
   MessageHandler,
   MessageTarget,
+  ModalSpec,
   OutboundMessage,
+  PressResponder,
   SenderAuthorizer,
   TurnPresence,
 } from "./types.js";
@@ -36,6 +43,10 @@ export const APPROVE_PREFIX = "kos:approve:";
 export const DENY_PREFIX = "kos:deny:";
 /** A button the agent put there, as opposed to one the risk gate did. */
 export const PRESS_PREFIX = "kos:press:";
+/** The form a press opened, named for the button it came from. */
+export const MODAL_PREFIX = "kos:form:";
+/** How long a form is left open before the interaction is let go. */
+const MODAL_WAIT_MS = 5 * 60 * 1000;
 
 const REACT_WORKING = "⏳";
 const REACT_DONE = "✅";
@@ -261,6 +272,31 @@ export function buildButtons(
   return rows;
 }
 
+/** Turn a neutral form into what Discord shows. */
+export function buildModal(customId: string, modal: ModalSpec): ModalBuilder {
+  const built = new ModalBuilder()
+    .setCustomId(customId)
+    .setTitle(modal.title.slice(0, 45));
+  // Five is what the surface allows; the rest are dropped rather than making
+  // the whole form fail to open.
+  for (const field of modal.fields.slice(0, 5)) {
+    const input = new TextInputBuilder()
+      .setCustomId(field.id)
+      .setLabel(field.label.slice(0, 45))
+      .setStyle(
+        field.style === "paragraph" ? TextInputStyle.Paragraph : TextInputStyle.Short,
+      )
+      .setRequired(field.required !== false);
+    if (field.placeholder) input.setPlaceholder(field.placeholder.slice(0, 100));
+    if (field.value) input.setValue(field.value);
+    if (field.maxLength) input.setMaxLength(field.maxLength);
+    built.addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(input),
+    );
+  }
+  return built;
+}
+
 export class DiscordAdapter implements ChannelAdapter {
   readonly name = "discord";
   private readonly client: Client;
@@ -351,20 +387,7 @@ export class DiscordAdapter implements ChannelAdapter {
       // reading it defensively is cheaper than narrowing a wire shape.
       const label =
         (interaction.component as { label?: string | null }).label ?? "";
-      try {
-        // Acknowledged without changing the message: the buttons stay usable,
-        // because a press is a message to KOS rather than a decision that
-        // consumes the thing it was on.
-        await interaction.deferUpdate();
-      } catch {
-        // interaction may already be acknowledged
-      }
-      await this.buttonHandler?.({
-        buttonId: "",
-        label,
-        token,
-        pressedBy: interaction.user.id,
-      });
+      await this.handlePress(interaction, token, label);
       return;
     }
 
@@ -409,6 +432,110 @@ export class DiscordAdapter implements ChannelAdapter {
       approved: decision.approved,
       deciderId: interaction.user.id,
     });
+  }
+
+  /**
+   * A press, from the moment it lands to the answer the presser reads.
+   *
+   * Discord holds the presser on a spinner and will not hold one for long: an
+   * acknowledgement is due in about three seconds and the real answer within
+   * fifteen minutes. A turn takes as long as it takes, so the order matters
+   * and it is the handler that decides it -- ask for the form first, because
+   * a form cannot be shown once the interaction has been acknowledged any
+   * other way; then say the work has started; then say the thing.
+   */
+  private async handlePress(
+    interaction: ButtonInteraction,
+    token: string,
+    label: string,
+  ): Promise<void> {
+    // Where the answer goes once a form has moved the conversation onto the
+    // submission: the button's own interaction can no longer be replied to.
+    let live: ButtonInteraction | ModalSubmitInteraction = interaction;
+    let acknowledged = false;
+
+    const respond: PressResponder = {
+      openForm: async (modal) => {
+        const formId = `${MODAL_PREFIX}${token}`;
+        await interaction.showModal(buildModal(formId, modal));
+        try {
+          const submitted = await interaction.awaitModalSubmit({
+            time: MODAL_WAIT_MS,
+            filter: (i) =>
+              i.customId === formId && i.user.id === interaction.user.id,
+          });
+          live = submitted;
+          const values: Record<string, string> = {};
+          for (const field of modal.fields) {
+            values[field.id] = submitted.fields.getTextInputValue(field.id);
+          }
+          return values;
+        } catch {
+          // Closed, or left open past the window. Not an error: the reader
+          // decided not to answer, and there is nothing to report.
+          return undefined;
+        }
+      },
+
+      working: async (opts) => {
+        if (acknowledged) return;
+        acknowledged = true;
+        try {
+          // deferReply rather than deferUpdate: the answer is a new message,
+          // so the message the button sits on keeps its buttons and stays
+          // pressable.
+          await live.deferReply({
+            ...(opts?.ephemeral ? { flags: MessageFlags.Ephemeral } : {}),
+          });
+        } catch {
+          // already acknowledged by something else
+        }
+      },
+
+      send: async (msg) => {
+        const payload = {
+          ...(msg.text ? { content: msg.text.slice(0, 2000) } : {}),
+          ...(msg.card ? { embeds: [buildCard(msg.card)] } : {}),
+          ...(msg.buttons?.length ? { components: buildButtons(msg.buttons) } : {}),
+        };
+        if (!payload.content && !payload.embeds) payload.content = "(no reply)";
+        try {
+          if (acknowledged) {
+            await live.editReply(payload);
+            return;
+          }
+          await live.reply(payload);
+          acknowledged = true;
+        } catch {
+          // Past the window the interaction is gone, so the answer goes where
+          // the reader can still find it rather than nowhere.
+          await this.send(interaction.user.id, msg);
+        }
+      },
+    };
+
+    if (!this.buttonHandler) {
+      try {
+        await interaction.deferUpdate();
+      } catch {
+        // nothing is listening; the press is simply dropped
+      }
+      return;
+    }
+
+    await this.buttonHandler(
+      { buttonId: "", label, token, pressedBy: interaction.user.id },
+      respond,
+    );
+
+    // A handler that said nothing still has to release the spinner.
+    if (!acknowledged) {
+      try {
+        await interaction.deferUpdate();
+      } catch {
+        // already acknowledged
+      }
+    }
   }
 
   async stop(): Promise<void> {
