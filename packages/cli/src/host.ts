@@ -226,6 +226,21 @@ export async function runHost(options: HostOptions): Promise<void> {
      * turn machinery, in the conversation recorded when the button went out.
      * The reply goes back the way any reply does.
      */
+    /*
+     * A decision made anywhere settles the prompt here.
+     *
+     * The Discord prompt kept its buttons until Discord was the surface that
+     * answered it, so deciding from the dashboard left a message still
+     * offering the choice, and pressing it reported that the action did not
+     * exist. The queue tells whoever is listening, so this listens.
+     */
+    kernel.approvals.onDecided((action) => {
+      void adapter?.settleApproval?.(
+        String(action.id),
+        action.status === "approved" ? "approved" : "denied",
+      );
+    });
+
     adapter.onButton(
       createPressHandler({
         kernel,
