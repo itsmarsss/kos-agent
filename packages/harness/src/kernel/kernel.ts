@@ -64,6 +64,7 @@ import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
 import { createHttpModule } from "../tools/http.js";
 import { createDaemonsModule } from "../tools/daemons.js";
+import { createToolsModule } from "../tools/tools.js";
 import { createSearchModule } from "../tools/search.js";
 import { exportModule } from "../tools/export.js";
 import { createSkillsModule } from "../tools/skills.js";
@@ -533,6 +534,12 @@ export class Kernel {
         allowedHosts: options.allowedHosts ?? [],
       }),
       createSearchModule(),
+      createToolsModule({
+        // The live registry: a module loaded after boot is a capability the
+        // agent should be able to find out about.
+        registry: () => registry,
+        allow: () => kernelRef?.conversations.get(kernelRef.currentConversationId ?? "")?.toolAllow ?? undefined,
+      }),
       createDaemonsModule({
         store: daemons,
         supervisor,
@@ -1761,7 +1768,11 @@ export class Kernel {
       audit: this.audit,
       approvals: this.approvals,
       userId: opts.userId ?? this.profile.ownerId,
-      toolLimit: 48,
+      // Above the registry rather than under it. At 48 with fifty tools the
+      // narrowing was on for every turn of every conversation, so the offered
+      // set changed shape with the wording of each message and nothing said
+      // so. Scoping is for the many-modules case it was written for.
+      toolLimit: 96,
       ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
       ...(opts.scopeTags ? { scopeTags: opts.scopeTags } : {}),
       ...(opts.allow !== undefined ? { allow: opts.allow } : {}),

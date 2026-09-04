@@ -29,3 +29,4 @@ export { exportModule, toCsv, toMarkdown } from "./export.js";
 export { createSkillsModule, SKILLS_DIR } from "./skills.js";
 export { createChatsModule, CHAT_TOOLS, type ChatToolDeps } from "./chats.js";
 export { createMemoryModule, MEMORY_TOOLS, type MemoryToolDeps } from "./memory.js";
+export { createToolsModule, describeTools, type ToolsToolDeps } from "./tools.js";
