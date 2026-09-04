@@ -1,6 +1,7 @@
 import type {
   ButtonPress,
   ButtonPressHandler,
+  OutboundMessage,
   PressResponder,
 } from "../channels/types.js";
 import type { Kernel } from "./kernel.js";
@@ -83,10 +84,16 @@ export function createPressHandler(deps: PressHandlerDeps): ButtonPressHandler {
      * surface can make an interaction response private and cannot make an
      * ordinary message private at all, so a card sent any other way would be
      * a public answer to a private button.
+     *
+     * Held rather than sent as it arrives. Sending immediately and then
+     * sending the turn's reply too gave the presser the card and then a
+     * paragraph restating it, as two messages under one header, the first
+     * marked edited. One press, one answer.
      */
-    const close = deps.kernel.openReplySurface(route.conversationId, (msg) =>
-      respond.followUp(msg),
-    );
+    const held: OutboundMessage[] = [];
+    const close = deps.kernel.openReplySurface(route.conversationId, async (msg) => {
+      held.push(msg);
+    });
     let res;
     try {
       res = await deps.kernel.handleMessage(
@@ -105,6 +112,21 @@ export function createPressHandler(deps: PressHandlerDeps): ButtonPressHandler {
       close();
     }
 
-    await respond.send({ text: res.reply });
+    /*
+     * The answer is what the agent composed, when it composed one.
+     *
+     * A turn that sent a card said what it wanted to say in the card, and its
+     * reply text is then commentary on having sent it. So the card's own text
+     * wins, and the turn's reply stands in only when there was no card.
+     */
+    const [first, ...rest] = held;
+    await respond.send(
+      first
+        ? { ...first, text: first.text || res.reply }
+        : { text: res.reply },
+    );
+    // Anything else it sent still gets there, rather than being swallowed to
+    // keep the count at one.
+    for (const extra of rest) await respond.followUp(extra);
   };
 }
