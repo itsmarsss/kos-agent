@@ -159,12 +159,51 @@ describe("answering a press", () => {
      */
     expect(spy.calls).toEqual(["working:private", "send"]);
     expect(spy.sent[0]?.card?.title).toBe("Budget");
-    // The card's own text is what the agent wrote for the reader; the turn's
-    // reply is commentary on having sent it.
+    // Exactly what was sent, and nothing of the turn's reply: by the time an
+    // agent has composed a message it has said what it meant.
     expect(spy.sent[0]?.text).toBe("here it is");
+    expect(spy.sent[0]?.text).not.toContain("Done.");
   });
 
-  it("falls back to the turn's words when it sent no card", async () => {
+  it("says only the words the agent sent, when it sent a card with none", async () => {
+    const model: Inference = {
+      generate: async (task: string) => {
+        if (task === "cheap") return text('{"facts":[]}');
+        if (bare++ === 0) {
+          return {
+            content: [
+              {
+                type: "tool_use",
+                id: "n1",
+                name: "notify",
+                input: { text: "", card: { title: "Budget" } },
+              },
+            ],
+            stopReason: "tool_use",
+            usage: { inputTokens: 0, outputTokens: 0 },
+            model: "stub",
+          } as ModelResponse;
+        }
+        return text("I have sent you a card.");
+      },
+    } as unknown as Inference;
+    let bare = 0;
+    kernel = await boot(model);
+    const token = kernel.presses.register({
+      conversationId: "primary:owner",
+      buttonId: "x",
+      label: "X",
+    });
+    const spy = responderSpy();
+    const handle = createPressHandler({ kernel, channel: "discord" });
+    await handle({ buttonId: "", label: "X", token, pressedBy: "u1" }, spy.responder);
+
+    // The card speaks. "I have sent you a card" is not an answer to anything.
+    expect(spy.sent[0]?.card?.title).toBe("Budget");
+    expect(spy.sent[0]?.text ?? "").toBe("");
+  });
+
+  it("falls back to the turn's words when it sent nothing at all", async () => {
     kernel = await boot(scripted([text("Just an answer.")]));
     const token = kernel.presses.register({
       conversationId: "primary:owner",
