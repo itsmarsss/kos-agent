@@ -1563,16 +1563,20 @@ export class Kernel {
     const active = this.conversations.activeFor(channel, userId);
     if (active) return this.conversations.get(active)!;
 
-    // Fall back to the most recent conversation, else the primary one.
-    const existing = this.conversations.list(userId)[0];
+    /*
+     * No pointer yet, so the main thread rather than whatever was touched
+     * last.
+     *
+     * It used to take the most recently updated conversation, which was
+     * already a guess and became a wrong one: an agent's own thread, or a
+     * scheduled job's, is the most recent thing in the workspace most of the
+     * time, and neither is somewhere the owner was talking. First contact on
+     * a surface lands in the main thread, and /switch moves it from there.
+     */
+    const id = primarySessionId(userId);
     const chosen =
-      existing ??
-      this.conversations.create({
-        id: primarySessionId(userId),
-        userId,
-        channel,
-        title: "Main",
-      });
+      this.conversations.get(id) ??
+      this.conversations.create({ id, userId, channel, title: "Main" });
     this.conversations.setActive(channel, userId, chosen.id);
     return chosen;
   }
