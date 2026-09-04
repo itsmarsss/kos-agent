@@ -12,6 +12,7 @@ import {
   noticeText,
   notifyModule,
   parseTarget,
+  sendsElsewhere,
   type NotifyPayload,
 } from "./notify.js";
 
@@ -114,10 +115,42 @@ describe("notifyModule", () => {
     // Answering is not speaking somewhere new. If a card cost an approval and
     // a paragraph cost nothing, the agent would learn never to use one.
     const registry = await load(async () => undefined);
-    expect(parseTarget("reply")).toEqual({ kind: "reply" });
-    expect(registry.classify("notify", { text: "x", to: "reply" }).tier).toBe(
+    expect(registry.classify("notify", { text: "x", asReply: true }).tier).toBe(
       "safe",
     );
+  });
+
+  it("reads the surface out of a destination, then where on it", () => {
+    // "to" answers which surface and where on it. Both optional, and the
+    // common case is neither.
+    expect(parseTarget(undefined)).toEqual({ kind: "owner" });
+    expect(parseTarget("discord")).toEqual({ surface: "discord", kind: "owner" });
+    expect(parseTarget("discord:channel:123")).toEqual({
+      surface: "discord",
+      kind: "channel",
+      id: "123",
+    });
+    // A destination with no surface still works: whichever one is wired.
+    expect(parseTarget("channel:123")).toEqual({ kind: "channel", id: "123" });
+    expect(parseTarget("user:456")).toEqual({ kind: "user", id: "456" });
+  });
+
+  it("refuses a destination it would have to guess at", () => {
+    // A user id and a channel id are indistinguishable, and the wrong guess
+    // sends in public what was meant to be private.
+    expect(() => parseTarget("123456789")).toThrow(/unrecognised destination/);
+    expect(() => parseTarget("discord:channel")).toThrow(/needs an id/);
+    expect(() => parseTarget("channel")).toThrow(/needs an id/);
+  });
+
+  it("asks before a channel on any surface, and never for the owner", () => {
+    expect(sendsElsewhere({ to: "discord" })).toBe(false);
+    expect(sendsElsewhere({ to: "owner" })).toBe(false);
+    expect(sendsElsewhere({})).toBe(false);
+    // Which surface is not the question; whom is.
+    expect(sendsElsewhere({ to: "discord:channel:1" })).toBe(true);
+    expect(sendsElsewhere({ to: "channel:1" })).toBe(true);
+    expect(sendsElsewhere({ to: "user:1" })).toBe(true);
   });
 
   it("does not tell the model it sent something it is holding", async () => {
@@ -130,7 +163,7 @@ describe("notifyModule", () => {
     const registry = await load(async () => undefined);
     const res = await registry.execute("notify", {
       text: "",
-      to: "reply",
+      asReply: true,
       card: { title: "Status" },
     });
     expect(res.isError).toBe(false);

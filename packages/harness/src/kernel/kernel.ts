@@ -470,14 +470,14 @@ export class Kernel {
          * the reply text for one that does not. Nothing is sent here: sending
          * is what "reply" exists to avoid.
          */
-        if (payload.target.kind === "reply") {
+        if (payload.asReply) {
           const id = kernelRef?.currentConversationId;
           // Outside a turn there is no answer to shape. Said out loud rather
           // than dropped: the tool reported success and the card went
           // nowhere, which is the worst of both.
           if (!id) {
             throw new Error(
-              'there is no reply to shape here. Use to: "owner" to send a message of its own.',
+              "there is no reply to shape here. Drop asReply to send a message of its own.",
             );
           }
           kernelRef?.shapeReply(id, payload);
@@ -487,8 +487,21 @@ export class Kernel {
           await options.notify(payload);
           return;
         }
-        // No channel: the dashboard is where the owner already looks, and a
-        // card there is its title and body rather than nothing.
+        /*
+         * No channel is wired, so the dashboard is where the owner already
+         * looks and a notice there is better than losing the message.
+         *
+         * Only for a message that did not ask for anywhere in particular. A
+         * request to reach Telegram, or a specific channel, cannot be honoured
+         * by writing a line on the dashboard, and answering "sent" to it is
+         * how an agent comes to believe it has told someone something.
+         */
+        const { surface, kind } = payload.target;
+        if (surface || kind !== "owner") {
+          throw new Error(
+            `no ${surface ?? "messaging"} surface is connected here, so that message has nowhere to go.`,
+          );
+        }
         kernelRef?.recordNotice(noticeText(payload));
       },
     };

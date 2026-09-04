@@ -70,7 +70,7 @@ describe("channelGuidance", () => {
     // model was taught how to write a paragraph and never told it could
     // answer with anything else.
     const guidance = channelGuidance("discord") ?? "";
-    expect(guidance).toContain('to: "reply"');
+    expect(guidance).toContain("asReply");
     expect(guidance).toContain("card");
     expect(guidance).toContain("buttons");
     // And when not to: a card around a paragraph is a box around a paragraph.

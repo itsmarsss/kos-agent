@@ -33,6 +33,8 @@ export type PressRouter = (
 export interface NotifyPayload {
   text: string;
   target: MessageTarget;
+  /** Shape the answer this turn is about to give, rather than send. */
+  asReply?: boolean;
   card?: MessageCard;
   buttons?: MessageButton[];
 }
@@ -123,37 +125,72 @@ function asButtons(raw: unknown): MessageButton[] {
 }
 
 /**
- * Where a message is addressed.
+ * Where a message is addressed: which surface, and where on it.
  *
- * "owner" and an absent `to` are the same thing. A bare id is refused rather
- * than guessed at: a user id and a channel id look identical, and delivering
- * to the wrong one is a message in public that was meant to be private.
+ * The first segment names the surface, which is a channel adapter: "discord",
+ * and whatever is connected alongside it later. What follows says where on
+ * that surface. Both are optional and the common case is neither:
+ *
+ *   (omitted) | owner        the owner, wherever they already are
+ *   discord                  the owner, on Discord specifically
+ *   discord:channel:123      that channel on Discord
+ *   channel:123              that channel, on whichever surface is wired
+ *   user:456                 that person
+ *
+ * A bare number is refused rather than guessed at: a user id and a channel id
+ * look identical, and delivering to the wrong one is a message in public that
+ * was meant to be private.
  */
 export function parseTarget(raw: unknown): MessageTarget {
   if (raw === undefined || raw === null || raw === "" || raw === "owner") {
     return { kind: "owner" };
   }
-  if (raw === "reply") return { kind: "reply" };
   if (typeof raw !== "string") throw new Error("to must be a string");
-  const [kind, id] = raw.split(":", 2);
-  if ((kind === "channel" || kind === "user") && id) return { kind, id };
-  throw new Error(
-    `unrecognised destination: ${raw}. Use "owner", "channel:<id>" or "user:<id>".`,
-  );
+
+  const parts = raw.split(":").filter((p) => p !== "");
+  const head = parts[0]!;
+
+  // A destination with no surface: whichever one is wired.
+  if (head === "channel" || head === "user") {
+    const id = parts[1];
+    if (!id) throw new Error(`${head} needs an id, as "${head}:<id>"`);
+    return { kind: head, id };
+  }
+
+  /*
+   * Otherwise the head names a surface. It has to look like a name: a bare
+   * number is an id someone forgot to say the kind of, and reading it as a
+   * surface would turn "send this to 123456789" into a message addressed to
+   * nowhere, reported as a success.
+   */
+  if (!/^[a-z][a-z0-9_-]*$/i.test(head)) {
+    throw new Error(
+      `unrecognised destination: ${raw}. Use "owner", a surface like "discord", or "channel:<id>" / "user:<id>".`,
+    );
+  }
+  const surface = head;
+  if (parts.length === 1 || parts[1] === "owner") return { surface, kind: "owner" };
+  const kind = parts[1];
+  if (kind !== "channel" && kind !== "user") {
+    throw new Error(
+      `unrecognised destination: ${raw}. Use "${surface}", "${surface}:channel:<id>" or "${surface}:user:<id>".`,
+    );
+  }
+  const id = parts[2];
+  if (!id) throw new Error(`${kind} needs an id, as "${surface}:${kind}:<id>"`);
+  return { surface, kind, id };
 }
 
 /**
  * True when this call speaks somewhere the owner did not choose.
  *
- * "reply" is not one of those: it is the answer to the message being handled,
- * going to whoever is already being spoken to. Asking permission to answer
- * would make a card cost an approval and a paragraph cost nothing, which
- * would teach the agent to never use one.
+ * Keyed on whom, never on which surface: a message to the owner asks nothing
+ * whether it goes to Discord or anywhere else, and a message to a channel is
+ * KOS speaking in public on any surface at all.
  */
 export function sendsElsewhere(input: Record<string, unknown>): boolean {
   try {
-    const kind = parseTarget(input.to).kind;
-    return kind !== "owner" && kind !== "reply";
+    return parseTarget(input.to).kind !== "owner";
   } catch {
     // A destination that does not parse fails in the tool with a message
     // saying so. Treating it as risky here would ask for approval first.
@@ -194,11 +231,12 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
           description:
             "Send a message on the owner's messaging surface. Plain text by default. " +
             'Add `card` for a titled block with fields, `buttons` for something to press, ' +
-            'and `to` to post somewhere other than the owner ("channel:<id>" or "user:<id>"), ' +
-            'which needs approval. Use `to: "reply"` to give this turn\'s answer a card or ' +
-            "buttons rather than sending a second message alongside it. A press comes back " +
-            "as a message in the conversation named by `replyTo`, so say what a button " +
-            "means in its label.",
+            "`to` picks the surface and where on it: omit for the owner wherever they " +
+            'already are, "discord" for the owner on Discord, "discord:channel:<id>" to ' +
+            "post in a channel, which needs approval. Set `asReply` to give the answer " +
+            "you are about to write this card and these buttons instead of sending a " +
+            "message of its own. A press comes back as a message in the conversation " +
+            "named by `replyTo`, so say what a button means in its label.",
           inputSchema: {
             type: "object",
             properties: {
@@ -253,6 +291,11 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
                   required: ["label"],
                 },
               },
+              asReply: {
+                type: "boolean",
+                description:
+                  "true to give the answer you are about to write this card and these buttons, instead of sending a message of its own. Your reply text is still the message; the card sits under it.",
+              },
               replyTo: {
                 type: "string",
                 description:
@@ -269,6 +312,7 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
           if (!services.notify) throw new Error("no notify channel is wired");
 
           const target = parseTarget(input.to);
+          const asReply = input.asReply === true;
           const replyTo = typeof input.replyTo === "string" ? input.replyTo : undefined;
           const buttons = asButtons(input.buttons).map((button) => {
             if (button.url) return button;
@@ -289,6 +333,7 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
           await services.notify({
             text,
             target,
+            ...(asReply ? { asReply: true } : {}),
             ...(card ? { card } : {}),
             ...(buttons.length ? { buttons } : {}),
           });
@@ -307,7 +352,7 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
            * the turn with "I do not have anything to add to that" -- so the
            * card arrived under a sentence saying there was nothing to add.
            */
-          if (target.kind === "reply") {
+          if (asReply) {
             return (
               "Held for your reply. Nothing has been sent yet: this is the shape of " +
               "the answer you are about to write, and your reply text is the message " +

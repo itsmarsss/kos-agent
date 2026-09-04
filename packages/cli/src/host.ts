@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import {
   AllowlistMapping,
   ChannelRuntime,
+  type ChannelAdapter,
   DiscordAdapter,
   Kernel,
   connectChannel,
@@ -70,11 +71,39 @@ export async function runHost(options: HostOptions): Promise<void> {
 
   let runtime: ChannelRuntime | undefined;
 
+  /*
+   * The surfaces a message can be sent on, by name.
+   *
+   * A map of one today. It exists as a map because "which surface" is the
+   * question the tool asks, and answering it by ignoring the name and using
+   * the only adapter there is would make `to: "telegram"` arrive on Discord.
+   * Adding a surface is a line here.
+   */
+  const surfaces = new Map<string, () => ChannelAdapter | undefined>();
+  surfaces.set("discord", () => adapter);
+
   const notify =
     creds && wantDiscord
       ? async (payload: NotifyPayload) => {
-          // runtime's adapter is only available after start; capture adapter ref.
-          if (!adapter) return;
+          const wanted = payload.target.surface;
+          const connected = [...surfaces.keys()].filter((name) =>
+            surfaces.get(name)!(),
+          );
+          if (wanted && !surfaces.has(wanted)) {
+            throw new Error(
+              `no ${wanted} surface here. Connected: ${connected.join(", ") || "none"}.`,
+            );
+          }
+          // No surface named means wherever the owner already is, which is
+          // the only one wired.
+          const send = surfaces.get(wanted ?? "discord")?.();
+          if (!send) {
+            throw new Error(
+              `the ${wanted ?? "discord"} surface is not connected. Connected: ${
+                connected.join(", ") || "none"
+              }.`,
+            );
+          }
           const msg = {
             text: payload.text,
             ...(payload.card ? { card: payload.card } : {}),
@@ -83,10 +112,10 @@ export async function runHost(options: HostOptions): Promise<void> {
           // An addressed message goes through sendTo; the owner's DM is the
           // path everything took before and still takes.
           if (payload.target.kind === "owner") {
-            await adapter.send(creds.ownerId, msg);
+            await send.send(creds.ownerId, msg);
             return;
           }
-          await adapter.sendTo(payload.target, msg);
+          await send.sendTo?.(payload.target, msg);
         }
       : undefined;
 
