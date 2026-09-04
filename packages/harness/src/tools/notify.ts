@@ -42,6 +42,27 @@ export interface NotifyToolDeps {
   routePress?: (button: { id: string; label: string }, replyTo?: string) => string;
 }
 
+/** Keys a card is made of. Anything else the caller invented is reported. */
+const CARD_KEYS = new Set([
+  "title", "body", "url", "color", "footer", "imageUrl", "thumbnailUrl", "fields",
+]);
+
+/**
+ * Keys on a card that mean nothing here.
+ *
+ * A card's shape used to be described only in prose, so an agent would write
+ * its fields as top-level keys -- {title, Status, Timezone, ...} -- and get
+ * back a card with only a title and no sign that the rest had been dropped.
+ * Reported rather than silently reshaped: guessing which invented key was
+ * meant to be a field is how a typo becomes content.
+ */
+function strayCardKeys(raw: unknown): string[] {
+  if (typeof raw !== "object" || raw === null) return [];
+  return Object.keys(raw as Record<string, unknown>).filter(
+    (key) => !CARD_KEYS.has(key),
+  );
+}
+
 function asCard(raw: unknown): MessageCard | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
   const input = raw as Record<string, unknown>;
@@ -77,6 +98,13 @@ function asCard(raw: unknown): MessageCard | undefined {
 function asButtons(raw: unknown): MessageButton[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((b) => {
+    // A bare string is a label and nothing else, which is what an agent
+    // writes when it is thinking about the reader rather than the schema.
+    // Dropping it left a message whose text promised buttons that were not
+    // there.
+    if (typeof b === "string") {
+      return b.trim() ? [{ label: b.trim() }] : [];
+    }
     if (typeof b !== "object" || b === null) return [];
     const button = b as Record<string, unknown>;
     if (typeof button.label !== "string" || !button.label.trim()) return [];
@@ -183,12 +211,47 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
               card: {
                 type: "object",
                 description:
-                  "title, body, url, color (0xRRGGBB), footer, imageUrl, thumbnailUrl, fields: [{name, value, inline}]",
+                  "A titled block. Named values go in fields, not as keys of their own.",
+                properties: {
+                  title: { type: "string" },
+                  body: { type: "string" },
+                  url: { type: "string" },
+                  color: { type: "number", description: "0xRRGGBB" },
+                  footer: { type: "string" },
+                  imageUrl: { type: "string" },
+                  thumbnailUrl: { type: "string" },
+                  fields: {
+                    type: "array",
+                    description: "the named values, in order",
+                    items: {
+                      type: "object",
+                      properties: {
+                        name: { type: "string" },
+                        value: { type: "string" },
+                        inline: { type: "boolean" },
+                      },
+                      required: ["name", "value"],
+                    },
+                  },
+                },
               },
               buttons: {
                 type: "array",
                 description:
-                  '[{label, id, style: primary|secondary|success|danger}] or {label, url} for a link',
+                  "Something to press. A label alone is enough; a url makes it a link, which nothing comes back from.",
+                items: {
+                  type: "object",
+                  properties: {
+                    label: { type: "string" },
+                    id: { type: "string" },
+                    url: { type: "string" },
+                    style: {
+                      type: "string",
+                      enum: ["primary", "secondary", "success", "danger"],
+                    },
+                  },
+                  required: ["label"],
+                },
               },
               replyTo: {
                 type: "string",
@@ -229,7 +292,30 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
             ...(card ? { card } : {}),
             ...(buttons.length ? { buttons } : {}),
           });
-          return "sent";
+
+          const stray = strayCardKeys(input.card);
+          const warning = stray.length
+            ? ` Ignored on the card: ${stray.join(", ")}. Named values go in fields: [{name, value}].`
+            : "";
+
+          /*
+           * What actually happened, because the model acts on this line.
+           *
+           * "sent" was returned for every target including reply, where
+           * nothing is sent: the shape is held for the answer. Told its
+           * message had gone, the model had nothing left to say and finished
+           * the turn with "I do not have anything to add to that" -- so the
+           * card arrived under a sentence saying there was nothing to add.
+           */
+          if (target.kind === "reply") {
+            return (
+              "Held for your reply. Nothing has been sent yet: this is the shape of " +
+              "the answer you are about to write, and your reply text is the message " +
+              "it sits under. Write that answer now." +
+              warning
+            );
+          }
+          return `sent${warning}`;
         },
         {
           floor: "safe",

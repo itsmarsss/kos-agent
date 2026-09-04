@@ -120,6 +120,59 @@ describe("notifyModule", () => {
     );
   });
 
+  it("does not tell the model it sent something it is holding", async () => {
+    /*
+     * The failure this exists for: reply returned "sent", so the model
+     * believed the message had gone, had nothing left to say, and finished
+     * with "I do not have anything to add to that". The card then arrived
+     * under a sentence saying there was nothing to add.
+     */
+    const registry = await load(async () => undefined);
+    const res = await registry.execute("notify", {
+      text: "",
+      to: "reply",
+      card: { title: "Status" },
+    });
+    expect(res.isError).toBe(false);
+    expect(res.content).toContain("Nothing has been sent yet");
+    expect(res.content).toContain("Write that answer now");
+    expect(res.content).not.toMatch(/^sent/);
+  });
+
+  it("takes a bare string as a button label", async () => {
+    const sent: NotifyPayload[] = [];
+    let minted = 0;
+    const registry = await load(
+      async (p) => {
+        sent.push(p);
+      },
+      () => `tok${++minted}`,
+    );
+    // What an agent writes when it is thinking about the reader rather than
+    // the schema. Dropped, it left text promising buttons that were not there.
+    await registry.execute("notify", {
+      text: "pick one",
+      buttons: ["Say hi", "Show the budget"],
+    });
+    expect(sent[0]?.buttons?.map((b) => b.label)).toEqual([
+      "Say hi",
+      "Show the budget",
+    ]);
+    expect(sent[0]?.buttons?.[0]?.token).toBe("tok1");
+  });
+
+  it("says which card keys it threw away", async () => {
+    const registry = await load(async () => undefined);
+    // Fields written as keys of their own produced a title and no sign that
+    // everything else had gone.
+    const res = await registry.execute("notify", {
+      text: "report",
+      card: { title: "Systems", Status: "green", Timezone: "UTC" },
+    });
+    expect(res.content).toContain("Ignored on the card: Status, Timezone");
+    expect(res.content).toContain("fields: [{name, value}]");
+  });
+
   it("reads a card back as prose where there is no card", () => {
     const text = noticeText({
       text: "Heads up",
