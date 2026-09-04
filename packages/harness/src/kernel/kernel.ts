@@ -68,7 +68,7 @@ import { exportModule } from "../tools/export.js";
 import { createSkillsModule } from "../tools/skills.js";
 import { createChatsModule, CHAT_TOOLS } from "../tools/chats.js";
 import { createMemoryModule } from "../tools/memory.js";
-import { cronModule } from "../tools/cron.js";
+import { createCronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
 import {
   createNotifyModule,
@@ -478,7 +478,14 @@ export class Kernel {
             label: button.label,
           }),
       }),
-      cronModule,
+      createCronModule({
+        // The same path the schedule uses, so a job tried by hand is a job
+        // tried the way it will actually run.
+        fire: async (id) => {
+          const result = await kernelRef!.fireCron(id);
+          return { ok: result.ok, ...(result.error ? { error: result.error } : {}) };
+        },
+      }),
       createHttpModule({
         // Passed through as given: the host supplies a function that reads
         // the environment, so saving in Settings takes effect on the next
@@ -2428,6 +2435,35 @@ export class Kernel {
     if (!this.scheduler) {
       this.startCron();
     }
+    /*
+     * A job cannot fire while it is already firing.
+     *
+     * A self-prompt job whose prompt asks KOS to run a job can name itself,
+     * and each run would start another before the first had finished. The
+     * rate limit bounds how many self-prompts happen in an hour, which is a
+     * cap on the damage rather than a stop; this is the stop. It also breaks
+     * the longer loop, A firing B firing A, because A is still in flight.
+     */
+    if (this.firingCrons.has(id)) {
+      const outcome: FireOutcome = {
+        fired: false,
+        reason: "error",
+        error: `${job.name} is already running`,
+      };
+      return { outcome, ok: false, error: outcome.error! };
+    }
+    this.firingCrons.add(id);
+    try {
+      return await this.fireOnce(job);
+    } finally {
+      this.firingCrons.delete(id);
+    }
+  }
+
+  /** Jobs firing right now, so one cannot be started on top of itself. */
+  private readonly firingCrons = new Set<number>();
+
+  private async fireOnce(job: CronJob): Promise<CronFireResult> {
     const outcome = await this.scheduler!.fire(job);
     if (!outcome.fired) {
       return { outcome, ok: false, error: outcome.error ?? outcome.reason };

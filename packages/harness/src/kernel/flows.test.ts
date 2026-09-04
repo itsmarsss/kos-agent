@@ -496,6 +496,67 @@ describe("KOS end-to-end flows", () => {
     expect(model.systems.at(-1)!).not.toContain("Replying on Discord");
   });
 
+  it("asks before running a job by hand, then runs it the way it will run", async () => {
+    const model = scripted([
+      toolCall("c1", "cron.run", { id: 2 }),
+      text("Ran it."),
+    ]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({
+      name: "morning-ping",
+      schedule: "0 9 * * *",
+      type: "actions",
+      actions: [{ tool: "notify", args: { text: "stand up" } }],
+      enabled: true,
+    });
+    // Every workspace is seeded with the nightly backup job, which holds 1.
+    // Asserted rather than assumed: the scripted call above names an id.
+    expect(job.id).toBe(2);
+
+    /*
+     * Firing a job runs whatever it holds -- a write, a message to a channel
+     * -- and the risk gate sees only an id, so it cannot classify any of it.
+     * The decision goes to the owner at the point where the consequences are
+     * still legible: the job, by name.
+     */
+    await kernel.handleMessage("run the morning ping now");
+    expect(kernel.approvals.pending().map((p) => p.tool)).toEqual(["cron.run"]);
+    expect(kernel.runs.recent(10).some((r) => r.kind === "cron")).toBe(false);
+
+    // And what it does once allowed: fire(), so the run log, the kill switch
+    // and the health report see it exactly as they would at 9am.
+    const ran = await kernel.registry.execute("cron.run", { id: job.id });
+    expect(ran.isError).toBe(false);
+    expect(ran.content).toContain("ran morning-ping");
+    expect(kernel.runs.recent(10).some((r) => r.kind === "cron")).toBe(true);
+  });
+
+  it("will not run a job that is already running", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({
+      name: "loop",
+      schedule: "0 9 * * *",
+      type: "actions",
+      actions: [{ tool: "notify", args: { text: "hi" } }],
+      enabled: true,
+    });
+
+    /*
+     * A self-prompt job whose prompt asks KOS to run a job can name itself,
+     * and each run would start another before the first finished. The rate
+     * limit caps how much of that happens in an hour; this stops it.
+     */
+    const first = kernel.fireCron(job.id);
+    const second = await kernel.fireCron(job.id);
+    expect(second.ok).toBe(false);
+    expect(second.error).toContain("already running");
+    await first;
+
+    // And it is runnable again once the first has finished.
+    expect((await kernel.fireCron(job.id)).ok).toBe(true);
+  });
+
   it("cannot write through a cron query, even one already stored", async () => {
     const model = scripted([text("ok")]);
     kernel = await boot(model.inference);
