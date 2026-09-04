@@ -525,6 +525,40 @@ describe("KOS end-to-end flows", () => {
     expect(kernel.conversationFor("imessage", "owner").id).toBe("imessage:owner");
   });
 
+  it("retires a pointer set before surfaces had threads, once", async () => {
+    /*
+     * conversationFor reads the pointer first, so one set under the old rules
+     * kept winning over the surface's own stream forever: a workspace that
+     * had ever received a message on a surface would never see the new home.
+     */
+    root = mkdtempSync(join(tmpdir(), "kos-flow-"));
+    const first = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: scripted([text("ok")]).inference,
+      profileOverrides: { name: "Kenny", timezone: "UTC" },
+    });
+    const stray = first.conversations.create({ userId: "owner", title: "Old" });
+    first.conversations.setActive("discord", "owner", stray.id);
+    // A workspace from before surfaces had threads: a pointer, and no record
+    // of the retirement having happened.
+    first.settings.set("surfaces.threaded", false);
+    first.close();
+
+    // Booting again is where the retirement happens.
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: scripted([text("ok")]).inference,
+      profileOverrides: { name: "Kenny", timezone: "UTC" },
+    });
+    expect(kernel.conversationFor("discord", "owner").id).toBe("discord:owner");
+
+    // And a pointer set deliberately afterwards is left alone.
+    kernel.conversations.setActive("discord", "owner", stray.id);
+    expect(kernel.conversationFor("discord", "owner").id).toBe(stray.id);
+  });
+
   it("keeps a surface where it was pointed once it has one", async () => {
     const model = scripted([text("ok")]);
     kernel = await boot(model.inference);
