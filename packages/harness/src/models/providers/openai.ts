@@ -247,13 +247,21 @@ export class OpenAIProvider implements Provider {
     const client = new OpenAI({ apiKey });
     const params = buildResponsesParams(req, spec);
     if (!req.onDelta) {
-      return fromResponsesResponse(await client.responses.create(params));
+      return fromResponsesResponse(
+        await client.responses.create(
+          params,
+          ...(req.signal ? [{ signal: req.signal }] : []),
+        ),
+      );
     }
 
     // Streamed only when someone is watching. The completed event carries the
     // whole response, so the reply is still assembled by the provider rather
     // than stitched together from deltas here.
-    const stream = await client.responses.create({ ...params, stream: true });
+    const stream = await client.responses.create(
+      { ...params, stream: true },
+      ...(req.signal ? [{ signal: req.signal }] : []),
+    );
     let final: OpenAI.Responses.Response | undefined;
     let reasoning = "";
     for await (const event of stream) {
