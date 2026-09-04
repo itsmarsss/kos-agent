@@ -1,6 +1,5 @@
 import { runAgent, type Inference } from "../agent/loop.js";
 import { PressRoutes } from "../channels/presses.js";
-import type { MessageButton, MessageCard } from "../channels/types.js";
 import { DaemonStore } from "../daemons/store.js";
 import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry } from "../agent/registry.js";
@@ -146,22 +145,12 @@ export interface HandleResult {
   reply: string;
   halted: boolean;
   sessionId?: string;
-  /** A card the turn chose to answer with, for a surface that renders one. */
-  card?: MessageCard;
-  /** Buttons on the answer, already carrying their press tokens. */
-  buttons?: MessageButton[];
 }
 
 const DEFAULT_SYSTEM =
   "You are KOS, a personal assistant operating inside a sandboxed workspace. Use the available tools to help. Risky actions are queued for owner approval — tell the user the pending id, then wait; when approval results arrive (as a System message), continue the plan without repeating completed creates. Prefer short checklist-style replies when the user asks. For tasks: create_list once, then tasks.add/list/complete with the returned slug as instance.";
 
 const DEFAULT_BACKUP_CRON = "0 3 * * *";
-/**
- * Surfaces that render a card as a card. Everywhere else an answer's shape is
- * folded into its text, so nothing the agent chose to say is lost.
- */
-const RICH_CHANNELS = new Set(["discord"]);
-
 /** How long a button KOS sent stays pressable. */
 const PRESS_ROUTE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -462,27 +451,6 @@ export class Kernel {
       // threw and every unattended job that ended in "tell me" lost its
       // message. The fallback puts it where the owner already looks.
       notify: async (payload: NotifyPayload) => {
-        /*
-         * A shape for the answer, not a message of its own.
-         *
-         * Held against the conversation until the turn settles, where it is
-         * either carried out to a surface that renders cards or folded into
-         * the reply text for one that does not. Nothing is sent here: sending
-         * is what "reply" exists to avoid.
-         */
-        if (payload.asReply) {
-          const id = kernelRef?.currentConversationId;
-          // Outside a turn there is no answer to shape. Said out loud rather
-          // than dropped: the tool reported success and the card went
-          // nowhere, which is the worst of both.
-          if (!id) {
-            throw new Error(
-              "there is no reply to shape here. Drop asReply to send a message of its own.",
-            );
-          }
-          kernelRef?.shapeReply(id, payload);
-          return;
-        }
         if (options.notify) {
           await options.notify(payload);
           return;
@@ -1071,7 +1039,7 @@ export class Kernel {
             };
           }
 
-          return this.withShape(sessionId, settleSdk(first.sdk), opts.channel);
+          return { reply: settleSdk(first.sdk), halted: false, sessionId };
         }
 
         const running = runAgent(this.inference, tools, input, {
@@ -1149,7 +1117,7 @@ export class Kernel {
           useSession,
         });
         this.runs.finish(runId, "ok");
-        return this.withShape(sessionId, reply, opts.channel);
+        return { reply, halted: false, sessionId };
       } catch (err) {
         this.runs.finish(
           runId,
@@ -2507,59 +2475,6 @@ export class Kernel {
 
   /** Jobs firing right now, so one cannot be started on top of itself. */
   private readonly firingCrons = new Set<number>();
-
-  /**
-   * Shapes chosen for an answer that has not been given yet, by conversation.
-   *
-   * One per turn: a second call replaces the first rather than accumulating,
-   * because an answer has one shape and the last thing the agent decided is
-   * the one it meant.
-   */
-  private readonly replyShapes = new Map<string, NotifyPayload>();
-
-  /**
-   * The answer, plus whatever shape the turn chose for it.
-   *
-   * A surface that renders cards is handed the card; anywhere else it is
-   * folded into the text, because a card the reader never sees is worse than
-   * a plainer answer that says the same thing.
-   */
-  private withShape(
-    sessionId: string,
-    reply: string,
-    channel?: string,
-  ): HandleResult {
-    const shape = this.takeShape(sessionId);
-    if (!shape) return { reply, halted: false, sessionId };
-    if (!RICH_CHANNELS.has(channel ?? "")) {
-      const folded = noticeText({ ...shape, text: reply });
-      return { reply: folded, halted: false, sessionId };
-    }
-    return {
-      reply,
-      halted: false,
-      sessionId,
-      ...(shape.card ? { card: shape.card } : {}),
-      ...(shape.buttons?.length ? { buttons: shape.buttons } : {}),
-    };
-  }
-
-  /** Called by the notify tool when a turn chooses a shape for its answer. */
-  shapeReply(conversationId: string, payload: NotifyPayload): void {
-    this.replyShapes.set(conversationId, payload);
-  }
-
-  /**
-   * The shape this turn chose, consumed on the way out.
-   *
-   * Taken rather than read so a shape cannot survive into the next turn: an
-   * answer that was never given is not one to decorate a later one with.
-   */
-  private takeShape(conversationId: string): NotifyPayload | undefined {
-    const shape = this.replyShapes.get(conversationId);
-    this.replyShapes.delete(conversationId);
-    return shape;
-  }
 
   private async fireOnce(job: CronJob): Promise<CronFireResult> {
     const outcome = await this.scheduler!.fire(job);

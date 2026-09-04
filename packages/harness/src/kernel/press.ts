@@ -88,10 +88,6 @@ export function createPressHandler(deps: PressHandlerDeps): ButtonPressHandler {
       },
     );
 
-    await respond.send({
-      text: res.reply,
-      ...(res.card ? { card: res.card } : {}),
-      ...(res.buttons?.length ? { buttons: res.buttons } : {}),
-    });
+    await respond.send({ text: res.reply });
   };
 }

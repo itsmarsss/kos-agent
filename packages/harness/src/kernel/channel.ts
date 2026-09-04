@@ -44,13 +44,7 @@ export function connectChannel(
         ...(ctx.conversationKey ? { conversationKey: ctx.conversationKey } : {}),
         ...(ctx.attachments?.length ? { attachments: ctx.attachments } : {}),
       });
-      // The shape travels with the answer: a turn that chose a card answers
-      // with one message, not an answer followed by a card.
-      return {
-        text: res.reply,
-        ...(res.card ? { card: res.card } : {}),
-        ...(res.buttons?.length ? { buttons: res.buttons } : {}),
-      };
+      return res.reply || "(no reply)";
     },
     handleDecision: async (ctx) => {
       const id = Number(ctx.pendingId);
