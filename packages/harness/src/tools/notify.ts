@@ -283,13 +283,13 @@ export function describeSend(args: {
   const { target, asReply, card, buttons } = args;
 
   const where = asReply
-    ? "Held for your reply. Nothing has been sent yet: this is the shape of the answer you are about to write, and your reply text is the message it sits under. Write that answer now."
+    ? "Not sent. This will be attached to your next reply, so write that reply now."
     : `Sent to ${
         target.kind === "owner" ? "the owner" : `${target.kind} ${target.id}`
       }${target.surface ? ` on ${target.surface}` : ""}.`;
 
   const carried: string[] = [];
-  if (args.text) carried.push("your text");
+  if (args.text) carried.push("text");
   if (card) {
     const fields = card.fields?.length ?? 0;
     carried.push(fields ? `a card with ${fields} fields` : "a card");
@@ -302,29 +302,23 @@ export function describeSend(args: {
   const pressable = buttons.filter((b) => !b.url);
   if (pressable.length) {
     notes.push(
-      `A press comes back to you as a message${
-        args.landsIn ? ` in ${args.landsIn}` : ""
-      }, and your answer to it goes to whoever pressed.`,
+      `Presses arrive as a message${args.landsIn ? ` in ${args.landsIn}` : ""}; your answer goes back to whoever pressed.`,
     );
     const forms = pressable.filter((b) => b.modal);
     if (forms.length) {
       notes.push(
-        `${forms.map((b) => `"${b.label}"`).join(", ")} open${
-          forms.length === 1 ? "s" : ""
-        } a form first, and what is typed arrives with the press.`,
+        `Opens a form: ${forms.map((b) => `"${b.label}"`).join(", ")}.`,
       );
     }
     const priv = pressable.filter((b) => b.ephemeral);
     if (priv.length) {
       notes.push(
-        `${priv.map((b) => `"${b.label}"`).join(", ")} answer${
-          priv.length === 1 ? "s" : ""
-        } only to whoever pressed.`,
+        `Answers privately: ${priv.map((b) => `"${b.label}"`).join(", ")}.`,
       );
     }
   }
   if (buttons.some((b) => b.url)) {
-    notes.push("A link button is a link: nothing comes back from one.");
+    notes.push("Link buttons send nothing back.");
   }
 
   // What will not survive the surface, said here rather than discovered by
@@ -348,7 +342,7 @@ export function describeSend(args: {
     );
   }
 
-  return [where, carried.length ? `It carries ${carried.join(", ")}.` : "", ...notes]
+  return [where, carried.length ? `Carrying ${carried.join(", ")}.` : "", ...notes]
     .filter(Boolean)
     .join(" ");
 }
