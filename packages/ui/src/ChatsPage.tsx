@@ -278,6 +278,17 @@ export function ChatsPage({
     const mine = loadedFor?.id === activeId;
     // Mid-send the optimistic bubble is the only record of what was typed.
     if (mine && sendingIn === activeId) return;
+    /*
+     * While a turn is running here, the live view is the authority.
+     *
+     * The conversation is touched more than once during a turn -- when the
+     * message is recorded, and again when it settles -- and each touch moved
+     * the stamp and refetched. Every refetch replaces the whole transcript
+     * under the streaming answer, which is what made a turn arriving from a
+     * button press look like it was constantly redrawing itself. The one
+     * fetch that matters is the one after it ends.
+     */
+    if (mine && working && !justEnded) return;
     if (mine && loadedFor.stamp === stamp && !justEnded) return;
     if (!mine) {
       // Nothing from the previous conversation stays visible while this one
@@ -308,7 +319,7 @@ export function ChatsPage({
     return () => {
       cancelled = true;
     };
-  }, [activeId, stamp, sendingIn, loadedFor, justEnded]);
+  }, [activeId, stamp, sendingIn, loadedFor, justEnded, working]);
 
   // The live turn grows as it streams, so it is part of what pins the scroll.
   useStickToBottom(boxRef, [events, sendingIn, activeId, live?.steps.length, live?.text]);

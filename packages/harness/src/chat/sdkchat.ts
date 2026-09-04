@@ -68,8 +68,29 @@ export interface SdkChatResult {
    */
   calls: SdkToolCall[];
   usage: { inputTokens: number; outputTokens: number };
+  /**
+   * What each model actually did, as the SDK accounts for it.
+   *
+   * Summing the per-message usage counted the main loop only, and only the
+   * uncached tokens: a turn that read 40k from the cache reported a few
+   * hundred. The SDK's own totals cover subagents and sidechains too, name
+   * the real model rather than "the SDK", and price it.
+   */
+  models: SdkModelUsage[];
+  /** The SDK's own estimate for the whole call, in USD. */
+  costUSD: number;
   /** True when the SDK stopped for its own reasons rather than answering. */
   stopped: boolean;
+}
+
+export interface SdkModelUsage {
+  /** The canonical model id, so spend is attributed to what actually ran. */
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  costUSD: number;
 }
 
 export interface SdkChatOptions {
@@ -203,6 +224,8 @@ export async function runSdkChat(
 
   let text = "";
   const usage = { inputTokens: 0, outputTokens: 0 };
+  const models: SdkModelUsage[] = [];
+  let costUSD = 0;
   let stopped = false;
 
   /*
@@ -279,11 +302,6 @@ export async function runSdkChat(
         const b = block as { type?: string; text?: string };
         if (b.type === "text" && b.text) text += b.text;
       }
-      const u = (m["message"] as { usage?: Record<string, number> })?.usage;
-      if (u) {
-        usage.inputTokens += u["input_tokens"] ?? 0;
-        usage.outputTokens += u["output_tokens"] ?? 0;
-      }
       continue;
     }
 
@@ -292,9 +310,43 @@ export async function runSdkChat(
       // answering: an error, or the turn limit.
       if (m["subtype"] !== "success") stopped = true;
       if (typeof m["result"] === "string" && !text) text = m["result"];
+      /*
+       * Accounting comes from here, not from adding up the assistant
+       * messages. The result carries a running total for every model the
+       * call used, and it is cumulative, so this is read rather than summed.
+       */
+      const perModel = m["modelUsage"] as
+        | Record<string, Record<string, number | string>>
+        | undefined;
+      for (const [name, raw] of Object.entries(perModel ?? {})) {
+        const canonical =
+          typeof raw["canonicalModel"] === "string" ? raw["canonicalModel"] : name;
+        models.push({
+          model: canonical,
+          inputTokens: Number(raw["inputTokens"] ?? 0),
+          outputTokens: Number(raw["outputTokens"] ?? 0),
+          cacheReadInputTokens: Number(raw["cacheReadInputTokens"] ?? 0),
+          cacheCreationInputTokens: Number(raw["cacheCreationInputTokens"] ?? 0),
+          costUSD: Number(raw["costUSD"] ?? 0),
+        });
+      }
+      costUSD = Number(m["total_cost_usd"] ?? 0);
       break;
     }
   }
 
-  return { text: text.trim(), calls, usage, stopped };
+  /*
+   * The headline pair, for callers that want one number.
+   *
+   * Cache reads and cache writes are input the model was given, so they are
+   * counted as input. Leaving them out was most of why the old total read so
+   * low on a long conversation, where nearly all the input is cached.
+   */
+  for (const m of models) {
+    usage.inputTokens +=
+      m.inputTokens + m.cacheReadInputTokens + m.cacheCreationInputTokens;
+    usage.outputTokens += m.outputTokens;
+  }
+
+  return { text: text.trim(), calls, usage, models, costUSD, stopped };
 }

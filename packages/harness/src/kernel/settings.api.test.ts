@@ -65,6 +65,18 @@ describe("saving settings", () => {
       expect(kernel.sessions.retention().maxChars).toBe(64_000);
     });
 
+    it("turns trimming off as a switch, and keeps the budgets", async () => {
+      await post("/api/settings/retention", { maxChars: 64_000 });
+      const res = await post("/api/settings/retention", { autoTrim: false });
+      expect(res.status).toBe(200);
+      const now = kernel.sessions.retention();
+      expect(now.autoTrim).toBe(false);
+      // Off and back on should not mean remembering what the numbers were.
+      expect(now.maxChars).toBe(64_000);
+      await post("/api/settings/retention", { autoTrim: true });
+      expect(kernel.sessions.retention().autoTrim).toBe(true);
+    });
+
     it("takes zero as off, because that is a thing an owner can mean", async () => {
       const res = await post("/api/settings/retention", {
         maxChars: 0,
@@ -76,6 +88,7 @@ describe("saving settings", () => {
         maxChars: 0,
         maxExchanges: 0,
         maxToolResultChars: 0,
+        autoTrim: true,
       });
     });
   });
