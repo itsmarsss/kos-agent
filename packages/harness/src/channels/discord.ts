@@ -307,6 +307,15 @@ export class DiscordAdapter implements ChannelAdapter {
   private messageHandler?: MessageHandler;
   private approvalHandler?: ApprovalHandler;
   private buttonHandler?: ButtonPressHandler;
+  /**
+   * Prompts still offering a choice, by pending id.
+   *
+   * In memory rather than stored: a prompt outlives the process only in the
+   * sense that the message is still there, and a restart losing the handle
+   * costs a stale prompt rather than a wrong decision -- pressing it answers
+   * that the action does not exist, which is true.
+   */
+  private readonly prompts = new Map<string, Message>();
   private readonly ownerId?: string;
   private isAuthorized: SenderAuthorizer = () => true;
 
@@ -430,6 +439,7 @@ export class DiscordAdapter implements ChannelAdapter {
     } catch {
       // interaction may already be acknowledged
     }
+    this.prompts.delete(decision.id);
     await this.approvalHandler?.({
       id: decision.id,
       approved: decision.approved,
@@ -791,10 +801,41 @@ export class DiscordAdapter implements ChannelAdapter {
 
     // Keep a short plain-text fallback for clients that hide embeds.
     const user = await this.client.users.fetch(recipientId);
-    await user.send({
+    const sent = await user.send({
       content: body.split("\n")[0],
       embeds: [embed],
       components: [row],
     });
+    this.prompts.set(req.id, sent);
+  }
+
+  /**
+   * Settle a prompt whose decision came from somewhere else.
+   *
+   * The same edit the buttons make when pressed here, so a decision looks the
+   * same wherever it was made.
+   */
+  async settleApproval(id: string, outcome: "approved" | "denied"): Promise<void> {
+    const prompt = this.prompts.get(id);
+    if (!prompt) return;
+    this.prompts.delete(id);
+    try {
+      await prompt.edit({
+        content: outcome === "approved" ? "Working on that…" : "Denied.",
+        embeds:
+          outcome === "approved"
+            ? [
+                new EmbedBuilder()
+                  .setColor(COLOR_WORKING)
+                  .setTitle("Approved")
+                  .setDescription(`Running pending \`#${id}\`…`),
+              ]
+            : [],
+        components: [],
+      });
+    } catch {
+      // Deleted, or too old to edit. A prompt that cannot be settled is not
+      // worth failing a decision over.
+    }
   }
 }
