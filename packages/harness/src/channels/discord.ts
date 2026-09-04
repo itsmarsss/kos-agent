@@ -22,6 +22,7 @@ import {
 } from "@kos/shared";
 
 import { isImage, isTextual, type Attachment } from "../kernel/attachments.js";
+import { MESSAGE_LIMITS } from "./types.js";
 import type {
   ApprovalHandler,
   ApprovalRequest,
@@ -219,9 +220,11 @@ const CARD_TITLE_MAX = 256;
 const CARD_BODY_MAX = 4096;
 const FIELD_NAME_MAX = 256;
 const FIELD_VALUE_MAX = 1024;
-const FIELDS_MAX = 25;
 const BUTTONS_PER_ROW = 5;
-const ROWS_MAX = 5;
+/** The shared contract, so the tool and the adapter cannot drift apart. */
+const FIELDS_MAX = MESSAGE_LIMITS.cardFields;
+const BUTTONS_MAX = MESSAGE_LIMITS.buttons;
+const MODAL_FIELDS_MAX = MESSAGE_LIMITS.modalFields;
 
 /** Turn a neutral card into a Discord embed. */
 export function buildCard(card: MessageCard): EmbedBuilder {
@@ -253,7 +256,7 @@ export function buildButtons(
   buttons: MessageButton[],
 ): ActionRowBuilder<ButtonBuilder>[] {
   const rows: ActionRowBuilder<ButtonBuilder>[] = [];
-  const usable = buttons.slice(0, BUTTONS_PER_ROW * ROWS_MAX);
+  const usable = buttons.slice(0, BUTTONS_MAX);
   for (let i = 0; i < usable.length; i += BUTTONS_PER_ROW) {
     const row = new ActionRowBuilder<ButtonBuilder>();
     for (const button of usable.slice(i, i + BUTTONS_PER_ROW)) {
@@ -279,7 +282,7 @@ export function buildModal(customId: string, modal: ModalSpec): ModalBuilder {
     .setTitle(modal.title.slice(0, 45));
   // Five is what the surface allows; the rest are dropped rather than making
   // the whole form fail to open.
-  for (const field of modal.fields.slice(0, 5)) {
+  for (const field of modal.fields.slice(0, MODAL_FIELDS_MAX)) {
     const input = new TextInputBuilder()
       .setCustomId(field.id)
       .setLabel(field.label.slice(0, 45))
