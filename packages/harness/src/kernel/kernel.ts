@@ -472,7 +472,15 @@ export class Kernel {
          */
         if (payload.target.kind === "reply") {
           const id = kernelRef?.currentConversationId;
-          if (id) kernelRef?.shapeReply(id, payload);
+          // Outside a turn there is no answer to shape. Said out loud rather
+          // than dropped: the tool reported success and the card went
+          // nowhere, which is the worst of both.
+          if (!id) {
+            throw new Error(
+              'there is no reply to shape here. Use to: "owner" to send a message of its own.',
+            );
+          }
+          kernelRef?.shapeReply(id, payload);
           return;
         }
         if (options.notify) {
