@@ -154,25 +154,6 @@ describe("notifyModule", () => {
     expect(sendsElsewhere({ to: "user:1" })).toBe(true);
   });
 
-  it("does not tell the model it sent something it is holding", async () => {
-    /*
-     * The failure this exists for: reply returned "sent", so the model
-     * believed the message had gone, had nothing left to say, and finished
-     * with "I do not have anything to add to that". The card then arrived
-     * under a sentence saying there was nothing to add.
-     */
-    const registry = await load(async () => undefined);
-    const res = await registry.execute("notify", {
-      text: "",
-      asReply: true,
-      card: { title: "Status" },
-    });
-    expect(res.isError).toBe(false);
-    expect(res.content).toContain("Not sent.");
-    expect(res.content).toContain("write that reply now");
-    expect(res.content).not.toMatch(/^sent/);
-  });
-
   it("takes a bare string as a button label", async () => {
     const sent: NotifyPayload[] = [];
     let minted = 0;
@@ -239,7 +220,6 @@ describe("notifyModule", () => {
   it("does not describe a card by the fields it does not have", () => {
     const plain = describeSend({
       target: { kind: "owner" },
-      asReply: false,
       text: "hi",
       card: { title: "Status", body: "green" },
       buttons: [],
@@ -252,7 +232,6 @@ describe("notifyModule", () => {
   it("says what will not fit before the surface drops it", () => {
     const many = describeSend({
       target: { kind: "owner" },
-      asReply: false,
       text: "hi",
       buttons: [
         ...Array.from({ length: 30 }, (_, i) => ({ label: `b${i}` })),

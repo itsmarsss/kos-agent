@@ -28,6 +28,10 @@ import { requireServices } from "../modules/loader.js";
  * - `buttons` come back. A press is delivered to a conversation as a message,
  *   so the whole turn machinery answers it, and `replyTo` says which
  *   conversation that is.
+ *
+ * Every call sends a message. There is no held-for-later shape: a card is a
+ * message with a card in it, which is the only reading that survived contact
+ * with anyone using it.
  */
 
 /** What a press is delivered to, when the caller does not say. */
@@ -39,8 +43,6 @@ export type PressRouter = (
 export interface NotifyPayload {
   text: string;
   target: MessageTarget;
-  /** Shape the answer this turn is about to give, rather than send. */
-  asReply?: boolean;
   card?: MessageCard;
   buttons?: MessageButton[];
 }
@@ -273,26 +275,25 @@ export function noticeText(payload: NotifyPayload): string {
  */
 export function describeSend(args: {
   target: MessageTarget;
-  asReply: boolean;
   text: string;
   card?: MessageCard;
   buttons: MessageButton[];
   landsIn?: string;
   stray: string[];
 }): string {
-  const { target, asReply, card, buttons } = args;
+  const { target, card, buttons } = args;
 
-  const where = asReply
-    ? "Not sent. This will be attached to your next reply, so write that reply now."
-    : `Sent to ${
-        target.kind === "owner" ? "the owner" : `${target.kind} ${target.id}`
-      }${target.surface ? ` on ${target.surface}` : ""}.`;
+  const where = `Sent to ${
+    target.kind === "owner" ? "the owner" : `${target.kind} ${target.id}`
+  }${target.surface ? ` on ${target.surface}` : ""}.`;
 
   const carried: string[] = [];
   if (args.text) carried.push("text");
   if (card) {
     const fields = card.fields?.length ?? 0;
-    carried.push(fields ? `a card with ${fields} fields` : "a card");
+    carried.push(
+      fields ? `a card with ${fields} field${fields === 1 ? "" : "s"}` : "a card",
+    );
   }
   if (buttons.length) {
     carried.push(`${buttons.length} button${buttons.length === 1 ? "" : "s"}`);
@@ -362,13 +363,12 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
           name: "notify",
           description:
             "Send a message on the owner's messaging surface. Plain text by default. " +
-            'Add `card` for a titled block with fields, `buttons` for something to press, ' +
-            "`to` picks the surface and where on it: omit for the owner wherever they " +
-            'already are, "discord" for the owner on Discord, "discord:channel:<id>" to ' +
-            "post in a channel, which needs approval. Set `asReply` to give the answer " +
-            "you are about to write this card and these buttons instead of sending a " +
-            "message of its own. A press comes back as a message in the conversation " +
-            "named by `replyTo`, so say what a button means in its label.",
+            "Add `card` for a titled block with fields, and `buttons` for something to " +
+            "press. `to` picks the surface and where on it: omit for the owner wherever " +
+            'they already are, "discord" for the owner on Discord, "discord:channel:<id>" ' +
+            "to post in a channel, which needs approval. A press comes back as a message " +
+            "in the conversation named by `replyTo`, so say what a button means in its " +
+            "label.",
           inputSchema: {
             type: "object",
             properties: {
@@ -460,11 +460,6 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
                   required: ["label"],
                 },
               },
-              asReply: {
-                type: "boolean",
-                description:
-                  "true to give the answer you are about to write this card and these buttons, instead of sending a message of its own. Your reply text is still the message; the card sits under it.",
-              },
               replyTo: {
                 type: "string",
                 description:
@@ -481,7 +476,6 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
           if (!services.notify) throw new Error("no notify channel is wired");
 
           const target = parseTarget(input.to);
-          const asReply = input.asReply === true;
           const replyTo = typeof input.replyTo === "string" ? input.replyTo : undefined;
           const buttons = asButtons(input.buttons).map((button) => {
             if (button.url) return button;
@@ -507,14 +501,12 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
           await services.notify({
             text,
             target,
-            ...(asReply ? { asReply: true } : {}),
             ...(card ? { card } : {}),
             ...(buttons.length ? { buttons } : {}),
           });
 
           return describeSend({
             target,
-            asReply,
             text,
             ...(card ? { card } : {}),
             buttons,

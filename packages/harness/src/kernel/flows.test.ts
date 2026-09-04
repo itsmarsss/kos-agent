@@ -11,6 +11,7 @@ import type { GenerateRequest, ModelResponse } from "../models/types.js";
 import type { KosModule } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { BEHAVIOUR_KEY } from "./behaviour.js";
+import type { NotifyPayload } from "../tools/notify.js";
 import { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
 
@@ -1234,89 +1235,6 @@ describe("KOS end-to-end flows", () => {
     expect(wire).toContain("Fly.io");
   });
 
-  it("answers with a card on a surface that renders one", async () => {
-    const model = scripted([
-      toolCall("n1", "notify", {
-        text: "",
-        asReply: true,
-        card: { title: "Budget", fields: [{ name: "Spent", value: "40" }] },
-        buttons: [{ label: "Show the rows", id: "rows" }],
-      }),
-      text("You are 40 dollars in this week."),
-    ]);
-    kernel = await boot(model.inference);
-
-    const res = await kernel.handleMessage("how is the budget", {
-      channel: "discord",
-    });
-    /*
-     * The shape rides on the answer rather than arriving as a second message,
-     * so the reader gets one thing: the sentence, with the card under it.
-     */
-    expect(res.reply).toContain("40 dollars");
-    expect(res.card?.title).toBe("Budget");
-    expect(res.buttons?.[0]?.label).toBe("Show the rows");
-    // A press has to know where to come back to, or the button is decoration.
-    expect(res.buttons?.[0]?.token).toBeTruthy();
-  });
-
-  it("folds a card into the words where nothing renders one", async () => {
-    const model = scripted([
-      toolCall("n1", "notify", {
-        text: "",
-        asReply: true,
-        card: { title: "Budget", fields: [{ name: "Spent", value: "40" }] },
-      }),
-      text("You are 40 dollars in this week."),
-    ]);
-    kernel = await boot(model.inference);
-
-    // The dashboard has no cards. Dropping it would lose something the agent
-    // deliberately said, so it is said in words instead.
-    const res = await kernel.handleMessage("how is the budget");
-    expect(res.card).toBeUndefined();
-    expect(res.reply).toContain("40 dollars");
-    expect(res.reply).toContain("Budget");
-    expect(res.reply).toContain("Spent: 40");
-  });
-
-  it("delivers a shaped answer to the surface, as one message", async () => {
-    /*
-     * The whole chain, which nothing covered: notify holds the shape, the
-     * kernel attaches it to the answer, connectChannel carries it out, and
-     * the runtime hands the adapter one message. Every piece had a test and
-     * the thing they add up to did not.
-     */
-    const model = scripted([
-      toolCall("n1", "notify", {
-        text: "",
-        asReply: true,
-        card: { title: "Budget", fields: [{ name: "Spent", value: "40" }] },
-        buttons: [{ label: "Show the rows", id: "rows" }],
-      }),
-      text("You are 40 dollars in this week."),
-    ]);
-    kernel = await boot(model.inference);
-
-    const { InMemoryAdapter } = await import("../channels/memory.js");
-    const { connectChannel } = await import("./channel.js");
-    const adapter = new InMemoryAdapter();
-    // The adapter's name is what reaches the kernel as the channel, and only
-    // a surface that renders cards is handed one.
-    Object.defineProperty(adapter, "name", { value: "discord" });
-    const runtime = connectChannel(adapter, kernel, { ownerRecipientId: "u1" });
-    await runtime.start();
-
-    await adapter.receive({ channel: "discord", senderId: "u1", text: "how is the budget" });
-
-    expect(adapter.sent).toHaveLength(1);
-    const sent = adapter.sent[0]!.msg;
-    expect(sent.text).toContain("40 dollars");
-    expect(sent.card?.title).toBe("Budget");
-    expect(sent.buttons?.[0]?.label).toBe("Show the rows");
-    expect(sent.buttons?.[0]?.token).toBeTruthy();
-  });
-
   it("will not report a message sent to a surface that is not here", async () => {
     const model = scripted([text("ok")]);
     kernel = await boot(model.inference);
@@ -1342,13 +1260,13 @@ describe("KOS end-to-end flows", () => {
     /*
      * The surface hands back the button on a press and never the form, so the
      * only place it can come from is the row written when the button was
-     * sent. It was being parsed off the call and then dropped on the way
-     * there, so every button opened nothing.
+     * sent. It was parsed off the call and then dropped on the way there, so
+     * every button opened nothing.
      */
+    const sent: NotifyPayload[] = [];
     const model = scripted([
       toolCall("n1", "notify", {
         text: "log it",
-        asReply: true,
         buttons: [
           {
             label: "Log an expense",
@@ -1366,49 +1284,24 @@ describe("KOS end-to-end flows", () => {
       }),
       text("Use the button."),
     ]);
-    kernel = await boot(model.inference);
-    const res = await kernel.handleMessage("track an expense", {
-      channel: "discord",
+    root = mkdtempSync(join(tmpdir(), "kos-flow-"));
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: model.inference,
+      profileOverrides: { name: "Kenny", timezone: "UTC" },
+      notify: async (payload) => {
+        sent.push(payload);
+      },
     });
+    await kernel.handleMessage("track an expense", { channel: "discord" });
 
-    const token = res.buttons?.[0]?.token;
+    const token = sent[0]?.buttons?.[0]?.token;
     expect(token).toBeTruthy();
     const route = kernel.presses.get(token!);
     expect(route?.modal?.title).toBe("Log an expense");
     expect(route?.modal?.fields.map((f) => f.id)).toEqual(["amount", "note"]);
     expect(route?.ephemeral).toBe(true);
-  });
-
-  it("refuses to shape a reply when there is no turn to shape", async () => {
-    const model = scripted([text("ok")]);
-    kernel = await boot(model.inference);
-    // Outside a turn there is no answer to attach to. Reporting success and
-    // dropping the card is the worst of both.
-    const res = await kernel.registry.execute("notify", {
-      text: "orphan",
-      asReply: true,
-      card: { title: "Nowhere" },
-    });
-    expect(res.isError).toBe(true);
-    expect(res.content).toContain("no reply to shape");
-  });
-
-  it("does not let one turn's card decorate the next answer", async () => {
-    const model = scripted([
-      toolCall("n1", "notify", {
-        text: "",
-        asReply: true,
-        card: { title: "First" },
-      }),
-      text("one"),
-      text("two"),
-    ]);
-    kernel = await boot(model.inference);
-
-    const first = await kernel.handleMessage("ask once", { channel: "discord" });
-    expect(first.card?.title).toBe("First");
-    const second = await kernel.handleMessage("ask again", { channel: "discord" });
-    expect(second.card).toBeUndefined();
   });
 
   it("says what there is to search when a recall misses", async () => {
