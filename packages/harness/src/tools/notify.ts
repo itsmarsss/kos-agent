@@ -34,7 +34,7 @@ export interface NotifyPayload {
   text: string;
   target: MessageTarget;
   card?: MessageCard;
-  buttons?: (MessageButton & { token?: string })[];
+  buttons?: MessageButton[];
 }
 
 export interface NotifyToolDeps {
@@ -105,6 +105,7 @@ export function parseTarget(raw: unknown): MessageTarget {
   if (raw === undefined || raw === null || raw === "" || raw === "owner") {
     return { kind: "owner" };
   }
+  if (raw === "reply") return { kind: "reply" };
   if (typeof raw !== "string") throw new Error("to must be a string");
   const [kind, id] = raw.split(":", 2);
   if ((kind === "channel" || kind === "user") && id) return { kind, id };
@@ -113,10 +114,18 @@ export function parseTarget(raw: unknown): MessageTarget {
   );
 }
 
-/** True when this call sends somewhere other than to the owner. */
+/**
+ * True when this call speaks somewhere the owner did not choose.
+ *
+ * "reply" is not one of those: it is the answer to the message being handled,
+ * going to whoever is already being spoken to. Asking permission to answer
+ * would make a card cost an approval and a paragraph cost nothing, which
+ * would teach the agent to never use one.
+ */
 export function sendsElsewhere(input: Record<string, unknown>): boolean {
   try {
-    return parseTarget(input.to).kind !== "owner";
+    const kind = parseTarget(input.to).kind;
+    return kind !== "owner" && kind !== "reply";
   } catch {
     // A destination that does not parse fails in the tool with a message
     // saying so. Treating it as risky here would ask for approval first.
@@ -158,15 +167,18 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
             "Send a message on the owner's messaging surface. Plain text by default. " +
             'Add `card` for a titled block with fields, `buttons` for something to press, ' +
             'and `to` to post somewhere other than the owner ("channel:<id>" or "user:<id>"), ' +
-            "which needs approval. A press comes back as a message in the conversation " +
-            "named by `replyTo`, so say what a button means in its label.",
+            'which needs approval. Use `to: "reply"` to give this turn\'s answer a card or ' +
+            "buttons rather than sending a second message alongside it. A press comes back " +
+            "as a message in the conversation named by `replyTo`, so say what a button " +
+            "means in its label.",
           inputSchema: {
             type: "object",
             properties: {
               text: { type: "string" },
               to: {
                 type: "string",
-                description: 'owner (default), channel:<id>, or user:<id>',
+                description:
+                  'owner (default), reply (make this the shape of the answer you are about to give, rather than a second message), channel:<id>, or user:<id>',
               },
               card: {
                 type: "object",

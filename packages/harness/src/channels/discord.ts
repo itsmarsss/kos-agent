@@ -239,7 +239,7 @@ export function buildCard(card: MessageCard): EmbedBuilder {
  * what Discord will show is dropped rather than making the whole message fail.
  */
 export function buildButtons(
-  buttons: (MessageButton & { token?: string })[],
+  buttons: MessageButton[],
 ): ActionRowBuilder<ButtonBuilder>[] {
   const rows: ActionRowBuilder<ButtonBuilder>[] = [];
   const usable = buttons.slice(0, BUTTONS_PER_ROW * ROWS_MAX);
@@ -545,23 +545,33 @@ export class DiscordAdapter implements ChannelAdapter {
           // ignore edit races
         }
       },
-      complete: async (reply: string) => {
+      complete: async (reply: OutboundMessage) => {
         await swapReact(REACT_WORKING, REACT_DONE);
         // The reply lands as ordinary message content, not an embed, so the
         // model owns the presentation: headings, lists, code blocks and the
         // rest render as written instead of being flattened into one
-        // description field under a fixed title.
-        const chunks = chunkText(reply);
+        // description field under a fixed title. A turn that chose a card
+        // gets it under the text, on the last chunk, where a reader arrives
+        // at it having read the answer.
+        const chunks = reply.text ? chunkText(reply.text) : [];
+        const embeds = reply.card ? [buildCard(reply.card)] : [];
+        const components = buildButtons(reply.buttons ?? []);
+        const last = Math.max(chunks.length, 1) - 1;
         try {
           await statusMsg.edit({
-            content: chunks[0] || "(no reply)",
-            embeds: [],
+            content: chunks[0] ?? "",
+            embeds: last === 0 ? embeds : [],
+            components: last === 0 ? components : [],
           });
           for (let i = 1; i < chunks.length; i++) {
-            await this.send(msg.senderId, { text: chunks[i]! });
+            await this.send(msg.senderId, {
+              text: chunks[i]!,
+              ...(i === last && reply.card ? { card: reply.card } : {}),
+              ...(i === last && reply.buttons ? { buttons: reply.buttons } : {}),
+            });
           }
         } catch {
-          await this.send(msg.senderId, { text: reply });
+          await this.send(msg.senderId, reply);
         }
       },
       fail: async (err: string) => {
