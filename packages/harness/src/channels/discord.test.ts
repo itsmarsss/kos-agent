@@ -1,4 +1,10 @@
-import type { Interaction, Message } from "discord.js";
+import type {
+  ActionRowBuilder,
+  ButtonBuilder,
+  EmbedBuilder,
+  Interaction,
+  Message,
+} from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -108,6 +114,81 @@ describe("agent-authored cards and buttons", () => {
     );
     expect(rows).toHaveLength(2);
     expect(rows[1]!.toJSON().components).toHaveLength(2);
+  });
+});
+
+describe("the answer a turn shaped", () => {
+  /**
+   * acknowledge() returns the handle the runtime completes a turn through, so
+   * this is where a chosen card actually becomes an embed. Faked down to the
+   * two calls that path makes: reply() to post the status, edit() to become
+   * the answer.
+   */
+  function presenceFor(): {
+    adapter: DiscordAdapter;
+    edits: Record<string, unknown>[];
+    message: Message;
+  } {
+    const edits: Record<string, unknown>[] = [];
+    const statusMsg = {
+      edit: async (payload: Record<string, unknown>) => {
+        edits.push(payload);
+        return statusMsg;
+      },
+    };
+    const message = {
+      author: { id: "owner-id", bot: false },
+      guild: null,
+      content: "hi",
+      react: async () => undefined,
+      reactions: { cache: { get: () => undefined } },
+      reply: async () => statusMsg,
+    } as unknown as Message;
+    const adapter = new DiscordAdapter({ token: "t" });
+    // react() reaches for the bot's own user when swapping reactions.
+    (adapter as unknown as { client: { user: unknown } }).client.user = { id: "bot" };
+    return { adapter, edits, message };
+  }
+
+  it("puts the card under the words, in the same message", async () => {
+    const { adapter, edits, message } = presenceFor();
+    const presence = await adapter.acknowledge({
+      channel: "discord",
+      senderId: "owner-id",
+      text: "hi",
+      native: message,
+    });
+    await presence!.complete({
+      text: "you are 40 in",
+      card: { title: "Budget" },
+      buttons: [{ label: "Rows", token: "t1" }],
+    });
+
+    // The last edit is the answer: the text as content, the card as an embed
+    // beneath it, and the buttons under both. One message, not three.
+    const final = edits.at(-1)!;
+    expect(final.content).toBe("you are 40 in");
+    expect((final.embeds as EmbedBuilder[])[0]?.toJSON().title).toBe("Budget");
+    expect(
+      (final.components as ActionRowBuilder<ButtonBuilder>[])[0]?.toJSON()
+        .components,
+    ).toHaveLength(1);
+  });
+
+  it("leaves a plain answer plain", async () => {
+    const { adapter, edits, message } = presenceFor();
+    const presence = await adapter.acknowledge({
+      channel: "discord",
+      senderId: "owner-id",
+      text: "hi",
+      native: message,
+    });
+    await presence!.complete({ text: "just words" });
+
+    const final = edits.at(-1)!;
+    expect(final.content).toBe("just words");
+    expect(final.embeds).toEqual([]);
+    expect(final.components).toEqual([]);
   });
 });
 

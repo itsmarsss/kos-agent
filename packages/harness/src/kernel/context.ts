@@ -100,6 +100,18 @@ export function channelGuidance(channel?: string): string | undefined {
     "Match the format to the answer: a one-line question gets one line, not a heading.",
     "Reach for structure when it earns its place, such as steps, comparisons, or query output.",
     "Messages over 2000 characters are split, so keep replies tight and put bulk in a file via export.query.",
+    "",
+    "### Answering with a card or buttons",
+    'You are a bot here, so an answer can be more than prose. Call notify with `to: "reply"`',
+    "and a `card` to give this answer a titled block with labelled fields, or `buttons` to",
+    "offer something to press instead of asking the reader to type back. It shapes the answer",
+    "you are already giving rather than sending a second message, it needs no approval, and",
+    "the text you write still goes above it.",
+    "A card suits a handful of named values, a status, or one thing with a few facts about it.",
+    "Prose suits everything else: a card around a paragraph is a box around a paragraph.",
+    "A button needs a label that says what pressing it does, because the press comes back to",
+    "you as that label and nothing else. Offer them when the next step is one of a few known",
+    "choices, not as decoration on an answer that needed none.",
   ].join("\n");
 }
 
