@@ -86,19 +86,25 @@ export interface OutboundMessage {
  * person KOS belongs to. Anything else is a message somewhere the owner may
  * not be watching, which is why the tool escalates it.
  */
-export type MessageTarget =
-  | { kind: "owner" }
-  | { kind: "user"; id: string }
-  | { kind: "channel"; id: string }
-  /**
-   * The answer to the message being handled, rather than a message of its own.
-   *
-   * A card sent separately arrives next to the reply as a second thing, so an
-   * answer that wanted to be a card was always an answer plus a card. This
-   * makes the shape part of the reply, and it asks no permission: it goes to
-   * whoever is already being spoken to.
-   */
-  | { kind: "reply" };
+/**
+ * Where a message goes: which surface, and where on it.
+ *
+ * The surface is a channel adapter by name -- discord, and whatever else is
+ * connected later. Omitted means wherever the owner already is, which is the
+ * ordinary case and the one that needs no thought.
+ *
+ * Where on it is separate, because it is the part that decides permission: a
+ * message to the owner asks nothing wherever it is sent, and a message to a
+ * channel is KOS speaking somewhere the owner did not pick, on any surface.
+ */
+export interface MessageTarget {
+  /** Adapter name. Absent means whichever surface is wired. */
+  surface?: string;
+  /** Whom, on that surface. */
+  kind: "owner" | "user" | "channel";
+  /** Native id, for a user or a channel. */
+  id?: string;
+}
 
 /** A button that was pressed, on its way back to the conversation that sent it. */
 export interface ButtonPress {

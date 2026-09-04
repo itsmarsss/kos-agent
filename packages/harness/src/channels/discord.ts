@@ -441,6 +441,7 @@ export class DiscordAdapter implements ChannelAdapter {
    */
   async sendTo(target: MessageTarget, msg: OutboundMessage): Promise<void> {
     if (target.kind === "channel") {
+      if (!target.id) throw new Error("a channel needs an id");
       const channel = await this.client.channels.fetch(target.id);
       if (!channel || !channel.isSendable()) {
         throw new Error(
