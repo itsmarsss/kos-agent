@@ -678,13 +678,6 @@ export function ChatsPage({
             placeholder="Search chats…"
             onChange={(e) => setQuery(e.target.value)}
           />
-          <button
-            type="button"
-            className={`chats-archived ${showArchived ? "is-on" : ""}`}
-            onClick={() => setShowArchived((v) => !v)}
-          >
-            {showArchived ? "← Back to chats" : "Archived"}
-          </button>
         </div>
         {orchestrator && (
           <div className="chats-pinned">
@@ -815,12 +808,47 @@ export function ChatsPage({
               </a>
             </li>
           ))}
-          {filtered.length === 0 && (
+          {(showArchived ? archived : filtered).length === 0 && (
             <li className="chats-empty">
-              {query.trim() ? "Nothing matches." : "No chats yet. Ask KOS to start one."}
+              {showArchived
+                ? "Nothing archived."
+                : query.trim()
+                  ? "Nothing matches."
+                  : "No chats yet. Ask KOS to start one."}
             </li>
           )}
         </ul>
+
+        {/* At the foot rather than under the search box: it is a place you go
+            occasionally, not a filter on the list you are reading, and it
+            took a whole row of the header to say one faint word. */}
+        <button
+          type="button"
+          className={`chats-archived ${showArchived ? "is-on" : ""}`}
+          onClick={() => setShowArchived((v) => !v)}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            {showArchived ? (
+              <path d="M15 18l-6-6 6-6" />
+            ) : (
+              <>
+                <path d="M3 7h18v3H3zM5 10v9h14v-9" />
+                <path d="M10 14h4" />
+              </>
+            )}
+          </svg>
+          {showArchived ? "Back to chats" : "Archived"}
+        </button>
       </aside>
 
       <section className="chats-view">
