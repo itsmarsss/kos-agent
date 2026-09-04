@@ -77,10 +77,121 @@ describe("http.fetch module", () => {
     expect(seenAuth).toBe("Bearer sk-real");
   });
 
-  it("is risky tier", async () => {
+  it("asks before a write, whatever the host", async () => {
     const registry = await load({ allowedHosts: ["api.example.com"], fetchImpl: async () => new Response("") });
-    expect(registry.classify("http.fetch", { url: "https://api.example.com" }).tier).toBe(
-      "risky",
+    expect(
+      registry.classify("http.fetch", {
+        url: "https://api.example.com",
+        method: "POST",
+      }).tier,
+    ).toBe("risky");
+  });
+});
+
+/**
+ * The allow-list is the permission. Every fetch used to queue for approval,
+ * including to a host the owner had put on the list themselves, so the same
+ * question was answered twice: once in settings and again on every call.
+ */
+describe("what a fetch asks about", () => {
+  let root: string;
+  let ws: Workspace;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-http-tier-"));
+    ws = Workspace.open(root);
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  async function tiers(): Promise<(input: Record<string, unknown>) => string> {
+    const registry = new ToolRegistry();
+    const loader = new ModuleLoader(
+      toolRegistryContext(registry, {
+        workspace: ws,
+        db: ws.db,
+        secrets: new SecretsRegistry(),
+      } as never),
     );
+    await loader.load([
+      createHttpModule({
+        allowedHosts: ["example.com"],
+        fetchImpl: async () => new Response(""),
+      }),
+    ]);
+    return (input) => registry.classify("http.fetch", input).tier;
+  }
+
+  it("does not ask again about reading an allowed host", async () => {
+    const tier = await tiers();
+    expect(tier({ url: "https://example.com/feed" })).toBe("safe");
+    expect(tier({ url: "https://example.com/feed", method: "get" })).toBe("safe");
+    expect(tier({ url: "https://example.com/feed", method: "HEAD" })).toBe("safe");
+  });
+
+  it("still asks before writing to one", async () => {
+    // Reading a page the owner allowed is what the list is for. Posting to it
+    // is a different act, and one that can carry data out of the workspace.
+    const tier = await tiers();
+    expect(tier({ url: "https://example.com/x", method: "POST" })).toBe("risky");
+    expect(tier({ url: "https://example.com/x", method: "delete" })).toBe("risky");
+  });
+});
+
+/**
+ * A host added in Settings should work on the next message.
+ *
+ * The list was read once at boot, so adding one at noon did nothing until the
+ * daemon was restarted, which is not something an owner should have to know.
+ */
+describe("adding a host without a restart", () => {
+  let root: string;
+  let ws: Workspace;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-http-live-"));
+    ws = Workspace.open(root);
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("reads the list at call time", async () => {
+    let hosts: string[] = [];
+    const reached: string[] = [];
+    const registry = new ToolRegistry();
+    const loader = new ModuleLoader(
+      toolRegistryContext(registry, {
+        workspace: ws,
+        db: ws.db,
+        secrets: new SecretsRegistry(),
+      } as never),
+    );
+    await loader.load([
+      createHttpModule({
+        allowedHosts: () => hosts,
+        fetchImpl: async (url) => {
+          reached.push(String(url));
+          return new Response("ok");
+        },
+      }),
+    ]);
+
+    const call = () =>
+      registry.execute("http.fetch", { url: "https://late.example.com/x" });
+
+    // Nothing is allowed yet.
+    expect((await call()).isError).toBe(true);
+    expect(reached).toEqual([]);
+
+    // The owner adds it. No restart.
+    hosts = ["late.example.com"];
+    expect((await call()).isError).toBeFalsy();
+    expect(reached).toHaveLength(1);
   });
 });

@@ -206,3 +206,83 @@ describe("one tool call at a time", () => {
     expect(ran).toEqual(["a", "b", "c"]);
   });
 });
+
+describe("stopping a turn", () => {
+  function text(body: string): ModelResponse {
+    return {
+      content: [{ type: "text", text: body }],
+      stopReason: "end_turn",
+      usage: { inputTokens: 0, outputTokens: 0 },
+      model: "stub",
+    };
+  }
+
+  it("stops a turn that is one model call, not only one with several", async () => {
+    /*
+     * The check was at the top of the loop, so a stop asked for while the
+     * model was answering did nothing until the next round trip -- and a
+     * turn that was a single call had none. The request is dropped now, and
+     * the provider raising for that reason is a stop, not a failure.
+     */
+    let stopped = false;
+    const inference: Inference = {
+      generate: async (_task, req: GenerateRequest) => {
+        stopped = true;
+        (req.signal as AbortSignal | undefined)?.throwIfAborted?.();
+        // The provider raises when the request it was given is dropped.
+        throw Object.assign(new Error("aborted"), { name: "AbortError" });
+      },
+    };
+    const result = await runAgent(
+      inference,
+      addRegistry(),
+      [{ role: "user", content: [{ type: "text", text: "write an essay" }] }],
+      { shouldStop: () => stopped },
+    );
+    expect(result.stopped).toBe(true);
+  });
+
+  it("does not answer a stopped turn with the previous turn's words", async () => {
+    /*
+     * The history in front of the model holds every earlier answer, so
+     * looking for the last assistant message found the one before this turn
+     * when this turn had said nothing. Asking a fresh question and stopping
+     * it replied with the answer to the question before it.
+     */
+    const inference: Inference = {
+      generate: async () => {
+        throw Object.assign(new Error("aborted"), { name: "AbortError" });
+      },
+    };
+    const result = await runAgent(
+      inference,
+      addRegistry(),
+      [
+        { role: "user", content: [{ type: "text", text: "say banana" }] },
+        { role: "assistant", content: [{ type: "text", text: "banana" }] },
+        { role: "user", content: [{ type: "text", text: "write an essay" }] },
+      ],
+      { shouldStop: () => true },
+    );
+    expect(result.stopped).toBe(true);
+    expect(result.finalText).toBe("");
+  });
+
+  it("still raises when the call failed for its own reasons", async () => {
+    const inference: Inference = {
+      generate: async () => {
+        throw new Error("provider is down");
+      },
+    };
+    await expect(
+      runAgent(inference, addRegistry(), "hello", { shouldStop: () => false }),
+    ).rejects.toThrow("provider is down");
+  });
+
+  it("passes the signal to the provider so the call can be dropped", async () => {
+    const inference = new ScriptedInference([text("done")]);
+    const controller = new AbortController();
+    await runAgent(inference, addRegistry(), "hi", { signal: controller.signal });
+    expect(inference.requests[0]?.signal).toBe(controller.signal);
+  });
+});

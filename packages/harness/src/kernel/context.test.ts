@@ -57,10 +57,26 @@ describe("inferScopeTags", () => {
     expect(inferScopeTags("create a task list")).toEqual(
       expect.arrayContaining(["tasks", "systems"]),
     );
+    // Without this the daemon tools existed and were never offered: they are
+    // tagged, and nothing an owner says about an app inferred the tag.
+    expect(inferScopeTags("is the api server still running")).toContain("daemons");
+    expect(inferScopeTags("show me the logs for that worker")).toContain("daemons");
   });
 });
 
 describe("channelGuidance", () => {
+  it("says a message can be a card, not only prose", () => {
+    // The formatting guidance predated cards and buttons, so on Discord the
+    // model was taught how to write a paragraph and never told it could
+    // answer with anything else.
+    const guidance = channelGuidance("discord") ?? "";
+    expect(guidance).toContain("notify sends a message");
+    expect(guidance).toContain("card");
+    expect(guidance).toContain("buttons");
+    // And when not to: a card around a paragraph is a box around a paragraph.
+    expect(guidance).toContain("Prose suits everything else");
+  });
+
   it("describes Discord formatting so the model can choose a shape", () => {
     const g = channelGuidance("discord")!;
     expect(g).toContain("headings");

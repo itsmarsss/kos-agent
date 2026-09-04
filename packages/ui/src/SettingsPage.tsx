@@ -36,6 +36,7 @@ const BEHAVIOUR_FALLBACK: Behaviour = {
   agentMinutes: 15,
   agentTurns: 60,
   stallMinutes: 3,
+  approvalMinutes: 30,
 };
 
 /**
@@ -130,6 +131,103 @@ function Limit({
   );
 }
 
+/**
+ * A set of hostnames, edited one at a time.
+ *
+ * Stored as the comma-separated string the environment file wants, because
+ * that is what the host reads; shown as what it is.
+ */
+function HostList({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}): ReactElement {
+  const [draft, setDraft] = useState("");
+  const hosts = value
+    .split(",")
+    .map((h) => h.trim())
+    .filter(Boolean);
+
+  const write = (next: string[]): void => onChange(next.join(", "));
+
+  const add = (): void => {
+    // Typed with a scheme or a path, which is the natural thing to paste.
+    const cleaned = draft
+      .trim()
+      .replace(/^[a-z]+:\/\//i, "")
+      .replace(/\/.*$/, "")
+      .toLowerCase();
+    if (!cleaned || hosts.includes(cleaned)) {
+      setDraft("");
+      return;
+    }
+    write([...hosts, cleaned]);
+    setDraft("");
+  };
+
+  return (
+    <div className="hostlist">
+      {hosts.length > 0 && (
+        <ul className="hostlist-items">
+          {hosts.map((h) => (
+            <li key={h}>
+              <span className="ops-mono">{h}</span>
+              <button
+                type="button"
+                className="icon-btn icon-btn--bare"
+                title={`Stop allowing ${h}`}
+                onClick={() => write(hosts.filter((x) => x !== h))}
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  aria-hidden="true"
+                >
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="hostlist-add">
+        <input
+          className="kos-input"
+          value={draft}
+          placeholder="rss.nytimes.com"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+        />
+        <button
+          type="button"
+          className="btn"
+          disabled={!draft.trim()}
+          onClick={add}
+        >
+          Allow
+        </button>
+      </div>
+      {hosts.length === 0 && (
+        <span className="hint">
+          Nothing is allowed, so http.fetch can reach nothing.
+        </span>
+      )}
+    </div>
+  );
+}
+
 function Section({
   title,
   blurb,
@@ -137,6 +235,8 @@ function Section({
   onSave,
   saving,
   saved,
+  canSave,
+  extra,
 }: {
   title: string;
   blurb: string;
@@ -144,6 +244,10 @@ function Section({
   onSave?: () => void;
   saving?: boolean;
   saved?: string | null;
+  /** Withhold Save until something has changed. Undefined means always on. */
+  canSave?: boolean;
+  /** Another action beside Save, in the same footer as every other tab. */
+  extra?: ReactNode;
 }): ReactElement {
   return (
     <section className="set-card">
@@ -157,12 +261,19 @@ function Section({
           <button
             type="button"
             className="btn btn--primary"
-            disabled={saving}
+            disabled={saving || canSave === false}
             onClick={onSave}
           >
             {saving ? "Saving…" : "Save"}
           </button>
-          {saved && <span className="set-saved">{saved}</span>}
+          {extra}
+          {saved && (
+            <span
+              className={`set-saved ${saved === "Not saved yet" ? "is-unsaved" : ""}`}
+            >
+              {saved}
+            </span>
+          )}
         </footer>
       )}
     </section>
@@ -192,6 +303,8 @@ export function SettingsPage(): ReactElement {
   const [limits, setLimits] = useState<Record<string, [number, number]>>({});
   /** ModelSettings owns its draft, so it hands its save up to the footer. */
   const saveModels = useRef<(() => void) | null>(null);
+  /** ModelSettings owns its draft, so it reports whether that draft differs. */
+  const [modelsDirty, setModelsDirty] = useState(false);
   const [busy, setBusy] = useState<SectionId | null>(null);
   const [saved, setSaved] = useState<Partial<Record<SectionId, string>>>({});
 
@@ -203,6 +316,8 @@ export function SettingsPage(): ReactElement {
     maxChars: "",
     maxToolResultChars: "",
     maxExchanges: "",
+    // A string like the rest, so one dirty check covers the whole card.
+    autoTrim: "on",
   });
 
   const zones = useRef<string[]>(timezones());
@@ -218,6 +333,7 @@ export function SettingsPage(): ReactElement {
           maxChars: String(r.retention.maxChars),
           maxToolResultChars: String(r.retention.maxToolResultChars),
           maxExchanges: String(r.retention.maxExchanges),
+          autoTrim: r.retention.autoTrim === false ? "off" : "on",
         });
         setError(null);
       })
@@ -281,6 +397,32 @@ export function SettingsPage(): ReactElement {
       )
       .finally(() => setBusy(null));
   };
+
+  /**
+   * The same Save on every tab.
+   *
+   * Each tab used to wire its own: some always pressable, some not; some
+   * saying "Saved", some silent; Models with three of them. One helper, so a
+   * tab cannot express a different idea of what saving is.
+   */
+  const saveBar = (
+    section: SectionId,
+    dirty: boolean,
+    onSave: () => void,
+    extra?: ReactNode,
+  ): {
+    saving: boolean;
+    saved: string | null;
+    canSave: boolean;
+    onSave: () => void;
+    extra?: ReactNode;
+  } => ({
+    saving: busy === section,
+    saved: dirty ? "Not saved yet" : (saved[section] ?? null),
+    canSave: dirty,
+    onSave,
+    ...(extra ? { extra } : {}),
+  });
 
   const same = (a: Behaviour, b: Behaviour): boolean =>
     (Object.keys(a) as (keyof Behaviour)[]).every((k) => a[k] === b[k]);
@@ -369,15 +511,17 @@ export function SettingsPage(): ReactElement {
           <Section
             title="You"
             blurb="Used in the system prompt and to decide what today means for a schedule."
-            saving={busy === "you"}
-            saved={saved.you ?? null}
-            onSave={() =>
-              run(
-                "you",
-                api.saveProfile(profile.name, profile.timezone),
-                "Saved",
-              )
-            }
+            {...saveBar(
+              "you",
+              profile.name !== (data.profile?.name ?? "") ||
+                profile.timezone !== (data.profile?.timezone ?? ""),
+              () =>
+                run(
+                  "you",
+                  api.saveProfile(profile.name, profile.timezone),
+                  "Saved",
+                ),
+            )}
           >
             <Field label="Name" hint="What KOS calls you.">
               <input
@@ -418,9 +562,9 @@ export function SettingsPage(): ReactElement {
           <Section
             title="Providers"
             blurb="Stored outside the workspace, readable only by you. KOS shows the last four characters so you can tell two keys apart; it never sends the value back."
-            saving={busy === "providers"}
-            saved={saved.providers ?? null}
-            onSave={() => saveEnv("providers", keys, () => setKeys({}))}
+            {...saveBar("providers", Object.keys(keys).length > 0, () =>
+              saveEnv("providers", keys, () => setKeys({})),
+            )}
           >
             {Object.entries(data.secrets).map(([key, meta]) => (
               <Field
@@ -472,16 +616,39 @@ export function SettingsPage(): ReactElement {
         )}
 
         {active === "models" && (
-          <>
-            {/* First, because it decides whether the rest of this tab even
-                applies: on the subscription the model is the SDK's to pick. */}
-            <Section
-              title="Who does the thinking"
-              blurb="A turn can go to the model provider, which bills API credits, or through the Claude Agent SDK, which is what coding agents already use and spends a Claude Code subscription instead."
-              saving={busy === "engine"}
-              saved={saved.engine ?? null}
-              onSave={() => run("engine", api.saveBehaviour(how), "Saved")}
-            >
+          /* One card, one Save, like every other tab. This was three cards
+             with three Saves, which is the shape the rest of Settings was
+             changed away from. */
+          <Section
+            title="Models"
+            blurb="Who answers, which model, and how hard it thinks."
+            {...saveBar(
+              "models",
+              how.engine !== savedHow.engine ||
+                modelsDirty ||
+                buildModel !== (data.buildModel ?? ""),
+              () => {
+                // One press writes all three, in the order that matters: the
+                // engine decides whether the model choices below apply.
+                void run(
+                  "models",
+                  api
+                    .saveBehaviour(how)
+                    .then(() => api.saveBuildModel(buildModel)),
+                  "Saved",
+                );
+                saveModels.current?.();
+                setSavedHow(how);
+              },
+            )}
+          >
+            <div className="set-group">
+              <h3>Who does the thinking</h3>
+              <p className="hint">
+                A turn can go to the model provider, which bills API credits,
+                or through the Claude Agent SDK, which is what coding agents
+                already use and spends a Claude Code subscription instead.
+              </p>
               <Field
                 label="Chat engine"
                 hint="Either way the only tools are KOS's own, inside the same workspace jail, and risky ones still ask you first. The SDK path needs a signed-in Claude Code on this machine, or an Anthropic key."
@@ -503,27 +670,35 @@ export function SettingsPage(): ReactElement {
                   }
                 />
               </Field>
-            </Section>
+            </div>
 
-            <Section
-              title="Models"
-              blurb="Which model answers what, and how hard it thinks."
-              saving={busy === "models"}
-              saved={saved.models ?? null}
-              onSave={() => saveModels.current?.()}
-            >
-              <ModelSettings onReady={(fn) => (saveModels.current = fn)} />
-            </Section>
-            <Section
-              title="Build agents"
-              blurb="Which model does the building when KOS hands work to a coding sub-agent."
-              saving={busy === "models"}
-              saved={saved.models ?? null}
-              onSave={() => run("models", api.saveBuildModel(buildModel), "Saved")}
-            >
+            <div className="set-group">
+              <h3>Which model answers</h3>
+              <p className="hint">
+                Applied on the next turn, no restart. Blank keeps the default.
+                Ignored while the Claude Agent SDK is answering, which picks
+                its own.
+              </p>
+              <ModelSettings
+                onReady={(fn, dirty) => {
+                  saveModels.current = fn;
+                  // Only on a change. This is called after every render of
+                  // the child, so setting state unconditionally re-rendered
+                  // it, which called this again: the page locked solid.
+                  setModelsDirty((was) => (was === dirty ? was : dirty));
+                }}
+              />
+            </div>
+
+            <div className="set-group">
+              <h3>Build agents</h3>
+              <p className="hint">
+                Which model does the building when KOS hands work to a coding
+                sub-agent.
+              </p>
               <Field
                 label="Build model"
-                hint="A build is many turns and each is a model call, so this is the biggest lever on how long one takes. Sonnet is markedly faster than Opus for scaffolding work. Leave blank to use whatever Claude Code defaults to."
+                hint="A build is many turns and each is a model call, so this is the biggest lever on how long one takes. Sonnet is markedly faster than Opus for scaffolding work."
               >
                 <Select
                   className="set-select"
@@ -538,19 +713,41 @@ export function SettingsPage(): ReactElement {
                   onChange={setBuildModel}
                 />
               </Field>
-            </Section>
-          </>
+            </div>
+          </Section>
         )}
 
         {active === "behaviour" && (
-          <>
-            <Section
-              title="When something fails"
-              blurb="A job that fails at 3am tells you either way. This decides whether KOS also tries to do something about it before you wake up."
-            >
+          /* One card, like every other tab. It was three chained cards and a
+             footer of its own, which is why this tab read as a different
+             application from the rest of Settings. */
+          <Section
+            title="Behaviour"
+            blurb="How KOS acts when you are not watching. These are one set of settings, saved together."
+            {...saveBar(
+              "behaviour",
+              changed,
+              saveHow,
+              <button
+                type="button"
+                className="btn"
+                disabled={busy === "behaviour" || atDefaults}
+                onClick={() => setHow(defaults)}
+              >
+                Reset to defaults
+              </button>,
+            )}
+          >
+            <div className="set-group">
+              <h3>When something fails</h3>
+              <p className="hint">
+                A job that fails at 3am tells you either way. This decides
+                whether KOS also tries to do something about it before you wake
+                up.
+              </p>
               <Field
                 label="Try to fix failures on its own"
-                hint="On the first failure of a job, KOS opens a chat, works out why, and repairs it if it safely can. Later failures of the same job do not start another attempt. Everything it does there still asks you before anything risky, and you can read or steer the attempt in Chats."
+                hint="On the first failure of a job, KOS opens a chat, works out why, and repairs it if it safely can. Later failures of the same job do not start another attempt. Everything it does there still asks you before anything risky."
               >
                 <label className="set-toggle">
                   <input
@@ -561,123 +758,130 @@ export function SettingsPage(): ReactElement {
                   <span>{how.autoFix ? "On" : "Off"}</span>
                 </label>
               </Field>
-            </Section>
+            </div>
 
-            <Section
-              title="How hard it tries"
-              blurb="A step is one round-trip to the model, which is roughly one thought and one tool call. Past the limit a turn stops and says it got stuck rather than running on."
-            >
+            <div className="set-group">
+              <h3>How hard it tries</h3>
+              <p className="hint">
+                A step is one round-trip to the model, roughly one thought and
+                one tool call. Past the limit a turn stops and says it got stuck
+                rather than running on.
+              </p>
               <div className="set-grid">
-              <Limit
-                label="Steps in a turn"
-                hint={`What an ordinary message gets. Default ${defaults.maxSteps}.`}
-                value={how.maxSteps}
-                range={limits.maxSteps}
-                onChange={(maxSteps) => setHow({ ...how, maxSteps })}
-              />
-              <Limit
-                label="Steps in a fix attempt"
-                hint={`Diagnosing a failure is mostly reading, so it is worth more than a normal turn. Default ${defaults.fixSteps}.`}
-                value={how.fixSteps}
-                range={limits.fixSteps}
-                onChange={(fixSteps) => setHow({ ...how, fixSteps })}
-              />
+                <Limit
+                  label="Steps in a turn"
+                  hint={`What an ordinary message gets. Default ${defaults.maxSteps}.`}
+                  value={how.maxSteps}
+                  range={limits.maxSteps}
+                  onChange={(maxSteps) => setHow({ ...how, maxSteps })}
+                />
+                <Limit
+                  label="Steps in a fix attempt"
+                  hint={`Diagnosing a failure is mostly reading, so it is worth more than a normal turn. Default ${defaults.fixSteps}.`}
+                  value={how.fixSteps}
+                  range={limits.fixSteps}
+                  onChange={(fixSteps) => setHow({ ...how, fixSteps })}
+                />
               </div>
-            </Section>
+            </div>
 
-            <Section
-              title="Unattended work"
-              blurb="Limits on what KOS may do while nobody is watching. These are the guards against a loop that runs all night."
-            >
+            <div className="set-group">
+              <h3>Unattended work</h3>
+              <p className="hint">
+                Limits on what KOS may do while nobody is watching: the guards
+                against a loop that runs all night.
+              </p>
               <div className="set-grid">
-              <Limit
-                label="Self-prompted jobs per hour"
-                hint={`A scheduled job that thinks rather than running fixed actions. Zero stops them entirely. Default ${defaults.selfPromptsPerHour}.`}
-                value={how.selfPromptsPerHour}
-                range={limits.selfPromptsPerHour}
-                onChange={(selfPromptsPerHour) =>
-                  setHow({ ...how, selfPromptsPerHour })
-                }
-              />
-              <Limit
-                label="Minutes a coding agent may run"
-                hint={`Stopped at this regardless of what it is doing. Default ${defaults.agentMinutes}.`}
-                value={how.agentMinutes}
-                range={limits.agentMinutes}
-                onChange={(agentMinutes) => setHow({ ...how, agentMinutes })}
-              />
-              <Limit
-                label="Turns a coding agent may take"
-                hint={`The other end of the same leash, counted in steps rather than time. Default ${defaults.agentTurns}.`}
-                value={how.agentTurns}
-                range={limits.agentTurns}
-                onChange={(agentTurns) => setHow({ ...how, agentTurns })}
-              />
-              <Limit
-                label="Minutes of silence before an agent looks stuck"
-                hint={`Only changes what the Agents list says about it; nothing is stopped. Default ${defaults.stallMinutes}.`}
-                value={how.stallMinutes}
-                range={limits.stallMinutes}
-                onChange={(stallMinutes) => setHow({ ...how, stallMinutes })}
-              />
+                <Limit
+                  label="Self-prompted jobs per hour"
+                  hint={`A scheduled job that thinks rather than running fixed actions. Zero stops them entirely. Default ${defaults.selfPromptsPerHour}.`}
+                  value={how.selfPromptsPerHour}
+                  range={limits.selfPromptsPerHour}
+                  onChange={(selfPromptsPerHour) =>
+                    setHow({ ...how, selfPromptsPerHour })
+                  }
+                />
+                <Limit
+                  label="Minutes to wait for your approval"
+                  hint={`A turn suspended on a risky call holds its conversation until you decide. After this it treats the silence as a refusal. Default ${defaults.approvalMinutes}.`}
+                  value={how.approvalMinutes}
+                  range={limits.approvalMinutes}
+                  onChange={(approvalMinutes) =>
+                    setHow({ ...how, approvalMinutes })
+                  }
+                />
+                <Limit
+                  label="Minutes a coding agent may run"
+                  hint={`Stopped at this regardless of what it is doing. Default ${defaults.agentMinutes}.`}
+                  value={how.agentMinutes}
+                  range={limits.agentMinutes}
+                  onChange={(agentMinutes) => setHow({ ...how, agentMinutes })}
+                />
+                <Limit
+                  label="Turns a coding agent may take"
+                  hint={`The other end of the same leash, counted in steps rather than time. Default ${defaults.agentTurns}.`}
+                  value={how.agentTurns}
+                  range={limits.agentTurns}
+                  onChange={(agentTurns) => setHow({ ...how, agentTurns })}
+                />
+                <Limit
+                  label="Minutes of silence before an agent looks stuck"
+                  hint={`Only changes what the Agents list says about it; nothing is stopped. Default ${defaults.stallMinutes}.`}
+                  value={how.stallMinutes}
+                  range={limits.stallMinutes}
+                  onChange={(stallMinutes) => setHow({ ...how, stallMinutes })}
+                />
               </div>
-            </Section>
-
-            {/* One set of buttons, because these three cards are one stored
-                document. A Save under each would each write all of them,
-                which reads as three independent settings and is not. Drawn
-                as a card footer so it matches every other Save on the page. */}
-            <footer className="set-card set-card-foot">
-              <button
-                type="button"
-                className="btn btn--primary"
-                disabled={busy === "behaviour" || !changed}
-                onClick={saveHow}
-              >
-                {busy === "behaviour" ? "Saving…" : "Save behaviour"}
-              </button>
-              {/* Fills the fields rather than writing them: you get to see
-                  what reverting would do before it is the setting. */}
-              <button
-                type="button"
-                className="btn"
-                disabled={busy === "behaviour" || atDefaults}
-                onClick={() => setHow(defaults)}
-              >
-                Reset to defaults
-              </button>
-              {changed ? (
-                <span className="set-unsaved">Not saved yet</span>
-              ) : (
-                saved.behaviour && (
-                  <span className="set-saved">{saved.behaviour}</span>
-                )
-              )}
-            </footer>
-          </>
+            </div>
+          </Section>
         )}
 
         {active === "conversation" && (
           <Section
             title="Conversation"
-            blurb="How much of a chat is carried into the next turn. Past these, the oldest exchanges fall off the front; /compact turns them into a summary instead."
-            saving={busy === "conversation"}
-            saved={saved.conversation ?? null}
-            onSave={() =>
-              run(
-                "conversation",
-                api.saveRetention({
-                  maxChars: Number(retention.maxChars),
-                  maxToolResultChars: Number(retention.maxToolResultChars),
-                  maxExchanges: Number(retention.maxExchanges),
-                }),
-                "Saved",
-              )
-            }
+            blurb="How much of a chat is carried into the next turn. Past these, the oldest exchanges fall off the front; /compact turns them into a summary instead. Set any of them to 0 to stop trimming on that count, at the cost of a history that grows without bound and is re-sent every turn."
+            {...saveBar(
+              "conversation",
+              retention.maxChars !== String(data.retention.maxChars) ||
+                retention.maxToolResultChars !==
+                  String(data.retention.maxToolResultChars) ||
+                retention.maxExchanges !== String(data.retention.maxExchanges) ||
+                retention.autoTrim !==
+                  (data.retention.autoTrim === false ? "off" : "on"),
+              () =>
+                run(
+                  "conversation",
+                  api.saveRetention({
+                    maxChars: Number(retention.maxChars),
+                    maxToolResultChars: Number(retention.maxToolResultChars),
+                    maxExchanges: Number(retention.maxExchanges),
+                    autoTrim: retention.autoTrim !== "off",
+                  }),
+                  "Saved",
+                ),
+            )}
           >
             <Field
+              label="Trim old exchanges"
+              hint="When on, the oldest exchanges fall off the front once a chat passes the budgets below, and the chat says so when it happens. Off keeps everything: the whole history is re-sent every turn, so it gets slower and costs more as it grows."
+            >
+              <label className="set-toggle">
+                <input
+                  type="checkbox"
+                  checked={retention.autoTrim !== "off"}
+                  onChange={(e) =>
+                    setRetention((r) => ({
+                      ...r,
+                      autoTrim: e.target.checked ? "on" : "off",
+                    }))
+                  }
+                />
+                <span>{retention.autoTrim !== "off" ? "On" : "Off"}</span>
+              </label>
+            </Field>
+            <Field
               label="History budget"
-              hint={`Characters of a conversation kept. Default ${data.retentionDefaults.maxChars.toLocaleString()}.`}
+              hint={`Characters of a conversation kept. 0 for no limit. Default ${data.retentionDefaults.maxChars.toLocaleString()}.`}
             >
               <input
                 className="kos-input"
@@ -690,7 +894,7 @@ export function SettingsPage(): ReactElement {
             </Field>
             <Field
               label="Exchanges kept"
-              hint={`Hard ceiling regardless of size. Default ${data.retentionDefaults.maxExchanges}.`}
+              hint={`Hard ceiling regardless of size. 0 for no limit. Default ${data.retentionDefaults.maxExchanges}.`}
             >
               <input
                 className="kos-input"
@@ -703,7 +907,7 @@ export function SettingsPage(): ReactElement {
             </Field>
             <Field
               label="Tool result cap"
-              hint={`A single result longer than this is truncated rather than dropped. Default ${data.retentionDefaults.maxToolResultChars.toLocaleString()}.`}
+              hint={`A single result longer than this is truncated rather than dropped. 0 for no limit. Default ${data.retentionDefaults.maxToolResultChars.toLocaleString()}.`}
             >
               <input
                 className="kos-input"
@@ -729,9 +933,9 @@ export function SettingsPage(): ReactElement {
           <Section
             title="Network"
             blurb="Where KOS listens and what it may reach. Applied the next time the host starts."
-            saving={busy === "network"}
-            saved={saved.network ?? null}
-            onSave={() => saveEnv("network", ports, () => setPorts({}))}
+            {...saveBar("network", Object.keys(ports).length > 0, () =>
+              saveEnv("network", ports, () => setPorts({})),
+            )}
           >
             {networkKeys.map(([key, meta]) => (
               <Field
@@ -751,19 +955,14 @@ export function SettingsPage(): ReactElement {
               </Field>
             ))}
             {accessKeys.map(([key, meta]) => (
-              <Field
-                key={key}
-                label={meta.label}
-                hint={meta.hint}
-                badge={
-                  meta.value ? <span className="set-badge is-set">{meta.value}</span> : null
-                }
-              >
-                <input
-                  className="kos-input"
-                  value={ports[key] ?? ""}
-                  placeholder={meta.value || "none"}
-                  onChange={(e) => setPorts((p) => ({ ...p, [key]: e.target.value }))}
+              <Field key={key} label={meta.label} hint={meta.hint}>
+                {/* A list, edited as a list. It was one text box holding
+                    comma-separated hosts, which reads as a sentence and
+                    edits like one: no way to see what is on it at a glance,
+                    and removing the middle entry meant surgery on a string. */}
+                <HostList
+                  value={ports[key] ?? meta.value ?? ""}
+                  onChange={(next) => setPorts((p) => ({ ...p, [key]: next }))}
                 />
               </Field>
             ))}

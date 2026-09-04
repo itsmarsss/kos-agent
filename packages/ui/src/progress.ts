@@ -54,6 +54,15 @@ export interface Live {
   /** When the turn started, so a wait can show its length. */
   since: number;
   /**
+   * The turn is over, but what it did is still the only copy on screen.
+   *
+   * Dropping the steps on turn-end left a gap: the thoughts and tool calls
+   * disappeared, and the transcript that contains them arrived a fetch later,
+   * so the end of every turn flashed. The steps stay until the reader has the
+   * transcript, and the view stops calling it working in the meantime.
+   */
+  ended?: boolean;
+  /**
    * Joined a turn already in progress, after a reload or a reconnect.
    *
    * Whatever was said before this page existed cannot be recovered, so the
@@ -150,6 +159,17 @@ class ProgressStore {
     this.emit();
   }
 
+  /**
+   * Drop a finished turn now that its transcript is on screen.
+   *
+   * Checked here rather than by the caller: whoever fetched a transcript did
+   * so a moment ago, and a turn that has started again since must not have
+   * its steps thrown away because of a decision made against the old state.
+   */
+  settled(conversationId: string): void {
+    if (this.map[conversationId]?.ended) this.clear(conversationId);
+  }
+
   /** Drop a conversation the server no longer reports as working. */
   clear(conversationId: string): void {
     if (!this.map[conversationId]) return;
@@ -182,9 +202,10 @@ class ProgressStore {
         return;
       }
       if (event.kind === "turn-end") {
-        const next = { ...this.map };
-        delete next[id];
-        this.map = next;
+        // Marked rather than dropped: whoever is showing it swaps it for the
+        // transcript, and clears it then.
+        const live = this.map[id];
+        if (live) this.map = { ...this.map, [id]: { ...live, ended: true } };
       } else if (event.kind === "turn-start") {
         this.map = { ...this.map, [id]: { steps: [], text: "", since: Date.now() } };
       } else {
@@ -226,6 +247,11 @@ export function seedProgress(working: string[]): void {
 
 export function clearProgress(conversationId: string): void {
   store.clear(conversationId);
+}
+
+/** Hand a finished turn over to the transcript that now holds it. */
+export function settleProgress(conversationId: string): void {
+  store.settled(conversationId);
 }
 
 export function useProgress(): ProgressMap {

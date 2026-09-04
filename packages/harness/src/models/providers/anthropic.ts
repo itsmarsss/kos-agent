@@ -177,7 +177,10 @@ export class AnthropicProvider implements Provider {
     apiKey: string,
   ): Promise<ModelResponse> {
     const client = new Anthropic({ apiKey });
-    const message = await client.messages.create(buildAnthropicParams(req, spec));
+    const message = await client.messages.create(
+      buildAnthropicParams(req, spec),
+      ...(req.signal ? [{ signal: req.signal }] : []),
+    );
     return fromAnthropicResponse(message);
   }
 }

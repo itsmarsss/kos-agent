@@ -57,9 +57,11 @@ export const WRITABLE_SECRETS: Record<
 /**
  * Non-secret settings that also live in the env file.
  *
- * These take effect when the host next starts, because they decide how it
- * binds and what it trusts, which is not something to change underneath a
- * running process.
+ * The ports and the bind address take effect when the host next starts: they
+ * decide how it binds, which is not something to change underneath a running
+ * process. The allow list is read afresh on every fetch, so adding a host to
+ * it is enough -- having to restart the daemon to reach a host you had just
+ * allowed made the setting look broken.
  */
 export const WRITABLE_SETTINGS: Record<
   string,
@@ -82,7 +84,7 @@ export const WRITABLE_SETTINGS: Record<
   },
   KOS_ALLOWED_HOSTS: {
     label: "Hosts the agent may fetch",
-    hint: "Comma separated. Empty means http.fetch can reach nothing, which is the safe default.",
+    hint: "Listing a host is the permission: reading one of these no longer asks you every time. Writing to one still does. Anything not listed is refused outright, and an empty list means http.fetch can reach nothing.",
     group: "access",
   },
 };

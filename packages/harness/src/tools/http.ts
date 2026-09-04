@@ -7,7 +7,13 @@ export type FetchImpl = typeof fetch;
 
 export interface HttpModuleOptions {
   /** Hostnames the agent may fetch. Empty means deny all (allowlist-only). */
-  allowedHosts?: string[];
+  /**
+   * Hosts the agent may reach. A function is read at call time, which is what
+   * lets the owner add one in Settings and have the next message use it:
+   * captured once at boot, a host added at noon did nothing until the daemon
+   * was restarted.
+   */
+  allowedHosts?: string[] | (() => string[]);
   timeoutMs?: number;
   /** Response body cap in bytes. */
   maxBytes?: number;
@@ -28,14 +34,16 @@ function hostAllowed(url: string, allowed: Set<string>): boolean {
 
 async function doFetch(
   input: Record<string, unknown>,
-  opts: Required<Omit<HttpModuleOptions, "allowedHosts">> & { allowed: Set<string> },
+  opts: Required<Omit<HttpModuleOptions, "allowedHosts">> & {
+    allowed: () => Set<string>;
+  },
   secrets: SecretsRegistry,
 ): Promise<string> {
   const rawUrl = input.url;
   if (typeof rawUrl !== "string") throw new Error("http.fetch requires a url");
   // Inject secrets after reasoning, just before the request leaves.
   const url = injectSecretsInString(rawUrl, secrets);
-  if (!hostAllowed(url, opts.allowed)) {
+  if (!hostAllowed(url, opts.allowed())) {
     throw new Error(`host not allowlisted: ${new URL(url).hostname}`);
   }
 
@@ -77,9 +85,13 @@ async function doFetch(
  * Risky tier: queues for approval; a non-allowlisted host is rejected outright.
  */
 export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
-  const allowed = new Set(
-    (options.allowedHosts ?? []).map((h) => h.toLowerCase()),
-  );
+  const allowed = (): Set<string> => {
+    const list =
+      typeof options.allowedHosts === "function"
+        ? options.allowedHosts()
+        : (options.allowedHosts ?? []);
+    return new Set(list.map((h) => h.trim().toLowerCase()).filter(Boolean));
+  };
   const resolved = {
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxBytes: options.maxBytes ?? DEFAULT_MAX_BYTES,
@@ -114,8 +126,24 @@ export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
         },
         (input) => doFetch(input, resolved, secrets),
         {
-          floor: "risky",
-          escalate: () => true,
+          /*
+           * The allow-list is the permission.
+           *
+           * Every fetch used to queue for approval, including to a host the
+           * owner had explicitly listed -- so the answer to "may it reach
+           * rss.nytimes.com" was given twice, once in settings and again on
+           * every call. A host that is not on the list is refused by the
+           * tool regardless, so asking about that one is theatre too.
+           *
+           * What still asks is a write. Reading a page the owner allowed is
+           * what the list is for; posting to it is a different act, and one
+           * that can carry data out of the workspace.
+           */
+          floor: "safe",
+          escalate: (input) => {
+            const method = String(input["method"] ?? "GET").toUpperCase();
+            return method !== "GET" && method !== "HEAD";
+          },
         },
       );
     },

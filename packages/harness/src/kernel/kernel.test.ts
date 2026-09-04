@@ -34,7 +34,10 @@ describe("Kernel", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  async function boot(inference: Inference, notify?: (t: string) => Promise<void>): Promise<Kernel> {
+  async function boot(
+    inference: Inference,
+    notify?: (payload: { text: string }) => Promise<void>,
+  ): Promise<Kernel> {
     root = mkdtempSync(join(tmpdir(), "kos-kernel-"));
     return Kernel.boot({
       rootDir: root,
@@ -155,8 +158,8 @@ describe("Kernel", () => {
           model: "stub",
         },
       ]),
-      async (t) => {
-        sent.push(t);
+      async (payload) => {
+        sent.push(payload.text);
       },
     );
     const res = await kernel.handleMessage("save a note");
@@ -246,8 +249,8 @@ describe("Kernel", () => {
 
   it("runs a scheduled actions job through the guarded path", async () => {
     const sent: string[] = [];
-    kernel = await boot(stubInference([]), async (t) => {
-      sent.push(t);
+    kernel = await boot(stubInference([]), async (payload) => {
+      sent.push(payload.text);
     });
     const job = kernel.crons.create({
       name: "ping",

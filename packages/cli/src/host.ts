@@ -7,12 +7,15 @@ import { fileURLToPath } from "node:url";
 import {
   AllowlistMapping,
   ChannelRuntime,
+  type ChannelAdapter,
   DiscordAdapter,
   Kernel,
   connectChannel,
   createDashboardServer,
+  createPressHandler,
   primarySessionId,
   startSiteServer,
+  type NotifyPayload,
 } from "@kos/harness";
 
 import { envFilePath } from "./env.js";
@@ -20,7 +23,7 @@ import { clearDaemonState, writeDaemonState } from "./state.js";
 
 export interface HostOptions {
   rootDir: string;
-  allowedHosts: string[];
+  allowedHosts: string[] | (() => string[]);
   host: string;
   port: number;
   token?: string;
@@ -69,11 +72,51 @@ export async function runHost(options: HostOptions): Promise<void> {
 
   let runtime: ChannelRuntime | undefined;
 
+  /*
+   * The surfaces a message can be sent on, by name.
+   *
+   * A map of one today. It exists as a map because "which surface" is the
+   * question the tool asks, and answering it by ignoring the name and using
+   * the only adapter there is would make `to: "telegram"` arrive on Discord.
+   * Adding a surface is a line here.
+   */
+  const surfaces = new Map<string, () => ChannelAdapter | undefined>();
+  surfaces.set("discord", () => adapter);
+
   const notify =
     creds && wantDiscord
-      ? async (text: string) => {
-          // runtime's adapter is only available after start; capture adapter ref.
-          if (adapter) await adapter.send(creds.ownerId, { text });
+      ? async (payload: NotifyPayload) => {
+          const wanted = payload.target.surface;
+          const connected = [...surfaces.keys()].filter((name) =>
+            surfaces.get(name)!(),
+          );
+          if (wanted && !surfaces.has(wanted)) {
+            throw new Error(
+              `no ${wanted} surface here. Connected: ${connected.join(", ") || "none"}.`,
+            );
+          }
+          // No surface named means wherever the owner already is, which is
+          // the only one wired.
+          const send = surfaces.get(wanted ?? "discord")?.();
+          if (!send) {
+            throw new Error(
+              `the ${wanted ?? "discord"} surface is not connected. Connected: ${
+                connected.join(", ") || "none"
+              }.`,
+            );
+          }
+          const msg = {
+            text: payload.text,
+            ...(payload.card ? { card: payload.card } : {}),
+            ...(payload.buttons ? { buttons: payload.buttons } : {}),
+          };
+          // An addressed message goes through sendTo; the owner's DM is the
+          // path everything took before and still takes.
+          if (payload.target.kind === "owner") {
+            await send.send(creds.ownerId, msg);
+            return;
+          }
+          await send.sendTo?.(payload.target, msg);
         }
       : undefined;
 
@@ -100,6 +143,9 @@ export async function runHost(options: HostOptions): Promise<void> {
   });
 
   kernel.startCron();
+  // Whatever the owner left running stays running across a restart of the
+  // host, the same way a schedule does.
+  kernel.startDaemons();
 
   const staticDir = process.env.KOS_UI_DIST ?? defaultUiDist();
   const meta = {
@@ -171,7 +217,38 @@ export async function runHost(options: HostOptions): Promise<void> {
   else console.log("ui: not built (pnpm -C packages/ui build); API only");
 
   if (wantDiscord && creds) {
-    adapter = new DiscordAdapter({ token: creds.token });
+    adapter = new DiscordAdapter({ token: creds.token, ownerId: creds.ownerId });
+    /*
+     * A button KOS sent comes back as a message.
+     *
+     * Rather than a second way for a surface to drive the agent, the press is
+     * turned into what the owner would have typed and handed to the ordinary
+     * turn machinery, in the conversation recorded when the button went out.
+     * The reply goes back the way any reply does.
+     */
+    /*
+     * A decision made anywhere settles the prompt here.
+     *
+     * The Discord prompt kept its buttons until Discord was the surface that
+     * answered it, so deciding from the dashboard left a message still
+     * offering the choice, and pressing it reported that the action did not
+     * exist. The queue tells whoever is listening, so this listens.
+     */
+    kernel.approvals.onDecided((action) => {
+      void adapter?.settleApproval?.(
+        String(action.id),
+        action.status === "approved" ? "approved" : "denied",
+      );
+    });
+
+    adapter.onButton(
+      createPressHandler({
+        kernel,
+        // The surface the answer is going to, so a card comes back as a card.
+        channel: adapter.name,
+        ownerRecipientId: creds.ownerId,
+      }),
+    );
     runtime = connectChannel(adapter, kernel, {
       ownerRecipientId: creds.ownerId,
       // The sender->user table, seeded from config: only the configured Discord

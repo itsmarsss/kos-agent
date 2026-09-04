@@ -11,6 +11,7 @@ import type { GenerateRequest, ModelResponse } from "../models/types.js";
 import type { KosModule } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { BEHAVIOUR_KEY } from "./behaviour.js";
+import type { NotifyPayload } from "../tools/notify.js";
 import { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
 
@@ -241,6 +242,44 @@ describe("KOS end-to-end flows", () => {
     expect(kernel.approvals.pending()).toHaveLength(0);
   });
 
+  it("keeps the turn alive while it waits on the owner", async () => {
+    const model = scripted([
+      toolCall("c1", "shell", { command: "rm -rf build" }),
+      text("Removed the build directory."),
+    ]);
+    kernel = await boot(model.inference);
+
+    const seen: string[] = [];
+    let ended!: () => void;
+    const finished = new Promise<void>((resolve) => {
+      ended = resolve;
+    });
+    const off = kernel.progress.subscribe((event) => {
+      if (event.kind !== "turn-start" && event.kind !== "turn-end") return;
+      seen.push(event.kind);
+      if (event.kind === "turn-end") ended();
+    });
+
+    // Answers straight away rather than holding the caller for as long as the
+    // owner takes to decide.
+    const first = await kernel.handleMessage("delete the build directory");
+    expect(first.reply).toContain("Waiting on you");
+
+    /*
+     * The turn is suspended, not finished. turn-end drops the live view, so
+     * emitting it here wiped every thought and tool call on screen at exactly
+     * the moment the approval card appeared.
+     */
+    expect(seen).toEqual(["turn-start"]);
+
+    // The decision releases the suspended call, and the turn it belongs to
+    // ends once the rest of the plan has run.
+    await kernel.approve(kernel.approvals.pending()[0]!.id);
+    await finished;
+    expect(seen).toEqual(["turn-start", "turn-end"]);
+    off();
+  });
+
   it("continues in the conversation that asked, and only there", async () => {
     const model = scripted([
       toolCall("c1", "shell", { command: "rm -rf build" }),
@@ -387,10 +426,15 @@ describe("KOS end-to-end flows", () => {
     expect(recallPrompt).toContain("America/New_York");
   });
 
-  it("keeps harness resume turns out of the owner's memory", async () => {
+  it("keeps what the harness does out of the owner's memory", async () => {
+    // A write, which asks whatever the host: a plain read of an allowed host
+    // no longer does, because listing the host is the permission.
     const model = scripted([
-      toolCall("c1", "http.fetch", { url: "https://example.com" }),
-      text("Queued."),
+      toolCall("c1", "http.fetch", {
+        url: "https://example.com",
+        method: "POST",
+        body: "hi",
+      }),
       text("Done."),
     ]);
     kernel = await boot(model.inference);
@@ -401,8 +445,8 @@ describe("KOS end-to-end flows", () => {
 
     await kernel.approve(pending[0]!.id);
 
-    // The resume prompt is harness plumbing, not something the owner said, so
-    // it must not become an episode or a remembered fact.
+    // Nothing about the approval machinery is something the owner said, so
+    // none of it should become an episode or a remembered fact.
     const facts = kernel.facts.all("owner");
     expect(facts.some((f) => f.value.includes("pending action"))).toBe(false);
   });
@@ -451,6 +495,67 @@ describe("KOS end-to-end flows", () => {
 
     await kernel.handleMessage("and now from the CLI");
     expect(model.systems.at(-1)!).not.toContain("Replying on Discord");
+  });
+
+  it("asks before running a job by hand, then runs it the way it will run", async () => {
+    const model = scripted([
+      toolCall("c1", "cron.run", { id: 2 }),
+      text("Ran it."),
+    ]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({
+      name: "morning-ping",
+      schedule: "0 9 * * *",
+      type: "actions",
+      actions: [{ tool: "notify", args: { text: "stand up" } }],
+      enabled: true,
+    });
+    // Every workspace is seeded with the nightly backup job, which holds 1.
+    // Asserted rather than assumed: the scripted call above names an id.
+    expect(job.id).toBe(2);
+
+    /*
+     * Firing a job runs whatever it holds -- a write, a message to a channel
+     * -- and the risk gate sees only an id, so it cannot classify any of it.
+     * The decision goes to the owner at the point where the consequences are
+     * still legible: the job, by name.
+     */
+    await kernel.handleMessage("run the morning ping now");
+    expect(kernel.approvals.pending().map((p) => p.tool)).toEqual(["cron.run"]);
+    expect(kernel.runs.recent(10).some((r) => r.kind === "cron")).toBe(false);
+
+    // And what it does once allowed: fire(), so the run log, the kill switch
+    // and the health report see it exactly as they would at 9am.
+    const ran = await kernel.registry.execute("cron.run", { id: job.id });
+    expect(ran.isError).toBe(false);
+    expect(ran.content).toContain("ran morning-ping");
+    expect(kernel.runs.recent(10).some((r) => r.kind === "cron")).toBe(true);
+  });
+
+  it("will not run a job that is already running", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({
+      name: "loop",
+      schedule: "0 9 * * *",
+      type: "actions",
+      actions: [{ tool: "notify", args: { text: "hi" } }],
+      enabled: true,
+    });
+
+    /*
+     * A self-prompt job whose prompt asks KOS to run a job can name itself,
+     * and each run would start another before the first finished. The rate
+     * limit caps how much of that happens in an hour; this stops it.
+     */
+    const first = kernel.fireCron(job.id);
+    const second = await kernel.fireCron(job.id);
+    expect(second.ok).toBe(false);
+    expect(second.error).toContain("already running");
+    await first;
+
+    // And it is runnable again once the first has finished.
+    expect((await kernel.fireCron(job.id)).ok).toBe(true);
   });
 
   it("cannot write through a cron query, even one already stored", async () => {
@@ -1130,6 +1235,137 @@ describe("KOS end-to-end flows", () => {
     expect(wire).toContain("Fly.io");
   });
 
+  it("will not report a message sent to a surface that is not here", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    /*
+     * With no channel wired the dashboard notice stands in, which is right
+     * for a message that did not ask for anywhere in particular. A request to
+     * reach Telegram cannot be honoured by writing a line on the dashboard,
+     * and answering "sent" is how an agent comes to believe it has told
+     * someone something.
+     */
+    const away = await kernel.registry.execute("notify", {
+      text: "hi",
+      to: "telegram",
+    });
+    expect(away.isError).toBe(true);
+    expect(away.content).toContain("no telegram surface is connected");
+
+    const here = await kernel.registry.execute("notify", { text: "hi" });
+    expect(here.isError).toBe(false);
+  });
+
+  it("keeps the form a button opens, all the way to where a press looks", async () => {
+    /*
+     * The surface hands back the button on a press and never the form, so the
+     * only place it can come from is the row written when the button was
+     * sent. It was parsed off the call and then dropped on the way there, so
+     * every button opened nothing.
+     */
+    const sent: NotifyPayload[] = [];
+    const model = scripted([
+      toolCall("n1", "notify", {
+        text: "log it",
+        buttons: [
+          {
+            label: "Log an expense",
+            id: "log",
+            ephemeral: true,
+            modal: {
+              title: "Log an expense",
+              fields: [
+                { id: "amount", label: "Amount" },
+                { id: "note", label: "Note", style: "paragraph" },
+              ],
+            },
+          },
+        ],
+      }),
+      text("Use the button."),
+    ]);
+    root = mkdtempSync(join(tmpdir(), "kos-flow-"));
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: model.inference,
+      profileOverrides: { name: "Kenny", timezone: "UTC" },
+      notify: async (payload) => {
+        sent.push(payload);
+      },
+    });
+    await kernel.handleMessage("track an expense", { channel: "discord" });
+
+    const token = sent[0]?.buttons?.[0]?.token;
+    expect(token).toBeTruthy();
+    const route = kernel.presses.get(token!);
+    expect(route?.modal?.title).toBe("Log an expense");
+    expect(route?.modal?.fields.map((f) => f.id)).toEqual(["amount", "note"]);
+    expect(route?.ephemeral).toBe(true);
+  });
+
+  it("says what there is to search when a recall misses", async () => {
+    const model = scripted([
+      toolCall("m1", "memory.recall", { query: "quantum chromodynamics" }),
+      text("Nothing on that."),
+    ]);
+    kernel = await boot(model.inference);
+    kernel.facts.upsert("owner", {
+      key: "deploy_target",
+      value: "Fly.io",
+      kind: "fact",
+      tags: ["infra"],
+    });
+
+    await kernel.handleMessage("what do we know");
+    const wire = JSON.stringify(model.calls.at(-1)!.request.messages);
+    /*
+     * An empty array reads as "nothing is known" and the reply says so. A
+     * miss is usually the wrong words rather than an empty store, so it
+     * comes back with something to aim at.
+     */
+    expect(wire).toContain("infra");
+    expect(wire).toContain("Nothing matched those words");
+  });
+
+  it("asks before starting a program that keeps running", async () => {
+    const model = scripted([
+      toolCall("d1", "files.write", {
+        path: "projects/app/server.js",
+        content: "setInterval(() => {}, 1000);",
+      }),
+      toolCall("d2", "daemons.create", {
+        project: "app",
+        name: "api",
+        entry: "projects/app/server.js",
+      }),
+      text("Queued that for your approval."),
+    ]);
+    kernel = await boot(model.inference);
+
+    await kernel.handleMessage("run that server for me");
+
+    /*
+     * Registering a daemon runs code nobody read, on its own schedule, until
+     * something stops it. Writing the file it runs is an ordinary write; it is
+     * starting the thing that is the decision.
+     */
+    const pending = kernel.approvals.pending();
+    expect(pending.map((p) => p.tool)).toEqual(["daemons.create"]);
+    expect(kernel.daemons.list()).toEqual([]);
+  });
+
+  it("stops a daemon without asking, and lists without starting one", async () => {
+    const model = scripted([toolCall("d1", "daemons.list", {}), text("None yet.")]);
+    kernel = await boot(model.inference);
+    await kernel.handleMessage("what is running");
+    // Neither reading the register nor stopping something should ever be the
+    // call that waits: a daemon misbehaving is when you least want a queue.
+    expect(kernel.approvals.pending()).toEqual([]);
+    expect(kernel.registry.classify("daemons.stop", { id: 1 }).tier).toBe("safe");
+    expect(kernel.registry.classify("daemons.logs", { id: 1 }).tier).toBe("safe");
+  });
+
   it("attributes an entry to the conversation that wrote it", async () => {
     const model = scripted([
       toolCall("m1", "memory.remember", { key: "x", value: "y" }),
@@ -1497,8 +1733,8 @@ describe("failures reach the owner", () => {
       secrets: new SecretsRegistry(),
       inference: scripted([]).inference,
       profileOverrides: { name: "Kenny", timezone: "UTC" },
-      notify: async (text: string) => {
-        sent.push(text);
+      notify: async (payload) => {
+        sent.push(payload.text);
       },
     });
   }

@@ -179,6 +179,35 @@ describe("GuardedTools tool scoping", () => {
     const registry = registryWith(5);
     expect(guarded(registry).defs()).toHaveLength(5);
   });
+
+  it("keeps the whole toolkit offered while it fits", () => {
+    /*
+     * The cap sat under the registry, so narrowing was on for every turn of
+     * every conversation and the offered set changed shape with the wording
+     * of each message, with nothing said about it. Scoping is for the
+     * many-modules case, not for a toolkit two over the line.
+     */
+    const registry = registryWith(50);
+    const defs = guarded(registry, { toolLimit: 96, scopeTags: ["even"] }).defs();
+    expect(defs).toHaveLength(50);
+  });
+
+  it("does not narrow an allow-list by inferred scope as well", () => {
+    /*
+     * The two filters answer different questions: an allow-list says what a
+     * conversation may reach, and scope tags guess what a message is about.
+     * Applying both dropped tools the caller had explicitly allowed the moment
+     * the registry outgrew the cap, and the orchestrator quietly lost its
+     * memory tools because nothing it says infers that tag.
+     */
+    const registry = registryWith(20);
+    const defs = guarded(registry, {
+      toolLimit: 8,
+      scopeTags: ["even"],
+      allow: ["t1"],
+    }).defs();
+    expect(defs.map((d) => d.name)).toEqual(["t1"]);
+  });
 });
 
 describe("repeated calls", () => {

@@ -41,6 +41,7 @@ import { MessageActions, MessageEditor } from "./MessageActions.js";
 import { CopyIcon, EditIcon, ForkIcon, MoreIcon } from "./icons.js";
 import {
   clearProgress,
+  settleProgress,
   seedProgress,
   useProgress,
   onNote,
@@ -150,11 +151,16 @@ export function ChatsPage({
       conversations.filter((c) => c.activity === "working").map((c) => c.id),
     );
     for (const c of conversations) {
-      if (c.activity !== "working" && progress[c.id] && progress[c.id]!.steps.length === 0) {
+      const live = progress[c.id];
+      if (!live || c.activity === "working") continue;
+      // Nothing left to hand over, or nobody here to hand it to: a turn that
+      // ended in a conversation the reader is not looking at has no transcript
+      // to be swapped into.
+      if (live.steps.length === 0 || (live.ended && c.id !== activeId)) {
         clearProgress(c.id);
       }
     }
-  }, [conversations, progress]);
+  }, [conversations, progress, activeId]);
   const [creating, setCreating] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
@@ -181,7 +187,11 @@ export function ChatsPage({
   }, [showArchived, conversations]);
   const drop = useDropZone((l) => void attachments.add(l));
   const live = activeId ? progress[activeId] : undefined;
-  const running = Boolean(live) || sendingIn === activeId;
+  // A finished turn keeps its steps on screen until the transcript arrives,
+  // so "there is a live view" and "work is happening" are no longer the same
+  // question.
+  const working = Boolean(live) && !live?.ended;
+  const running = working || sendingIn === activeId;
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -213,6 +223,17 @@ export function ChatsPage({
   const boxRef = useRef<HTMLDivElement>(null);
 
   const active = conversations.find((c) => c.id === activeId);
+  /*
+   * A turn is running here, on both accounts.
+   *
+   * The live view alone is not enough to hold the transcript still. A
+   * turn-end that never arrives -- a dropped stream, a sleeping tab -- leaves
+   * a live entry that no longer corresponds to anything, and keying only on
+   * that would block every refresh from then on: a transcript frozen at
+   * whatever it last held, which is the failure the holding was meant to
+   * prevent. The list is the other account, and it comes from the server.
+   */
+  const turnRunningHere = working && active?.activity === "working";
   const visible = [...seeded, ...events];
 
   /**
@@ -243,10 +264,10 @@ export function ChatsPage({
     null,
   );
   // A turn ending is worth a reload straight away rather than at the next
-  // poll, which is up to five seconds later.
-  const wasLive = useRef(false);
-  const justEnded = wasLive.current && !live;
-  wasLive.current = Boolean(live);
+  // poll, which is up to five seconds later. The store says so directly: a
+  // ref written during render gave the wrong answer under StrictMode, which
+  // renders twice and reads the value the first pass had already moved on.
+  const justEnded = Boolean(live?.ended);
 
   // Notes belong to the conversation that produced them.
   useEffect(() => setNotes([]), [activeId]);
@@ -268,7 +289,10 @@ export function ChatsPage({
     const mine = loadedFor?.id === activeId;
     // Mid-send the optimistic bubble is the only record of what was typed.
     if (mine && sendingIn === activeId) return;
-    if (mine && loadedFor.stamp === stamp && !justEnded) return;
+    const holdTranscript = Boolean(mine) && turnRunningHere && !justEnded;
+    if (mine && !holdTranscript && loadedFor.stamp === stamp && !justEnded) {
+      return;
+    }
     if (!mine) {
       // Nothing from the previous conversation stays visible while this one
       // loads.
@@ -277,21 +301,45 @@ export function ChatsPage({
       setEditingIndex(null);
     }
     let cancelled = false;
+    const id = activeId;
     void api
-      .conversation(activeId)
+      .conversation(id)
       .then(({ events: got, pending: waiting }) => {
         if (cancelled) return;
-        setEvents(got);
+        /*
+         * Queued messages land first, always.
+         *
+         * They arrive on the same fetch as the transcript, and holding the
+         * transcript still during a turn held these back with it -- so a
+         * message queued behind a running turn stayed invisible until the
+         * turn ended, which is the one moment it did not matter.
+         */
         setPending(waiting);
-        setLoadedFor({ id: activeId, stamp });
+        /*
+         * The transcript itself waits.
+         *
+         * A conversation is touched more than once per turn, and replacing
+         * the whole transcript under a streaming answer is what made a turn
+         * look like it was redrawing itself. loadedFor is left alone too, so
+         * the fetch happens again once the turn is over.
+         */
+        if (holdTranscript) return;
+        setEvents(got);
+        setLoadedFor({ id, stamp });
+        // The transcript now holds what the live view was holding, so the
+        // handover is done and the steps can go. Doing this on turn-end
+        // instead left the screen without either for the length of a fetch.
+        settleProgress(id);
       })
       .catch(() => {
-        if (!cancelled) setEvents([]);
+        // Emptying the transcript on a failed fetch turned one dropped
+        // request into a chat that looks deleted. What is on screen is
+        // still the last thing that was true.
       });
     return () => {
       cancelled = true;
     };
-  }, [activeId, stamp, sendingIn, loadedFor, justEnded]);
+  }, [activeId, stamp, sendingIn, loadedFor, justEnded, turnRunningHere]);
 
   // The live turn grows as it streams, so it is part of what pins the scroll.
   useStickToBottom(boxRef, [events, sendingIn, activeId, live?.steps.length, live?.text]);
@@ -379,12 +427,18 @@ export function ChatsPage({
       // so it names the panel and the surface obliges.
       if (res.opens === "tools") setEditing(true);
       // Reload rather than appending the reply: the turn may have made tool
-      // calls, and those belong in the transcript too.
+      // calls, and those belong in the transcript too. A turn suspended on an
+      // approval answers here too, and the reload is what puts its approval
+      // card on screen.
       const { events: got, pending: waiting } = await api.conversation(target);
       if (target === activeIdRef.current) {
         setEvents(got);
         setPending(waiting);
       }
+      // Every path that replaces the transcript is a handover: leaving the
+      // finished steps up as well shows each tool call twice until something
+      // else happens to clear them.
+      settleProgress(target);
       onChanged();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -495,10 +549,39 @@ export function ChatsPage({
     return tool && tool.kind === "tool" ? tool.tool : "thinking";
   };
 
-  /** Ask the running turn in this conversation to stop. */
+  const [stopping, setStopping] = useState(false);
+
+  /**
+   * Ask the running turn in this conversation to stop.
+   *
+   * It said nothing either way: the button looked identical before and
+   * after, the answer went on arriving for as long as the model took, and a
+   * request the server refused because nothing was running was swallowed
+   * whole. Pressing it now says so, and says when there was nothing to stop.
+   */
   function stop(): void {
-    if (!activeId) return;
-    void api.stopConversation(activeId).catch(() => undefined);
+    if (!activeId || stopping) return;
+    setStopping(true);
+    void api
+      .stopConversation(activeId)
+      .then((res) => {
+        if (!res.stopping) {
+          setNotes((n) => [
+            ...n,
+            { id: Date.now(), text: "Nothing is running in this chat." },
+          ]);
+        }
+      })
+      .catch((err: unknown) =>
+        setNotes((n) => [
+          ...n,
+          {
+            id: Date.now(),
+            text: `Could not stop: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ]),
+      )
+      .finally(() => setStopping(false));
   }
 
 
@@ -507,8 +590,19 @@ export function ChatsPage({
     opts: { text?: string; forkTitle?: string } = {},
   ): void => {
     if (!activeId) return;
+    const target = activeId;
     setRewinding(true);
     setEditingIndex(null);
+    /*
+     * A rewind runs a whole turn, so it holds the view the way sending does.
+     *
+     * Without this the turn was running while the transcript effect was still
+     * free to refetch on every stamp: the cut-back thread was replaced by the
+     * server's copy mid-turn, so the edited message vanished and came back,
+     * and the reply that was streaming underneath was rebuilt from scratch
+     * each time -- which is what "it gets removed live" was.
+     */
+    setSendingIn(target);
     // Cut the thread back now. Waiting for the reply left the old answer on
     // screen while a new one was being written for a question it no longer
     // matched.
@@ -530,11 +624,19 @@ export function ChatsPage({
       }
     }
     void api
-      .rewind(activeId, index, opts)
-      .then((r) => {
+      .rewind(target, index, opts)
+      .then(async (r) => {
         onChanged();
-        if (r.conversationId !== activeId) onOpen(r.conversationId);
-        else void api.conversation(activeId).then(({ events: got }) => setEvents(got));
+        if (r.conversationId !== target) {
+          onOpen(r.conversationId);
+          return;
+        }
+        // The turn is over, so the transcript is the authority again.
+        const { events: got, pending: waiting } = await api.conversation(target);
+        settleProgress(target);
+        if (target !== activeIdRef.current) return;
+        setEvents(got);
+        setPending(waiting);
       })
       .catch((err: unknown) =>
         setEvents((e) => [
@@ -546,7 +648,10 @@ export function ChatsPage({
           },
         ]),
       )
-      .finally(() => setRewinding(false));
+      .finally(() => {
+        setRewinding(false);
+        setSendingIn((id) => (id === target ? null : id));
+      });
   };
 
   const renderEvent = (e: ChatEvent, i: number, turn: number): ReactElement => {
@@ -633,13 +738,6 @@ export function ChatsPage({
             placeholder="Search chats…"
             onChange={(e) => setQuery(e.target.value)}
           />
-          <button
-            type="button"
-            className={`chats-archived ${showArchived ? "is-on" : ""}`}
-            onClick={() => setShowArchived((v) => !v)}
-          >
-            {showArchived ? "← Back to chats" : "Archived"}
-          </button>
         </div>
         {orchestrator && (
           <div className="chats-pinned">
@@ -749,7 +847,7 @@ export function ChatsPage({
                   {/* A thread mid-turn or sitting on an approval looked
                       exactly like an idle one, and the only way to find out
                       was to open it. */}
-                  {progress[c.id] ? (
+                  {progress[c.id] && !progress[c.id]!.ended ? (
                     <span className="chats-flag chats-flag--working">
                       {liveLabel(progress[c.id])}
                     </span>
@@ -770,12 +868,47 @@ export function ChatsPage({
               </a>
             </li>
           ))}
-          {filtered.length === 0 && (
+          {(showArchived ? archived : filtered).length === 0 && (
             <li className="chats-empty">
-              {query.trim() ? "Nothing matches." : "No chats yet. Ask KOS to start one."}
+              {showArchived
+                ? "Nothing archived."
+                : query.trim()
+                  ? "Nothing matches."
+                  : "No chats yet. Ask KOS to start one."}
             </li>
           )}
         </ul>
+
+        {/* At the foot rather than under the search box: it is a place you go
+            occasionally, not a filter on the list you are reading, and it
+            took a whole row of the header to say one faint word. */}
+        <button
+          type="button"
+          className={`chats-archived ${showArchived ? "is-on" : ""}`}
+          onClick={() => setShowArchived((v) => !v)}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            {showArchived ? (
+              <path d="M15 18l-6-6 6-6" />
+            ) : (
+              <>
+                <path d="M3 7h18v3H3zM5 10v9h14v-9" />
+                <path d="M10 14h4" />
+              </>
+            )}
+          </svg>
+          {showArchived ? "Back to chats" : "Archived"}
+        </button>
       </aside>
 
       <section className="chats-view">
@@ -1131,7 +1264,21 @@ export function ChatsPage({
                           title="Drop it before it runs"
                           onClick={() => void dropQueued(p.id)}
                         >
-                          ✕
+                          {/* Drawn like the others. A text cross sat on a
+                              different baseline and at a different weight
+                              from the icons beside it. */}
+                          <svg
+                            width="15"
+                            height="15"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M6 6l12 12M18 6L6 18" />
+                          </svg>
                         </button>
                       </div>
                     </>
@@ -1244,8 +1391,13 @@ export function ChatsPage({
                 />
                 <span className="composer-spacer" />
                 {running ? (
-                  <button type="button" className="btn btn--stop" onClick={stop}>
-                    Stop
+                  <button
+                    type="button"
+                    className="btn btn--stop"
+                    disabled={stopping}
+                    onClick={stop}
+                  >
+                    {stopping ? "Stopping…" : "Stop"}
                   </button>
                 ) : (
                   <button

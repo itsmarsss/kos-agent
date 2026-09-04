@@ -2799,19 +2799,24 @@ li:hover .chats-item-when { opacity: 0; }
 
 /* New chat leads the list; search is secondary to it. */
 .chats-new { width: 100%; margin-bottom: 0.45rem; }
+/* The way to the archive, at the foot of the list and staying there while
+   the list scrolls under it. */
 .chats-archived {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
   width: 100%;
-  margin-top: 0.4rem;
   background: none;
   border: 0;
-  color: var(--faint);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
   font: inherit;
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   text-align: left;
-  padding: 0.2rem 0.1rem;
+  padding: 0.55rem 0.7rem;
   cursor: pointer;
 }
-.chats-archived:hover { color: var(--text); }
+.chats-archived:hover { color: var(--text); background: var(--panel-2); }
 .chats-archived.is-on { color: var(--accent); }
 
 /* —— message actions —— */
@@ -3993,7 +3998,9 @@ li:hover .chats-item-when { opacity: 0; }
 .set-card-body .spend { border-top: 0; margin-top: 0; padding-top: 0; }
 
 /* A message sent while a turn was running: taken, not yet answered. */
-.bubble.is-queued { opacity: 0.65; position: relative; }
+/* Dimmed, because it has not been said yet, but not so far down that it
+   cannot be read. */
+.bubble.is-queued { opacity: 0.72; }
 .queued-mark {
   display: block;
   margin-top: 0.2rem;
@@ -4041,6 +4048,17 @@ li:hover .chats-item-when { opacity: 0; }
 
 /* A queued message and what you can still do to it before it runs. */
 .queued { display: flex; flex-direction: column; align-items: flex-end; gap: 0.2rem; }
+/* A queued message is a turn that has not happened yet, so it sits where a
+   turn of yours sits. The wrapper had no styles at all, so the bubble hugged
+   the right and its buttons started at the left of the thread. */
+.queued {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+  align-self: stretch;
+}
+.queued .bubble { max-width: 88%; }
 .queued-actions { display: flex; gap: 0.15rem; }
 .queued-edit { width: 100%; display: flex; flex-direction: column; gap: 0.4rem; }
 .queued-edit .queued-actions { justify-content: flex-end; }
@@ -4836,9 +4854,22 @@ a.health {
   font-variant-numeric: tabular-nums;
 }
 
-.set-unsaved {
-  color: var(--warn);
-  font-size: var(--text-sm);
+.set-saved.is-unsaved { color: var(--warn); }
+
+/* A titled block inside a settings card: how a tab holds several subjects
+   without becoming several cards. */
+.set-group + .set-group {
+  margin-top: 1.3rem;
+  padding-top: 1.3rem;
+  border-top: 1px solid var(--line);
+}
+.set-group h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+.set-group > .hint {
+  margin: 0.15rem 0 0.85rem;
+  display: block;
 }
 
 /* A failed run leads with what it said. */
@@ -5007,3 +5038,82 @@ a.health {
 @media (max-width: 720px) {
   .set-grid { grid-template-columns: 1fr; }
 }
+
+/* Allowed hosts, as a list rather than a sentence. */
+.hostlist { display: flex; flex-direction: column; gap: 0.5rem; }
+.hostlist-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.hostlist-items li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.3rem 0.2rem 0.55rem;
+  background: var(--ok-dim);
+  border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent);
+  border-radius: 999px;
+  color: var(--ok);
+  font-size: var(--text-sm);
+}
+.hostlist-items .icon-btn--bare { opacity: 0.7; color: inherit; }
+.hostlist-items li:hover .icon-btn--bare { opacity: 1; }
+.hostlist-add { display: flex; gap: 0.4rem; }
+.hostlist-add .kos-input { max-width: 20rem; }
+
+/* The cron line, read back in words. */
+.cron-reads {
+  font-size: var(--text-md);
+  color: var(--ok);
+}
+.cron-reads.is-bad { color: var(--warn); }
+
+/* Actions stay in reach: the form is taller than the drawer and they used to
+   scroll off the end of it. */
+.drawer-body .cron-actions {
+  position: sticky;
+  bottom: -1.1rem;
+  margin: 0.4rem -1.1rem -1.1rem;
+  padding: 0.8rem 1.1rem;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+.cron-editor { gap: 1.1rem; }
+/* The drawer already spaces its blocks, so the rule that separates groups
+   inside a settings card would space them twice over. */
+.cron-editor .set-group { display: flex; flex-direction: column; gap: 0.8rem; }
+.cron-editor .set-group + .set-group { margin-top: 0; padding-top: 1.1rem; }
+.cron-editor .set-group h3 { margin-bottom: -0.35rem; }
+.cron-editor .set-group > .hint { margin: 0; }
+
+/* What an existing job is doing, and what can be done to it, above the form
+   that changes it. Save and Cancel stay at the foot on their own. */
+.cron-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+.cron-extra { display: flex; gap: 0.4rem; }
+.cron-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.cron-badge::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+.cron-badge.is-on { color: var(--ok); }
+.cron-badge.is-off { color: var(--muted); }

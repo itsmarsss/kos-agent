@@ -28,6 +28,16 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
 `;
 
 export interface SessionStoreOptions {
+  /**
+   * Whether to trim at all.
+   *
+   * Separate from the budgets so turning it off and back on does not mean
+   * remembering what the numbers were. Off keeps everything, at the owner's
+   * cost: an untrimmed history grows without bound and is re-sent every turn.
+   */
+  autoTrim?: boolean;
+  /** Told when a trim actually drops something, so it is not silent. */
+  onTrimmed?: (dropped: number, kept: number) => void;
   /** Approximate character budget for the whole persisted history. */
   maxChars?: number;
   /** Per-tool_result cap; longer results are truncated with a marker. */
@@ -116,18 +126,22 @@ export interface Retention {
   maxChars: number;
   maxToolResultChars: number;
   maxExchanges: number;
+  autoTrim: boolean;
 }
 
 export const RETENTION_DEFAULTS: Retention = {
   maxChars: DEFAULT_MAX_CHARS,
   maxToolResultChars: DEFAULT_MAX_TOOL_RESULT_CHARS,
   maxExchanges: DEFAULT_MAX_EXCHANGES,
+  autoTrim: true,
 };
 
 export class SessionStore {
   private maxChars: number;
   private maxToolResultChars: number;
   private maxExchanges: number;
+  private autoTrim: boolean;
+  private onTrimmed: ((dropped: number, kept: number) => void) | undefined;
 
   constructor(
     private readonly db: Db,
@@ -139,6 +153,13 @@ export class SessionStore {
     this.maxToolResultChars =
       options.maxToolResultChars ?? DEFAULT_MAX_TOOL_RESULT_CHARS;
     this.maxExchanges = options.maxExchanges ?? DEFAULT_MAX_EXCHANGES;
+    this.autoTrim = options.autoTrim ?? true;
+    this.onTrimmed = options.onTrimmed;
+  }
+
+  /** Told when a trim drops something, so the owner can be. */
+  watch(onTrimmed: (dropped: number, kept: number) => void): void {
+    this.onTrimmed = onTrimmed;
   }
 
   /** What is in force now. */
@@ -147,6 +168,7 @@ export class SessionStore {
       maxChars: this.maxChars,
       maxToolResultChars: this.maxToolResultChars,
       maxExchanges: this.maxExchanges,
+      autoTrim: this.autoTrim,
     };
   }
 
@@ -163,6 +185,7 @@ export class SessionStore {
       this.maxToolResultChars = options.maxToolResultChars;
     }
     if (options.maxExchanges !== undefined) this.maxExchanges = options.maxExchanges;
+    if (options.autoTrim !== undefined) this.autoTrim = options.autoTrim;
   }
 
   get(sessionId: string): ModelMessage[] {
@@ -184,7 +207,19 @@ export class SessionStore {
    * latest exchange so a single large turn is never erased entirely.
    */
   private trim(messages: ModelMessage[]): ModelMessage[] {
-    const capped = messages.map((m) => capMessage(m, this.maxToolResultChars));
+    /*
+     * Zero is off, per budget.
+     *
+     * There was no way to say "keep everything": the smallest allowed budget
+     * was one, so a workspace that wanted its whole history had to guess at a
+     * number large enough and hope. Off is a thing the owner can mean, so it
+     * is a thing they can say -- at their own cost, since an untrimmed
+     * history grows without bound and every turn carries all of it.
+     */
+    if (!this.autoTrim) return messages;
+    const capped = this.maxToolResultChars
+      ? messages.map((m) => capMessage(m, this.maxToolResultChars))
+      : messages;
     const exchanges = toExchanges(capped);
     if (exchanges.length === 0) return [];
 
@@ -193,12 +228,21 @@ export class SessionStore {
     for (let i = exchanges.length - 1; i >= 0; i--) {
       const exchange = exchanges[i]!;
       const size = JSON.stringify(exchange).length;
-      const wouldExceed = total + size > this.maxChars;
-      if (kept.length > 0 && (wouldExceed || kept.length >= this.maxExchanges)) {
-        break;
-      }
+      const wouldExceed = this.maxChars > 0 && total + size > this.maxChars;
+      const tooMany = this.maxExchanges > 0 && kept.length >= this.maxExchanges;
+      if (kept.length > 0 && (wouldExceed || tooMany)) break;
       kept.unshift(exchange);
       total += size;
+    }
+    /*
+     * Said out loud when something goes.
+     *
+     * Trimming was silent, so a conversation quietly lost its early turns and
+     * the only sign was the agent no longer knowing something it had been
+     * told. The reader can then decide to /compact, or turn trimming off.
+     */
+    if (kept.length < exchanges.length) {
+      this.onTrimmed?.(exchanges.length - kept.length, kept.length);
     }
     return kept.flat();
   }

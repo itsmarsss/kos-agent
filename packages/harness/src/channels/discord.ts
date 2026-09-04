@@ -7,9 +7,14 @@ import {
   Events,
   GatewayIntentBits,
   MessageFlags,
+  ModalBuilder,
   Partials,
+  TextInputBuilder,
+  TextInputStyle,
+  type ButtonInteraction,
   type Interaction,
   type Message,
+  type ModalSubmitInteraction,
 } from "discord.js";
 import {
   formatApprovalPrompt,
@@ -17,19 +22,32 @@ import {
 } from "@kos/shared";
 
 import { isImage, isTextual, type Attachment } from "../kernel/attachments.js";
+import { MESSAGE_LIMITS } from "./types.js";
 import type {
   ApprovalHandler,
   ApprovalRequest,
+  ButtonPressHandler,
   ChannelAdapter,
   InboundMessage,
+  MessageButton,
+  MessageCard,
   MessageHandler,
+  MessageTarget,
+  ModalSpec,
   OutboundMessage,
+  PressResponder,
   SenderAuthorizer,
   TurnPresence,
 } from "./types.js";
 
 export const APPROVE_PREFIX = "kos:approve:";
 export const DENY_PREFIX = "kos:deny:";
+/** A button the agent put there, as opposed to one the risk gate did. */
+export const PRESS_PREFIX = "kos:press:";
+/** The form a press opened, named for the button it came from. */
+export const MODAL_PREFIX = "kos:form:";
+/** How long a form is left open before the interaction is let go. */
+const MODAL_WAIT_MS = 5 * 60 * 1000;
 
 const REACT_WORKING = "⏳";
 const REACT_DONE = "✅";
@@ -115,6 +133,11 @@ export function chunkText(text: string, max = 1900): string[] {
 export interface DiscordAdapterOptions {
   /** Bot token, resolved from the secrets registry by the harness. */
   token: string;
+  /**
+   * The owner's Discord id, so a message addressed to "owner" has somewhere to
+   * go without the caller knowing who that is.
+   */
+  ownerId?: string;
 }
 
 /**
@@ -185,12 +208,115 @@ export async function collectAttachments(
   return { attachments, skipped };
 }
 
+const STYLES: Record<string, ButtonStyle> = {
+  primary: ButtonStyle.Primary,
+  secondary: ButtonStyle.Secondary,
+  success: ButtonStyle.Success,
+  danger: ButtonStyle.Danger,
+};
+
+/** Discord's own limits, applied here so a long field is trimmed not refused. */
+const CARD_TITLE_MAX = 256;
+const CARD_BODY_MAX = 4096;
+const FIELD_NAME_MAX = 256;
+const FIELD_VALUE_MAX = 1024;
+const BUTTONS_PER_ROW = 5;
+/** The shared contract, so the tool and the adapter cannot drift apart. */
+const FIELDS_MAX = MESSAGE_LIMITS.cardFields;
+const BUTTONS_MAX = MESSAGE_LIMITS.buttons;
+const MODAL_FIELDS_MAX = MESSAGE_LIMITS.modalFields;
+
+/** Turn a neutral card into a Discord embed. */
+export function buildCard(card: MessageCard): EmbedBuilder {
+  const embed = new EmbedBuilder();
+  if (card.title) embed.setTitle(card.title.slice(0, CARD_TITLE_MAX));
+  if (card.body) embed.setDescription(card.body.slice(0, CARD_BODY_MAX));
+  if (card.url) embed.setURL(card.url);
+  if (typeof card.color === "number") embed.setColor(card.color);
+  if (card.footer) embed.setFooter({ text: card.footer.slice(0, CARD_TITLE_MAX) });
+  if (card.imageUrl) embed.setImage(card.imageUrl);
+  if (card.thumbnailUrl) embed.setThumbnail(card.thumbnailUrl);
+  const fields = (card.fields ?? []).slice(0, FIELDS_MAX).map((f) => ({
+    name: f.name.slice(0, FIELD_NAME_MAX) || "\u200b",
+    value: f.value.slice(0, FIELD_VALUE_MAX) || "\u200b",
+    ...(f.inline ? { inline: true } : {}),
+  }));
+  if (fields.length) embed.addFields(fields);
+  return embed;
+}
+
+/**
+ * Turn neutral buttons into rows.
+ *
+ * A button with a url is a link and never comes back; one with an id is a
+ * press, and its custom id is the token the runtime handed out. Anything past
+ * what Discord will show is dropped rather than making the whole message fail.
+ */
+export function buildButtons(
+  buttons: MessageButton[],
+): ActionRowBuilder<ButtonBuilder>[] {
+  const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+  const usable = buttons.slice(0, BUTTONS_MAX);
+  for (let i = 0; i < usable.length; i += BUTTONS_PER_ROW) {
+    const row = new ActionRowBuilder<ButtonBuilder>();
+    for (const button of usable.slice(i, i + BUTTONS_PER_ROW)) {
+      const built = new ButtonBuilder().setLabel(button.label.slice(0, 80));
+      if (button.url) {
+        built.setStyle(ButtonStyle.Link).setURL(button.url);
+      } else {
+        built
+          .setStyle(STYLES[button.style ?? "secondary"] ?? ButtonStyle.Secondary)
+          .setCustomId(`${PRESS_PREFIX}${button.token ?? ""}`);
+      }
+      row.addComponents(built);
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+/** Turn a neutral form into what Discord shows. */
+export function buildModal(customId: string, modal: ModalSpec): ModalBuilder {
+  const built = new ModalBuilder()
+    .setCustomId(customId)
+    .setTitle(modal.title.slice(0, 45));
+  // Five is what the surface allows; the rest are dropped rather than making
+  // the whole form fail to open.
+  for (const field of modal.fields.slice(0, MODAL_FIELDS_MAX)) {
+    const input = new TextInputBuilder()
+      .setCustomId(field.id)
+      .setLabel(field.label.slice(0, 45))
+      .setStyle(
+        field.style === "paragraph" ? TextInputStyle.Paragraph : TextInputStyle.Short,
+      )
+      .setRequired(field.required !== false);
+    if (field.placeholder) input.setPlaceholder(field.placeholder.slice(0, 100));
+    if (field.value) input.setValue(field.value);
+    if (field.maxLength) input.setMaxLength(field.maxLength);
+    built.addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(input),
+    );
+  }
+  return built;
+}
+
 export class DiscordAdapter implements ChannelAdapter {
   readonly name = "discord";
   private readonly client: Client;
   private readonly token: string;
   private messageHandler?: MessageHandler;
   private approvalHandler?: ApprovalHandler;
+  private buttonHandler?: ButtonPressHandler;
+  /**
+   * Prompts still offering a choice, by pending id.
+   *
+   * In memory rather than stored: a prompt outlives the process only in the
+   * sense that the message is still there, and a restart losing the handle
+   * costs a stale prompt rather than a wrong decision -- pressing it answers
+   * that the action does not exist, which is true.
+   */
+  private readonly prompts = new Map<string, Message>();
+  private readonly ownerId?: string;
   private isAuthorized: SenderAuthorizer = () => true;
 
   setAuthorizer(isAuthorized: SenderAuthorizer): void {
@@ -199,6 +325,7 @@ export class DiscordAdapter implements ChannelAdapter {
 
   constructor(options: DiscordAdapterOptions) {
     this.token = options.token;
+    if (options.ownerId) this.ownerId = options.ownerId;
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
@@ -252,6 +379,30 @@ export class DiscordAdapter implements ChannelAdapter {
   /** Gateway InteractionCreate handler. Internal; separated for tests. */
   async receiveInteraction(interaction: Interaction): Promise<void> {
     if (!interaction.isButton()) return;
+
+    // A button the agent put on a message of its own, rather than one the risk
+    // gate put on an approval prompt.
+    if (interaction.customId.startsWith(PRESS_PREFIX)) {
+      const token = interaction.customId.slice(PRESS_PREFIX.length);
+      if (!this.isAuthorized(interaction.user.id)) {
+        try {
+          await interaction.reply({
+            content: "Not authorized.",
+            flags: MessageFlags.Ephemeral,
+          });
+        } catch {
+          // interaction may already be acknowledged
+        }
+        return;
+      }
+      // The component type is a union and only some members carry a label;
+      // reading it defensively is cheaper than narrowing a wire shape.
+      const label =
+        (interaction.component as { label?: string | null }).label ?? "";
+      await this.handlePress(interaction, token, label);
+      return;
+    }
+
     const decision = parseApprovalCustomId(interaction.customId);
     if (!decision) return;
 
@@ -288,11 +439,141 @@ export class DiscordAdapter implements ChannelAdapter {
     } catch {
       // interaction may already be acknowledged
     }
+    this.prompts.delete(decision.id);
     await this.approvalHandler?.({
       id: decision.id,
       approved: decision.approved,
       deciderId: interaction.user.id,
     });
+  }
+
+  /**
+   * A press, from the moment it lands to the answer the presser reads.
+   *
+   * Discord holds the presser on a spinner and will not hold one for long: an
+   * acknowledgement is due in about three seconds and the real answer within
+   * fifteen minutes. A turn takes as long as it takes, so the order matters
+   * and it is the handler that decides it -- ask for the form first, because
+   * a form cannot be shown once the interaction has been acknowledged any
+   * other way; then say the work has started; then say the thing.
+   */
+  private async handlePress(
+    interaction: ButtonInteraction,
+    token: string,
+    label: string,
+  ): Promise<void> {
+    // Where the answer goes once a form has moved the conversation onto the
+    // submission: the button's own interaction can no longer be replied to.
+    let live: ButtonInteraction | ModalSubmitInteraction = interaction;
+    let acknowledged = false;
+    // Settled at the acknowledgement and remembered, because every follow-up
+    // has to carry the same flag: a private answer with a public card under
+    // it is not a private answer.
+    let ephemeral = false;
+
+    const payloadFor = (msg: OutboundMessage): {
+      content?: string;
+      embeds?: EmbedBuilder[];
+      components?: ActionRowBuilder<ButtonBuilder>[];
+    } => ({
+      ...(msg.text ? { content: msg.text.slice(0, 2000) } : {}),
+      ...(msg.card ? { embeds: [buildCard(msg.card)] } : {}),
+      ...(msg.buttons?.length ? { components: buildButtons(msg.buttons) } : {}),
+    });
+
+    const respond: PressResponder = {
+      openForm: async (modal) => {
+        const formId = `${MODAL_PREFIX}${token}`;
+        await interaction.showModal(buildModal(formId, modal));
+        try {
+          const submitted = await interaction.awaitModalSubmit({
+            time: MODAL_WAIT_MS,
+            filter: (i) =>
+              i.customId === formId && i.user.id === interaction.user.id,
+          });
+          live = submitted;
+          const values: Record<string, string> = {};
+          for (const field of modal.fields) {
+            values[field.id] = submitted.fields.getTextInputValue(field.id);
+          }
+          return values;
+        } catch {
+          // Closed, or left open past the window. Not an error: the reader
+          // decided not to answer, and there is nothing to report.
+          return undefined;
+        }
+      },
+
+      working: async (opts) => {
+        if (acknowledged) return;
+        acknowledged = true;
+        ephemeral = opts?.ephemeral === true;
+        try {
+          // deferReply rather than deferUpdate: the answer is a new message,
+          // so the message the button sits on keeps its buttons and stays
+          // pressable.
+          await live.deferReply({
+            ...(opts?.ephemeral ? { flags: MessageFlags.Ephemeral } : {}),
+          });
+        } catch {
+          // already acknowledged by something else
+        }
+      },
+
+      followUp: async (msg) => {
+        // Only after an acknowledgement, which working() has already made by
+        // the time a turn is running.
+        if (!acknowledged) await respond.working();
+        try {
+          await live.followUp({
+            ...payloadFor(msg),
+            ...(ephemeral ? { flags: MessageFlags.Ephemeral } : {}),
+          });
+        } catch {
+          await this.send(interaction.user.id, msg);
+        }
+      },
+
+      send: async (msg) => {
+        const payload = payloadFor(msg);
+        if (!payload.content && !payload.embeds) payload.content = "(no reply)";
+        try {
+          if (acknowledged) {
+            await live.editReply(payload);
+            return;
+          }
+          await live.reply(payload);
+          acknowledged = true;
+        } catch {
+          // Past the window the interaction is gone, so the answer goes where
+          // the reader can still find it rather than nowhere.
+          await this.send(interaction.user.id, msg);
+        }
+      },
+    };
+
+    if (!this.buttonHandler) {
+      try {
+        await interaction.deferUpdate();
+      } catch {
+        // nothing is listening; the press is simply dropped
+      }
+      return;
+    }
+
+    await this.buttonHandler(
+      { buttonId: "", label, token, pressedBy: interaction.user.id },
+      respond,
+    );
+
+    // A handler that said nothing still has to release the spinner.
+    if (!acknowledged) {
+      try {
+        await interaction.deferUpdate();
+      } catch {
+        // already acknowledged
+      }
+    }
   }
 
   async stop(): Promise<void> {
@@ -307,11 +588,67 @@ export class DiscordAdapter implements ChannelAdapter {
     this.approvalHandler = handler;
   }
 
+  onButton(handler: ButtonPressHandler): void {
+    this.buttonHandler = handler;
+  }
+
   async send(recipientId: string, msg: OutboundMessage): Promise<void> {
     const user = await this.client.users.fetch(recipientId);
-    const chunks = chunkText(msg.text);
-    for (const chunk of chunks) {
-      await user.send(chunk);
+    await this.deliver((payload) => user.send(payload), msg);
+  }
+
+  /**
+   * Send somewhere other than the owner's DM.
+   *
+   * A bot that can only DM one person is not much of a bot on a server, and
+   * the surface already has the notion of a place to post in. Owner still
+   * means the DM, so the ordinary path is unchanged.
+   */
+  async sendTo(target: MessageTarget, msg: OutboundMessage): Promise<void> {
+    if (target.kind === "channel") {
+      if (!target.id) throw new Error("a channel needs an id");
+      const channel = await this.client.channels.fetch(target.id);
+      if (!channel || !channel.isSendable()) {
+        throw new Error(
+          `discord channel ${target.id} is not somewhere this bot can post`,
+        );
+      }
+      await this.deliver((payload) => channel.send(payload), msg);
+      return;
+    }
+    const id = target.kind === "user" ? target.id : this.ownerId;
+    if (!id) throw new Error("no owner is configured to send to");
+    await this.send(id, msg);
+  }
+
+  /**
+   * One place that turns a neutral message into what Discord takes.
+   *
+   * The text is chunked because Discord refuses anything over 2000 characters,
+   * and the card and the buttons ride on the last chunk so they end up under
+   * the whole message rather than in the middle of it.
+   */
+  private async deliver(
+    post: (payload: {
+      content?: string;
+      embeds?: EmbedBuilder[];
+      components?: ActionRowBuilder<ButtonBuilder>[];
+    }) => Promise<unknown>,
+    msg: OutboundMessage,
+  ): Promise<void> {
+    const chunks = msg.text ? chunkText(msg.text) : [];
+    const embeds = msg.card ? [buildCard(msg.card)] : [];
+    const components = buildButtons(msg.buttons ?? []);
+    if (chunks.length === 0 && embeds.length === 0) {
+      throw new Error("nothing to send: no text and no card");
+    }
+    for (let i = 0; i < Math.max(chunks.length, 1); i++) {
+      const last = i === Math.max(chunks.length, 1) - 1;
+      await post({
+        ...(chunks[i] ? { content: chunks[i] } : {}),
+        ...(last && embeds.length ? { embeds } : {}),
+        ...(last && components.length ? { components } : {}),
+      });
     }
   }
 
@@ -374,23 +711,33 @@ export class DiscordAdapter implements ChannelAdapter {
           // ignore edit races
         }
       },
-      complete: async (reply: string) => {
+      complete: async (reply: OutboundMessage) => {
         await swapReact(REACT_WORKING, REACT_DONE);
         // The reply lands as ordinary message content, not an embed, so the
         // model owns the presentation: headings, lists, code blocks and the
         // rest render as written instead of being flattened into one
-        // description field under a fixed title.
-        const chunks = chunkText(reply);
+        // description field under a fixed title. A turn that chose a card
+        // gets it under the text, on the last chunk, where a reader arrives
+        // at it having read the answer.
+        const chunks = reply.text ? chunkText(reply.text) : [];
+        const embeds = reply.card ? [buildCard(reply.card)] : [];
+        const components = buildButtons(reply.buttons ?? []);
+        const last = Math.max(chunks.length, 1) - 1;
         try {
           await statusMsg.edit({
-            content: chunks[0] || "(no reply)",
-            embeds: [],
+            content: chunks[0] ?? "",
+            embeds: last === 0 ? embeds : [],
+            components: last === 0 ? components : [],
           });
           for (let i = 1; i < chunks.length; i++) {
-            await this.send(msg.senderId, { text: chunks[i]! });
+            await this.send(msg.senderId, {
+              text: chunks[i]!,
+              ...(i === last && reply.card ? { card: reply.card } : {}),
+              ...(i === last && reply.buttons ? { buttons: reply.buttons } : {}),
+            });
           }
         } catch {
-          await this.send(msg.senderId, { text: reply });
+          await this.send(msg.senderId, reply);
         }
       },
       fail: async (err: string) => {
@@ -454,10 +801,41 @@ export class DiscordAdapter implements ChannelAdapter {
 
     // Keep a short plain-text fallback for clients that hide embeds.
     const user = await this.client.users.fetch(recipientId);
-    await user.send({
+    const sent = await user.send({
       content: body.split("\n")[0],
       embeds: [embed],
       components: [row],
     });
+    this.prompts.set(req.id, sent);
+  }
+
+  /**
+   * Settle a prompt whose decision came from somewhere else.
+   *
+   * The same edit the buttons make when pressed here, so a decision looks the
+   * same wherever it was made.
+   */
+  async settleApproval(id: string, outcome: "approved" | "denied"): Promise<void> {
+    const prompt = this.prompts.get(id);
+    if (!prompt) return;
+    this.prompts.delete(id);
+    try {
+      await prompt.edit({
+        content: outcome === "approved" ? "Working on that…" : "Denied.",
+        embeds:
+          outcome === "approved"
+            ? [
+                new EmbedBuilder()
+                  .setColor(COLOR_WORKING)
+                  .setTitle("Approved")
+                  .setDescription(`Running pending \`#${id}\`…`),
+              ]
+            : [],
+        components: [],
+      });
+    } catch {
+      // Deleted, or too old to edit. A prompt that cannot be settled is not
+      // worth failing a decision over.
+    }
   }
 }

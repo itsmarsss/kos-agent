@@ -267,6 +267,8 @@ export interface Behaviour {
   agentMinutes: number;
   agentTurns: number;
   stallMinutes: number;
+  /** Minutes a turn holds, suspended, waiting for you to decide. */
+  approvalMinutes: number;
 }
 
 export interface FailingJob {
@@ -341,6 +343,8 @@ export interface Retention {
   maxChars: number;
   maxToolResultChars: number;
   maxExchanges: number;
+  /** Whether old exchanges fall off the front at all. */
+  autoTrim: boolean;
 }
 
 export interface SettingsPayload {

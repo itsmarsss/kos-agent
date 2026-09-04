@@ -100,6 +100,24 @@ export function channelGuidance(channel?: string): string | undefined {
     "Match the format to the answer: a one-line question gets one line, not a heading.",
     "Reach for structure when it earns its place, such as steps, comparisons, or query output.",
     "Messages over 2000 characters are split, so keep replies tight and put bulk in a file via export.query.",
+    "",
+    "### Answering with a card or buttons",
+    "You are a bot here, so you can send more than prose. notify sends a message: give it a",
+    "`card` for a titled block with labelled fields, or `buttons` for something to press",
+    "instead of asking the reader to type back. It is its own message, so keep your reply",
+    "short or skip it when the message says everything.",
+    "A card suits a handful of named values, a status, or one thing with a few facts about it.",
+    "Prose suits everything else: a card around a paragraph is a box around a paragraph.",
+    "A button needs a label that says what pressing it does, because the press comes back to",
+    "you as a message naming that label. Offer them when the next step is one of a few known",
+    "choices, not as decoration on an answer that needed none. Your answer to a press goes",
+    "back to whoever pressed it, so write it as a reply to them.",
+    "For an answer that is not one of a fixed few -- a note, an amount, a name -- give the",
+    "button a `modal`: a form of up to five boxes, whose contents arrive with the press.",
+    "Set `ephemeral` on a button when its answer is for the presser alone.",
+    "When you are answering a press, the message you send with notify is the answer, whole.",
+    "Do not also write a reply about having sent it: it goes nowhere, and the reader wanted",
+    "the thing, not a note saying the thing was sent.",
   ].join("\n");
 }
 
@@ -123,6 +141,11 @@ export function inferScopeTags(text: string): string[] {
   if (/\b(skill|script|automate|reusable|routine)\b/.test(t)) tags.add("skills");
   if (/\b(file|read|write|edit|folder|directory|scratch)\b/.test(t)) {
     tags.add("files");
+  }
+  // A long-running program of its own: the app behind a tracker, a worker, a
+  // bot. "server" and "app" are here because that is what an owner calls one.
+  if (/\b(daemon|server|service|worker|backend|app|running|logs?)\b/.test(t)) {
+    tags.add("daemons");
   }
   // Always allow systems when talking about building things.
   if (/\b(build|track|create a|make me|set up)\b/.test(t)) {

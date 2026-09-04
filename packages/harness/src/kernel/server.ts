@@ -35,6 +35,7 @@ import { conversationEvents } from "./transcript.js";
 import { listDirectory, readFile, readImage } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
+import { proxyToDaemon } from "../daemons/proxy.js";
 import { RETENTION_DEFAULTS, RETENTION_KEY } from "./session.js";
 
 /** Where the owner's home arrangement lives. */
@@ -674,16 +675,21 @@ export async function handleApiRequest(
       const raw = (body as Record<string, unknown>)[key];
       if (raw === undefined) continue;
       const value = Number(raw);
-      // A zero or negative budget would retain nothing, which reads as KOS
-      // having forgotten everything rather than as a setting.
-      if (Number.isFinite(value) && value > 0) accepted[key] = Math.floor(value);
+      // Zero is off for that budget, which the owner may genuinely want.
+      // Negative is not a smaller budget, it is a typo.
+      if (Number.isFinite(value) && value >= 0) accepted[key] = Math.floor(value);
       else rejected.push(key);
     }
+    // Off is a switch, not a budget, so it is read separately.
+    const auto = (body as Record<string, unknown>)["autoTrim"];
+    const accepted2: Record<string, number | boolean> = { ...accepted };
+    if (typeof auto === "boolean") accepted2["autoTrim"] = auto;
+
     if (rejected.length > 0) {
       return {
         status: 400,
         body: {
-          error: `must be a positive number: ${rejected.join(", ")}`,
+          error: `must be a number, 0 for no limit: ${rejected.join(", ")}`,
         },
       };
     }
@@ -691,8 +697,8 @@ export async function handleApiRequest(
     // settings the owner had already saved: a request with nothing valid in
     // it reset everything to the defaults on the next start.
     const merged = {
-      ...(kernel.settings.get<Record<string, number>>(RETENTION_KEY) ?? {}),
-      ...accepted,
+      ...(kernel.settings.get<Record<string, number | boolean>>(RETENTION_KEY) ?? {}),
+      ...accepted2,
     };
     kernel.settings.set(RETENTION_KEY, merged);
     kernel.sessions.configure(merged);
@@ -1707,6 +1713,21 @@ export function createDashboardServer(
         // encoding them would turn an image into a list of numbers.
         else if (Buffer.isBuffer(result.body)) res.end(result.body);
         else res.end(JSON.stringify(result.body));
+        return;
+      }
+
+      /*
+       * A daemon the agent wrote, reached through here rather than by being on
+       * the network itself. Ahead of the static handler because /apps is a
+       * real path on the dashboard's origin, and behind /api because a daemon
+       * must not be able to claim one of KOS's own routes.
+       */
+      if (
+        proxyToDaemon(req, res, {
+          store: kernel.daemons,
+          supervisor: kernel.supervisor,
+        })
+      ) {
         return;
       }
 

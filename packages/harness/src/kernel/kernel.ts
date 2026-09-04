@@ -1,4 +1,8 @@
 import { runAgent, type Inference } from "../agent/loop.js";
+import { PressRoutes } from "../channels/presses.js";
+import type { MessageButton, MessageCard } from "../channels/types.js";
+import { DaemonStore } from "../daemons/store.js";
+import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry } from "../agent/registry.js";
 import {
   cronFailure,
@@ -59,14 +63,20 @@ import { ProjectManifest } from "../systems/manifest.js";
 import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
 import { createHttpModule } from "../tools/http.js";
+import { createDaemonsModule } from "../tools/daemons.js";
+import { createToolsModule } from "../tools/tools.js";
 import { createSearchModule } from "../tools/search.js";
 import { exportModule } from "../tools/export.js";
 import { createSkillsModule } from "../tools/skills.js";
 import { createChatsModule, CHAT_TOOLS } from "../tools/chats.js";
 import { createMemoryModule } from "../tools/memory.js";
-import { cronModule } from "../tools/cron.js";
+import { createCronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
-import { notifyModule } from "../tools/notify.js";
+import {
+  createNotifyModule,
+  noticeText,
+  type NotifyPayload,
+} from "../tools/notify.js";
 import { sqlModule } from "../tools/sql.js";
 import { createBuildsModule } from "../tools/builds.js";
 import { sitesModule } from "../tools/sites.js";
@@ -111,11 +121,12 @@ export interface KernelOptions {
   /** Inference override (tests inject a stub); defaults to the model router. */
   inference?: Inference;
   /** Send a message to the owner via the active channel adapter. */
-  notify?: (text: string) => Promise<void>;
+  notify?: (payload: NotifyPayload) => Promise<void>;
   /** Additional (e.g. agent-promoted or third-party) modules to load. */
   extraModules?: KosModule[];
   /** Hosts the http.fetch tool may reach. */
-  allowedHosts?: string[];
+  /** A function is re-read per call, so a host added in Settings works now. */
+  allowedHosts?: string[] | (() => string[]);
   profileOverrides?: Partial<Profile>;
   system?: string;
   /** Notified when a risky action is queued (e.g. to render Discord buttons). */
@@ -142,6 +153,8 @@ const DEFAULT_SYSTEM =
   "You are KOS, a personal assistant operating inside a sandboxed workspace. Use the available tools to help. Risky actions are queued for owner approval — tell the user the pending id, then wait; when approval results arrive (as a System message), continue the plan without repeating completed creates. Prefer short checklist-style replies when the user asks. For tasks: create_list once, then tasks.add/list/complete with the returned slug as instance.";
 
 const DEFAULT_BACKUP_CRON = "0 3 * * *";
+/** How long a button KOS sent stays pressable. */
+const PRESS_ROUTE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Owner settings for build sub-agents. */
 /** Whether an unattended failure starts a fix attempt on its own. */
@@ -250,6 +263,11 @@ export class Kernel {
   readonly sessions: SessionStore;
   readonly conversations: ConversationStore;
   readonly facts: FactsStore;
+  /** Where a button press belongs, for the surface that receives one. */
+  readonly presses: PressRoutes;
+  /** The agent's long-running programs, and what is keeping them up. */
+  readonly daemons: DaemonStore;
+  readonly supervisor: DaemonSupervisor;
   readonly settings: SettingsStore;
   readonly memoryWriter: MemoryWriter;
   readonly memoryRetriever: MemoryRetriever;
@@ -257,7 +275,7 @@ export class Kernel {
   private readonly inference: Inference;
   private readonly system: string;
   private readonly onApprovalRequested?: (action: PendingAction) => void;
-  private readonly notify?: (text: string) => Promise<void>;
+  private readonly notify?: (payload: NotifyPayload) => Promise<void>;
   private readonly sessionless: boolean;
   private readonly embedder: EmbeddingProvider;
   private readonly episodic: EpisodicStore;
@@ -312,6 +330,9 @@ export class Kernel {
     sessions: SessionStore;
     conversations: ConversationStore;
     facts: FactsStore;
+    presses: PressRoutes;
+    daemons: DaemonStore;
+    supervisor: DaemonSupervisor;
     settings: SettingsStore;
     memoryWriter: MemoryWriter;
     memoryRetriever: MemoryRetriever;
@@ -320,7 +341,7 @@ export class Kernel {
     inference: Inference;
     system: string;
     sessionless: boolean;
-    notify?: (text: string) => Promise<void>;
+    notify?: (payload: NotifyPayload) => Promise<void>;
     onApprovalRequested?: (action: PendingAction) => void;
   }) {
     this.workspace = args.workspace;
@@ -347,6 +368,9 @@ export class Kernel {
     this.sessions = args.sessions;
     this.conversations = args.conversations;
     this.facts = args.facts;
+    this.presses = args.presses;
+    this.daemons = args.daemons;
+    this.supervisor = args.supervisor;
     this.settings = args.settings;
     this.memoryWriter = args.memoryWriter;
     this.memoryRetriever = args.memoryRetriever;
@@ -378,6 +402,21 @@ export class Kernel {
     const runs = new RunsLog(workspace.db);
     const health = new HealthMonitor(workspace.db);
     const approvals = new ApprovalQueue(workspace.db, secrets);
+    // Where a button press goes. A row, because the message it is on outlives
+    // the process that sent it.
+    const presses = new PressRoutes(workspace.db);
+    // A button on a month-old message is not something anyone is about to
+    // press, and the table only ever grows otherwise. Swept once at boot
+    // rather than on a schedule of its own.
+    presses.prune(PRESS_ROUTE_TTL_MS);
+
+    const daemons = new DaemonStore(workspace.db);
+    const supervisor = new DaemonSupervisor({
+      workspaceRoot: workspace.root,
+      // A daemon that has given up is news: it was running unattended, and
+      // nobody is looking at a log they do not know to open.
+      onCrash: (_daemon, reason) => kernelRef?.tellOwnerPublic(reason),
+    });
     const spend = new SpendStore(workspace.db);
     const pending = new PendingMessages(workspace.db);
     const builds = new BuildRegistry(
@@ -413,22 +452,101 @@ export class Kernel {
       // Always wired. Without a channel this used to be absent, so `notify`
       // threw and every unattended job that ended in "tell me" lost its
       // message. The fallback puts it where the owner already looks.
-      notify: async (text: string) => {
+      notify: async (payload: NotifyPayload): Promise<string | undefined> => {
+        /*
+         * A turn that is answering a press has somewhere better to send than
+         * the owner's inbox: back into the interaction the press opened.
+         *
+         * It is not a preference. A surface can make an interaction response
+         * private and cannot make an ordinary message private at all, so a
+         * card sent any other way during a press is a public card in answer
+         * to a private button.
+         */
+        const open =
+          payload.target.kind === "owner" && !payload.target.surface
+            ? kernelRef?.replySurfaceFor(kernelRef.currentConversationId)
+            : undefined;
+        if (open) {
+          await open({
+            text: payload.text,
+            ...(payload.card ? { card: payload.card } : {}),
+            ...(payload.buttons ? { buttons: payload.buttons } : {}),
+          });
+          return "Sent as a reply to the press.";
+        }
+
         if (options.notify) {
-          await options.notify(text);
+          await options.notify(payload);
           return;
         }
-        kernelRef?.recordNotice(text);
+        /*
+         * No channel is wired, so the dashboard is where the owner already
+         * looks and a notice there is better than losing the message.
+         *
+         * Only for a message that did not ask for anywhere in particular. A
+         * request to reach Telegram, or a specific channel, cannot be honoured
+         * by writing a line on the dashboard, and answering "sent" to it is
+         * how an agent comes to believe it has told someone something.
+         */
+        const { surface, kind } = payload.target;
+        if (surface || kind !== "owner") {
+          throw new Error(
+            `no ${surface ?? "messaging"} surface is connected here, so that message has nowhere to go.`,
+          );
+        }
+        kernelRef?.recordNotice(noticeText(payload));
       },
     };
 
     const modules: KosModule[] = [
       filesModule,
       sqlModule,
-      notifyModule,
-      cronModule,
-      createHttpModule({ allowedHosts: options.allowedHosts ?? [] }),
+      createNotifyModule({
+        // A press is a message, so it needs somewhere to be a message in. The
+        // caller may name a conversation; otherwise it lands back in the one
+        // that put the button there.
+        routePress: (button, replyTo) =>
+          presses.register({
+            conversationId:
+              replyTo ??
+              kernelRef?.currentConversationId ??
+              primarySessionId(profile.ownerId),
+            buttonId: button.id,
+            label: button.label,
+            // What the button opens and who may read the answer are part of
+            // the button, and the surface hands back neither on a press.
+            ...(button.modal ? { modal: button.modal } : {}),
+            ...(button.ephemeral ? { ephemeral: true } : {}),
+          }),
+      }),
+      createCronModule({
+        // The same path the schedule uses, so a job tried by hand is a job
+        // tried the way it will actually run.
+        fire: async (id) => {
+          const result = await kernelRef!.fireCron(id);
+          return { ok: result.ok, ...(result.error ? { error: result.error } : {}) };
+        },
+      }),
+      createHttpModule({
+        // Passed through as given: the host supplies a function that reads
+        // the environment, so saving in Settings takes effect on the next
+        // call rather than the next restart.
+        allowedHosts: options.allowedHosts ?? [],
+      }),
       createSearchModule(),
+      createToolsModule({
+        // The live registry: a module loaded after boot is a capability the
+        // agent should be able to find out about.
+        registry: () => registry,
+        allow: () => kernelRef?.conversations.get(kernelRef.currentConversationId ?? "")?.toolAllow ?? undefined,
+      }),
+      createDaemonsModule({
+        store: daemons,
+        supervisor,
+        workspaceRoot: workspace.root,
+        urlFor: (daemon) =>
+          daemon.port === null ? null : `/apps/${daemon.project}/${daemon.name}/`,
+      }),
       systemsModule,
       sitesModule,
       createBuildsModule({
@@ -555,6 +673,21 @@ export class Kernel {
     // restart does not quietly go back to the defaults.
     const retention = settings.get<Partial<Retention>>(RETENTION_KEY);
     if (retention) sessions.configure(retention);
+    /*
+     * Trimming was silent: a conversation lost its early turns and the only
+     * sign was the agent no longer knowing something it had been told. Said
+     * where a command's answer is said, which is a note beside the thread
+     * rather than a message in it.
+     */
+    sessions.watch((dropped, kept) => {
+      const id = kernelRef?.currentConversationId;
+      if (!id) return;
+      kernelRef?.progress.emit({
+        kind: "note",
+        conversationId: id,
+        text: `Trimmed ${dropped} older exchange${dropped === 1 ? "" : "s"} from this chat to stay inside the history budget. ${kept} kept. /compact turns the old ones into a summary instead, and Settings can raise the budget or turn trimming off.`,
+      });
+    });
     const router = options.inference ? undefined : createDefaultRouter(secrets);
     // Saved model choices are applied before anything runs, so the first turn
     // after a restart uses what the owner picked rather than the default.
@@ -611,6 +744,9 @@ export class Kernel {
       sessions,
       conversations,
       facts,
+      presses,
+      daemons,
+      supervisor,
       settings,
       memoryWriter,
       memoryRetriever,
@@ -727,6 +863,8 @@ export class Kernel {
       this.currentConversationId = sessionId;
       this.working.add(sessionId);
       this.progress.emit({ kind: "turn-start", conversationId: sessionId });
+      /** Set when the turn hands its ending over to a deferred settle. */
+      let suspended = false;
       try {
         // A conversation may be a scoped agent: its own brief, its own reach.
         const conversation = this.conversations.get(sessionId);
@@ -841,6 +979,10 @@ export class Kernel {
            */
           const sdkRun = runSdkChat({
             prompt: priorForSdk(this.sessions.historyForPrompt(sessionId), text),
+            // The turn's own pictures, which a prompt string cannot carry.
+            ...(opts.attachments?.length
+              ? { attachments: opts.attachments }
+              : {}),
             system,
             tools,
             cwd: this.workspace.root,
@@ -860,10 +1002,42 @@ export class Kernel {
           const settleSdk = (sdk: SdkChatResult): string => {
             const reply = sdk.text || "I do not have anything to add to that.";
             if (useSession) {
-              // Only the reply. What the owner said was written to the
-              // transcript before the turn started.
+              /*
+               * The calls, then the reply.
+               *
+               * These run inside the MCP bridge rather than through KOS's own
+               * loop, so nothing was written down: they streamed live and
+               * vanished the moment the turn ended and the transcript
+               * reloaded. Stored in the same shape the other engine uses, so
+               * the transcript renders them the same way.
+               */
+              const madeCalls = sdk.calls.flatMap((c) => [
+                {
+                  role: "assistant" as const,
+                  content: [
+                    {
+                      type: "tool_use" as const,
+                      id: c.id,
+                      name: c.name,
+                      input: c.input,
+                    },
+                  ],
+                },
+                {
+                  role: "user" as const,
+                  content: [
+                    {
+                      type: "tool_result" as const,
+                      toolUseId: c.id,
+                      content: c.result,
+                      ...(c.isError ? { isError: true } : {}),
+                    },
+                  ],
+                },
+              ]);
               this.sessions.record(sessionId, [
                 ...this.sessions.get(sessionId),
+                ...madeCalls,
                 { role: "assistant", content: [{ type: "text", text: reply }] },
               ]);
               this.conversations.touch(
@@ -871,17 +1045,29 @@ export class Kernel {
                 ...(opts.origin === "system" ? [] : [text]),
               );
             }
-            // Recorded like any other turn so Spend still adds up. The model
-            // is whatever the subscription picked, which the SDK does not
-            // say, so it is named for the engine rather than guessed at.
-            this.spend.record({
-              conversationId: sessionId,
-              task: "reasoning",
-              provider: "anthropic",
-              model: "claude-agent-sdk",
-              inputTokens: sdk.usage.inputTokens,
-              outputTokens: sdk.usage.outputTokens,
-            });
+            /*
+             * One row per model the call actually used.
+             *
+             * This was a single row named for the engine, because the model
+             * was thought to be unknowable here. The SDK reports it, along
+             * with the subagent and sidechain calls the old tally missed and
+             * the cached input that made a long conversation look nearly
+             * free. A turn that used two models is two rows, which is what
+             * the spend page is for.
+             */
+            for (const used of sdk.models) {
+              this.spend.record({
+                conversationId: sessionId,
+                task: "reasoning",
+                provider: "anthropic",
+                model: used.model,
+                inputTokens:
+                  used.inputTokens +
+                  used.cacheReadInputTokens +
+                  used.cacheCreationInputTokens,
+                outputTokens: used.outputTokens,
+              });
+            }
             this.runs.finish(runId, "ok");
             return reply;
           };
@@ -895,6 +1081,7 @@ export class Kernel {
           ]);
 
           if (first.kind === "waiting") {
+            suspended = true;
             void sdkRun
               .then((r) => (this.closed ? "" : settleSdk(r)))
               .catch((err: unknown) => {
@@ -905,10 +1092,7 @@ export class Kernel {
                   err instanceof Error ? err.message : String(err),
                 );
               })
-              .finally(() => {
-                this.working.delete(sessionId);
-                this.progress.emit({ kind: "turn-end", conversationId: sessionId });
-              });
+              .finally(() => this.endTurn(sessionId));
             return {
               reply: `Waiting on you: ${first.action.tool} needs approval (#${first.action.id}). I will carry on as soon as you decide.`,
               halted: false,
@@ -926,6 +1110,9 @@ export class Kernel {
           // whole of a turn, and with a reasoning model most of that time is
           // the model working rather than any tool running.
           shouldStop: () => this.stopping.has(sessionId),
+          // So a stop lands while the turn is waiting on the model, rather
+          // than at the next round trip it may never reach.
+          signal: this.abortFor(sessionId).signal,
           onDelta: (delta) =>
             this.progress.emit({
               kind: "delta",
@@ -950,6 +1137,7 @@ export class Kernel {
         ]);
 
         if (outcome.kind === "waiting") {
+          suspended = true;
           // Finishes on its own, once the decision comes. The transcript, the
           // memory write and the run log all happen there, exactly as they
           // would have here.
@@ -974,10 +1162,7 @@ export class Kernel {
                 err instanceof Error ? err.message : String(err),
               );
             })
-            .finally(() => {
-              this.working.delete(sessionId);
-              this.progress.emit({ kind: "turn-end", conversationId: sessionId });
-            });
+            .finally(() => this.endTurn(sessionId));
           return {
             reply: `Waiting on you: ${outcome.action.tool} needs approval (#${outcome.action.id}). I will carry on as soon as you decide.`,
             halted: false,
@@ -996,11 +1181,7 @@ export class Kernel {
           useSession,
         });
         this.runs.finish(runId, "ok");
-        return {
-          reply,
-          halted: false,
-          sessionId,
-        };
+        return { reply, halted: false, sessionId };
       } catch (err) {
         this.runs.finish(
           runId,
@@ -1012,11 +1193,70 @@ export class Kernel {
         // Restored rather than cleared: a dispatched turn runs inside another,
         // and the outer one still has work to attribute.
         this.currentConversationId = previousConversation;
-        this.working.delete(sessionId);
-        this.stopping.delete(sessionId);
-        this.progress.emit({ kind: "turn-end", conversationId: sessionId });
+        /*
+         * A suspended turn has returned, not finished.
+         *
+         * Ending it here emitted turn-end the instant an approval was asked
+         * for, and the live view is dropped on turn-end: every thought and
+         * tool call the reader had watched build up vanished at exactly the
+         * moment the approval card appeared, on both engines. The deferred
+         * settle above ends the turn instead, once the decision has actually
+         * been made and the rest of it has run.
+         */
+        if (!suspended) this.endTurn(sessionId);
       }
     }
+  }
+
+  /**
+   * Where an answer goes while a press is being answered, by conversation.
+   *
+   * Open only for the length of that turn: an interaction is good for
+   * minutes, and a card sent into a stale one is a card nobody sees.
+   */
+  private readonly replySurfaces = new Map<
+    string,
+    (msg: { text: string; card?: MessageCard; buttons?: MessageButton[] }) => Promise<void>
+  >();
+
+  /** Hold a reply surface open for one turn, and take it away after. */
+  openReplySurface(
+    conversationId: string,
+    send: (msg: {
+      text: string;
+      card?: MessageCard;
+      buttons?: MessageButton[];
+    }) => Promise<void>,
+  ): () => void {
+    this.replySurfaces.set(conversationId, send);
+    return () => this.replySurfaces.delete(conversationId);
+  }
+
+  /** The open surface for a conversation, if a press is being answered in it. */
+  replySurfaceFor(
+    conversationId?: string,
+  ):
+    | ((msg: {
+        text: string;
+        card?: MessageCard;
+        buttons?: MessageButton[];
+      }) => Promise<void>)
+    | undefined {
+    return conversationId ? this.replySurfaces.get(conversationId) : undefined;
+  }
+
+  /**
+   * The end of a turn, wherever it happens.
+   *
+   * A turn that suspends on an approval returns to its caller long before it
+   * is over, so this is called from the deferred settle in that case and from
+   * the turn's own finally in every other.
+   */
+  private endTurn(sessionId: string): void {
+    this.working.delete(sessionId);
+    this.stopping.delete(sessionId);
+    this.aborts.delete(sessionId);
+    this.progress.emit({ kind: "turn-end", conversationId: sessionId });
   }
 
   /**
@@ -1532,7 +1772,11 @@ export class Kernel {
       audit: this.audit,
       approvals: this.approvals,
       userId: opts.userId ?? this.profile.ownerId,
-      toolLimit: 48,
+      // Above the registry rather than under it. At 48 with fifty tools the
+      // narrowing was on for every turn of every conversation, so the offered
+      // set changed shape with the wording of each message and nothing said
+      // so. Scoping is for the many-modules case it was written for.
+      toolLimit: 96,
       ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
       ...(opts.scopeTags ? { scopeTags: opts.scopeTags } : {}),
       ...(opts.allow !== undefined ? { allow: opts.allow } : {}),
@@ -1746,7 +1990,9 @@ export class Kernel {
     if (this.notify) {
       // Not awaited: a channel that is slow or down must not hold up the job
       // that is reporting, and the health row is already written either way.
-      void this.notify(text).catch(() => this.recordNotice(text));
+      void this.notify({ text, target: { kind: "owner" } }).catch(() =>
+        this.recordNotice(text),
+      );
       return;
     }
     this.recordNotice(text);
@@ -2013,7 +2259,19 @@ export class Kernel {
   stop(sessionId: string): boolean {
     if (!this.working.has(sessionId)) return false;
     this.stopping.add(sessionId);
+    // Marked first, so the loop reads the flag rather than the abort and
+    // reports a stop instead of a broken turn.
+    this.aborts.get(sessionId)?.abort();
     return true;
+  }
+
+  /** One controller per running turn, replaced when a new turn starts. */
+  private readonly aborts = new Map<string, AbortController>();
+
+  private abortFor(sessionId: string): AbortController {
+    const fresh = new AbortController();
+    this.aborts.set(sessionId, fresh);
+    return fresh;
   }
 
 
@@ -2308,6 +2566,35 @@ export class Kernel {
     if (!this.scheduler) {
       this.startCron();
     }
+    /*
+     * A job cannot fire while it is already firing.
+     *
+     * A self-prompt job whose prompt asks KOS to run a job can name itself,
+     * and each run would start another before the first had finished. The
+     * rate limit bounds how many self-prompts happen in an hour, which is a
+     * cap on the damage rather than a stop; this is the stop. It also breaks
+     * the longer loop, A firing B firing A, because A is still in flight.
+     */
+    if (this.firingCrons.has(id)) {
+      const outcome: FireOutcome = {
+        fired: false,
+        reason: "error",
+        error: `${job.name} is already running`,
+      };
+      return { outcome, ok: false, error: outcome.error! };
+    }
+    this.firingCrons.add(id);
+    try {
+      return await this.fireOnce(job);
+    } finally {
+      this.firingCrons.delete(id);
+    }
+  }
+
+  /** Jobs firing right now, so one cannot be started on top of itself. */
+  private readonly firingCrons = new Set<number>();
+
+  private async fireOnce(job: CronJob): Promise<CronFireResult> {
     const outcome = await this.scheduler!.fire(job);
     if (!outcome.fired) {
       return { outcome, ok: false, error: outcome.error ?? outcome.reason };
@@ -2331,9 +2618,34 @@ export class Kernel {
     this.scheduler = undefined;
   }
 
+  /**
+   * Bring up everything that is supposed to be running.
+   *
+   * Separate from boot so a test or a one-shot CLI command does not start the
+   * owner's programs just by opening the workspace. The host calls it; the
+   * REPL does not.
+   */
+  startDaemons(): void {
+    for (const daemon of this.daemons.list()) {
+      if (!daemon.enabled) continue;
+      try {
+        this.supervisor.start(daemon);
+      } catch (err) {
+        // One daemon that cannot start is not a reason for the host to fail
+        // to come up, or for the other daemons to stay down.
+        console.warn(
+          `[daemons] ${daemon.project}/${daemon.name}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  }
+
   close(): void {
     this.closed = true;
     this.stopCron();
+    // Not awaited: close is synchronous everywhere it is called from, and the
+    // children are killed either way once this process goes.
+    void this.supervisor.stopAll();
     this.workspace.close();
   }
 }
