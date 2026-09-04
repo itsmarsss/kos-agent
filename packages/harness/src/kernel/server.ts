@@ -36,7 +36,7 @@ import { listDirectory, readFile, readImage } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
 import { proxyToDaemon } from "../daemons/proxy.js";
-import { RETENTION_DEFAULTS, RETENTION_KEY } from "./session.js";
+import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId } from "./session.js";
 
 /** Where the owner's home arrangement lives. */
 export const HOME_LAYOUT_KEY = "home.layout";
@@ -284,7 +284,33 @@ export async function handleApiRequest(
   }
 
   if (method === "GET" && path === "/api/crons") {
-    return ok(kernel.crons.list());
+    /*
+     * With where each job's runs live, and whether one is happening.
+     *
+     * A job used to be a row and a schedule: whether it was running right
+     * now, and what it did last time, were not answerable from here at all.
+     */
+    const threads = new Map(
+      kernel.conversations
+        .list(kernel.profile.ownerId, { includeArchived: true })
+        .map((c) => [c.id, c]),
+    );
+    const busyNow = new Set(kernel.busyConversations());
+    return ok(
+      kernel.crons.list().map((job) => {
+        const thread = threads.get(cronSessionId(job.id));
+        return {
+          ...job,
+          ...(thread
+            ? {
+                conversationId: thread.id,
+                running: busyNow.has(thread.id),
+                lastRunAt: thread.updatedAt,
+              }
+            : {}),
+        };
+      }),
+    );
   }
 
   if (method === "POST" && path === "/api/crons/enable") {
