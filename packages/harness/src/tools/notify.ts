@@ -1,3 +1,4 @@
+import { MESSAGE_LIMITS } from "../channels/types.js";
 import type {
   MessageButton,
   MessageCard,
@@ -262,6 +263,96 @@ export function noticeText(payload: NotifyPayload): string {
   return parts.filter(Boolean).join("\n\n");
 }
 
+/**
+ * What the call did, in the words the agent will act on.
+ *
+ * "sent" was the whole result, which says nothing about where it went, what
+ * it carried, or what comes back. An agent that cannot tell a delivered
+ * message from a held one, or a button that answers from a link that does
+ * not, guesses -- and it guessed wrong the first time anyone watched.
+ */
+export function describeSend(args: {
+  target: MessageTarget;
+  asReply: boolean;
+  text: string;
+  card?: MessageCard;
+  buttons: MessageButton[];
+  landsIn?: string;
+  stray: string[];
+}): string {
+  const { target, asReply, card, buttons } = args;
+
+  const where = asReply
+    ? "Held for your reply. Nothing has been sent yet: this is the shape of the answer you are about to write, and your reply text is the message it sits under. Write that answer now."
+    : `Sent to ${
+        target.kind === "owner" ? "the owner" : `${target.kind} ${target.id}`
+      }${target.surface ? ` on ${target.surface}` : ""}.`;
+
+  const carried: string[] = [];
+  if (args.text) carried.push("your text");
+  if (card) {
+    const fields = card.fields?.length ?? 0;
+    carried.push(fields ? `a card with ${fields} fields` : "a card");
+  }
+  if (buttons.length) {
+    carried.push(`${buttons.length} button${buttons.length === 1 ? "" : "s"}`);
+  }
+
+  const notes: string[] = [];
+  const pressable = buttons.filter((b) => !b.url);
+  if (pressable.length) {
+    notes.push(
+      `A press comes back to you as a message${
+        args.landsIn ? ` in ${args.landsIn}` : ""
+      }, and your answer to it goes to whoever pressed.`,
+    );
+    const forms = pressable.filter((b) => b.modal);
+    if (forms.length) {
+      notes.push(
+        `${forms.map((b) => `"${b.label}"`).join(", ")} open${
+          forms.length === 1 ? "s" : ""
+        } a form first, and what is typed arrives with the press.`,
+      );
+    }
+    const priv = pressable.filter((b) => b.ephemeral);
+    if (priv.length) {
+      notes.push(
+        `${priv.map((b) => `"${b.label}"`).join(", ")} answer${
+          priv.length === 1 ? "s" : ""
+        } only to whoever pressed.`,
+      );
+    }
+  }
+  if (buttons.some((b) => b.url)) {
+    notes.push("A link button is a link: nothing comes back from one.");
+  }
+
+  // What will not survive the surface, said here rather than discovered by
+  // the reader seeing a form with its last box missing.
+  if (buttons.length > MESSAGE_LIMITS.buttons) {
+    notes.push(
+      `Only the first ${MESSAGE_LIMITS.buttons} buttons are shown; the rest were dropped.`,
+    );
+  }
+  for (const button of buttons) {
+    const fields = button.modal?.fields.length ?? 0;
+    if (fields > MESSAGE_LIMITS.modalFields) {
+      notes.push(
+        `The form on "${button.label}" has ${fields} boxes and only the first ${MESSAGE_LIMITS.modalFields} are shown.`,
+      );
+    }
+  }
+  if (args.stray.length) {
+    notes.push(
+      `Ignored on the card: ${args.stray.join(", ")}. Named values go in fields: [{name, value}].`,
+    );
+  }
+
+  return [where, carried.length ? `It carries ${carried.join(", ")}.` : "", ...notes]
+    .filter(Boolean)
+    .join(" ");
+}
+
 export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
   return {
     manifest: {
@@ -427,29 +518,15 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
             ...(buttons.length ? { buttons } : {}),
           });
 
-          const stray = strayCardKeys(input.card);
-          const warning = stray.length
-            ? ` Ignored on the card: ${stray.join(", ")}. Named values go in fields: [{name, value}].`
-            : "";
-
-          /*
-           * What actually happened, because the model acts on this line.
-           *
-           * "sent" was returned for every target including reply, where
-           * nothing is sent: the shape is held for the answer. Told its
-           * message had gone, the model had nothing left to say and finished
-           * the turn with "I do not have anything to add to that" -- so the
-           * card arrived under a sentence saying there was nothing to add.
-           */
-          if (asReply) {
-            return (
-              "Held for your reply. Nothing has been sent yet: this is the shape of " +
-              "the answer you are about to write, and your reply text is the message " +
-              "it sits under. Write that answer now." +
-              warning
-            );
-          }
-          return `sent${warning}`;
+          return describeSend({
+            target,
+            asReply,
+            text,
+            ...(card ? { card } : {}),
+            buttons,
+            ...(replyTo ? { landsIn: replyTo } : {}),
+            stray: strayCardKeys(input.card),
+          });
         },
         {
           floor: "safe",

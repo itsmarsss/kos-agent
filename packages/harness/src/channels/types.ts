@@ -57,6 +57,23 @@ export interface MessageCard {
  * name for what it means; `url` makes it a link instead, which nothing comes
  * back from.
  */
+/**
+ * What a message may carry, as a contract rather than one surface's rule.
+ *
+ * These are Discord's numbers, and they are here rather than in the adapter
+ * so the tool can tell the agent what will not fit before the adapter quietly
+ * drops it. A surface with tighter limits trims further; none may promise
+ * more.
+ */
+export const MESSAGE_LIMITS = {
+  /** Buttons on one message. */
+  buttons: 25,
+  /** Boxes in one form. */
+  modalFields: 5,
+  /** Labelled values on a card. */
+  cardFields: 25,
+} as const;
+
 /** One box in a form. */
 export interface ModalField {
   /** Name the answer comes back under. */
