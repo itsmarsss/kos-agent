@@ -5123,3 +5123,12 @@ a.health {
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 40%, transparent);
 }
+
+/* A heading inside the chat list, for threads that are not chats you began. */
+.chats-section {
+  padding: 0.7rem 0.55rem 0.25rem;
+  font-size: var(--text-sm);
+  color: var(--faint);
+  letter-spacing: 0.02em;
+}
+.chats-item--job .chats-item-title { color: var(--muted); }

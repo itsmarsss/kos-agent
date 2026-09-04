@@ -374,10 +374,27 @@ export function ChatsPage({
   // of the threads the routing produces.
   const orchestrator = conversations.find((c) => c.kind === "orchestrator");
   const filtered = useMemo(() => {
-    const chats = conversations.filter((c) => c.kind !== "orchestrator");
+    const chats = conversations.filter(
+      (c) => c.kind !== "orchestrator" && c.kind !== "schedule",
+    );
     const q = query.trim().toLowerCase();
     if (!q) return chats;
     return chats.filter((c) => c.title.toLowerCase().includes(q));
+  }, [conversations, query]);
+
+  /*
+   * Threads a schedule runs in, kept apart from the ones the owner started.
+   *
+   * They are conversations like any other and belong in the list, because
+   * watching a run and reading last week's happen here. Sorted in with the
+   * rest they would crowd it out: a job that runs hourly is the most recent
+   * thing in the workspace nearly all the time.
+   */
+  const scheduled = useMemo(() => {
+    const jobs = conversations.filter((c) => c.kind === "schedule");
+    const q = query.trim().toLowerCase();
+    if (!q) return jobs;
+    return jobs.filter((c) => c.title.toLowerCase().includes(q));
   }, [conversations, query]);
 
   async function send(): Promise<void> {
@@ -877,6 +894,41 @@ export function ChatsPage({
                   : "No chats yet. Ask KOS to start one."}
             </li>
           )}
+
+          {/* Where the schedules run. Below the chats and under their own
+              heading: they are worth opening and not worth sorting in with
+              the threads you started. */}
+          {!showArchived && scheduled.length > 0 && (
+            <li className="chats-section">Scheduled</li>
+          )}
+          {!showArchived &&
+            scheduled.map((c) => (
+              <li key={c.id}>
+                <a
+                  className={`chats-item chats-item--job ${
+                    c.id === activeId ? "is-active" : ""
+                  }`}
+                  href={hrefFor({ name: "chats", id: c.id })}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onOpen(c.id);
+                  }}
+                >
+                  <span className="chats-item-top">
+                    <span className="chats-item-title">{c.title}</span>
+                    {progress[c.id] && !progress[c.id]!.ended ? (
+                      <span className="chats-flag chats-flag--working">
+                        {liveLabel(progress[c.id])}
+                      </span>
+                    ) : (
+                      <span className="chats-item-when">
+                        {relative(c.updatedAt)}
+                      </span>
+                    )}
+                  </span>
+                </a>
+              </li>
+            ))}
         </ul>
 
         {/* At the foot rather than under the search box: it is a place you go

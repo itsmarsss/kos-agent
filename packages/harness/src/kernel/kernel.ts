@@ -175,6 +175,33 @@ export function orchestratorId(ownerId = "owner"): string {
 }
 
 /**
+ * The one thread a messaging surface talks in.
+ *
+ * A surface without native threads used to follow a movable pointer, so
+ * "where does a Discord message go" was answered by whatever was pointed at
+ * last -- invisible from the surface itself, and prone to drifting onto
+ * whatever had been touched most recently. A surface gets one continuous
+ * stream instead, the way the dashboard has one.
+ */
+export function surfaceSessionId(channel: string, ownerId = "owner"): string {
+  return `${channel}:${ownerId}`;
+}
+
+/**
+ * What the surface's own thread is, said to itself.
+ *
+ * Not a router: the owner asked for the full toolkit here, so it does the
+ * work when the work is small and hands it on when it belongs somewhere
+ * else. The chats tools are granted for exactly that second case.
+ */
+const SURFACE_BRIEF = [
+  "This is the owner's continuous stream on this surface. Everything they say here arrives in this one thread, and everything you say goes back to them there.",
+  "You have the full toolkit, so do small things here rather than making a conversation for each one.",
+  "When a request belongs to work that already has its own conversation, or is big enough to want one, use the chats tools to find or create it and give it the task, then say in a line what it did.",
+  "The owner can also ask to be routed somewhere explicitly. Take that as an instruction, not a suggestion.",
+].join("\n");
+
+/**
  * What the orchestrator is for. Deliberately about routing rather than any
  * particular kind of work: its job is to find where something belongs and set
  * it up, not to do the work itself.
@@ -1564,19 +1591,25 @@ export class Kernel {
     if (active) return this.conversations.get(active)!;
 
     /*
-     * No pointer yet, so the main thread rather than whatever was touched
-     * last.
+     * The surface's own thread.
      *
      * It used to take the most recently updated conversation, which was
      * already a guess and became a wrong one: an agent's own thread, or a
      * scheduled job's, is the most recent thing in the workspace most of the
-     * time, and neither is somewhere the owner was talking. First contact on
-     * a surface lands in the main thread, and /switch moves it from there.
+     * time, and neither is somewhere the owner was talking. A surface has one
+     * continuous stream now, the way the dashboard does, and /switch still
+     * points it elsewhere when the owner says so.
      */
-    const id = primarySessionId(userId);
+    const id = surfaceSessionId(channel, userId);
     const chosen =
       this.conversations.get(id) ??
-      this.conversations.create({ id, userId, channel, title: "Main" });
+      this.conversations.create({
+        id,
+        userId,
+        channel,
+        title: channel.charAt(0).toUpperCase() + channel.slice(1),
+        brief: SURFACE_BRIEF,
+      });
     this.conversations.setActive(channel, userId, chosen.id);
     return chosen;
   }
@@ -1713,6 +1746,18 @@ export class Kernel {
       userId: input.userId,
       sessionId: conversation.id,
       channel: input.channel,
+      /*
+       * The surface's own thread may hand work on.
+       *
+       * It keeps the full toolkit, so most things happen where they were
+       * asked. The chats tools are for the rest: work that already has a
+       * conversation, or is big enough to want one. Granted only here,
+       * because a project chat that could spawn more of itself is a loop
+       * waiting to happen.
+       */
+      ...(conversation.id === surfaceSessionId(input.channel, input.userId)
+        ? { grant: [...CHAT_TOOLS] }
+        : {}),
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     });
     return { ...res, conversationId: conversation.id, isCommand: false };

@@ -1235,7 +1235,15 @@ export async function handleApiRequest(
         .list(kernel.profile.ownerId, { includeArchived })
         .map((c) => ({
           ...c,
-          kind: c.id === orchestrator ? "orchestrator" : "chat",
+          // What a thread is, so the list can group them. A job's thread and
+          // a surface's stream are not conversations the owner started, and
+          // reading as though they were is how a chat list becomes a log.
+          kind:
+            c.id === orchestrator
+              ? "orchestrator"
+              : c.id.startsWith("cron:")
+                ? "schedule"
+                : "chat",
           activity: busy.has(c.id)
             ? "working"
             : waiting.has(c.id)
