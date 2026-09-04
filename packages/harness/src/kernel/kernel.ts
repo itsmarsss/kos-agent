@@ -1,5 +1,6 @@
 import { runAgent, type Inference } from "../agent/loop.js";
 import { PressRoutes } from "../channels/presses.js";
+import type { MessageButton, MessageCard } from "../channels/types.js";
 import { DaemonStore } from "../daemons/store.js";
 import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry } from "../agent/registry.js";
@@ -450,7 +451,29 @@ export class Kernel {
       // Always wired. Without a channel this used to be absent, so `notify`
       // threw and every unattended job that ended in "tell me" lost its
       // message. The fallback puts it where the owner already looks.
-      notify: async (payload: NotifyPayload) => {
+      notify: async (payload: NotifyPayload): Promise<string | undefined> => {
+        /*
+         * A turn that is answering a press has somewhere better to send than
+         * the owner's inbox: back into the interaction the press opened.
+         *
+         * It is not a preference. A surface can make an interaction response
+         * private and cannot make an ordinary message private at all, so a
+         * card sent any other way during a press is a public card in answer
+         * to a private button.
+         */
+        const open =
+          payload.target.kind === "owner" && !payload.target.surface
+            ? kernelRef?.replySurfaceFor(kernelRef.currentConversationId)
+            : undefined;
+        if (open) {
+          await open({
+            text: payload.text,
+            ...(payload.card ? { card: payload.card } : {}),
+            ...(payload.buttons ? { buttons: payload.buttons } : {}),
+          });
+          return "Sent as a reply to the press.";
+        }
+
         if (options.notify) {
           await options.notify(payload);
           return;
@@ -1142,6 +1165,43 @@ export class Kernel {
         if (!suspended) this.endTurn(sessionId);
       }
     }
+  }
+
+  /**
+   * Where an answer goes while a press is being answered, by conversation.
+   *
+   * Open only for the length of that turn: an interaction is good for
+   * minutes, and a card sent into a stale one is a card nobody sees.
+   */
+  private readonly replySurfaces = new Map<
+    string,
+    (msg: { text: string; card?: MessageCard; buttons?: MessageButton[] }) => Promise<void>
+  >();
+
+  /** Hold a reply surface open for one turn, and take it away after. */
+  openReplySurface(
+    conversationId: string,
+    send: (msg: {
+      text: string;
+      card?: MessageCard;
+      buttons?: MessageButton[];
+    }) => Promise<void>,
+  ): () => void {
+    this.replySurfaces.set(conversationId, send);
+    return () => this.replySurfaces.delete(conversationId);
+  }
+
+  /** The open surface for a conversation, if a press is being answered in it. */
+  replySurfaceFor(
+    conversationId?: string,
+  ):
+    | ((msg: {
+        text: string;
+        card?: MessageCard;
+        buttons?: MessageButton[];
+      }) => Promise<void>)
+    | undefined {
+    return conversationId ? this.replySurfaces.get(conversationId) : undefined;
   }
 
   /**

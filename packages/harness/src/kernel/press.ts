@@ -77,16 +77,33 @@ export function createPressHandler(deps: PressHandlerDeps): ButtonPressHandler {
 
     await respond.working({ ...(route.ephemeral ? { ephemeral: true } : {}) });
 
-    const res = await deps.kernel.handleMessage(
-      pressMessage(press, route, filled, deps.ownerRecipientId),
-      {
-        sessionId: route.conversationId,
-        origin: "system",
-        // Which surface the answer is for. Without it the turn cannot know a
-        // card will be rendered, so it sends the words instead.
-        channel: deps.channel,
-      },
+    /*
+     * While the turn runs, notify goes back into this interaction rather than
+     * to the owner's inbox. That is the only route to a private answer: a
+     * surface can make an interaction response private and cannot make an
+     * ordinary message private at all, so a card sent any other way would be
+     * a public answer to a private button.
+     */
+    const close = deps.kernel.openReplySurface(route.conversationId, (msg) =>
+      respond.followUp(msg),
     );
+    let res;
+    try {
+      res = await deps.kernel.handleMessage(
+        pressMessage(press, route, filled, deps.ownerRecipientId),
+        {
+          sessionId: route.conversationId,
+          origin: "system",
+          // Which surface the answer is for. Without it the turn cannot know
+          // a card will be rendered, so it sends the words instead.
+          channel: deps.channel,
+        },
+      );
+    } finally {
+      // An interaction is good for minutes; a card sent into a stale one is a
+      // card nobody sees.
+      close();
+    }
 
     await respond.send({ text: res.reply });
   };

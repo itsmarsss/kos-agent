@@ -195,6 +195,15 @@ export interface PressResponder {
   working(opts?: { ephemeral?: boolean }): Promise<void>;
   /** The answer. */
   send(msg: OutboundMessage): Promise<void>;
+  /**
+   * Another message into the same interaction, before the answer.
+   *
+   * This is the only way to reach the presser privately: a surface can make
+   * an interaction response private, and cannot make an ordinary message
+   * private at all. So a card sent during a press has to come through here
+   * rather than as a message of its own.
+   */
+  followUp(msg: OutboundMessage): Promise<void>;
 }
 
 export interface ApprovalRequest {

@@ -456,6 +456,20 @@ export class DiscordAdapter implements ChannelAdapter {
     // submission: the button's own interaction can no longer be replied to.
     let live: ButtonInteraction | ModalSubmitInteraction = interaction;
     let acknowledged = false;
+    // Settled at the acknowledgement and remembered, because every follow-up
+    // has to carry the same flag: a private answer with a public card under
+    // it is not a private answer.
+    let ephemeral = false;
+
+    const payloadFor = (msg: OutboundMessage): {
+      content?: string;
+      embeds?: EmbedBuilder[];
+      components?: ActionRowBuilder<ButtonBuilder>[];
+    } => ({
+      ...(msg.text ? { content: msg.text.slice(0, 2000) } : {}),
+      ...(msg.card ? { embeds: [buildCard(msg.card)] } : {}),
+      ...(msg.buttons?.length ? { components: buildButtons(msg.buttons) } : {}),
+    });
 
     const respond: PressResponder = {
       openForm: async (modal) => {
@@ -483,6 +497,7 @@ export class DiscordAdapter implements ChannelAdapter {
       working: async (opts) => {
         if (acknowledged) return;
         acknowledged = true;
+        ephemeral = opts?.ephemeral === true;
         try {
           // deferReply rather than deferUpdate: the answer is a new message,
           // so the message the button sits on keeps its buttons and stays
@@ -495,12 +510,22 @@ export class DiscordAdapter implements ChannelAdapter {
         }
       },
 
+      followUp: async (msg) => {
+        // Only after an acknowledgement, which working() has already made by
+        // the time a turn is running.
+        if (!acknowledged) await respond.working();
+        try {
+          await live.followUp({
+            ...payloadFor(msg),
+            ...(ephemeral ? { flags: MessageFlags.Ephemeral } : {}),
+          });
+        } catch {
+          await this.send(interaction.user.id, msg);
+        }
+      },
+
       send: async (msg) => {
-        const payload = {
-          ...(msg.text ? { content: msg.text.slice(0, 2000) } : {}),
-          ...(msg.card ? { embeds: [buildCard(msg.card)] } : {}),
-          ...(msg.buttons?.length ? { components: buildButtons(msg.buttons) } : {}),
-        };
+        const payload = payloadFor(msg);
         if (!payload.content && !payload.embeds) payload.content = "(no reply)";
         try {
           if (acknowledged) {
