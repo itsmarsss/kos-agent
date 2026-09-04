@@ -10,6 +10,7 @@ export {
 export {
   Kernel,
   orchestratorId,
+  surfaceSessionId,
   type HandleResult,
   type KernelOptions,
 } from "./kernel.js";
@@ -34,8 +35,11 @@ export {
 } from "./context.js";
 export {
   ConversationStore,
+  conversationKind,
+  isFixed,
   titleFromText,
   type Conversation,
+  type ConversationKind,
   type CreateConversationInput,
 } from "./conversations.js";
 export {
