@@ -71,6 +71,12 @@ export interface CronJob {
   projectSlug?: string | null;
   createdAt?: number;
   updatedAt?: number;
+  /** The thread this job's runs happen in, once it has run at all. */
+  conversationId?: string;
+  /** A run is happening right now. */
+  running?: boolean;
+  /** When the last run touched the thread. */
+  lastRunAt?: number;
 }
 
 export interface RunRecord {

@@ -102,6 +102,7 @@ import { ensureProfile, type Profile } from "./profile.js";
 import {
   RETENTION_KEY,
   SessionStore,
+  cronSessionId,
   primarySessionId,
   type Retention,
 } from "./session.js";
@@ -1246,6 +1247,40 @@ export class Kernel {
   }
 
   /**
+   * A scheduled job's turn, in the conversation that belongs to it.
+   *
+   * The thread is made the first time the job runs rather than when it is
+   * written, so a schedule that never fires leaves no empty chat behind.
+   */
+  private async runJobTurn(prompt: string, job: CronJob): Promise<string> {
+    const id = cronSessionId(job.id);
+    if (!this.conversations.get(id)) {
+      this.conversations.create({
+        id,
+        userId: this.profile.ownerId,
+        title: job.name,
+        brief: [
+          `The scheduled job "${job.name}" runs here, on ${job.schedule}.`,
+          "Each run is a turn in this thread, so what it did last time is above.",
+          "The owner may join in and ask about a run; answer as yourself.",
+        ].join(" "),
+      });
+    }
+    /*
+     * Not enqueued again: fire() is already running inside the work queue,
+     * and handleMessage enqueues on the conversation's own lane, so this
+     * would wait on a chain that includes the task doing the waiting.
+     */
+    // runTurn rather than handleMessage: fire() is already inside the work
+    // queue, and handleMessage enqueues on the conversation's own lane, so
+    // this would wait on a chain that includes the task doing the waiting.
+    const res = await this.runTurn(prompt, this.profile.ownerId, id, {
+      origin: "system",
+    });
+    return res.reply;
+  }
+
+  /**
    * The end of a turn, wherever it happens.
    *
    * A turn that suspends on an approval returns to its caller long before it
@@ -1937,6 +1972,9 @@ export class Kernel {
               tools: this.guardedTools(),
               inference: this.inference,
               buildSystem: (j) => this.cronSystemPrompt(j),
+              // In the job's own thread, so a run can be watched while it
+              // happens, asked about afterwards, and read back next week.
+              runInConversation: (prompt, j) => this.runJobTurn(prompt, j),
             });
             const problem = cronFailure(result);
             // A job whose condition said "not now" did what it was written to

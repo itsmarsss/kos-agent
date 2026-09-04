@@ -23,6 +23,11 @@ export interface CronExecutorDeps {
   inference?: Inference;
   /** Assemble the system context for a self_prompt (manifest + salient memory). */
   buildSystem?: (job: CronJob) => string | undefined | Promise<string | undefined>;
+  /**
+   * Run the prompt as a turn in the job's conversation, and give back what it
+   * said. Absent for a caller with no conversations, such as a test.
+   */
+  runInConversation?: (prompt: string, job: CronJob) => Promise<string>;
   maxIterations?: number;
 }
 
@@ -54,6 +59,19 @@ export async function runCronJob(
     throw new Error("self_prompt cron requires an inference provider");
   }
   const prompt = template(job.prompt ?? "", scope);
+
+  /*
+   * In the job's own conversation, where there is one.
+   *
+   * Running the model directly left nothing behind: no transcript, no live
+   * view, and nothing to ask afterwards. A turn in a conversation is watched,
+   * questioned and re-read with the machinery that already exists for one.
+   */
+  if (deps.runInConversation) {
+    const finalText = await deps.runInConversation(prompt, job);
+    return { ran: true, type: "self_prompt", finalText };
+  }
+
   const system = await deps.buildSystem?.(job);
   const result = await runAgent(deps.inference, deps.tools, prompt, {
     task: "reasoning",

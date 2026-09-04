@@ -5117,3 +5117,9 @@ a.health {
 }
 .cron-badge.is-on { color: var(--ok); }
 .cron-badge.is-off { color: var(--muted); }
+
+/* A job working right now, as opposed to merely enabled. */
+.ops-tag--run {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}

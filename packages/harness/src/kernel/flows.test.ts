@@ -497,6 +497,55 @@ describe("KOS end-to-end flows", () => {
     expect(model.systems.at(-1)!).not.toContain("Replying on Discord");
   });
 
+  it("runs a scheduled prompt in the job's own thread, so it can be watched", async () => {
+    /*
+     * A job called the model directly, with no conversation, so a run left
+     * no transcript, no live view and nothing to ask about: the only record
+     * was a row saying it succeeded. Runs land in a thread of the job's own,
+     * which is what makes watching, asking and re-reading possible at all.
+     */
+    const model = scripted([text("Reviewed the budget.")]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({
+      name: "weekly-review",
+      schedule: "0 9 * * 1",
+      type: "self_prompt",
+      prompt: "review my spending",
+      enabled: true,
+    });
+
+    const outcome = await kernel.fireCron(job.id);
+    expect(outcome.ok).toBe(true);
+
+    const thread = kernel.conversations.get(`cron:${job.id}`);
+    expect(thread?.title).toBe("weekly-review");
+    // What it was asked and what it said, both readable afterwards.
+    const wire = JSON.stringify(kernel.sessions.get(`cron:${job.id}`));
+    expect(wire).toContain("review my spending");
+    expect(wire).toContain("Reviewed the budget.");
+  });
+
+  it("keeps a job's runs in one thread, so last week's is above this one", async () => {
+    const model = scripted([text("first run"), text("second run")]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({
+      name: "daily",
+      schedule: "0 9 * * *",
+      type: "self_prompt",
+      prompt: "do the daily thing",
+      enabled: true,
+    });
+
+    await kernel.fireCron(job.id);
+    await kernel.fireCron(job.id);
+
+    const wire = JSON.stringify(kernel.sessions.get(`cron:${job.id}`));
+    expect(wire).toContain("first run");
+    expect(wire).toContain("second run");
+    // One thread, not one per run: coming back to a job means scrolling up.
+    expect(kernel.conversations.get(`cron:${job.id}`)).toBeDefined();
+  });
+
   it("asks before running a job by hand, then runs it the way it will run", async () => {
     const model = scripted([
       toolCall("c1", "cron.run", { id: 2 }),
