@@ -152,9 +152,31 @@ describe("answering a press", () => {
       spy.responder,
     );
 
-    // Into the interaction, carrying the card, before the answer.
-    expect(spy.calls).toEqual(["working:private", "followUp", "send"]);
-    expect(spy.followedUp[0]?.card?.title).toBe("Budget");
+    /*
+     * One press, one answer. Sending the card as it arrived and then the
+     * turn's reply too gave the presser the card followed by a paragraph
+     * about having sent it, as two messages under one header.
+     */
+    expect(spy.calls).toEqual(["working:private", "send"]);
+    expect(spy.sent[0]?.card?.title).toBe("Budget");
+    // The card's own text is what the agent wrote for the reader; the turn's
+    // reply is commentary on having sent it.
+    expect(spy.sent[0]?.text).toBe("here it is");
+  });
+
+  it("falls back to the turn's words when it sent no card", async () => {
+    kernel = await boot(scripted([text("Just an answer.")]));
+    const token = kernel.presses.register({
+      conversationId: "primary:owner",
+      buttonId: "x",
+      label: "X",
+    });
+    const spy = responderSpy();
+    const handle = createPressHandler({ kernel, channel: "discord" });
+    await handle({ buttonId: "", label: "X", token, pressedBy: "u1" }, spy.responder);
+
+    expect(spy.calls).toEqual(["working:public", "send"]);
+    expect(spy.sent[0]?.text).toBe("Just an answer.");
   });
 
   it("puts the surface away when the turn ends", async () => {
