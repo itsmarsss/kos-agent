@@ -1,4 +1,9 @@
-import type { MessageButton, MessageCard, MessageTarget } from "../channels/types.js";
+import type {
+  MessageButton,
+  MessageCard,
+  MessageTarget,
+  ModalSpec,
+} from "../channels/types.js";
 import type { KosModule } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 
@@ -41,7 +46,15 @@ export interface NotifyPayload {
 
 export interface NotifyToolDeps {
   /** Mint the token a press comes back on, and record where it belongs. */
-  routePress?: (button: { id: string; label: string }, replyTo?: string) => string;
+  routePress?: (
+    button: {
+      id: string;
+      label: string;
+      modal?: ModalSpec;
+      ephemeral?: boolean;
+    },
+    replyTo?: string,
+  ) => string;
 }
 
 /** Keys a card is made of. Anything else the caller invented is reported. */
@@ -97,6 +110,38 @@ function asCard(raw: unknown): MessageCard | undefined {
   return Object.keys(card).length ? card : undefined;
 }
 
+function asModal(raw: unknown): ModalSpec | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const input = raw as Record<string, unknown>;
+  const title = typeof input.title === "string" ? input.title : "";
+  const fields = Array.isArray(input.fields)
+    ? input.fields.flatMap((f) => {
+        if (typeof f !== "object" || f === null) return [];
+        const field = f as Record<string, unknown>;
+        const id = typeof field.id === "string" ? field.id : "";
+        const label = typeof field.label === "string" ? field.label : "";
+        if (!id || !label) return [];
+        return [
+          {
+            id,
+            label,
+            ...(field.style === "paragraph" ? { style: "paragraph" as const } : {}),
+            ...(typeof field.placeholder === "string"
+              ? { placeholder: field.placeholder }
+              : {}),
+            ...(field.required === false ? { required: false } : {}),
+            ...(typeof field.value === "string" ? { value: field.value } : {}),
+            ...(typeof field.maxLength === "number"
+              ? { maxLength: field.maxLength }
+              : {}),
+          },
+        ];
+      })
+    : [];
+  if (!fields.length) return undefined;
+  return { title: title || "Details", fields };
+}
+
 function asButtons(raw: unknown): MessageButton[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((b) => {
@@ -119,6 +164,8 @@ function asButtons(raw: unknown): MessageButton[] {
         ...(style === "primary" || style === "secondary" || style === "success" || style === "danger"
           ? { style }
           : {}),
+        ...(asModal(button.modal) ? { modal: asModal(button.modal)! } : {}),
+        ...(button.ephemeral === true ? { ephemeral: true } : {}),
       },
     ];
   });
@@ -276,7 +323,7 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
               buttons: {
                 type: "array",
                 description:
-                  "Something to press. A label alone is enough; a url makes it a link, which nothing comes back from.",
+                  "Something to press. A label alone is enough; a url makes it a link, which nothing comes back from. A modal opens a form first and sends what was typed. The press, and anything typed, comes back to you as a message and your answer goes to whoever pressed it.",
                 items: {
                   type: "object",
                   properties: {
@@ -286,6 +333,43 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
                     style: {
                       type: "string",
                       enum: ["primary", "secondary", "success", "danger"],
+                    },
+                    ephemeral: {
+                      type: "boolean",
+                      description:
+                        "the answer to this press is shown only to whoever pressed it",
+                    },
+                    modal: {
+                      type: "object",
+                      description:
+                        "open a form on press and send what was typed, for an answer that is not one of a fixed few",
+                      properties: {
+                        title: { type: "string" },
+                        fields: {
+                          type: "array",
+                          description: "at most five",
+                          items: {
+                            type: "object",
+                            properties: {
+                              id: {
+                                type: "string",
+                                description: "name the answer comes back under",
+                              },
+                              label: { type: "string" },
+                              style: {
+                                type: "string",
+                                enum: ["short", "paragraph"],
+                              },
+                              placeholder: { type: "string" },
+                              required: { type: "boolean" },
+                              value: { type: "string", description: "prefilled" },
+                              maxLength: { type: "number" },
+                            },
+                            required: ["id", "label"],
+                          },
+                        },
+                      },
+                      required: ["title", "fields"],
                     },
                   },
                   required: ["label"],
@@ -324,7 +408,12 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
             return {
               ...button,
               token: deps.routePress(
-                { id: button.id ?? button.label, label: button.label },
+                {
+                  id: button.id ?? button.label,
+                  label: button.label,
+                  ...(button.modal ? { modal: button.modal } : {}),
+                  ...(button.ephemeral ? { ephemeral: true } : {}),
+                },
                 replyTo,
               ),
             };

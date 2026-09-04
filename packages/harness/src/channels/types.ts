@@ -57,11 +57,51 @@ export interface MessageCard {
  * name for what it means; `url` makes it a link instead, which nothing comes
  * back from.
  */
+/** One box in a form. */
+export interface ModalField {
+  /** Name the answer comes back under. */
+  id: string;
+  label: string;
+  /** A line or a box. Default is a line. */
+  style?: "short" | "paragraph";
+  placeholder?: string;
+  required?: boolean;
+  /** Prefilled, for an edit rather than a blank form. */
+  value?: string;
+  maxLength?: number;
+}
+
+/**
+ * A form the reader fills in before anything is sent.
+ *
+ * Buttons ask a question with a fixed set of answers. A form is for the
+ * answers that are not fixed: a note, an amount, a name. Without one the only
+ * way to collect that is to ask in prose and hope the reply is parseable.
+ */
+export interface ModalSpec {
+  title: string;
+  /** At most five, which is what the surface allows. */
+  fields: ModalField[];
+}
+
 export interface MessageButton {
   label: string;
   id?: string;
   url?: string;
   style?: "primary" | "secondary" | "success" | "danger";
+  /**
+   * Open a form on press, and send what was typed rather than only the fact
+   * of the press.
+   */
+  modal?: ModalSpec;
+  /**
+   * The answer to this press is for whoever pressed it and nobody else.
+   *
+   * Decided when the button is sent rather than when it is pressed: the
+   * surface has to be told before the work starts, and by the time there is
+   * an answer it is too late to make it private.
+   */
+  ephemeral?: boolean;
   /**
    * What the press comes back on, assigned by the harness rather than by
    * whoever asked for the button.
@@ -117,6 +157,29 @@ export interface ButtonPress {
   pressedBy: string;
 }
 
+/**
+ * How to answer a press, handed to whoever handles one.
+ *
+ * A surface may hold the presser waiting on a spinner, and it will not hold
+ * one for long: Discord wants an acknowledgement within seconds and a real
+ * answer within minutes. So answering is a sequence -- ask for the form, say
+ * you are working, then say the thing -- rather than a value returned.
+ */
+export interface PressResponder {
+  /**
+   * Put a form in front of the presser and wait for it. Resolves with what
+   * they typed, or undefined if they closed it or took too long.
+   */
+  openForm(modal: ModalSpec): Promise<Record<string, string> | undefined>;
+  /**
+   * Say the work has started, before doing it. Whether the answer is private
+   * has to be settled here, because the surface is told at this point.
+   */
+  working(opts?: { ephemeral?: boolean }): Promise<void>;
+  /** The answer. */
+  send(msg: OutboundMessage): Promise<void>;
+}
+
 export interface ApprovalRequest {
   /** Pending-action id from the approval queue. */
   id: string;
@@ -155,7 +218,10 @@ export type MessageHandler = (msg: InboundMessage) => Promise<void> | void;
 export type ApprovalHandler = (
   decision: ApprovalDecision,
 ) => Promise<void> | void;
-export type ButtonPressHandler = (press: ButtonPress) => Promise<void> | void;
+export type ButtonPressHandler = (
+  press: ButtonPress,
+  respond: PressResponder,
+) => Promise<void> | void;
 
 /**
  * Is this channel-native sender allowed to talk to KOS? The runtime derives it
