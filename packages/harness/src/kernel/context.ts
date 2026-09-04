@@ -115,6 +115,9 @@ export function channelGuidance(channel?: string): string | undefined {
     "For an answer that is not one of a fixed few -- a note, an amount, a name -- give the",
     "button a `modal`: a form of up to five boxes, whose contents arrive with the press.",
     "Set `ephemeral` on a button when its answer is for the presser alone.",
+    "When you are answering a press, the message you send with notify is the answer, whole.",
+    "Do not also write a reply about having sent it: it goes nowhere, and the reader wanted",
+    "the thing, not a note saying the thing was sent.",
   ].join("\n");
 }
 
