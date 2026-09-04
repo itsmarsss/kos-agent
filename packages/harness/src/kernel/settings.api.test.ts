@@ -52,17 +52,31 @@ describe("saving settings", () => {
       expect(stored?.maxExchanges).toBe(30);
     });
 
-    it("refuses a value that would retain nothing, and changes nothing", async () => {
+    it("refuses a value that is not a budget, and changes nothing", async () => {
       await post("/api/settings/retention", { maxChars: 64_000 });
-      for (const bad of [{ maxChars: -5 }, { maxChars: 0 }, { maxExchanges: "abc" }]) {
+      // Negative is not a smaller budget, it is a typo.
+      for (const bad of [{ maxChars: -5 }, { maxExchanges: "abc" }]) {
         const res = await post("/api/settings/retention", bad);
         expect(res.status, JSON.stringify(bad)).toBe(400);
       }
-      // The saved value is untouched by every one of those.
       expect(
         kernel.settings.get<Record<string, number>>(RETENTION_KEY)?.maxChars,
       ).toBe(64_000);
       expect(kernel.sessions.retention().maxChars).toBe(64_000);
+    });
+
+    it("takes zero as off, because that is a thing an owner can mean", async () => {
+      const res = await post("/api/settings/retention", {
+        maxChars: 0,
+        maxExchanges: 0,
+        maxToolResultChars: 0,
+      });
+      expect(res.status).toBe(200);
+      expect(kernel.sessions.retention()).toEqual({
+        maxChars: 0,
+        maxExchanges: 0,
+        maxToolResultChars: 0,
+      });
     });
   });
 

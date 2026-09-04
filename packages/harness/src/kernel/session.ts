@@ -184,7 +184,18 @@ export class SessionStore {
    * latest exchange so a single large turn is never erased entirely.
    */
   private trim(messages: ModelMessage[]): ModelMessage[] {
-    const capped = messages.map((m) => capMessage(m, this.maxToolResultChars));
+    /*
+     * Zero is off, per budget.
+     *
+     * There was no way to say "keep everything": the smallest allowed budget
+     * was one, so a workspace that wanted its whole history had to guess at a
+     * number large enough and hope. Off is a thing the owner can mean, so it
+     * is a thing they can say -- at their own cost, since an untrimmed
+     * history grows without bound and every turn carries all of it.
+     */
+    const capped = this.maxToolResultChars
+      ? messages.map((m) => capMessage(m, this.maxToolResultChars))
+      : messages;
     const exchanges = toExchanges(capped);
     if (exchanges.length === 0) return [];
 
@@ -193,10 +204,9 @@ export class SessionStore {
     for (let i = exchanges.length - 1; i >= 0; i--) {
       const exchange = exchanges[i]!;
       const size = JSON.stringify(exchange).length;
-      const wouldExceed = total + size > this.maxChars;
-      if (kept.length > 0 && (wouldExceed || kept.length >= this.maxExchanges)) {
-        break;
-      }
+      const wouldExceed = this.maxChars > 0 && total + size > this.maxChars;
+      const tooMany = this.maxExchanges > 0 && kept.length >= this.maxExchanges;
+      if (kept.length > 0 && (wouldExceed || tooMany)) break;
       kept.unshift(exchange);
       total += size;
     }
