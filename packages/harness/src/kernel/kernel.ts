@@ -162,6 +162,8 @@ const PRESS_ROUTE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const AUTOFIX_KEY = "autofix";
 
 export const BUILD_SETTINGS_KEY = "builds";
+/** Set once the one-time retirement of pre-surface pointers has happened. */
+const SURFACE_THREADS_KEY = "surfaces.threaded";
 
 /**
  * Prefix on a queued action that belongs to a build sub-agent rather than to
@@ -699,6 +701,28 @@ export class Kernel {
     const settings = new SettingsStore(workspace.db);
     // Retention the owner set, applied before any turn reads history, so a
     // restart does not quietly go back to the defaults.
+    /*
+     * Retire pointers set before surfaces had threads of their own.
+     *
+     * conversationFor reads the pointer first, so one set under the old rules
+     * -- where the default was "whatever was touched last" -- goes on winning
+     * over the surface's own stream forever. A workspace that had ever
+     * received a message on a surface would never see the new home at all.
+     * Done once and remembered, so a deliberate /switch made afterwards is
+     * left alone.
+     */
+    if (!settings.get<boolean>(SURFACE_THREADS_KEY)) {
+      const dropped = conversations.clearActive();
+      settings.set(SURFACE_THREADS_KEY, true);
+      if (dropped > 0) {
+        console.log(
+          `[kos] surfaces now have their own threads; ${dropped} old pointer${
+            dropped === 1 ? "" : "s"
+          } retired`,
+        );
+      }
+    }
+
     const retention = settings.get<Partial<Retention>>(RETENTION_KEY);
     if (retention) sessions.configure(retention);
     /*

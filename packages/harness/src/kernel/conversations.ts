@@ -287,6 +287,22 @@ export class ConversationStore {
     return this.get(row.conversation_id) ? row.conversation_id : undefined;
   }
 
+  /**
+   * Forget where a surface was pointed.
+   *
+   * Used once, to retire pointers set when a surface had no thread of its
+   * own: they name whatever the old fallback happened to pick, and left in
+   * place they keep winning over the surface's own stream forever.
+   */
+  clearActive(channel?: string): number {
+    const result = channel
+      ? this.db
+          .prepare(`DELETE FROM conversation_active WHERE channel = ?`)
+          .run(channel)
+      : this.db.prepare(`DELETE FROM conversation_active`).run();
+    return Number(result.changes ?? 0);
+  }
+
   setActive(channel: string, userId: string, conversationId: string): void {
     this.db
       .prepare(
