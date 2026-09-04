@@ -1110,6 +1110,9 @@ export class Kernel {
           // whole of a turn, and with a reasoning model most of that time is
           // the model working rather than any tool running.
           shouldStop: () => this.stopping.has(sessionId),
+          // So a stop lands while the turn is waiting on the model, rather
+          // than at the next round trip it may never reach.
+          signal: this.abortFor(sessionId).signal,
           onDelta: (delta) =>
             this.progress.emit({
               kind: "delta",
@@ -1252,6 +1255,7 @@ export class Kernel {
   private endTurn(sessionId: string): void {
     this.working.delete(sessionId);
     this.stopping.delete(sessionId);
+    this.aborts.delete(sessionId);
     this.progress.emit({ kind: "turn-end", conversationId: sessionId });
   }
 
@@ -2255,7 +2259,19 @@ export class Kernel {
   stop(sessionId: string): boolean {
     if (!this.working.has(sessionId)) return false;
     this.stopping.add(sessionId);
+    // Marked first, so the loop reads the flag rather than the abort and
+    // reports a stop instead of a broken turn.
+    this.aborts.get(sessionId)?.abort();
     return true;
+  }
+
+  /** One controller per running turn, replaced when a new turn starts. */
+  private readonly aborts = new Map<string, AbortController>();
+
+  private abortFor(sessionId: string): AbortController {
+    const fresh = new AbortController();
+    this.aborts.set(sessionId, fresh);
+    return fresh;
   }
 
 
