@@ -1280,6 +1280,43 @@ describe("KOS end-to-end flows", () => {
     expect(res.reply).toContain("Spent: 40");
   });
 
+  it("delivers a shaped answer to the surface, as one message", async () => {
+    /*
+     * The whole chain, which nothing covered: notify holds the shape, the
+     * kernel attaches it to the answer, connectChannel carries it out, and
+     * the runtime hands the adapter one message. Every piece had a test and
+     * the thing they add up to did not.
+     */
+    const model = scripted([
+      toolCall("n1", "notify", {
+        text: "",
+        to: "reply",
+        card: { title: "Budget", fields: [{ name: "Spent", value: "40" }] },
+        buttons: [{ label: "Show the rows", id: "rows" }],
+      }),
+      text("You are 40 dollars in this week."),
+    ]);
+    kernel = await boot(model.inference);
+
+    const { InMemoryAdapter } = await import("../channels/memory.js");
+    const { connectChannel } = await import("./channel.js");
+    const adapter = new InMemoryAdapter();
+    // The adapter's name is what reaches the kernel as the channel, and only
+    // a surface that renders cards is handed one.
+    Object.defineProperty(adapter, "name", { value: "discord" });
+    const runtime = connectChannel(adapter, kernel, { ownerRecipientId: "u1" });
+    await runtime.start();
+
+    await adapter.receive({ channel: "discord", senderId: "u1", text: "how is the budget" });
+
+    expect(adapter.sent).toHaveLength(1);
+    const sent = adapter.sent[0]!.msg;
+    expect(sent.text).toContain("40 dollars");
+    expect(sent.card?.title).toBe("Budget");
+    expect(sent.buttons?.[0]?.label).toBe("Show the rows");
+    expect(sent.buttons?.[0]?.token).toBeTruthy();
+  });
+
   it("refuses to shape a reply when there is no turn to shape", async () => {
     const model = scripted([text("ok")]);
     kernel = await boot(model.inference);
