@@ -15,6 +15,7 @@ import {
   approvalCustomIds,
   buildButtons,
   buildCard,
+  buildModal,
   chunkText,
   parseApprovalCustomId,
 } from "./discord.js";
@@ -189,6 +190,137 @@ describe("the answer a turn shaped", () => {
     expect(final.content).toBe("just words");
     expect(final.embeds).toEqual([]);
     expect(final.components).toEqual([]);
+  });
+});
+
+describe("answering a button press", () => {
+  /**
+   * Discord holds the presser on a spinner and will not hold one for long, so
+   * what is being checked is the order: a form can only be shown first, the
+   * work has to be acknowledged before it starts, and the answer has to reach
+   * the person who pressed rather than the void it used to go to.
+   */
+  function pressFor(customId: string): {
+    adapter: DiscordAdapter;
+    interaction: Record<string, unknown>;
+    calls: string[];
+  } {
+    const calls: string[] = [];
+    const submitted = {
+      customId,
+      user: { id: "owner-id" },
+      fields: { getTextInputValue: (id: string) => `typed-${id}` },
+      deferReply: async (opts?: Record<string, unknown>) => {
+        calls.push(`submit.deferReply:${JSON.stringify(opts ?? {})}`);
+      },
+      editReply: async (payload: Record<string, unknown>) => {
+        calls.push(`submit.editReply:${String(payload.content)}`);
+      },
+      reply: async () => calls.push("submit.reply"),
+    };
+    const interaction = {
+      isButton: () => true,
+      customId,
+      user: { id: "owner-id" },
+      component: { label: "Add a note" },
+      deferUpdate: async () => {
+        calls.push("deferUpdate");
+      },
+      deferReply: async (opts?: Record<string, unknown>) => {
+        calls.push(`deferReply:${JSON.stringify(opts ?? {})}`);
+      },
+      editReply: async (payload: Record<string, unknown>) => {
+        calls.push(`editReply:${String(payload.content)}`);
+      },
+      reply: async () => calls.push("reply"),
+      showModal: async () => {
+        calls.push("showModal");
+      },
+      awaitModalSubmit: async () => submitted,
+    };
+    const adapter = new DiscordAdapter({ token: "t" });
+    adapter.setAuthorizer((id) => id === "owner-id");
+    return { adapter, interaction, calls };
+  }
+
+  it("says it is working, then answers the presser", async () => {
+    const { adapter, interaction, calls } = pressFor(`${PRESS_PREFIX}tok1`);
+    adapter.onButton(async (_press, respond) => {
+      await respond.working();
+      await respond.send({ text: "done" });
+    });
+    await adapter.receiveInteraction(interaction as unknown as Interaction);
+    // deferReply, not deferUpdate: the answer is a new message, so the one the
+    // button sits on keeps its buttons.
+    expect(calls).toEqual(["deferReply:{}", "editReply:done"]);
+  });
+
+  it("keeps the answer to the presser when the button asked for that", async () => {
+    const { adapter, interaction, calls } = pressFor(`${PRESS_PREFIX}tok1`);
+    adapter.onButton(async (_press, respond) => {
+      await respond.working({ ephemeral: true });
+      await respond.send({ text: "just for you" });
+    });
+    await adapter.receiveInteraction(interaction as unknown as Interaction);
+    expect(calls[0]).toContain("deferReply");
+    expect(calls[0]).toContain("flags");
+  });
+
+  it("shows the form first and hands back what was typed", async () => {
+    const { adapter, interaction, calls } = pressFor(`${PRESS_PREFIX}tok1`);
+    let got: Record<string, string> | undefined;
+    adapter.onButton(async (_press, respond) => {
+      got = await respond.openForm({
+        title: "A note",
+        fields: [{ id: "note", label: "Note" }],
+      });
+      await respond.working();
+      await respond.send({ text: "saved" });
+    });
+    await adapter.receiveInteraction(interaction as unknown as Interaction);
+
+    expect(got).toEqual({ note: "typed-note" });
+    // The form has to come first, and everything after it answers the
+    // submission rather than the press, which can no longer be replied to.
+    expect(calls).toEqual([
+      "showModal",
+      "submit.deferReply:{}",
+      "submit.editReply:saved",
+    ]);
+  });
+
+  it("releases the spinner even when the handler says nothing", async () => {
+    const { adapter, interaction, calls } = pressFor(`${PRESS_PREFIX}tok1`);
+    adapter.onButton(async () => undefined);
+    await adapter.receiveInteraction(interaction as unknown as Interaction);
+    // Left alone, the presser watches a spinner until Discord gives up and
+    // says the interaction failed.
+    expect(calls).toEqual(["deferUpdate"]);
+  });
+});
+
+describe("forms", () => {
+  it("builds the boxes it was given", () => {
+    const modal = buildModal("kos:form:t1", {
+      title: "Log an expense",
+      fields: [
+        { id: "amount", label: "How much" },
+        { id: "note", label: "What for", style: "paragraph", required: false },
+      ],
+    }).toJSON();
+    expect(modal.custom_id).toBe("kos:form:t1");
+    expect(modal.title).toBe("Log an expense");
+    expect(modal.components).toHaveLength(2);
+  });
+
+  it("drops the boxes past what the surface will show", () => {
+    // Six fields is a form that does not open at all, which is worse than a
+    // form missing its last box.
+    const modal = buildModal("f", {
+      title: "Many",
+      fields: Array.from({ length: 8 }, (_, i) => ({ id: `f${i}`, label: `F${i}` })),
+    }).toJSON();
+    expect(modal.components).toHaveLength(5);
   });
 });
 

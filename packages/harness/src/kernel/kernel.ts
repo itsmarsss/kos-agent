@@ -521,6 +521,10 @@ export class Kernel {
               primarySessionId(profile.ownerId),
             buttonId: button.id,
             label: button.label,
+            // What the button opens and who may read the answer are part of
+            // the button, and the surface hands back neither on a press.
+            ...(button.modal ? { modal: button.modal } : {}),
+            ...(button.ephemeral ? { ephemeral: true } : {}),
           }),
       }),
       createCronModule({
