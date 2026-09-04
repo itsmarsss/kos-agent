@@ -2799,19 +2799,24 @@ li:hover .chats-item-when { opacity: 0; }
 
 /* New chat leads the list; search is secondary to it. */
 .chats-new { width: 100%; margin-bottom: 0.45rem; }
+/* The way to the archive, at the foot of the list and staying there while
+   the list scrolls under it. */
 .chats-archived {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
   width: 100%;
-  margin-top: 0.4rem;
   background: none;
   border: 0;
-  color: var(--faint);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
   font: inherit;
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   text-align: left;
-  padding: 0.2rem 0.1rem;
+  padding: 0.55rem 0.7rem;
   cursor: pointer;
 }
-.chats-archived:hover { color: var(--text); }
+.chats-archived:hover { color: var(--text); background: var(--panel-2); }
 .chats-archived.is-on { color: var(--accent); }
 
 /* —— message actions —— */
