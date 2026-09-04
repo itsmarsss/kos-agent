@@ -1238,7 +1238,7 @@ describe("KOS end-to-end flows", () => {
     const model = scripted([
       toolCall("n1", "notify", {
         text: "",
-        to: "reply",
+        asReply: true,
         card: { title: "Budget", fields: [{ name: "Spent", value: "40" }] },
         buttons: [{ label: "Show the rows", id: "rows" }],
       }),
@@ -1264,7 +1264,7 @@ describe("KOS end-to-end flows", () => {
     const model = scripted([
       toolCall("n1", "notify", {
         text: "",
-        to: "reply",
+        asReply: true,
         card: { title: "Budget", fields: [{ name: "Spent", value: "40" }] },
       }),
       text("You are 40 dollars in this week."),
@@ -1290,7 +1290,7 @@ describe("KOS end-to-end flows", () => {
     const model = scripted([
       toolCall("n1", "notify", {
         text: "",
-        to: "reply",
+        asReply: true,
         card: { title: "Budget", fields: [{ name: "Spent", value: "40" }] },
         buttons: [{ label: "Show the rows", id: "rows" }],
       }),
@@ -1317,6 +1317,27 @@ describe("KOS end-to-end flows", () => {
     expect(sent.buttons?.[0]?.token).toBeTruthy();
   });
 
+  it("will not report a message sent to a surface that is not here", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    /*
+     * With no channel wired the dashboard notice stands in, which is right
+     * for a message that did not ask for anywhere in particular. A request to
+     * reach Telegram cannot be honoured by writing a line on the dashboard,
+     * and answering "sent" is how an agent comes to believe it has told
+     * someone something.
+     */
+    const away = await kernel.registry.execute("notify", {
+      text: "hi",
+      to: "telegram",
+    });
+    expect(away.isError).toBe(true);
+    expect(away.content).toContain("no telegram surface is connected");
+
+    const here = await kernel.registry.execute("notify", { text: "hi" });
+    expect(here.isError).toBe(false);
+  });
+
   it("refuses to shape a reply when there is no turn to shape", async () => {
     const model = scripted([text("ok")]);
     kernel = await boot(model.inference);
@@ -1324,7 +1345,7 @@ describe("KOS end-to-end flows", () => {
     // dropping the card is the worst of both.
     const res = await kernel.registry.execute("notify", {
       text: "orphan",
-      to: "reply",
+      asReply: true,
       card: { title: "Nowhere" },
     });
     expect(res.isError).toBe(true);
@@ -1335,7 +1356,7 @@ describe("KOS end-to-end flows", () => {
     const model = scripted([
       toolCall("n1", "notify", {
         text: "",
-        to: "reply",
+        asReply: true,
         card: { title: "First" },
       }),
       text("one"),
