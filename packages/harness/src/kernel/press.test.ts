@@ -30,9 +30,11 @@ function scripted(responses: ModelResponse[]): Inference {
 function responderSpy(values?: Record<string, string>) {
   const calls: string[] = [];
   const sent: OutboundMessage[] = [];
+  const followedUp: OutboundMessage[] = [];
   return {
     calls,
     sent,
+    followedUp,
     responder: {
       openForm: async (modal: ModalSpec) => {
         calls.push(`openForm:${modal.title}`);
@@ -40,6 +42,10 @@ function responderSpy(values?: Record<string, string>) {
       },
       working: async (opts?: { ephemeral?: boolean }) => {
         calls.push(`working:${opts?.ephemeral ? "private" : "public"}`);
+      },
+      followUp: async (msg: OutboundMessage) => {
+        calls.push("followUp");
+        followedUp.push(msg);
       },
       send: async (msg: OutboundMessage) => {
         calls.push("send");
@@ -101,6 +107,70 @@ describe("answering a press", () => {
 
     expect(seen[0]).toContain("Replying on Discord");
     expect(spy.sent[0]?.text).toContain("Done.");
+  });
+
+  it("sends a card during the turn back into the press, not to the inbox", async () => {
+    /*
+     * A surface can make an interaction response private and cannot make an
+     * ordinary message private at all, so a card sent any other way during a
+     * press is a public answer to a private button.
+     */
+    const model: Inference = {
+      generate: async (task: string) => {
+        if (task === "cheap") return text('{"facts":[]}');
+        if (seenCall++ === 0) {
+          return {
+            content: [
+              {
+                type: "tool_use",
+                id: "n1",
+                name: "notify",
+                input: { text: "here it is", card: { title: "Budget" } },
+              },
+            ],
+            stopReason: "tool_use",
+            usage: { inputTokens: 0, outputTokens: 0 },
+            model: "stub",
+          } as ModelResponse;
+        }
+        return text("Done.");
+      },
+    } as unknown as Inference;
+    let seenCall = 0;
+    kernel = await boot(model);
+    const token = kernel.presses.register({
+      conversationId: "primary:owner",
+      buttonId: "show",
+      label: "Show the budget",
+      ephemeral: true,
+    });
+
+    const spy = responderSpy();
+    const handle = createPressHandler({ kernel, channel: "discord" });
+    await handle(
+      { buttonId: "", label: "Show the budget", token, pressedBy: "u1" },
+      spy.responder,
+    );
+
+    // Into the interaction, carrying the card, before the answer.
+    expect(spy.calls).toEqual(["working:private", "followUp", "send"]);
+    expect(spy.followedUp[0]?.card?.title).toBe("Budget");
+  });
+
+  it("puts the surface away when the turn ends", async () => {
+    kernel = await boot(scripted([text("done")]));
+    const token = kernel.presses.register({
+      conversationId: "primary:owner",
+      buttonId: "x",
+      label: "X",
+    });
+    const spy = responderSpy();
+    const handle = createPressHandler({ kernel, channel: "discord" });
+    await handle({ buttonId: "", label: "X", token, pressedBy: "u1" }, spy.responder);
+
+    // An interaction is good for minutes. A later turn sending into a stale
+    // one is a message nobody sees.
+    expect(kernel.replySurfaceFor("primary:owner")).toBeUndefined();
   });
 
   it("shows the form, then works, then answers", async () => {

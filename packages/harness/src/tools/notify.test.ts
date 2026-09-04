@@ -32,7 +32,7 @@ describe("notifyModule", () => {
   });
 
   async function load(
-    notify?: (payload: NotifyPayload) => Promise<void>,
+    notify?: (payload: NotifyPayload) => Promise<string | undefined>,
     routePress?: (b: { id: string; label: string }, replyTo?: string) => string,
   ): Promise<ToolRegistry> {
     const registry = new ToolRegistry();
@@ -52,6 +52,7 @@ describe("notifyModule", () => {
     const sent: NotifyPayload[] = [];
     const registry = await load(async (p) => {
       sent.push(p);
+      return undefined;
     });
     const res = await registry.execute("notify", { text: "hello" });
     expect(res.isError).toBe(false);
@@ -83,6 +84,7 @@ describe("notifyModule", () => {
     const registry = await load(
       async (p) => {
         sent.push(p);
+        return undefined;
       },
       () => `tok${++minted}`,
     );
@@ -136,6 +138,15 @@ describe("notifyModule", () => {
     expect(parseTarget("user:456")).toEqual({ kind: "user", id: "456" });
   });
 
+  it("says what reply means rather than hunting for a surface called reply", () => {
+    // Models invent it, and it used to name a real thing here. Falling
+    // through to the surface check answered "no reply surface here", which
+    // reads as a broken bridge rather than a word that means nothing.
+    expect(() => parseTarget("reply")).toThrow(/not a destination/);
+    expect(() => parseTarget("reply")).toThrow(/back to whoever pressed/);
+    expect(() => parseTarget("interaction")).toThrow(/not a destination/);
+  });
+
   it("refuses a destination it would have to guess at", () => {
     // A user id and a channel id are indistinguishable, and the wrong guess
     // sends in public what was meant to be private.
@@ -160,6 +171,7 @@ describe("notifyModule", () => {
     const registry = await load(
       async (p) => {
         sent.push(p);
+        return undefined;
       },
       () => `tok${++minted}`,
     );
