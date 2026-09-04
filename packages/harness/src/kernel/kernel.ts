@@ -666,6 +666,21 @@ export class Kernel {
     // restart does not quietly go back to the defaults.
     const retention = settings.get<Partial<Retention>>(RETENTION_KEY);
     if (retention) sessions.configure(retention);
+    /*
+     * Trimming was silent: a conversation lost its early turns and the only
+     * sign was the agent no longer knowing something it had been told. Said
+     * where a command's answer is said, which is a note beside the thread
+     * rather than a message in it.
+     */
+    sessions.watch((dropped, kept) => {
+      const id = kernelRef?.currentConversationId;
+      if (!id) return;
+      kernelRef?.progress.emit({
+        kind: "note",
+        conversationId: id,
+        text: `Trimmed ${dropped} older exchange${dropped === 1 ? "" : "s"} from this chat to stay inside the history budget. ${kept} kept. /compact turns the old ones into a summary instead, and Settings can raise the budget or turn trimming off.`,
+      });
+    });
     const router = options.inference ? undefined : createDefaultRouter(secrets);
     // Saved model choices are applied before anything runs, so the first turn
     // after a restart uses what the owner picked rather than the default.
@@ -1023,17 +1038,29 @@ export class Kernel {
                 ...(opts.origin === "system" ? [] : [text]),
               );
             }
-            // Recorded like any other turn so Spend still adds up. The model
-            // is whatever the subscription picked, which the SDK does not
-            // say, so it is named for the engine rather than guessed at.
-            this.spend.record({
-              conversationId: sessionId,
-              task: "reasoning",
-              provider: "anthropic",
-              model: "claude-agent-sdk",
-              inputTokens: sdk.usage.inputTokens,
-              outputTokens: sdk.usage.outputTokens,
-            });
+            /*
+             * One row per model the call actually used.
+             *
+             * This was a single row named for the engine, because the model
+             * was thought to be unknowable here. The SDK reports it, along
+             * with the subagent and sidechain calls the old tally missed and
+             * the cached input that made a long conversation look nearly
+             * free. A turn that used two models is two rows, which is what
+             * the spend page is for.
+             */
+            for (const used of sdk.models) {
+              this.spend.record({
+                conversationId: sessionId,
+                task: "reasoning",
+                provider: "anthropic",
+                model: used.model,
+                inputTokens:
+                  used.inputTokens +
+                  used.cacheReadInputTokens +
+                  used.cacheCreationInputTokens,
+                outputTokens: used.outputTokens,
+              });
+            }
             this.runs.finish(runId, "ok");
             return reply;
           };

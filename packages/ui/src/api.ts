@@ -343,6 +343,8 @@ export interface Retention {
   maxChars: number;
   maxToolResultChars: number;
   maxExchanges: number;
+  /** Whether old exchanges fall off the front at all. */
+  autoTrim: boolean;
 }
 
 export interface SettingsPayload {
