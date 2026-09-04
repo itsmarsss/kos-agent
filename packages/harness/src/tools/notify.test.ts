@@ -11,6 +11,7 @@ import {
   createNotifyModule,
   noticeText,
   notifyModule,
+  describeSend,
   parseTarget,
   sendsElsewhere,
   type NotifyPayload,
@@ -204,6 +205,71 @@ describe("notifyModule", () => {
     });
     expect(res.content).toContain("Ignored on the card: Status, Timezone");
     expect(res.content).toContain("fields: [{name, value}]");
+  });
+
+  it("says where it went and what comes back, not just sent", async () => {
+    /*
+     * "sent" was the whole result: nothing about where it went, what it
+     * carried, or what to expect. An agent that cannot tell a delivered
+     * message from a held one guesses, and it guessed wrong the first time
+     * anyone watched.
+     */
+    const registry = await load(
+      async () => undefined,
+      () => "tok1",
+    );
+    const res = await registry.execute("notify", {
+      text: "pick one",
+      to: "discord",
+      buttons: [
+        { label: "Add a note", modal: { title: "Note", fields: [{ id: "n", label: "N" }] } },
+        { label: "Just me", ephemeral: true },
+        { label: "Docs", url: "https://example.com" },
+      ],
+    });
+    expect(res.isError).toBe(false);
+    expect(res.content).toContain("Sent to the owner on discord");
+    expect(res.content).toContain("3 buttons");
+    expect(res.content).toContain("A press comes back to you as a message");
+    expect(res.content).toContain('"Add a note" opens a form');
+    expect(res.content).toContain('"Just me" answers only to whoever pressed');
+    expect(res.content).toContain("A link button is a link");
+  });
+
+  it("does not describe a card by the fields it does not have", () => {
+    const plain = describeSend({
+      target: { kind: "owner" },
+      asReply: false,
+      text: "hi",
+      card: { title: "Status", body: "green" },
+      buttons: [],
+      stray: [],
+    });
+    expect(plain).toContain("a card");
+    expect(plain).not.toContain("0 fields");
+  });
+
+  it("says what will not fit before the surface drops it", () => {
+    const many = describeSend({
+      target: { kind: "owner" },
+      asReply: false,
+      text: "hi",
+      buttons: [
+        ...Array.from({ length: 30 }, (_, i) => ({ label: `b${i}` })),
+        {
+          label: "Long form",
+          modal: {
+            title: "t",
+            fields: Array.from({ length: 8 }, (_, i) => ({ id: `f${i}`, label: `F${i}` })),
+          },
+        },
+      ],
+      stray: [],
+    });
+    // Trimming happens in the adapter, after this call has returned, so an
+    // agent only ever saw the result: a form missing its last boxes.
+    expect(many).toContain("Only the first 25 buttons are shown");
+    expect(many).toContain('form on "Long form" has 8 boxes');
   });
 
   it("reads a card back as prose where there is no card", () => {
