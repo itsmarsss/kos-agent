@@ -129,6 +129,15 @@ export interface GenerateRequest {
    * and return the whole reply at the end, so a caller may always pass one.
    */
   onDelta?: (delta: GenerateDelta) => void;
+  /**
+   * Abandon the call.
+   *
+   * Stopping used to be checked between round trips only, so asking a turn
+   * to stop while it was waiting on the model did nothing until the model
+   * had finished answering -- and for a turn that was one call, nothing at
+   * all. The request itself is dropped now.
+   */
+  signal?: AbortSignal;
 }
 
 export interface ModelResponse {

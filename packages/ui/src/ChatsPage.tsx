@@ -289,18 +289,10 @@ export function ChatsPage({
     const mine = loadedFor?.id === activeId;
     // Mid-send the optimistic bubble is the only record of what was typed.
     if (mine && sendingIn === activeId) return;
-    /*
-     * While a turn is running here, the live view is the authority.
-     *
-     * The conversation is touched more than once during a turn -- when the
-     * message is recorded, and again when it settles -- and each touch moved
-     * the stamp and refetched. Every refetch replaces the whole transcript
-     * under the streaming answer, which is what made a turn arriving from a
-     * button press look like it was constantly redrawing itself. The one
-     * fetch that matters is the one after it ends.
-     */
-    if (mine && turnRunningHere && !justEnded) return;
-    if (mine && loadedFor.stamp === stamp && !justEnded) return;
+    const holdTranscript = Boolean(mine) && turnRunningHere && !justEnded;
+    if (mine && !holdTranscript && loadedFor.stamp === stamp && !justEnded) {
+      return;
+    }
     if (!mine) {
       // Nothing from the previous conversation stays visible while this one
       // loads.
@@ -314,8 +306,25 @@ export function ChatsPage({
       .conversation(id)
       .then(({ events: got, pending: waiting }) => {
         if (cancelled) return;
-        setEvents(got);
+        /*
+         * Queued messages land first, always.
+         *
+         * They arrive on the same fetch as the transcript, and holding the
+         * transcript still during a turn held these back with it -- so a
+         * message queued behind a running turn stayed invisible until the
+         * turn ended, which is the one moment it did not matter.
+         */
         setPending(waiting);
+        /*
+         * The transcript itself waits.
+         *
+         * A conversation is touched more than once per turn, and replacing
+         * the whole transcript under a streaming answer is what made a turn
+         * look like it was redrawing itself. loadedFor is left alone too, so
+         * the fetch happens again once the turn is over.
+         */
+        if (holdTranscript) return;
+        setEvents(got);
         setLoadedFor({ id, stamp });
         // The transcript now holds what the live view was holding, so the
         // handover is done and the steps can go. Doing this on turn-end
@@ -540,10 +549,39 @@ export function ChatsPage({
     return tool && tool.kind === "tool" ? tool.tool : "thinking";
   };
 
-  /** Ask the running turn in this conversation to stop. */
+  const [stopping, setStopping] = useState(false);
+
+  /**
+   * Ask the running turn in this conversation to stop.
+   *
+   * It said nothing either way: the button looked identical before and
+   * after, the answer went on arriving for as long as the model took, and a
+   * request the server refused because nothing was running was swallowed
+   * whole. Pressing it now says so, and says when there was nothing to stop.
+   */
   function stop(): void {
-    if (!activeId) return;
-    void api.stopConversation(activeId).catch(() => undefined);
+    if (!activeId || stopping) return;
+    setStopping(true);
+    void api
+      .stopConversation(activeId)
+      .then((res) => {
+        if (!res.stopping) {
+          setNotes((n) => [
+            ...n,
+            { id: Date.now(), text: "Nothing is running in this chat." },
+          ]);
+        }
+      })
+      .catch((err: unknown) =>
+        setNotes((n) => [
+          ...n,
+          {
+            id: Date.now(),
+            text: `Could not stop: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ]),
+      )
+      .finally(() => setStopping(false));
   }
 
 
@@ -1353,8 +1391,13 @@ export function ChatsPage({
                 />
                 <span className="composer-spacer" />
                 {running ? (
-                  <button type="button" className="btn btn--stop" onClick={stop}>
-                    Stop
+                  <button
+                    type="button"
+                    className="btn btn--stop"
+                    disabled={stopping}
+                    onClick={stop}
+                  >
+                    {stopping ? "Stopping…" : "Stop"}
                   </button>
                 ) : (
                   <button

@@ -44,6 +44,8 @@ export interface AgentOptions {
    * clearly gone wrong instead of waiting it out.
    */
   shouldStop?: () => boolean;
+  /** Dropped mid-call when the owner asks the turn to stop. */
+  signal?: AbortSignal;
 }
 
 export interface AgentResult {
@@ -83,6 +85,21 @@ export async function runAgent(
       ? [{ role: "user", content: [{ type: "text", text: input }] }]
       : [...input];
 
+  /*
+   * Where this turn's own messages begin.
+   *
+   * The history in front of the model includes every earlier answer, so
+   * looking for "the last assistant message" found the previous turn's reply
+   * when this one had not produced any. A turn stopped before it said
+   * anything then answered with whatever it had said last time.
+   */
+  const before = messages.length;
+  const saidThisTurn = (): string =>
+    textOf(
+      [...messages.slice(before)].reverse().find((m) => m.role === "assistant")
+        ?.content ?? [],
+    );
+
   let iterations = 0;
   let stopReason: StopReason = "end_turn";
 
@@ -90,9 +107,7 @@ export async function runAgent(
     if (options.shouldStop?.()) {
       return {
         messages,
-        finalText: textOf(
-          [...messages].reverse().find((m) => m.role === "assistant")?.content ?? [],
-        ),
+        finalText: saidThisTurn(),
         iterations,
         stopReason,
         exhausted: false,
@@ -100,12 +115,35 @@ export async function runAgent(
       };
     }
     iterations += 1;
-    const response = await inference.generate(task, {
-      system: options.system,
-      messages,
-      ...(tools.length ? { tools } : {}),
-      ...(options.onDelta ? { onDelta: options.onDelta } : {}),
-    });
+    let response;
+    try {
+      response = await inference.generate(task, {
+        system: options.system,
+        messages,
+        ...(tools.length ? { tools } : {}),
+        ...(options.onDelta ? { onDelta: options.onDelta } : {}),
+        ...(options.signal ? { signal: options.signal } : {}),
+      });
+    } catch (err) {
+      /*
+       * A dropped call is a stop, not a failure.
+       *
+       * Asking to stop aborts the request the turn is waiting on, and the
+       * provider raises. Reporting that as an error would tell the owner
+       * their turn broke when what happened is the thing they asked for.
+       */
+      if (options.shouldStop?.()) {
+        return {
+          messages,
+          finalText: saidThisTurn(),
+          iterations,
+          stopReason,
+          exhausted: false,
+          stopped: true,
+        };
+      }
+      throw err;
+    }
     stopReason = response.stopReason;
     messages.push({ role: "assistant", content: response.content });
 
