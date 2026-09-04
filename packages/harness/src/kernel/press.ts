@@ -113,18 +113,15 @@ export function createPressHandler(deps: PressHandlerDeps): ButtonPressHandler {
     }
 
     /*
-     * The answer is what the agent composed, when it composed one.
+     * A message the agent sent is the answer, on its own.
      *
-     * A turn that sent a card said what it wanted to say in the card, and its
-     * reply text is then commentary on having sent it. So the card's own text
-     * wins, and the turn's reply stands in only when there was no card.
+     * Nothing of the turn's reply is folded into it. By the time an agent has
+     * composed a message it has said what it meant, and its reply text is
+     * then a remark about having sent one -- which is what the reader got,
+     * edited into their answer above the card.
      */
     const [first, ...rest] = held;
-    await respond.send(
-      first
-        ? { ...first, text: first.text || res.reply }
-        : { text: res.reply },
-    );
+    await respond.send(first ?? { text: res.reply });
     // Anything else it sent still gets there, rather than being swallowed to
     // keep the count at one.
     for (const extra of rest) await respond.followUp(extra);
