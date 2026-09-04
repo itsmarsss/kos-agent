@@ -324,6 +324,63 @@ describe("forms", () => {
   });
 });
 
+describe("a prompt decided somewhere else", () => {
+  function adapterWithPrompt(): {
+    adapter: DiscordAdapter;
+    edits: Record<string, unknown>[];
+  } {
+    const edits: Record<string, unknown>[] = [];
+    const sent = {
+      edit: async (payload: Record<string, unknown>) => {
+        edits.push(payload);
+        return sent;
+      },
+    };
+    const adapter = new DiscordAdapter({ token: "t" });
+    (adapter as unknown as { client: { users: unknown } }).client = {
+      users: { fetch: async () => ({ send: async () => sent }) },
+    };
+    return { adapter, edits };
+  }
+
+  it("settles the prompt when the decision came from the dashboard", async () => {
+    /*
+     * The prompt kept its buttons until Discord was the surface that answered
+     * it, so a decision made elsewhere left a message still offering the
+     * choice -- and pressing it reported that the action did not exist.
+     */
+    const { adapter, edits } = adapterWithPrompt();
+    await adapter.requestApproval("owner-id", { id: "7", text: "Approve sql?" });
+    await adapter.settleApproval("7", "approved");
+
+    expect(edits).toHaveLength(1);
+    expect(edits[0]?.components).toEqual([]);
+    expect(String(edits[0]?.content)).toContain("Working on that");
+  });
+
+  it("says denied when it was denied", async () => {
+    const { adapter, edits } = adapterWithPrompt();
+    await adapter.requestApproval("owner-id", { id: "8", text: "Approve sql?" });
+    await adapter.settleApproval("8", "denied");
+    expect(String(edits[0]?.content)).toBe("Denied.");
+    expect(edits[0]?.embeds).toEqual([]);
+  });
+
+  it("does nothing for a prompt it never sent", async () => {
+    const { adapter, edits } = adapterWithPrompt();
+    await adapter.settleApproval("99", "approved");
+    expect(edits).toEqual([]);
+  });
+
+  it("settles a prompt once, not again when the decision echoes back", async () => {
+    const { adapter, edits } = adapterWithPrompt();
+    await adapter.requestApproval("owner-id", { id: "9", text: "Approve sql?" });
+    await adapter.settleApproval("9", "approved");
+    await adapter.settleApproval("9", "approved");
+    expect(edits).toHaveLength(1);
+  });
+});
+
 describe("DiscordAdapter authorization", () => {
   function adapterFor(ownerId: string): {
     adapter: DiscordAdapter;

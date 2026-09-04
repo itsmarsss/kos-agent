@@ -278,6 +278,15 @@ export interface ChannelAdapter {
   requestApproval(recipientId: string, req: ApprovalRequest): Promise<void>;
   onApproval(handler: ApprovalHandler): void;
   /**
+   * Optional: a decision was made somewhere else, so settle the prompt.
+   *
+   * A prompt sent here keeps its buttons until this surface is the one that
+   * answers it. Decided from the dashboard, it sat there still offering a
+   * choice that had already been made, and pressing it reported that the
+   * action did not exist.
+   */
+  settleApproval?(id: string, outcome: "approved" | "denied"): Promise<void>;
+  /**
    * Optional: acknowledge an inbound message and return a presence handle so
    * the runtime can show progress and edit the final reply in place.
    */
