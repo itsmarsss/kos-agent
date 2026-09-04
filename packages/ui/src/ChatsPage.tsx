@@ -373,10 +373,23 @@ export function ChatsPage({
   // The orchestrator lives above the list: it is how work gets routed, not one
   // of the threads the routing produces.
   const orchestrator = conversations.find((c) => c.kind === "orchestrator");
+  /*
+   * Where each messaging surface talks, pinned with the router.
+   *
+   * One continuous stream per surface, made by the surface rather than by
+   * the owner, so it sits above the list with KOS instead of sorting through
+   * it by recency. Neither is theirs to rename, archive or delete, and the
+   * list offers none of those here.
+   */
+  const surfaces = useMemo(
+    () =>
+      conversations
+        .filter((c) => c.kind === "surface")
+        .sort((a, b) => a.title.localeCompare(b.title)),
+    [conversations],
+  );
   const filtered = useMemo(() => {
-    const chats = conversations.filter(
-      (c) => c.kind !== "orchestrator" && c.kind !== "schedule",
-    );
+    const chats = conversations.filter((c) => c.kind === "chat");
     const q = query.trim().toLowerCase();
     if (!q) return chats;
     return chats.filter((c) => c.title.toLowerCase().includes(q));
@@ -756,24 +769,57 @@ export function ChatsPage({
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        {orchestrator && (
+        {(orchestrator || surfaces.length > 0) && (
           <div className="chats-pinned">
-            <a
-              className={`chats-item chats-item--pinned ${
-                orchestrator.id === activeId ? "is-active" : ""
-              }`}
-              href={hrefFor({ name: "chats", id: orchestrator.id })}
-              onClick={(e) => {
-                e.preventDefault();
-                onOpen(orchestrator.id);
-              }}
-            >
-              <span className="chats-item-top">
-                <span className="chats-item-title">{orchestrator.title}</span>
-                <span className="chats-badge">⌘K</span>
-              </span>
-              <span className="chats-item-brief">Routes work across your chats</span>
-            </a>
+            {orchestrator && (
+              <a
+                className={`chats-item chats-item--pinned ${
+                  orchestrator.id === activeId ? "is-active" : ""
+                }`}
+                href={hrefFor({ name: "chats", id: orchestrator.id })}
+                onClick={(e) => {
+                  e.preventDefault();
+                  onOpen(orchestrator.id);
+                }}
+              >
+                <span className="chats-item-top">
+                  <span className="chats-item-title">{orchestrator.title}</span>
+                  <span className="chats-badge">⌘K</span>
+                </span>
+                <span className="chats-item-brief">
+                  Routes work across your chats
+                </span>
+              </a>
+            )}
+            {surfaces.map((c) => (
+              <a
+                key={c.id}
+                className={`chats-item chats-item--pinned ${
+                  c.id === activeId ? "is-active" : ""
+                }`}
+                href={hrefFor({ name: "chats", id: c.id })}
+                onClick={(e) => {
+                  e.preventDefault();
+                  onOpen(c.id);
+                }}
+              >
+                <span className="chats-item-top">
+                  <span className="chats-item-title">{c.title}</span>
+                  {progress[c.id] && !progress[c.id]!.ended ? (
+                    <span className="chats-flag chats-flag--working">
+                      {liveLabel(progress[c.id])}
+                    </span>
+                  ) : c.activity && c.activity !== "idle" ? (
+                    <span className={`chats-flag chats-flag--${c.activity}`}>
+                      {c.activity === "working" ? "working" : "needs you"}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="chats-item-brief">
+                  Everything said on {c.title} arrives here
+                </span>
+              </a>
+            ))}
           </div>
         )}
 

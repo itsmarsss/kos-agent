@@ -35,6 +35,7 @@ import { conversationEvents } from "./transcript.js";
 import { listDirectory, readFile, readImage } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
+import { conversationKind } from "./conversations.js";
 import { proxyToDaemon } from "../daemons/proxy.js";
 import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId } from "./session.js";
 
@@ -1215,11 +1216,10 @@ export async function handleApiRequest(
 
   if (method === "GET" && path === "/api/conversations") {
     const includeArchived = queryParams(req.url).get("archived") === "1";
-    // The orchestrator is included and labelled rather than filtered out: the
-    // owner should be able to open the thread that routes their work. The
-    // agent-facing chats.list still hides it, because it must not offer its
-    // own thread as somewhere to put work.
-    const orchestrator = orchestratorId(kernel.profile.ownerId);
+    // The orchestrator and the surface streams are included and labelled
+    // rather than filtered out: the owner should be able to open the thread
+    // that routes their work, and the one their phone talks in. The
+    // agent-facing chats.list still hides them.
     // Each row says what it is doing. Without this a thread that is mid-turn
     // or sitting on an approval looks exactly like one with nothing happening,
     // and the only way to find out was to open it.
@@ -1235,15 +1235,9 @@ export async function handleApiRequest(
         .list(kernel.profile.ownerId, { includeArchived })
         .map((c) => ({
           ...c,
-          // What a thread is, so the list can group them. A job's thread and
-          // a surface's stream are not conversations the owner started, and
-          // reading as though they were is how a chat list becomes a log.
-          kind:
-            c.id === orchestrator
-              ? "orchestrator"
-              : c.id.startsWith("cron:")
-                ? "schedule"
-                : "chat",
+          // What a thread is, so the list can group them and refuse to
+          // rename what is not the owner's to rename.
+          kind: conversationKind(c, kernel.profile.ownerId),
           activity: busy.has(c.id)
             ? "working"
             : waiting.has(c.id)
@@ -1323,6 +1317,8 @@ export async function handleApiRequest(
     if (!id || !title) {
       return { status: 400, body: { error: "id and title required" } };
     }
+    const fixed = refuseFixed(kernel, id, "renamed");
+    if (fixed) return fixed;
     const renamed = kernel.conversations.rename(id, title);
     if (!renamed) return { status: 404, body: { error: "conversation not found" } };
     return ok(renamed);
@@ -1331,6 +1327,8 @@ export async function handleApiRequest(
   if (method === "POST" && path === "/api/conversations/archive") {
     const id = typeof body.id === "string" ? body.id : "";
     if (!id) return { status: 400, body: { error: "id required" } };
+    const fixed = refuseFixed(kernel, id, "archived");
+    if (fixed) return fixed;
     const updated = kernel.conversations.setArchived(id, body.archived !== false);
     if (!updated) return { status: 404, body: { error: "conversation not found" } };
     return ok(updated);
@@ -1339,6 +1337,8 @@ export async function handleApiRequest(
   if (method === "POST" && path === "/api/conversations/delete") {
     const id = typeof body.id === "string" ? body.id : "";
     if (!id) return { status: 400, body: { error: "id required" } };
+    const fixed = refuseFixed(kernel, id, "deleted");
+    if (fixed) return fixed;
     return ok({ id, removed: kernel.conversations.remove(id) });
   }
 
@@ -1776,6 +1776,35 @@ export function createDashboardServer(
       res.end(JSON.stringify({ error: "internal error" }));
     });
   });
+}
+
+/**
+ * Refuse to change a thread that is not the owner's to change.
+ *
+ * Said here rather than left to the store, so the answer names the thing and
+ * why. These were protected by the list not showing them, which protects
+ * nothing: the endpoint took any id at all, and the router could be deleted
+ * by anyone who guessed its name.
+ */
+function refuseFixed(
+  kernel: Kernel,
+  id: string,
+  verb: string,
+): { status: number; body: { error: string } } | null {
+  const conversation = kernel.conversations.get(id);
+  if (!conversation) return null;
+  const kind = conversationKind(conversation, kernel.profile.ownerId);
+  if (kind === "chat") return null;
+  const what =
+    kind === "orchestrator"
+      ? "KOS itself"
+      : kind === "surface"
+        ? `the ${conversation.channel} stream`
+        : "a schedule's own thread";
+  return {
+    status: 400,
+    body: { error: `${what} cannot be ${verb}.` },
+  };
 }
 
 /**
