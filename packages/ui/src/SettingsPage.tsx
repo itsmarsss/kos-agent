@@ -316,6 +316,8 @@ export function SettingsPage(): ReactElement {
     maxChars: "",
     maxToolResultChars: "",
     maxExchanges: "",
+    // A string like the rest, so one dirty check covers the whole card.
+    autoTrim: "on",
   });
 
   const zones = useRef<string[]>(timezones());
@@ -331,6 +333,7 @@ export function SettingsPage(): ReactElement {
           maxChars: String(r.retention.maxChars),
           maxToolResultChars: String(r.retention.maxToolResultChars),
           maxExchanges: String(r.retention.maxExchanges),
+          autoTrim: r.retention.autoTrim === false ? "off" : "on",
         });
         setError(null);
       })
@@ -842,7 +845,9 @@ export function SettingsPage(): ReactElement {
               retention.maxChars !== String(data.retention.maxChars) ||
                 retention.maxToolResultChars !==
                   String(data.retention.maxToolResultChars) ||
-                retention.maxExchanges !== String(data.retention.maxExchanges),
+                retention.maxExchanges !== String(data.retention.maxExchanges) ||
+                retention.autoTrim !==
+                  (data.retention.autoTrim === false ? "off" : "on"),
               () =>
                 run(
                   "conversation",
@@ -850,11 +855,30 @@ export function SettingsPage(): ReactElement {
                     maxChars: Number(retention.maxChars),
                     maxToolResultChars: Number(retention.maxToolResultChars),
                     maxExchanges: Number(retention.maxExchanges),
+                    autoTrim: retention.autoTrim !== "off",
                   }),
                   "Saved",
                 ),
             )}
           >
+            <Field
+              label="Trim old exchanges"
+              hint="When on, the oldest exchanges fall off the front once a chat passes the budgets below, and the chat says so when it happens. Off keeps everything: the whole history is re-sent every turn, so it gets slower and costs more as it grows."
+            >
+              <label className="set-toggle">
+                <input
+                  type="checkbox"
+                  checked={retention.autoTrim !== "off"}
+                  onChange={(e) =>
+                    setRetention((r) => ({
+                      ...r,
+                      autoTrim: e.target.checked ? "on" : "off",
+                    }))
+                  }
+                />
+                <span>{retention.autoTrim !== "off" ? "On" : "Off"}</span>
+              </label>
+            </Field>
             <Field
               label="History budget"
               hint={`Characters of a conversation kept. 0 for no limit. Default ${data.retentionDefaults.maxChars.toLocaleString()}.`}

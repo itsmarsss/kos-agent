@@ -131,3 +131,59 @@ describe("SessionStore", () => {
     expect(sessions.get("x")).toEqual([]);
   });
 });
+
+describe("saying so when it trims", () => {
+  let root: string;
+  let ws: Workspace;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-trim-note-"));
+    ws = Workspace.open(root);
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function conversation(turns: number): ModelMessage[] {
+    const many: ModelMessage[] = [];
+    for (let i = 0; i < turns; i++) {
+      many.push({ role: "user", content: [{ type: "text", text: `q${i}` }] });
+      many.push({ role: "assistant", content: [{ type: "text", text: `a${i}` }] });
+    }
+    return many;
+  }
+
+  it("reports what it dropped, so the loss is not silent", () => {
+    const seen: [number, number][] = [];
+    const store = new SessionStore(ws.db, {
+      maxExchanges: 3,
+      onTrimmed: (dropped, kept) => seen.push([dropped, kept]),
+    });
+    store.set("s1", conversation(10));
+    expect(seen).toEqual([[7, 3]]);
+  });
+
+  it("says nothing when nothing was dropped", () => {
+    const seen: number[] = [];
+    const store = new SessionStore(ws.db, {
+      maxExchanges: 50,
+      onTrimmed: (dropped) => seen.push(dropped),
+    });
+    store.set("s1", conversation(3));
+    expect(seen).toEqual([]);
+  });
+
+  it("says nothing, and drops nothing, when trimming is off", () => {
+    const seen: number[] = [];
+    const store = new SessionStore(ws.db, {
+      autoTrim: false,
+      maxExchanges: 1,
+      onTrimmed: (dropped) => seen.push(dropped),
+    });
+    store.set("s1", conversation(10));
+    expect(store.get("s1")).toHaveLength(20);
+    expect(seen).toEqual([]);
+  });
+});

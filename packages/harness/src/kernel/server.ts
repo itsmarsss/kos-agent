@@ -680,6 +680,11 @@ export async function handleApiRequest(
       if (Number.isFinite(value) && value >= 0) accepted[key] = Math.floor(value);
       else rejected.push(key);
     }
+    // Off is a switch, not a budget, so it is read separately.
+    const auto = (body as Record<string, unknown>)["autoTrim"];
+    const accepted2: Record<string, number | boolean> = { ...accepted };
+    if (typeof auto === "boolean") accepted2["autoTrim"] = auto;
+
     if (rejected.length > 0) {
       return {
         status: 400,
@@ -692,8 +697,8 @@ export async function handleApiRequest(
     // settings the owner had already saved: a request with nothing valid in
     // it reset everything to the defaults on the next start.
     const merged = {
-      ...(kernel.settings.get<Record<string, number>>(RETENTION_KEY) ?? {}),
-      ...accepted,
+      ...(kernel.settings.get<Record<string, number | boolean>>(RETENTION_KEY) ?? {}),
+      ...accepted2,
     };
     kernel.settings.set(RETENTION_KEY, merged);
     kernel.sessions.configure(merged);
