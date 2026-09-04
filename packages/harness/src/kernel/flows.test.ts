@@ -497,7 +497,7 @@ describe("KOS end-to-end flows", () => {
     expect(model.systems.at(-1)!).not.toContain("Replying on Discord");
   });
 
-  it("lands a first message in the main thread, not in whatever ran last", async () => {
+  it("gives a surface one thread of its own, not whatever ran last", async () => {
     /*
      * The fallback took the most recently updated conversation, which was
      * already a guess and became a wrong one once jobs and agents got
@@ -518,7 +518,11 @@ describe("KOS end-to-end flows", () => {
     // The job's thread is now the most recently touched conversation.
     const chosen = kernel.conversationFor("discord", "owner");
     expect(chosen.id).not.toBe(`cron:${job.id}`);
-    expect(chosen.id).toBe(primarySessionId("owner"));
+    expect(chosen.id).toBe("discord:owner");
+    // One continuous stream: the next message lands in the same place.
+    expect(kernel.conversationFor("discord", "owner").id).toBe("discord:owner");
+    // And a different surface gets its own, rather than sharing this one.
+    expect(kernel.conversationFor("imessage", "owner").id).toBe("imessage:owner");
   });
 
   it("keeps a surface where it was pointed once it has one", async () => {
