@@ -849,10 +849,37 @@ export function App(): React.ReactElement {
             header: "Enabled",
             searchText: (c) => (c.enabled ? "on" : "off"),
             render: (c) =>
-              c.enabled ? (
+              c.running ? (
+                // A job that is working right now, which the table could not
+                // say at all: a run was a row in the log after the fact.
+                <span className="ops-tag ops-tag--run">running</span>
+              ) : c.enabled ? (
                 <span className="ops-tag ops-tag--ok">on</span>
               ) : (
                 <span className="ops-tag ops-tag--muted">off</span>
+              ),
+          },
+          {
+            /* Where the job's runs live. Each one is a turn in a thread of
+               its own, so this opens what it is doing now and what it did
+               last week, and the owner can ask it there. */
+            key: "runs",
+            header: "Runs",
+            searchText: () => "",
+            render: (c) =>
+              c.conversationId ? (
+                <button
+                  type="button"
+                  className="link"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    go({ name: "chats", id: c.conversationId! });
+                  }}
+                >
+                  {c.running ? "Watch" : "Open"}
+                </button>
+              ) : (
+                <span className="ops-muted">not yet run</span>
               ),
           },
           {
