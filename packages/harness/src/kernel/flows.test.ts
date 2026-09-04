@@ -1280,6 +1280,20 @@ describe("KOS end-to-end flows", () => {
     expect(res.reply).toContain("Spent: 40");
   });
 
+  it("refuses to shape a reply when there is no turn to shape", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    // Outside a turn there is no answer to attach to. Reporting success and
+    // dropping the card is the worst of both.
+    const res = await kernel.registry.execute("notify", {
+      text: "orphan",
+      to: "reply",
+      card: { title: "Nowhere" },
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content).toContain("no reply to shape");
+  });
+
   it("does not let one turn's card decorate the next answer", async () => {
     const model = scripted([
       toolCall("n1", "notify", {
