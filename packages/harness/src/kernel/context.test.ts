@@ -65,6 +65,18 @@ describe("inferScopeTags", () => {
 });
 
 describe("channelGuidance", () => {
+  it("says an answer can be a card, not only prose", () => {
+    // The formatting guidance predated cards and buttons, so on Discord the
+    // model was taught how to write a paragraph and never told it could
+    // answer with anything else.
+    const guidance = channelGuidance("discord") ?? "";
+    expect(guidance).toContain('to: "reply"');
+    expect(guidance).toContain("card");
+    expect(guidance).toContain("buttons");
+    // And when not to: a card around a paragraph is a box around a paragraph.
+    expect(guidance).toContain("Prose suits everything else");
+  });
+
   it("describes Discord formatting so the model can choose a shape", () => {
     const g = channelGuidance("discord")!;
     expect(g).toContain("headings");

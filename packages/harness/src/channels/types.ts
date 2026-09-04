@@ -62,6 +62,15 @@ export interface MessageButton {
   id?: string;
   url?: string;
   style?: "primary" | "secondary" | "success" | "danger";
+  /**
+   * What the press comes back on, assigned by the harness rather than by
+   * whoever asked for the button.
+   *
+   * Part of the button rather than an intersection bolted on at one call
+   * site: a button travels through the reply as well as through notify, and
+   * a shape the type does not admit to is one that gets dropped on the way.
+   */
+  token?: string;
 }
 
 export interface OutboundMessage {
@@ -80,7 +89,16 @@ export interface OutboundMessage {
 export type MessageTarget =
   | { kind: "owner" }
   | { kind: "user"; id: string }
-  | { kind: "channel"; id: string };
+  | { kind: "channel"; id: string }
+  /**
+   * The answer to the message being handled, rather than a message of its own.
+   *
+   * A card sent separately arrives next to the reply as a second thing, so an
+   * answer that wanted to be a card was always an answer plus a card. This
+   * makes the shape part of the reply, and it asks no permission: it goes to
+   * whoever is already being spoken to.
+   */
+  | { kind: "reply" };
 
 /** A button that was pressed, on its way back to the conversation that sent it. */
 export interface ButtonPress {
@@ -119,7 +137,11 @@ export interface ApprovalDecision {
  */
 export interface TurnPresence {
   update(status: string): Promise<void>;
-  complete(reply: string): Promise<void>;
+  /**
+   * The finished answer. A message rather than a string, so a turn can answer
+   * with a card and buttons instead of having to send them alongside.
+   */
+  complete(reply: OutboundMessage): Promise<void>;
   fail(message: string): Promise<void>;
 }
 

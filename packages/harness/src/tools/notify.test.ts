@@ -110,6 +110,16 @@ describe("notifyModule", () => {
     expect(res.content).toMatch(/cannot take a button back/);
   });
 
+  it("does not ask permission to shape its own answer", async () => {
+    // Answering is not speaking somewhere new. If a card cost an approval and
+    // a paragraph cost nothing, the agent would learn never to use one.
+    const registry = await load(async () => undefined);
+    expect(parseTarget("reply")).toEqual({ kind: "reply" });
+    expect(registry.classify("notify", { text: "x", to: "reply" }).tier).toBe(
+      "safe",
+    );
+  });
+
   it("reads a card back as prose where there is no card", () => {
     const text = noticeText({
       text: "Heads up",

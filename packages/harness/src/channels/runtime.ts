@@ -6,6 +6,7 @@ import type {
   ApprovalDecision,
   ChannelAdapter,
   InboundMessage,
+  OutboundMessage,
   TurnPresence,
 } from "./types.js";
 
@@ -21,7 +22,11 @@ export interface TurnContext {
 }
 
 /** Handles one user turn and returns the reply text. */
-export type TurnHandler = (ctx: TurnContext) => Promise<string>;
+/**
+ * Answers a turn. A string is the ordinary case; a message is a turn that
+ * chose a shape for its answer.
+ */
+export type TurnHandler = (ctx: TurnContext) => Promise<string | OutboundMessage>;
 
 export interface DecisionContext {
   /** KOS user the decider resolved to. */
@@ -164,7 +169,7 @@ export class ChannelRuntime {
     }
 
     try {
-      const reply = await this.handleTurn({
+      const answer = await this.handleTurn({
         userId,
         channel: msg.channel,
         senderId: msg.senderId,
@@ -172,10 +177,15 @@ export class ChannelRuntime {
         ...(msg.conversationKey ? { conversationKey: msg.conversationKey } : {}),
         ...(msg.attachments?.length ? { attachments: msg.attachments } : {}),
       });
+      const reply: OutboundMessage =
+        typeof answer === "string" ? { text: answer } : answer;
+      // A turn that answered with a card and nothing else still said
+      // something; only an empty one needs standing in for.
+      if (!reply.text && !reply.card) reply.text = "(no reply)";
       if (presence) {
-        await presence.complete(reply || "(no reply)");
+        await presence.complete(reply);
       } else {
-        await this.adapter.send(msg.senderId, { text: reply || "(no reply)" });
+        await this.adapter.send(msg.senderId, reply);
       }
     } catch {
       if (presence) {

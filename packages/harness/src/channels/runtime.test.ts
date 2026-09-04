@@ -35,6 +35,44 @@ describe("ChannelRuntime", () => {
     ]);
   });
 
+  it("sends a shaped answer as one message, not an answer and then a card", async () => {
+    const adapter = new InMemoryAdapter();
+    const runtime = new ChannelRuntime({
+      adapter,
+      handleTurn: async () => ({
+        text: "you are 40 in",
+        card: { title: "Budget" },
+        buttons: [{ label: "Rows", token: "t1" }],
+      }),
+    });
+    await runtime.start();
+
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "hi" });
+
+    expect(adapter.sent).toHaveLength(1);
+    expect(adapter.sent[0]?.msg).toEqual({
+      text: "you are 40 in",
+      card: { title: "Budget" },
+      buttons: [{ label: "Rows", token: "t1" }],
+    });
+  });
+
+  it("stands in for an empty answer, but not for one that is only a card", async () => {
+    const adapter = new InMemoryAdapter();
+    const runtime = new ChannelRuntime({
+      adapter,
+      handleTurn: async () => ({ text: "", card: { title: "Done" } }),
+    });
+    await runtime.start();
+
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "hi" });
+
+    // A turn that answered with a card said something; only a turn that said
+    // nothing at all needs standing in for.
+    expect(adapter.sent[0]?.msg.text).toBe("");
+    expect(adapter.sent[0]?.msg.card).toEqual({ title: "Done" });
+  });
+
   it("sends an error reply instead of leaking a thrown error", async () => {
     const adapter = new InMemoryAdapter();
     const runtime = new ChannelRuntime({

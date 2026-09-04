@@ -1234,6 +1234,70 @@ describe("KOS end-to-end flows", () => {
     expect(wire).toContain("Fly.io");
   });
 
+  it("answers with a card on a surface that renders one", async () => {
+    const model = scripted([
+      toolCall("n1", "notify", {
+        text: "",
+        to: "reply",
+        card: { title: "Budget", fields: [{ name: "Spent", value: "40" }] },
+        buttons: [{ label: "Show the rows", id: "rows" }],
+      }),
+      text("You are 40 dollars in this week."),
+    ]);
+    kernel = await boot(model.inference);
+
+    const res = await kernel.handleMessage("how is the budget", {
+      channel: "discord",
+    });
+    /*
+     * The shape rides on the answer rather than arriving as a second message,
+     * so the reader gets one thing: the sentence, with the card under it.
+     */
+    expect(res.reply).toContain("40 dollars");
+    expect(res.card?.title).toBe("Budget");
+    expect(res.buttons?.[0]?.label).toBe("Show the rows");
+    // A press has to know where to come back to, or the button is decoration.
+    expect(res.buttons?.[0]?.token).toBeTruthy();
+  });
+
+  it("folds a card into the words where nothing renders one", async () => {
+    const model = scripted([
+      toolCall("n1", "notify", {
+        text: "",
+        to: "reply",
+        card: { title: "Budget", fields: [{ name: "Spent", value: "40" }] },
+      }),
+      text("You are 40 dollars in this week."),
+    ]);
+    kernel = await boot(model.inference);
+
+    // The dashboard has no cards. Dropping it would lose something the agent
+    // deliberately said, so it is said in words instead.
+    const res = await kernel.handleMessage("how is the budget");
+    expect(res.card).toBeUndefined();
+    expect(res.reply).toContain("40 dollars");
+    expect(res.reply).toContain("Budget");
+    expect(res.reply).toContain("Spent: 40");
+  });
+
+  it("does not let one turn's card decorate the next answer", async () => {
+    const model = scripted([
+      toolCall("n1", "notify", {
+        text: "",
+        to: "reply",
+        card: { title: "First" },
+      }),
+      text("one"),
+      text("two"),
+    ]);
+    kernel = await boot(model.inference);
+
+    const first = await kernel.handleMessage("ask once", { channel: "discord" });
+    expect(first.card?.title).toBe("First");
+    const second = await kernel.handleMessage("ask again", { channel: "discord" });
+    expect(second.card).toBeUndefined();
+  });
+
   it("says what there is to search when a recall misses", async () => {
     const model = scripted([
       toolCall("m1", "memory.recall", { query: "quantum chromodynamics" }),
