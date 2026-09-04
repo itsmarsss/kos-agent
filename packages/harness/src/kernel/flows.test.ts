@@ -497,6 +497,39 @@ describe("KOS end-to-end flows", () => {
     expect(model.systems.at(-1)!).not.toContain("Replying on Discord");
   });
 
+  it("lands a first message in the main thread, not in whatever ran last", async () => {
+    /*
+     * The fallback took the most recently updated conversation, which was
+     * already a guess and became a wrong one once jobs and agents got
+     * threads of their own: those are the most recent thing in a workspace
+     * most of the time, and neither is somewhere the owner was talking.
+     */
+    const model = scripted([text("ran"), text("hello")]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({
+      name: "nightly",
+      schedule: "0 3 * * *",
+      type: "self_prompt",
+      prompt: "do the nightly thing",
+      enabled: true,
+    });
+    await kernel.fireCron(job.id);
+
+    // The job's thread is now the most recently touched conversation.
+    const chosen = kernel.conversationFor("discord", "owner");
+    expect(chosen.id).not.toBe(`cron:${job.id}`);
+    expect(chosen.id).toBe(primarySessionId("owner"));
+  });
+
+  it("keeps a surface where it was pointed once it has one", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    const other = kernel.conversations.create({ userId: "owner", title: "Side" });
+    kernel.conversations.setActive("discord", "owner", other.id);
+    // /switch is how the owner moves it, and nothing else should.
+    expect(kernel.conversationFor("discord", "owner").id).toBe(other.id);
+  });
+
   it("runs a scheduled prompt in the job's own thread, so it can be watched", async () => {
     /*
      * A job called the model directly, with no conversation, so a run left
