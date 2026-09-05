@@ -640,6 +640,57 @@ describe("KOS end-to-end flows", () => {
     expect(wire).toContain("Reviewed the budget.");
   });
 
+  it("gives a fixed-actions job a thread too, with what it actually ran", async () => {
+    /*
+     * An actions job makes no model call, so there was no turn to record: its
+     * runs were rows in the log saying only whether they failed, with nothing
+     * to watch and nothing to ask about. Written in the shape a turn
+     * produces, so the chat view renders the calls as calls.
+     */
+    const model = scripted([text("unused")]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({
+      name: "nightly-ping",
+      schedule: "0 3 * * *",
+      type: "actions",
+      actions: [{ tool: "notify", args: { text: "stand up" } }],
+      enabled: true,
+    });
+
+    await kernel.fireCron(job.id);
+
+    const thread = kernel.conversations.get(`cron:${job.id}`);
+    expect(thread?.title).toBe("nightly-ping");
+    const wire = JSON.stringify(kernel.sessions.get(`cron:${job.id}`));
+    // The call, its arguments and its result, all readable afterwards.
+    expect(wire).toContain("notify");
+    expect(wire).toContain("stand up");
+    expect(wire).toContain("tool_result");
+    expect(wire).toContain("Ran 1 action");
+  });
+
+  it("records a failed actions run, which is the one worth reading", async () => {
+    const model = scripted([text("unused")]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({
+      name: "broken",
+      schedule: "0 3 * * *",
+      type: "actions",
+      // A safe tool that fails, rather than an unknown one: an unrecognised
+      // name classifies as risky and the run then waits on an approval
+      // nobody is there to give.
+      actions: [{ tool: "files.read", args: { path: "nope/missing.txt" } }],
+      enabled: true,
+    });
+
+    const outcome = await kernel.fireCron(job.id);
+    expect(outcome.ok).toBe(false);
+
+    const wire = JSON.stringify(kernel.sessions.get(`cron:${job.id}`));
+    expect(wire).toContain("files.read");
+    expect(wire).toContain("1 failed");
+  });
+
   it("keeps a job's runs in one thread, so last week's is above this one", async () => {
     const model = scripted([text("first run"), text("second run")]);
     kernel = await boot(model.inference);
