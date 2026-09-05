@@ -367,7 +367,10 @@ export function SpendPanel(): ReactElement {
   return (
     <section className="spend">
       <header className="spend-head">
-        <p className="hint">Costs use the rates you set below.</p>
+        <p className="hint">
+          Where a provider prices a call itself, that is the figure shown.
+          Everything else uses the rates you set below.
+        </p>
         <Select
           className="spend-window"
           label="Period"
