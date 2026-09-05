@@ -1978,6 +1978,8 @@ export class Kernel {
     grant?: string[];
     /** Told the first time a call in this turn suspends on the owner. */
     onQueued?: (action: PendingAction) => void;
+    /** False for unattended work, which queues an approval and moves on. */
+    waitForApproval?: boolean;
   } = {}): GuardedTools {
     return new GuardedTools({
       registry: this.registry,
@@ -1994,6 +1996,7 @@ export class Kernel {
       ...(opts.scopeTags ? { scopeTags: opts.scopeTags } : {}),
       ...(opts.allow !== undefined ? { allow: opts.allow } : {}),
       ...(opts.grant?.length ? { grant: opts.grant } : {}),
+      ...(opts.waitForApproval === false ? { waitForApproval: false } : {}),
       onQueued: (action) => {
         opts.onQueued?.(action);
         this.onApprovalRequested?.(action);
@@ -2174,9 +2177,12 @@ export class Kernel {
               // belong in the job's actions, which go through the guarded
               // tool path and its risk tiers.
               db: this.workspace.reader,
-              tools: this.guardedTools(
-                jobSession ? { conversationId: jobSession } : {},
-              ),
+              tools: this.guardedTools({
+                ...(jobSession ? { conversationId: jobSession } : {}),
+                // Unattended: queue what needs a decision and finish, rather
+                // than holding a queue slot until the owner wakes up.
+                waitForApproval: false,
+              }),
               inference: this.inference,
               buildSystem: (j) => this.cronSystemPrompt(j),
               // In the job's own thread, so a run can be watched while it

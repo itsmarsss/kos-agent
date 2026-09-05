@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -667,6 +667,43 @@ describe("KOS end-to-end flows", () => {
     expect(wire).toContain("stand up");
     expect(wire).toContain("tool_result");
     expect(wire).toContain("Ran 1 action");
+  });
+
+  it("queues a risky scheduled action instead of waiting on the owner", async () => {
+    /*
+     * It suspended here for the approval window -- half an hour by default --
+     * holding its place in the work queue, and then failed by timeout because
+     * the owner was asleep. Nobody is watching an unattended run, so it
+     * queues the action, says so, and finishes.
+     */
+    const model = scripted([text("unused")]);
+    kernel = await boot(model.inference);
+    writeFileSync(join(kernel.workspace.root, "doomed.txt"), "bye");
+    const job = kernel.crons.create({
+      name: "tidy-up",
+      schedule: "0 3 * * *",
+      type: "actions",
+      actions: [{ tool: "files.rm", args: { path: "doomed.txt" } }],
+      enabled: true,
+    });
+
+    const started = Date.now();
+    await kernel.fireCron(job.id);
+    // Promptly: the point is that it did not sit on the decision.
+    expect(Date.now() - started).toBeLessThan(2000);
+
+    const pending = kernel.approvals.pending();
+    expect(pending.map((p) => p.tool)).toEqual(["files.rm"]);
+    expect(existsSync(join(kernel.workspace.root, "doomed.txt"))).toBe(true);
+    // And the thread says what it is waiting on rather than going quiet.
+    expect(JSON.stringify(kernel.sessions.get(`cron:${job.id}`))).toContain(
+      "Queued for approval",
+    );
+
+    // The decision runs it, which is what approve does for anything nothing
+    // is waiting on.
+    await kernel.approve(pending[0]!.id);
+    expect(existsSync(join(kernel.workspace.root, "doomed.txt"))).toBe(false);
   });
 
   it("records a failed actions run, which is the one worth reading", async () => {
