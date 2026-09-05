@@ -5238,3 +5238,14 @@ a.health {
   letter-spacing: 0.02em;
 }
 .chats-item--job .chats-item-title { color: var(--muted); }
+/* The opened section, above the chats. Capped and scrolling on its own, so
+   a workspace with thirty schedules does not push the chats off the screen
+   the moment the section is opened. */
+.chats-jobs {
+  list-style: none;
+  margin: 0;
+  padding: 0.15rem 0.35rem 0.35rem;
+  max-height: 14rem;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--line);
+}

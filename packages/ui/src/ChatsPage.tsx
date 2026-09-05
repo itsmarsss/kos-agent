@@ -845,6 +845,42 @@ export function ChatsPage({
           </button>
         )}
 
+        {!showArchived && showScheduled && scheduled.length > 0 && (
+          /* Under their own heading, not at the foot of the chats. Rendered
+             into the list they were below every chat, so opening the section
+             meant scrolling past everything to reach what had just been
+             opened. */
+          <ul className="chats-jobs">
+            {scheduled.map((c) => (
+              <li key={c.id}>
+                <a
+                  className={`chats-item chats-item--job ${
+                    c.id === activeId ? "is-active" : ""
+                  }`}
+                  href={hrefFor({ name: "chats", id: c.id })}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onOpen(c.id);
+                  }}
+                >
+                  <span className="chats-item-top">
+                    <span className="chats-item-title">{c.title}</span>
+                    {progress[c.id] && !progress[c.id]!.ended ? (
+                      <span className="chats-flag chats-flag--working">
+                        {liveLabel(progress[c.id])}
+                      </span>
+                    ) : (
+                      <span className="chats-item-when">
+                        {relative(c.updatedAt)}
+                      </span>
+                    )}
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
+
         <ul>
           {(showArchived ? archived : filtered).map((c) => (
             <li key={c.id}>
@@ -968,35 +1004,6 @@ export function ChatsPage({
             </li>
           )}
 
-          {!showArchived &&
-            showScheduled &&
-            scheduled.map((c) => (
-              <li key={c.id}>
-                <a
-                  className={`chats-item chats-item--job ${
-                    c.id === activeId ? "is-active" : ""
-                  }`}
-                  href={hrefFor({ name: "chats", id: c.id })}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onOpen(c.id);
-                  }}
-                >
-                  <span className="chats-item-top">
-                    <span className="chats-item-title">{c.title}</span>
-                    {progress[c.id] && !progress[c.id]!.ended ? (
-                      <span className="chats-flag chats-flag--working">
-                        {liveLabel(progress[c.id])}
-                      </span>
-                    ) : (
-                      <span className="chats-item-when">
-                        {relative(c.updatedAt)}
-                      </span>
-                    )}
-                  </span>
-                </a>
-              </li>
-            ))}
         </ul>
 
         {/* At the foot rather than under the search box: it is a place you go
