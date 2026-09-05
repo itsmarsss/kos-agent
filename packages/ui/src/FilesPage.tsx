@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 
 import { m } from "motion/react";
+import { highlights, tokenize } from "./highlight.js";
 import { ease } from "./motion.js";
 import { api, type DirEntry, type FileContent } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
@@ -455,7 +456,22 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
                 <Markdown text={file.text} />
               </div>
             ) : (
-              <pre className="files-pre">{file.text}</pre>
+              <pre className="files-pre">
+                {/* Coloured where the language is known; where it is not,
+                    every run comes back plain and this is the old wall of
+                    text, which is the right thing to fall back to. */}
+                {highlights(file.language)
+                  ? tokenize(file.text, file.language).map((t, i) =>
+                      t.kind === "plain" ? (
+                        t.text
+                      ) : (
+                        <span key={i} className={`tok tok--${t.kind}`}>
+                          {t.text}
+                        </span>
+                      ),
+                    )
+                  : file.text}
+              </pre>
             ))}
         </div>
       )}
