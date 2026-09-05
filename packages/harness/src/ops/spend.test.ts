@@ -165,3 +165,162 @@ describe("what KOS has spent", () => {
     });
   });
 });
+
+describe("pricing the cached share", () => {
+  const RATES = { "anthropic:opus": { inputPerMillion: 15, outputPerMillion: 75 } };
+
+  it("prefers the cost the provider reported", () => {
+    /*
+     * The Claude SDK prices every call against the real table for the model
+     * that actually ran. It was extracted and then dropped, and the number
+     * shown was rebuilt from a flat rate instead.
+     */
+    const cost = costOf(
+      {
+        provider: "anthropic",
+        model: "opus",
+        inputTokens: 207_000,
+        outputTokens: 1_000,
+        cacheReadTokens: 200_000,
+        cacheCreationTokens: 2_000,
+        reportedCostUSD: 0.4875,
+      },
+      RATES,
+    );
+    expect(cost).toBeCloseTo(0.4875, 6);
+  });
+
+  it("prices a cache read at a tenth of fresh input when nothing was reported", () => {
+    /*
+     * The turn that made this worth fixing: 200k of a 207k context is cache
+     * reads. Charged as fresh input that is $3.18; priced properly it is
+     * $0.49, so the money column read about six and a half times high.
+     */
+    const cost = costOf(
+      {
+        provider: "anthropic",
+        model: "opus",
+        inputTokens: 207_000,
+        outputTokens: 1_000,
+        cacheReadTokens: 200_000,
+        cacheCreationTokens: 2_000,
+      },
+      RATES,
+    );
+    // 5k fresh @15 + 200k @1.50 + 2k @18.75 + 1k out @75
+    expect(cost).toBeCloseTo(0.075 + 0.3 + 0.0375 + 0.075, 6);
+  });
+
+  it("leaves an uncached total priced exactly as before", () => {
+    // Every row written before this existed reports no cached share, so no
+    // past figure may move.
+    const cost = costOf(
+      { provider: "anthropic", model: "opus", inputTokens: 1_000_000, outputTokens: 1_000_000 },
+      RATES,
+    );
+    expect(cost).toBe(90);
+  });
+
+  it("takes the owner's own cache rates over the multipliers", () => {
+    const cost = costOf(
+      {
+        provider: "anthropic",
+        model: "opus",
+        inputTokens: 100_000,
+        outputTokens: 0,
+        cacheReadTokens: 100_000,
+      },
+      {
+        "anthropic:opus": {
+          inputPerMillion: 15,
+          outputPerMillion: 75,
+          cacheReadPerMillion: 3,
+        },
+      },
+    );
+    expect(cost).toBeCloseTo(0.3, 6);
+  });
+
+  it("still says nothing when there is no rate and no reported cost", () => {
+    expect(
+      costOf(
+        { provider: "who", model: "what", inputTokens: 10, outputTokens: 10 },
+        RATES,
+      ),
+    ).toBeUndefined();
+  });
+});
+
+describe("storing the cached share", () => {
+  let root: string;
+  let ws: Workspace;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-spend-cache-"));
+    ws = Workspace.open(root);
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("keeps the breakdown and the reported cost through a round trip", () => {
+    const store = new SpendStore(ws.db, () => 1000);
+    store.record({
+      conversationId: "c1",
+      task: "reasoning",
+      provider: "anthropic",
+      model: "opus",
+      inputTokens: 207_000,
+      outputTokens: 1_000,
+      cacheReadTokens: 200_000,
+      cacheCreationTokens: 2_000,
+      costUSD: 0.4875,
+    });
+
+    const [total] = store.byModel();
+    expect(total).toMatchObject({
+      inputTokens: 207_000,
+      outputTokens: 1_000,
+      cacheReadTokens: 200_000,
+      cacheCreationTokens: 2_000,
+      reportedCostUSD: 0.4875,
+    });
+  });
+
+  it("adds the columns to a table that predates them, keeping its rows", () => {
+    /*
+     * CREATE TABLE IF NOT EXISTS says nothing about a workspace built before
+     * these columns existed, and the spend already recorded there is still
+     * good.
+     */
+    ws.db.exec(`
+      CREATE TABLE token_usage (
+        id INTEGER PRIMARY KEY,
+        at INTEGER NOT NULL,
+        conversation_id TEXT,
+        task TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        input_tokens INTEGER NOT NULL,
+        output_tokens INTEGER NOT NULL
+      );
+      INSERT INTO token_usage
+        (at, conversation_id, task, provider, model, input_tokens, output_tokens)
+      VALUES (5, 'old', 'reasoning', 'anthropic', 'opus', 1000, 500);
+    `);
+
+    const store = new SpendStore(ws.db, () => 1000);
+    const [total] = store.byModel();
+    // The old row survives, and reads as having no cached share -- which is
+    // what it had, so its cost does not move.
+    expect(total).toMatchObject({
+      inputTokens: 1000,
+      outputTokens: 500,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      reportedCostUSD: 0,
+    });
+  });
+});

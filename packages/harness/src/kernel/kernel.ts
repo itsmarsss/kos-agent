@@ -1125,6 +1125,16 @@ export class Kernel {
                   used.cacheReadInputTokens +
                   used.cacheCreationInputTokens,
                 outputTokens: used.outputTokens,
+                /*
+                 * The split and the SDK's own price, both of which were
+                 * being computed and then dropped. Cached input costs a
+                 * fraction of fresh input, so a total that priced all of it
+                 * the same read several times high on exactly the long
+                 * conversations this path is for.
+                 */
+                cacheReadTokens: used.cacheReadInputTokens,
+                cacheCreationTokens: used.cacheCreationInputTokens,
+                costUSD: used.costUSD,
               });
             }
             this.runs.finish(runId, "ok");
