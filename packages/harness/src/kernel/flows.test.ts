@@ -497,6 +497,50 @@ describe("KOS end-to-end flows", () => {
     expect(model.systems.at(-1)!).not.toContain("Replying on Discord");
   });
 
+  it("names a conversation once it has said something", async () => {
+    /*
+     * A title was the first message with its end cut off, so every list of
+     * them read as half-sentences: the sidebar, the Discord picker, a card
+     * saying where messages go. The cheap model names it instead.
+     */
+    // The cheap task is the namer here, as well as the salience pass.
+    const inference = {
+      generate: async (task: string) =>
+        task === "cheap" ? text("3js shooter game") : text("Made the tracker."),
+    } as unknown as Inference;
+    kernel = await boot(inference);
+    const chat = kernel.conversations.create({ userId: "owner" });
+    await kernel.handleMessage(
+      "can you build a mini 3js shooter game project for me",
+      { sessionId: chat.id },
+    );
+    // The naming call is not awaited by the turn, so give it a moment.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(kernel.conversations.get(chat.id)?.title).toBe("3js shooter game");
+  });
+
+  it("leaves a name the owner chose alone", async () => {
+    const model = scripted([text("ok"), text("ok")]);
+    kernel = await boot(model.inference);
+    const chat = kernel.conversations.create({ userId: "owner", title: "Taxes" });
+    await kernel.handleMessage("what do I owe", { sessionId: chat.id });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(kernel.conversations.get(chat.id)?.title).toBe("Taxes");
+  });
+
+  it("does not rename a surface stream after what was said in it", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    await kernel.handleChannelTurn({
+      text: "hello there",
+      userId: "owner",
+      channel: "discord",
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    // It is named for what it is, however the first message went.
+    expect(kernel.conversations.get("discord:owner")?.title).toBe("Discord");
+  });
+
   it("gives a surface one thread of its own, not whatever ran last", async () => {
     /*
      * The fallback took the most recently updated conversation, which was

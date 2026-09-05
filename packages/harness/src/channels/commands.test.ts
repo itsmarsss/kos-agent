@@ -91,13 +91,30 @@ describe("slash commands", () => {
     expect(ctx.pointed).toBe("discord:owner");
   });
 
-  it("groups the streams apart from the chats, and marks where you are", () => {
+  it("lists the chats and marks where you are", () => {
+    /*
+     * The surface's own stream is not listed: /here is how you get back to
+     * it, and a picker whose first entry is where you already were is a line
+     * spent saying nothing.
+     */
     const card = runCommand(ctxWith(chats, "a"), "chats").card!;
-    const [streams, listed] = card.fields!;
-    expect(streams?.name).toBe("Streams");
-    expect(streams?.value).toContain("Discord");
-    expect(listed?.value).toContain("**Book CRM**  ← here");
-    expect(listed?.value).toContain("3js shooter");
+    const listed = card.fields![0]!;
+    expect(listed.value).toContain("**Book CRM**  ← here");
+    expect(listed.value).toContain("3js shooter");
+    expect(listed.value).not.toContain("Discord");
+  });
+
+  it("shows a handful rather than everything", () => {
+    // Fifteen titles that are each a whole sentence is a wall; the picker is
+    // what searches, this is for orientation.
+    const many = Array.from({ length: 30 }, (_, i) => ({
+      id: `c${i}`,
+      title: `chat ${i}`,
+      kind: "chat",
+    }));
+    const card = runCommand(ctxWith(many), "chats").card!;
+    expect(card.fields![0]!.value.split("\n")).toHaveLength(6);
+    expect(card.footer).toContain("30 in all");
   });
 
   it("keeps a long list inside what a field will hold", () => {
@@ -113,7 +130,7 @@ describe("slash commands", () => {
     for (const field of card.fields ?? []) {
       expect(field.value.length).toBeLessThanOrEqual(1000);
     }
-    expect(card.footer).toContain("more");
+    expect(card.footer).toContain("in all");
   });
 
   it("stops the chat it is pointed at, and says when there was nothing to stop", () => {
@@ -135,7 +152,10 @@ describe("slash commands", () => {
     expect(runCommand(ctxWith(chats), "new", "  ").text).toContain(
       "what the chat is for",
     );
-    expect(runCommand(ctxWith(chats), "target").text).toContain("which chat");
+    // Nothing picked is a question, not a mistake: it shows the list.
+    expect(runCommand(ctxWith(chats), "target").card?.title).toBe(
+      "Where you can send",
+    );
   });
 
   it("declares every command it answers, and answers every one declared", () => {
