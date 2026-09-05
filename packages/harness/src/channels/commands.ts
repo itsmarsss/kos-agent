@@ -11,6 +11,17 @@
  * shown to you by name while you choose it.
  */
 
+import type { MessageCard } from "./types.js";
+
+/** What a command answers with. A card where the surface renders one. */
+export interface SlashReply {
+  text?: string;
+  card?: MessageCard;
+}
+
+/** Muted blue, so an answer about bookkeeping does not read as an alert. */
+const CARD_COLOR = 0x5865f2;
+
 export interface SlashChoice {
   name: string;
   value: string;
@@ -89,61 +100,129 @@ export function completions(ctx: SlashContext, typed: string): SlashChoice[] {
 }
 
 /**
- * Run one, and say what happened in a line.
+ * Run one, and say what happened.
  *
- * Every answer is text the surface shows only to whoever asked: this is
- * bookkeeping, and nobody else in a channel needs to watch someone change
- * where their messages go.
+ * A card rather than a sentence, because the interesting word in most of
+ * these answers is a chat's title, and a title here is the owner's first
+ * message: "Sending to what capabilities does notify have (fork)." is a
+ * sentence that has eaten its own subject. Given a heading of its own it
+ * reads as the name of a thing again.
+ *
+ * Shown only to whoever asked. Where someone sends their messages is not
+ * news for a channel.
  */
 export function runCommand(
   ctx: SlashContext,
   name: string,
   argument?: string,
-): string {
+): SlashReply {
   switch (name) {
     case "target": {
-      if (!argument) return "Say which chat.";
+      if (!argument) return { text: "Say which chat." };
       const found = ctx.list().find((c) => c.id === argument);
       if (!found) {
-        // The picker sends an id; typed text that never matched a choice
-        // arrives verbatim, so it is worth saying so rather than failing.
-        return `No chat called "${argument}". Pick one from the list.`;
+        // The picker sends an id; text typed past the list arrives verbatim.
+        return {
+          text: `No chat called "${argument}". Pick one from the list.`,
+        };
       }
       ctx.target(found.id);
-      return `Sending to ${found.title}.`;
+      return {
+        card: {
+          title: "Now sending to",
+          body: found.title,
+          color: CARD_COLOR,
+          footer: "Until you use /here or /target again",
+        },
+      };
     }
 
     case "here": {
-      const home = ctx.home();
-      ctx.target(home);
-      return "Back to this surface's own thread.";
+      ctx.target(ctx.home());
+      return {
+        card: {
+          title: "Back to this surface",
+          body: "Messages land in this surface's own thread again.",
+          color: CARD_COLOR,
+        },
+      };
     }
 
     case "chats": {
-      const all = ctx.list().slice(0, 20);
-      if (all.length === 0) return "No chats yet.";
+      const all = ctx.list();
+      if (all.length === 0) return { text: "No chats yet." };
       const current = ctx.current();
-      return all
-        .map((c) => `${c.id === current ? "→ " : "  "}${label(c)}`)
-        .join("\n");
+      const streams = all.filter((c) => c.kind === "surface");
+      const chats = all.filter((c) => c.kind !== "surface");
+      const line = (c: { id: string; title: string }): string =>
+        c.id === current ? `**${trim(c.title)}**  ← here` : trim(c.title);
+      return {
+        card: {
+          title: "Where you can send",
+          color: CARD_COLOR,
+          fields: [
+            ...(streams.length
+              ? [{ name: "Streams", value: streams.map(line).join("\n") }]
+              : []),
+            ...(chats.length
+              ? [
+                  {
+                    name: "Chats",
+                    // A field holds a thousand characters, and a title here
+                    // is a whole message, so this is a page rather than all
+                    // of them. /target searches the lot.
+                    value: fit(chats.slice(0, 15).map(line)),
+                  },
+                ]
+              : []),
+          ],
+          footer:
+            chats.length > 15
+              ? `${chats.length - 15} more. Use /target to search them all.`
+              : "Use /target to pick one",
+        },
+      };
     }
 
     case "stop": {
       const where = ctx.current() ?? ctx.home();
       return ctx.stop(where)
-        ? "Asked it to stop."
-        : "Nothing is running in that chat.";
+        ? { text: "Asked it to stop." }
+        : { text: "Nothing is running in that chat." };
     }
 
     case "new": {
       const title = argument?.trim();
-      if (!title) return "Say what the chat is for.";
+      if (!title) return { text: "Say what the chat is for." };
       const made = ctx.create(title);
       ctx.target(made.id);
-      return `Started ${made.title}, and sending there.`;
+      return {
+        card: {
+          title: "Started, and sending there",
+          body: made.title,
+          color: CARD_COLOR,
+        },
+      };
     }
 
     default:
-      return `No such command: ${name}.`;
+      return { text: `No such command: ${name}.` };
   }
+}
+
+/** One line of a list, short enough that a dozen of them still fit. */
+function trim(title: string): string {
+  return title.length > 60 ? `${title.slice(0, 59)}…` : title;
+}
+
+/** As many lines as a field will hold, rather than a field that is refused. */
+function fit(lines: string[]): string {
+  const out: string[] = [];
+  let used = 0;
+  for (const line of lines) {
+    if (used + line.length + 1 > 1000) break;
+    out.push(line);
+    used += line.length + 1;
+  }
+  return out.join("\n");
 }

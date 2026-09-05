@@ -468,7 +468,11 @@ export class DiscordAdapter implements ChannelAdapter {
       );
       // Only to whoever asked: where someone sends their messages is not
       // news for a channel.
-      await interaction.reply({ content: said, flags: MessageFlags.Ephemeral });
+      await interaction.reply({
+        ...(said.text ? { content: said.text } : {}),
+        ...(said.card ? { embeds: [buildCard(said.card)] } : {}),
+        flags: MessageFlags.Ephemeral,
+      });
       return;
     }
 
