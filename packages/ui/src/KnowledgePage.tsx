@@ -1,7 +1,17 @@
 import { useMemo, useState, type ReactElement } from "react";
 
 import { api, type FactRow } from "./api.js";
+import { Drawer } from "./Drawer.js";
 import { PageHead } from "./PageHead.js";
+
+/** How long ago, in the words the rest of the dashboard uses. */
+function relative(ts: number): string {
+  const mins = Math.max(1, Math.round((Date.now() - ts) / 60000));
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
 
 /**
  * Knowledge: what KOS and every conversation know.
@@ -27,6 +37,8 @@ export function KnowledgePage({
 }: KnowledgePageProps): ReactElement {
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState<string | null>(null);
+  /** The entry being read in full, which is where its actions live too. */
+  const [open, setOpen] = useState<FactRow | null>(null);
   const [draft, setDraft] = useState<{ key: string; value: string; tags: string }>({
     key: "",
     value: "",
@@ -79,10 +91,24 @@ export function KnowledgePage({
     onChanged();
   }
 
+  /*
+   * A card opens what it is about.
+   *
+   * An entry is a paragraph the agent wrote and reads back on every turn, so
+   * the row was showing the whole of it and running to a dozen lines. It
+   * shows the first few now and the rest is a click away, along with the
+   * things worth doing to it -- which were two buttons squeezed against the
+   * right edge of a wall of text.
+   */
   function entry(f: FactRow): ReactElement {
     return (
-      <div key={f.key} className="know-item">
-        <div className="know-main">
+      <button
+        key={f.key}
+        type="button"
+        className="know-item"
+        onClick={() => setOpen(f)}
+      >
+        <span className="know-main">
           <span className="know-key">{f.key}</span>
           <span className="know-value">{f.value}</span>
           <span className="know-meta">
@@ -90,29 +116,13 @@ export function KnowledgePage({
             {f.source ? ` · from ${f.source.replace(/:owner$/, "")}` : ""}
             {(f.tags ?? []).length ? ` · ${f.tags!.join(", ")}` : ""}
           </span>
-        </div>
-        <div className="know-actions">
-          <button
-            type="button"
-            className={`chip ${f.pinned ? "is-on" : ""}`}
-            title={f.pinned ? "Unpin" : "Pin into every conversation"}
-            onClick={() => {
-              void api.pinMemory(f.key, !f.pinned).then(onChanged);
-            }}
-          >
-            {f.pinned ? "pinned" : "pin"}
-          </button>
-          <button
-            type="button"
-            className="btn btn--ghost"
-            onClick={() => {
-              void api.deleteMemory(f.key).then(onChanged);
-            }}
-          >
-            Forget
-          </button>
-        </div>
-      </div>
+        </span>
+        {f.pinned && (
+          <span className="know-pinned" title="In every conversation">
+            pinned
+          </span>
+        )}
+      </button>
     );
   }
 
@@ -194,6 +204,93 @@ export function KnowledgePage({
           work out.
         </p>
       )}
+
+      <Drawer
+        open={open !== null}
+        title={open?.key ?? ""}
+        {...(open
+          ? {
+              subtitle: [
+                open.kind,
+                open.source ? `from ${open.source.replace(/:owner$/, "")}` : null,
+                open.updatedAt ? `updated ${relative(open.updatedAt)}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · "),
+            }
+          : {})}
+        onClose={() => setOpen(null)}
+        footer={
+          open && (
+            <>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  void api.pinMemory(open.key, !open.pinned).then(() => {
+                    setOpen(null);
+                    onChanged();
+                  });
+                }}
+              >
+                {open.pinned ? "Unpin" : "Pin into every conversation"}
+              </button>
+              <button
+                type="button"
+                className="btn btn--danger-ghost"
+                onClick={() => {
+                  void api.deleteMemory(open.key).then(() => {
+                    setOpen(null);
+                    onChanged();
+                  });
+                }}
+              >
+                Forget
+              </button>
+            </>
+          )
+        }
+      >
+        {open && (
+          <div className="know-detail">
+            {/* The whole of it. The card shows the first few lines, which is
+                where the value of a long entry stops being readable. */}
+            <p className="know-detail-value">{open.value}</p>
+            <dl className="know-detail-rows">
+              <dt>Key</dt>
+              <dd className="kos-mono">{open.key}</dd>
+              <dt>Kind</dt>
+              <dd>{open.kind}</dd>
+              <dt>Tags</dt>
+              <dd>
+                {(open.tags ?? []).length ? (
+                  <span className="know-detail-tags">
+                    {open.tags!.map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        className="chip"
+                        onClick={() => {
+                          setTag(t);
+                          setOpen(null);
+                        }}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </span>
+                ) : (
+                  <span className="ops-muted">none</span>
+                )}
+              </dd>
+              <dt>Written by</dt>
+              <dd>{open.source ? open.source.replace(/:owner$/, "") : "unknown"}</dd>
+              <dt>In every conversation</dt>
+              <dd>{open.pinned ? "yes" : "no"}</dd>
+            </dl>
+          </div>
+        )}
+      </Drawer>
 
       {pinned.length > 0 && (
         <section className="know-group">
