@@ -5290,3 +5290,14 @@ a.health {
   overflow-y: auto;
   border-bottom: 1px solid var(--line);
 }
+
+/* Source, coloured. Hues borrowed from the rest of the surface rather than
+   from a theme, so a file reads as part of the dashboard. Kept low in
+   contrast: this is to make the shape of the code legible, not to decorate
+   it. */
+.tok--comment { color: var(--faint); font-style: italic; }
+.tok--string { color: var(--ok); }
+.tok--number { color: #d19a66; }
+.tok--keyword { color: var(--accent); }
+.tok--type { color: #c678dd; }
+.tok--punctuation { color: var(--muted); }
