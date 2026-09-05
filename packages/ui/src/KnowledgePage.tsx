@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactElement } from "react";
 
 import { api, type FactRow } from "./api.js";
 import { Drawer } from "./Drawer.js";
+import { Select } from "./Select.js";
 import { PageHead } from "./PageHead.js";
 
 /** How long ago, in the words the rest of the dashboard uses. */
@@ -39,6 +40,52 @@ export function KnowledgePage({
   const [tag, setTag] = useState<string | null>(null);
   /** The entry being read in full, which is where its actions live too. */
   const [open, setOpen] = useState<FactRow | null>(null);
+  /**
+   * The same entry, being changed.
+   *
+   * An entry is written by the agent and read back on every turn, so a
+   * wrong one keeps being acted on. Correcting it meant forgetting it and
+   * writing a new one from memory, which loses the tags and the key.
+   */
+  const [edit, setEdit] = useState<{
+    key: string;
+    value: string;
+    kind: string;
+    tags: string;
+  } | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function saveEdit(original: FactRow): Promise<void> {
+    if (!edit) return;
+    const key = edit.key.trim();
+    const value = edit.value.trim();
+    if (!key || !value) return;
+    setSaving(true);
+    try {
+      const tags = edit.tags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
+      await api.saveMemory(
+        key,
+        value,
+        edit.kind === "preference" ? "preference" : "fact",
+        tags,
+      );
+      /*
+       * A changed key is a new entry, so the old one has to go.
+       *
+       * Written in that order: if the delete came first and the save failed,
+       * the entry would be gone and nothing would have replaced it.
+       */
+      if (key !== original.key) await api.deleteMemory(original.key);
+      setEdit(null);
+      setOpen(null);
+      onChanged();
+    } finally {
+      setSaving(false);
+    }
+  }
   const [draft, setDraft] = useState<{ key: string; value: string; tags: string }>({
     key: "",
     value: "",
@@ -219,10 +266,42 @@ export function KnowledgePage({
                 .join(" · "),
             }
           : {})}
-        onClose={() => setOpen(null)}
+        onClose={() => {
+          setOpen(null);
+          setEdit(null);
+        }}
         footer={
-          open && (
+          open &&
+          (edit ? (
             <>
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={saving || !edit.key.trim() || !edit.value.trim()}
+                onClick={() => void saveEdit(open)}
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+              <button type="button" className="btn" onClick={() => setEdit(null)}>
+                Cancel
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() =>
+                  setEdit({
+                    key: open.key,
+                    value: open.value,
+                    kind: open.kind,
+                    tags: (open.tags ?? []).join(", "),
+                  })
+                }
+              >
+                Edit
+              </button>
               <button
                 type="button"
                 className="btn"
@@ -233,7 +312,7 @@ export function KnowledgePage({
                   });
                 }}
               >
-                {open.pinned ? "Unpin" : "Pin into every conversation"}
+                {open.pinned ? "Unpin" : "Pin"}
               </button>
               <button
                 type="button"
@@ -248,10 +327,61 @@ export function KnowledgePage({
                 Forget
               </button>
             </>
-          )
+          ))
         }
       >
-        {open && (
+        {open && edit && (
+          <div className="know-detail">
+            <label className="kos-field">
+              <span className="kos-field-label">Key</span>
+              <input
+                className="kos-input kos-mono"
+                value={edit.key}
+                onChange={(e) => setEdit({ ...edit, key: e.target.value })}
+              />
+              <span className="hint">
+                What the agent looks it up by. Changing it writes the entry
+                under the new name and forgets the old one.
+              </span>
+            </label>
+            <label className="kos-field">
+              <span className="kos-field-label">Value</span>
+              <textarea
+                className="kos-input"
+                rows={10}
+                value={edit.value}
+                onChange={(e) => setEdit({ ...edit, value: e.target.value })}
+              />
+            </label>
+            <label className="kos-field">
+              <span className="kos-field-label">Kind</span>
+              <Select
+                className="settings-select"
+                label="Kind"
+                value={edit.kind}
+                options={[
+                  { value: "fact", label: "Fact", hint: "something that is so" },
+                  {
+                    value: "preference",
+                    label: "Preference",
+                    hint: "how the owner wants things done",
+                  },
+                ]}
+                onChange={(v) => setEdit({ ...edit, kind: v })}
+              />
+            </label>
+            <label className="kos-field">
+              <span className="kos-field-label">Tags</span>
+              <input
+                className="kos-input"
+                placeholder="comma separated"
+                value={edit.tags}
+                onChange={(e) => setEdit({ ...edit, tags: e.target.value })}
+              />
+            </label>
+          </div>
+        )}
+        {open && !edit && (
           <div className="know-detail">
             {/* The whole of it. The card shows the first few lines, which is
                 where the value of a long entry stops being readable. */}
