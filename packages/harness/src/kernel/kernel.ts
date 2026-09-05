@@ -106,7 +106,13 @@ import {
   primarySessionId,
   type Retention,
 } from "./session.js";
-import { ConversationStore, type Conversation } from "./conversations.js";
+import {
+  ConversationStore,
+  isFixed,
+  titleFromText,
+  type Conversation,
+} from "./conversations.js";
+import { looksAutoTitled, nameConversation } from "./naming.js";
 import {
   parseChatCommand,
   runChatCommand,
@@ -1332,6 +1338,42 @@ export class Kernel {
   }
 
   /**
+   * Give a conversation a name the first time it says anything.
+   *
+   * Only while it is still carrying the message it was opened with, so a
+   * name the owner chose, or one KOS chose earlier, is never overwritten.
+   */
+  private async nameIfUnnamed(
+    sessionId: string,
+    text: string,
+    reply: string,
+  ): Promise<void> {
+    const conversation = this.conversations.get(sessionId);
+    if (!conversation) return;
+    // Fixed threads are named for what they are, not for what was said in
+    // them: a surface's stream is "Discord" however the first message went.
+    if (isFixed(conversation, this.profile.ownerId)) return;
+    // Either the title it was opened with, or one that was never chosen:
+    // conversations from before naming existed get one the next time they
+    // are used rather than staying half-sentences forever.
+    if (
+      conversation.title !== titleFromText(text) &&
+      !looksAutoTitled(conversation.title)
+    ) {
+      return;
+    }
+
+    const named = await nameConversation(this.inference, text, reply);
+    if (!named || this.closed) return;
+    // Checked again: the turn that follows may have renamed it, and a label
+    // arriving late must not undo that.
+    const now = this.conversations.get(sessionId);
+    if (now && now.title === conversation.title) {
+      this.conversations.rename(sessionId, named);
+    }
+  }
+
+  /**
    * The end of a turn, wherever it happens.
    *
    * A turn that suspends on an approval returns to its caller long before it
@@ -1994,6 +2036,16 @@ export class Kernel {
         sessionId,
         ...(origin === "system" ? [] : [text]),
       );
+      /*
+       * And a name, once, in the background.
+       *
+       * The title is the owner's first message with the end cut off, so a
+       * list of them is a list of half-sentences and none of it reads at a
+       * glance -- in the sidebar, in the Discord picker, or in a card saying
+       * where messages are going. Not awaited: the answer is already written
+       * and nobody should wait on a label for it.
+       */
+      if (origin !== "system") void this.nameIfUnnamed(sessionId, text, reply);
     }
 
     // Only owner turns are remembered; harness-generated ones are plumbing.
