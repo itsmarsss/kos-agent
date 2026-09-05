@@ -124,4 +124,58 @@ describe("saving settings", () => {
       expect(res.status).toBe(400);
     });
   });
+
+  describe("threads that are not the owner's to change", () => {
+    /*
+     * They were protected by the list not showing them, which protects
+     * nothing: the endpoints took any id at all, so the router could be
+     * deleted by anyone who guessed its name.
+     */
+    it("refuses to rename, archive or delete the router", async () => {
+      for (const [path, body] of [
+        ["/api/conversations/rename", { id: "orchestrator:owner", title: "Nope" }],
+        ["/api/conversations/archive", { id: "orchestrator:owner" }],
+        ["/api/conversations/delete", { id: "orchestrator:owner" }],
+      ] as const) {
+        const res = await post(path, body);
+        expect(res.status, path).toBe(400);
+        expect(JSON.stringify(res.body)).toContain("KOS itself");
+      }
+      expect(kernel.conversations.get("orchestrator:owner")).toBeDefined();
+    });
+
+    it("refuses the same for a surface's own stream", async () => {
+      kernel.conversations.create({
+        id: "discord:owner",
+        userId: "owner",
+        channel: "discord",
+        title: "Discord",
+      });
+      const res = await post("/api/conversations/delete", { id: "discord:owner" });
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(res.body)).toContain("discord stream");
+      expect(kernel.conversations.get("discord:owner")).toBeDefined();
+    });
+
+    it("refuses the same for a schedule's thread, which is its run history", async () => {
+      kernel.conversations.create({
+        id: "cron:1",
+        userId: "owner",
+        title: "nightly",
+      });
+      const res = await post("/api/conversations/rename", {
+        id: "cron:1",
+        title: "something else",
+      });
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(res.body)).toContain("schedule");
+    });
+
+    it("still lets the owner do as they like with their own chats", async () => {
+      const mine = kernel.conversations.create({ userId: "owner", title: "Mine" });
+      expect((await post("/api/conversations/rename", { id: mine.id, title: "Ours" })).status).toBe(200);
+      expect((await post("/api/conversations/archive", { id: mine.id })).status).toBe(200);
+      expect((await post("/api/conversations/delete", { id: mine.id })).status).toBe(200);
+    });
+  });
 });

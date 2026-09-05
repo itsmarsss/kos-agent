@@ -45,3 +45,10 @@ export {
 } from "./runtime.js";
 
 export { PressRoutes, type PressRoute } from "./presses.js";
+export {
+  COMMANDS,
+  completions,
+  runCommand,
+  type SlashContext,
+  type SlashSpec,
+} from "./commands.js";

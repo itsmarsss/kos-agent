@@ -22,6 +22,7 @@ import {
 } from "@kos/shared";
 
 import { isImage, isTextual, type Attachment } from "../kernel/attachments.js";
+import { COMMANDS, completions, runCommand, type SlashContext } from "./commands.js";
 import { MESSAGE_LIMITS } from "./types.js";
 import type {
   ApprovalHandler,
@@ -316,6 +317,7 @@ export class DiscordAdapter implements ChannelAdapter {
    * that the action does not exist, which is true.
    */
   private readonly prompts = new Map<string, Message>();
+  private commands?: SlashContext;
   private readonly ownerId?: string;
   private isAuthorized: SenderAuthorizer = () => true;
 
@@ -338,9 +340,23 @@ export class DiscordAdapter implements ChannelAdapter {
     });
   }
 
+  /** Told what the slash commands do, when the harness wires them. */
+  onCommand(ctx: SlashContext): void {
+    this.commands = ctx;
+  }
+
   async start(): Promise<void> {
     this.client.on(Events.MessageCreate, (message: Message) => {
       void this.receiveMessage(message);
+    });
+
+    /*
+     * Registered once the connection is up, because it needs the bot's own
+     * id. Global rather than per guild: KOS is talked to in a DM, and a DM
+     * has no guild to register against.
+     */
+    this.client.once(Events.ClientReady, () => {
+      void this.registerCommands();
     });
 
     this.client.on(Events.InteractionCreate, (interaction: Interaction) => {
@@ -376,8 +392,90 @@ export class DiscordAdapter implements ChannelAdapter {
     });
   }
 
+  /**
+   * Publish the command list to Discord.
+   *
+   * Overwrites rather than merges, so a command removed from COMMANDS stops
+   * being offered instead of lingering as something that answers "no such
+   * command".
+   */
+  private async registerCommands(): Promise<void> {
+    if (!this.commands) return;
+    try {
+      await this.client.application?.commands.set(
+        COMMANDS.map((c) => ({
+          name: c.name,
+          description: c.description,
+          ...(c.argument
+            ? {
+                options: [
+                  {
+                    type: 3,
+                    name: c.argument.name,
+                    description: c.argument.description,
+                    required: false,
+                    autocomplete: c.argument.autocomplete,
+                  },
+                ],
+              }
+            : {}),
+        })),
+      );
+    } catch (err) {
+      // A bot without the applications.commands scope cannot register them.
+      // Everything else still works, so this is reported rather than fatal.
+      console.warn(
+        `[discord] could not register slash commands: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
   /** Gateway InteractionCreate handler. Internal; separated for tests. */
   async receiveInteraction(interaction: Interaction): Promise<void> {
+    /*
+     * Slash commands are answered here and never reach the model: they are
+     * bookkeeping the process already knows the answer to, and a turn would
+     * spend tokens and seconds to say where messages are going.
+     */
+    if (interaction.isAutocomplete?.()) {
+      if (!this.commands || !this.isAuthorized(interaction.user.id)) return;
+      const typed = String(interaction.options.getFocused() ?? "");
+      try {
+        await interaction.respond(completions(this.commands, typed));
+      } catch {
+        // The window for answering an autocomplete is short; a late answer
+        // is dropped rather than being an error.
+      }
+      return;
+    }
+
+    if (interaction.isChatInputCommand?.()) {
+      if (!this.commands) return;
+      if (!this.isAuthorized(interaction.user.id)) {
+        await interaction.reply({
+          content: "Not authorized.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+      const argument = interaction.options.data[0]?.value;
+      const said = runCommand(
+        this.commands,
+        interaction.commandName,
+        argument === undefined ? undefined : String(argument),
+      );
+      // Only to whoever asked: where someone sends their messages is not
+      // news for a channel.
+      await interaction.reply({
+        ...(said.text ? { content: said.text } : {}),
+        ...(said.card ? { embeds: [buildCard(said.card)] } : {}),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     if (!interaction.isButton()) return;
 
     // A button the agent put on a message of its own, rather than one the risk

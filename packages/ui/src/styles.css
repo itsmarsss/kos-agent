@@ -479,11 +479,17 @@ select {
 }
 
 .ops-tag {
+  /* Inline-flex with a fixed line height, so two chips in a column line up
+     on their text rather than on whatever their content happened to be. */
+  display: inline-flex;
+  align-items: center;
+  line-height: 1.35;
   font-size: var(--text-base);
   font-family: var(--mono);
   padding: 0.05rem 0.35rem;
   border-radius: 4px;
 }
+.ops-tag + .ops-tag { margin-left: 0.3rem; }
 
 .ops-tag--ok {
   background: var(--ok-dim);
@@ -1227,7 +1233,6 @@ select {
 .ops-tag--muted {
   background: var(--panel);
   color: var(--faint);
-  margin-left: 0.25rem;
 }
 
 /* —— inspector drawer —— */
@@ -1684,6 +1689,18 @@ select {
   flex-direction: column;
   overflow: hidden;
 }
+/* The page wrapper carries the height down.
+   It was added to animate a route change and sat between the shell and the
+   chat view, so the flex chain that gave the list its height stopped one
+   element short: the view grew to fit its content and the list ran off the
+   bottom of the window with nothing to scroll. */
+.ops-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.ops--full .ops-page { flex: 1; }
+
 .ops--full .chats {
   flex: 1;
   height: auto;
@@ -2225,10 +2242,30 @@ select {
   min-height: 26rem;
   overflow: hidden;
 }
-/* One column, not a zero-width one: with the list removed the view became
-   the first grid item and was placed in the empty track. */
-.chats.is-collapsed { grid-template-columns: 1fr; }
-.chats.is-collapsed .chats-list { display: none; }
+/* Collapsing is a track shrinking rather than a list disappearing, so the
+   view widens into the space instead of jumping into it. The track is kept
+   rather than removed: with the list gone the view became the first grid
+   item and was placed in the empty track. */
+.chats {
+  transition: grid-template-columns 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.chats.is-collapsed { grid-template-columns: 0fr 1fr; }
+.chats-list { min-width: 0; }
+.chats.is-collapsed .chats-list {
+  opacity: 0;
+  border-right-color: transparent;
+  padding-right: 0;
+  pointer-events: none;
+}
+.chats-list {
+  transition:
+    opacity 140ms ease,
+    padding-right 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .chats,
+  .chats-list { transition: none; }
+}
 
 /* —— scrollbars ——
    The platform default is a light grey slab that belongs to a different
@@ -3651,21 +3688,62 @@ li:hover .chats-item-when { opacity: 0; }
   color: var(--muted);
 }
 
+/* A card is a button now: it opens the entry rather than showing all of it. */
 .know-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 1rem;
-  padding: 0.6rem 0.85rem;
+  width: 100%;
+  padding: 0.7rem 0.85rem;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   margin-bottom: 0.4rem;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
-.know-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.know-item:hover { border-color: var(--line-strong); background: var(--panel-2); }
+.know-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
 .know-key { font-family: var(--mono); font-size: var(--text-base); color: var(--accent); }
-.know-value { font-size: var(--text-lg); }
+/* Three lines of it. An entry is a paragraph the agent wrote, and a dozen
+   lines of it in a list is a page rather than a card. */
+.know-value {
+  font-size: var(--text-lg);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .know-meta { font-size: var(--text-base); color: var(--faint); }
-.know-actions { display: flex; align-items: center; gap: 0.35rem; flex-shrink: 0; }
+.know-pinned {
+  flex-shrink: 0;
+  font-size: var(--text-sm);
+  font-family: var(--mono);
+  color: var(--accent);
+}
+
+.know-detail { display: flex; flex-direction: column; gap: 1.1rem; }
+.know-detail-value {
+  margin: 0;
+  font-size: var(--text-lg);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.know-detail-rows {
+  display: grid;
+  grid-template-columns: minmax(7rem, auto) 1fr;
+  gap: 0.45rem 1rem;
+  margin: 0;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+  font-size: var(--text-base);
+}
+.know-detail-rows dt { color: var(--faint); }
+.know-detail-rows dd { margin: 0; }
+.know-detail-tags { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 
 @media (max-width: 720px) {
   .know-add { grid-template-columns: 1fr; }
@@ -5082,7 +5160,15 @@ a.health {
   background: var(--panel);
   border-top: 1px solid var(--line);
 }
-.cron-editor { gap: 1.1rem; }
+.cron-editor { gap: 1.3rem; }
+/* Sideways resizing pushed the box out of its own drawer, and there is
+   nothing to the right of it worth reaching. */
+.cron-editor textarea.kos-input { resize: vertical; min-height: 5rem; }
+/* The schedule and its presets, given room. Squeezed together the cron
+   expression -- the one thing worth reading closely -- had the least. */
+.cron-editor .settings-row { gap: 0.9rem; align-items: start; }
+.cron-editor .settings-row .kos-input { flex: 2; }
+.cron-editor .settings-row .settings-select { flex: 1; min-width: 9rem; }
 /* The drawer already spaces its blocks, so the rule that separates groups
    inside a settings card would space them twice over. */
 .cron-editor .set-group { display: flex; flex-direction: column; gap: 0.8rem; }
@@ -5117,3 +5203,101 @@ a.health {
 }
 .cron-badge.is-on { color: var(--ok); }
 .cron-badge.is-off { color: var(--muted); }
+
+/* A job working right now. Beside on or off rather than instead of it:
+   whether a schedule is armed and whether it is busy are two facts, and
+   replacing one with the other lost the first. */
+.ops-tag--run {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+/* The surfaces, as one row. A way in rather than a thread being worked in,
+   and given a row each they pushed the chats off the screen. */
+.chats-surfaces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.45rem 0.15rem 0.1rem;
+}
+.chats-surface {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.22rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.chats-surface:hover { color: var(--text); border-color: var(--line-strong); }
+.chats-surface.is-active {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.chats-surface-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* The way into the job threads, above the chats rather than under them. */
+.chats-scheduled {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  padding: 0.5rem 0.7rem;
+  cursor: pointer;
+}
+.chats-scheduled:hover { color: var(--text); }
+.chats-scheduled.is-open { color: var(--text); }
+.chats-scheduled-mark { color: var(--faint); font-size: 0.7rem; }
+.chats-scheduled-count {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: var(--text-sm);
+}
+.chats-scheduled.is-open .chats-scheduled-count { color: var(--accent); }
+
+/* A heading inside the chat list, for threads that are not chats you began. */
+.chats-section {
+  padding: 0.7rem 0.55rem 0.25rem;
+  font-size: var(--text-sm);
+  color: var(--faint);
+  letter-spacing: 0.02em;
+}
+.chats-item--job .chats-item-title { color: var(--muted); }
+/* The opened section, above the chats. Capped and scrolling on its own, so
+   a workspace with thirty schedules does not push the chats off the screen
+   the moment the section is opened. */
+.chats-jobs {
+  list-style: none;
+  margin: 0;
+  padding: 0.15rem 0.35rem 0.35rem;
+  max-height: 14rem;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Source, coloured. Hues borrowed from the rest of the surface rather than
+   from a theme, so a file reads as part of the dashboard. Kept low in
+   contrast: this is to make the shape of the code legible, not to decorate
+   it. */
+.tok--comment { color: var(--faint); font-style: italic; }
+.tok--string { color: var(--ok); }
+.tok--number { color: #d19a66; }
+.tok--keyword { color: var(--accent); }
+.tok--type { color: #c678dd; }
+.tok--punctuation { color: var(--muted); }

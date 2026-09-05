@@ -520,9 +520,19 @@ export function App(): React.ReactElement {
             </a>
             <nav className="tabs" aria-label="Primary">
               {NAV.map((item) => {
+                // A page counts as its project's tab, since that is where it
+                // was opened from and where its back link returns to.
+                const pageOwner =
+                  route.name === "page" &&
+                  [...pagesByProject.values()].some((list) =>
+                    list.some((pg) => pg.id === route.id),
+                  );
                 const active =
                   route.name === item.route.name ||
-                  (item.route.name === "home" && route.name === "page");
+                  (item.route.name === "projects" && pageOwner) ||
+                  (item.route.name === "home" &&
+                    route.name === "page" &&
+                    !pageOwner);
                 return (
                   <a
                     key={item.label}
@@ -642,7 +652,21 @@ export function App(): React.ReactElement {
           )}
         </AnimatePresence>
 
-        {body}
+        {/* A page arriving. Keyed on the route so switching tabs is a change
+            the eye can follow rather than a swap between two frames. Short
+            and small: this is orientation, not decoration. */}
+        <AnimatePresence mode="wait" initial={false}>
+          <m.div
+            key={route.name}
+            className="ops-page"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={ease}
+          >
+            {body}
+          </m.div>
+        </AnimatePresence>
 
         {/* A drawer: a schedule has a name, a cron line, a type and a body
             of actions, which is more than a dialog in the middle of the page
@@ -692,17 +716,28 @@ export function App(): React.ReactElement {
 
   // —— agent page ——
   if (route.name === "page") {
+    /*
+     * Back to where the page belongs, not to Home.
+     *
+     * A page is opened from its project, and the only way out was a link
+     * saying Home: two clicks to get back to the list you came from, every
+     * time. A page belongs to a project, so that is where back goes.
+     */
+    const owner = [...pagesByProject.values()].some((list) =>
+      list.some((pg) => pg.id === route.id),
+    );
+    const back: Route = owner ? { name: "projects" } : { name: "home" };
     return shell(
       <>
         <a
           className="ops-back"
-          href="#/"
+          href={hrefFor(back)}
           onClick={(e) => {
             e.preventDefault();
-            go({ name: "home" });
+            go(back);
           }}
         >
-          ← Home
+          {owner ? "← Projects" : "← Home"}
         </a>
         {pageError && (
           <p className="ops-alert ops-alert--err" role="alert">
@@ -848,11 +883,42 @@ export function App(): React.ReactElement {
             key: "enabled",
             header: "Enabled",
             searchText: (c) => (c.enabled ? "on" : "off"),
+            render: (c) => (
+              <>
+                {/* Whether a schedule is armed and whether it is busy are two
+                    facts, and showing "running" instead of "on" lost the
+                    first: a job could be running while switched off, and the
+                    row said only that it was running. */}
+                {c.enabled ? (
+                  <span className="ops-tag ops-tag--ok">on</span>
+                ) : (
+                  <span className="ops-tag ops-tag--danger">off</span>
+                )}
+                {c.running && <span className="ops-tag ops-tag--run">running</span>}
+              </>
+            ),
+          },
+          {
+            /* Where the job's runs live. Each one is a turn in a thread of
+               its own, so this opens what it is doing now and what it did
+               last week, and the owner can ask it there. */
+            key: "runs",
+            header: "Runs",
+            searchText: () => "",
             render: (c) =>
-              c.enabled ? (
-                <span className="ops-tag ops-tag--ok">on</span>
+              c.conversationId ? (
+                <button
+                  type="button"
+                  className="link"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    go({ name: "chats", id: c.conversationId! });
+                  }}
+                >
+                  {c.running ? "Watch" : "Open"}
+                </button>
               ) : (
-                <span className="ops-tag ops-tag--muted">off</span>
+                <span className="ops-muted">not yet run</span>
               ),
           },
           {

@@ -164,6 +164,7 @@ export function ChatsPage({
   const [creating, setCreating] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [showScheduled, setShowScheduled] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   /** The chat being renamed, with its title as the field starts. */
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(
@@ -373,12 +374,47 @@ export function ChatsPage({
   // The orchestrator lives above the list: it is how work gets routed, not one
   // of the threads the routing produces.
   const orchestrator = conversations.find((c) => c.kind === "orchestrator");
+  /*
+   * Where each messaging surface talks, pinned with the router.
+   *
+   * One continuous stream per surface, made by the surface rather than by
+   * the owner, so it sits above the list with KOS instead of sorting through
+   * it by recency. Neither is theirs to rename, archive or delete, and the
+   * list offers none of those here.
+   */
+  const surfaces = useMemo(
+    () =>
+      conversations
+        .filter((c) => c.kind === "surface")
+        .sort((a, b) => a.title.localeCompare(b.title)),
+    [conversations],
+  );
   const filtered = useMemo(() => {
-    const chats = conversations.filter((c) => c.kind !== "orchestrator");
+    const chats = conversations.filter((c) => c.kind === "chat");
     const q = query.trim().toLowerCase();
     if (!q) return chats;
     return chats.filter((c) => c.title.toLowerCase().includes(q));
   }, [conversations, query]);
+
+  /*
+   * Threads a schedule runs in, kept apart from the ones the owner started.
+   *
+   * They are conversations like any other and belong in the list, because
+   * watching a run and reading last week's happen here. Sorted in with the
+   * rest they would crowd it out: a job that runs hourly is the most recent
+   * thing in the workspace nearly all the time.
+   */
+  const scheduled = useMemo(() => {
+    const jobs = conversations.filter((c) => c.kind === "schedule");
+    const q = query.trim().toLowerCase();
+    if (!q) return jobs;
+    return jobs.filter((c) => c.title.toLowerCase().includes(q));
+  }, [conversations, query]);
+
+  /** Jobs mid-run, so a shut section still says something is happening. */
+  const runningJobs = scheduled.filter(
+    (c) => (progress[c.id] && !progress[c.id]!.ended) || c.activity === "working",
+  ).length;
 
   async function send(): Promise<void> {
     const text = draft.trim();
@@ -739,25 +775,110 @@ export function ChatsPage({
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        {orchestrator && (
+        {(orchestrator || surfaces.length > 0) && (
           <div className="chats-pinned">
-            <a
-              className={`chats-item chats-item--pinned ${
-                orchestrator.id === activeId ? "is-active" : ""
-              }`}
-              href={hrefFor({ name: "chats", id: orchestrator.id })}
-              onClick={(e) => {
-                e.preventDefault();
-                onOpen(orchestrator.id);
-              }}
-            >
-              <span className="chats-item-top">
-                <span className="chats-item-title">{orchestrator.title}</span>
-                <span className="chats-badge">⌘K</span>
-              </span>
-              <span className="chats-item-brief">Routes work across your chats</span>
-            </a>
+            {orchestrator && (
+              <a
+                className={`chats-item chats-item--pinned ${
+                  orchestrator.id === activeId ? "is-active" : ""
+                }`}
+                href={hrefFor({ name: "chats", id: orchestrator.id })}
+                onClick={(e) => {
+                  e.preventDefault();
+                  onOpen(orchestrator.id);
+                }}
+              >
+                <span className="chats-item-top">
+                  <span className="chats-item-title">{orchestrator.title}</span>
+                  <span className="chats-badge">⌘K</span>
+                </span>
+                <span className="chats-item-brief">
+                  Routes work across your chats
+                </span>
+              </a>
+            )}
+            {surfaces.length > 0 && (
+              /* One line however many there are. A surface is a way in, not
+                 a thread the owner is working in, and given a row each they
+                 pushed the chats off the screen. */
+              <div className="chats-surfaces">
+                {surfaces.map((c) => (
+                  <a
+                    key={c.id}
+                    className={`chats-surface ${c.id === activeId ? "is-active" : ""}`}
+                    href={hrefFor({ name: "chats", id: c.id })}
+                    title={`Everything said on ${c.title} arrives here`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onOpen(c.id);
+                    }}
+                  >
+                    {(progress[c.id] && !progress[c.id]!.ended) ||
+                    c.activity === "working" ? (
+                      <span className="chats-surface-dot" aria-hidden="true" />
+                    ) : null}
+                    {c.title}
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
+        )}
+
+        {!showArchived && scheduled.length > 0 && (
+          /* Above the chats rather than under them: a job's thread is
+             something you go and look at, and at the foot of a long list it
+             was a scroll away from everything. Shut by default, because it
+             is reference rather than what the owner is doing now. */
+          <button
+            type="button"
+            className={`chats-scheduled ${showScheduled ? "is-open" : ""}`}
+            onClick={() => setShowScheduled((v) => !v)}
+          >
+            <span className="chats-scheduled-mark" aria-hidden="true">
+              {showScheduled ? "▾" : "▸"}
+            </span>
+            Scheduled
+            <span className="chats-scheduled-count">
+              {runningJobs > 0 ? `${runningJobs} running` : scheduled.length}
+            </span>
+          </button>
+        )}
+
+        {!showArchived && showScheduled && scheduled.length > 0 && (
+          /* Under their own heading, not at the foot of the chats. Rendered
+             into the list they were below every chat, so opening the section
+             meant scrolling past everything to reach what had just been
+             opened. */
+          <ul className="chats-jobs">
+            {scheduled.map((c) => (
+              <li key={c.id}>
+                <a
+                  className={`chats-item chats-item--job ${
+                    c.id === activeId ? "is-active" : ""
+                  }`}
+                  href={hrefFor({ name: "chats", id: c.id })}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onOpen(c.id);
+                  }}
+                >
+                  <span className="chats-item-top">
+                    <span className="chats-item-title">{c.title}</span>
+                    {progress[c.id] && !progress[c.id]!.ended ? (
+                      <span className="chats-flag chats-flag--working">
+                        {liveLabel(progress[c.id])}
+                      </span>
+                    ) : (
+                      <span className="chats-item-when">
+                        {relative(c.updatedAt)}
+                      </span>
+                    )}
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
         )}
 
         <ul>
@@ -777,6 +898,9 @@ export function ChatsPage({
                 >
                   <MoreIcon />
                 </button>
+                {/* Wrapped so it leaves as well as arrives: without this the
+                    menu appeared gently and then simply stopped existing. */}
+                <AnimatePresence>
                 {menuFor === c.id && (
                   <m.div
                     className="chats-menu"
@@ -784,6 +908,7 @@ export function ChatsPage({
                     ref={menuRef}
                     initial={{ opacity: 0, scale: 0.96, y: -4 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.97, y: -3 }}
                     transition={ease}
                   >
                     <button
@@ -833,6 +958,7 @@ export function ChatsPage({
                     </button>
                   </m.div>
                 )}
+                </AnimatePresence>
               </div>
               <a
                 className={`chats-item ${c.id === activeId ? "is-active" : ""}`}
@@ -877,6 +1003,7 @@ export function ChatsPage({
                   : "No chats yet. Ask KOS to start one."}
             </li>
           )}
+
         </ul>
 
         {/* At the foot rather than under the search box: it is a place you go

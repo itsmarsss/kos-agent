@@ -71,6 +71,12 @@ export interface CronJob {
   projectSlug?: string | null;
   createdAt?: number;
   updatedAt?: number;
+  /** The thread this job's runs happen in, once it has run at all. */
+  conversationId?: string;
+  /** A run is happening right now. */
+  running?: boolean;
+  /** When the last run touched the thread. */
+  lastRunAt?: number;
 }
 
 export interface RunRecord {
@@ -151,7 +157,8 @@ export interface Conversation {
   /** null is the full toolkit; an array is an exact scope, empty included. */
   toolAllow: string[] | null;
   /** The orchestrator is a conversation, but not one of the owner's chats. */
-  kind?: "orchestrator" | "chat";
+  /** What sort of thread this is, for grouping in the list. */
+  kind?: "orchestrator" | "surface" | "schedule" | "chat";
   /** What the thread is doing, so the list can say rather than look idle. */
   activity?: "working" | "needs-you" | "idle";
 }

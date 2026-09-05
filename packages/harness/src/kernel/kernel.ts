@@ -102,10 +102,17 @@ import { ensureProfile, type Profile } from "./profile.js";
 import {
   RETENTION_KEY,
   SessionStore,
+  cronSessionId,
   primarySessionId,
   type Retention,
 } from "./session.js";
-import { ConversationStore, type Conversation } from "./conversations.js";
+import {
+  ConversationStore,
+  isFixed,
+  titleFromText,
+  type Conversation,
+} from "./conversations.js";
+import { looksAutoTitled, nameConversation } from "./naming.js";
 import {
   parseChatCommand,
   runChatCommand,
@@ -161,6 +168,8 @@ const PRESS_ROUTE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const AUTOFIX_KEY = "autofix";
 
 export const BUILD_SETTINGS_KEY = "builds";
+/** Set once the one-time retirement of pre-surface pointers has happened. */
+const SURFACE_THREADS_KEY = "surfaces.threaded";
 
 /**
  * Prefix on a queued action that belongs to a build sub-agent rather than to
@@ -172,6 +181,33 @@ const BUILD_ACTION_PREFIX = "build.";
 export function orchestratorId(ownerId = "owner"): string {
   return `orchestrator:${ownerId}`;
 }
+
+/**
+ * The one thread a messaging surface talks in.
+ *
+ * A surface without native threads used to follow a movable pointer, so
+ * "where does a Discord message go" was answered by whatever was pointed at
+ * last -- invisible from the surface itself, and prone to drifting onto
+ * whatever had been touched most recently. A surface gets one continuous
+ * stream instead, the way the dashboard has one.
+ */
+export function surfaceSessionId(channel: string, ownerId = "owner"): string {
+  return `${channel}:${ownerId}`;
+}
+
+/**
+ * What the surface's own thread is, said to itself.
+ *
+ * Not a router: the owner asked for the full toolkit here, so it does the
+ * work when the work is small and hands it on when it belongs somewhere
+ * else. The chats tools are granted for exactly that second case.
+ */
+const SURFACE_BRIEF = [
+  "This is the owner's continuous stream on this surface. Everything they say here arrives in this one thread, and everything you say goes back to them there.",
+  "You have the full toolkit, so do small things here rather than making a conversation for each one.",
+  "When a request belongs to work that already has its own conversation, or is big enough to want one, use the chats tools to find or create it and give it the task, then say in a line what it did.",
+  "The owner can also ask to be routed somewhere explicitly. Take that as an instruction, not a suggestion.",
+].join("\n");
 
 /**
  * What the orchestrator is for. Deliberately about routing rather than any
@@ -671,6 +707,28 @@ export class Kernel {
     const settings = new SettingsStore(workspace.db);
     // Retention the owner set, applied before any turn reads history, so a
     // restart does not quietly go back to the defaults.
+    /*
+     * Retire pointers set before surfaces had threads of their own.
+     *
+     * conversationFor reads the pointer first, so one set under the old rules
+     * -- where the default was "whatever was touched last" -- goes on winning
+     * over the surface's own stream forever. A workspace that had ever
+     * received a message on a surface would never see the new home at all.
+     * Done once and remembered, so a deliberate /switch made afterwards is
+     * left alone.
+     */
+    if (!settings.get<boolean>(SURFACE_THREADS_KEY)) {
+      const dropped = conversations.clearActive();
+      settings.set(SURFACE_THREADS_KEY, true);
+      if (dropped > 0) {
+        console.log(
+          `[kos] surfaces now have their own threads; ${dropped} old pointer${
+            dropped === 1 ? "" : "s"
+          } retired`,
+        );
+      }
+    }
+
     const retention = settings.get<Partial<Retention>>(RETENTION_KEY);
     if (retention) sessions.configure(retention);
     /*
@@ -1246,6 +1304,76 @@ export class Kernel {
   }
 
   /**
+   * A scheduled job's turn, in the conversation that belongs to it.
+   *
+   * The thread is made the first time the job runs rather than when it is
+   * written, so a schedule that never fires leaves no empty chat behind.
+   */
+  private async runJobTurn(prompt: string, job: CronJob): Promise<string> {
+    const id = cronSessionId(job.id);
+    if (!this.conversations.get(id)) {
+      this.conversations.create({
+        id,
+        userId: this.profile.ownerId,
+        title: job.name,
+        brief: [
+          `The scheduled job "${job.name}" runs here, on ${job.schedule}.`,
+          "Each run is a turn in this thread, so what it did last time is above.",
+          "The owner may join in and ask about a run; answer as yourself.",
+        ].join(" "),
+      });
+    }
+    /*
+     * Not enqueued again: fire() is already running inside the work queue,
+     * and handleMessage enqueues on the conversation's own lane, so this
+     * would wait on a chain that includes the task doing the waiting.
+     */
+    // runTurn rather than handleMessage: fire() is already inside the work
+    // queue, and handleMessage enqueues on the conversation's own lane, so
+    // this would wait on a chain that includes the task doing the waiting.
+    const res = await this.runTurn(prompt, this.profile.ownerId, id, {
+      origin: "system",
+    });
+    return res.reply;
+  }
+
+  /**
+   * Give a conversation a name the first time it says anything.
+   *
+   * Only while it is still carrying the message it was opened with, so a
+   * name the owner chose, or one KOS chose earlier, is never overwritten.
+   */
+  private async nameIfUnnamed(
+    sessionId: string,
+    text: string,
+    reply: string,
+  ): Promise<void> {
+    const conversation = this.conversations.get(sessionId);
+    if (!conversation) return;
+    // Fixed threads are named for what they are, not for what was said in
+    // them: a surface's stream is "Discord" however the first message went.
+    if (isFixed(conversation, this.profile.ownerId)) return;
+    // Either the title it was opened with, or one that was never chosen:
+    // conversations from before naming existed get one the next time they
+    // are used rather than staying half-sentences forever.
+    if (
+      conversation.title !== titleFromText(text) &&
+      !looksAutoTitled(conversation.title)
+    ) {
+      return;
+    }
+
+    const named = await nameConversation(this.inference, text, reply);
+    if (!named || this.closed) return;
+    // Checked again: the turn that follows may have renamed it, and a label
+    // arriving late must not undo that.
+    const now = this.conversations.get(sessionId);
+    if (now && now.title === conversation.title) {
+      this.conversations.rename(sessionId, named);
+    }
+  }
+
+  /**
    * The end of a turn, wherever it happens.
    *
    * A turn that suspends on an approval returns to its caller long before it
@@ -1528,15 +1656,25 @@ export class Kernel {
     const active = this.conversations.activeFor(channel, userId);
     if (active) return this.conversations.get(active)!;
 
-    // Fall back to the most recent conversation, else the primary one.
-    const existing = this.conversations.list(userId)[0];
+    /*
+     * The surface's own thread.
+     *
+     * It used to take the most recently updated conversation, which was
+     * already a guess and became a wrong one: an agent's own thread, or a
+     * scheduled job's, is the most recent thing in the workspace most of the
+     * time, and neither is somewhere the owner was talking. A surface has one
+     * continuous stream now, the way the dashboard does, and /switch still
+     * points it elsewhere when the owner says so.
+     */
+    const id = surfaceSessionId(channel, userId);
     const chosen =
-      existing ??
+      this.conversations.get(id) ??
       this.conversations.create({
-        id: primarySessionId(userId),
+        id,
         userId,
         channel,
-        title: "Main",
+        title: channel.charAt(0).toUpperCase() + channel.slice(1),
+        brief: SURFACE_BRIEF,
       });
     this.conversations.setActive(channel, userId, chosen.id);
     return chosen;
@@ -1674,6 +1812,18 @@ export class Kernel {
       userId: input.userId,
       sessionId: conversation.id,
       channel: input.channel,
+      /*
+       * The surface's own thread may hand work on.
+       *
+       * It keeps the full toolkit, so most things happen where they were
+       * asked. The chats tools are for the rest: work that already has a
+       * conversation, or is big enough to want one. Granted only here,
+       * because a project chat that could spawn more of itself is a loop
+       * waiting to happen.
+       */
+      ...(conversation.id === surfaceSessionId(input.channel, input.userId)
+        ? { grant: [...CHAT_TOOLS] }
+        : {}),
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     });
     return { ...res, conversationId: conversation.id, isCommand: false };
@@ -1886,6 +2036,16 @@ export class Kernel {
         sessionId,
         ...(origin === "system" ? [] : [text]),
       );
+      /*
+       * And a name, once, in the background.
+       *
+       * The title is the owner's first message with the end cut off, so a
+       * list of them is a list of half-sentences and none of it reads at a
+       * glance -- in the sidebar, in the Discord picker, or in a card saying
+       * where messages are going. Not awaited: the answer is already written
+       * and nobody should wait on a label for it.
+       */
+      if (origin !== "system") void this.nameIfUnnamed(sessionId, text, reply);
     }
 
     // Only owner turns are remembered; harness-generated ones are plumbing.
@@ -1937,6 +2097,9 @@ export class Kernel {
               tools: this.guardedTools(),
               inference: this.inference,
               buildSystem: (j) => this.cronSystemPrompt(j),
+              // In the job's own thread, so a run can be watched while it
+              // happens, asked about afterwards, and read back next week.
+              runInConversation: (prompt, j) => this.runJobTurn(prompt, j),
             });
             const problem = cronFailure(result);
             // A job whose condition said "not now" did what it was written to

@@ -11,9 +11,11 @@ import {
   DiscordAdapter,
   Kernel,
   connectChannel,
+  conversationKind,
   createDashboardServer,
   createPressHandler,
   primarySessionId,
+  surfaceSessionId,
   startSiteServer,
   type NotifyPayload,
 } from "@kos/harness";
@@ -239,6 +241,44 @@ export async function runHost(options: HostOptions): Promise<void> {
         String(action.id),
         action.status === "approved" ? "approved" : "denied",
       );
+    });
+
+    /*
+     * The slash commands, answered by this process.
+     *
+     * Bookkeeping the daemon already knows: where messages go, what threads
+     * exist, stopping a turn. None of it reaches the model, so none of it
+     * costs a turn.
+     */
+    adapter.onCommand({
+      list: () =>
+        kernel.conversations
+          .list(kernel.profile.ownerId)
+          .map((c) => ({
+            id: c.id,
+            title: c.title,
+            kind: conversationKind(c, kernel.profile.ownerId),
+          }))
+          // A schedule's thread is a record of its runs, not somewhere to be
+          // sent, and the router routes rather than being talked at.
+          .filter((c) => c.kind === "chat" || c.kind === "surface"),
+      current: () =>
+        kernel.conversations.activeFor(adapter!.name, kernel.profile.ownerId),
+      target: (id) =>
+        kernel.conversations.setActive(adapter!.name, kernel.profile.ownerId, id),
+      home: () => surfaceSessionId(adapter!.name, kernel.profile.ownerId),
+      stop: (id) => kernel.stop(id),
+      // Where to read a thread. The dashboard is on this machine, so this is
+      // a link the owner can actually follow from Discord on the same one.
+      link: (id) =>
+        `http://${options.host}:${options.port}/#/chats/${encodeURIComponent(id)}`,
+      create: (title) => {
+        const made = kernel.conversations.create({
+          userId: kernel.profile.ownerId,
+          title,
+        });
+        return { id: made.id, title: made.title };
+      },
     });
 
     adapter.onButton(

@@ -452,7 +452,16 @@ export function Inspector(props: {
         <>
           {p.description && <p className="insp-desc">{p.description}</p>}
 
-          <div className="insp-stats">
+          {/* The counts arrive after the panel does, and snapping from a row
+              of dashes to a row of numbers reads as the drawer flinching.
+              Keyed on whether they are known, so they cross-fade instead. */}
+          <m.div
+            className="insp-stats"
+            key={detail ? "counted" : "counting"}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={ease}
+          >
             <Stat label="Rows" value={rowTotal(detail)} />
             <Stat label="Tables" value={detail ? String(tables.length) : "—"} />
             <Stat label="Pages" value={String(pages.length)} />
@@ -461,9 +470,14 @@ export function Inspector(props: {
               label="Schedules"
               value={detail ? String(schedules.length) : "—"}
             />
-          </div>
+          </m.div>
 
-          <div className="insp-cols">
+          <m.div
+            className="insp-cols"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={ease}
+          >
             <div className="insp-main">
               {empty && (
                 <p className="ops-muted">
@@ -659,7 +673,7 @@ export function Inspector(props: {
                 </Section>
               )}
             </aside>
-          </div>
+          </m.div>
         </>
       );
       void projectSlug;

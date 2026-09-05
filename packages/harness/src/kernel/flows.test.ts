@@ -497,6 +497,170 @@ describe("KOS end-to-end flows", () => {
     expect(model.systems.at(-1)!).not.toContain("Replying on Discord");
   });
 
+  it("names a conversation once it has said something", async () => {
+    /*
+     * A title was the first message with its end cut off, so every list of
+     * them read as half-sentences: the sidebar, the Discord picker, a card
+     * saying where messages go. The cheap model names it instead.
+     */
+    // The cheap task is the namer here, as well as the salience pass.
+    const inference = {
+      generate: async (task: string) =>
+        task === "cheap" ? text("3js shooter game") : text("Made the tracker."),
+    } as unknown as Inference;
+    kernel = await boot(inference);
+    const chat = kernel.conversations.create({ userId: "owner" });
+    await kernel.handleMessage(
+      "can you build a mini 3js shooter game project for me",
+      { sessionId: chat.id },
+    );
+    // The naming call is not awaited by the turn, so give it a moment.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(kernel.conversations.get(chat.id)?.title).toBe("3js shooter game");
+  });
+
+  it("leaves a name the owner chose alone", async () => {
+    const model = scripted([text("ok"), text("ok")]);
+    kernel = await boot(model.inference);
+    const chat = kernel.conversations.create({ userId: "owner", title: "Taxes" });
+    await kernel.handleMessage("what do I owe", { sessionId: chat.id });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(kernel.conversations.get(chat.id)?.title).toBe("Taxes");
+  });
+
+  it("does not rename a surface stream after what was said in it", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    await kernel.handleChannelTurn({
+      text: "hello there",
+      userId: "owner",
+      channel: "discord",
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    // It is named for what it is, however the first message went.
+    expect(kernel.conversations.get("discord:owner")?.title).toBe("Discord");
+  });
+
+  it("gives a surface one thread of its own, not whatever ran last", async () => {
+    /*
+     * The fallback took the most recently updated conversation, which was
+     * already a guess and became a wrong one once jobs and agents got
+     * threads of their own: those are the most recent thing in a workspace
+     * most of the time, and neither is somewhere the owner was talking.
+     */
+    const model = scripted([text("ran"), text("hello")]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({
+      name: "nightly",
+      schedule: "0 3 * * *",
+      type: "self_prompt",
+      prompt: "do the nightly thing",
+      enabled: true,
+    });
+    await kernel.fireCron(job.id);
+
+    // The job's thread is now the most recently touched conversation.
+    const chosen = kernel.conversationFor("discord", "owner");
+    expect(chosen.id).not.toBe(`cron:${job.id}`);
+    expect(chosen.id).toBe("discord:owner");
+    // One continuous stream: the next message lands in the same place.
+    expect(kernel.conversationFor("discord", "owner").id).toBe("discord:owner");
+    // And a different surface gets its own, rather than sharing this one.
+    expect(kernel.conversationFor("imessage", "owner").id).toBe("imessage:owner");
+  });
+
+  it("retires a pointer set before surfaces had threads, once", async () => {
+    /*
+     * conversationFor reads the pointer first, so one set under the old rules
+     * kept winning over the surface's own stream forever: a workspace that
+     * had ever received a message on a surface would never see the new home.
+     */
+    root = mkdtempSync(join(tmpdir(), "kos-flow-"));
+    const first = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: scripted([text("ok")]).inference,
+      profileOverrides: { name: "Kenny", timezone: "UTC" },
+    });
+    const stray = first.conversations.create({ userId: "owner", title: "Old" });
+    first.conversations.setActive("discord", "owner", stray.id);
+    // A workspace from before surfaces had threads: a pointer, and no record
+    // of the retirement having happened.
+    first.settings.set("surfaces.threaded", false);
+    first.close();
+
+    // Booting again is where the retirement happens.
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: scripted([text("ok")]).inference,
+      profileOverrides: { name: "Kenny", timezone: "UTC" },
+    });
+    expect(kernel.conversationFor("discord", "owner").id).toBe("discord:owner");
+
+    // And a pointer set deliberately afterwards is left alone.
+    kernel.conversations.setActive("discord", "owner", stray.id);
+    expect(kernel.conversationFor("discord", "owner").id).toBe(stray.id);
+  });
+
+  it("keeps a surface where it was pointed once it has one", async () => {
+    const model = scripted([text("ok")]);
+    kernel = await boot(model.inference);
+    const other = kernel.conversations.create({ userId: "owner", title: "Side" });
+    kernel.conversations.setActive("discord", "owner", other.id);
+    // /switch is how the owner moves it, and nothing else should.
+    expect(kernel.conversationFor("discord", "owner").id).toBe(other.id);
+  });
+
+  it("runs a scheduled prompt in the job's own thread, so it can be watched", async () => {
+    /*
+     * A job called the model directly, with no conversation, so a run left
+     * no transcript, no live view and nothing to ask about: the only record
+     * was a row saying it succeeded. Runs land in a thread of the job's own,
+     * which is what makes watching, asking and re-reading possible at all.
+     */
+    const model = scripted([text("Reviewed the budget.")]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({
+      name: "weekly-review",
+      schedule: "0 9 * * 1",
+      type: "self_prompt",
+      prompt: "review my spending",
+      enabled: true,
+    });
+
+    const outcome = await kernel.fireCron(job.id);
+    expect(outcome.ok).toBe(true);
+
+    const thread = kernel.conversations.get(`cron:${job.id}`);
+    expect(thread?.title).toBe("weekly-review");
+    // What it was asked and what it said, both readable afterwards.
+    const wire = JSON.stringify(kernel.sessions.get(`cron:${job.id}`));
+    expect(wire).toContain("review my spending");
+    expect(wire).toContain("Reviewed the budget.");
+  });
+
+  it("keeps a job's runs in one thread, so last week's is above this one", async () => {
+    const model = scripted([text("first run"), text("second run")]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({
+      name: "daily",
+      schedule: "0 9 * * *",
+      type: "self_prompt",
+      prompt: "do the daily thing",
+      enabled: true,
+    });
+
+    await kernel.fireCron(job.id);
+    await kernel.fireCron(job.id);
+
+    const wire = JSON.stringify(kernel.sessions.get(`cron:${job.id}`));
+    expect(wire).toContain("first run");
+    expect(wire).toContain("second run");
+    // One thread, not one per run: coming back to a job means scrolling up.
+    expect(kernel.conversations.get(`cron:${job.id}`)).toBeDefined();
+  });
+
   it("asks before running a job by hand, then runs it the way it will run", async () => {
     const model = scripted([
       toolCall("c1", "cron.run", { id: 2 }),

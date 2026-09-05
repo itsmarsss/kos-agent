@@ -129,6 +129,19 @@ export interface Retention {
   autoTrim: boolean;
 }
 
+/**
+ * The conversation a scheduled job runs in.
+ *
+ * A job used to call the model directly, with no conversation, so a run left
+ * no transcript, no live view and nothing to ask about afterwards: the only
+ * record was a row saying it succeeded. Runs land in a thread of the job's
+ * own now, so watching one, asking it what it is doing, and reading last
+ * week's are the things the chat view already does.
+ */
+export function cronSessionId(jobId: number): string {
+  return `cron:${jobId}`;
+}
+
 export const RETENTION_DEFAULTS: Retention = {
   maxChars: DEFAULT_MAX_CHARS,
   maxToolResultChars: DEFAULT_MAX_TOOL_RESULT_CHARS,
