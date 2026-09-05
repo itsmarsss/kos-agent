@@ -260,9 +260,8 @@ export class SessionStore {
     return kept.flat();
   }
 
-  /** Replace the full history, trimmed to the retention budget. */
-  set(sessionId: string, messages: ModelMessage[]): void {
-    const trimmed = this.trim(messages);
+  /** Persist exactly what it is given. Trimming is the caller's business. */
+  private write(sessionId: string, messages: ModelMessage[]): void {
     const ts = this.now();
     this.db
       .prepare(
@@ -272,7 +271,12 @@ export class SessionStore {
            messages_json = excluded.messages_json,
            updated_at = excluded.updated_at`,
       )
-      .run(sessionId, JSON.stringify(trimmed), ts);
+      .run(sessionId, JSON.stringify(messages), ts);
+  }
+
+  /** Replace the full history, trimmed to the retention budget. */
+  set(sessionId: string, messages: ModelMessage[]): void {
+    this.write(sessionId, this.trim(messages));
   }
 
   /**
@@ -281,8 +285,14 @@ export class SessionStore {
    * final reply), so tool context survives into the next turn.
    */
   record(sessionId: string, messages: ModelMessage[]): ModelMessage[] {
+    /*
+     * Trimmed once, not twice. This went through set(), which trims again --
+     * so every turn measured its whole history for size, capped every tool
+     * result, and then did the identical work over the result. The second
+     * pass could only ever agree with the first.
+     */
     const trimmed = this.trim(messages);
-    this.set(sessionId, trimmed);
+    this.write(sessionId, trimmed);
     return trimmed;
   }
 
