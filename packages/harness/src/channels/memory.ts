@@ -27,6 +27,8 @@ export class InMemoryAdapter implements ChannelAdapter {
   readonly name = "memory";
   readonly sent: SentMessage[] = [];
   readonly approvalsRequested: SentApproval[] = [];
+  /** Prompts settled because the decision was taken somewhere else. */
+  readonly settled: { id: string; outcome: "approved" | "denied" }[] = [];
 
   private messageHandler?: MessageHandler;
   private approvalHandler?: ApprovalHandler;
@@ -51,6 +53,13 @@ export class InMemoryAdapter implements ChannelAdapter {
     req: ApprovalRequest,
   ): Promise<void> {
     this.approvalsRequested.push({ recipientId, req });
+  }
+
+  async settleApproval(
+    id: string,
+    outcome: "approved" | "denied",
+  ): Promise<void> {
+    this.settled.push({ id, outcome });
   }
 
   /** Test helper: simulate an inbound message from the surface. */

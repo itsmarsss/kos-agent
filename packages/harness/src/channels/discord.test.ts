@@ -535,3 +535,37 @@ describe("chunkText formatting safety", () => {
     expect(chunks.join("\n")).toContain("- item 39");
   });
 });
+
+describe("settling a prompt decided somewhere else", () => {
+  /** Reach the prompt registry without sending a real Discord message. */
+  function seed(adapter: DiscordAdapter, id: string, edit: () => Promise<void>) {
+    (
+      adapter as unknown as { prompts: Map<string, { edit: () => Promise<void> }> }
+    ).prompts.set(id, { edit });
+  }
+
+  it("edits the prompt once, then leaves it alone", async () => {
+    /*
+     * The decision can arrive from the dashboard, in which case the buttons
+     * are still on screen and have to go. It can also arrive from this
+     * surface, which has already edited the message and dropped the prompt --
+     * settling again would rewrite a message that is already correct.
+     */
+    const adapter = new DiscordAdapter({ token: "t" });
+    const edit = vi.fn(async () => undefined);
+    seed(adapter, "7", edit);
+
+    await adapter.settleApproval("7", "approved");
+    expect(edit).toHaveBeenCalledTimes(1);
+
+    // The prompt is spent. Anything later is a no-op, which is what makes
+    // the surface's own decision path safe to leave unguarded.
+    await adapter.settleApproval("7", "approved");
+    expect(edit).toHaveBeenCalledTimes(1);
+  });
+
+  it("says nothing about a prompt it never sent", async () => {
+    const adapter = new DiscordAdapter({ token: "t" });
+    await expect(adapter.settleApproval("404", "denied")).resolves.toBeUndefined();
+  });
+});
