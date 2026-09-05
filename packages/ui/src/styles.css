@@ -1689,6 +1689,18 @@ select {
   flex-direction: column;
   overflow: hidden;
 }
+/* The page wrapper carries the height down.
+   It was added to animate a route change and sat between the shell and the
+   chat view, so the flex chain that gave the list its height stopped one
+   element short: the view grew to fit its content and the list ran off the
+   bottom of the window with nothing to scroll. */
+.ops-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.ops--full .ops-page { flex: 1; }
+
 .ops--full .chats {
   flex: 1;
   height: auto;
