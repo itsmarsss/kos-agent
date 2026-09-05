@@ -479,11 +479,17 @@ select {
 }
 
 .ops-tag {
+  /* Inline-flex with a fixed line height, so two chips in a column line up
+     on their text rather than on whatever their content happened to be. */
+  display: inline-flex;
+  align-items: center;
+  line-height: 1.35;
   font-size: var(--text-base);
   font-family: var(--mono);
   padding: 0.05rem 0.35rem;
   border-radius: 4px;
 }
+.ops-tag + .ops-tag { margin-left: 0.3rem; }
 
 .ops-tag--ok {
   background: var(--ok-dim);
@@ -1227,7 +1233,6 @@ select {
 .ops-tag--muted {
   background: var(--panel);
   color: var(--faint);
-  margin-left: 0.25rem;
 }
 
 /* —— inspector drawer —— */
@@ -2225,10 +2230,30 @@ select {
   min-height: 26rem;
   overflow: hidden;
 }
-/* One column, not a zero-width one: with the list removed the view became
-   the first grid item and was placed in the empty track. */
-.chats.is-collapsed { grid-template-columns: 1fr; }
-.chats.is-collapsed .chats-list { display: none; }
+/* Collapsing is a track shrinking rather than a list disappearing, so the
+   view widens into the space instead of jumping into it. The track is kept
+   rather than removed: with the list gone the view became the first grid
+   item and was placed in the empty track. */
+.chats {
+  transition: grid-template-columns 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.chats.is-collapsed { grid-template-columns: 0fr 1fr; }
+.chats-list { min-width: 0; }
+.chats.is-collapsed .chats-list {
+  opacity: 0;
+  border-right-color: transparent;
+  padding-right: 0;
+  pointer-events: none;
+}
+.chats-list {
+  transition:
+    opacity 140ms ease,
+    padding-right 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .chats,
+  .chats-list { transition: none; }
+}
 
 /* —— scrollbars ——
    The platform default is a light grey slab that belongs to a different
@@ -5082,7 +5107,15 @@ a.health {
   background: var(--panel);
   border-top: 1px solid var(--line);
 }
-.cron-editor { gap: 1.1rem; }
+.cron-editor { gap: 1.3rem; }
+/* Sideways resizing pushed the box out of its own drawer, and there is
+   nothing to the right of it worth reaching. */
+.cron-editor textarea.kos-input { resize: vertical; min-height: 5rem; }
+/* The schedule and its presets, given room. Squeezed together the cron
+   expression -- the one thing worth reading closely -- had the least. */
+.cron-editor .settings-row { gap: 0.9rem; align-items: start; }
+.cron-editor .settings-row .kos-input { flex: 2; }
+.cron-editor .settings-row .settings-select { flex: 1; min-width: 9rem; }
 /* The drawer already spaces its blocks, so the rule that separates groups
    inside a settings card would space them twice over. */
 .cron-editor .set-group { display: flex; flex-direction: column; gap: 0.8rem; }
@@ -5118,10 +5151,12 @@ a.health {
 .cron-badge.is-on { color: var(--ok); }
 .cron-badge.is-off { color: var(--muted); }
 
-/* A job working right now, as opposed to merely enabled. */
+/* A job working right now. Beside on or off rather than instead of it:
+   whether a schedule is armed and whether it is busy are two facts, and
+   replacing one with the other lost the first. */
 .ops-tag--run {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 /* The surfaces, as one row. A way in rather than a thread being worked in,
