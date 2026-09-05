@@ -513,9 +513,7 @@ export const api = {
       `/api/runs?limit=${limit}${failedOnly ? "&failed=1" : ""}`,
     ),
   activity: (limit = 100) =>
-    get<{ tools: AuditRecord[]; runs: RunRecord[] }>(
-      `/api/activity?limit=${limit}`,
-    ),
+    get<{ tools: AuditRecord[] }>(`/api/activity?limit=${limit}`),
   pages: (project?: string) =>
     get<PageSummary[]>(
       project ? `/api/pages?project=${encodeURIComponent(project)}` : "/api/pages",

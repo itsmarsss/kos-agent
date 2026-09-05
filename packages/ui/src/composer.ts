@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
 
 /**
  * Enter sends, Shift+Enter starts a new line.
@@ -17,18 +17,6 @@ export function composerKeyDown(
   event.preventDefault();
   send();
 }
-
-/**
- * Pin a scroller to the bottom. Called after paint so the element has its
- * final height: measuring during render leaves a freshly-opened conversation
- * scrolled to the top, showing the oldest message rather than the newest.
- */
-export function scrollToBottom(el: HTMLElement | null): void {
-  if (!el) return;
-  el.scrollTop = el.scrollHeight;
-}
-
-import { useEffect, useRef, type RefObject } from "react";
 
 /**
  * Keep a scroller pinned to the bottom while the reader is already there, and

@@ -146,6 +146,22 @@ describe("handleApiRequest", () => {
     }
   });
 
+  it("does not send run rows nobody asked for with the activity log", async () => {
+    /*
+     * /api/activity answered with both tool calls and runs, and the dashboard
+     * -- its only caller -- read the tools and dropped the runs, having
+     * already fetched them from /api/runs. Every poll therefore ran the runs
+     * query twice and serialized one copy for nothing.
+     */
+    const res = await handleApiRequest(kernel, {
+      method: "GET",
+      path: "/api/activity",
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("tools");
+    expect(res.body).not.toHaveProperty("runs");
+  });
+
   it("validates and 404s", async () => {
     expect((await handleApiRequest(kernel, { method: "POST", path: "/api/message", body: {} })).status).toBe(400);
     expect((await handleApiRequest(kernel, { method: "GET", path: "/nope" })).status).toBe(404);
