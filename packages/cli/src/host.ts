@@ -268,6 +268,10 @@ export async function runHost(options: HostOptions): Promise<void> {
         kernel.conversations.setActive(adapter!.name, kernel.profile.ownerId, id),
       home: () => surfaceSessionId(adapter!.name, kernel.profile.ownerId),
       stop: (id) => kernel.stop(id),
+      // Where to read a thread. The dashboard is on this machine, so this is
+      // a link the owner can actually follow from Discord on the same one.
+      link: (id) =>
+        `http://${options.host}:${options.port}/#/chats/${encodeURIComponent(id)}`,
       create: (title) => {
         const made = kernel.conversations.create({
           userId: kernel.profile.ownerId,
