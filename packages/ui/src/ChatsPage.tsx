@@ -862,6 +862,9 @@ export function ChatsPage({
                 >
                   <MoreIcon />
                 </button>
+                {/* Wrapped so it leaves as well as arrives: without this the
+                    menu appeared gently and then simply stopped existing. */}
+                <AnimatePresence>
                 {menuFor === c.id && (
                   <m.div
                     className="chats-menu"
@@ -869,6 +872,7 @@ export function ChatsPage({
                     ref={menuRef}
                     initial={{ opacity: 0, scale: 0.96, y: -4 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.97, y: -3 }}
                     transition={ease}
                   >
                     <button
@@ -918,6 +922,7 @@ export function ChatsPage({
                     </button>
                   </m.div>
                 )}
+                </AnimatePresence>
               </div>
               <a
                 className={`chats-item ${c.id === activeId ? "is-active" : ""}`}

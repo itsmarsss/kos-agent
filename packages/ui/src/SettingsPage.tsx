@@ -1,3 +1,5 @@
+import { m } from "motion/react";
+import { ease } from "./motion.js";
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import {
@@ -493,7 +495,15 @@ export function SettingsPage(): ReactElement {
         ))}
       </nav>
 
-      <div className="set-pane">
+      {/* Keyed on the tab, so moving between them is a change you can follow
+          rather than one frame replaced by another. */}
+      <m.div
+        className="set-pane"
+        key={active}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={ease}
+      >
         {error && (
           <p className="ops-alert ops-alert--err" role="alert">
             {error}
@@ -1044,7 +1054,7 @@ export function SettingsPage(): ReactElement {
             </p>
           </Section>
         )}
-      </div>
+      </m.div>
     </div>
   );
 }

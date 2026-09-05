@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 
+import { m } from "motion/react";
+import { ease } from "./motion.js";
 import { api, type DirEntry, type FileContent } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
 import { Markdown } from "./Markdown.js";
@@ -350,7 +352,15 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
           )}
 
           {shown.length > 0 && view === "list" && (
-            <div className="files-list">
+            /* Keyed on the folder, so stepping into one is a move you can
+               follow. Small and quick: this is orientation, not decoration. */
+            <m.div
+              className="files-list"
+              key={path}
+              initial={{ opacity: 0, x: 8 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={ease}
+            >
               {shown.map((e) => (
                 <a
                   key={e.path}
@@ -369,7 +379,7 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
                   </span>
                 </a>
               ))}
-            </div>
+            </m.div>
           )}
 
           {shown.length > 0 && view === "grid" && (
