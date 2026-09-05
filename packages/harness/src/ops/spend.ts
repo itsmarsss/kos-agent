@@ -23,8 +23,28 @@ export interface UsageRecord {
   task: string;
   provider: string;
   model: string;
+  /** Everything the model was sent, cached parts included. */
   inputTokens: number;
   outputTokens: number;
+  /**
+   * The cached share of inputTokens, split out because it is priced apart.
+   *
+   * A cache read costs about a tenth of fresh input and a cache write about
+   * a quarter more, so a long conversation -- which is nearly all cache reads
+   * -- costs a fraction of what one flat input rate says it does. Folded into
+   * one number, as they were, the money column read several times high.
+   */
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  /**
+   * What the provider itself said this cost, where it says so.
+   *
+   * The Claude SDK prices every call against the real table for the model
+   * that actually ran. That beats anything derived here, so it is kept and
+   * preferred, and the rate table stays the fallback for providers that
+   * report no cost of their own.
+   */
+  costUSD?: number;
 }
 
 export interface ModelTotal {
@@ -32,6 +52,10 @@ export interface ModelTotal {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  /** Summed provider-reported cost. Zero when nothing reported one. */
+  reportedCostUSD: number;
   calls: number;
 }
 
@@ -41,6 +65,9 @@ export interface ModelDayTotal {
   day: string;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  reportedCostUSD: number;
   calls: number;
 }
 
@@ -60,7 +87,10 @@ CREATE TABLE IF NOT EXISTS token_usage (
   provider TEXT NOT NULL,
   model TEXT NOT NULL,
   input_tokens INTEGER NOT NULL,
-  output_tokens INTEGER NOT NULL
+  output_tokens INTEGER NOT NULL,
+  cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_usd REAL
 );
 CREATE INDEX IF NOT EXISTS idx_token_usage_at ON token_usage (at);
 CREATE INDEX IF NOT EXISTS idx_token_usage_conversation
@@ -73,6 +103,29 @@ export class SpendStore {
     private readonly now: () => number = Date.now,
   ) {
     this.db.exec(SCHEMA);
+    /*
+     * Added to a table that already exists elsewhere.
+     *
+     * CREATE TABLE IF NOT EXISTS says nothing about a workspace built before
+     * these columns, and the rows already in it are still good: a zero cached
+     * share prices exactly as it did, so old spend does not move.
+     */
+    const columns = new Set(
+      (
+        this.db.prepare(`PRAGMA table_info(token_usage)`).all() as {
+          name: string;
+        }[]
+      ).map((c) => c.name),
+    );
+    for (const [name, decl] of [
+      ["cache_read_tokens", "INTEGER NOT NULL DEFAULT 0"],
+      ["cache_creation_tokens", "INTEGER NOT NULL DEFAULT 0"],
+      ["cost_usd", "REAL"],
+    ] as const) {
+      if (!columns.has(name)) {
+        this.db.exec(`ALTER TABLE token_usage ADD COLUMN ${name} ${decl}`);
+      }
+    }
   }
 
   record(input: Omit<UsageRecord, "at"> & { at?: number }): void {
@@ -82,8 +135,9 @@ export class SpendStore {
     this.db
       .prepare(
         `INSERT INTO token_usage
-           (at, conversation_id, task, provider, model, input_tokens, output_tokens)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+           (at, conversation_id, task, provider, model, input_tokens,
+            output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.at ?? this.now(),
@@ -93,6 +147,9 @@ export class SpendStore {
         input.model,
         input.inputTokens,
         input.outputTokens,
+        input.cacheReadTokens ?? 0,
+        input.cacheCreationTokens ?? 0,
+        input.costUSD ?? null,
       );
   }
 
@@ -106,6 +163,9 @@ export class SpendStore {
         `SELECT provider, model,
                 SUM(input_tokens) AS inputTokens,
                 SUM(output_tokens) AS outputTokens,
+                SUM(cache_read_tokens) AS cacheReadTokens,
+                SUM(cache_creation_tokens) AS cacheCreationTokens,
+                COALESCE(SUM(cost_usd), 0) AS reportedCostUSD,
                 COUNT(*) AS calls
          FROM token_usage WHERE at >= ?
          GROUP BY provider, model
@@ -128,6 +188,9 @@ export class SpendStore {
                 date(at / 1000, 'unixepoch', 'localtime') AS day,
                 SUM(input_tokens) AS inputTokens,
                 SUM(output_tokens) AS outputTokens,
+                SUM(cache_read_tokens) AS cacheReadTokens,
+                SUM(cache_creation_tokens) AS cacheCreationTokens,
+                COALESCE(SUM(cost_usd), 0) AS reportedCostUSD,
                 COUNT(*) AS calls
          FROM token_usage WHERE at >= ?
          GROUP BY provider, model, day
@@ -207,6 +270,15 @@ export interface ModelRate {
   inputPerMillion: number;
   outputPerMillion: number;
   /**
+   * What cached input costs, when the owner knows the model's own numbers.
+   *
+   * Left unset these follow Anthropic's published multipliers, which is a far
+   * better guess than charging cached input at the full rate -- but it is
+   * still a guess, so it can be said outright.
+   */
+  cacheReadPerMillion?: number;
+  cacheWritePerMillion?: number;
+  /**
    * Context window, when the owner knows it and KOS does not.
    *
    * Same reasoning as the price: a window built into the code goes quietly
@@ -221,15 +293,56 @@ export type Rates = Record<string, ModelRate>;
 
 export const RATES_KEY = "spend.rates";
 
-/** Cost of a model's usage, or undefined when no rate has been set for it. */
+/**
+ * Anthropic's published multipliers on the input rate: a cache read is a tenth
+ * of fresh input, a cache write a quarter more. Used only where the owner has
+ * not given the model's own numbers.
+ */
+const CACHE_READ_MULTIPLIER = 0.1;
+const CACHE_WRITE_MULTIPLIER = 1.25;
+
+/**
+ * What a model's usage cost.
+ *
+ * A cost the provider reported wins outright: the Claude SDK prices each call
+ * against the real table for the model that actually ran, which is better than
+ * anything reconstructed here. Only where nothing was reported does the rate
+ * table apply, and then the cached share is priced apart -- charging a cache
+ * read at the fresh-input rate overstated a long conversation several times
+ * over, because a long conversation is almost entirely cache reads.
+ *
+ * Undefined when there is no reported cost and no rate the owner set.
+ */
 export function costOf(
-  total: { provider: string; model: string; inputTokens: number; outputTokens: number },
+  total: {
+    provider: string;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens?: number;
+    cacheCreationTokens?: number;
+    reportedCostUSD?: number;
+  },
   rates: Rates,
 ): number | undefined {
+  if (total.reportedCostUSD && total.reportedCostUSD > 0) {
+    return total.reportedCostUSD;
+  }
   const rate = rates[`${total.provider}:${total.model}`] ?? rates[total.model];
   if (!rate) return undefined;
+  const cacheRead = total.cacheReadTokens ?? 0;
+  const cacheWrite = total.cacheCreationTokens ?? 0;
+  // inputTokens is everything the model was sent, so the uncached part is
+  // what is left after the two cached kinds come out of it.
+  const fresh = Math.max(0, total.inputTokens - cacheRead - cacheWrite);
+  const readRate =
+    rate.cacheReadPerMillion ?? rate.inputPerMillion * CACHE_READ_MULTIPLIER;
+  const writeRate =
+    rate.cacheWritePerMillion ?? rate.inputPerMillion * CACHE_WRITE_MULTIPLIER;
   return (
-    (total.inputTokens / 1_000_000) * rate.inputPerMillion +
+    (fresh / 1_000_000) * rate.inputPerMillion +
+    (cacheRead / 1_000_000) * readRate +
+    (cacheWrite / 1_000_000) * writeRate +
     (total.outputTokens / 1_000_000) * rate.outputPerMillion
   );
 }
@@ -248,10 +361,18 @@ export function parseRates(raw: unknown): Rates {
     if (!Number.isFinite(input) || !Number.isFinite(output)) continue;
     if (input < 0 || output < 0) continue;
     const window = Number(v["contextWindow"]);
+    const cacheRead = Number(v["cacheReadPerMillion"]);
+    const cacheWrite = Number(v["cacheWritePerMillion"]);
     out[key] = {
       inputPerMillion: input,
       outputPerMillion: output,
       ...(Number.isFinite(window) && window > 0 ? { contextWindow: window } : {}),
+      ...(Number.isFinite(cacheRead) && cacheRead >= 0
+        ? { cacheReadPerMillion: cacheRead }
+        : {}),
+      ...(Number.isFinite(cacheWrite) && cacheWrite >= 0
+        ? { cacheWritePerMillion: cacheWrite }
+        : {}),
     };
   }
   return out;
