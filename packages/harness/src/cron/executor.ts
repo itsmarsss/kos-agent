@@ -6,6 +6,8 @@ import type { CronJob } from "./types.js";
 
 export interface CronActionResult {
   tool: string;
+  /** What it ran with, after templating, so a run can be read back. */
+  args?: Record<string, unknown>;
   content: string;
   isError: boolean;
 }
@@ -50,7 +52,12 @@ export async function runCronJob(
     for (const action of job.actions ?? []) {
       const args = templateArgs(action.args, scope);
       const r = await deps.tools.execute(action.tool, args);
-      results.push({ tool: action.tool, content: r.content, isError: r.isError });
+      results.push({
+        tool: action.tool,
+        args,
+        content: r.content,
+        isError: r.isError,
+      });
     }
     return { ran: true, type: "actions", results };
   }
