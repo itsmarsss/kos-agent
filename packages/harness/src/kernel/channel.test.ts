@@ -115,6 +115,41 @@ describe("connectChannel", () => {
     expect(kernel.approvals.pending()).toHaveLength(0);
   });
 
+  it("does not restate a decision the surface already showed", async () => {
+    /*
+     * A surface settles its own prompt in place: the card becomes "Approved,
+     * running #96" and the buttons go. Sending "Approved #96." on top of that
+     * made one decision read as two messages, the second saying nothing the
+     * first had not.
+     */
+    await boot(stub(riskyScript()));
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "delete it" });
+    const pendingId = adapter.approvalsRequested[0]!.req.id;
+    const before = adapter.sent.length;
+
+    await adapter.decide({ id: pendingId, approved: true, deciderId: "owner" });
+
+    expect(kernel.approvals.pending()).toHaveLength(0);
+    const after = adapter.sent.slice(before).map((m) => m.msg.text ?? "");
+    expect(after.filter((t) => /^Approved #\d+\.$/.test(t))).toEqual([]);
+  });
+
+  it("still speaks up when the decision could not be applied", async () => {
+    // Nothing was settled in place for a row that is not there, so silence
+    // would be a press that did nothing and said nothing.
+    await boot(stub(riskyScript()));
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "delete it" });
+    const pendingId = adapter.approvalsRequested[0]!.req.id;
+    const before = adapter.sent.length;
+
+    // Nothing is waiting on a row this far out of band, so approve() reports
+    // rather than resuming a turn.
+    await adapter.decide({ id: pendingId + 999, approved: true, deciderId: "owner" });
+
+    const after = adapter.sent.slice(before).map((m) => m.msg.text ?? "");
+    expect(after.some((t) => t.includes("no pending action"))).toBe(true);
+  });
+
   it("never runs the kernel for an unmapped sender", async () => {
     await boot(
       stub([]),
