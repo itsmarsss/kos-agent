@@ -66,15 +66,22 @@ describe("slash commands", () => {
     expect(name.endsWith("…")).toBe(true);
   });
 
-  it("points the surface at what was picked", () => {
+  it("points the surface at what was picked, and names it as a heading", () => {
+    /*
+     * A title here is the owner's first message, so a sentence containing
+     * one has eaten its own subject: "Sending to what capabilities does
+     * notify have (fork)." Given a heading it reads as a name again.
+     */
     const ctx = ctxWith(chats);
-    expect(runCommand(ctx, "target", "a")).toBe("Sending to Book CRM.");
+    const said = runCommand(ctx, "target", "a");
+    expect(said.card?.title).toBe("Now sending to");
+    expect(said.card?.body).toBe("Book CRM");
     expect(ctx.pointed).toBe("a");
   });
 
   it("says so when the picker was ignored and text typed instead", () => {
     const ctx = ctxWith(chats);
-    expect(runCommand(ctx, "target", "Book CRM")).toContain("No chat called");
+    expect(runCommand(ctx, "target", "Book CRM").text).toContain("No chat called");
     expect(ctx.pointed).toBeUndefined();
   });
 
@@ -84,38 +91,64 @@ describe("slash commands", () => {
     expect(ctx.pointed).toBe("discord:owner");
   });
 
-  it("marks where messages are going in the list", () => {
-    const listed = runCommand(ctxWith(chats, "a"), "chats");
-    expect(listed).toContain("→ Book CRM");
-    expect(listed).toContain("  # Discord");
+  it("groups the streams apart from the chats, and marks where you are", () => {
+    const card = runCommand(ctxWith(chats, "a"), "chats").card!;
+    const [streams, listed] = card.fields!;
+    expect(streams?.name).toBe("Streams");
+    expect(streams?.value).toContain("Discord");
+    expect(listed?.value).toContain("**Book CRM**  ← here");
+    expect(listed?.value).toContain("3js shooter");
+  });
+
+  it("keeps a long list inside what a field will hold", () => {
+    // A title here is a whole message, so a dozen of them overrun the
+    // thousand characters a field may be, and Discord refuses the message
+    // rather than trimming it.
+    const many = Array.from({ length: 40 }, (_, i) => ({
+      id: `c${i}`,
+      title: `${"a very long conversation title ".repeat(3)}${i}`,
+      kind: "chat",
+    }));
+    const card = runCommand(ctxWith(many), "chats").card!;
+    for (const field of card.fields ?? []) {
+      expect(field.value.length).toBeLessThanOrEqual(1000);
+    }
+    expect(card.footer).toContain("more");
   });
 
   it("stops the chat it is pointed at, and says when there was nothing to stop", () => {
     const ctx = ctxWith(chats, "a");
-    expect(runCommand(ctx, "stop")).toBe("Asked it to stop.");
+    expect(runCommand(ctx, "stop").text).toBe("Asked it to stop.");
     expect(ctx.stopped).toEqual(["a"]);
-    expect(runCommand(ctxWith(chats, "quiet"), "stop")).toContain("Nothing is running");
+    expect(runCommand(ctxWith(chats, "quiet"), "stop").text).toContain(
+      "Nothing is running",
+    );
   });
 
   it("starts a chat and points at it in one go", () => {
     const ctx = ctxWith(chats);
-    expect(runCommand(ctx, "new", "Taxes")).toContain("Started Taxes");
+    expect(runCommand(ctx, "new", "Taxes").card?.body).toBe("Taxes");
     expect(ctx.pointed).toBe("new-0");
   });
 
   it("asks for the missing word rather than guessing", () => {
-    expect(runCommand(ctxWith(chats), "new", "  ")).toContain("what the chat is for");
-    expect(runCommand(ctxWith(chats), "target")).toContain("which chat");
+    expect(runCommand(ctxWith(chats), "new", "  ").text).toContain(
+      "what the chat is for",
+    );
+    expect(runCommand(ctxWith(chats), "target").text).toContain("which chat");
   });
 
   it("declares every command it answers, and answers every one declared", () => {
     // A command Discord offers and the daemon does not know is a dead entry
     // in the owner's picker.
     for (const spec of COMMANDS) {
-      expect(runCommand(ctxWith(chats), spec.name, "a")).not.toContain(
-        "No such command",
-      );
+      const said = runCommand(ctxWith(chats), spec.name, "a");
+      expect(said.text ?? "", spec.name).not.toContain("No such command");
+      // Every answer says something, one way or the other.
+      expect(Boolean(said.text || said.card), spec.name).toBe(true);
     }
-    expect(runCommand(ctxWith(chats), "nonsense")).toContain("No such command");
+    expect(runCommand(ctxWith(chats), "nonsense").text).toContain(
+      "No such command",
+    );
   });
 });
