@@ -277,11 +277,13 @@ export async function handleApiRequest(
   }
 
   if (method === "GET" && path === "/api/activity") {
+    /*
+     * Tool calls only. This also returned the same run rows as /api/runs,
+     * which the dashboard fetches separately -- so every poll ran the runs
+     * query twice and serialized a copy the only caller dropped on arrival.
+     */
     const limit = clampLimit(queryParams(req.url).get("limit"), 100);
-    return ok({
-      tools: kernel.audit.recent(limit),
-      runs: kernel.runs.recent(limit),
-    });
+    return ok({ tools: kernel.audit.recent(limit) });
   }
 
   if (method === "GET" && path === "/api/crons") {
