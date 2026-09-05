@@ -6,6 +6,7 @@ function ctxWith(
   chats: { id: string; title: string; kind: string }[],
   start?: string,
 ): SlashContext & { pointed: string | undefined; stopped: string[] } {
+  const link = (id: string): string => `http://host/#/chats/${id}`;
   let pointed = start;
   const stopped: string[] = [];
   const made: { id: string; title: string; kind: string }[] = [];
@@ -29,6 +30,7 @@ function ctxWith(
       made.push(one);
       return one;
     },
+    link,
   };
 }
 
@@ -66,6 +68,21 @@ describe("slash commands", () => {
     expect(name.endsWith("…")).toBe(true);
   });
 
+  it("makes a named chat something the owner can open", () => {
+    // A chat named in an answer is usually one they want to look at, and a
+    // name they cannot open is a name they have to go and find.
+    const said = runCommand(ctxWith(chats), "target", "a");
+    expect(said.card?.body).toContain("[Book CRM](http://host/#/chats/a)");
+  });
+
+  it("does not let a title break the link it is inside", () => {
+    // Brackets in a title would close the link early and leave the rest of
+    // it as loose text.
+    const odd = [{ id: "x", title: "notes [draft] (old)", kind: "chat" }];
+    const said = runCommand(ctxWith(odd), "target", "x");
+    expect(said.card?.body).toBe("**[notes draft old](http://host/#/chats/x)**");
+  });
+
   it("points the surface at what was picked, and names it as a heading", () => {
     /*
      * A title here is the owner's first message, so a sentence containing
@@ -75,13 +92,13 @@ describe("slash commands", () => {
     const ctx = ctxWith(chats);
     const said = runCommand(ctx, "target", "a");
     expect(said.card?.title).toBe("Now sending to");
-    expect(said.card?.body).toBe("Book CRM");
+    expect(said.card?.body).toContain("Book CRM");
     expect(ctx.pointed).toBe("a");
   });
 
   it("says so when the picker was ignored and text typed instead", () => {
     const ctx = ctxWith(chats);
-    expect(runCommand(ctx, "target", "Book CRM").text).toContain("No chat called");
+    expect(runCommand(ctx, "target", "Book CRM").card?.title).toBe("No such chat");
     expect(ctx.pointed).toBeUndefined();
   });
 
@@ -99,11 +116,14 @@ describe("slash commands", () => {
      */
     const card = runCommand(ctxWith(chats, "a"), "chats").card!;
     const listed = card.fields![0]!;
-    // Each name in code, so the list is scanned rather than read: set as
-    // prose they ran together and the reader found the boundaries.
-    expect(listed.value).toContain("`Book CRM`");
-    expect(listed.value).toContain("`3js shooter`");
-    expect(listed.value).toContain("here");
+    /*
+     * One fenced block, not a pill each: boxes of fifteen different widths
+     * are a ragged edge rather than a list.
+     */
+    expect(listed.value.startsWith("```")).toBe(true);
+    expect(listed.value.endsWith("```")).toBe(true);
+    expect(listed.value).toContain("→ Book CRM");
+    expect(listed.value).toContain("  3js shooter");
     expect(listed.value).not.toContain("Discord");
   });
 
@@ -116,7 +136,8 @@ describe("slash commands", () => {
       kind: "chat",
     }));
     const card = runCommand(ctxWith(many), "chats").card!;
-    expect(card.fields![0]!.value.split("\n")).toHaveLength(15);
+    // Two of the lines are the fence itself.
+    expect(card.fields![0]!.value.split("\n")).toHaveLength(17);
     expect(card.footer).toContain("30 in all");
   });
 
@@ -138,22 +159,22 @@ describe("slash commands", () => {
 
   it("stops the chat it is pointed at, and says when there was nothing to stop", () => {
     const ctx = ctxWith(chats, "a");
-    expect(runCommand(ctx, "stop").text).toBe("Asked it to stop.");
+    expect(runCommand(ctx, "stop").card?.title).toBe("Asked it to stop");
     expect(ctx.stopped).toEqual(["a"]);
-    expect(runCommand(ctxWith(chats, "quiet"), "stop").text).toContain(
-      "Nothing is running",
+    expect(runCommand(ctxWith(chats, "quiet"), "stop").card?.title).toBe(
+      "Nothing to stop",
     );
   });
 
   it("starts a chat and points at it in one go", () => {
     const ctx = ctxWith(chats);
-    expect(runCommand(ctx, "new", "Taxes").card?.body).toBe("Taxes");
+    expect(runCommand(ctx, "new", "Taxes").card?.body).toContain("Taxes");
     expect(ctx.pointed).toBe("new-0");
   });
 
   it("asks for the missing word rather than guessing", () => {
-    expect(runCommand(ctxWith(chats), "new", "  ").text).toContain(
-      "what the chat is for",
+    expect(runCommand(ctxWith(chats), "new", "  ").card?.title).toContain(
+      "what it is for",
     );
     // Nothing picked is a question, not a mistake: it shows the list.
     expect(runCommand(ctxWith(chats), "target").card?.title).toBe(
@@ -166,11 +187,12 @@ describe("slash commands", () => {
     // in the owner's picker.
     for (const spec of COMMANDS) {
       const said = runCommand(ctxWith(chats), spec.name, "a");
-      expect(said.text ?? "", spec.name).not.toContain("No such command");
-      // Every answer says something, one way or the other.
-      expect(Boolean(said.text || said.card), spec.name).toBe(true);
+      expect(said.card?.title, spec.name).not.toBe("No such command");
+      // Every one answers with a card, so they read as one set of commands
+      // rather than as unrelated features.
+      expect(Boolean(said.card), spec.name).toBe(true);
     }
-    expect(runCommand(ctxWith(chats), "nonsense").text).toContain(
+    expect(runCommand(ctxWith(chats), "nonsense").card?.title).toBe(
       "No such command",
     );
   });

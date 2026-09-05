@@ -21,6 +21,8 @@ export interface SlashReply {
 
 /** Muted blue, so an answer about bookkeeping does not read as an alert. */
 const CARD_COLOR = 0x5865f2;
+/** Grey, for an answer where nothing changed. */
+const CARD_MUTED = 0x4f545c;
 
 export interface SlashChoice {
   name: string;
@@ -41,6 +43,13 @@ export interface SlashContext {
   stop(conversationId: string): boolean;
   /** Start a thread and point at it. */
   create(title: string): { id: string; title: string };
+  /**
+   * Where to read a thread, if the dashboard can be reached.
+   *
+   * A chat named in an answer is a thing the owner may want to open, and a
+   * name they cannot click is a name they have to go and find.
+   */
+  link?(conversationId: string): string | undefined;
 }
 
 export interface SlashSpec {
@@ -100,13 +109,25 @@ export function completions(ctx: SlashContext, typed: string): SlashChoice[] {
 }
 
 /**
+ * A name the owner can click, where there is somewhere to send them.
+ *
+ * A chat named in an answer is usually one they want to look at, and a name
+ * they cannot open is a name they have to go and find.
+ */
+function named(ctx: SlashContext, chat: { id: string; title: string }): string {
+  const url = ctx.link?.(chat.id);
+  const name = trim(chat.title);
+  // Brackets and parentheses in a title would close the link early.
+  return url ? `**[${name.replace(/[[\]()]/g, "")}](${url})**` : `**${name}**`;
+}
+
+/**
  * Run one, and say what happened.
  *
- * A card rather than a sentence, because the interesting word in most of
- * these answers is a chat's title, and a title here is the owner's first
- * message: "Sending to what capabilities does notify have (fork)." is a
- * sentence that has eaten its own subject. Given a heading of its own it
- * reads as the name of a thing again.
+ * All of them answer with a card, and the same card: a heading for what
+ * changed, the chat it changed to as something clickable, and a footer
+ * saying what to do next. Answers that each invented their own shape read
+ * as unrelated features rather than one set of commands.
  *
  * Shown only to whoever asked. Where someone sends their messages is not
  * news for a channel.
@@ -118,68 +139,80 @@ export function runCommand(
 ): SlashReply {
   switch (name) {
     case "target": {
-      // Nothing picked is a question, not a mistake: show the list rather
-      // than telling someone to try again.
+      // Nothing picked is a question, not a mistake: show the list.
       if (!argument) return runCommand(ctx, "chats");
       const found = ctx.list().find((c) => c.id === argument);
       if (!found) {
-        // The picker sends an id; text typed past the list arrives verbatim.
         return {
-          text: `No chat called "${argument}". Pick one from the list.`,
+          card: {
+            title: "No such chat",
+            body: `Nothing here is called \`${trim(argument)}\`. Pick one from the list /target offers.`,
+            color: CARD_MUTED,
+          },
         };
       }
       ctx.target(found.id);
       return {
         card: {
           title: "Now sending to",
-          body: found.title,
+          body: named(ctx, found),
           color: CARD_COLOR,
-          footer: "Until you use /here or /target again",
+          footer: "/here comes back · /target moves again",
         },
       };
     }
 
     case "here": {
-      ctx.target(ctx.home());
+      const home = ctx.home();
+      ctx.target(home);
+      const stream = ctx.list().find((c) => c.id === home);
       return {
         card: {
           title: "Back to this surface",
-          body: "Messages land in this surface's own thread again.",
+          body: stream
+            ? `Messages land in ${named(ctx, stream)} again.`
+            : "Messages land in this surface's own thread again.",
           color: CARD_COLOR,
+          footer: "/target sends them somewhere else",
         },
       };
     }
 
     case "chats": {
       const all = ctx.list();
-      if (all.length === 0) return { text: "No chats yet." };
-      const current = ctx.current();
       const chats = all.filter((c) => c.kind !== "surface");
+      if (chats.length === 0) {
+        return {
+          card: {
+            title: "No chats yet",
+            body: "Say something here, or start one with `/new`.",
+            color: CARD_MUTED,
+          },
+        };
+      }
+      const current = ctx.current();
+      const shown = chats.slice(0, LISTED);
       /*
-       * Each name in code, one per line.
+       * One fenced block, not a pill each.
        *
-       * Set as prose they ran together into a paragraph and the reader had
-       * to find the boundaries themselves. Monospace gives every entry the
-       * same edges, so the list is scanned rather than read.
+       * Inline code gives every entry its own box, and boxes of fifteen
+       * different widths are a ragged edge rather than a list. In one block
+       * they share a left margin and a typeface, which is what makes a list
+       * scannable.
        */
-      const shown = chats.slice(0, RECENT);
-      const line = (c: { id: string; title: string }): string =>
-        c.id === current
-          ? `\u2192 \`${trim(c.title)}\`  **here**`
-          : `\u00a0\u00a0 \`${trim(c.title)}\``;
+      const rows = shown.map(
+        (c) => `${c.id === current ? "→" : " "} ${trim(c.title)}`,
+      );
+      const here = chats.find((c) => c.id === current);
       return {
         card: {
-          // A heading naming the current chat reads as badly as the sentence
-          // did, since the name may itself be half a sentence. The marker in
-          // the list says it without being a sentence about it.
           title: "Where you can send",
+          ...(here ? { body: `Currently ${named(ctx, here)}` } : {}),
           color: CARD_COLOR,
-          ...(shown.length
-            ? { fields: [{ name: "\u200b", value: fit(shown.map(line)) }] }
-            : {}),
+          fields: [{ name: "\u200b", value: fence(rows) }],
           footer:
-            chats.length > RECENT
-              ? `${chats.length} in all · /target searches them · /here comes back`
+            chats.length > LISTED
+              ? `${chats.length} in all · /target searches every one · /here comes back`
               : "/target moves you · /here comes back",
         },
       };
@@ -187,32 +220,75 @@ export function runCommand(
 
     case "stop": {
       const where = ctx.current() ?? ctx.home();
-      return ctx.stop(where)
-        ? { text: "Asked it to stop." }
-        : { text: "Nothing is running in that chat." };
+      const chat = ctx.list().find((c) => c.id === where);
+      const asked = ctx.stop(where);
+      return {
+        card: {
+          title: asked ? "Asked it to stop" : "Nothing to stop",
+          body: chat
+            ? asked
+              ? `${named(ctx, chat)} will stop at the first thing it can leave cleanly.`
+              : `${named(ctx, chat)} is not doing anything.`
+            : undefined,
+          color: asked ? CARD_COLOR : CARD_MUTED,
+        },
+      };
     }
 
     case "new": {
       const title = argument?.trim();
-      if (!title) return { text: "Say what the chat is for." };
+      if (!title) {
+        return {
+          card: {
+            title: "Say what it is for",
+            body: "`/new taxes 2026` starts a chat and sends you there.",
+            color: CARD_MUTED,
+          },
+        };
+      }
       const made = ctx.create(title);
       ctx.target(made.id);
       return {
         card: {
           title: "Started, and sending there",
-          body: made.title,
+          body: named(ctx, made),
           color: CARD_COLOR,
+          footer: "/here comes back",
         },
       };
     }
 
     default:
-      return { text: `No such command: ${name}.` };
+      return {
+        card: {
+          title: "No such command",
+          body: `\`/${name}\` is not one of mine.`,
+          color: CARD_MUTED,
+        },
+      };
   }
 }
 
+/**
+ * A block, so entries share a margin instead of each having a box.
+ *
+ * Kept inside what a field will hold: Discord refuses a message whose field
+ * runs past a thousand characters rather than trimming it, so a long list
+ * would take the whole answer with it.
+ */
+function fence(rows: string[]): string {
+  const kept: string[] = [];
+  let used = "```\n```".length;
+  for (const row of rows) {
+    if (used + row.length + 1 > 1000) break;
+    kept.push(row);
+    used += row.length + 1;
+  }
+  return ["```", kept.join("\n"), "```"].join("\n");
+}
+
 /** How many chats to list. Enough to find one without opening the picker. */
-const RECENT = 15;
+const LISTED = 15;
 
 /** One line of a list, cut at a word so it does not end mid-syllable. */
 function trim(title: string): string {
@@ -220,16 +296,4 @@ function trim(title: string): string {
   const cut = title.slice(0, 39);
   const space = cut.lastIndexOf(" ");
   return `${(space > 20 ? cut.slice(0, space) : cut).trimEnd()}…`;
-}
-
-/** As many lines as a field will hold, rather than a field that is refused. */
-function fit(lines: string[]): string {
-  const out: string[] = [];
-  let used = 0;
-  for (const line of lines) {
-    if (used + line.length + 1 > 1000) break;
-    out.push(line);
-    used += line.length + 1;
-  }
-  return out.join("\n");
 }
