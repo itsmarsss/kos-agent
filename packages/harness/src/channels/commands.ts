@@ -118,7 +118,9 @@ export function runCommand(
 ): SlashReply {
   switch (name) {
     case "target": {
-      if (!argument) return { text: "Say which chat." };
+      // Nothing picked is a question, not a mistake: show the list rather
+      // than telling someone to try again.
+      if (!argument) return runCommand(ctx, "chats");
       const found = ctx.list().find((c) => c.id === argument);
       if (!found) {
         // The picker sends an id; text typed past the list arrives verbatim.
@@ -152,34 +154,35 @@ export function runCommand(
       const all = ctx.list();
       if (all.length === 0) return { text: "No chats yet." };
       const current = ctx.current();
-      const streams = all.filter((c) => c.kind === "surface");
       const chats = all.filter((c) => c.kind !== "surface");
+      /*
+       * A handful, not a page.
+       *
+       * Fifteen titles that are each a whole sentence is a wall, and the
+       * point of the picker is that it searches: this is for orientation --
+       * where am I, what have I been in lately -- and /target finds the rest.
+       */
+      const shown = chats.slice(0, RECENT);
       const line = (c: { id: string; title: string }): string =>
         c.id === current ? `**${trim(c.title)}**  ← here` : trim(c.title);
       return {
         card: {
+          // A heading naming the current chat reads as badly as the sentence
+          // did, since the name may itself be half a sentence. The marker in
+          // the list says it without being a sentence about it.
           title: "Where you can send",
           color: CARD_COLOR,
-          fields: [
-            ...(streams.length
-              ? [{ name: "Streams", value: streams.map(line).join("\n") }]
-              : []),
-            ...(chats.length
-              ? [
-                  {
-                    name: "Chats",
-                    // A field holds a thousand characters, and a title here
-                    // is a whole message, so this is a page rather than all
-                    // of them. /target searches the lot.
-                    value: fit(chats.slice(0, 15).map(line)),
-                  },
-                ]
-              : []),
-          ],
+          ...(shown.length
+            ? {
+                fields: [
+                  { name: `Recent chats`, value: fit(shown.map(line)) },
+                ],
+              }
+            : {}),
           footer:
-            chats.length > 15
-              ? `${chats.length - 15} more. Use /target to search them all.`
-              : "Use /target to pick one",
+            chats.length > RECENT
+              ? `${chats.length} in all — /target searches them, /here comes back`
+              : "/target moves you, /here comes back",
         },
       };
     }
@@ -210,9 +213,15 @@ export function runCommand(
   }
 }
 
-/** One line of a list, short enough that a dozen of them still fit. */
+/** How many chats a glance can take in. */
+const RECENT = 6;
+
+/** One line of a list, cut at a word so it does not end mid-syllable. */
 function trim(title: string): string {
-  return title.length > 60 ? `${title.slice(0, 59)}…` : title;
+  if (title.length <= 44) return title;
+  const cut = title.slice(0, 43);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > 20 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }
 
 /** As many lines as a field will hold, rather than a field that is refused. */
