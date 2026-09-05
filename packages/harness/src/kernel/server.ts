@@ -358,7 +358,19 @@ export async function handleApiRequest(
       return { status: 400, body: { error: "id required" } };
     }
     const removed = kernel.crons.delete(id);
-    if (removed) kernel.reloadCron();
+    if (removed) {
+      /*
+       * The thread goes with the job.
+       *
+       * It exists to hold that job's runs, and a schedule thread cannot be
+       * renamed or deleted by hand, so left behind it was an orphan the owner
+       * could neither reach from the schedule list nor get rid of. The
+       * confirmation says the runs go too.
+       */
+      kernel.sessions.clear(cronSessionId(id));
+      kernel.conversations.remove(cronSessionId(id));
+      kernel.reloadCron();
+    }
     return ok({ id, removed });
   }
 

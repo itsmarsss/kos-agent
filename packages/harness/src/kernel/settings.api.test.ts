@@ -178,4 +178,29 @@ describe("saving settings", () => {
       expect((await post("/api/conversations/delete", { id: mine.id })).status).toBe(200);
     });
   });
+
+  describe("deleting a schedule", () => {
+    it("takes its thread with it, leaving no orphan", async () => {
+      /*
+       * The thread holds that job's runs and cannot be renamed or deleted by
+       * hand, so left behind it was something the owner could neither reach
+       * from the schedule list nor get rid of.
+       */
+      const job = kernel.crons.create({
+        name: "nightly",
+        schedule: "0 3 * * *",
+        type: "actions",
+        actions: [{ tool: "notify", args: { text: "hi" } }],
+        enabled: true,
+      });
+      await kernel.fireCron(job.id);
+      expect(kernel.conversations.get(`cron:${job.id}`)).toBeDefined();
+
+      const res = await post("/api/crons/delete", { id: job.id });
+      expect(res.status).toBe(200);
+      expect(kernel.crons.get(job.id)).toBeUndefined();
+      expect(kernel.conversations.get(`cron:${job.id}`)).toBeUndefined();
+      expect(kernel.sessions.get(`cron:${job.id}`)).toEqual([]);
+    });
+  });
 });
