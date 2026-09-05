@@ -75,6 +75,17 @@ export interface ChannelRuntimeOptions {
   errorReply?: string;
   /** Where unauthorized attempts are recorded. */
   onRejected?: RejectionLogger;
+  /**
+   * Optional: be told when an approval is decided anywhere at all.
+   *
+   * A prompt keeps its buttons until this surface is the one that answers it.
+   * Decided from the dashboard, it sat there still offering a choice that had
+   * already been made, and pressing it reported the action did not exist.
+   * Returns its own unsubscribe.
+   */
+  watchDecisions?: (
+    listener: (id: string, outcome: "approved" | "denied") => void,
+  ) => () => void;
 }
 
 /**
@@ -92,6 +103,8 @@ export class ChannelRuntime {
   private readonly identity: UserMapping;
   private readonly errorReply: string;
   private readonly onRejected: RejectionLogger;
+  private readonly watchDecisions: ChannelRuntimeOptions["watchDecisions"];
+  private unwatch: (() => void) | undefined;
 
   constructor(options: ChannelRuntimeOptions) {
     this.adapter = options.adapter;
@@ -101,6 +114,7 @@ export class ChannelRuntime {
     this.errorReply =
       options.errorReply ?? "Something went wrong handling that.";
     this.onRejected = options.onRejected ?? logRejectedInbound;
+    this.watchDecisions = options.watchDecisions;
   }
 
   async start(): Promise<void> {
@@ -111,10 +125,24 @@ export class ChannelRuntime {
     if (this.handleDecision) {
       this.adapter.onApproval((decision) => this.decide(decision));
     }
+    /*
+     * Only where the surface can settle a prompt in place. A decision this
+     * surface took itself has already dropped the prompt from its own map, so
+     * this settles the ones taken elsewhere and no others.
+     */
+    if (this.watchDecisions && this.adapter.settleApproval) {
+      this.unwatch = this.watchDecisions((id, outcome) => {
+        const settled = this.adapter.settleApproval?.(id, outcome);
+        // A prompt that cannot be settled is not worth failing a decision over.
+        if (settled) void settled.catch(() => undefined);
+      });
+    }
     await this.adapter.start();
   }
 
   async stop(): Promise<void> {
+    this.unwatch?.();
+    this.unwatch = undefined;
     await this.adapter.stop();
   }
 
