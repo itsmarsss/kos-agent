@@ -701,6 +701,18 @@ export function App(): React.ReactElement {
                     flash("err", err instanceof Error ? err.message : String(err)),
                   );
               }}
+              onDelete={(id) => {
+                setEditingCron(null);
+                void api
+                  .deleteCron(id)
+                  .then(() => {
+                    flash("ok", "Deleted");
+                    return refresh();
+                  })
+                  .catch((err: unknown) =>
+                    flash("err", err instanceof Error ? err.message : String(err)),
+                  );
+              }}
             />
           )}
         </Drawer>
