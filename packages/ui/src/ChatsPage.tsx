@@ -164,6 +164,7 @@ export function ChatsPage({
   const [creating, setCreating] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [showScheduled, setShowScheduled] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   /** The chat being renamed, with its title as the field starts. */
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(
@@ -409,6 +410,11 @@ export function ChatsPage({
     if (!q) return jobs;
     return jobs.filter((c) => c.title.toLowerCase().includes(q));
   }, [conversations, query]);
+
+  /** Jobs mid-run, so a shut section still says something is happening. */
+  const runningJobs = scheduled.filter(
+    (c) => (progress[c.id] && !progress[c.id]!.ended) || c.activity === "working",
+  ).length;
 
   async function send(): Promise<void> {
     const text = draft.trim();
@@ -791,36 +797,52 @@ export function ChatsPage({
                 </span>
               </a>
             )}
-            {surfaces.map((c) => (
-              <a
-                key={c.id}
-                className={`chats-item chats-item--pinned ${
-                  c.id === activeId ? "is-active" : ""
-                }`}
-                href={hrefFor({ name: "chats", id: c.id })}
-                onClick={(e) => {
-                  e.preventDefault();
-                  onOpen(c.id);
-                }}
-              >
-                <span className="chats-item-top">
-                  <span className="chats-item-title">{c.title}</span>
-                  {progress[c.id] && !progress[c.id]!.ended ? (
-                    <span className="chats-flag chats-flag--working">
-                      {liveLabel(progress[c.id])}
-                    </span>
-                  ) : c.activity && c.activity !== "idle" ? (
-                    <span className={`chats-flag chats-flag--${c.activity}`}>
-                      {c.activity === "working" ? "working" : "needs you"}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="chats-item-brief">
-                  Everything said on {c.title} arrives here
-                </span>
-              </a>
-            ))}
+            {surfaces.length > 0 && (
+              /* One line however many there are. A surface is a way in, not
+                 a thread the owner is working in, and given a row each they
+                 pushed the chats off the screen. */
+              <div className="chats-surfaces">
+                {surfaces.map((c) => (
+                  <a
+                    key={c.id}
+                    className={`chats-surface ${c.id === activeId ? "is-active" : ""}`}
+                    href={hrefFor({ name: "chats", id: c.id })}
+                    title={`Everything said on ${c.title} arrives here`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onOpen(c.id);
+                    }}
+                  >
+                    {(progress[c.id] && !progress[c.id]!.ended) ||
+                    c.activity === "working" ? (
+                      <span className="chats-surface-dot" aria-hidden="true" />
+                    ) : null}
+                    {c.title}
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
+        )}
+
+        {!showArchived && scheduled.length > 0 && (
+          /* Above the chats rather than under them: a job's thread is
+             something you go and look at, and at the foot of a long list it
+             was a scroll away from everything. Shut by default, because it
+             is reference rather than what the owner is doing now. */
+          <button
+            type="button"
+            className={`chats-scheduled ${showScheduled ? "is-open" : ""}`}
+            onClick={() => setShowScheduled((v) => !v)}
+          >
+            <span className="chats-scheduled-mark" aria-hidden="true">
+              {showScheduled ? "▾" : "▸"}
+            </span>
+            Scheduled
+            <span className="chats-scheduled-count">
+              {runningJobs > 0 ? `${runningJobs} running` : scheduled.length}
+            </span>
+          </button>
         )}
 
         <ul>
@@ -941,13 +963,8 @@ export function ChatsPage({
             </li>
           )}
 
-          {/* Where the schedules run. Below the chats and under their own
-              heading: they are worth opening and not worth sorting in with
-              the threads you started. */}
-          {!showArchived && scheduled.length > 0 && (
-            <li className="chats-section">Scheduled</li>
-          )}
           {!showArchived &&
+            showScheduled &&
             scheduled.map((c) => (
               <li key={c.id}>
                 <a
