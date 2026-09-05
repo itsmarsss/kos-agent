@@ -156,15 +156,17 @@ export function runCommand(
       const current = ctx.current();
       const chats = all.filter((c) => c.kind !== "surface");
       /*
-       * A handful, not a page.
+       * Each name in code, one per line.
        *
-       * Fifteen titles that are each a whole sentence is a wall, and the
-       * point of the picker is that it searches: this is for orientation --
-       * where am I, what have I been in lately -- and /target finds the rest.
+       * Set as prose they ran together into a paragraph and the reader had
+       * to find the boundaries themselves. Monospace gives every entry the
+       * same edges, so the list is scanned rather than read.
        */
       const shown = chats.slice(0, RECENT);
       const line = (c: { id: string; title: string }): string =>
-        c.id === current ? `**${trim(c.title)}**  ← here` : trim(c.title);
+        c.id === current
+          ? `\u2192 \`${trim(c.title)}\`  **here**`
+          : `\u00a0\u00a0 \`${trim(c.title)}\``;
       return {
         card: {
           // A heading naming the current chat reads as badly as the sentence
@@ -173,16 +175,12 @@ export function runCommand(
           title: "Where you can send",
           color: CARD_COLOR,
           ...(shown.length
-            ? {
-                fields: [
-                  { name: `Recent chats`, value: fit(shown.map(line)) },
-                ],
-              }
+            ? { fields: [{ name: "\u200b", value: fit(shown.map(line)) }] }
             : {}),
           footer:
             chats.length > RECENT
-              ? `${chats.length} in all — /target searches them, /here comes back`
-              : "/target moves you, /here comes back",
+              ? `${chats.length} in all · /target searches them · /here comes back`
+              : "/target moves you · /here comes back",
         },
       };
     }
@@ -213,13 +211,13 @@ export function runCommand(
   }
 }
 
-/** How many chats a glance can take in. */
-const RECENT = 6;
+/** How many chats to list. Enough to find one without opening the picker. */
+const RECENT = 15;
 
 /** One line of a list, cut at a word so it does not end mid-syllable. */
 function trim(title: string): string {
-  if (title.length <= 44) return title;
-  const cut = title.slice(0, 43);
+  if (title.length <= 40) return title;
+  const cut = title.slice(0, 39);
   const space = cut.lastIndexOf(" ");
   return `${(space > 20 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }

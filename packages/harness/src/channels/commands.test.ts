@@ -99,21 +99,24 @@ describe("slash commands", () => {
      */
     const card = runCommand(ctxWith(chats, "a"), "chats").card!;
     const listed = card.fields![0]!;
-    expect(listed.value).toContain("**Book CRM**  ← here");
-    expect(listed.value).toContain("3js shooter");
+    // Each name in code, so the list is scanned rather than read: set as
+    // prose they ran together and the reader found the boundaries.
+    expect(listed.value).toContain("`Book CRM`");
+    expect(listed.value).toContain("`3js shooter`");
+    expect(listed.value).toContain("here");
     expect(listed.value).not.toContain("Discord");
   });
 
-  it("shows a handful rather than everything", () => {
-    // Fifteen titles that are each a whole sentence is a wall; the picker is
-    // what searches, this is for orientation.
+  it("lists a screenful, and says how many there are in all", () => {
+    // Fifteen short names read fine; it was long ones set as prose that did
+    // not. The picker still searches the rest.
     const many = Array.from({ length: 30 }, (_, i) => ({
       id: `c${i}`,
       title: `chat ${i}`,
       kind: "chat",
     }));
     const card = runCommand(ctxWith(many), "chats").card!;
-    expect(card.fields![0]!.value.split("\n")).toHaveLength(6);
+    expect(card.fields![0]!.value.split("\n")).toHaveLength(15);
     expect(card.footer).toContain("30 in all");
   });
 
