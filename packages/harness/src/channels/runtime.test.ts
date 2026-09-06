@@ -269,3 +269,47 @@ describe("AllowlistMapping", () => {
     expect(m.resolve("sms", "123")).toBeNull();
   });
 });
+
+describe("a surface that cannot deliver", () => {
+  it("does not take the host down with it", async () => {
+    /*
+     * The reply failed, so the runtime tried to say so, and that failed too.
+     * The second await was unguarded, so the rejection escaped dispatch, then
+     * the onMessage callback, and killed the process -- which is how a
+     * missing Automation permission on one message stopped all of KOS.
+     */
+    const adapter = new InMemoryAdapter();
+    const runtime = new ChannelRuntime({
+      adapter,
+      handleTurn: async () => {
+        throw new Error("the turn failed");
+      },
+    });
+    adapter.send = async () => {
+      throw new Error("Messages refused the send");
+    };
+    await runtime.start();
+
+    await expect(
+      adapter.receive({ channel: "memory", senderId: "owner", text: "hi" }),
+    ).resolves.toBeUndefined();
+
+    await runtime.stop();
+  });
+
+  it("still reports a failed turn when the surface is working", async () => {
+    const adapter = new InMemoryAdapter();
+    const runtime = new ChannelRuntime({
+      adapter,
+      handleTurn: async () => {
+        throw new Error("the turn failed");
+      },
+      errorReply: "that did not work",
+    });
+    await runtime.start();
+    await adapter.receive({ channel: "memory", senderId: "owner", text: "hi" });
+    await runtime.stop();
+
+    expect(adapter.sent.map((m) => m.msg.text)).toEqual(["that did not work"]);
+  });
+});

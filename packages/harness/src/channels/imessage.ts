@@ -52,6 +52,10 @@ export interface IMessageOptions {
  * The text goes in as an argument rather than being pasted into the script,
  * because a message is arbitrary text the owner or the agent wrote and
  * building a script around it is how a quote mark becomes an instruction.
+ *
+ * `service` and `buddy` are the terms Messages actually exposes. Written with
+ * `account` and `participant` it fails with a syntax error that reads like a
+ * permissions problem, which sent me looking in the wrong place.
  */
 export async function sendViaMessages(
   handle: string,
@@ -62,12 +66,27 @@ on run argv
   set targetHandle to item 1 of argv
   set body to item 2 of argv
   tell application "Messages"
-    set svc to 1st account whose service type = iMessage
-    set buddy to participant targetHandle of svc
-    send body to buddy
+    set targetService to 1st service whose service type = iMessage
+    set targetBuddy to buddy targetHandle of targetService
+    send body to targetBuddy
   end tell
 end run`;
-  await run("osascript", ["-e", script, handle, text]);
+  try {
+    await run("osascript", ["-e", script, handle, text]);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    /*
+     * Automation permission is a thing only the owner can give, so say so
+     * rather than reprinting an AppleScript stack at them.
+     */
+    if (detail.includes("-1743") || detail.includes("Not authorized")) {
+      throw new Error(
+        "Messages has not granted permission to send. Allow it under " +
+          "System Settings > Privacy & Security > Automation.",
+      );
+    }
+    throw new Error(`Messages refused the send: ${detail.split("\n")[0]}`);
+  }
 }
 
 /**
