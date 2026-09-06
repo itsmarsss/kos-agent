@@ -83,8 +83,10 @@ import { createBuildsModule } from "../tools/builds.js";
 import { sitesModule } from "../tools/sites.js";
 import { systemsModule } from "../tools/systems.js";
 import { tasksModule } from "../tools/tasks.js";
+import { Heartbeat, HEARTBEAT_PROMPT, HEARTBEAT_SESSION } from "./heartbeat.js";
 import {
   assembleSystemPrompt,
+  withoutTurnContext,
   channelGuidance,
   inferScopeTags,
 } from "./context.js";
@@ -317,6 +319,7 @@ export class Kernel {
   private readonly embedder: EmbeddingProvider;
   private readonly episodic: EpisodicStore;
   private scheduler?: CronScheduler;
+  private heartbeat?: Heartbeat;
   /**
    * Scope tags accumulated per session. Inference reads only the latest
    * message, so a follow-up that happens to match no keyword would otherwise
@@ -767,6 +770,14 @@ export class Kernel {
           model: event.model,
           inputTokens: event.inputTokens,
           outputTokens: event.outputTokens,
+          // The cached share, so a reused prefix is priced as one. Both
+          // providers report it; neither was being read.
+          ...(event.cacheReadTokens
+            ? { cacheReadTokens: event.cacheReadTokens }
+            : {}),
+          ...(event.cacheWriteTokens
+            ? { cacheCreationTokens: event.cacheWriteTokens }
+            : {}),
         });
       };
     }
@@ -988,15 +999,18 @@ export class Kernel {
         // The scope goes last, after the brief: a brief tells the agent what
         // it is for, and the two conflict exactly when the owner asks for
         // something the brief covers and the scope does not.
-        const extra = [formatting, mentioned, conversation?.brief, scopeNote]
+        const extra = [formatting, conversation?.brief, scopeNote]
           .filter((part): part is string => Boolean(part && part.trim()))
           .join("\n\n");
-        const system = assembleSystemPrompt({
+        const { system, turnContext } = assembleSystemPrompt({
           baseSystem: this.system,
           profile: this.profile,
           projects: this.manifest.list(),
           recall,
           ...(extra ? { extra } : {}),
+          // What this message pulled in, kept out of the system prompt so the
+          // fixed part in front of the tools is identical every turn.
+          ...(mentioned ? { turnExtra: mentioned } : {}),
         });
 
         // Attachments ride on the turn's own message rather than the system
@@ -1005,24 +1019,40 @@ export class Kernel {
           { type: "text", text },
           ...attachmentBlocks(opts.attachments ?? []),
         ];
+        /*
+         * Sent, but not kept.
+         *
+         * The turn's recalled context rides at the end of the prompt, after
+         * the tools and the history, so everything before it matches the last
+         * turn and is served from cache. It is stripped before the turn is
+         * stored: recall is derived from the transcript, and writing it back
+         * would grow the transcript every turn and then feed on itself.
+         */
+        const sentContent: ContentBlock[] = turnContext
+          ? [{ type: "text", text: turnContext }, ...userContent]
+          : userContent;
         let input: string | ModelMessage[] = text;
         const useSession = !this.sessionless && !opts.noSession;
         if (useSession) {
           const prior = this.sessions.historyForPrompt(sessionId);
-          input = [...prior, { role: "user", content: userContent }];
+          input = [...prior, { role: "user", content: sentContent }];
           // Written before the model is asked anything.
           //
           // Recorded only at the end, what the owner said existed nowhere but
           // the browser for the length of the turn: reloading the page lost
           // it, and so would the process dying mid-answer. The reply is
           // appended when it arrives.
-          this.sessions.record(sessionId, input);
+          // What the owner said, without the context this turn recalled.
+          this.sessions.record(sessionId, [
+            ...prior,
+            { role: "user", content: userContent },
+          ]);
           this.conversations.touch(
             sessionId,
             ...(opts.origin === "system" ? [] : [text]),
           );
-        } else if (userContent.length > 1) {
-          input = [{ role: "user", content: userContent }];
+        } else if (sentContent.length > 1) {
+          input = [{ role: "user", content: sentContent }];
         }
 
         // The subscription path. Same tools, same jail, same approvals; the
@@ -1913,7 +1943,7 @@ export class Kernel {
       factLimit: 10,
       episodeLimit: 4,
     });
-    return assembleSystemPrompt({
+    const assembled = assembleSystemPrompt({
       baseSystem: this.system,
       profile: this.profile,
       projects: this.manifest.list(),
@@ -1925,6 +1955,14 @@ export class Kernel {
         "Risky actions still queue for approval; say what you queued and stop.",
       ].join("\n"),
     });
+    /*
+     * Joined back together. A scheduled run is one-shot -- there is no
+     * previous turn for a cache to match against -- so splitting the prompt
+     * would buy nothing and only change what the job sees.
+     */
+    return [assembled.system, assembled.turnContext]
+      .filter((part) => part.trim())
+      .join("\n\n");
   }
 
   /** Union this turn's inferred tags into the session's running scope. */
@@ -2097,14 +2135,19 @@ export class Kernel {
       // the transcript ends mid-thought and the chat reads as though nothing
       // was said.
       const spoke = result.finalText.trim() !== "";
+      // Without what this turn recalled: it was sent so the model had it, and
+      // keeping it would write the transcript's own summary back into the
+      // transcript on every turn.
       this.sessions.record(
         sessionId,
-        spoke
-          ? result.messages
-          : [
-              ...result.messages,
-              { role: "assistant", content: [{ type: "text", text: reply }] },
-            ],
+        withoutTurnContext(
+          spoke
+            ? result.messages
+            : [
+                ...result.messages,
+                { role: "assistant", content: [{ type: "text", text: reply }] },
+              ],
+        ),
       );
       // Only the auto-title is withheld from a resume prompt, which is
       // harness plumbing and must not rename anything.
@@ -2146,6 +2189,54 @@ export class Kernel {
    */
   private afterToolRan(tool: string): void {
     if (tool.startsWith("cron.")) this.reloadCron();
+  }
+
+  /**
+   * Start looking around unprompted, if the owner has asked for it.
+   *
+   * Runs on its own thread and says nothing unless it decides there is
+   * something worth saying, so a beat that finds nothing costs a turn and
+   * makes no noise. Held to the same self-prompt budget as a scheduled job,
+   * because it is the same thing: KOS deciding to spend a turn on itself.
+   */
+  startHeartbeat(): void {
+    this.heartbeat?.stop();
+    this.heartbeat = new Heartbeat({
+      interval: () => this.behaviour().heartbeatMinutes,
+      // The interval is the rate limit; a second budget on top would only
+      // make the cadence the owner set mean something other than it says.
+      allowed: () => !this.killSwitch.halted,
+      beat: () => this.runHeartbeat(),
+    });
+    this.heartbeat.start();
+  }
+
+  stopHeartbeat(): void {
+    this.heartbeat?.stop();
+    this.heartbeat = undefined;
+  }
+
+  /** One look-around, recorded in its own thread whatever it decides. */
+  private async runHeartbeat(): Promise<void> {
+    await this.queue.enqueue(async () => {
+      const runId = this.runs.start("heartbeat", HEARTBEAT_SESSION);
+      try {
+        this.conversationFor("heartbeat", this.profile.ownerId);
+        await this.runTurn(
+          HEARTBEAT_PROMPT,
+          this.profile.ownerId,
+          HEARTBEAT_SESSION,
+          { origin: "system" },
+        );
+        this.runs.finish(runId, "ok");
+      } catch (err) {
+        this.runs.finish(
+          runId,
+          "error",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }, HEARTBEAT_SESSION);
   }
 
   startCron(): void {
@@ -2798,6 +2889,16 @@ export class Kernel {
     return { ...res, conversationId: target };
   }
 
+  /**
+   * Run what fell due while the host was down.
+   *
+   * Called after the schedule is registered, not inside start(), so a reload
+   * after an edit does not re-fire anything: only a real boot catches up.
+   */
+  catchUpCron(): number {
+    return this.scheduler?.catchUp() ?? 0;
+  }
+
   reloadCron(): void {
     this.scheduler?.reload();
     this.pruneHealth();
@@ -2913,6 +3014,7 @@ export class Kernel {
   close(): void {
     this.closed = true;
     this.stopCron();
+    this.stopHeartbeat();
     // Not awaited: close is synchronous everywhere it is called from, and the
     // children are killed either way once this process goes.
     void this.supervisor.stopAll();

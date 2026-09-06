@@ -1,3 +1,4 @@
+import type { ModelMessage } from "../models/types.js";
 import type { Project } from "../systems/manifest.js";
 import type { Recall } from "../memory/retriever.js";
 import type { Profile } from "./profile.js";
@@ -13,11 +14,47 @@ export interface ContextParts {
   profile: Profile;
   projects: Project[];
   recall: Recall;
+  /** Per-conversation, so it belongs with the fixed half. */
   extra?: string;
+  /** Derived from this message, so it rides with the turn. */
+  turnExtra?: string;
 }
 
+/**
+ * What is fixed, and what this particular turn dragged in.
+ *
+ * Both providers cache by matching the front of a prompt against the last one
+ * and charging a fraction for the part that matches. So anything that differs
+ * per turn must come after everything that does not, or it ends the match
+ * where it sits.
+ *
+ * The system prompt is the very front of the prompt, so anything volatile in
+ * it ends the match before the tools -- which are large, fixed, and where
+ * most of the saving is. Measured on a real workspace: with salient memory in
+ * the system prompt the stable prefix was about 525 tokens, under OpenAI's
+ * 1,024 minimum, so nothing cached at all out of 8,344.
+ *
+ * Split, the system prompt is identical every turn and the turn's own context
+ * rides on the user's message, after the tools and after the history. What
+ * differs is then at the very end, where it costs nothing.
+ */
+export interface AssembledPrompt {
+  /** Identical between turns, so it caches. */
+  system: string;
+  /** Retrieved for this message. Empty when there was nothing. */
+  turnContext: string;
+}
+
+/**
+ * Marks the block so it can be taken out again before the turn is stored.
+ *
+ * Recalled memory is derived from the transcript; storing it back into the
+ * transcript would grow it every turn and feed itself.
+ */
+export const TURN_CONTEXT_HEADER = "## Recalled for this turn";
+
 /** Build the system prompt block for one agent turn. */
-export function assembleSystemPrompt(parts: ContextParts): string {
+export function assembleSystemPrompt(parts: ContextParts): AssembledPrompt {
   const sections: string[] = [parts.baseSystem.trim()];
 
   sections.push(
@@ -48,6 +85,20 @@ export function assembleSystemPrompt(parts: ContextParts): string {
   }
   sections.push(projectLines.join("\n"));
 
+  /*
+   * What changes every turn goes last, not in the middle.
+   *
+   * Both providers cache by matching the front of a prompt against the last
+   * one and charging a fraction for the part that matches. Salient memory is
+   * retrieved per message, so sitting where it did it differed on every turn
+   * and ended the match right there -- leaving the largest stable block, the
+   * tool guidance below it, permanently uncacheable. Measured against the
+   * live API: 0 cached tokens on a second turn that reused 8k of prompt.
+   *
+   * Held here and appended after everything fixed.
+   */
+  const volatile: string[] = [];
+  if (parts.turnExtra?.trim()) volatile.push(parts.turnExtra.trim());
   const { facts, episodes } = parts.recall;
   if (facts.length > 0 || episodes.length > 0) {
     const mem: string[] = ["## Salient memory"];
@@ -58,7 +109,7 @@ export function assembleSystemPrompt(parts: ContextParts): string {
     for (const e of episodes.slice(0, 5)) {
       mem.push(`- episode: ${e.text.slice(0, 200)}`);
     }
-    sections.push(mem.join("\n"));
+    volatile.push(mem.join("\n"));
   }
 
   if (parts.extra?.trim()) {
@@ -78,7 +129,12 @@ export function assembleSystemPrompt(parts: ContextParts): string {
     ].join("\n"),
   );
 
-  return sections.join("\n\n");
+  return {
+    system: sections.join("\n\n"),
+    turnContext: volatile.length
+      ? [TURN_CONTEXT_HEADER, ...volatile].join("\n\n")
+      : "",
+  };
 }
 
 /**
@@ -153,4 +209,27 @@ export function inferScopeTags(text: string): string[] {
     tags.add("tasks");
   }
   return [...tags];
+}
+
+/**
+ * Take the turn's recalled context back out before the turn is stored.
+ *
+ * It was sent so the model had it, at the end of the prompt where it does not
+ * spoil the cache. It must not be kept: recall is derived from the transcript,
+ * so storing it appends a copy of the transcript's own summary to the
+ * transcript, every turn, for the model to summarise again next time.
+ */
+export function withoutTurnContext(messages: ModelMessage[]): ModelMessage[] {
+  return messages.map((message) => {
+    if (message.role !== "user" || typeof message.content === "string") {
+      return message;
+    }
+    const kept = message.content.filter(
+      (block) =>
+        !(block.type === "text" && block.text.startsWith(TURN_CONTEXT_HEADER)),
+    );
+    return kept.length === message.content.length
+      ? message
+      : { ...message, content: kept };
+  });
 }

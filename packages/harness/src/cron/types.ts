@@ -34,6 +34,8 @@ export interface CronJob {
   enabled: boolean;
   createdAt: number;
   updatedAt: number;
+  /** When it last actually ran, as opposed to when it was next due. */
+  lastRunAt?: number | null;
 }
 
 export interface CreateCronInput {
