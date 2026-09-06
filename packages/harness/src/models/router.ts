@@ -88,6 +88,8 @@ export class ModelRouter {
     model: string;
     inputTokens: number;
     outputTokens: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
   }) => void;
 
   constructor(
@@ -153,6 +155,12 @@ export class ModelRouter {
         model: route.spec.model,
         inputTokens: response.usage?.inputTokens ?? 0,
         outputTokens: response.usage?.outputTokens ?? 0,
+        ...(response.usage?.cacheReadTokens
+          ? { cacheReadTokens: response.usage.cacheReadTokens }
+          : {}),
+        ...(response.usage?.cacheWriteTokens
+          ? { cacheWriteTokens: response.usage.cacheWriteTokens }
+          : {}),
       });
     } catch {
       // Accounting must never be able to fail a turn that already succeeded.

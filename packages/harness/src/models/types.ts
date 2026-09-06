@@ -115,8 +115,18 @@ export interface ToolDef {
 export type StopReason = "end_turn" | "tool_use" | "max_tokens" | "refusal" | "other";
 
 export interface Usage {
+  /** Everything the model was sent, cached parts included. */
   inputTokens: number;
   outputTokens: number;
+  /**
+   * The cached share of inputTokens, where the provider reports one.
+   *
+   * Both providers reuse a repeated prefix and charge a fraction for it, and
+   * both say how much they reused. Counted as ordinary input it made a long
+   * conversation look several times more expensive than it was.
+   */
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
 }
 
 export interface GenerateRequest {

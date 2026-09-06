@@ -239,3 +239,38 @@ describe("parallel tool calls", () => {
     ).toBeUndefined();
   });
 });
+
+describe("the cached share of an OpenAI response", () => {
+  it("is read rather than counted as fresh input", () => {
+    /*
+     * OpenAI caches a repeated prefix on its own and bills the reused part at
+     * a discount, saying how much in input_tokens_details. Read as nothing, a
+     * long conversation -- which is mostly reused prefix -- was priced as
+     * though every token were new.
+     */
+    const response = {
+      id: "r1",
+      model: "gpt-5.5",
+      output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "hi" }] }],
+      usage: {
+        input_tokens: 10_000,
+        output_tokens: 50,
+        input_tokens_details: { cached_tokens: 9_000 },
+      },
+    };
+    const mapped = fromResponsesResponse(response as never);
+    expect(mapped.usage.inputTokens).toBe(10_000);
+    expect(mapped.usage.cacheReadTokens).toBe(9_000);
+  });
+
+  it("says nothing about caching when the provider reported none", () => {
+    const response = {
+      id: "r1",
+      model: "gpt-5.5",
+      output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "hi" }] }],
+      usage: { input_tokens: 100, output_tokens: 5 },
+    };
+    const mapped = fromResponsesResponse(response as never);
+    expect(mapped.usage.cacheReadTokens).toBeUndefined();
+  });
+});
