@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   assembleSystemPrompt,
+  TURN_CONTEXT_HEADER,
+  withoutTurnContext,
   channelGuidance,
   inferScopeTags,
 } from "./context.js";
@@ -43,10 +45,62 @@ describe("assembleSystemPrompt", () => {
         episodes: [],
       },
     });
-    expect(prompt).toMatch(/You are KOS/);
-    expect(prompt).toMatch(/budget/);
-    expect(prompt).toMatch(/currency: USD/);
-    expect(prompt).toMatch(/systems\.migrate/);
+    /*
+     * The fixed half carries everything that does not change between turns,
+     * so it is identical every time and can be served from cache. What was
+     * recalled for this message is handed back separately, to ride on the
+     * turn rather than in front of the tools.
+     */
+    expect(prompt.system).toMatch(/You are KOS/);
+    expect(prompt.system).toMatch(/budget/);
+    expect(prompt.system).toMatch(/systems\.migrate/);
+    expect(prompt.system).not.toMatch(/currency: USD/);
+
+    expect(prompt.turnContext).toMatch(/currency: USD/);
+    expect(prompt.turnContext).toContain(TURN_CONTEXT_HEADER);
+  });
+
+  it("hands back no turn context when nothing was recalled", () => {
+    const prompt = assembleSystemPrompt({
+      baseSystem: "You are KOS.",
+      profile: DEFAULT_PROFILE,
+      projects: [],
+      recall: { facts: [], episodes: [] },
+    });
+    // An empty block would still be a difference between turns, and one
+    // difference is all it takes to end the cached prefix.
+    expect(prompt.turnContext).toBe("");
+  });
+});
+
+describe("keeping recalled context out of the transcript", () => {
+  it("takes the block back off before the turn is stored", () => {
+    /*
+     * Recall is derived from the transcript. Stored back into it, every turn
+     * would append a summary of the transcript to the transcript, and the
+     * next recall would summarise that.
+     */
+    const kept = withoutTurnContext([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: `${TURN_CONTEXT_HEADER}\n\nremembered things` },
+          { type: "text", text: "what the owner actually said" },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "the reply" }] },
+    ]);
+
+    expect(JSON.stringify(kept)).not.toContain("remembered things");
+    expect(JSON.stringify(kept)).toContain("what the owner actually said");
+    expect(JSON.stringify(kept)).toContain("the reply");
+  });
+
+  it("leaves a message that never carried one alone", () => {
+    const messages = [
+      { role: "user" as const, content: [{ type: "text" as const, text: "hello" }] },
+    ];
+    expect(withoutTurnContext(messages)).toEqual(messages);
   });
 });
 
