@@ -86,6 +86,7 @@ import { tasksModule } from "../tools/tasks.js";
 import { Heartbeat, HEARTBEAT_PROMPT, HEARTBEAT_SESSION } from "./heartbeat.js";
 import {
   assembleSystemPrompt,
+  withoutTurnContext,
   channelGuidance,
   inferScopeTags,
 } from "./context.js";
@@ -998,15 +999,18 @@ export class Kernel {
         // The scope goes last, after the brief: a brief tells the agent what
         // it is for, and the two conflict exactly when the owner asks for
         // something the brief covers and the scope does not.
-        const extra = [formatting, mentioned, conversation?.brief, scopeNote]
+        const extra = [formatting, conversation?.brief, scopeNote]
           .filter((part): part is string => Boolean(part && part.trim()))
           .join("\n\n");
-        const system = assembleSystemPrompt({
+        const { system, turnContext } = assembleSystemPrompt({
           baseSystem: this.system,
           profile: this.profile,
           projects: this.manifest.list(),
           recall,
           ...(extra ? { extra } : {}),
+          // What this message pulled in, kept out of the system prompt so the
+          // fixed part in front of the tools is identical every turn.
+          ...(mentioned ? { turnExtra: mentioned } : {}),
         });
 
         // Attachments ride on the turn's own message rather than the system
@@ -1015,24 +1019,40 @@ export class Kernel {
           { type: "text", text },
           ...attachmentBlocks(opts.attachments ?? []),
         ];
+        /*
+         * Sent, but not kept.
+         *
+         * The turn's recalled context rides at the end of the prompt, after
+         * the tools and the history, so everything before it matches the last
+         * turn and is served from cache. It is stripped before the turn is
+         * stored: recall is derived from the transcript, and writing it back
+         * would grow the transcript every turn and then feed on itself.
+         */
+        const sentContent: ContentBlock[] = turnContext
+          ? [{ type: "text", text: turnContext }, ...userContent]
+          : userContent;
         let input: string | ModelMessage[] = text;
         const useSession = !this.sessionless && !opts.noSession;
         if (useSession) {
           const prior = this.sessions.historyForPrompt(sessionId);
-          input = [...prior, { role: "user", content: userContent }];
+          input = [...prior, { role: "user", content: sentContent }];
           // Written before the model is asked anything.
           //
           // Recorded only at the end, what the owner said existed nowhere but
           // the browser for the length of the turn: reloading the page lost
           // it, and so would the process dying mid-answer. The reply is
           // appended when it arrives.
-          this.sessions.record(sessionId, input);
+          // What the owner said, without the context this turn recalled.
+          this.sessions.record(sessionId, [
+            ...prior,
+            { role: "user", content: userContent },
+          ]);
           this.conversations.touch(
             sessionId,
             ...(opts.origin === "system" ? [] : [text]),
           );
-        } else if (userContent.length > 1) {
-          input = [{ role: "user", content: userContent }];
+        } else if (sentContent.length > 1) {
+          input = [{ role: "user", content: sentContent }];
         }
 
         // The subscription path. Same tools, same jail, same approvals; the
@@ -1923,7 +1943,7 @@ export class Kernel {
       factLimit: 10,
       episodeLimit: 4,
     });
-    return assembleSystemPrompt({
+    const assembled = assembleSystemPrompt({
       baseSystem: this.system,
       profile: this.profile,
       projects: this.manifest.list(),
@@ -1935,6 +1955,14 @@ export class Kernel {
         "Risky actions still queue for approval; say what you queued and stop.",
       ].join("\n"),
     });
+    /*
+     * Joined back together. A scheduled run is one-shot -- there is no
+     * previous turn for a cache to match against -- so splitting the prompt
+     * would buy nothing and only change what the job sees.
+     */
+    return [assembled.system, assembled.turnContext]
+      .filter((part) => part.trim())
+      .join("\n\n");
   }
 
   /** Union this turn's inferred tags into the session's running scope. */
@@ -2107,14 +2135,19 @@ export class Kernel {
       // the transcript ends mid-thought and the chat reads as though nothing
       // was said.
       const spoke = result.finalText.trim() !== "";
+      // Without what this turn recalled: it was sent so the model had it, and
+      // keeping it would write the transcript's own summary back into the
+      // transcript on every turn.
       this.sessions.record(
         sessionId,
-        spoke
-          ? result.messages
-          : [
-              ...result.messages,
-              { role: "assistant", content: [{ type: "text", text: reply }] },
-            ],
+        withoutTurnContext(
+          spoke
+            ? result.messages
+            : [
+                ...result.messages,
+                { role: "assistant", content: [{ type: "text", text: reply }] },
+              ],
+        ),
       );
       // Only the auto-title is withheld from a resume prompt, which is
       // harness plumbing and must not rename anything.

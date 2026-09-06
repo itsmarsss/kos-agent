@@ -12,6 +12,7 @@ import type { KosModule } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { BEHAVIOUR_KEY } from "./behaviour.js";
 import type { NotifyPayload } from "../tools/notify.js";
+import { withoutTurnContext } from "./context.js";
 import { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
 
@@ -35,6 +36,8 @@ interface Scripted {
   calls: Recorded[];
   /** System prompts assembled for each reasoning turn. */
   systems: string[];
+  /** System prompt and messages together: everything the model was shown. */
+  prompts: string[];
 }
 
 function text(body: string): ModelResponse {
@@ -67,14 +70,35 @@ function scripted(script: ModelResponse[]): Scripted {
   const queue = [...script];
   const calls: Recorded[] = [];
   const systems: string[] = [];
+  /*
+   * Everything the model was shown, system prompt and messages together.
+   *
+   * What matters is that a fact reached the model, not which half of the
+   * request carried it: recalled context moved onto the turn's message so the
+   * system prompt stays identical between turns and can be cached.
+   */
+  const prompts: string[] = [];
   return {
     calls,
     systems,
+    prompts,
     inference: {
       async generate(task: Task, request: GenerateRequest): Promise<ModelResponse> {
         if (task === "cheap") return text('{"facts":[]}');
         calls.push({ task, request });
         systems.push(request.system ?? "");
+        prompts.push(
+          [
+            request.system ?? "",
+            ...request.messages.flatMap((m) =>
+              typeof m.content === "string"
+                ? [m.content]
+                : m.content
+                    .filter((b) => b.type === "text")
+                    .map((b) => (b as { text: string }).text),
+            ),
+          ].join("\n"),
+        );
         return queue.shift() ?? text("done");
       },
     },
@@ -421,7 +445,7 @@ describe("KOS end-to-end flows", () => {
 
     // Recall used to LIKE the entire sentence, so this never matched and the
     // fact never reached the prompt.
-    const recallPrompt = model.systems.at(-1)!;
+    const recallPrompt = model.prompts.at(-1)!;
     expect(recallPrompt).toContain("Salient memory");
     expect(recallPrompt).toContain("America/New_York");
   });
@@ -973,10 +997,27 @@ describe("KOS end-to-end flows", () => {
     await kernel.handleMessage("rent is 2400 a month", { sessionId: budget.id });
     await kernel.handleMessage("when is it again", { sessionId: shoot.id });
 
-    // The third turn must see the shoot thread and not the budget one.
-    const wire = JSON.stringify(model.calls.at(-1)!.request.messages);
-    expect(wire).toContain("the shoot is on Tuesday");
-    expect(wire).not.toContain("rent is 2400");
+    /*
+     * The third turn must carry the shoot thread's history and not the budget
+     * thread's.
+     *
+     * Recalled memory is deliberately global -- it is one memory across every
+     * conversation -- so it can mention any of them, and it rides on the turn
+     * rather than in the transcript. The property here is about the history,
+     * so the recalled block comes off before the check. It was always this
+     * way; when recall sat in the system prompt this assertion simply did not
+     * look where it lived.
+     */
+    const history = JSON.stringify(
+      withoutTurnContext(model.calls.at(-1)!.request.messages),
+    );
+    expect(history).toContain("the shoot is on Tuesday");
+    expect(history).not.toContain("rent is 2400");
+
+    // And the stored thread never held the other conversation at all.
+    expect(JSON.stringify(kernel.sessions.get(shoot.id))).not.toContain(
+      "rent is 2400",
+    );
   });
 
   it("runs conversation commands without calling the model", async () => {
@@ -1641,8 +1682,9 @@ describe("KOS end-to-end flows", () => {
 
     // Nothing in this message matches the entry; pinning is what gets it in.
     await kernel.handleMessage("write a poem about ducks", { sessionId: c.id });
-    expect(model.systems.at(-1)!).toContain("America/New_York");
-    expect(model.systems.at(-1)!).toContain("pinned");
+    // Recalled content rides on the turn now, so look at the whole prompt.
+    expect(model.prompts.at(-1)!).toContain("America/New_York");
+    expect(model.prompts.at(-1)!).toContain("pinned");
   });
 
   it("scopes recall to a tag when asked", async () => {
@@ -1781,14 +1823,15 @@ describe("mentions in a message", () => {
 
     // A mention is a promise that the thing named is to hand, not a string the
     // agent has to go and look up.
-    expect(model.systems.at(-1)!).toContain("ship the budget page");
+    // What a message referenced is per-message, so it rides with the turn.
+    expect(model.prompts.at(-1)!).toContain("ship the budget page");
   });
 
   it("says so when the thing referenced does not exist", async () => {
     const model = scripted([text("ok")]);
     kernel = await boot3(model.inference);
     await kernel.handleMessage("look at @project:nope");
-    expect(model.systems.at(-1)!).toContain("not found");
+    expect(model.prompts.at(-1)!).toContain("not found");
   });
 
   it("adds nothing when there are no mentions", async () => {
