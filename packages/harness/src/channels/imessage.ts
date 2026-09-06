@@ -53,9 +53,13 @@ export interface IMessageOptions {
  * because a message is arbitrary text the owner or the agent wrote and
  * building a script around it is how a quote mark becomes an instruction.
  *
- * `service` and `buddy` are the terms Messages actually exposes. Written with
- * `account` and `participant` it fails with a syntax error that reads like a
- * permissions problem, which sent me looking in the wrong place.
+ * Addressed by finding the conversation rather than by naming a service.
+ * Modern Messages will not answer `service type of every service` at all, so
+ * the documented `buddy X of (1st service whose service type = iMessage)`
+ * fails on a real machine; and a chat's id is prefixed by the service that
+ * carried it -- "any;-;" here, not "iMessage;-;" -- so that cannot be
+ * assembled either. Looking the conversation up by handle works whatever
+ * Messages decided to call it.
  */
 export async function sendViaMessages(
   handle: string,
@@ -66,9 +70,9 @@ on run argv
   set targetHandle to item 1 of argv
   set body to item 2 of argv
   tell application "Messages"
-    set targetService to 1st service whose service type = iMessage
-    set targetBuddy to buddy targetHandle of targetService
-    send body to targetBuddy
+    set matches to (every chat whose id contains targetHandle)
+    if (count of matches) is 0 then error "no conversation with that handle"
+    send body to item 1 of matches
   end tell
 end run`;
   try {
@@ -83,6 +87,11 @@ end run`;
       throw new Error(
         "Messages has not granted permission to send. Allow it under " +
           "System Settings > Privacy & Security > Automation.",
+      );
+    }
+    if (detail.includes("no conversation with that handle")) {
+      throw new Error(
+        `Messages has no conversation with ${handle}. Send yourself one message there first.`,
       );
     }
     throw new Error(`Messages refused the send: ${detail.split("\n")[0]}`);
@@ -275,13 +284,19 @@ export class IMessageAdapter implements ChannelAdapter {
   /**
    * Was this KOS's own message coming back?
    *
-   * Consumed on the first match rather than merely tested, so that an owner
-   * who genuinely types the same words later is heard.
+   * Tested rather than consumed, because one send lands in the thread twice:
+   * the copy Messages recorded as sent, and the copy delivered back to the
+   * same account a moment later. Observed on a real self-thread, one send
+   * wrote ROWIDs 155091 and 155092. Consuming the first match left the second
+   * to be answered as though the owner had typed it.
+   *
+   * The cost is that an owner who repeats KOS's exact words inside the window
+   * is not heard. That is rare, and quieter than KOS replying to itself.
    */
   private wasSpoken(text: string): boolean {
-    const index = this.spoken.findIndex((s) => s.text === text);
-    if (index === -1) return false;
-    this.spoken.splice(index, 1);
-    return true;
+    const at = this.now();
+    return this.spoken.some(
+      (s) => s.text === text && at - s.at <= ECHO_WINDOW_MS,
+    );
   }
 }

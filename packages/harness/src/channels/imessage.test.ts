@@ -193,8 +193,14 @@ describe("the iMessage adapter", () => {
     expect(seen).toEqual([]);
   });
 
-  it("hears the owner even when they say the same words back", async () => {
-    // Suppression consumes one echo rather than muting a phrase forever.
+  it("suppresses both copies of one reply, not just the first", async () => {
+    /*
+     * A self-thread records a send twice: the copy Messages wrote as sent,
+     * and the copy delivered back to the same account. Seen on a real thread,
+     * one send wrote two rows. Consuming only the first match left the second
+     * to be answered as though the owner had typed it -- KOS replying to
+     * itself, which is the loop this guard exists to prevent.
+     */
     const seen: InboundMessage[] = [];
     adapter.onMessage((m) => {
       seen.push(m);
@@ -202,13 +208,11 @@ describe("the iMessage adapter", () => {
     await adapter.start();
 
     await adapter.send(OWNER, { text: "ping" });
-    addMessage(2, "ping");
+    addMessage(2, "ping"); // as sent
+    addMessage(3, "ping"); // as delivered back
     await adapter.poll();
-    expect(seen).toEqual([]);
 
-    addMessage(3, "ping");
-    await adapter.poll();
-    expect(seen.map((m) => m.text)).toEqual(["ping"]);
+    expect(seen).toEqual([]);
   });
 
   it("turns an answer to a prompt into a decision, not a message", async () => {
