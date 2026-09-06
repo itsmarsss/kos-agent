@@ -23,6 +23,7 @@ import {
 } from "@kos/harness";
 
 import { envFilePath } from "./env.js";
+import { claimHandle, type HandleClaim } from "./imessagelock.js";
 import { clearDaemonState, writeDaemonState } from "./state.js";
 
 export interface HostOptions {
@@ -83,6 +84,7 @@ function imessageConfig(): { handle: string; dbPath: string } | null {
  */
 export async function runHost(options: HostOptions): Promise<void> {
   let imessageAdapter: IMessageAdapter | undefined;
+  let imessageClaim: HandleClaim | undefined;
   let imessageRuntime: ReturnType<typeof connectChannel> | undefined;
   const wantDiscord = options.discord !== false;
   const creds = discordCreds();
@@ -340,9 +342,20 @@ export async function runHost(options: HostOptions): Promise<void> {
    */
   const imessage = imessageConfig();
   if (imessage) {
+    const claim = claimHandle(imessage.handle);
     if (!existsSync(imessage.dbPath)) {
       console.log(`iMessage: skipped (no database at ${imessage.dbPath})`);
+    } else if (!claim.ok) {
+      /*
+       * Two hosts on one thread answer each other forever, and every lap is
+       * two real messages and two turns. Better to run without the surface
+       * and say why.
+       */
+      console.log(
+        `iMessage: skipped (pid ${claim.heldBy} is already watching that thread)`,
+      );
     } else {
+      imessageClaim = claim.claim;
       try {
         imessageAdapter = new IMessageAdapter({
           handle: imessage.handle,
@@ -364,6 +377,8 @@ export async function runHost(options: HostOptions): Promise<void> {
         // up: none of them are a reason for the host to refuse to start.
         imessageAdapter = undefined;
         imessageRuntime = undefined;
+        imessageClaim?.release();
+        imessageClaim = undefined;
         console.log(
           `iMessage: not started (${err instanceof Error ? err.message : String(err)})`,
         );
@@ -381,6 +396,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       try {
         if (runtime) await runtime.stop();
         if (imessageRuntime) await imessageRuntime.stop();
+        imessageClaim?.release();
       } catch {
         // ignore
       }
