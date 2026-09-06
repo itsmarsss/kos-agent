@@ -216,10 +216,25 @@ export class ChannelRuntime {
         await this.adapter.send(msg.senderId, reply);
       }
     } catch {
-      if (presence) {
-        await presence.fail(this.errorReply);
-      } else {
-        await this.adapter.send(msg.senderId, { text: this.errorReply });
+      /*
+       * Telling the owner it went wrong can itself go wrong.
+       *
+       * This was the last unguarded await on the path: a surface that could
+       * not deliver threw out of dispatch, out of the onMessage callback, and
+       * took the host down with it. There is nowhere left to report to by
+       * this point, so it goes to the log and the process stays up.
+       */
+      try {
+        if (presence) {
+          await presence.fail(this.errorReply);
+        } else {
+          await this.adapter.send(msg.senderId, { text: this.errorReply });
+        }
+      } catch (err) {
+        console.error(
+          `[channels] ${this.adapter.name}: could not deliver a reply`,
+          err instanceof Error ? err.message : String(err),
+        );
       }
     }
   }
