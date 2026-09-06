@@ -283,7 +283,28 @@ export async function handleApiRequest(
      * query twice and serialized a copy the only caller dropped on arrival.
      */
     const limit = clampLimit(queryParams(req.url).get("limit"), 100);
-    return ok({ tools: kernel.audit.recent(limit) });
+    /*
+     * Without the output of calls that worked.
+     *
+     * A tool result is the bulk of this list -- 183KB of a 324KB response on
+     * a real workspace -- and the list never shows one. Only a failure needs
+     * its text here, to seed the fix without a second request; the rest is
+     * fetched when a reader actually opens a call.
+     */
+    const tools = kernel.audit.recent(limit).map((t) =>
+      t.isError ? t : { ...t, result: "" },
+    );
+    return ok({ tools });
+  }
+
+  if (method === "GET" && path === "/api/activity/call") {
+    const id = Number(queryParams(req.url).get("id"));
+    if (!Number.isInteger(id)) {
+      return { status: 400, body: { error: "id required" } };
+    }
+    const call = kernel.audit.get(id);
+    if (!call) return { status: 404, body: { error: "no such call" } };
+    return ok(call);
   }
 
   if (method === "GET" && path === "/api/crons") {
