@@ -46,6 +46,12 @@ export interface Behaviour {
    * than holding that conversation's queue indefinitely.
    */
   approvalMinutes: number;
+  /**
+   * Minutes between unprompted look-arounds. Zero is off, which is the
+   * default: this is the one setting that spends money on a timer rather
+   * than because the owner asked for something.
+   */
+  heartbeatMinutes: number;
 }
 
 export const BEHAVIOUR_DEFAULTS: Behaviour = {
@@ -58,6 +64,7 @@ export const BEHAVIOUR_DEFAULTS: Behaviour = {
   agentTurns: 60,
   stallMinutes: 3,
   approvalMinutes: 30,
+  heartbeatMinutes: 0,
 };
 
 /** Range for each number, as [min, max]. */
@@ -72,6 +79,9 @@ export const BEHAVIOUR_LIMITS: Record<
   agentTurns: [1, 500],
   stallMinutes: [1, 120],
   approvalMinutes: [1, 1440],
+  // Zero is off. Below fifteen minutes it is a background process with a
+  // model attached, not an assistant checking in.
+  heartbeatMinutes: [0, 1440],
 };
 
 function clamp(value: unknown, key: keyof typeof BEHAVIOUR_LIMITS): number {
@@ -108,5 +118,6 @@ export function parseBehaviour(raw: unknown, legacyAutoFix?: unknown): Behaviour
     agentTurns: clamp(input["agentTurns"], "agentTurns"),
     stallMinutes: clamp(input["stallMinutes"], "stallMinutes"),
     approvalMinutes: clamp(input["approvalMinutes"], "approvalMinutes"),
+    heartbeatMinutes: clamp(input["heartbeatMinutes"], "heartbeatMinutes"),
   };
 }
