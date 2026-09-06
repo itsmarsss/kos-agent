@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS crons (
   project_slug TEXT,
   enabled INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  last_run_at INTEGER
 );
 `;
 
@@ -39,6 +40,7 @@ interface Row {
   enabled: number;
   created_at: number;
   updated_at: number;
+  last_run_at: number | null;
 }
 
 function toJob(row: Row): CronJob {
@@ -59,6 +61,7 @@ function toJob(row: Row): CronJob {
     enabled: row.enabled === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    lastRunAt: row.last_run_at,
   };
 }
 
@@ -69,6 +72,22 @@ export class CronStore {
     private readonly now: () => number = Date.now,
   ) {
     this.db.exec(SCHEMA);
+    /*
+     * Added to a table that already exists elsewhere.
+     *
+     * Until now nothing recorded when a job actually ran: the schedule page
+     * showed the last time its conversation was touched, which is a different
+     * thing and was quietly wrong. The nightly backup has run since July and
+     * reported "never", having no conversation at all.
+     */
+    const columns = new Set(
+      (
+        this.db.prepare(`PRAGMA table_info(crons)`).all() as { name: string }[]
+      ).map((c) => c.name),
+    );
+    if (!columns.has("last_run_at")) {
+      this.db.exec(`ALTER TABLE crons ADD COLUMN last_run_at INTEGER`);
+    }
   }
 
   create(input: CreateCronInput): CronJob {
@@ -156,5 +175,15 @@ export class CronStore {
 
   delete(id: number): boolean {
     return this.db.prepare(`DELETE FROM crons WHERE id = ?`).run(id).changes > 0;
+  }
+
+  /**
+   * Record that a job ran, which is what makes a missed run detectable.
+   *
+   * Separate from updated_at, which moves when the owner edits the job and
+   * says nothing about whether it has fired.
+   */
+  markRun(id: number, at: number = this.now()): void {
+    this.db.prepare(`UPDATE crons SET last_run_at = ? WHERE id = ?`).run(at, id);
   }
 }
