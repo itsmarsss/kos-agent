@@ -93,6 +93,7 @@ export function Inspector(props: {
   // opened rather than carried on the card: the list does not need them and
   // this is the one place they are read.
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
+  const [call, setCall] = useState<AuditRecord | null>(null);
   const [editStatus, setEditStatus] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -117,6 +118,35 @@ export function Inspector(props: {
       cancelled = true;
     };
   }, [openSlug]);
+
+  /*
+   * The full call, fetched because the list no longer carries it.
+   *
+   * A tool result is the bulk of the activity response and the list never
+   * shows one, so it is left out there and read here, where it is the thing
+   * the drawer was opened for.
+   */
+  const openCallId = target?.kind === "tool" ? target.data.id : null;
+  useEffect(() => {
+    if (openCallId === null) {
+      setCall(null);
+      return;
+    }
+    let cancelled = false;
+    void api
+      .call(openCallId)
+      .then((c) => {
+        if (!cancelled) setCall(c);
+      })
+      .catch(() => {
+        // The row the list already had is still on screen; only the result
+        // stays as it came.
+        if (!cancelled) setCall(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [openCallId]);
 
 
   if (!target) return null;
@@ -143,7 +173,7 @@ export function Inspector(props: {
 
   switch (target.kind) {
     case "tool": {
-      const t = target.data;
+      const t = call && call.id === target.data.id ? call : target.data;
       title = t.tool;
       subtitle = `Tool call #${t.id} · ${t.isError ? "error" : "ok"}`;
       // What happened, then what it was asked, then who and when. The
@@ -152,7 +182,7 @@ export function Inspector(props: {
       body = (
         <>
           <p className="insp-lead">{summarizeAction(t.tool, t.args)}</p>
-          <Block label="Result" text={t.result || "—"} />
+          <Block label="Result" text={t.result || (call ? "—" : "…")} />
           <Block label="Args" text={prettyJson(t.args)} />
           <Facts
             rows={[
