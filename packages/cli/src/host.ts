@@ -167,6 +167,12 @@ export async function runHost(options: HostOptions): Promise<void> {
   });
 
   kernel.startCron();
+  // A job whose moment passed while nothing was running did not happen and
+  // said nothing. At most one run each, however many were missed.
+  const caught = kernel.catchUpCron();
+  if (caught > 0) {
+    console.log(`cron: ran ${caught} job${caught === 1 ? "" : "s"} that fell due while KOS was down`);
+  }
   // Off unless the owner set an interval; the timer re-reads it, so turning
   // it on in settings does not need a restart.
   kernel.startHeartbeat();

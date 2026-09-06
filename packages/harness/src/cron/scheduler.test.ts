@@ -103,3 +103,116 @@ describe("CronScheduler", () => {
     expect(sched.scheduledCount()).toBe(0);
   });
 });
+
+describe("running what fell due while nothing was listening", () => {
+  let root: string;
+  let ws: Workspace;
+  let store: CronStore;
+  let fired: number[];
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-catchup-"));
+    ws = Workspace.open(root);
+    store = new CronStore(ws.db);
+    fired = [];
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function scheduler(): CronScheduler {
+    return new CronScheduler(store, async (j) => {
+      fired.push(j.id);
+    });
+  }
+
+  /** An hourly job that last ran `agoMs` ago. */
+  function hourly(agoMs: number): number {
+    const created = store.create({
+      name: "hourly",
+      schedule: "0 * * * *",
+      type: "actions",
+      actions: [{ tool: "notify", args: {} }],
+      enabled: true,
+    });
+    store.markRun(created.id, Date.now() - agoMs);
+    return created.id;
+  }
+
+  it("runs a job whose moment passed while the host was down", async () => {
+    /*
+     * The scheduler lives in the process, so a laptop closed at noon simply
+     * does not run the noon job, and nothing says so. Seen for real: the
+     * nightly backup had run every night since July while the 9am and noon
+     * jobs had not fired once in two days.
+     */
+    hourly(5 * 60 * 60_000);
+    const sched = scheduler();
+    sched.start();
+
+    expect(sched.catchUp()).toBe(1);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fired.length).toBe(1);
+    sched.stop();
+  });
+
+  it("runs it once however many were missed", async () => {
+    // Ten days offline should produce today's nudge, not ten of them.
+    hourly(10 * 24 * 60 * 60_000);
+    const sched = scheduler();
+    sched.start();
+
+    sched.catchUp();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fired.length).toBe(1);
+    sched.stop();
+  });
+
+  it("leaves a job alone when it ran within the period", async () => {
+    hourly(60_000);
+    const sched = scheduler();
+    sched.start();
+
+    expect(sched.catchUp()).toBe(0);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fired).toEqual([]);
+    sched.stop();
+  });
+
+  it("does not fire a job that has never run", async () => {
+    // Never run is not missed: a job created while the host was down starts
+    // at its next proper time, not the moment it is noticed.
+    store.create({
+      name: "fresh",
+      schedule: "0 * * * *",
+      type: "actions",
+      actions: [{ tool: "notify", args: {} }],
+      enabled: true,
+    });
+    const sched = scheduler();
+    sched.start();
+
+    expect(sched.catchUp()).toBe(0);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fired).toEqual([]);
+    sched.stop();
+  });
+
+  it("records when a job actually ran", async () => {
+    // Without this a missed run cannot be told from a recent one, which is
+    // what the schedule page was getting wrong.
+    const created = store.create({
+      name: "j",
+      schedule: "0 * * * *",
+      type: "actions",
+      actions: [{ tool: "notify", args: {} }],
+      enabled: true,
+    });
+    expect(store.get(created.id)?.lastRunAt ?? null).toBeNull();
+
+    await scheduler().fire(store.get(created.id)!);
+    expect(store.get(created.id)?.lastRunAt).toBeGreaterThan(0);
+  });
+});
