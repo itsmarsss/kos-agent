@@ -81,16 +81,24 @@ describe("the iMessage adapter", () => {
   let sent: string[];
   let adapter: IMessageAdapter;
 
-  /** chatId 1 is the owner's own thread; 2 belongs to somebody else. */
+  /**
+   * One message, as Messages really records it: the sent copy and then the
+   * copy that arrives back. Written as a pair because reading both is what
+   * made the surface answer itself.
+   */
   function addMessage(rowId: number, text: string, chatId = 1): void {
     const db = new Database(path);
-    db.prepare(
+    const msg = db.prepare(
       `INSERT INTO message (ROWID, text, handle_id, is_from_me, date)
-       VALUES (?, ?, 0, 1, ?)`,
-    ).run(rowId, text, SOME_DATE);
-    db.prepare(
+       VALUES (?, ?, 0, ?, ?)`,
+    );
+    const link = db.prepare(
       `INSERT INTO chat_message_join (chat_id, message_id) VALUES (?, ?)`,
-    ).run(chatId, rowId);
+    );
+    msg.run(rowId * 2 - 1, text, 1, SOME_DATE);
+    link.run(chatId, rowId * 2 - 1);
+    msg.run(rowId * 2, text, 0, SOME_DATE);
+    link.run(chatId, rowId * 2);
     db.close();
   }
 
@@ -110,8 +118,10 @@ describe("the iMessage adapter", () => {
       INSERT INTO chat (ROWID, chat_identifier)
         VALUES (1, '${OWNER}'), (2, '${SOMEONE_ELSE}');
       INSERT INTO message (ROWID, text, handle_id, is_from_me, date)
-        VALUES (1, 'old news', 0, 1, ${SOME_DATE});
-      INSERT INTO chat_message_join (chat_id, message_id) VALUES (1, 1);
+        VALUES (1, 'old news', 0, 1, ${SOME_DATE}),
+               (2, 'old news', 0, 0, ${SOME_DATE});
+      INSERT INTO chat_message_join (chat_id, message_id)
+        VALUES (1, 1), (1, 2);
     `);
     db.close();
     sent = [];
@@ -157,6 +167,27 @@ describe("the iMessage adapter", () => {
 
     await adapter.send(OWNER, { text: "Here is your nudge." });
     addMessage(2, "Here is your nudge."); // as Messages records it
+    await adapter.poll();
+
+    expect(seen).toEqual([]);
+  });
+
+  it("does not answer itself when its reply is stored twice", async () => {
+    /*
+     * The one that got loose. Messages stores every message twice, so KOS's
+     * own reply came back as two rows; suppression consumed one and answered
+     * the other, whose answer came back as two more. It stopped when the
+     * host was killed.
+     */
+    const seen: InboundMessage[] = [];
+    adapter.onMessage((m) => {
+      seen.push(m);
+    });
+    await adapter.start();
+
+    await adapter.send(OWNER, { text: "Here is your nudge." });
+    // Both copies, exactly as Messages writes them.
+    addMessage(2, "Here is your nudge.");
     await adapter.poll();
 
     expect(seen).toEqual([]);
