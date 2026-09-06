@@ -276,6 +276,8 @@ export interface Behaviour {
   stallMinutes: number;
   /** Minutes a turn holds, suspended, waiting for you to decide. */
   approvalMinutes: number;
+  /** Minutes between unprompted look-arounds. Zero is off. */
+  heartbeatMinutes: number;
 }
 
 export interface FailingJob {

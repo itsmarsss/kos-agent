@@ -39,6 +39,7 @@ const BEHAVIOUR_FALLBACK: Behaviour = {
   agentTurns: 60,
   stallMinutes: 3,
   approvalMinutes: 30,
+  heartbeatMinutes: 0,
 };
 
 /**
@@ -802,6 +803,15 @@ export function SettingsPage(): ReactElement {
                 against a loop that runs all night.
               </p>
               <div className="set-grid">
+                <Limit
+                  label="Check in on its own, every N minutes"
+                  hint={`KOS wakes up on its own, looks at what has changed, and messages you only if something needs you. Nothing to say means it says nothing. Zero is off, which is the default: this is the one setting that spends money on a timer rather than because you asked.`}
+                  value={how.heartbeatMinutes}
+                  range={limits.heartbeatMinutes}
+                  onChange={(heartbeatMinutes) =>
+                    setHow({ ...how, heartbeatMinutes })
+                  }
+                />
                 <Limit
                   label="Self-prompted jobs per hour"
                   hint={`A scheduled job that thinks rather than running fixed actions. Zero stops them entirely. Default ${defaults.selfPromptsPerHour}.`}
