@@ -165,6 +165,9 @@ export async function runHost(options: HostOptions): Promise<void> {
   });
 
   kernel.startCron();
+  // Off unless the owner set an interval; the timer re-reads it, so turning
+  // it on in settings does not need a restart.
+  kernel.startHeartbeat();
   // Whatever the owner left running stays running across a restart of the
   // host, the same way a schedule does.
   kernel.startDaemons();

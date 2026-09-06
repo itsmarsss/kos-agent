@@ -83,6 +83,7 @@ import { createBuildsModule } from "../tools/builds.js";
 import { sitesModule } from "../tools/sites.js";
 import { systemsModule } from "../tools/systems.js";
 import { tasksModule } from "../tools/tasks.js";
+import { Heartbeat, HEARTBEAT_PROMPT, HEARTBEAT_SESSION } from "./heartbeat.js";
 import {
   assembleSystemPrompt,
   channelGuidance,
@@ -317,6 +318,7 @@ export class Kernel {
   private readonly embedder: EmbeddingProvider;
   private readonly episodic: EpisodicStore;
   private scheduler?: CronScheduler;
+  private heartbeat?: Heartbeat;
   /**
    * Scope tags accumulated per session. Inference reads only the latest
    * message, so a follow-up that happens to match no keyword would otherwise
@@ -2156,6 +2158,54 @@ export class Kernel {
     if (tool.startsWith("cron.")) this.reloadCron();
   }
 
+  /**
+   * Start looking around unprompted, if the owner has asked for it.
+   *
+   * Runs on its own thread and says nothing unless it decides there is
+   * something worth saying, so a beat that finds nothing costs a turn and
+   * makes no noise. Held to the same self-prompt budget as a scheduled job,
+   * because it is the same thing: KOS deciding to spend a turn on itself.
+   */
+  startHeartbeat(): void {
+    this.heartbeat?.stop();
+    this.heartbeat = new Heartbeat({
+      interval: () => this.behaviour().heartbeatMinutes,
+      // The interval is the rate limit; a second budget on top would only
+      // make the cadence the owner set mean something other than it says.
+      allowed: () => !this.killSwitch.halted,
+      beat: () => this.runHeartbeat(),
+    });
+    this.heartbeat.start();
+  }
+
+  stopHeartbeat(): void {
+    this.heartbeat?.stop();
+    this.heartbeat = undefined;
+  }
+
+  /** One look-around, recorded in its own thread whatever it decides. */
+  private async runHeartbeat(): Promise<void> {
+    await this.queue.enqueue(async () => {
+      const runId = this.runs.start("heartbeat", HEARTBEAT_SESSION);
+      try {
+        this.conversationFor("heartbeat", this.profile.ownerId);
+        await this.runTurn(
+          HEARTBEAT_PROMPT,
+          this.profile.ownerId,
+          HEARTBEAT_SESSION,
+          { origin: "system" },
+        );
+        this.runs.finish(runId, "ok");
+      } catch (err) {
+        this.runs.finish(
+          runId,
+          "error",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }, HEARTBEAT_SESSION);
+  }
+
   startCron(): void {
     this.scheduler = new CronScheduler(
       this.crons,
@@ -2921,6 +2971,7 @@ export class Kernel {
   close(): void {
     this.closed = true;
     this.stopCron();
+    this.stopHeartbeat();
     // Not awaited: close is synchronous everywhere it is called from, and the
     // children are killed either way once this process goes.
     void this.supervisor.stopAll();
