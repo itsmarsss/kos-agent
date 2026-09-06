@@ -230,6 +230,16 @@ export function fromResponsesResponse(
     usage: {
       inputTokens: response.usage?.input_tokens ?? 0,
       outputTokens: response.usage?.output_tokens ?? 0,
+      /*
+       * OpenAI caches a repeated prefix by itself, with no parameter to set,
+       * and bills the reused part at a discount. It says how much in
+       * input_tokens_details, which was read as nothing -- so a long
+       * conversation, which is mostly reused prefix, was priced as though
+       * every token were fresh.
+       */
+      ...(response.usage?.input_tokens_details?.cached_tokens
+        ? { cacheReadTokens: response.usage.input_tokens_details.cached_tokens }
+        : {}),
     },
     model: response.model,
   };

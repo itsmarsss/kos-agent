@@ -85,6 +85,60 @@ export function toAnthropicTools(
   }));
 }
 
+/**
+ * Where to tell Anthropic it may reuse what it has already read.
+ *
+ * A turn re-sends the whole prompt: the tools, the system prompt, and every
+ * previous message. In an agent loop that happens once per tool round-trip,
+ * so a conversation of any length pays full input price for the same text
+ * over and over. Marked with a breakpoint, everything up to the mark is
+ * served from cache at a tenth of the price on the next call.
+ *
+ * Three marks, of the four allowed. Tools and system are the stable prefix
+ * and are worth their own so they still hit when the conversation moves on;
+ * the last message extends the cache to cover the history as it grows.
+ *
+ * Always safe to set: a prefix shorter than the model's minimum is ignored
+ * rather than refused, so a short chat simply does not benefit.
+ */
+const CACHE: Anthropic.Messages.CacheControlEphemeral = { type: "ephemeral" };
+
+/** Block kinds that carry a breakpoint. A thinking block is the model's own. */
+function acceptsCache(block: AnthropicBlockParam): boolean {
+  return (
+    block.type === "text" ||
+    block.type === "tool_result" ||
+    block.type === "tool_use" ||
+    block.type === "image"
+  );
+}
+
+/**
+ * Mark the end of the conversation so far.
+ *
+ * The next call in the loop sends everything here plus one more result, so
+ * this is the boundary it will read back rather than re-pay for.
+ */
+function cacheLastMessage(
+  messages: Anthropic.Messages.MessageParam[],
+): Anthropic.Messages.MessageParam[] {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]!;
+    if (typeof message.content === "string") continue;
+    const blocks = message.content;
+    for (let j = blocks.length - 1; j >= 0; j--) {
+      const block = blocks[j]!;
+      if (!acceptsCache(block)) continue;
+      const marked = [...blocks];
+      marked[j] = { ...block, cache_control: CACHE } as AnthropicBlockParam;
+      const copy = [...messages];
+      copy[i] = { ...message, content: marked };
+      return copy;
+    }
+  }
+  return messages;
+}
+
 export function buildAnthropicParams(
   req: GenerateRequest,
   spec: ModelSpec,
@@ -92,11 +146,18 @@ export function buildAnthropicParams(
   const params: Anthropic.Messages.MessageCreateParamsNonStreaming = {
     model: spec.model,
     max_tokens: spec.maxTokens ?? req.maxTokens ?? DEFAULT_MAX_TOKENS,
-    messages: toAnthropicMessages(req.messages),
+    messages: cacheLastMessage(toAnthropicMessages(req.messages)),
   };
-  if (req.system) params.system = req.system;
+  if (req.system) {
+    // As a block rather than a string, which is the only shape that carries
+    // a breakpoint.
+    params.system = [{ type: "text", text: req.system, cache_control: CACHE }];
+  }
   if (req.tools?.length) {
-    params.tools = toAnthropicTools(req.tools);
+    const tools = toAnthropicTools(req.tools);
+    const last = tools[tools.length - 1];
+    if (last) tools[tools.length - 1] = { ...last, cache_control: CACHE };
+    params.tools = tools;
     if (spec.parallelToolCalls !== true) {
       // Same reason as the OpenAI side: one call, one result, then decide.
       params.tool_choice = { type: "auto", disable_parallel_tool_use: true };
@@ -160,8 +221,22 @@ export function fromAnthropicResponse(
     content,
     stopReason: mapStopReason(message.stop_reason),
     usage: {
-      inputTokens: message.usage.input_tokens,
+      /*
+       * Anthropic reports the cached parts alongside the fresh ones rather
+       * than inside them, so input is the sum. Counted as fresh input, the
+       * cache we just asked for would have looked like no saving at all.
+       */
+      inputTokens:
+        message.usage.input_tokens +
+        (message.usage.cache_read_input_tokens ?? 0) +
+        (message.usage.cache_creation_input_tokens ?? 0),
       outputTokens: message.usage.output_tokens,
+      ...(message.usage.cache_read_input_tokens
+        ? { cacheReadTokens: message.usage.cache_read_input_tokens }
+        : {}),
+      ...(message.usage.cache_creation_input_tokens
+        ? { cacheWriteTokens: message.usage.cache_creation_input_tokens }
+        : {}),
     },
     model: message.model,
   };

@@ -29,7 +29,11 @@ describe("anthropic translators", () => {
     });
     expect(params.model).toBe("claude-opus-4-8");
     expect(params.max_tokens).toBe(16000);
-    expect(params.system).toBe("be helpful");
+    // A block rather than a string: the only shape that carries a cache
+    // breakpoint. The text is unchanged.
+    expect(params.system).toEqual([
+      { type: "text", text: "be helpful", cache_control: { type: "ephemeral" } },
+    ]);
     expect(params.tools?.[0]?.name).toBe("echo");
     expect(params.thinking).toEqual({ type: "adaptive" });
     expect(params.output_config).toEqual({ effort: "high" });
@@ -125,5 +129,102 @@ describe("anthropic parallel tool calls", () => {
       buildAnthropicParams(req, { model: "claude-opus-4-8", parallelToolCalls: true })
         .tool_choice,
     ).toBeUndefined();
+  });
+});
+
+describe("telling Anthropic what it may reuse", () => {
+  const spec = { provider: "anthropic" as const, model: "claude-opus-5" };
+
+  it("marks tools, system and the end of the conversation", () => {
+    /*
+     * Every call in an agent loop re-sends the whole prompt, so without a
+     * breakpoint a long conversation pays full input price for the same text
+     * on every tool round-trip. A cache read is a tenth of that.
+     */
+    const params = buildAnthropicParams(
+      {
+        system: "You are KOS.",
+        messages: [
+          { role: "user", content: [{ type: "text", text: "hello" }] },
+          { role: "assistant", content: [{ type: "text", text: "hi" }] },
+        ],
+        tools: [
+          { name: "files.read", description: "read", inputSchema: { type: "object" } },
+          { name: "files.write", description: "write", inputSchema: { type: "object" } },
+        ],
+      },
+      spec,
+    );
+
+    const system = params.system as { cache_control?: unknown }[];
+    expect(system[0]?.cache_control).toEqual({ type: "ephemeral" });
+
+    // The last tool carries it, so the whole tool block is one cached prefix.
+    const tools = params.tools as { cache_control?: unknown }[];
+    expect(tools[0]?.cache_control).toBeUndefined();
+    expect(tools[1]?.cache_control).toEqual({ type: "ephemeral" });
+
+    const last = params.messages.at(-1)!.content as { cache_control?: unknown }[];
+    expect(last[0]?.cache_control).toEqual({ type: "ephemeral" });
+  });
+
+  it("stays within the four breakpoints Anthropic allows", () => {
+    const params = buildAnthropicParams(
+      {
+        system: "s",
+        messages: [
+          { role: "user", content: [{ type: "text", text: "a" }] },
+          { role: "assistant", content: [{ type: "text", text: "b" }] },
+          { role: "user", content: [{ type: "text", text: "c" }] },
+        ],
+        tools: [{ name: "t", description: "d", inputSchema: { type: "object" } }],
+      },
+      spec,
+    );
+    const json = JSON.stringify(params);
+    const marks = json.split('"cache_control"').length - 1;
+    expect(marks).toBeLessThanOrEqual(4);
+  });
+
+  it("does not mark a thinking block, which is the model's own", () => {
+    // Echoed back verbatim; adding to it changes something we were handed.
+    const params = buildAnthropicParams(
+      {
+        system: "s",
+        messages: [
+          { role: "user", content: [{ type: "text", text: "a" }] },
+          {
+            role: "assistant",
+            content: [
+              { type: "text", text: "answer" },
+              { type: "thinking", raw: { type: "thinking", thinking: "", signature: "x" } },
+            ],
+          },
+        ],
+      },
+      spec,
+    );
+    const blocks = params.messages.at(-1)!.content as {
+      type: string;
+      cache_control?: unknown;
+    }[];
+    const thinking = blocks.find((b) => b.type === "thinking");
+    expect(thinking?.cache_control).toBeUndefined();
+    // It fell back to the text block before it rather than marking nothing.
+    expect(blocks.find((b) => b.type === "text")?.cache_control).toEqual({
+      type: "ephemeral",
+    });
+  });
+
+  it("says nothing about caching when there is no system prompt or tools", () => {
+    const params = buildAnthropicParams(
+      { messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }] },
+      spec,
+    );
+    expect(params.system).toBeUndefined();
+    expect(params.tools).toBeUndefined();
+    // The conversation itself is still worth marking.
+    const last = params.messages.at(-1)!.content as { cache_control?: unknown }[];
+    expect(last[0]?.cache_control).toEqual({ type: "ephemeral" });
   });
 });
