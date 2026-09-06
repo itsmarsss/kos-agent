@@ -52,3 +52,7 @@ export {
   type SlashContext,
   type SlashSpec,
 } from "./commands.js";
+export { IMessageAdapter, renderForText, parseDecision } from "./imessage.js";
+export type { IMessageOptions } from "./imessage.js";
+export { ThreadReader } from "./imessagedb.js";
+export type { ThreadMessage } from "./imessagedb.js";

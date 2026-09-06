@@ -1,5 +1,6 @@
 import type { Server } from "node:http";
 import { connect } from "node:net";
+import { homedir } from "node:os";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +10,7 @@ import {
   ChannelRuntime,
   type ChannelAdapter,
   DiscordAdapter,
+  IMessageAdapter,
   Kernel,
   connectChannel,
   conversationKind,
@@ -60,10 +62,28 @@ function discordCreds(): { token: string; ownerId: string } | null {
 }
 
 /**
+ * The one iMessage conversation KOS may read, and where Messages keeps them.
+ *
+ * The handle is configuration and never a literal: it is the owner's own
+ * phone number or Apple ID, and this repository is public. Absent it, the
+ * surface stays off rather than guessing at a thread.
+ */
+function imessageConfig(): { handle: string; dbPath: string } | null {
+  const handle = process.env.KOS_OWNER_IMESSAGE?.trim();
+  if (!handle) return null;
+  const dbPath =
+    process.env.KOS_IMESSAGE_DB?.trim() ||
+    join(homedir(), "Library", "Messages", "chat.db");
+  return { handle, dbPath };
+}
+
+/**
  * Multi-modal host: one Kernel, cron, local API/UI, optional Discord.
  * This is what `kos start` runs. CLI clients attach over the API.
  */
 export async function runHost(options: HostOptions): Promise<void> {
+  let imessageAdapter: IMessageAdapter | undefined;
+  let imessageRuntime: ReturnType<typeof connectChannel> | undefined;
   const wantDiscord = options.discord !== false;
   const creds = discordCreds();
   if (options.requireDiscord && !creds) {
@@ -229,19 +249,11 @@ export async function runHost(options: HostOptions): Promise<void> {
      * The reply goes back the way any reply does.
      */
     /*
-     * A decision made anywhere settles the prompt here.
-     *
-     * The Discord prompt kept its buttons until Discord was the surface that
-     * answered it, so deciding from the dashboard left a message still
-     * offering the choice, and pressing it reported that the action did not
-     * exist. The queue tells whoever is listening, so this listens.
+     * Settling a prompt decided elsewhere is ChannelRuntime's job, for any
+     * surface that can do it, and it releases the subscription on stop. It
+     * was wired a second time here, which the prompt registry made harmless
+     * but did not make correct.
      */
-    kernel.approvals.onDecided((action) => {
-      void adapter?.settleApproval?.(
-        String(action.id),
-        action.status === "approved" ? "approved" : "denied",
-      );
-    });
 
     /*
      * The slash commands, answered by this process.
@@ -316,6 +328,46 @@ export async function runHost(options: HostOptions): Promise<void> {
     );
   }
 
+  /*
+   * iMessage, when the owner has said which thread.
+   *
+   * Its own runtime rather than a branch of Discord's: the two surfaces are
+   * independent, and a Mac with no Messages set up should lose iMessage and
+   * keep everything else.
+   */
+  const imessage = imessageConfig();
+  if (imessage) {
+    if (!existsSync(imessage.dbPath)) {
+      console.log(`iMessage: skipped (no database at ${imessage.dbPath})`);
+    } else {
+      try {
+        imessageAdapter = new IMessageAdapter({
+          handle: imessage.handle,
+          dbPath: imessage.dbPath,
+        });
+        imessageRuntime = connectChannel(imessageAdapter, kernel, {
+          ownerRecipientId: imessage.handle,
+          // The same rule as Discord: one sender maps to the owner and
+          // nothing else reaches the agent.
+          identity: new AllowlistMapping(
+            [{ channel: imessageAdapter.name, senderId: imessage.handle }],
+            kernel.profile.ownerId,
+          ),
+        });
+        await imessageRuntime.start();
+        console.log("iMessage: watching your own thread");
+      } catch (err) {
+        // Full Disk Access not granted, a locked database, Messages not set
+        // up: none of them are a reason for the host to refuse to start.
+        imessageAdapter = undefined;
+        imessageRuntime = undefined;
+        console.log(
+          `iMessage: not started (${err instanceof Error ? err.message : String(err)})`,
+        );
+      }
+    }
+  }
+
   console.log("Attach with: kos   |  stop with: kos stop");
 
   const shutdown = (): void => {
@@ -325,6 +377,7 @@ export async function runHost(options: HostOptions): Promise<void> {
     void (async () => {
       try {
         if (runtime) await runtime.stop();
+        if (imessageRuntime) await imessageRuntime.stop();
       } catch {
         // ignore
       }
