@@ -323,14 +323,17 @@ export async function handleApiRequest(
     return ok(
       kernel.crons.list().map((job) => {
         const thread = threads.get(cronSessionId(job.id));
+        /*
+         * lastRunAt comes from the job, not its conversation.
+         *
+         * It used to be the thread's updated_at, which moves when the thread
+         * is touched and does not exist at all for a job that has no thread.
+         * The nightly backup had run since July and reported "never".
+         */
         return {
           ...job,
           ...(thread
-            ? {
-                conversationId: thread.id,
-                running: busyNow.has(thread.id),
-                lastRunAt: thread.updatedAt,
-              }
+            ? { conversationId: thread.id, running: busyNow.has(thread.id) }
             : {}),
         };
       }),

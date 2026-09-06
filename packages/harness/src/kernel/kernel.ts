@@ -2889,6 +2889,16 @@ export class Kernel {
     return { ...res, conversationId: target };
   }
 
+  /**
+   * Run what fell due while the host was down.
+   *
+   * Called after the schedule is registered, not inside start(), so a reload
+   * after an edit does not re-fire anything: only a real boot catches up.
+   */
+  catchUpCron(): number {
+    return this.scheduler?.catchUp() ?? 0;
+  }
+
   reloadCron(): void {
     this.scheduler?.reload();
     this.pruneHealth();
