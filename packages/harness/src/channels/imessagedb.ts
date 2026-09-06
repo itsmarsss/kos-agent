@@ -1,3 +1,4 @@
+import { decodeAttributedBody } from "./attributedbody.js";
 import { openReadOnlyDatabase } from "../store/db.js";
 import type { Db } from "../store/db.js";
 
@@ -10,13 +11,17 @@ import type { Db } from "../store/db.js";
  * that could see all of that would be the largest hole in that rule by far.
  *
  * So the scope is the query, not a filter applied afterwards. Every read is
- * bound to one handle, passed as a parameter, and there is no code path that
- * builds a statement without it. Nothing else in the file is reachable: not
- * by a bug in the caller, and not by an agent that talks its way into calling
- * this, because the SQL it would reach cannot express the question.
+ * bound to one conversation, passed as a parameter, and there is no code path
+ * that builds a statement without it. Nothing else in the file is reachable:
+ * not by a bug in the caller, and not by an agent that talks its way into
+ * calling this, because the SQL it would reach cannot express the question.
  *
- * The handle is the owner's own -- the note-to-self thread -- so what KOS can
- * see is what the owner deliberately sent to themselves.
+ * The conversation is the owner's own -- the note-to-self thread -- so what
+ * KOS can see is what the owner deliberately sent to themselves.
+ *
+ * Scoped by chat rather than by handle, which matters: a message the owner
+ * sends to themselves is recorded with handle_id 0, so joining through handle
+ * silently dropped a third of the thread while looking like it worked.
  */
 
 /** A message from the watched thread. Text only; attachments are not read. */
@@ -45,7 +50,7 @@ function toUnixMs(appleDate: number): number {
 }
 
 export interface ThreadReaderOptions {
-  /** The one handle this reader may ever see. */
+  /** The one conversation this reader may ever see, by chat identifier. */
   handle: string;
   /** Path to chat.db. Injected so a test never opens the real one. */
   path: string;
@@ -88,26 +93,33 @@ export class ThreadReader {
   since(after: number, limit = 50): ThreadMessage[] {
     const rows = this.db
       .prepare(
-        `SELECT m.ROWID AS rowId, m.text AS text, m.is_from_me AS fromMe,
-                m.date AS date
+        `SELECT m.ROWID AS rowId, m.text AS text, m.attributedBody AS body,
+                m.is_from_me AS fromMe, m.date AS date
          FROM message m
-         JOIN handle h ON m.handle_id = h.ROWID
-         WHERE h.id = ? AND m.ROWID > ? AND m.text IS NOT NULL AND m.text <> ''
+         JOIN chat_message_join j ON j.message_id = m.ROWID
+         JOIN chat c ON c.ROWID = j.chat_id
+         WHERE c.chat_identifier = ? AND m.ROWID > ?
          ORDER BY m.ROWID
          LIMIT ?`,
       )
       .all(this.handle, after, limit) as {
       rowId: number;
-      text: string;
+      text: string | null;
+      body: Buffer | null;
       fromMe: number;
       date: number;
     }[];
-    return rows.map((r) => ({
-      rowId: r.rowId,
-      text: r.text,
-      fromMe: r.fromMe === 1,
-      at: toUnixMs(r.date),
-    }));
+    return rows
+      .map((r) => ({
+        rowId: r.rowId,
+        // text first where it is there, because it needs no guessing.
+        text: r.text?.trim() ? r.text : (decodeAttributedBody(r.body) ?? ""),
+        fromMe: r.fromMe === 1,
+        at: toUnixMs(r.date),
+      }))
+      // A reaction, an attachment with no caption and a few other things
+      // carry no words at all. Answering one is answering nothing.
+      .filter((m) => m.text.trim().length > 0);
   }
 
   close(): void {

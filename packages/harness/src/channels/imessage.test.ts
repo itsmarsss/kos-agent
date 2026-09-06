@@ -81,12 +81,16 @@ describe("the iMessage adapter", () => {
   let sent: string[];
   let adapter: IMessageAdapter;
 
-  function addMessage(rowId: number, text: string, handleId = 1): void {
+  /** chatId 1 is the owner's own thread; 2 belongs to somebody else. */
+  function addMessage(rowId: number, text: string, chatId = 1): void {
     const db = new Database(path);
     db.prepare(
       `INSERT INTO message (ROWID, text, handle_id, is_from_me, date)
-       VALUES (?, ?, ?, 1, ?)`,
-    ).run(rowId, text, handleId, SOME_DATE);
+       VALUES (?, ?, 0, 1, ?)`,
+    ).run(rowId, text, SOME_DATE);
+    db.prepare(
+      `INSERT INTO chat_message_join (chat_id, message_id) VALUES (?, ?)`,
+    ).run(chatId, rowId);
     db.close();
   }
 
@@ -96,13 +100,18 @@ describe("the iMessage adapter", () => {
     const db = new Database(path);
     db.exec(`
       CREATE TABLE handle (ROWID INTEGER PRIMARY KEY, id TEXT);
+      CREATE TABLE chat (ROWID INTEGER PRIMARY KEY, chat_identifier TEXT);
+      CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);
       CREATE TABLE message (
-        ROWID INTEGER PRIMARY KEY, text TEXT, handle_id INTEGER,
-        is_from_me INTEGER, date INTEGER
+        ROWID INTEGER PRIMARY KEY, text TEXT, attributedBody BLOB,
+        handle_id INTEGER, is_from_me INTEGER, date INTEGER
       );
       INSERT INTO handle (ROWID, id) VALUES (1, '${OWNER}'), (2, '${SOMEONE_ELSE}');
+      INSERT INTO chat (ROWID, chat_identifier)
+        VALUES (1, '${OWNER}'), (2, '${SOMEONE_ELSE}');
       INSERT INTO message (ROWID, text, handle_id, is_from_me, date)
-        VALUES (1, 'old news', 1, 1, ${SOME_DATE});
+        VALUES (1, 'old news', 0, 1, ${SOME_DATE});
+      INSERT INTO chat_message_join (chat_id, message_id) VALUES (1, 1);
     `);
     db.close();
     sent = [];

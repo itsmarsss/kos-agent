@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { typedstream } from "./imessage.fixture.js";
 import { ThreadReader } from "./imessagedb.js";
 
 /**
@@ -16,7 +17,6 @@ import { ThreadReader } from "./imessagedb.js";
  */
 const OWNER = "+15550001111";
 const SOMEONE_ELSE = "+15559998888";
-const A_THIRD_PERSON = "friend@example.com";
 
 /** 2024-01-01 in Apple's epoch, in nanoseconds. */
 const SOME_DATE = 725_846_400 * 1e9;
@@ -25,38 +25,56 @@ describe("reading one iMessage thread", () => {
   let root: string;
   let path: string;
 
+  function open(): Database.Database {
+    return new Database(path);
+  }
+
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "kos-imsg-"));
     path = join(root, "chat.db");
-    const db = new Database(path);
+    const db = open();
     db.exec(`
       CREATE TABLE handle (ROWID INTEGER PRIMARY KEY, id TEXT);
+      CREATE TABLE chat (ROWID INTEGER PRIMARY KEY, chat_identifier TEXT);
+      CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);
       CREATE TABLE message (
         ROWID INTEGER PRIMARY KEY,
         text TEXT,
+        attributedBody BLOB,
         handle_id INTEGER,
         is_from_me INTEGER,
         date INTEGER
       );
+      INSERT INTO handle (ROWID, id) VALUES (1, '${OWNER}'), (2, '${SOMEONE_ELSE}');
+      INSERT INTO chat (ROWID, chat_identifier)
+        VALUES (1, '${OWNER}'), (2, '${SOMEONE_ELSE}');
     `);
-    const handle = db.prepare(`INSERT INTO handle (ROWID, id) VALUES (?, ?)`);
-    handle.run(1, OWNER);
-    handle.run(2, SOMEONE_ELSE);
-    handle.run(3, A_THIRD_PERSON);
 
     const msg = db.prepare(
-      `INSERT INTO message (ROWID, text, handle_id, is_from_me, date)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO message (ROWID, text, attributedBody, handle_id, is_from_me, date)
+       VALUES (?, ?, ?, ?, ?, ?)`,
     );
-    // Other people's conversations, interleaved with the owner's own thread
-    // exactly as they would be in a real database.
-    msg.run(1, "private thing said to a friend", 2, 0, SOME_DATE);
-    msg.run(2, "note to self one", 1, 1, SOME_DATE);
-    msg.run(3, "something from the third person", 3, 0, SOME_DATE);
-    msg.run(4, "note to self two", 1, 1, SOME_DATE);
-    msg.run(5, "a reply to the friend", 2, 1, SOME_DATE);
-    msg.run(6, "", 1, 1, SOME_DATE);
-    msg.run(7, null, 1, 1, SOME_DATE);
+    const link = db.prepare(
+      `INSERT INTO chat_message_join (chat_id, message_id) VALUES (?, ?)`,
+    );
+
+    // The owner's own thread, in the three shapes it really takes.
+    msg.run(1, "note with plain text", null, 1, 0, SOME_DATE);
+    link.run(1, 1);
+    msg.run(2, null, typedstream("note in attributedBody"), 1, 0, SOME_DATE);
+    link.run(1, 2);
+    // Sent to self: handle_id 0, which is why this is scoped by chat.
+    msg.run(3, null, typedstream("sent to myself"), 0, 1, SOME_DATE);
+    link.run(1, 3);
+    // A tapback and an attachment: rows with no words in them at all.
+    msg.run(4, null, null, 1, 0, SOME_DATE);
+    link.run(1, 4);
+
+    // Somebody else's conversation, which must stay unreachable.
+    msg.run(5, "private thing said to a friend", null, 2, 0, SOME_DATE);
+    link.run(2, 5);
+    msg.run(6, null, typedstream("another private thing"), 2, 0, SOME_DATE);
+    link.run(2, 6);
     db.close();
   });
 
@@ -70,8 +88,9 @@ describe("reading one iMessage thread", () => {
     reader.close();
 
     expect(seen.map((m) => m.text)).toEqual([
-      "note to self one",
-      "note to self two",
+      "note with plain text",
+      "note in attributedBody",
+      "sent to myself",
     ]);
   });
 
@@ -85,8 +104,35 @@ describe("reading one iMessage thread", () => {
     reader.close();
 
     expect(everything).not.toContain("private thing");
-    expect(everything).not.toContain("third person");
-    expect(everything).not.toContain("a reply to the friend");
+    expect(everything).not.toContain("another private");
+  });
+
+  it("reads a message the owner sent to themselves", () => {
+    /*
+     * Recorded with handle_id 0, because there is no other party. Joining
+     * through handle dropped a third of the real thread while looking like
+     * it worked.
+     */
+    const reader = new ThreadReader({ handle: OWNER, path });
+    const seen = reader.since(0);
+    reader.close();
+    expect(seen.map((m) => m.text)).toContain("sent to myself");
+  });
+
+  it("reads a body that lives only in attributedBody", () => {
+    // On a real database this was 111 of 112 messages: trusting `text` alone
+    // sees almost nothing while appearing to work.
+    const reader = new ThreadReader({ handle: OWNER, path });
+    const seen = reader.since(0);
+    reader.close();
+    expect(seen.map((m) => m.text)).toContain("note in attributedBody");
+  });
+
+  it("skips rows with no words rather than sending empty turns", () => {
+    const reader = new ThreadReader({ handle: OWNER, path });
+    const seen = reader.since(0);
+    reader.close();
+    expect(seen.every((m) => m.text.trim().length > 0)).toBe(true);
   });
 
   it("starts from the end, so waking up does not answer old messages", () => {
@@ -100,30 +146,27 @@ describe("reading one iMessage thread", () => {
     const reader = new ThreadReader({ handle: OWNER, path });
     const mark = reader.watermark();
 
-    const db = new Database(path);
+    const db = open();
     db.prepare(
       `INSERT INTO message (ROWID, text, handle_id, is_from_me, date)
-       VALUES (?, ?, ?, ?, ?)`,
-    ).run(8, "something new", 1, 1, SOME_DATE);
+       VALUES (7, 'something new', 1, 0, ?)`,
+    ).run(SOME_DATE);
+    db.prepare(
+      `INSERT INTO chat_message_join (chat_id, message_id) VALUES (1, 7)`,
+    ).run();
     // ...and something new from someone else, which must stay invisible.
     db.prepare(
       `INSERT INTO message (ROWID, text, handle_id, is_from_me, date)
-       VALUES (?, ?, ?, ?, ?)`,
-    ).run(9, "new message from a friend", 2, 0, SOME_DATE);
+       VALUES (8, 'new message from a friend', 2, 0, ?)`,
+    ).run(SOME_DATE);
+    db.prepare(
+      `INSERT INTO chat_message_join (chat_id, message_id) VALUES (2, 8)`,
+    ).run();
     db.close();
 
     const fresh = reader.since(mark);
     reader.close();
     expect(fresh.map((m) => m.text)).toEqual(["something new"]);
-  });
-
-  it("skips rows with no text rather than sending empty turns", () => {
-    // A reaction, an attachment with no caption, and a few other things all
-    // arrive as a row with null text. Answering one is answering nothing.
-    const reader = new ThreadReader({ handle: OWNER, path });
-    const seen = reader.since(0);
-    reader.close();
-    expect(seen.every((m) => m.text.length > 0)).toBe(true);
   });
 
   it("reads Apple's epoch as a real date", () => {
@@ -135,8 +178,7 @@ describe("reading one iMessage thread", () => {
     expect(new Date(first!.at).getUTCFullYear()).toBe(2024);
   });
 
-  it("refuses to be built without a handle to confine it to", () => {
-    // An empty handle matches nothing, which is safe but silently deaf.
-    expect(() => new ThreadReader({ handle: "  ", path })).toThrow(/handle/);
+  it("refuses to be built without a conversation to confine it to", () => {
+    expect(() => new ThreadReader({ handle: "  ", path })).toThrow(/conversation|handle/);
   });
 });
