@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -638,6 +638,94 @@ describe("KOS end-to-end flows", () => {
     const wire = JSON.stringify(kernel.sessions.get(`cron:${job.id}`));
     expect(wire).toContain("review my spending");
     expect(wire).toContain("Reviewed the budget.");
+  });
+
+  it("gives a fixed-actions job a thread too, with what it actually ran", async () => {
+    /*
+     * An actions job makes no model call, so there was no turn to record: its
+     * runs were rows in the log saying only whether they failed, with nothing
+     * to watch and nothing to ask about. Written in the shape a turn
+     * produces, so the chat view renders the calls as calls.
+     */
+    const model = scripted([text("unused")]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({
+      name: "nightly-ping",
+      schedule: "0 3 * * *",
+      type: "actions",
+      actions: [{ tool: "notify", args: { text: "stand up" } }],
+      enabled: true,
+    });
+
+    await kernel.fireCron(job.id);
+
+    const thread = kernel.conversations.get(`cron:${job.id}`);
+    expect(thread?.title).toBe("nightly-ping");
+    const wire = JSON.stringify(kernel.sessions.get(`cron:${job.id}`));
+    // The call, its arguments and its result, all readable afterwards.
+    expect(wire).toContain("notify");
+    expect(wire).toContain("stand up");
+    expect(wire).toContain("tool_result");
+    expect(wire).toContain("Ran 1 action");
+  });
+
+  it("queues a risky scheduled action instead of waiting on the owner", async () => {
+    /*
+     * It suspended here for the approval window -- half an hour by default --
+     * holding its place in the work queue, and then failed by timeout because
+     * the owner was asleep. Nobody is watching an unattended run, so it
+     * queues the action, says so, and finishes.
+     */
+    const model = scripted([text("unused")]);
+    kernel = await boot(model.inference);
+    writeFileSync(join(kernel.workspace.root, "doomed.txt"), "bye");
+    const job = kernel.crons.create({
+      name: "tidy-up",
+      schedule: "0 3 * * *",
+      type: "actions",
+      actions: [{ tool: "files.rm", args: { path: "doomed.txt" } }],
+      enabled: true,
+    });
+
+    const started = Date.now();
+    await kernel.fireCron(job.id);
+    // Promptly: the point is that it did not sit on the decision.
+    expect(Date.now() - started).toBeLessThan(2000);
+
+    const pending = kernel.approvals.pending();
+    expect(pending.map((p) => p.tool)).toEqual(["files.rm"]);
+    expect(existsSync(join(kernel.workspace.root, "doomed.txt"))).toBe(true);
+    // And the thread says what it is waiting on rather than going quiet.
+    expect(JSON.stringify(kernel.sessions.get(`cron:${job.id}`))).toContain(
+      "Queued for approval",
+    );
+
+    // The decision runs it, which is what approve does for anything nothing
+    // is waiting on.
+    await kernel.approve(pending[0]!.id);
+    expect(existsSync(join(kernel.workspace.root, "doomed.txt"))).toBe(false);
+  });
+
+  it("records a failed actions run, which is the one worth reading", async () => {
+    const model = scripted([text("unused")]);
+    kernel = await boot(model.inference);
+    const job = kernel.crons.create({
+      name: "broken",
+      schedule: "0 3 * * *",
+      type: "actions",
+      // A safe tool that fails, rather than an unknown one: an unrecognised
+      // name classifies as risky and the run then waits on an approval
+      // nobody is there to give.
+      actions: [{ tool: "files.read", args: { path: "nope/missing.txt" } }],
+      enabled: true,
+    });
+
+    const outcome = await kernel.fireCron(job.id);
+    expect(outcome.ok).toBe(false);
+
+    const wire = JSON.stringify(kernel.sessions.get(`cron:${job.id}`));
+    expect(wire).toContain("files.read");
+    expect(wire).toContain("1 failed");
   });
 
   it("keeps a job's runs in one thread, so last week's is above this one", async () => {

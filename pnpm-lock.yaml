@@ -29,9 +29,6 @@ importers:
       '@kos/harness':
         specifier: workspace:*
         version: link:../harness
-      '@kos/shared':
-        specifier: workspace:*
-        version: link:../shared
 
   packages/harness:
     dependencies:

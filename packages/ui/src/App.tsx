@@ -122,9 +122,20 @@ export function App(): React.ReactElement {
 
   useEffect(() => {
     void refresh();
-    const t = setInterval(() => void refresh(), 5000);
-    // A hidden tab has its timers throttled to about once a minute, so coming
-    // back to one shows a minute-old dashboard until the next tick.
+    /*
+     * Nothing is fetched for a tab nobody is looking at.
+     *
+     * One poll is about 420KB against a real workspace, most of it the audit
+     * log, and it ran every five seconds whether or not the window was on
+     * screen. A hidden tab still fires the timer, just throttled, so an open
+     * background tab cost megabytes an hour to show nobody anything.
+     */
+    const t = setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      void refresh();
+    }, 5000);
+    // Coming back refreshes at once, so skipping the hidden ticks never
+    // leaves a stale dashboard on screen.
     const onVisible = (): void => {
       if (document.visibilityState === "visible") void refresh();
     };
@@ -438,13 +449,9 @@ export function App(): React.ReactElement {
       ? "none"
       : inspect.kind === "tool"
         ? `tool-${inspect.data.id}`
-        : inspect.kind === "cron"
-          ? `cron-${inspect.data.id}`
-          : inspect.kind === "run"
-            ? `run-${inspect.data.id}`
-            : inspect.kind === "fact"
-              ? `fact-${inspect.data.key}`
-              : `project-${inspect.data.slug}`;
+        : inspect.kind === "run"
+          ? `run-${inspect.data.id}`
+          : `project-${inspect.data.slug}`;
 
   const shell = (body: React.ReactNode): React.ReactElement => (
     <ErrorBoundary label="dashboard">
@@ -487,26 +494,6 @@ export function App(): React.ReactElement {
             onSetProjectStatus={async (slug, st) => {
               await api.setProjectStatus(slug, st);
               flash("ok", `Project ${slug} → ${st}`);
-              await refresh();
-            }}
-            onToggleCron={async (id, enabled) => {
-              await api.setCronEnabled(id, enabled);
-              flash("ok", enabled ? `Cron #${id} enabled` : `Cron #${id} disabled`);
-              await refresh();
-            }}
-            onDeleteCron={async (id) => {
-              await api.deleteCron(id);
-              flash("ok", `Deleted cron #${id}`);
-              await refresh();
-            }}
-            onSaveFact={async (key, value, kind) => {
-              await api.saveMemory(key, value, kind);
-              flash("ok", `Saved ${key}`);
-              await refresh();
-            }}
-            onDeleteFact={async (key) => {
-              await api.deleteMemory(key);
-              flash("ok", `Deleted ${key}`);
               await refresh();
             }}
           />
@@ -697,6 +684,18 @@ export function App(): React.ReactElement {
                 void api
                   .setCronEnabled(id, enabled)
                   .then(() => refresh())
+                  .catch((err: unknown) =>
+                    flash("err", err instanceof Error ? err.message : String(err)),
+                  );
+              }}
+              onDelete={(id) => {
+                setEditingCron(null);
+                void api
+                  .deleteCron(id)
+                  .then(() => {
+                    flash("ok", "Deleted");
+                    return refresh();
+                  })
                   .catch((err: unknown) =>
                     flash("err", err instanceof Error ? err.message : String(err)),
                   );

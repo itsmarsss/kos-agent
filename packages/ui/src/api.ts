@@ -513,9 +513,9 @@ export const api = {
       `/api/runs?limit=${limit}${failedOnly ? "&failed=1" : ""}`,
     ),
   activity: (limit = 100) =>
-    get<{ tools: AuditRecord[]; runs: RunRecord[] }>(
-      `/api/activity?limit=${limit}`,
-    ),
+    get<{ tools: AuditRecord[] }>(`/api/activity?limit=${limit}`),
+  /** One call with its result, which the list leaves out. */
+  call: (id: number) => get<AuditRecord>(`/api/activity/call?id=${id}`),
   pages: (project?: string) =>
     get<PageSummary[]>(
       project ? `/api/pages?project=${encodeURIComponent(project)}` : "/api/pages",

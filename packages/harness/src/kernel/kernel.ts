@@ -6,6 +6,7 @@ import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry } from "../agent/registry.js";
 import {
   cronFailure,
+  type CronActionResult,
   runCronJob,
   type CronExecResult,
 } from "../cron/executor.js";
@@ -1124,6 +1125,16 @@ export class Kernel {
                   used.cacheReadInputTokens +
                   used.cacheCreationInputTokens,
                 outputTokens: used.outputTokens,
+                /*
+                 * The split and the SDK's own price, both of which were
+                 * being computed and then dropped. Cached input costs a
+                 * fraction of fresh input, so a total that priced all of it
+                 * the same read several times high on exactly the long
+                 * conversations this path is for.
+                 */
+                cacheReadTokens: used.cacheReadInputTokens,
+                cacheCreationTokens: used.cacheCreationInputTokens,
+                costUSD: used.costUSD,
               });
             }
             this.runs.finish(runId, "ok");
@@ -1309,7 +1320,8 @@ export class Kernel {
    * The thread is made the first time the job runs rather than when it is
    * written, so a schedule that never fires leaves no empty chat behind.
    */
-  private async runJobTurn(prompt: string, job: CronJob): Promise<string> {
+  /** The job's thread, made on its first run so an unfired schedule leaves none. */
+  private jobThread(job: CronJob): string {
     const id = cronSessionId(job.id);
     if (!this.conversations.get(id)) {
       this.conversations.create({
@@ -1323,6 +1335,67 @@ export class Kernel {
         ].join(" "),
       });
     }
+    return id;
+  }
+
+  /**
+   * Write a fixed-actions run into the job's thread.
+   *
+   * An actions job makes no model call, so there was no turn to record and
+   * nothing to watch or ask about afterwards: its runs were rows in the log
+   * saying only whether they failed. Written in the shape a turn produces --
+   * the call, then its result -- so the chat view renders it as the tool
+   * calls it is, and the owner can ask about it in the same thread.
+   */
+  private recordActionRun(job: CronJob, results: CronActionResult[]): void {
+    if (results.length === 0) return;
+    const id = this.jobThread(job);
+    const calls: ModelMessage[] = results.flatMap((r, i) => [
+      {
+        role: "assistant" as const,
+        content: [
+          {
+            type: "tool_use" as const,
+            id: `cron-${job.id}-${i}`,
+            name: r.tool,
+            input: r.args ?? {},
+          },
+        ],
+      },
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "tool_result" as const,
+            toolUseId: `cron-${job.id}-${i}`,
+            content: r.content,
+            ...(r.isError ? { isError: true } : {}),
+          },
+        ],
+      },
+    ]);
+    const failed = results.filter((r) => r.isError).length;
+    this.sessions.record(id, [
+      ...this.sessions.get(id),
+      { role: "user", content: [{ type: "text", text: "The schedule fired." }] },
+      ...calls,
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: failed
+              ? `Ran ${results.length} action${results.length === 1 ? "" : "s"}; ${failed} failed.`
+              : `Ran ${results.length} action${results.length === 1 ? "" : "s"}.`,
+          },
+        ],
+      },
+    ]);
+    this.conversations.touch(id);
+  }
+
+  private async runJobTurn(prompt: string, job: CronJob): Promise<string> {
+    const id = this.jobThread(job);
     /*
      * Not enqueued again: fire() is already running inside the work queue,
      * and handleMessage enqueues on the conversation's own lane, so this
@@ -1915,6 +1988,8 @@ export class Kernel {
     grant?: string[];
     /** Told the first time a call in this turn suspends on the owner. */
     onQueued?: (action: PendingAction) => void;
+    /** False for unattended work, which queues an approval and moves on. */
+    waitForApproval?: boolean;
   } = {}): GuardedTools {
     return new GuardedTools({
       registry: this.registry,
@@ -1931,6 +2006,7 @@ export class Kernel {
       ...(opts.scopeTags ? { scopeTags: opts.scopeTags } : {}),
       ...(opts.allow !== undefined ? { allow: opts.allow } : {}),
       ...(opts.grant?.length ? { grant: opts.grant } : {}),
+      ...(opts.waitForApproval === false ? { waitForApproval: false } : {}),
       onQueued: (action) => {
         opts.onQueued?.(action);
         this.onApprovalRequested?.(action);
@@ -2088,19 +2164,49 @@ export class Kernel {
               this.reportHealth(key, job.name, true, null);
               return { ran: true, results: [] };
             }
+            /*
+             * A fixed-actions job runs in its thread too.
+             *
+             * Binding the toolbox to it is what makes the run watchable: the
+             * guarded path already emits a bubble per call, and with no
+             * conversation to emit into they went nowhere. The thread is made
+             * up front for the same reason.
+             */
+            const jobSession =
+              job.type === "actions" ? this.jobThread(job) : undefined;
+            if (jobSession) {
+              this.working.add(jobSession);
+              this.progress.emit({
+                kind: "turn-start",
+                conversationId: jobSession,
+              });
+            }
             const result = await runCronJob(job, {
               // The job's query and condition are reads that build the
               // variable scope, so they run on the read-only handle. Writes
               // belong in the job's actions, which go through the guarded
               // tool path and its risk tiers.
               db: this.workspace.reader,
-              tools: this.guardedTools(),
+              tools: this.guardedTools({
+                ...(jobSession ? { conversationId: jobSession } : {}),
+                // Unattended: queue what needs a decision and finish, rather
+                // than holding a queue slot until the owner wakes up.
+                waitForApproval: false,
+              }),
               inference: this.inference,
               buildSystem: (j) => this.cronSystemPrompt(j),
               // In the job's own thread, so a run can be watched while it
               // happens, asked about afterwards, and read back next week.
               runInConversation: (prompt, j) => this.runJobTurn(prompt, j),
             });
+            if (jobSession) {
+              // Written whatever happened: a run where every action failed is
+              // the one most worth being able to read afterwards.
+              if (result.ran && result.type === "actions") {
+                this.recordActionRun(job, result.results);
+              }
+              this.endTurn(jobSession);
+            }
             const problem = cronFailure(result);
             // A job whose condition said "not now" did what it was written to
             // do, so it is healthy rather than nothing having happened.
@@ -2113,6 +2219,7 @@ export class Kernel {
             return result;
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
+            if (job.type === "actions") this.endTurn(cronSessionId(job.id));
             this.runs.finish(runId, "error", message);
             this.reportHealth(key, job.name, false, message);
             throw err;

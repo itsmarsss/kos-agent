@@ -90,6 +90,7 @@ export function CronEditor({
   onCancel,
   onRunNow,
   onToggle,
+  onDelete,
 }: {
   /** Absent when writing a new one. */
   job?: CronJob;
@@ -99,6 +100,8 @@ export function CronEditor({
   onRunNow?: (id: number) => void;
   /** Turn it off without deleting it. */
   onToggle?: (id: number, enabled: boolean) => void;
+  /** Remove it, and the thread its runs were written into. */
+  onDelete?: (id: number) => void;
 }): ReactElement {
   const [name, setName] = useState(job?.name ?? "");
   const [schedule, setSchedule] = useState(job?.schedule ?? "0 9 * * *");
@@ -175,6 +178,26 @@ export function CronEditor({
                 onClick={() => onToggle(job.id, !job.enabled)}
               >
                 {job.enabled ? "Pause" : "Resume"}
+              </button>
+            )}
+            {/* The only delete lived in a panel the schedule list does not
+                open, so from here a job could be paused forever and never
+                removed. */}
+            {onDelete && (
+              <button
+                type="button"
+                className="btn btn--sm btn--danger-ghost"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Delete “${job.name}”? Its runs go with it.`,
+                    )
+                  ) {
+                    onDelete(job.id);
+                  }
+                }}
+              >
+                Delete
               </button>
             )}
           </span>

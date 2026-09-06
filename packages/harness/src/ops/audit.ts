@@ -123,4 +123,12 @@ export class AuditLog {
       .all(limit) as Row[];
     return rows.map(toRecord);
   }
+
+  /** One call in full, for a reader who opened it. */
+  get(id: number): AuditRecord | undefined {
+    const row = this.db
+      .prepare(`SELECT * FROM audit_log WHERE id = ?`)
+      .get(id) as Row | undefined;
+    return row ? toRecord(row) : undefined;
+  }
 }

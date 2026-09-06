@@ -1,3 +1,4 @@
+import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -185,5 +186,70 @@ describe("saying so when it trims", () => {
     store.set("s1", conversation(10));
     expect(store.get("s1")).toHaveLength(20);
     expect(seen).toEqual([]);
+  });
+});
+
+describe("trimming a recorded history", () => {
+  /** How much stringify work a call does, which is where trim spends itself. */
+  function stringifyCalls(fn: () => void): number {
+    let n = 0;
+    const real = JSON.stringify;
+    (JSON as { stringify: unknown }).stringify = function (
+      this: unknown,
+      ...args: Parameters<typeof JSON.stringify>
+    ) {
+      n += 1;
+      return real.apply(this, args);
+    };
+    try {
+      fn();
+    } finally {
+      (JSON as { stringify: unknown }).stringify = real;
+    }
+    return n;
+  }
+
+  it("measures the history once, not twice", () => {
+    /*
+     * record() trimmed and then handed the result to set(), which trims what
+     * it is given -- so every turn capped every tool result and sized every
+     * exchange, then did identical work over its own output. The second pass
+     * could only agree with the first.
+     *
+     * Asserted against set() rather than a fixed number: both do one trim and
+     * one write for the same input, so they cost the same. Double-trimming
+     * makes record() cost strictly more.
+     */
+    const db = new Database(":memory:");
+    const store = new SessionStore(db);
+    const history: ModelMessage[] = [];
+    for (let i = 0; i < 50; i++) {
+      history.push({ role: "user", content: [{ type: "text", text: "x".repeat(200) }] });
+      history.push({
+        role: "assistant",
+        content: [{ type: "text", text: "y".repeat(200) }],
+      });
+    }
+
+    const forSet = stringifyCalls(() => store.set("a", history));
+    const forRecord = stringifyCalls(() => store.record("b", history));
+    expect(forRecord).toBe(forSet);
+  });
+
+  it("still stores what it returns", () => {
+    const db = new Database(":memory:");
+    const store = new SessionStore(db);
+    store.configure({ maxExchanges: 2 });
+    const history: ModelMessage[] = [];
+    for (let i = 0; i < 5; i++) {
+      history.push({ role: "user", content: [{ type: "text", text: `q${i}` }] });
+      history.push({ role: "assistant", content: [{ type: "text", text: `a${i}` }] });
+    }
+
+    const returned = store.record("c", history);
+    // The point of trimming here is that it happened, and that what came back
+    // is what a later turn will read.
+    expect(returned.length).toBeLessThan(history.length);
+    expect(store.get("c")).toEqual(returned);
   });
 });

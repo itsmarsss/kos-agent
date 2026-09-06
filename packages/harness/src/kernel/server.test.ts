@@ -146,6 +146,89 @@ describe("handleApiRequest", () => {
     }
   });
 
+  it("does not send run rows nobody asked for with the activity log", async () => {
+    /*
+     * /api/activity answered with both tool calls and runs, and the dashboard
+     * -- its only caller -- read the tools and dropped the runs, having
+     * already fetched them from /api/runs. Every poll therefore ran the runs
+     * query twice and serialized one copy for nothing.
+     */
+    const res = await handleApiRequest(kernel, {
+      method: "GET",
+      path: "/api/activity",
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("tools");
+    expect(res.body).not.toHaveProperty("runs");
+  });
+
+  it("leaves out results the activity list never shows", async () => {
+    /*
+     * A tool result is most of this response -- 183KB of 324KB on a real
+     * workspace -- and the list renders a summary from args, never the
+     * result. A failure keeps its text, because the fix flow reads it
+     * straight off the row.
+     */
+    kernel.audit.record({
+      tool: "sql",
+      args: { query: "SELECT 1" },
+      result: "x".repeat(5000),
+      isError: false,
+      riskTier: "safe",
+      userId: "owner",
+    });
+    kernel.audit.record({
+      tool: "notify",
+      args: {},
+      result: "the surface refused it",
+      isError: true,
+      riskTier: "safe",
+      userId: "owner",
+    });
+
+    const res = await handleApiRequest(kernel, {
+      method: "GET",
+      path: "/api/activity",
+    });
+    const tools = (res.body as { tools: { tool: string; result: string }[] })
+      .tools;
+    expect(tools.find((t) => t.tool === "sql")?.result).toBe("");
+    expect(tools.find((t) => t.tool === "notify")?.result).toBe(
+      "the surface refused it",
+    );
+  });
+
+  it("serves one call in full for a reader who opened it", async () => {
+    kernel.audit.record({
+      tool: "sql",
+      args: { query: "SELECT 1" },
+      result: "the whole thing",
+      isError: false,
+      riskTier: "safe",
+      userId: "owner",
+    });
+    const listed = await handleApiRequest(kernel, {
+      method: "GET",
+      path: "/api/activity",
+    });
+    const id = (listed.body as { tools: { id: number }[] }).tools[0]!.id;
+
+    const one = await handleApiRequest(kernel, {
+      method: "GET",
+      path: "/api/activity/call",
+      url: `/api/activity/call?id=${id}`,
+    });
+    expect(one.status).toBe(200);
+    expect((one.body as { result: string }).result).toBe("the whole thing");
+
+    const missing = await handleApiRequest(kernel, {
+      method: "GET",
+      path: "/api/activity/call",
+      url: "/api/activity/call?id=999999",
+    });
+    expect(missing.status).toBe(404);
+  });
+
   it("validates and 404s", async () => {
     expect((await handleApiRequest(kernel, { method: "POST", path: "/api/message", body: {} })).status).toBe(400);
     expect((await handleApiRequest(kernel, { method: "GET", path: "/nope" })).status).toBe(404);

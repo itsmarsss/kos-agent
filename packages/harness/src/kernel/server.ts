@@ -277,11 +277,34 @@ export async function handleApiRequest(
   }
 
   if (method === "GET" && path === "/api/activity") {
+    /*
+     * Tool calls only. This also returned the same run rows as /api/runs,
+     * which the dashboard fetches separately -- so every poll ran the runs
+     * query twice and serialized a copy the only caller dropped on arrival.
+     */
     const limit = clampLimit(queryParams(req.url).get("limit"), 100);
-    return ok({
-      tools: kernel.audit.recent(limit),
-      runs: kernel.runs.recent(limit),
-    });
+    /*
+     * Without the output of calls that worked.
+     *
+     * A tool result is the bulk of this list -- 183KB of a 324KB response on
+     * a real workspace -- and the list never shows one. Only a failure needs
+     * its text here, to seed the fix without a second request; the rest is
+     * fetched when a reader actually opens a call.
+     */
+    const tools = kernel.audit.recent(limit).map((t) =>
+      t.isError ? t : { ...t, result: "" },
+    );
+    return ok({ tools });
+  }
+
+  if (method === "GET" && path === "/api/activity/call") {
+    const id = Number(queryParams(req.url).get("id"));
+    if (!Number.isInteger(id)) {
+      return { status: 400, body: { error: "id required" } };
+    }
+    const call = kernel.audit.get(id);
+    if (!call) return { status: 404, body: { error: "no such call" } };
+    return ok(call);
   }
 
   if (method === "GET" && path === "/api/crons") {
@@ -358,7 +381,19 @@ export async function handleApiRequest(
       return { status: 400, body: { error: "id required" } };
     }
     const removed = kernel.crons.delete(id);
-    if (removed) kernel.reloadCron();
+    if (removed) {
+      /*
+       * The thread goes with the job.
+       *
+       * It exists to hold that job's runs, and a schedule thread cannot be
+       * renamed or deleted by hand, so left behind it was an orphan the owner
+       * could neither reach from the schedule list nor get rid of. The
+       * confirmation says the runs go too.
+       */
+      kernel.sessions.clear(cronSessionId(id));
+      kernel.conversations.remove(cronSessionId(id));
+      kernel.reloadCron();
+    }
     return ok({ id, removed });
   }
 

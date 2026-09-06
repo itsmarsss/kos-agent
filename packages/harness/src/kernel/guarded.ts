@@ -47,6 +47,15 @@ export interface GuardedToolsDeps {
   onDecided?: (action: PendingAction, status: string) => void;
   /** How long to hold a suspended turn before treating silence as refusal. */
   approvalTimeoutMs?: number;
+  /**
+   * Wait for the decision, rather than queueing and moving on.
+   *
+   * True for a turn somebody is watching: the owner is there, the answer is
+   * on screen, and holding the call keeps one turn and one bubble. False for
+   * work that runs unattended, where nobody is going to decide within the
+   * next half hour and waiting only holds a queue slot for that long.
+   */
+  waitForApproval?: boolean;
 }
 
 /**
@@ -209,6 +218,26 @@ export class GuardedTools implements ToolBox {
         ...(conversationId ? { conversationId } : {}),
       });
       this.deps.onQueued?.(action);
+
+      /*
+       * Nobody is waiting on an unattended run, so it does not wait either.
+       *
+       * A scheduled job that asked for something risky suspended here for the
+       * approval window -- half an hour by default -- holding its place in
+       * the work queue the whole time, and then failed by timeout because the
+       * owner was asleep. The action is queued, the run says so and ends. The
+       * decision executes it later, which is what approve() does for any
+       * request nothing is waiting on.
+       */
+      if (this.deps.waitForApproval === false) {
+        return {
+          content: [
+            `Queued for approval (#${action.id}).`,
+            "Nothing was done. It runs if the owner approves it.",
+          ].join(" "),
+          isError: false,
+        };
+      }
 
       /*
        * Suspend here rather than end the turn.

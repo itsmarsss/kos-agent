@@ -5,7 +5,6 @@ import { summarizeAction } from "@kos/shared";
 import type {
   AuditRecord,
   CronJob,
-  FactRow,
   PageSummary,
   Project,
   RunRecord,
@@ -16,9 +15,7 @@ import { Select } from "./Select.js";
 
 export type InspectTarget =
   | { kind: "tool"; data: AuditRecord }
-  | { kind: "cron"; data: CronJob }
   | { kind: "run"; data: RunRecord }
-  | { kind: "fact"; data: FactRow }
   | { kind: "project"; data: Project; pages: PageSummary[] };
 
 function prettyJson(raw: string): string {
@@ -89,14 +86,6 @@ export function Inspector(props: {
   crons?: CronJob[];
   onSaved?: () => void;
   onSetProjectStatus?: (slug: string, status: string) => Promise<void>;
-  onToggleCron?: (id: number, enabled: boolean) => Promise<void>;
-  onDeleteCron?: (id: number) => Promise<void>;
-  onSaveFact?: (
-    key: string,
-    value: string,
-    kind: "fact" | "preference",
-  ) => Promise<void>;
-  onDeleteFact?: (key: string) => Promise<void>;
 }): React.ReactElement | null {
   const { target, onClose } = props;
   const [busy, setBusy] = useState(false);
@@ -104,8 +93,7 @@ export function Inspector(props: {
   // opened rather than carried on the card: the list does not need them and
   // this is the one place they are read.
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
-  const [editValue, setEditValue] = useState<string | null>(null);
-  const [editKind, setEditKind] = useState<"fact" | "preference">("fact");
+  const [call, setCall] = useState<AuditRecord | null>(null);
   const [editStatus, setEditStatus] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -131,16 +119,39 @@ export function Inspector(props: {
     };
   }, [openSlug]);
 
+  /*
+   * The full call, fetched because the list no longer carries it.
+   *
+   * A tool result is the bulk of the activity response and the list never
+   * shows one, so it is left out there and read here, where it is the thing
+   * the drawer was opened for.
+   */
+  const openCallId = target?.kind === "tool" ? target.data.id : null;
+  useEffect(() => {
+    if (openCallId === null) {
+      setCall(null);
+      return;
+    }
+    let cancelled = false;
+    void api
+      .call(openCallId)
+      .then((c) => {
+        if (!cancelled) setCall(c);
+      })
+      .catch(() => {
+        // The row the list already had is still on screen; only the result
+        // stays as it came.
+        if (!cancelled) setCall(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [openCallId]);
+
 
   if (!target) return null;
 
-  // Sync local edit buffers when target identity changes (lightweight).
-  const factKey = target.kind === "fact" ? target.data.key : "";
   const projectSlug = target.kind === "project" ? target.data.slug : "";
-  if (target.kind === "fact" && editValue === null) {
-    // initialize once per open via state reset pattern below is awkward;
-    // use key on parent to remount. Parent sets inspect with new object.
-  }
 
   let title = "";
   let subtitle = "";
@@ -162,7 +173,7 @@ export function Inspector(props: {
 
   switch (target.kind) {
     case "tool": {
-      const t = target.data;
+      const t = call && call.id === target.data.id ? call : target.data;
       title = t.tool;
       subtitle = `Tool call #${t.id} · ${t.isError ? "error" : "ok"}`;
       // What happened, then what it was asked, then who and when. The
@@ -171,7 +182,7 @@ export function Inspector(props: {
       body = (
         <>
           <p className="insp-lead">{summarizeAction(t.tool, t.args)}</p>
-          <Block label="Result" text={t.result || "—"} />
+          <Block label="Result" text={t.result || (call ? "—" : "…")} />
           <Block label="Args" text={prettyJson(t.args)} />
           <Facts
             rows={[
@@ -201,62 +212,6 @@ export function Inspector(props: {
             Fix this
           </button>
         ) : null;
-      break;
-    }
-    case "cron": {
-      const c = target.data;
-      title = c.name;
-      subtitle = `Cron #${c.id} · ${c.enabled ? "enabled" : "disabled"}`;
-      body = (
-        <>
-          <Field label="Schedule" value={c.schedule} mono />
-          <Field label="Type" value={c.type} />
-          <Field label="Project" value={c.projectSlug ?? "—"} mono />
-          <Field label="Query" value={c.query ?? "—"} />
-          <Field label="Condition" value={c.condition?.test ?? "—"} mono />
-          {c.type === "self_prompt" && (
-            <Block label="Prompt" text={c.prompt ?? "—"} />
-          )}
-          {c.actions && c.actions.length > 0 && (
-            <Block label="Actions" text={JSON.stringify(c.actions, null, 2)} />
-          )}
-          <Field label="Created" value={fmtTime(c.createdAt)} />
-          <Field label="Updated" value={fmtTime(c.updatedAt)} />
-        </>
-      );
-      actions = (
-        <>
-          {props.onToggleCron && (
-            <button
-              type="button"
-              className="ops-btn"
-              disabled={busy}
-              onClick={() =>
-                void run(() => props.onToggleCron!(c.id, !c.enabled))
-              }
-            >
-              {c.enabled ? "Disable" : "Enable"}
-            </button>
-          )}
-          {props.onDeleteCron && (
-            <button
-              type="button"
-              className="ops-btn ops-btn--danger"
-              disabled={busy}
-              onClick={() => {
-                if (window.confirm(`Delete cron “${c.name}”?`)) {
-                  void run(async () => {
-                    await props.onDeleteCron!(c.id);
-                    onClose();
-                  });
-                }
-              }}
-            >
-              Delete
-            </button>
-          )}
-        </>
-      );
       break;
     }
     case "run": {
@@ -348,81 +303,6 @@ export function Inspector(props: {
             Fix this
           </button>
         ) : null;
-      break;
-    }
-    case "fact": {
-      const f = target.data;
-      title = f.key;
-      subtitle = `Memory · ${f.kind}`;
-      const value = editValue ?? f.value;
-      const kind = editKind || (f.kind === "preference" ? "preference" : "fact");
-      body = (
-        <>
-          <Field label="Key" value={f.key} mono />
-          <div className="insp-field">
-            <div className="insp-label">Kind</div>
-            <Select
-              className="insp-select"
-              label="Kind"
-              value={kind}
-              options={[
-                { value: "fact", label: "fact" },
-                { value: "preference", label: "preference" },
-              ]}
-              onChange={(v: string) =>
-                setEditKind(v === "preference" ? "preference" : "fact")
-              }
-            />
-          </div>
-          <div className="insp-field">
-            <div className="insp-label">Value</div>
-            <textarea
-              className="ops-textarea"
-              rows={6}
-              value={value}
-              onChange={(e) => setEditValue(e.target.value)}
-            />
-          </div>
-          <Field label="Source" value={f.source ?? "—"} />
-          <Field label="Updated" value={fmtTime(f.updatedAt)} />
-        </>
-      );
-      actions = (
-        <>
-          {props.onSaveFact && (
-            <button
-              type="button"
-              className="ops-btn ops-btn--primary"
-              disabled={busy}
-              onClick={() =>
-                void run(() =>
-                  props.onSaveFact!(f.key, editValue ?? f.value, kind),
-                )
-              }
-            >
-              Save
-            </button>
-          )}
-          {props.onDeleteFact && (
-            <button
-              type="button"
-              className="ops-btn ops-btn--danger"
-              disabled={busy}
-              onClick={() => {
-                if (window.confirm(`Delete memory “${f.key}”?`)) {
-                  void run(async () => {
-                    await props.onDeleteFact!(f.key);
-                    onClose();
-                  });
-                }
-              }}
-            >
-              Delete
-            </button>
-          )}
-        </>
-      );
-      void factKey;
       break;
     }
     case "project": {
@@ -760,19 +640,6 @@ function Section(props: {
       <h3 className="insp-label">{props.title}</h3>
       {props.children}
     </section>
-  );
-}
-
-function Field(props: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}): React.ReactElement {
-  return (
-    <div className="insp-field">
-      <div className="insp-label">{props.label}</div>
-      <div className={props.mono ? "ops-mono" : undefined}>{props.value}</div>
-    </div>
   );
 }
 
