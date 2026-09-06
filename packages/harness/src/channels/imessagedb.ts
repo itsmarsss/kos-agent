@@ -22,6 +22,13 @@ import type { Db } from "../store/db.js";
  * Scoped by chat rather than by handle, which matters: a message the owner
  * sends to themselves is recorded with handle_id 0, so joining through handle
  * silently dropped a third of the thread while looking like it worked.
+ *
+ * Only the arriving copy is read. Every message in a self-thread is stored
+ * twice -- once as sent, once as received -- and reading both made each one
+ * arrive twice. For KOS's own replies that was an echo the suppression list
+ * only caught one half of, so the surface answered itself, then answered
+ * that, until it was killed. is_from_me = 0 is "a message arrived", which is
+ * also the right reading for an ordinary conversation.
  */
 
 /** A message from the watched thread. Text only; attachments are not read. */
@@ -29,8 +36,6 @@ export interface ThreadMessage {
   /** message.ROWID, which is the watermark. Monotonic, so it orders reads. */
   rowId: number;
   text: string;
-  /** True when the owner's account sent it, which in a self-thread is always. */
-  fromMe: boolean;
   /** Apple epoch converted to a unix millisecond timestamp. */
   at: number;
 }
@@ -94,11 +99,11 @@ export class ThreadReader {
     const rows = this.db
       .prepare(
         `SELECT m.ROWID AS rowId, m.text AS text, m.attributedBody AS body,
-                m.is_from_me AS fromMe, m.date AS date
+                m.date AS date
          FROM message m
          JOIN chat_message_join j ON j.message_id = m.ROWID
          JOIN chat c ON c.ROWID = j.chat_id
-         WHERE c.chat_identifier = ? AND m.ROWID > ?
+         WHERE c.chat_identifier = ? AND m.ROWID > ? AND m.is_from_me = 0
          ORDER BY m.ROWID
          LIMIT ?`,
       )
@@ -106,7 +111,6 @@ export class ThreadReader {
       rowId: number;
       text: string | null;
       body: Buffer | null;
-      fromMe: number;
       date: number;
     }[];
     return rows
@@ -114,7 +118,6 @@ export class ThreadReader {
         rowId: r.rowId,
         // text first where it is there, because it needs no guessing.
         text: r.text?.trim() ? r.text : (decodeAttributedBody(r.body) ?? ""),
-        fromMe: r.fromMe === 1,
         at: toUnixMs(r.date),
       }))
       // A reaction, an attachment with no caption and a few other things

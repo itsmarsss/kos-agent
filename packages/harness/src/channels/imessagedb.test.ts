@@ -58,23 +58,30 @@ describe("reading one iMessage thread", () => {
       `INSERT INTO chat_message_join (chat_id, message_id) VALUES (?, ?)`,
     );
 
-    // The owner's own thread, in the three shapes it really takes.
-    msg.run(1, "note with plain text", null, 1, 0, SOME_DATE);
+    /*
+     * Every message in a self-thread is stored twice: the sent copy, then the
+     * copy that arrives back. The fixture says so, because reading both is
+     * what made the surface answer itself.
+     */
+    // "note with plain text", sent then arrived.
+    msg.run(1, null, typedstream("note with plain text"), 0, 1, SOME_DATE);
     link.run(1, 1);
-    msg.run(2, null, typedstream("note in attributedBody"), 1, 0, SOME_DATE);
+    msg.run(2, "note with plain text", null, 1, 0, SOME_DATE);
     link.run(1, 2);
-    // Sent to self: handle_id 0, which is why this is scoped by chat.
-    msg.run(3, null, typedstream("sent to myself"), 0, 1, SOME_DATE);
+    // One whose arriving copy carries only attributedBody.
+    msg.run(3, null, typedstream("note in attributedBody"), 0, 1, SOME_DATE);
     link.run(1, 3);
-    // A tapback and an attachment: rows with no words in them at all.
-    msg.run(4, null, null, 1, 0, SOME_DATE);
+    msg.run(4, null, typedstream("note in attributedBody"), 1, 0, SOME_DATE);
     link.run(1, 4);
+    // A tapback: a row with no words in it at all.
+    msg.run(5, null, null, 1, 0, SOME_DATE);
+    link.run(1, 5);
 
     // Somebody else's conversation, which must stay unreachable.
-    msg.run(5, "private thing said to a friend", null, 2, 0, SOME_DATE);
-    link.run(2, 5);
-    msg.run(6, null, typedstream("another private thing"), 2, 0, SOME_DATE);
+    msg.run(6, "private thing said to a friend", null, 2, 0, SOME_DATE);
     link.run(2, 6);
+    msg.run(7, null, typedstream("another private thing"), 2, 0, SOME_DATE);
+    link.run(2, 7);
     db.close();
   });
 
@@ -90,7 +97,6 @@ describe("reading one iMessage thread", () => {
     expect(seen.map((m) => m.text)).toEqual([
       "note with plain text",
       "note in attributedBody",
-      "sent to myself",
     ]);
   });
 
@@ -107,16 +113,17 @@ describe("reading one iMessage thread", () => {
     expect(everything).not.toContain("another private");
   });
 
-  it("reads a message the owner sent to themselves", () => {
+  it("reports each message once, not once per stored copy", () => {
     /*
-     * Recorded with handle_id 0, because there is no other party. Joining
-     * through handle dropped a third of the real thread while looking like
-     * it worked.
+     * Both copies read, every message arrived twice. KOS's own replies came
+     * back the same way, and the suppression list caught only one half, so
+     * the surface answered itself until it was killed.
      */
     const reader = new ThreadReader({ handle: OWNER, path });
-    const seen = reader.since(0);
+    const seen = reader.since(0).map((m) => m.text);
     reader.close();
-    expect(seen.map((m) => m.text)).toContain("sent to myself");
+    expect(seen.filter((t) => t === "note with plain text")).toHaveLength(1);
+    expect(seen.filter((t) => t === "note in attributedBody")).toHaveLength(1);
   });
 
   it("reads a body that lives only in attributedBody", () => {
@@ -149,18 +156,18 @@ describe("reading one iMessage thread", () => {
     const db = open();
     db.prepare(
       `INSERT INTO message (ROWID, text, handle_id, is_from_me, date)
-       VALUES (7, 'something new', 1, 0, ?)`,
+       VALUES (8, 'something new', 1, 0, ?)`,
     ).run(SOME_DATE);
     db.prepare(
-      `INSERT INTO chat_message_join (chat_id, message_id) VALUES (1, 7)`,
+      `INSERT INTO chat_message_join (chat_id, message_id) VALUES (1, 8)`,
     ).run();
     // ...and something new from someone else, which must stay invisible.
     db.prepare(
       `INSERT INTO message (ROWID, text, handle_id, is_from_me, date)
-       VALUES (8, 'new message from a friend', 2, 0, ?)`,
+       VALUES (9, 'new message from a friend', 2, 0, ?)`,
     ).run(SOME_DATE);
     db.prepare(
-      `INSERT INTO chat_message_join (chat_id, message_id) VALUES (2, 8)`,
+      `INSERT INTO chat_message_join (chat_id, message_id) VALUES (2, 9)`,
     ).run();
     db.close();
 
