@@ -767,6 +767,14 @@ export class Kernel {
           model: event.model,
           inputTokens: event.inputTokens,
           outputTokens: event.outputTokens,
+          // The cached share, so a reused prefix is priced as one. Both
+          // providers report it; neither was being read.
+          ...(event.cacheReadTokens
+            ? { cacheReadTokens: event.cacheReadTokens }
+            : {}),
+          ...(event.cacheWriteTokens
+            ? { cacheCreationTokens: event.cacheWriteTokens }
+            : {}),
         });
       };
     }

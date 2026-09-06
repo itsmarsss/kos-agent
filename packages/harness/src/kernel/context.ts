@@ -48,6 +48,19 @@ export function assembleSystemPrompt(parts: ContextParts): string {
   }
   sections.push(projectLines.join("\n"));
 
+  /*
+   * What changes every turn goes last, not in the middle.
+   *
+   * Both providers cache by matching the front of a prompt against the last
+   * one and charging a fraction for the part that matches. Salient memory is
+   * retrieved per message, so sitting where it did it differed on every turn
+   * and ended the match right there -- leaving the largest stable block, the
+   * tool guidance below it, permanently uncacheable. Measured against the
+   * live API: 0 cached tokens on a second turn that reused 8k of prompt.
+   *
+   * Held here and appended after everything fixed.
+   */
+  const volatile: string[] = [];
   const { facts, episodes } = parts.recall;
   if (facts.length > 0 || episodes.length > 0) {
     const mem: string[] = ["## Salient memory"];
@@ -58,11 +71,11 @@ export function assembleSystemPrompt(parts: ContextParts): string {
     for (const e of episodes.slice(0, 5)) {
       mem.push(`- episode: ${e.text.slice(0, 200)}`);
     }
-    sections.push(mem.join("\n"));
+    volatile.push(mem.join("\n"));
   }
 
   if (parts.extra?.trim()) {
-    sections.push(parts.extra.trim());
+    volatile.push(parts.extra.trim());
   }
 
   sections.push(
@@ -78,7 +91,8 @@ export function assembleSystemPrompt(parts: ContextParts): string {
     ].join("\n"),
   );
 
-  return sections.join("\n\n");
+  // Everything fixed first, then what this particular turn dragged in.
+  return [...sections, ...volatile].join("\n\n");
 }
 
 /**
