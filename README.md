@@ -1,13 +1,14 @@
 # KOS
 
-**A self-hosted AI agent that owns a directory, builds real software inside
-it, and answers you on your phone.**
+**An AI agent with its own workspace, its own toolkit, and its own schedule —
+one that does things when you are not talking to it.**
 
 Ask it for a reading tracker. It designs a schema, migrates the database,
-writes the pages, and serves a working site on its own port — then messages
-you at noon asking whether you read anything, with buttons to log progress
-without typing. It runs entirely on your own machine, inside one folder it is
-structurally incapable of leaving.
+writes the pages, and serves a working site on its own port. Then, because it
+decided that job was worth keeping, it messages you at noon asking whether you
+read anything, with buttons to log progress without typing. It runs entirely
+on your own machine, inside one folder it is structurally incapable of
+leaving.
 
 <table>
 <tr><td><b>Stack</b></td><td>TypeScript · Node 20 · React · SQLite (+ vector search) · Docker · Anthropic &amp; OpenAI · Discord API · iMessage</td></tr>
@@ -16,59 +17,86 @@ structurally incapable of leaving.
 </table>
 
 ```
-you ──→ Discord / iMessage / dashboard / CLI
-             │
-             ▼
-        ┌─────────────────────────────────────────┐
-        │  kernel: conversations, work queue,     │
-        │  risk classifier, approval queue        │
-        └─────────────────────────────────────────┘
-             │              │              │
-        guarded tools   model router   scheduler
-             │              │              │
-             ▼              ▼              ▼
-        ┌─────────────────────────────────────────┐
-        │  the jail: one workspace directory      │
-        │  SQLite · files · projects · sites      │
-        └─────────────────────────────────────────┘
+  triggers              the loop                  what it reaches
+  ────────              ────────                  ───────────────
+
+  you ───────┐                                 ┌── 84 tools, 16 families
+  a schedule ┼──→  model → tools → repeat  ──→ ┼── coding sub-agents
+  itself ────┘         until it stops          └── daemons it supervises
+                            │
+             every call: risk tier → approval if needed → audit
+                            ▼
+                one workspace directory it cannot leave
 ```
 
 ---
 
-## What it does
+## How it acts
 
-- **Builds and ships software.** Creates projects, evolves their schemas
-  through a guarded migration primitive, writes pages, and serves each site on
-  its own origin.
-- **Runs coding sub-agents.** Hands a scoped task to a Claude Code sub-agent
-  inside the workspace and streams its progress back into the conversation.
-- **Remembers.** Hybrid memory — SQLite facts chosen by a salience heuristic,
-  plus semantic episodic recall through `sqlite-vec`.
-- **Works while you sleep.** Scheduled jobs live in SQLite rather than
-  crontab, so they are portable and inspectable, and each keeps its own
-  conversation thread you can read back.
-- **Reaches you anywhere.** Discord with embeds, buttons, modals and slash
-  commands; iMessage; a React dashboard; a terminal REPL. One kernel behind
-  all of them.
-- **Improves itself.** Writes a skill, sandbox-tests it, and promotes it
-  behind a risk classifier.
+**It runs a real tool-call loop.** The model is called, its tool calls are
+executed, results are fed back, and it repeats until it stops asking or hits
+an iteration cap. Every surface — Discord, iMessage, the dashboard, a
+scheduled job — drives that same loop.
+
+**It has 84 tools across 16 families.** Files, SQL, schema migrations, HTTP,
+semantic and literal search, memory, projects, pages, sites, daemons,
+schedules, sub-agents, skills, and its own conversations. When the toolkit is
+narrowed for a turn, it can call `tools.list` to discover what else exists —
+because a capability that silently vanishes is one the agent will confidently
+report as impossible.
+
+**It prompts itself.** A scheduled job is not limited to replaying canned
+calls. A `self_prompt` job hands the agent an instruction on a cron and lets
+it work out what to do — which is how the noon nudge reads the database,
+decides what actually matters today, and composes the message.
+
+**It delegates.** An orchestrator conversation holds `chats.dispatch` and can
+farm work out to other conversations, each with its own brief and tool
+allow-list. Dispatched conversations never receive those tools themselves, so
+delegation is **one level deep by construction** rather than by convention.
+
+**It runs other agents.** For work too large to write a line at a time, it
+hands a scoped task to a Claude Code sub-agent whose working directory is a
+folder *inside* the workspace — so a build pointed at one site cannot read
+another, let alone the database.
+
+**It keeps programs alive.** Daemons it spawns are supervised and restarted
+with backoff, because a process that crashes on startup will crash again
+immediately and a naive supervisor turns that into a spin that eats the
+machine.
+
+**It decides what to remember.** A salience heuristic chooses what is worth
+writing to long-term memory; recall is semantic, through `sqlite-vec`, with
+literal search as the fast path.
+
+**It improves itself.** It can write a new skill, have it sandbox-tested in a
+child process against a throwaway database copy, and promoted — automatically
+if the risk classifier says it is safe, into the approval queue if not.
 
 ---
 
-## The hard part
+## What autonomy requires
 
-Getting a model to call a function is the easy half. The hard half is what
-has to hold when the model is wrong, the network fails, or a job fires at 3am
-with nobody awake to approve anything. That is what most of this codebase is.
+Getting a model to call a function is the easy half. The hard half is
+everything that has to hold when the agent is acting on its own, the model is
+wrong, and nobody is awake to approve anything. That is what most of this
+codebase is.
 
 | Problem | Approach |
 | --- | --- |
 | An agent writing files can escape its directory | One `resolvePath()` gate every path goes through; rejects `..`, NUL bytes, absolute escapes, **and all symlinks** |
 | An agent can be talked into a destructive call | Risk is computed in the harness from a static floor plus deterministic argument escalation, **never judged by the model** |
 | A risky call needs a human, but humans sleep | Interactive turns suspend mid-turn and resume on your decision; scheduled runs queue the action and finish, so one approval never blocks a shared lane |
+| A self-modifying agent is a supply-chain risk | Agent-written skills are sandbox-tested against a throwaway database copy before promotion |
 | Agents corrupt their own state | Every schema change goes through a guarded `migrate` primitive — versioned, git-snapshotted, restorable |
-| Self-modifying agents are a supply-chain risk | Agent-written skills run in a sandboxed child process against a throwaway database copy; safe ones auto-commit, risky ones queue for approval |
 | "It said it did the thing" | Every tool call is audited with arguments, result, risk tier and caller |
+
+### Risk is computed, never asked
+
+A tool declares a static floor; its arguments escalate it deterministically —
+deleting one file is not the same call as deleting a glob. The model is never
+consulted about how dangerous its own request is, because the model is exactly
+the component that might be wrong or manipulated.
 
 ### Confinement is structural, not a filter
 
@@ -83,14 +111,7 @@ It is tested against a fixture that deliberately contains other people's
 messages, because a fixture holding only the target thread would have passed
 whatever the query said.
 
-### Risk is computed, never asked
-
-A tool declares a static floor; its arguments escalate it deterministically —
-deleting one file is not the same call as deleting a glob. The model is never
-consulted about how dangerous its own request is, because the model is exactly
-the component that might be wrong or manipulated.
-
-### Secrets the model never sees
+### Secrets the agent never sees
 
 Keys live outside the workspace, are referenced by name, injected at call time
 and redacted from logs. Agent-written skills get an allow-listed environment —
@@ -105,24 +126,25 @@ A pnpm monorepo, TypeScript end to end:
 
 | Package | Role |
 | --- | --- |
-| `packages/harness` | The kernel: jail, store, agent loop, tools, cron, memory, channels, ops |
+| `packages/harness` | The kernel: agent loop, jail, store, tools, cron, memory, channels, ops |
 | `packages/ui` | Fixed React shell that renders agent-authored page specs |
 | `packages/cli` | The `kos` command: REPL, host, ops, doctor |
 | `packages/shared` | Contracts both sides import |
 
 Decisions that shaped everything downstream:
 
-- **SQLite only.** One workspace file, JSON columns for document cases,
-  `sqlite-vec` for embeddings. One file to back up, one file to move.
+- **Conversations are the unit of work.** Each carries a brief and a tool
+  allow-list. Permissions are an owner decision, never one the agent makes for
+  a conversation it created.
 - **Execution is serial.** Conversations are parallel as *threads*, not as
   running work. A lane-based work queue keeps same-lane calls ordered and
   different lanes concurrent.
+- **SQLite only.** One workspace file, JSON columns for document cases,
+  `sqlite-vec` for embeddings. One file to back up, one file to move.
 - **Presentation-first UI.** The agent emits page specs as JSON and a fixed
   widget library renders them — no build step when the agent adds a page, and
   no arbitrary React from a model. `custom_html` renders inside a sandboxed
   iframe.
-- **Display is read-only.** Writes go through a guarded mutation path in each
-  widget's own idiom.
 - **The container is the real jail.** `resolvePath()` is the in-process
   perimeter on top of it. A bug should be a bug, not a breach.
 
@@ -140,7 +162,7 @@ A representative sample, all real regressions this project shipped and fixed:
 - the path jail refusing a symlinked component
 - the iMessage reader unable to reach another conversation
 - a scheduled run queueing an approval instead of blocking on it
-- the session store measuring its history once per turn rather than twice
+- the orchestrator refused a tool it named but was not granted
 - a surface that cannot deliver a message not taking the whole host down
 
 ---
@@ -192,7 +214,7 @@ cannot run inside it.
 
 ## Status
 
-Actively built. The store, agent loop, channels, tools, memory, projects,
+Actively built. The agent loop, store, channels, tools, memory, projects,
 cron, operational spine and UI are all in place, along with the conversation
 and orchestration layers above them.
 
