@@ -1,113 +1,201 @@
 # KOS
 
-A sandboxed, file-system-native AI agent. It owns a workspace directory,
-manages arbitrary structured projects, logs everything, and stays easily
-retrievable. A personal, self-hosted agent scoped to a single workspace,
-reachable through messaging channels and a dynamic UI.
+**An AI agent with its own workspace, its own toolkit, and its own schedule.**
 
-## Layout
+Ask it for a reading tracker and it will:
 
-pnpm workspaces monorepo:
+1. design a schema and migrate the database
+2. write the pages and serve the site on its own port
+3. schedule itself a daily check
+4. message you at noon with buttons to log progress
 
-- `packages/shared` - types and contracts shared across harness and UI
-- `packages/harness` - kernel: store, jail, agent loop, tools, cron, memory
-- `packages/cli` - the `kos` command (REPL, ops, Discord, dashboard)
-- `packages/ui` - fixed React shell, widget library, page-spec renderer
+It runs on your machine, in one directory it cannot leave.
 
-## Setup
+### By the numbers
 
-Requires Node >= 20 and pnpm.
+| | |
+| --- | --- |
+| **84 tools** in 16 families | files, SQL, migrations, HTTP, search, memory, projects, sites, daemons, schedules, sub-agents, skills |
+| **1,272 tests** across 126 files | ~19,000 lines of tests, ~41,000 of source |
+| **239 pull requests** | all merged, all green |
+| **4 surfaces** | Discord, iMessage, web dashboard, terminal REPL |
+| **21 tables, 70 API routes** | one SQLite file, one local server |
+
+**Stack:** TypeScript, Node 20, React, SQLite with vector search, Docker,
+Anthropic and OpenAI, Discord API, AppleScript.
+
+---
+
+## A turn
+
+```
+ STARTED BY      you  ·  a schedule  ·  the agent itself
+                                │
+                                ▼
+ ┌────────────────────────────────────────────────────────────┐
+ │  AGENT LOOP    model  →  tool calls  →  results  →  repeat │
+ └────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+ ┌────────────────────────────────────────────────────────────┐
+ │  EVERY CALL    risk tier  →  approval if risky  →  audited │
+ └────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+ ┌────────────────────────────────────────────────────────────┐
+ │  WORKSPACE     84 tools · SQLite · files · sites · daemons │
+ │                one directory, and no path may leave it     │
+ └────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## What it does on its own
+
+**Prompts itself.** A `self_prompt` schedule hands the agent an instruction
+and lets it decide what to do with it.
+
+**Delegates.** An orchestrator conversation dispatches work to other
+conversations, each with its own brief and tool allow-list. Dispatched
+conversations do not hold the dispatch tools, so delegation is one level deep.
+
+**Runs sub-agents.** Larger builds go to a Claude Code sub-agent whose working
+directory is a folder inside the workspace.
+
+**Reads its own toolkit.** `tools.list` returns everything available,
+including tools narrowed out of the current turn.
+
+**Supervises daemons.** Programs it spawns are restarted with backoff.
+
+**Writes its own memory.** A salience heuristic decides what persists. Recall
+is semantic via `sqlite-vec`, with literal search as the fast path.
+
+**Extends itself.** New skills are sandbox-tested in a child process against a
+throwaway database copy, then promoted automatically if safe, or queued for
+approval if not.
+
+---
+
+## Constraints
+
+| | |
+| --- | --- |
+| **Path jail** | One `resolvePath()` gate. Rejects `..`, NUL bytes, absolute escapes, and all symlinks |
+| **Risk tiers** | Static floor per tool, escalated deterministically by arguments. The model is not consulted |
+| **Approvals** | Interactive turns suspend and resume on the decision. Scheduled runs queue the action and finish |
+| **Schema changes** | Guarded `migrate` primitive: versioned, git-snapshotted, restorable |
+| **Skills** | Sandbox-tested before promotion |
+| **Audit** | Every call logged with arguments, result, risk tier, caller |
+| **Secrets** | Held outside the workspace, referenced by name, injected at call time, redacted from logs. Child processes get an allow-listed environment |
+
+### Reading iMessage
+
+Apple's `chat.db` holds every conversation on the machine. The reader binds
+every query to a single conversation in the SQL itself, and no code path
+constructs a statement without that binding.
+
+It is tested against a fixture containing other people's messages.
+
+---
+
+## Architecture
+
+| Package | Role |
+| --- | --- |
+| `packages/harness` | Kernel: agent loop, jail, store, tools, cron, memory, channels, ops |
+| `packages/ui` | React shell rendering agent-authored page specs |
+| `packages/cli` | The `kos` command: REPL, host, ops, doctor |
+| `packages/shared` | Contracts both sides import |
+
+- **Conversations are the unit of work.** Each carries a brief and a tool
+  allow-list, set by the owner rather than by the agent.
+- **Execution is serial.** Conversations are parallel as threads, not as
+  running work. A lane-based queue keeps same-lane calls ordered.
+- **SQLite only.** One workspace file, JSON columns for documents,
+  `sqlite-vec` for embeddings.
+- **The agent emits JSON, not React.** Page specs render through a fixed
+  library of 8 widget kinds. `custom_html` renders in a sandboxed iframe.
+- **The container is the jail.** `resolvePath()` is the in-process perimeter
+  on top of it.
+
+---
+
+## Testing
+
+Tests are written per failure mode. The load-bearing ones were checked by
+reintroducing the bug and confirming they fail.
+
+Regressions with dedicated tests:
+
+- the path jail refusing a symlinked component
+- the iMessage reader reaching another conversation
+- a scheduled run blocking on an approval instead of queueing it
+- the orchestrator calling a tool it was not granted
+- an undeliverable message taking down the host
+
+CI runs typecheck, lint, the suite, a UI build and the container build on
+every pull request.
+
+---
+
+## Quick start
+
+Node >= 20 and pnpm.
 
 ```bash
 pnpm install
-pnpm build:all          # TypeScript + UI static assets
+pnpm build:all          # TypeScript + UI assets
 cp .env.example .env    # set at least one model key
 pnpm doctor             # preflight
+pnpm start              # API + dashboard + cron + channels
 ```
 
-`.env` (auto-loaded by the CLI):
+Open `http://127.0.0.1:4317`, or attach a REPL with `pnpm kos`.
 
-```
-ANTHROPIC_API_KEY=...   # preferred when present
-OPENAI_API_KEY=...      # works alone (router falls back)
-# Discord:
-KOS_SECRET_DISCORD=...  # or DISCORD_TOKEN=
-KOS_OWNER_DISCORD=...   # or DISCORD_OWNER_ID=
-# Optional:
-KOS_WORKSPACE=~/kos-workspace
-KOS_DASHBOARD_TOKEN=... # required for mutating API if not on loopback only
-KOS_HOST=127.0.0.1
-KOS_PORT=4317
-```
+### Configuration
 
-## Run (multi-modal host)
-
-One background process owns the Kernel, Discord, cron, and dashboard API.
-CLI attaches to it so DMs and `kos` share the same session and memory.
+`.env` is git-ignored; `.env.example` documents every key.
 
 ```bash
-# 1. Start the host (detaches; Discord if token+owner are in .env)
-pnpm start
-# or: node packages/cli/dist/main.js start
+ANTHROPIC_API_KEY=      # preferred when both are set
+OPENAI_API_KEY=         # works alone; the router falls back
 
-# 2. Attach CLI (same brain as Discord)
-pnpm kos
-# or: pnpm kos once "hi"
+KOS_SECRET_DISCORD=     # bot token
+KOS_OWNER_DISCORD=      # your user id, and the inbound gate
 
-# 3. Restart after rebuilding or changing .env
-pnpm run restart
-# note: `pnpm run restart`, not `pnpm restart` -- the latter is pnpm's own
-# lifecycle command and shadows this script
-
-# 4. Stop when done
-pnpm stop
+KOS_OWNER_IMESSAGE=     # your own handle; enables the iMessage surface
+KOS_WORKSPACE=          # defaults to ~/kos-workspace
 ```
 
-Also:
+iMessage is macOS only. It needs Full Disk Access and Automation permission
+for Messages, reads one thread, and stays off unless configured.
+
+### Contained
 
 ```bash
-pnpm kos status | memory | pages | doctor
-pnpm start --foreground    # keep host in this terminal
-pnpm start --no-discord    # API + cron only
-kos restart                # stop, wait for the port, start again
-kos discord                # host foreground, require Discord creds
+docker compose up
 ```
 
-Workspace defaults to `~/kos-workspace`. Session id is `primary:owner` for
-CLI and Discord. Facts/memory are shared either way.
+Required for unattended cron. iMessage is the exception: it needs the host's
+Messages.app.
 
-### Dashboard
+---
 
-`pnpm serve` binds loopback by default and serves the built UI when
-`packages/ui/dist` exists. Open http://127.0.0.1:4317
+## Status
 
-- Control tower: status, approvals, projects, pages, crons, kill switch, prompt
-- Agent pages: `#/page/<id>` with live read-only display queries
+The agent loop, store, channels, tools, memory, projects, cron, operational
+spine and UI are in place, with the conversation and orchestration layers
+above them.
 
-Dev UI alternative: `pnpm serve` + `pnpm -C packages/ui dev` (proxies `/api`).
+Not built:
 
-### Docker jail
+- SMS (Discord and iMessage are)
+- the module promotion path, beyond one module using instancing
+- PDF export
+- parallel execution across conversations, which is deliberate
 
-```bash
-docker compose up --build
-```
+---
 
-Mounts `./workspace` (or `KOS_HOST_WORKSPACE`) at `/workspace` only. Env from
-`.env`. Publish is loopback-only in compose.
+## License
 
-## Agent capabilities (first-party modules)
-
-- files, sql, search, notify, http.fetch, cron
-- systems: project_create, project_list, migrate, pages.write/list/get
-- tasks: multi-instance lists (create_list, add, list, complete) + page-spec
-
-Risky tools (sql writes, migrate, http, cron.schedule, tasks.create_list, …)
-go to the approval queue.
-
-## Develop
-
-```bash
-pnpm build
-pnpm test
-pnpm lint
-```
+Apache-2.0. See `LICENSE`.
