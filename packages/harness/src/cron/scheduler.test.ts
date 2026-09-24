@@ -171,7 +171,15 @@ describe("running what fell due while nothing was listening", () => {
   });
 
   it("leaves a job alone when it ran within the period", async () => {
-    hourly(60_000);
+    /*
+     * Marked as having just run, rather than a fixed minute ago.
+     *
+     * Against an hourly schedule, "a minute ago" is only inside the period
+     * when the clock is more than a minute past the hour. Run at HH:00:30 the
+     * top of the hour is more recent than the run, so catchUp fired and was
+     * right to. The test failed in CI at exactly 07:00:00.
+     */
+    hourly(0);
     const sched = scheduler();
     sched.start();
 
