@@ -113,6 +113,31 @@ describe("a floor per tool", () => {
     expect(floorFor({ command: "x" }, "anything")).toBe("risky");
   });
 
+  it("floors the documented mail server as the README says", () => {
+    // The config in README's Mail section, verbatim in shape: reads safe,
+    // everything that changes or sends mail left at the risky default.
+    const config = parseMcpConfig({
+      servers: {
+        mail: {
+          command: "npx",
+          args: ["-y", "@aiwerk/mcp-server-imap"],
+          env: { IMAP_HOST: "imap.example.com", IMAP_USER: "you@example.com", IMAP_PASS: "{{secret:mail}}" },
+          tools: {
+            email_list: "safe", email_read: "safe", email_search: "safe",
+            email_folders: "safe", email_attachment: "safe",
+          },
+        },
+      },
+    });
+    const mail = config.servers.mail!;
+    for (const read of ["email_list", "email_read", "email_search", "email_folders", "email_attachment"]) {
+      expect(floorFor(mail, read)).toBe("safe");
+    }
+    for (const write of ["email_move", "email_flag", "email_delete", "email_send", "email_reply"]) {
+      expect(floorFor(mail, write)).toBe("risky");
+    }
+  });
+
   it("parses the tools map and drops values that are not a floor", () => {
     const config = parseMcpConfig({
       servers: { b: { command: "x", tools: { navigate: "safe", click: "risky", bogus: "maybe" } } },

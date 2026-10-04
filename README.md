@@ -143,6 +143,40 @@ profile.
 never logged. A server that fails to start is reported and skipped. Stdio
 servers are child processes that do not outlive the host.
 
+### Mail
+
+Mail is an external service, so it comes in the same way. An IMAP server
+works with any provider and keeps sending off until it is switched on:
+
+```json
+{
+  "servers": {
+    "mail": {
+      "command": "npx",
+      "args": ["-y", "@aiwerk/mcp-server-imap"],
+      "env": {
+        "IMAP_HOST": "imap.example.com",
+        "IMAP_USER": "you@example.com",
+        "IMAP_PASS": "{{secret:mail}}"
+      },
+      "tools": {
+        "email_list": "safe", "email_read": "safe", "email_search": "safe",
+        "email_folders": "safe", "email_attachment": "safe"
+      }
+    }
+  }
+}
+```
+
+The password is `KOS_SECRET_MAIL` in `.env`, an app password rather than
+the account's own. Reading is floored safe, so the heartbeat can look at
+what arrived without asking. Moving, flagging, deleting, sending and
+replying stay risky: each asks, or runs under a permission the owner
+remembered for that tool. Sending also needs the server's own opt-in,
+`SMTP_SEND_ENABLED=true` with `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` and
+`SMTP_FROM` in `env`. A Gmail-specific server with OAuth fits the same
+shape; what changes is the tool names in the floors map.
+
 ---
 
 ## Architecture
