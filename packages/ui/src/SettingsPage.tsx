@@ -9,6 +9,7 @@ import {
   type SettingsPayload, type ModuleInfo, type SkillInfo, type PermissionRule } from "./api.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { Select } from "./Select.js";
+import { isTheme, readTheme, setTheme, type Theme } from "./theme.js";
 import { SpendPanel } from "./SpendPanel.js";
 
 /**
@@ -54,6 +55,7 @@ type SectionId =
   | "models"
   | "conversation"
   | "behaviour"
+  | "appearance"
   | "network"
   | "spend"
   | "skills"
@@ -71,6 +73,7 @@ const SECTIONS: { id: SectionId; group: string; label: string; blurb: string }[]
   { id: "models", group: "Account", label: "Models", blurb: "Which model answers, which builds, which is cheap" },
   { id: "conversation", group: "Conduct", label: "Conversation", blurb: "How much history is kept" },
   { id: "behaviour", group: "Conduct", label: "Behaviour", blurb: "How KOS acts when you are not watching" },
+  { id: "appearance", group: "Conduct", label: "Appearance", blurb: "Dark, light, or what the system says" },
   { id: "skills", group: "Extensions", label: "Skills", blurb: "What KOS knows how to do, and which are on" },
   { id: "modules", group: "Extensions", label: "Modules", blurb: "Features built as servers, and which are running" },
   { id: "permissions", group: "Access", label: "Permissions", blurb: "Decisions you made at a prompt and kept" },
@@ -319,6 +322,7 @@ export function SettingsPage({
   const [data, setData] = useState<SettingsPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [active, setActiveState] = useState<SectionId>(isSection(section) ? section : "you");
+  const [theme, setThemeState] = useState<Theme>(readTheme);
   useEffect(() => {
     if (isSection(section)) setActiveState(section);
   }, [section]);
@@ -941,6 +945,32 @@ export function SettingsPage({
                 />
               </div>
             </div>
+          </Section>
+        )}
+
+        {active === "appearance" && (
+          <Section
+            title="Appearance"
+            blurb="Which palette this browser shows. Kept here, not in the workspace, so a phone and a desk can differ."
+          >
+            <Field label="Theme" hint="Dark is the default. System follows the device and changes with it.">
+              <Select
+                className="set-select"
+                label="Theme"
+                value={theme}
+                options={[
+                  { value: "dark", label: "Dark" },
+                  { value: "light", label: "Light" },
+                  { value: "system", label: "System" },
+                ]}
+                onChange={(v) => {
+                  if (isTheme(v)) {
+                    setTheme(v);
+                    setThemeState(v);
+                  }
+                }}
+              />
+            </Field>
           </Section>
         )}
 
