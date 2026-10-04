@@ -565,6 +565,19 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const memoryWriter = new MemoryWriter(
     facts,
     new LlmSalienceConfirmer(inference),
+    // Is a "maybe" worth the confirm at all? One typed answer, from the
+    // owner's classifier when they have one, before a chat completion.
+    async (text) => {
+      const c = kernelRef?.classifier;
+      if (!c) return true;
+      const verdict = await c.classify({
+        kind: "choice",
+        question: "Does this message state something about the owner that will still be true and useful months from now (an identity, relationship, preference, decision, constraint, recurring arrangement, tool or service they use)?",
+        text,
+        labels: ["durable", "passing"],
+      });
+      return !(verdict.label === "passing" && verdict.confidence >= 0.6);
+    },
   );
 
   kernelRef = new Kernel({

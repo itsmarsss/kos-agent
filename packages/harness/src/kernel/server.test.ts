@@ -791,6 +791,18 @@ describe("handleApiRequest", () => {
     expect(kernel.facts.get("owner", "city")).toMatchObject({ value: "Porto", trust: "owner" });
   });
 
+  it("points classification at the owner's endpoint and back", async () => {
+    expect(kernel.classifier.name).toBe("llm");
+    const set = await handleApiRequest(kernel, { method: "POST", path: "/api/settings/models/classifier", body: { url: "https://jev.example/classify" } });
+    expect(set.body).toEqual({ classifier: { url: "https://jev.example/classify" } });
+    expect(kernel.classifier.name).toBe("classifier");
+    const shown = await handleApiRequest(kernel, { method: "GET", path: "/api/settings/models" });
+    expect((shown.body as { classifier: { url: string } }).classifier).toEqual({ url: "https://jev.example/classify" });
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/settings/models/classifier", body: { url: "ftp://x" } })).status).toBe(400);
+    await handleApiRequest(kernel, { method: "POST", path: "/api/settings/models/classifier", body: { url: "" } });
+    expect(kernel.classifier.name).toBe("llm");
+  });
+
   it("switches a built-in feature off and on in place", async () => {
     const before = await handleApiRequest(kernel, { method: "GET", path: "/api/modules" });
     expect((before.body as { builtins: { name: string; enabled: boolean }[] }).builtins).toEqual(expect.arrayContaining([expect.objectContaining({ name: "tasks", enabled: true })]));

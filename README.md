@@ -333,6 +333,8 @@ ANTHROPIC_API_KEY=      # preferred when both are set
 OPENAI_API_KEY=         # works alone; the router falls back
 KOS_CUSTOM_BASE_URL=    # any OpenAI-compatible endpoint: your own model, a local
 KOS_SECRET_CUSTOM=      # server, a gateway; the key only if it wants one
+KOS_CLASSIFIER_URL=     # a "which of these" model (Jev or your own) for the typed
+KOS_SECRET_CLASSIFIER=  # questions; the cheap chat route stands in without one
                         # its price goes under Spend > Rates once it has been used
 
 KOS_SECRET_DISCORD=     # bot token

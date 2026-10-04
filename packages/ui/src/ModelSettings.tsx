@@ -42,6 +42,9 @@ export function ModelSettings({
   const [customUrl, setCustomUrl] = useState("");
   const [customSaved, setCustomSaved] = useState("");
   const [customStatus, setCustomStatus] = useState<string | null>(null);
+  const [classifierUrl, setClassifierUrl] = useState("");
+  const [classifierSaved, setClassifierSaved] = useState("");
+  const [classifierStatus, setClassifierStatus] = useState<string | null>(null);
   const [models, setModels] = useState<string[]>([]);
   /** What the server last confirmed, so an edit can be told from a load. */
   const [stored, setStored] = useState<Settings>({});
@@ -59,6 +62,8 @@ export function ModelSettings({
         setProviders(s.providers ?? []);
         setCustomUrl(s.custom?.baseUrl ?? "");
         setCustomSaved(s.custom?.baseUrl ?? "");
+        setClassifierUrl(s.classifier?.url ?? "");
+        setClassifierSaved(s.classifier?.url ?? "");
       })
       .catch(() => setStatus("Could not load settings."));
     // A provider that cannot list its models is not a reason to block editing:
@@ -238,6 +243,45 @@ export function ModelSettings({
             Save endpoint
           </button>
           {customStatus && <span className="hint">{customStatus}</span>}
+        </div>
+      </section>
+
+      <section className="settings-group">
+        <div className="settings-group-head">
+          <strong>Classifier</strong>
+          <span className="hint">a model that answers "which of these" with a confidence, such as Jev; the cheap route stands in without one</span>
+        </div>
+        <label className="kos-field">
+          <span className="kos-field-label">Endpoint URL</span>
+          <input
+            className="kos-input"
+            placeholder="https://.../classify"
+            value={classifierUrl}
+            onChange={(e) => { setClassifierUrl(e.target.value); setClassifierStatus(null); }}
+          />
+        </label>
+        <p className="hint">
+          It is sent the question, the text and the labels as JSON and answers with a label and a confidence. A key, if it wants one, goes in .env as KOS_SECRET_CLASSIFIER. Used before the memory confirm, so a message that is plainly passing never costs a chat completion.
+        </p>
+        <div className="settings-actions">
+          <button
+            type="button"
+            className="btn"
+            disabled={classifierUrl.trim() === classifierSaved}
+            onClick={() => {
+              void api
+                .saveClassifierEndpoint(classifierUrl.trim())
+                .then((r) => {
+                  setClassifierSaved(r.classifier?.url ?? "");
+                  setClassifierUrl(r.classifier?.url ?? "");
+                  setClassifierStatus(r.classifier ? "Classifier saved." : "Back to the cheap route.");
+                })
+                .catch((err: unknown) => setClassifierStatus(err instanceof Error ? err.message : String(err)));
+            }}
+          >
+            Save classifier
+          </button>
+          {classifierStatus && <span className="hint">{classifierStatus}</span>}
         </div>
       </section>
 

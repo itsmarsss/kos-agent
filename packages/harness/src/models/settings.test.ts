@@ -73,6 +73,13 @@ describe("the owner's own endpoint", () => {
     expect(parseCustomEndpoint({}, {})).toBeUndefined();
   });
 
+  it("reads a classifier endpoint from settings or the environment", async () => {
+    const { parseClassifierEndpoint } = await import("./settings.js");
+    expect(parseClassifierEndpoint({ url: "https://jev.example/classify" }, {})).toEqual({ url: "https://jev.example/classify" });
+    expect(parseClassifierEndpoint(undefined, { KOS_CLASSIFIER_URL: "http://127.0.0.1:9000/c" })).toEqual({ url: "http://127.0.0.1:9000/c" });
+    expect(parseClassifierEndpoint({ url: "nope" }, {})).toBeUndefined();
+  });
+
   it("lets a setting move a task to another provider", async () => {
     const { parseModelSettings } = await import("./settings.js");
     expect(parseModelSettings({ cheap: { provider: "custom", model: "local-7b" } })).toEqual({ cheap: { provider: "custom", model: "local-7b" } });
