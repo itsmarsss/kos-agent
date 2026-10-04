@@ -457,6 +457,9 @@ export interface FactRow {
   key: string;
   value: string;
   kind: string;
+  /** global, project:<slug>, or caller:<name>. */
+  scope?: string;
+  trust?: string;
   source?: string | null;
   tags?: string[];
   pinned?: boolean;
