@@ -2,7 +2,7 @@ import type { EmbeddingProvider } from "../memory/embeddings.js";
 import type { EventLog } from "../memory/events.js";
 import { BATCH_CHARS, relatedClaims, takeBatch } from "../memory/extractor.js";
 import { GLOBAL_SCOPE, projectScope, type FactsStore } from "../memory/facts.js";
-import { listPages, readPage, writePage } from "../memory/pages.js";
+import { importPage, listPages, readPage, writePage, type PageLog } from "../memory/pages.js";
 import type { ReviewQueue } from "../memory/review.js";
 import type { ObservationStore } from "../memory/observations.js";
 import type { ModelMessage } from "../models/types.js";
@@ -41,6 +41,7 @@ export const MEMORY_TOOLS = [
   "memory.threads",
   "memory.thread",
   "memory.observe",
+  "memory.import_page",
 ] as const;
 
 export interface MemoryToolDeps {
@@ -57,6 +58,8 @@ export interface MemoryToolDeps {
   watermark?: { get: () => number; set: (lastEventId: number) => void };
   /** Where the dream job leaves what it could not settle. */
   review?: ReviewQueue;
+  /** What the pages looked like when last written, so an owner's edit can be told apart and read back. */
+  pages?: PageLog;
   /** Days without use before a claim counts as stale. */
   staleDays?: number;
   /** Threads, for observations: the transcripts, the conversations, where notes go, and who is busy. */
@@ -370,6 +373,8 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
         pairs: facts.pairs(ownerId).map((p) => ({ why: p.why, a: brief(p.a), b: brief(p.b) })),
         stale: facts.stale(ownerId, staleMs).slice(0, 50).map(brief),
         pages: listPages(ws).map((p) => ({ name: p.name, updated: new Date(p.updatedAt).toISOString().slice(0, 10) })),
+        // The owner edited these since they were written: read them back first.
+        editedPages: deps.pages ? deps.pages.edited(ws) : [],
         projects: [...new Set(facts.all(ownerId).map((f) => f.scope).filter((s) => s.startsWith("project:")))],
         pending: deps.review?.pending().length ?? 0,
       });
@@ -458,8 +463,26 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
     },
     (input) => {
       const ws = requireServices(ctx).workspace;
-      const page = writePage(ws, str(input, "name"), str(input, "markdown"));
+      const markdown = str(input, "markdown");
+      const page = writePage(ws, str(input, "name"), markdown);
+      deps.pages?.record(page.name, markdown);
       return JSON.stringify({ wrote: page.path, bytes: page.bytes });
+    },
+    { floor: "safe" },
+    { tags: ["memory"] },
+  );
+
+  ctx.registerTool(
+    {
+      name: "memory.import_page",
+      description:
+        "Read an edited page back into memory: each line of the form \"- key: value\" becomes the owner's claim in the page's scope (profile is global, any other name is that project). Call it for every page memory.review lists as edited, before tidying.",
+      inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+    },
+    (input) => {
+      if (!deps.pages) throw new Error("no page log");
+      const ws = requireServices(ctx).workspace;
+      return JSON.stringify(importPage(ws, facts, deps.pages, ownerId, str(input, "name")));
     },
     { floor: "safe" },
     { tags: ["memory"] },
