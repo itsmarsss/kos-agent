@@ -18,6 +18,8 @@
  * money on a timer rather than because someone asked for something.
  */
 
+import type { KosModule } from "../modules/loader.js";
+
 /** The conversation heartbeats run in, so they never crowd a real chat. */
 export const HEARTBEAT_SESSION = "heartbeat:owner";
 
@@ -152,4 +154,25 @@ export class Heartbeat {
     }
     this.schedule();
   }
+}
+
+/**
+ * The heartbeat as a module: activate starts the timer, deactivate stops it.
+ *
+ * It was a kernel service with its own start and stop. The kernel is
+ * primitives and a feature is a module, and this is the first service to
+ * move: nothing about it needs to live in the kernel except the handful of
+ * things a beat does, which it gets handed as deps.
+ */
+export function createHeartbeatModule(deps: HeartbeatDeps): KosModule {
+  const heart = new Heartbeat(deps);
+  return {
+    manifest: { name: "heartbeat", version: "1.0.0", provides: [], riskTier: "safe" },
+    activate() {
+      heart.start();
+    },
+    deactivate() {
+      heart.stop();
+    },
+  };
 }

@@ -104,6 +104,14 @@ export class GuardedTools implements ToolBox {
   private permitted(name: string): boolean {
     const { allow, grant, registry } = this.deps;
     if (registry.isRestricted(name)) return (grant ?? []).includes(name);
+    // A module may be for certain projects. Its tools exist only in those
+    // projects' conversations: withheld, not hidden, so the model is never
+    // offered a tool it cannot call.
+    const projects = registry.tagsOf(name).filter((t) => t.startsWith("project:")).map((t) => t.slice("project:".length));
+    if (projects.length > 0) {
+      const here = this.deps.projectSlug?.();
+      if (!here || !projects.includes(here)) return false;
+    }
     // Undefined is unrestricted. An allow-list that happens to be empty is a
     // real answer -- no tools -- not an absent one.
     if (allow === undefined) return true;

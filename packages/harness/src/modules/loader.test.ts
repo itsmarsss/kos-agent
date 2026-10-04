@@ -7,6 +7,7 @@ import {
   type KosModule,
   type ModuleContext,
 } from "./loader.js";
+import { EventBus } from "./events.js";
 
 function toolModule(name: string, toolName: string, version = "1.0.0"): KosModule {
   return {
@@ -160,5 +161,27 @@ describe("ModuleLoader", () => {
       "dependent",
       "failing",
     ]);
+  });
+
+  it("ends a module's subscriptions when it is switched off", async () => {
+    const bus = new EventBus();
+    const registry = new ToolRegistry();
+    const loader = new ModuleLoader(toolRegistryContext(registry, undefined, bus));
+    const heard: string[] = [];
+    await loader.load([
+      {
+        manifest: { name: "listener", version: "1.0.0", provides: [] },
+        activate(ctx) {
+          ctx.events!.on("turn:end", (e) => {
+      heard.push(e.conversationId);
+    });
+        },
+      },
+    ]);
+    bus.emit({ kind: "turn:end", conversationId: "a", projectSlug: null });
+    await loader.disable("listener");
+    bus.emit({ kind: "turn:end", conversationId: "b", projectSlug: null });
+    expect(heard).toEqual(["a"]);
+    expect(bus.count()).toBe(0);
   });
 });

@@ -52,6 +52,8 @@ export interface McpServerConfig {
   cwd?: string;
   /** Floor for every tool this server provides. Default risky. */
   risk?: Extract<RiskTier, "safe" | "risky">;
+  /** Project slugs the server's tools are for; they exist only in those projects' conversations. */
+  projects?: string[];
   /**
    * A floor per tool, overriding the server default.
    *
@@ -263,6 +265,7 @@ export function createMcpModule(options: McpModuleOptions): McpModule {
             return text;
           },
           { floor: floorFor(server, tool.name) },
+          server.projects?.length ? { tags: server.projects.map((p) => `project:${p}`) } : undefined,
         );
         registered.push(def.name);
       } catch (err) {

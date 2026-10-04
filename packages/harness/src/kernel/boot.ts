@@ -43,6 +43,7 @@ import { PageStore } from "../systems/pages.js";
 import { createHttpModule } from "../tools/http.js";
 import { createMcpModule, readMcpConfig } from "../tools/mcp.js";
 import { createModulesModule } from "../tools/modules.js";
+import { EventBus } from "../modules/events.js";
 import { MODULES_KEY, enabledServers, parseModuleSettings } from "../modules/workspace.js";
 import { isBuiltinFeature } from "../modules/builtins.js";
 import { isContained } from "../sandbox/jail.js";
@@ -193,7 +194,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     config: () => {
       const servers = { ...readMcpConfig(workspace.root).servers };
       const enabled = parseModuleSettings(settings.get(MODULES_KEY)).enabled;
-      for (const [name, server] of Object.entries(enabledServers(workspace, enabled, !isContained()))) {
+      const instancesOf = (module: string): string[] => manifest.listByModule(module).map((p) => p.slug);
+      for (const [name, server] of Object.entries(enabledServers(workspace, enabled, !isContained(), instancesOf))) {
         if (!(name in servers)) servers[name] = server;
       }
       return { servers };
@@ -453,7 +455,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     }),
     ...(options.extraModules ?? []),
   ];
-  const loader = new ModuleLoader(toolRegistryContext(registry, services));
+  const bus = new EventBus((message) => console.error(`[events] ${message}`));
+  const loader = new ModuleLoader(toolRegistryContext(registry, services, bus));
   const loadReport = await loader.load(modules, { skip: parseModuleSettings(settings.get(MODULES_KEY)).disabledBuiltins.filter(isBuiltinFeature) });
 
   ensureDefaultBackupCron(crons);
@@ -583,6 +586,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
 
   kernelRef = new Kernel({
     loader,
+    bus,
     mcp,
     review,
     callers,

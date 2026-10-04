@@ -37,6 +37,8 @@ export interface WorkspaceModuleManifest {
   env?: Record<string, string>;
   risk?: "safe" | "risky";
   tools?: Record<string, "safe" | "risky">;
+  /** Project slugs this module is for. Its tools exist only in their conversations. Absent means everywhere. */
+  projects?: string[];
 }
 
 export interface WorkspaceModule {
@@ -69,6 +71,10 @@ export function parseModuleManifest(raw: unknown, dirName: string): WorkspaceMod
   if (Array.isArray(m["args"])) out.args = m["args"].filter((a): a is string => typeof a === "string");
   if (isStringMap(m["env"])) out.env = m["env"];
   if (m["risk"] === "safe" || m["risk"] === "risky") out.risk = m["risk"];
+  if (Array.isArray(m["projects"])) {
+    const projects = m["projects"].filter((p): p is string => typeof p === "string" && p.trim() !== "").map((p) => p.trim());
+    if (projects.length) out.projects = projects;
+  }
   if (typeof m["tools"] === "object" && m["tools"] !== null) {
     const floors: Record<string, "safe" | "risky"> = {};
     for (const [tool, floor] of Object.entries(m["tools"] as Record<string, unknown>)) {
@@ -147,7 +153,7 @@ export function withBuiltinEnabled(current: ModuleSettings, name: string, enable
  */
 export function serverFor(
   module: WorkspaceModule,
-  options: { workspaceRoot: string; jail: boolean },
+  options: { workspaceRoot: string; jail: boolean; instances?: string[] },
 ): McpServerConfig {
   const command = module.manifest.command;
   if (!command) throw new Error(`${module.manifest.name} is a blueprint: it has no server to run`);
@@ -161,7 +167,13 @@ export function serverFor(
     ...(module.manifest.env ? { env: module.manifest.env } : {}),
     ...(module.manifest.risk ? { risk: module.manifest.risk } : {}),
     ...(module.manifest.tools ? { tools: module.manifest.tools } : {}),
+    // A blueprint's server is for its instances; a plain module says its own.
+    ...(projectsFor(module, options.instances ?? []).length ? { projects: projectsFor(module, options.instances ?? []) } : {}),
   };
+}
+
+function projectsFor(module: WorkspaceModule, instances: string[]): string[] {
+  return [...new Set([...(module.manifest.projects ?? []), ...(module.manifest.blueprint ? instances : [])])];
 }
 
 /** The servers for the modules the owner switched on. Invalid or unknown names are skipped. */
@@ -169,13 +181,15 @@ export function enabledServers(
   ws: Workspace,
   enabled: Iterable<string>,
   jail: boolean,
+  /** The instances of a blueprint, so a blueprint's server is scoped to them. */
+  instancesOf: (module: string) => string[] = () => [],
 ): Record<string, McpServerConfig> {
   const on = new Set(enabled);
   const out: Record<string, McpServerConfig> = {};
   for (const module of readWorkspaceModules(ws).modules) {
-    // A blueprint has nothing to start; on or off, it is a template.
+    // A blueprint alone has nothing to start; on or off, it is a template.
     if (on.has(module.manifest.name) && module.manifest.command) {
-      out[module.manifest.name] = serverFor(module, { workspaceRoot: ws.root, jail });
+      out[module.manifest.name] = serverFor(module, { workspaceRoot: ws.root, jail, instances: instancesOf(module.manifest.name) });
     }
   }
   return out;

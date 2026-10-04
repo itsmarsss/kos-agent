@@ -60,7 +60,8 @@ import { offeredSkills, readSkills } from "../skills/manifest.js";
 import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import { CHAT_TOOLS } from "../tools/chats.js";
 import { type NotifyPayload } from "../tools/notify.js";
-import { Heartbeat, heartbeatBeat } from "./heartbeat.js";
+import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
+import type { EventBus } from "../modules/events.js";
 import { AfterTurn } from "./afterturn.js";
 import { Caretaker } from "./caretaker.js";
 import { Decisions, type DecisionResult } from "./decisions.js";
@@ -211,6 +212,8 @@ export class Kernel {
   readonly supervisor: DaemonSupervisor;
   /** Holds the modules so what they opened can be let go at close. */
   private readonly loader: ModuleLoader;
+  /** What happens here, told to modules and to anything else that listens. */
+  readonly bus: EventBus;
   /** The servers behind mcp.* tools, so a module switched on can be brought up without a restart. */
   readonly mcp: McpModule;
   private readonly recalls = new Map<string, TurnRecall>();
@@ -242,7 +245,7 @@ export class Kernel {
   private readonly cron: CronService;
   /** Reads new conversation in the background and proposes claims. Off until the owner turns it on. */
   readonly extractor: MemoryExtractor;
-  private heartbeat?: Heartbeat;
+
   /**
    * Scope tags accumulated per session. Inference reads only the latest
    * message, so a follow-up that happens to match no keyword would otherwise
@@ -297,6 +300,7 @@ export class Kernel {
     daemons: DaemonStore;
     supervisor: DaemonSupervisor;
     loader: ModuleLoader;
+    bus: EventBus;
     mcp: McpModule;
     review: ReviewQueue;
     callers: CallerStore;
@@ -337,12 +341,13 @@ export class Kernel {
     this.sessions = args.sessions;
     this.conversations = args.conversations;
     this.facts = args.facts;
-    this.events = args.events;
+    this.bus = args.bus;
     this.embedder = args.embedder;
     this.presses = args.presses;
     this.daemons = args.daemons;
     this.supervisor = args.supervisor;
     this.loader = args.loader;
+    this.events = args.events;
     this.mcp = args.mcp;
     this.review = args.review;
     this.callers = args.callers;
@@ -393,7 +398,11 @@ export class Kernel {
       enqueue: (work, lane) => this.queue.enqueue(work, lane),
       runs: args.runs,
       health: args.health,
-      report: (key, label, ok, error) => this.caretaker.report(key, label, ok, error),
+      report: (key, label, ok, error) => {
+        this.caretaker.report(key, label, ok, error);
+        const jobId = Number(key.replace(/^cron:/, ""));
+        if (Number.isInteger(jobId)) this.bus.emit({ kind: "cron:fired", jobId, name: label, ok, error });
+      },
       backup: args.backup,
       run: (job) => this.runScheduledJob(job),
     });
@@ -432,7 +441,9 @@ export class Kernel {
   async setBuiltinEnabled(name: string, enabled: boolean): Promise<boolean> {
     if (!isBuiltinFeature(name)) return false;
     this.settings.set(MODULES_KEY, withBuiltinEnabled(parseModuleSettings(this.settings.get(MODULES_KEY)), name, enabled));
-    return enabled ? this.loader.enable(name) : this.loader.disable(name);
+    const done = enabled ? await this.loader.enable(name) : await this.loader.disable(name);
+    this.bus.emit({ kind: enabled ? "module:enabled" : "module:disabled", name });
+    return done;
   }
 
   /** Build a kernel over a workspace. What it is made of is in boot.ts. */
@@ -540,6 +551,7 @@ export class Kernel {
       this.currentConversationId = sessionId;
       this.working.add(sessionId);
       this.progress.emit({ kind: "turn-start", conversationId: sessionId });
+      this.bus.emit({ kind: "turn:start", conversationId: sessionId, projectSlug: this.projectOf(sessionId) });
       /** Set when the turn hands its ending over to a deferred settle. */
       let suspended = false;
       try {
@@ -1042,11 +1054,25 @@ export class Kernel {
    * is over, so this is called from the deferred settle in that case and from
    * the turn's own finally in every other.
    */
+  /**
+   * The project a conversation belongs to, for an event. Null when it cannot
+   * be read: a suspended turn can settle after the store has closed, and an
+   * event is not worth a throw.
+   */
+  private projectOf(sessionId: string): string | null {
+    try {
+      return this.conversations.get(sessionId)?.projectSlug ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   private endTurn(sessionId: string): void {
     this.working.delete(sessionId);
     this.stopping.delete(sessionId);
     this.aborts.delete(sessionId);
     this.progress.emit({ kind: "turn-end", conversationId: sessionId });
+    this.bus.emit({ kind: "turn:end", conversationId: sessionId, projectSlug: this.projectOf(sessionId) });
   }
 
 
@@ -1138,12 +1164,16 @@ export class Kernel {
   }
 
   /** Carry out the owner's decision on a queued action. Every surface comes through here. */
-  approve(id: number, decidedBy?: string, options: { remember?: boolean } = {}): Promise<DecisionResult> {
-    return this.decisions.approve(id, decidedBy, options);
+  async approve(id: number, decidedBy?: string, options: { remember?: boolean } = {}): Promise<DecisionResult> {
+    const result = await this.decisions.approve(id, decidedBy, options);
+    this.bus.emit({ kind: "approval:decided", id, approved: true, decidedBy: decidedBy ?? null });
+    return result;
   }
 
-  deny(id: number, decidedBy?: string): Promise<DecisionResult> {
-    return this.decisions.deny(id, decidedBy);
+  async deny(id: number, decidedBy?: string): Promise<DecisionResult> {
+    const result = await this.decisions.deny(id, decidedBy);
+    this.bus.emit({ kind: "approval:decided", id, approved: false, decidedBy: decidedBy ?? null });
+    return result;
   }
 
   async dispatchTo(
@@ -1462,9 +1492,11 @@ export class Kernel {
       onQueued: (action) => {
         opts.onQueued?.(action);
         this.onApprovalRequested?.(action);
+        this.bus.emit({ kind: "approval:requested", id: action.id, tool: action.tool, conversationId: opts.conversationId ?? null });
       },
       onExecuted: (tool, result) => {
         this.afterToolRan(tool);
+        this.bus.emit({ kind: "tool:end", tool, isError: result.isError === true, conversationId: opts.conversationId ?? null });
         if (opts.conversationId) {
           this.progress.emit({
             kind: "tool-end",
@@ -1615,26 +1647,26 @@ export class Kernel {
    * because it is the same thing: KOS deciding to spend a turn on itself.
    */
   startHeartbeat(): void {
-    this.heartbeat?.stop();
-    this.heartbeat = new Heartbeat({
-      interval: () => this.behaviour().heartbeatMinutes,
-      // The interval is the rate limit; a second budget on top would only
-      // make the cadence the owner set mean something other than it says.
-      allowed: () => !this.killSwitch.halted,
-      beat: heartbeatBeat({
-        ownerId: this.profile.ownerId,
-        enqueue: (work, lane) => this.queue.enqueue(work, lane),
-        runs: this.runs,
-        conversationFor: (channel, ownerId) => this.conversationFor(channel, ownerId),
-        runTurn: (text, userId, sessionId, opts) => this.runTurn(text, userId, sessionId, opts),
+    void this.loader.disable("heartbeat");
+    void this.loader.load([
+      createHeartbeatModule({
+        interval: () => this.behaviour().heartbeatMinutes,
+        // The interval is the rate limit; a second budget on top would only
+        // make the cadence the owner set mean something other than it says.
+        allowed: () => !this.killSwitch.halted,
+        beat: heartbeatBeat({
+          ownerId: this.profile.ownerId,
+          enqueue: (work, lane) => this.queue.enqueue(work, lane),
+          runs: this.runs,
+          conversationFor: (channel, ownerId) => this.conversationFor(channel, ownerId),
+          runTurn: (text, userId, sessionId, opts) => this.runTurn(text, userId, sessionId, opts),
+        }),
       }),
-    });
-    this.heartbeat.start();
+    ]);
   }
 
   stopHeartbeat(): void {
-    this.heartbeat?.stop();
-    this.heartbeat = undefined;
+    void this.loader.disable("heartbeat");
   }
 
 
