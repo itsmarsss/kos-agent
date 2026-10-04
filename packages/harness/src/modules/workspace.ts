@@ -5,6 +5,7 @@ import { jailedProgram } from "../sandbox/jail.js";
 import { SKILL_NAME } from "../skills/manifest.js";
 import type { Workspace } from "../store/workspace.js";
 import type { McpServerConfig } from "../tools/mcp.js";
+import { parseBlueprint, type Blueprint } from "./blueprint.js";
 
 /**
  * Modules in the workspace: a folder under modules/ with a module.json.
@@ -28,8 +29,10 @@ export const MODULE_NAME = SKILL_NAME;
 export interface WorkspaceModuleManifest {
   name: string;
   description: string;
-  /** The program that serves it, run from the module's own directory. */
-  command: string;
+  /** The program that serves it, run from the module's own directory. Absent for a blueprint-only module. */
+  command?: string;
+  /** A project template: schema, pages and jobs an instance is made from. */
+  blueprint?: Blueprint;
   args?: string[];
   env?: Record<string, string>;
   risk?: "safe" | "risky";
@@ -60,8 +63,9 @@ export function parseModuleManifest(raw: unknown, dirName: string): WorkspaceMod
   const description = typeof m["description"] === "string" ? m["description"].trim() : "";
   if (!description) throw new Error("description is required");
   const command = typeof m["command"] === "string" ? m["command"].trim() : "";
-  if (!command) throw new Error("command is required: the program that serves the module");
-  const out: WorkspaceModuleManifest = { name, description, command };
+  const blueprint = m["blueprint"] !== undefined ? parseBlueprint(m["blueprint"]) : undefined;
+  if (!command && !blueprint) throw new Error("command (the program that serves the module) or blueprint is required");
+  const out: WorkspaceModuleManifest = { name, description, ...(command ? { command } : {}), ...(blueprint ? { blueprint } : {}) };
   if (Array.isArray(m["args"])) out.args = m["args"].filter((a): a is string => typeof a === "string");
   if (isStringMap(m["env"])) out.env = m["env"];
   if (m["risk"] === "safe" || m["risk"] === "risky") out.risk = m["risk"];
@@ -145,9 +149,11 @@ export function serverFor(
   module: WorkspaceModule,
   options: { workspaceRoot: string; jail: boolean },
 ): McpServerConfig {
+  const command = module.manifest.command;
+  if (!command) throw new Error(`${module.manifest.name} is a blueprint: it has no server to run`);
   const { file, args } = options.jail
-    ? jailedProgram(module.manifest.command, module.manifest.args ?? [], { workspaceRoot: options.workspaceRoot })
-    : { file: module.manifest.command, args: module.manifest.args ?? [] };
+    ? jailedProgram(command, module.manifest.args ?? [], { workspaceRoot: options.workspaceRoot })
+    : { file: command, args: module.manifest.args ?? [] };
   return {
     command: file,
     args,
@@ -167,7 +173,10 @@ export function enabledServers(
   const on = new Set(enabled);
   const out: Record<string, McpServerConfig> = {};
   for (const module of readWorkspaceModules(ws).modules) {
-    if (on.has(module.manifest.name)) out[module.manifest.name] = serverFor(module, { workspaceRoot: ws.root, jail });
+    // A blueprint has nothing to start; on or off, it is a template.
+    if (on.has(module.manifest.name) && module.manifest.command) {
+      out[module.manifest.name] = serverFor(module, { workspaceRoot: ws.root, jail });
+    }
   }
   return out;
 }

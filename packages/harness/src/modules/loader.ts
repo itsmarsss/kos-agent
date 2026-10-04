@@ -10,6 +10,7 @@ import type { Workspace } from "../store/workspace.js";
 import type { ProjectManifest } from "../systems/manifest.js";
 import type { Migrator } from "../systems/migrate.js";
 import type { PageStore } from "../systems/pages.js";
+import type { CronStore } from "../cron/store.js";
 import { satisfies } from "./semver.js";
 
 /**
@@ -35,6 +36,8 @@ export interface ModuleServices {
   migrator?: Migrator;
   /** Page-spec store for dashboard pages. */
   pages?: PageStore;
+  /** Scheduled jobs, so a blueprint can carry a project's. */
+  crons?: CronStore;
 }
 
 /**

@@ -63,6 +63,30 @@ describe("handleApiRequest", () => {
     expect(body.failures).toEqual([]);
   });
 
+  it("makes an instance of a blueprint module from the dashboard", async () => {
+    mkdirSync(join(root, "modules", "budget"), { recursive: true });
+    writeFileSync(
+      join(root, "modules", "budget", "module.json"),
+      JSON.stringify({
+        name: "budget",
+        description: "A budget",
+        blueprint: {
+          type: "budget",
+          schema: [{ op: "create_table", table: "tx", columns: [{ name: "id", type: "INTEGER", primaryKey: true }] }],
+          pages: [],
+          jobs: [],
+        },
+      }),
+      "utf8",
+    );
+    const res = await handleApiRequest(kernel, { method: "POST", path: "/api/modules/instantiate", body: { module: "budget", name: "Side biz" } });
+    expect(res.status).toBe(200);
+    expect((res.body as { project: { slug: string; module: string } }).project).toMatchObject({ slug: "side_biz", module: "budget" });
+    const list = await handleApiRequest(kernel, { method: "GET", path: "/api/modules" });
+    const mod = (list.body as { modules: { name: string; blueprint?: { instances: { slug: string }[] } }[] }).modules[0];
+    expect(mod?.blueprint?.instances).toEqual([{ slug: "side_biz", name: "Side biz", status: "active" }]);
+  });
+
   it("toggles the kill switch", async () => {
     await handleApiRequest(kernel, { method: "POST", path: "/api/kill", body: { halted: true } });
     expect(kernel.killSwitch.halted).toBe(true);

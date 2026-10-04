@@ -41,6 +41,8 @@ export function describeProject(
   db: Db,
   slug: string,
   lastTouchedAt = 0,
+  /** Every project's slug, so a table under a longer sibling slug (pantry_2_items beside pantry) is not claimed. */
+  siblings: string[] = [],
 ): ProjectSchema {
   const names = (
     db
@@ -51,7 +53,9 @@ export function describeProject(
          ORDER BY name`,
       )
       .all(`${slug.replace(/[%_]/g, "\\$&")}\\_%`) as { name: string }[]
-  ).map((r) => r.name);
+  )
+    .map((r) => r.name)
+    .filter((name) => !siblings.some((other) => other !== slug && other.length > slug.length && (name === other || name.startsWith(`${other}_`))));
 
   const tables = names.map((name) => ({
     name,
@@ -66,9 +70,10 @@ export function describeProject(
 
 /** Everything the active projects own. */
 export function describeActive(db: Db, projects: Project[]): ProjectSchema[] {
+  const slugs = projects.map((p) => p.slug);
   return projects
     .filter((p) => p.status === "active")
-    .map((p) => describeProject(db, p.slug, p.lastTouchedAt))
+    .map((p) => describeProject(db, p.slug, p.lastTouchedAt, slugs))
     .filter((s) => s.tables.length > 0);
 }
 

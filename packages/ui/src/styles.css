@@ -5725,3 +5725,9 @@ a.health {
   .set-rail-blurb { display: none; }
   .set-rail-item { flex: none; white-space: nowrap; padding: 0.35rem 0.7rem; }
 }
+
+/* Settings > Modules: a blueprint's instances, and the box for one more. */
+.set-instances { display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; }
+.set-instance-list { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.set-instance-new { display: flex; gap: 0.4rem; align-items: center; }
+.set-instance-new .kos-input { width: 16rem; max-width: 60vw; }

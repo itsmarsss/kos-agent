@@ -42,6 +42,7 @@ import { applyResolution } from "../memory/resolve.js";
 import { mayRead } from "../memory/callers.js";
 import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
 import { MODULES_KEY, parseModuleSettings, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
+import { instantiateBlueprint } from "../modules/blueprint.js";
 import { isBuiltinFeature } from "../modules/builtins.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillEnabled } from "../skills/settings.js";
 import { conversationKind } from "./conversations.js";
@@ -144,12 +145,27 @@ function modulesReport(kernel: Kernel): {
   const on = new Set(parseModuleSettings(kernel.settings.get(MODULES_KEY)).enabled);
   const status = kernel.mcp.status();
   return {
-    modules: modules.map((m) => ({
-      ...m.manifest,
-      dir: m.dir,
-      enabled: on.has(m.manifest.name),
-      ...(status[m.manifest.name] ?? {}),
-    })),
+    modules: modules.map((m) => {
+      const { blueprint, ...manifest } = m.manifest;
+      return {
+        ...manifest,
+        dir: m.dir,
+        enabled: on.has(m.manifest.name),
+        ...(status[m.manifest.name] ?? {}),
+        ...(blueprint
+          ? {
+              blueprint: {
+                type: blueprint.type,
+                instancing: blueprint.instancing,
+                schema: blueprint.schema.length,
+                pages: blueprint.pages.length,
+                jobs: blueprint.jobs.length,
+                instances: kernel.manifest.listByModule(m.manifest.name).map((p) => ({ slug: p.slug, name: p.name, status: p.status })),
+              },
+            }
+          : {}),
+      };
+    }),
     invalid,
     builtins: kernel.builtins(),
   };
@@ -543,6 +559,26 @@ export async function handleApiRequest(
    * tools; off takes them back. The reply says whether it came up, so the
    * page can show "not connected" instead of a lying toggle.
    */
+  /** A new instance of a blueprint, from Settings. Additive, so no approval. */
+  if (method === "POST" && path === "/api/modules/instantiate") {
+    const name = typeof body.module === "string" ? body.module.trim() : "";
+    const instance = typeof body.name === "string" ? body.name.trim() : "";
+    if (!name || !instance) return { status: 400, body: { error: "module and name required" } };
+    const found = readWorkspaceModules(kernel.workspace).modules.find((m) => m.manifest.name === name);
+    if (!found?.manifest.blueprint) return { status: 404, body: { error: `no blueprint module named ${name}` } };
+    try {
+      const project = instantiateBlueprint(
+        { db: kernel.workspace.db, manifest: kernel.manifest, migrator: kernel.migrator, pages: kernel.pages, crons: kernel.crons },
+        name,
+        found.manifest.blueprint,
+        instance,
+      );
+      return ok({ project });
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
   if (method === "POST" && path === "/api/modules/enable") {
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const enabled = body.enabled === true;

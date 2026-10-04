@@ -58,6 +58,20 @@ describe("modules in a workspace", () => {
     }
   });
 
+  it("reads a blueprint-only module, and never tries to start one", () => {
+    const dir = join(ws.root, "modules", "budget");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "module.json"),
+      JSON.stringify({ name: "budget", description: "A budget", blueprint: { type: "budget", schema: [], pages: [], jobs: [] } }),
+      "utf8",
+    );
+    const { modules, invalid } = readWorkspaceModules(ws);
+    expect(invalid).toEqual([]);
+    expect(modules[0]?.manifest.blueprint?.type).toBe("budget");
+    expect(enabledServers(ws, ["budget"], false)).toEqual({});
+  });
+
   it("serves only what the owner switched on, and off is the default", () => {
     scaffoldModule(ws, "one", "One");
     scaffoldModule(ws, "two", "Two");

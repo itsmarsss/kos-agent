@@ -156,6 +156,11 @@ export class ProjectManifest {
       .run(this.now(), slug);
   }
 
+  /** Promotion: the project this blueprint was drawn from becomes its first instance. */
+  setModule(slug: string, module: string | null): void {
+    this.db.prepare(`UPDATE manifest SET module = ? WHERE slug = ?`).run(module, slug);
+  }
+
   setStatus(slug: string, status: ProjectStatus): void {
     this.db
       .prepare(`UPDATE manifest SET status = ?, last_touched_at = ? WHERE slug = ?`)

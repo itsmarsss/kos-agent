@@ -359,6 +359,7 @@ export function SettingsPage({
     invalid: [],
   });
   const [moduleBusy, setModuleBusy] = useState<string | null>(null);
+  const [newInstance, setNewInstance] = useState<Record<string, string>>({});
   const loadModules = useCallback(() => {
     void api
       .modules()
@@ -1169,7 +1170,7 @@ export function SettingsPage({
           </Section>
         )}
         {active === "modules" && (
-          <Section title="Modules" blurb="Each one is a folder under modules/ with a module.json and a server. Off is the default: KOS can write a module, and nothing runs until you switch it on here.">
+          <Section title="Modules" blurb="Each one is a folder under modules/ with a module.json. A server module runs tools, and off is the default: nothing runs until you switch it on here. A blueprint is a project template; each instance is a project of its own.">
             {(modules.builtins ?? []).length > 0 && (
               <div className="set-group">
                 <h3>Built in</h3>
@@ -1199,13 +1200,61 @@ export function SettingsPage({
                 key={m.name}
                 label={m.name}
                 hint={
-                  m.error
-                    ? `${m.description} · not connected: ${m.error}`
-                    : m.connected && m.tools
-                      ? `${m.description} · serving ${m.tools.length} tool${m.tools.length === 1 ? "" : "s"}`
-                      : m.description
+                  m.blueprint
+                    ? `${m.description} · blueprint: ${m.blueprint.schema} schema change${m.blueprint.schema === 1 ? "" : "s"}, ${m.blueprint.pages} page${m.blueprint.pages === 1 ? "" : "s"}, ${m.blueprint.jobs} job${m.blueprint.jobs === 1 ? "" : "s"}`
+                    : m.error
+                      ? `${m.description} · not connected: ${m.error}`
+                      : m.connected && m.tools
+                        ? `${m.description} · serving ${m.tools.length} tool${m.tools.length === 1 ? "" : "s"}`
+                        : m.description
                 }
               >
+                {m.blueprint ? (
+                  /* A template has nothing to switch on. What it has is
+                     instances, and room for one more. */
+                  <div className="set-instances">
+                    {m.blueprint.instances.length === 0 ? (
+                      <span className="hint">No instances yet.</span>
+                    ) : (
+                      <span className="set-instance-list">
+                        {m.blueprint.instances.map((p) => (
+                          <a key={p.slug} className="ops-page-chip" href={`#/chats/project%3A${encodeURIComponent(p.slug)}`} title={`Open ${p.name}'s chat`}>
+                            {p.name}
+                          </a>
+                        ))}
+                      </span>
+                    )}
+                    {(m.blueprint.instancing === "multi" || m.blueprint.instances.length === 0) && (
+                      <form
+                        className="set-instance-new"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          const name = (newInstance[m.name] ?? "").trim();
+                          if (!name) return;
+                          setModuleBusy(m.name);
+                          void api
+                            .instantiateModule(m.name, name)
+                            .then(() => {
+                              setNewInstance((cur) => ({ ...cur, [m.name]: "" }));
+                              loadModules();
+                            })
+                            .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+                            .finally(() => setModuleBusy(null));
+                        }}
+                      >
+                        <input
+                          className="kos-input"
+                          placeholder="New instance, e.g. Household 2026"
+                          value={newInstance[m.name] ?? ""}
+                          onChange={(e) => setNewInstance((cur) => ({ ...cur, [m.name]: e.target.value }))}
+                        />
+                        <button type="submit" className="btn btn--sm" disabled={moduleBusy === m.name || !(newInstance[m.name] ?? "").trim()}>
+                          {moduleBusy === m.name ? "…" : "Create"}
+                        </button>
+                      </form>
+                    )}
+                  </div>
+                ) : (
                 <label className="set-toggle">
                   <input
                     type="checkbox"
@@ -1221,6 +1270,7 @@ export function SettingsPage({
                   />
                   <span>{moduleBusy === m.name ? "…" : m.enabled ? "On" : "Off"}</span>
                 </label>
+                )}
               </Field>
             ))}
             {modules.invalid.length > 0 && (
