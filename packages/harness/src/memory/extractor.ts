@@ -68,10 +68,13 @@ const SYSTEM = [
   "tools and services used, facts about the owner's projects. Drop: questions, one-off requests,",
   "small talk, transient state, anything the assistant guessed rather than the owner said.",
   "",
-  "Each proposal must cite the event ids it is drawn from, and only ids you were shown. Use",
-  '"supersede" when a shown claim has the same key and the new value replaces it; use "add"',
-  'for a new key; use "noop" to say a shown claim is still right. Scope is "project" when the',
-  'thing is about the project the events belong to, "global" when it is about the owner anywhere.',
+  "Each proposal must cite the event ids it is drawn from, and only ids you were shown. When the",
+  'new information is about something a shown claim already covers, use "supersede" with that',
+  "claim's exact key, even if you would have named it differently: one thing, one key, so a",
+  'change replaces rather than duplicates. Use "add" only for something no shown claim covers,',
+  'with a short generic snake_case key (city, employer, timezone, sister, coffee_order). Use "noop"',
+  'to say a shown claim is still right. Scope is "project" when the thing is about the project',
+  'the events belong to, "global" when it is about the owner anywhere.',
   "",
   'Reply with JSON only: {"ops":[{"op":"add"|"supersede"|"noop","key":"snake_case","value":"self-contained",',
   '"kind":"fact"|"preference","scope":"global"|"project","evidence":[ids],"confidence":0-1}]}',
@@ -120,6 +123,16 @@ export function parseProposals(text: string): Proposal[] {
     if (out.length >= MAX_OPS) break;
   }
   return out;
+}
+
+/** A shown claim whose key is the proposal's key with words taken away, if there is one. */
+export function sameThing(proposed: string, shown: Fact[]): string | undefined {
+  const mine = new Set(proposed.split("_").filter(Boolean));
+  for (const f of shown) {
+    const theirs = f.key.split("_").filter(Boolean);
+    if (theirs.length && theirs.every((t) => mine.has(t))) return f.key;
+  }
+  return undefined;
 }
 
 function describe(e: MemoryEvent): string {
@@ -182,12 +195,17 @@ export class MemoryExtractor {
     return batch;
   }
 
-  /** The claims the batch might be talking about: current, in its scopes, sharing its words. */
+  /**
+   * The claims the batch might be talking about: current, in its scopes,
+   * sharing any word with it. Shown to the model so it supersedes instead
+   * of inventing a second key; a loose match costs a few tokens, a missed
+   * one costs a duplicate, so the floor here is lower than for a turn.
+   */
   private related(batch: MemoryEvent[]): Fact[] {
     const projects = [...new Set(batch.map((e) => e.projectSlug).filter((p): p is string => p !== null))];
     const scopes = [GLOBAL_SCOPE, ...projects.map(projectScope)];
     const text = batch.map((e) => e.text).join("\n");
-    return this.deps.facts.search(this.deps.ownerId, text, 30, { scopes, minScore: 2 });
+    return this.deps.facts.search(this.deps.ownerId, text, 40, { scopes, minScore: 1 });
   }
 
   private async extract(batch: MemoryEvent[], report: ExtractionReport): Promise<void> {
@@ -216,11 +234,14 @@ export class MemoryExtractor {
       const project = cited[0]!.projectSlug;
       const scope = p.scope === "project" && project && cited.every((e) => e.projectSlug === project) ? projectScope(project) : GLOBAL_SCOPE;
       const trust = cited.every((e) => e.role === "owner") ? "owner" : "agent";
-      const before = relatedKeys.get(`${scope}:${p.key}`) ?? this.deps.facts.get(this.deps.ownerId, p.key, scope);
+      // A new key that merely elaborates a shown one (home_city for city) is
+      // the same claim: write it under the key the owner already has.
+      const key = relatedKeys.has(`${scope}:${p.key}`) ? p.key : (sameThing(p.key, related.filter((f) => f.scope === scope)) ?? p.key);
+      const before = relatedKeys.get(`${scope}:${key}`) ?? this.deps.facts.get(this.deps.ownerId, key, scope);
       if (before && before.value === p.value) continue;
       const written = this.deps.facts.upsert(
         this.deps.ownerId,
-        { key: p.key, value: p.value, kind: p.kind, scope, trust, confidence: p.confidence, evidence: cited.map((e) => e.id) },
+        { key, value: p.value, kind: p.kind, scope, trust, confidence: p.confidence, evidence: cited.map((e) => e.id) },
         "extractor",
       );
       if (written.supersedes) report.superseded++;

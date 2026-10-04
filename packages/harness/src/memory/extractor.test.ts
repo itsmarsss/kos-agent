@@ -80,6 +80,16 @@ describe("the extractor", () => {
     expect(settings.get(EXTRACTOR_KEY)).toEqual({ lastEventId: b });
   });
 
+  it("writes an elaborated key under the key the owner already has", async () => {
+    facts.upsert("owner", { key: "city", value: "Toronto", kind: "fact" });
+    const a = say("owner", "I moved to Montreal, so stop assuming Toronto");
+    const inf = fakeInference([`{"ops":[{"op":"add","key":"home_city","value":"Montreal","kind":"fact","scope":"global","evidence":[${a}],"confidence":0.9}]}`]);
+    const report = await extractor(inf).run();
+    expect(report).toMatchObject({ added: 0, superseded: 1 });
+    expect(facts.get("owner", "city")!.value).toBe("Montreal");
+    expect(facts.get("owner", "home_city")).toBeUndefined();
+  });
+
   it("rejects a proposal without evidence, with evidence it was not shown, or without conviction", async () => {
     const a = say("owner", "I moved to Lisbon");
     const inf = fakeInference([`{"ops":[{"op":"add","key":"city","value":"Lisbon","kind":"fact","scope":"global","evidence":[],"confidence":0.9},{"op":"add","key":"city2","value":"Lisbon","kind":"fact","scope":"global","evidence":[999],"confidence":0.9},{"op":"add","key":"city3","value":"Lisbon","kind":"fact","scope":"global","evidence":[${a}],"confidence":0.2}]}`]);
