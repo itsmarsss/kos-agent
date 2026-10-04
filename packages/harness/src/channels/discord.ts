@@ -43,6 +43,8 @@ import type {
 
 export const APPROVE_PREFIX = "kos:approve:";
 export const DENY_PREFIX = "kos:deny:";
+/** Approve, and remember this shape so it stops asking. */
+export const ALWAYS_PREFIX = "kos:always:";
 /** A button the agent put there, as opposed to one the risk gate did. */
 export const PRESS_PREFIX = "kos:press:";
 /** The form a press opened, named for the button it came from. */
@@ -61,17 +63,22 @@ const COLOR_APPROVE = 0xf59e0b;
 export function approvalCustomIds(pendingId: string): {
   approve: string;
   deny: string;
+  always: string;
 } {
   return {
     approve: `${APPROVE_PREFIX}${pendingId}`,
     deny: `${DENY_PREFIX}${pendingId}`,
+    always: `${ALWAYS_PREFIX}${pendingId}`,
   };
 }
 
 /** Decode a button customId back into an approval decision, or null. */
 export function parseApprovalCustomId(
   customId: string,
-): { id: string; approved: boolean } | null {
+): { id: string; approved: boolean; remember?: boolean } | null {
+  if (customId.startsWith(ALWAYS_PREFIX)) {
+    return { id: customId.slice(ALWAYS_PREFIX.length), approved: true, remember: true };
+  }
   if (customId.startsWith(APPROVE_PREFIX)) {
     return { id: customId.slice(APPROVE_PREFIX.length), approved: true };
   }
@@ -542,6 +549,7 @@ export class DiscordAdapter implements ChannelAdapter {
       id: decision.id,
       approved: decision.approved,
       deciderId: interaction.user.id,
+      ...(decision.remember ? { remember: true } : {}),
     });
   }
 
@@ -869,6 +877,10 @@ export class DiscordAdapter implements ChannelAdapter {
         .setCustomId(ids.approve)
         .setLabel("Approve")
         .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(ids.always)
+        .setLabel("Always")
+        .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
         .setCustomId(ids.deny)
         .setLabel("Deny")

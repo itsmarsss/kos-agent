@@ -68,6 +68,11 @@ describe("reading an owner's answer to a prompt", () => {
     expect(parseDecision("no 3")).toEqual({ id: "3", approved: false });
   });
 
+  it("reads always as approve-and-remember", () => {
+    expect(parseDecision("always 12")).toEqual({ id: "12", approved: true, remember: true });
+    expect(parseDecision("always")).toBeNull();
+  });
+
   it("is not fooled by a sentence that merely mentions approving", () => {
     expect(parseDecision("should I approve 12 or not")).toBeNull();
     expect(parseDecision("approve everything")).toBeNull();
@@ -227,7 +232,9 @@ describe("the iMessage adapter", () => {
     await adapter.start();
 
     await adapter.requestApproval(OWNER, { id: "12", text: "Delete notes.txt?" });
-    expect(sent.at(-1)).toContain('Reply "approve 12" or "deny 12"');
+    expect(sent.at(-1)).toContain('"approve 12"');
+    expect(sent.at(-1)).toContain('"always 12"');
+    expect(sent.at(-1)).toContain('"deny 12"');
 
     addMessage(2, "approve 12");
     await adapter.poll();

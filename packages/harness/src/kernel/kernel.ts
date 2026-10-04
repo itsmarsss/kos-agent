@@ -1508,6 +1508,7 @@ export class Kernel {
   async approve(
     id: number,
     decidedBy?: string,
+    options: { remember?: boolean } = {},
   ): Promise<{
     ok: boolean;
     message: string;
@@ -1529,6 +1530,20 @@ export class Kernel {
      */
     const awaited = this.approvals.isAwaited(id);
     this.approvals.approve(id, decidedBy ?? this.profile.ownerId);
+    /*
+     * Kept, when the owner said so.
+     *
+     * The rule is the shape of this call, in the project it came from, or
+     * everywhere when it came from the root. A call whose shape cannot be
+     * named makes no rule, and keeps asking.
+     */
+    if (options.remember) {
+      const project = action.conversationId
+        ? (this.conversations.get(action.conversationId)?.projectSlug ?? null)
+        : null;
+      const rule = this.permissions.ruleFor(action.tool, JSON.parse(action.args) as Record<string, unknown>, project);
+      if (rule) this.permissions.add(rule);
+    }
     if (awaited) {
       return {
         ok: true,

@@ -136,8 +136,8 @@ export function renderForText(msg: OutboundMessage): string {
 /** An owner's answer to an approval prompt, or nothing. */
 export function parseDecision(
   text: string,
-): { id: string; approved: boolean } | null {
-  const match = /^\s*(approve|approved|yes|ok|deny|denied|no)\s*#?(\d+)\s*$/i.exec(
+): { id: string; approved: boolean; remember?: boolean } | null {
+  const match = /^\s*(approve|approved|yes|ok|always|deny|denied|no)\s*#?(\d+)\s*$/i.exec(
     text,
   );
   if (!match) return null;
@@ -145,6 +145,8 @@ export function parseDecision(
   return {
     id: match[2]!,
     approved: verb !== "deny" && verb !== "denied" && verb !== "no",
+    // "always": approve, and stop asking for this shape.
+    ...(verb === "always" ? { remember: true } : {}),
   };
 }
 
@@ -227,7 +229,7 @@ export class IMessageAdapter implements ChannelAdapter {
     this.pending.add(req.id);
     const lines = [req.text];
     if (req.reason) lines.push(req.reason);
-    lines.push(`Reply "approve ${req.id}" or "deny ${req.id}".`);
+    lines.push(`Reply "approve ${req.id}", "always ${req.id}" to stop asking for this, or "deny ${req.id}".`);
     const text = lines.join("\n");
     this.remember(text);
     await this.sender(this.handle, text);
@@ -261,6 +263,7 @@ export class IMessageAdapter implements ChannelAdapter {
         id: decision.id,
         approved: decision.approved,
         deciderId: this.handle,
+        ...(decision.remember ? { remember: true } : {}),
       });
       return;
     }

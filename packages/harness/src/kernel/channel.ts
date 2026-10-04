@@ -72,7 +72,7 @@ export function connectChannel(
       const id = Number(ctx.pendingId);
       let text: string | undefined;
       if (ctx.approved) {
-        const res = await kernel.approve(id);
+        const res = await kernel.approve(id, undefined, { remember: ctx.remember === true });
         if (res.reply) text = res.reply;
         else if (res.isError) text = `Approved #${id} failed: ${res.message}`;
         // A row that was already gone was never settled in place either, so

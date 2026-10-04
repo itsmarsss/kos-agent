@@ -196,6 +196,14 @@ describe("connectChannel", () => {
     expect(adapter.settled).toEqual([]);
   });
 
+  it("passes a surface's remember through to the kernel", async () => {
+    await boot(stub(riskyScript()));
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "delete it" });
+    const pendingId = adapter.approvalsRequested[0]!.req.id;
+    await adapter.decide({ id: pendingId, approved: true, deciderId: "owner", remember: true });
+    expect(kernel.permissions.list()).toHaveLength(1);
+  });
+
   it("never runs the kernel for an unmapped sender", async () => {
     await boot(
       stub([]),
