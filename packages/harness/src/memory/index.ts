@@ -19,10 +19,15 @@ export {
   type OpenAIEmbeddingOptions,
 } from "./embeddings.js";
 export {
-  EpisodicStore,
-  type Episode,
-  type EpisodeHit,
-} from "./episodic.js";
+  EventLog,
+  ftsQuery,
+  type EventHit,
+  type EventRole,
+  type EventSearch,
+  type EventTrust,
+  type MemoryEvent,
+  type NewEvent,
+} from "./events.js";
 export {
   MemoryRetriever,
   type Recall,
