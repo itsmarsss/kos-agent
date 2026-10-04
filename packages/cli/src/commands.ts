@@ -44,7 +44,7 @@ const HELP = `kos commands:
   approvals | approve | deny | halt | resume
   crons | snapshot | clear | memory | pages
   doctor               preflight checks
-  eval memory [--agent] [--json]  score memory reading on the golden set; --agent runs the kos.memory job itself
+  eval memory [--agent] | dream | observe  score a memory job on its golden set; --agent runs kos.memory itself
   memory-mcp --token <caller token>  KOS memory as an MCP server for another agent, within that caller's grant
   serve                alias: host in foreground (API; Discord optional)
   discord              alias: host in foreground, require Discord
