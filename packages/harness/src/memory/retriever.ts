@@ -1,57 +1,46 @@
 import type { EmbeddingProvider } from "./embeddings.js";
-import type { EpisodeHit, EpisodicStore } from "./episodic.js";
+import type { EventHit, EventLog } from "./events.js";
 import type { Fact, FactsStore } from "./facts.js";
 
 export interface Recall {
   facts: Fact[];
-  episodes: EpisodeHit[];
+  /** Moments from the log that read like the query, newest and nearest first. */
+  events: EventHit[];
 }
 
 export interface RecallOptions {
   factLimit?: number;
-  episodeLimit?: number;
-  /**
-   * Only fall back to the vector store when fewer than this many structured
-   * facts matched. Default 1: structured-first, vector only when nothing exact
-   * was found. Raise it to force episodic recall.
-   */
-  minFactsBeforeVector?: number;
+  eventLimit?: number;
+  /** The project in play, whose events rank a little higher. */
+  projectSlug?: string | null;
 }
 
 /**
- * Retrieval policy: structured store first (cheap, exact), vector fallback only
- * when the structured tier comes up short. Chatlogs are the last resort and not
- * touched here.
+ * What a turn gets to remember: the facts whose words match, and the
+ * moments from the log that match by words or by meaning. Both, every
+ * turn. The log used to be consulted only when no fact matched, which
+ * meant one matching word hid everything that had ever been said.
  */
 export class MemoryRetriever {
   constructor(
     private readonly facts: FactsStore,
-    private readonly episodic?: EpisodicStore,
+    private readonly events?: EventLog,
     private readonly embedder?: EmbeddingProvider,
   ) {}
 
-  async recall(
-    userId: string,
-    query: string,
-    options: RecallOptions = {},
-  ): Promise<Recall> {
+  async recall(userId: string, query: string, options: RecallOptions = {}): Promise<Recall> {
     const facts = this.facts.search(userId, query, options.factLimit ?? 10);
-
-    let episodes: EpisodeHit[] = [];
-    const minFacts = options.minFactsBeforeVector ?? 1;
-    if (this.episodic && this.embedder && facts.length < minFacts) {
-      // Embed as a query, not a document: asymmetric providers lose accuracy
-      // when a search string is embedded the way stored text is.
-      const [embedding] = await this.embedder.embed([query], "query");
-      if (embedding) {
-        episodes = this.episodic.search(
-          userId,
-          embedding,
-          options.episodeLimit ?? 5,
-        );
-      }
+    let events: EventHit[] = [];
+    if (this.events && query.trim()) {
+      const [embedding] = this.embedder ? await this.embedder.embed([query], "query") : [undefined];
+      events = this.events.search({
+        userId,
+        query,
+        ...(embedding ? { embedding } : {}),
+        k: options.eventLimit ?? 5,
+        projectSlug: options.projectSlug ?? null,
+      });
     }
-
-    return { facts, episodes };
+    return { facts, events };
   }
 }
