@@ -6,6 +6,7 @@ import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry } from "../agent/registry.js";
 import { type CronActionResult, runCronJob, type CronExecResult } from "../cron/executor.js";
 import { CronStore } from "../cron/store.js";
+import type { McpModule } from "../tools/mcp.js";
 import { bootKernel } from "./boot.js";
 import { CronService, type CronFireResult } from "./cronservice.js";
 import type { CronJob } from "../cron/types.js";
@@ -183,6 +184,8 @@ export class Kernel {
   readonly supervisor: DaemonSupervisor;
   /** Holds the modules so what they opened can be let go at close. */
   private readonly loader: ModuleLoader;
+  /** The servers behind mcp.* tools, so a module switched on can be brought up without a restart. */
+  readonly mcp: McpModule;
   /** Noticing failures, telling the owner, and trying to fix them. */
   readonly caretaker: Caretaker;
   /** Carrying out approve and deny, including the recovery path for an orphaned action. */
@@ -256,6 +259,7 @@ export class Kernel {
     daemons: DaemonStore;
     supervisor: DaemonSupervisor;
     loader: ModuleLoader;
+    mcp: McpModule;
     permissions: PermissionStore;
     settings: SettingsStore;
     memoryWriter: MemoryWriter;
@@ -296,6 +300,7 @@ export class Kernel {
     this.daemons = args.daemons;
     this.supervisor = args.supervisor;
     this.loader = args.loader;
+    this.mcp = args.mcp;
     this.permissions = args.permissions;
     this.decisions = new Decisions({
       ownerId: args.profile.ownerId,

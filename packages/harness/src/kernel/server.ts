@@ -36,6 +36,7 @@ import { listDirectory, readFile, readImage } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
 import { readSkills } from "../skills/manifest.js";
+import { MODULES_KEY, parseModuleSettings, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillEnabled } from "../skills/settings.js";
 import { conversationKind } from "./conversations.js";
 import { proxyToDaemon } from "../daemons/proxy.js";
@@ -384,6 +385,36 @@ export async function handleApiRequest(
     const next = withSkillEnabled(parseSkillSettings(kernel.settings.get(SKILLS_KEY)), name, enabled);
     kernel.settings.set(SKILLS_KEY, next);
     return ok({ name, enabled });
+  }
+
+  if (method === "GET" && path === "/api/modules") {
+    const { modules, invalid } = readWorkspaceModules(kernel.workspace);
+    const on = new Set(parseModuleSettings(kernel.settings.get(MODULES_KEY)).enabled);
+    const status = kernel.mcp.status();
+    return ok({
+      modules: modules.map((m) => ({
+        ...m.manifest,
+        dir: m.dir,
+        enabled: on.has(m.manifest.name),
+        ...(status[m.manifest.name] ?? {}),
+      })),
+      invalid,
+    });
+  }
+
+  /*
+   * Switching a module on brings its server up now and registers its
+   * tools; off takes them back. The reply says whether it came up, so the
+   * page can show "not connected" instead of a lying toggle.
+   */
+  if (method === "POST" && path === "/api/modules/enable") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const enabled = body.enabled === true;
+    const known = readWorkspaceModules(kernel.workspace).modules.some((m) => m.manifest.name === name);
+    if (!known) return { status: 404, body: { error: `no module named ${name}` } };
+    kernel.settings.set(MODULES_KEY, withModuleEnabled(parseModuleSettings(kernel.settings.get(MODULES_KEY)), name, enabled));
+    const status = await kernel.mcp.reload();
+    return ok({ name, enabled, ...(status[name] ?? {}) });
   }
 
   if (method === "GET" && path === "/api/crons") {
