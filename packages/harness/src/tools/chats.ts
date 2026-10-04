@@ -28,6 +28,21 @@ export const CHAT_TOOLS = [
   "chats.dispatch",
 ] as const;
 
+/**
+ * Which conversations a caller may see.
+ *
+ * A project orchestrator sees its own project and no other, and never
+ * another project's orchestrator, so one project cannot reach into the next
+ * through a dispatch. The root, with no scope, sees everything.
+ */
+function inScopeFor(deps: ChatToolDeps): (c: { id: string; projectSlug: string | null }) => boolean {
+  return (c) => {
+    const scope = deps.scope?.();
+    if (scope === undefined) return true;
+    return c.projectSlug === scope && !c.id.startsWith("project:");
+  };
+}
+
 export interface ChatToolDeps {
   conversations: ConversationStore;
   sessions: SessionStore;
@@ -93,16 +108,7 @@ const MAX_HITS = 8;
 function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
   const { conversations, sessions, ownerId } = deps;
   const hidden = new Set(deps.hide ?? []);
-  /*
-   * A project orchestrator sees its own project and no other, and never
-   * another project's orchestrator, so one project cannot reach into the
-   * next through a dispatch.
-   */
-  const inScope = (c: { id: string; projectSlug: string | null }): boolean => {
-    const scope = deps.scope?.();
-    if (scope === undefined) return true;
-    return c.projectSlug === scope && !c.id.startsWith("project:");
-  };
+  const inScope = inScopeFor(deps);
   const visible = (): ReturnType<ConversationStore["list"]> =>
     conversations.list(ownerId).filter((c) => !hidden.has(c.id) && inScope(c));
 
@@ -271,6 +277,7 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
 function defineDispatchTool(deps: ChatToolDeps, ctx: ModuleContext): void {
   const { conversations, ownerId } = deps;
   const hidden = new Set(deps.hide ?? []);
+  const inScope = inScopeFor(deps);
 
   ctx.registerTool(
     {
@@ -294,7 +301,9 @@ function defineDispatchTool(deps: ChatToolDeps, ctx: ModuleContext): void {
       const from = (): string | undefined => deps.currentConversationId?.();
       if (hidden.has(id)) throw new Error("cannot dispatch to this conversation");
       const target = conversations.get(id);
-      if (!target || target.userId !== ownerId) {
+      // Out of scope reads as absent, on purpose: a project orchestrator
+      // cannot learn that another project's conversation exists.
+      if (!target || target.userId !== ownerId || !inScope(target)) {
         throw new Error(`no such conversation: ${id}`);
       }
       /*
