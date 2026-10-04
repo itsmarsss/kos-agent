@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@kos/client": "workspace:*",
-    "@kos/harness": "workspace:*"
+    "@kos/harness": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.5.4"
   }
 }
