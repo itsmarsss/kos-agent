@@ -26,9 +26,14 @@ importers:
 
   packages/cli:
     dependencies:
+      '@kos/client':
+        specifier: workspace:*
+        version: link:../client
       '@kos/harness':
         specifier: workspace:*
         version: link:../harness
+
+  packages/client: {}
 
   packages/harness:
     dependencies:
