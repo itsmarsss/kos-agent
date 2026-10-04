@@ -1,0 +1,53 @@
+{
+  "note": "Synthetic memory states for the dream job eval. Seeds are current claims (scope-qualified keys, days since last use); expectations say what a good tidy does and does not do. Keys are scope/key.",
+  "cases": [
+    {
+      "name": "the same fact twice is merged",
+      "seed": [
+        { "key": "global/favourite_tea", "value": "oolong", "kind": "preference" },
+        { "key": "global/favorite_tea", "value": "Owner's favourite tea is oolong.", "kind": "preference" }
+      ],
+      "expect": { "merged": [["global/favourite_tea", "global/favorite_tea"]], "kept": [] }
+    },
+    {
+      "name": "an elaborated key folds onto the plain one",
+      "seed": [
+        { "key": "global/city", "value": "Montreal", "kind": "fact" },
+        { "key": "global/home_city", "value": "Montreal, Plateau", "kind": "fact" }
+      ],
+      "expect": { "merged": [["global/city", "global/home_city"]], "kept": [] }
+    },
+    {
+      "name": "a real contradiction is flagged, not guessed",
+      "seed": [
+        { "key": "global/city", "value": "Montreal", "kind": "fact" },
+        { "key": "project:trip/city", "value": "Lisbon", "kind": "fact" }
+      ],
+      "expect": { "flagged": ["contradiction"], "kept": ["global/city", "project:trip/city"] }
+    },
+    {
+      "name": "a stale plan is archived, a stale truth is kept",
+      "seed": [
+        { "key": "global/dentist_visit", "value": "maybe the week of the 12th", "kind": "fact", "daysSinceUse": 120 },
+        { "key": "global/timezone", "value": "Eastern", "kind": "fact", "daysSinceUse": 120 }
+      ],
+      "expect": { "archived": ["global/dentist_visit"], "kept": ["global/timezone"] }
+    },
+    {
+      "name": "a project claim that is really about the owner is proposed for promotion",
+      "seed": [
+        { "key": "project:site/editor", "value": "neovim", "kind": "preference" },
+        { "key": "project:pantry/editor", "value": "neovim", "kind": "preference" }
+      ],
+      "expect": { "flagged": ["promotion"], "kept": ["project:site/editor", "project:pantry/editor"] }
+    },
+    {
+      "name": "pages are written as claim lines",
+      "seed": [
+        { "key": "global/coffee_order", "value": "flat white", "kind": "preference" },
+        { "key": "project:pantry/database", "value": "sqlite", "kind": "fact" }
+      ],
+      "expect": { "pages": ["profile", "pantry"], "kept": ["global/coffee_order", "project:pantry/database"] }
+    }
+  ]
+}

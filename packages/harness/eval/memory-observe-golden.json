@@ -1,0 +1,62 @@
+{
+  "note": "Synthetic long threads for the observe job eval. Turns alternate owner and kos. The note must stand in for the older exchanges, mention what mattered, and not soften a failure.",
+  "cases": [
+    {
+      "name": "a planning thread keeps its decisions",
+      "turns": [
+        ["owner", "Let's plan the pantry app. I want barcode scanning first, then expiry alerts. It has to run on the Raspberry Pi in the kitchen."],
+        ["kos", "Understood. Barcode scanning first, then expiry alerts, on the Pi. I will use SQLite rather than Postgres so it runs there."],
+        ["owner", "Good. Use the ZXing library for scanning, it worked on my old project."],
+        ["kos", "ZXing it is. I have created projects/pantry and the first migration for an items table."],
+        ["owner", "Also, never store product photos, just the barcode and a name."],
+        ["kos", "Noted: no photos, barcode and name only."],
+        ["owner", "What is left before I can try it?"],
+        ["kos", "The scanner screen and the expiry job. I will do the scanner next."],
+        ["owner", "ok go"],
+        ["kos", "Starting on the scanner screen now."],
+        ["owner", "how is it going"],
+        ["kos", "The scanner screen renders; the camera permission prompt is wired."]
+      ],
+      "mustMention": ["barcode", "expir", "Pi", "ZXing", "photo"],
+      "mustNotMention": ["camera permission"]
+    },
+    {
+      "name": "a correction survives the note",
+      "turns": [
+        ["owner", "Set up the weekly report job for the budget project."],
+        ["kos", "Done: a job every Monday at 9 that sums last week's transactions."],
+        ["owner", "No, I said weekly but I meant every Sunday evening, and sum by category not just the total."],
+        ["kos", "Corrected: Sunday at 20:00, grouped by category."],
+        ["owner", "And the owner of the budget is my partner, not me; address the report to them."],
+        ["kos", "Noted, the report is addressed to your partner."],
+        ["owner", "thanks"],
+        ["kos", "Anytime."],
+        ["owner", "one more thing, use CAD not USD"],
+        ["kos", "Switched the report to CAD."],
+        ["owner", "great"],
+        ["kos", "Glad to help."]
+      ],
+      "mustMention": ["Sunday", "category", "partner"],
+      "mustNotMention": ["CAD"]
+    },
+    {
+      "name": "a failure is not softened",
+      "turns": [
+        ["owner", "Deploy the site to the pi."],
+        ["kos", "Deploying now."],
+        ["owner", "did it work?"],
+        ["kos", "No. The deploy failed: the Pi refused the SSH key, and I have not been able to connect since. Nothing was deployed."],
+        ["owner", "ugh. leave it, I'll fix the key tonight."],
+        ["kos", "Understood, I will not retry until you say the key is fixed."],
+        ["owner", "meanwhile write the release notes"],
+        ["kos", "Release notes drafted at projects/site/RELEASE.md."],
+        ["owner", "make them shorter"],
+        ["kos", "Trimmed to ten lines."],
+        ["owner", "fine"],
+        ["kos", "Done."]
+      ],
+      "mustMention": ["fail", "SSH", "not"],
+      "mustNotMention": ["deployed successfully", "ten lines"]
+    }
+  ]
+}
