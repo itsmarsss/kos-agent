@@ -82,6 +82,26 @@ describe("ModuleLoader", () => {
     ]);
   });
 
+  it("lets modules go in reverse order and reports one that will not", async () => {
+    const order: string[] = [];
+    const quiet = (name: string, fail = false): KosModule => ({
+      manifest: { name, version: "1.0.0", provides: [] },
+      activate() {},
+      async deactivate() {
+        order.push(name);
+        if (fail) throw new Error(`${name} stuck`);
+      },
+    });
+    const loader = new ModuleLoader(toolRegistryContext(new ToolRegistry()));
+    await loader.load([quiet("first"), quiet("second", true), quiet("third")]);
+    const failed = await loader.unload();
+    expect(order).toEqual(["third", "second", "first"]);
+    expect(failed).toEqual([{ name: "second", reason: "second stuck" }]);
+    // Unloading again is nothing: what was let go is not held any more.
+    expect(await loader.unload()).toEqual([]);
+    expect(order).toHaveLength(3);
+  });
+
   it("isolates a throwing module and loads the rest", async () => {
     const registry = new ToolRegistry();
     const loader = new ModuleLoader(toolRegistryContext(registry));

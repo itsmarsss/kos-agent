@@ -301,7 +301,8 @@ export class Kernel {
   /** The agent's long-running programs, and what is keeping them up. */
   readonly daemons: DaemonStore;
   readonly supervisor: DaemonSupervisor;
-  private readonly closeMcp: () => Promise<void>;
+  /** Holds the modules so what they opened can be let go at close. */
+  private readonly loader: ModuleLoader;
   /** Noticing failures, telling the owner, and trying to fix them. */
   readonly caretaker: Caretaker;
   /** Carrying out approve and deny, including the recovery path for an orphaned action. */
@@ -372,8 +373,7 @@ export class Kernel {
     presses: PressRoutes;
     daemons: DaemonStore;
     supervisor: DaemonSupervisor;
-    /** Closes the MCP servers the tool module opened. */
-    closeMcp: () => Promise<void>;
+    loader: ModuleLoader;
     permissions: PermissionStore;
     settings: SettingsStore;
     memoryWriter: MemoryWriter;
@@ -413,7 +413,7 @@ export class Kernel {
     this.presses = args.presses;
     this.daemons = args.daemons;
     this.supervisor = args.supervisor;
-    this.closeMcp = args.closeMcp;
+    this.loader = args.loader;
     this.permissions = args.permissions;
     this.decisions = new Decisions({
       ownerId: args.profile.ownerId,
@@ -622,7 +622,7 @@ export class Kernel {
       }),
       createSearchModule(),
       // Tools from the owner's MCP servers, as any other module's tools.
-      mcp.module,
+      mcp,
       createDaemonsModule({
         store: daemons,
         supervisor,
@@ -837,7 +837,7 @@ export class Kernel {
     );
 
     kernelRef = new Kernel({
-      closeMcp: mcp.close,
+      loader,
       permissions,
       workspace,
       secrets,
@@ -2680,8 +2680,8 @@ export class Kernel {
     // Not awaited: close is synchronous everywhere it is called from, and the
     // children are killed either way once this process goes.
     void this.supervisor.stopAll();
-    // Stdio servers are child processes and must not outlive the host.
-    void this.closeMcp();
+    // What modules opened, stdio MCP servers among them, must not outlive the host.
+    void this.loader.unload();
     this.workspace.close();
   }
 }

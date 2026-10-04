@@ -184,10 +184,10 @@ interface Connected {
 /**
  * The module, plus a way to close what it opened.
  *
- * Modules have no shutdown hook, and a stdio server is a child process that
- * must not outlive the host, so the factory hands back the close alongside.
+ * A stdio server is a child process that must not outlive the host, so the
+ * module deactivates by closing every connection it opened.
  */
-export function createMcpModule(options: McpModuleOptions): { module: KosModule; close: () => Promise<void> } {
+export function createMcpModule(options: McpModuleOptions): KosModule {
   const report = options.report ?? ((m: string) => console.error(`[mcp] ${m}`));
   const connected = new Map<string, Connected>();
 
@@ -283,5 +283,5 @@ export function createMcpModule(options: McpModuleOptions): { module: KosModule;
     }
   }
 
-  return { module, close };
+  return { ...module, deactivate: close };
 }

@@ -61,13 +61,15 @@ function fakeServer(): { transport: () => InMemoryTransport; seen: Record<string
 function harness(config: McpConfig, fake = fakeServer()) {
   const registry = new ToolRegistry();
   const reports: string[] = [];
-  const { module, close } = createMcpModule({
+  const module = createMcpModule({
     workspaceRoot: "/tmp/kos-mcp-test",
     secrets: new SecretsRegistry(),
     config: () => config,
     transportFor: (name) => (name === "broken" ? undefined : fake.transport()),
     report: (m) => reports.push(m),
   });
+  // Letting go is the module's own deactivate now, not a second handle.
+  const close = async (): Promise<void> => { await module.deactivate!(); };
   return { registry, module, close, reports, fake };
 }
 
