@@ -7,6 +7,9 @@ import { ToolRegistry } from "../agent/registry.js";
 import { HashingEmbeddingProvider } from "../memory/embeddings.js";
 import { EventLog } from "../memory/events.js";
 import { FactsStore } from "../memory/facts.js";
+import { ObservationStore } from "../memory/observations.js";
+import { ReviewQueue } from "../memory/review.js";
+import { SessionStore } from "../kernel/session.js";
 import { toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
@@ -21,6 +24,9 @@ describe("memory tools: reading the log and citing it", () => {
   let registry: ToolRegistry;
   let watermark: number;
   let where: string;
+  let reviewQueue: ReviewQueue;
+  let sessions: SessionStore;
+  let busy: string[];
 
   const call = async (name: string, input: Record<string, unknown> = {}) => {
     const res = await registry.execute(name, input);
@@ -34,11 +40,21 @@ describe("memory tools: reading the log and citing it", () => {
     facts = new FactsStore(ws.db);
     watermark = 0;
     where = "cron:9";
+    reviewQueue = new ReviewQueue(ws.db);
+    sessions = new SessionStore(ws.db, { autoTrim: false });
+    busy = [];
     registry = new ToolRegistry();
     await createMemoryModule({
       facts,
       events,
       embedder,
+      review: reviewQueue,
+      threads: {
+        sessions,
+        conversations: { list: () => [{ id: "chat:long", title: "Long", projectSlug: null }, { id: "chat:short", title: "Short", projectSlug: null }] },
+        observations: new ObservationStore(ws.db),
+        busy: () => busy,
+      },
       ownerId: "owner",
       currentSource: () => where,
       currentProject: () => undefined,
@@ -82,6 +98,71 @@ describe("memory tools: reading the log and citing it", () => {
     // Another conversation was shown nothing.
     where = "chat:other";
     expect((await call("memory.remember", { key: "x", value: "y", evidence: [a] })).isError).toBe(true);
+  });
+
+  it("gives the dream job its candidates and takes its decisions", async () => {
+    facts.upsert("owner", { key: "city", value: "Montreal", kind: "fact" });
+    facts.upsert("owner", { key: "home_city", value: "Montreal, Plateau", kind: "fact" });
+    facts.upsert("owner", { key: "trip", value: "maybe Lisbon in May", kind: "fact" });
+    facts.upsert("owner", { key: "city", value: "Lisbon", kind: "fact", scope: "project:trip" });
+    const review = (await call("memory.review")).json!;
+    // city vs project city (same key), city vs home_city and project city vs home_city (a shared word).
+    expect((review["pairs"] as { why: string }[]).map((p) => p.why).sort()).toEqual(["same_key", "shared_word", "shared_word"]);
+    expect(review["projects"]).toEqual(["project:trip"]);
+    expect((await call("memory.merge", { keep: "city", drop: "home_city" })).json).toEqual({ kept: "global/city", dropped: "global/home_city" });
+    expect(facts.get("owner", "home_city")).toBeUndefined();
+    expect((await call("memory.archive", { key: "trip", reason: "a plan, not a fact" })).json).toEqual({ archived: "global/trip" });
+    expect(facts.get("owner", "trip")).toBeUndefined();
+    const flagged = (await call("memory.flag", { kind: "contradiction", keys: ["global/city", "project:trip/city"], note: "Montreal or Lisbon?" })).json!;
+    expect(flagged).toMatchObject({ kind: "contradiction", keys: ["global/city", "project:trip/city"] });
+    expect(reviewQueue.pending()).toHaveLength(1);
+    expect((await call("memory.page", { name: "profile", markdown: "# Owner\n- city: Montreal" })).json).toMatchObject({ wrote: "memory/profile.md" });
+    expect((await call("memory.pages", { name: "profile" })).content).toContain("city: Montreal");
+    expect((await call("memory.page", { name: "../x", markdown: "no" })).isError).toBe(true);
+    for (const safe of ["memory.review", "memory.merge", "memory.archive", "memory.flag", "memory.page", "memory.pages", "memory.threads", "memory.thread", "memory.observe"]) {
+      expect(registry.classify(safe, {}).tier).toBe("safe");
+    }
+  });
+
+  it("finds long threads, shows the part a note would cover, and stands the note in for it", async () => {
+    const say = (n: number): { role: "user" | "assistant"; content: { type: "text"; text: string }[] }[] => [
+      { role: "user", content: [{ type: "text", text: `question ${n} ${"x".repeat(80)}` }] },
+      { role: "assistant", content: [{ type: "text", text: `answer ${n}` }] },
+    ];
+    const history = Array.from({ length: 8 }, (_, i) => say(i + 1)).flat();
+    sessions.set("chat:long", history);
+    sessions.set("chat:short", say(1));
+    for (let i = 1; i <= 8; i++) {
+      events.append({ userId: "owner", role: "owner", text: `question ${i}`, conversationId: "chat:long" });
+      events.append({ userId: "owner", role: "agent", text: `answer ${i}`, conversationId: "chat:long" });
+    }
+    const threads = (await call("memory.threads", { minChars: 500 })).json!;
+    expect((threads["threads"] as { id: string; messages: number }[]).map((t) => [t.id, t.messages])).toEqual([["chat:long", 16]]);
+    busy = ["chat:long"];
+    expect((await call("memory.threads", { minChars: 500 })).json!["threads"]).toEqual([]);
+    busy = [];
+    const older = (await call("memory.thread", { id: "chat:long" })).json!;
+    expect(older).toMatchObject({ covering: 4, keeping: 4 });
+    expect((older["turns"] as { text: string }[]).map((t) => t.text.slice(0, 10))).toEqual(["question 1", "answer 1", "question 2", "answer 2", "question 3", "answer 3", "question 4", "answer 4"]);
+    const done = (await call("memory.observe", { id: "chat:long", note: "The owner asked four questions; all answered." })).json!;
+    expect(done).toMatchObject({ observed: "chat:long", seq: 1, covered: 8, kept: 8 });
+    const after = sessions.get("chat:long");
+    expect(after).toHaveLength(9);
+    expect((after[0]!.content[0] as { text: string }).text).toContain("[Earlier in this conversation]");
+    expect((after[0]!.content[0] as { text: string }).text).toContain("all answered");
+    expect((after[1]!.content[0] as { text: string }).text).toContain("question 5");
+    // The covered events are shadowed, the kept ones are not, and the words are all still there.
+    const log = events.recent("chat:long", 100);
+    expect(log.filter((e) => e.shadowed).length).toBe(8);
+    expect(log.slice(-8).every((e) => !e.shadowed)).toBe(true);
+    expect(events.search({ userId: "owner", query: "question 2" }).length).toBeGreaterThan(0);
+    // Too short to cover anything.
+    expect((await call("memory.observe", { id: "chat:short", note: "x" })).isError).toBe(true);
+    // A second note joins the first in the prefix.
+    sessions.set("chat:long", [...sessions.get("chat:long"), ...Array.from({ length: 5 }, (_, i) => say(i + 9)).flat()]);
+    const again = (await call("memory.observe", { id: "chat:long", note: "Then five more." })).json!;
+    expect(again).toMatchObject({ seq: 2 });
+    expect((sessions.get("chat:long")[0]!.content[0] as { text: string }).text).toMatch(/all answered[\s\S]*Then five more/);
   });
 
   it("counts recall with history as having shown those events", async () => {
