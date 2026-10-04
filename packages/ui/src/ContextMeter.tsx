@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { api, type ContextUse } from "./api.js";
+import { TurnRecall } from "./TurnRecall.js";
 
 /**
  * How full this conversation is.
@@ -53,7 +54,9 @@ export function ContextMeter({
     };
   }, [conversationId, refreshKey]);
 
-  if (!use?.history || use.history.historyChars <= 2) return null;
+  if (!use) return null;
+  const recall = use.recalled ? <TurnRecall recalled={use.recalled} /> : null;
+  if (!use.history || use.history.historyChars <= 2) return recall;
 
   const { historyChars, maxChars, exchanges, maxExchanges } = use.history;
   // Whichever budget is closer to being spent is the one worth showing: a
@@ -78,6 +81,7 @@ export function ContextMeter({
         : "";
 
   return (
+    <>
     <div
       className={`ctx${level}`}
       title={
@@ -98,5 +102,7 @@ export function ContextMeter({
         </span>
       </span>
     </div>
+    {recall}
+    </>
   );
 }

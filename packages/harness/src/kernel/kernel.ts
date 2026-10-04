@@ -28,6 +28,7 @@ import {
   MemoryWriter,
   EventLog,
   type EmbeddingProvider,
+  type Recall,
 } from "../memory/index.js";
 import type { ContentBlock, ModelMessage } from "../models/types.js";
 import { type RouteSummary } from "../models/router.js";
@@ -164,6 +165,16 @@ const ORCHESTRATOR_SCOPE = ["memory"];
  * secret injection, approval gating, audit, memory, session history) inside the
  * serial work queue with run logging, and respects the kill switch.
  */
+/** What one turn was given from memory, as the chat shows it. */
+export interface TurnRecall {
+  at: number;
+  projectSlug: string | null;
+  facts: { id: number; key: string; value: string; scope: string; pinned: boolean; trust: string }[];
+  events: { id: number; role: string; text: string; ts: number }[];
+}
+
+const RECALLS_KEPT = 200;
+
 export class Kernel {
   readonly workspace: Workspace;
   readonly secrets: SecretsRegistry;
@@ -202,6 +213,7 @@ export class Kernel {
   private readonly loader: ModuleLoader;
   /** The servers behind mcp.* tools, so a module switched on can be brought up without a restart. */
   readonly mcp: McpModule;
+  private readonly recalls = new Map<string, TurnRecall>();
   /** What the dream job left for the owner to decide. */
   readonly review: ReviewQueue;
   /** Other programs that share memory, within a grant. */
@@ -573,6 +585,7 @@ export class Kernel {
           ...pinnedFacts,
           ...recall.facts.filter((f) => !pinnedFacts.some((p) => p.key === f.key)),
         ];
+        this.noteRecall(sessionId, conversation?.projectSlug ?? null, recall);
         // A mention is a promise that the thing named is to hand. Resolved
         // here so the agent gets the file's contents or the page's spec
         // rather than a string it has to go and look up, and so a name that
@@ -1993,6 +2006,32 @@ export class Kernel {
   /** Conversation ids with a turn in flight, for the chat list. */
   busyConversations(): string[] {
     return [...this.working];
+  }
+
+  /**
+   * What the last turn of a conversation was given from memory.
+   *
+   * The context itself is sent and not stored, so without this the only way
+   * to know what KOS remembered for a turn was to read the prompt. Kept for
+   * the newest conversations only; it is a window, not a record.
+   */
+  recalled(conversationId: string): TurnRecall | undefined {
+    return this.recalls.get(conversationId);
+  }
+
+  private noteRecall(conversationId: string, projectSlug: string | null, recall: Recall): void {
+    this.recalls.delete(conversationId);
+    this.recalls.set(conversationId, {
+      at: Date.now(),
+      projectSlug,
+      facts: recall.facts.map((f) => ({ id: f.id, key: f.key, value: f.value, scope: f.scope, pinned: f.pinned, trust: f.trust })),
+      events: recall.events.map((e) => ({ id: e.id, role: e.role, text: e.text.length > 200 ? `${e.text.slice(0, 200)}…` : e.text, ts: e.ts })),
+    });
+    while (this.recalls.size > RECALLS_KEPT) {
+      const oldest = this.recalls.keys().next().value;
+      if (oldest === undefined) break;
+      this.recalls.delete(oldest);
+    }
   }
 
   /**

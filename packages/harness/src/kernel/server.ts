@@ -1294,6 +1294,7 @@ export async function handleApiRequest(
         maxExchanges: retention.maxExchanges,
       },
       ...(last ? { last } : {}),
+      ...(kernel.recalled(id) ? { recalled: kernel.recalled(id) } : {}),
       total: kernel.spend.forConversation(id),
       window: last
         ? windowFor(

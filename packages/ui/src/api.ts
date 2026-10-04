@@ -306,6 +306,15 @@ export interface ContextUse {
   total: { inputTokens: number; outputTokens: number; calls: number };
   /** Absent when the model's window is not known. */
   window?: number;
+  /** What the last turn was given from memory. Absent until a turn has run. */
+  recalled?: TurnRecall;
+}
+
+export interface TurnRecall {
+  at: number;
+  projectSlug: string | null;
+  facts: { id: number; key: string; value: string; scope: string; pinned: boolean; trust: string }[];
+  events: { id: number; role: string; text: string; ts: number }[];
 }
 
 export interface ContextUseDetail {

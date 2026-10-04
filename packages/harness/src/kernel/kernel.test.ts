@@ -282,4 +282,25 @@ describe("Kernel", () => {
     );
     kernel.stopCron();
   });
+
+  it("keeps what a turn was given from memory, so the chat can show it", async () => {
+    kernel = await boot({
+      async generate(): Promise<ModelResponse> {
+        return {
+          content: [{ type: "text", text: "ok" }],
+          stopReason: "end_turn",
+          usage: { inputTokens: 0, outputTokens: 0 },
+          model: "stub",
+        };
+      },
+    });
+    const owner = kernel.profile.ownerId;
+    kernel.facts.upsert(owner, { key: "name", value: "Sam", kind: "fact", pinned: true }, "test");
+    kernel.facts.upsert(owner, { key: "favorite_tea", value: "oolong", kind: "preference" }, "test");
+    await kernel.handleMessage("which tea do I like, and is oolong a favorite tea?", { sessionId: "s1" });
+    const got = kernel.recalled("s1");
+    expect(got?.facts.map((f) => f.key)).toContain("name");
+    expect(got?.facts.map((f) => f.key)).toContain("favorite_tea");
+    expect(kernel.recalled("nothing")).toBeUndefined();
+  });
 });
