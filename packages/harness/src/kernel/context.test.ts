@@ -41,7 +41,7 @@ describe("assembleSystemPrompt", () => {
             updatedAt: 0,
           },
         ],
-        episodes: [],
+        events: [],
       },
     });
     /*
@@ -73,7 +73,7 @@ describe("assembleSystemPrompt", () => {
           tables: [{ name: "budget_tx", columns: ["id", "amount", "posted_on"] }],
         },
       ],
-      recall: { facts: [], episodes: [] },
+      recall: { facts: [], events: [] },
     });
     expect(prompt.system).toContain("## Tables");
     expect(prompt.system).toContain("- budget_tx: id, amount, posted_on");
@@ -91,7 +91,7 @@ describe("assembleSystemPrompt", () => {
           file: "skills/pr-review/SKILL.md",
         },
       ],
-      recall: { facts: [], episodes: [] },
+      recall: { facts: [], events: [] },
     });
     expect(prompt.system).toContain("## Skills");
     expect(prompt.system).toContain("- pr-review (prompt): How to review a pull request");
@@ -102,7 +102,7 @@ describe("assembleSystemPrompt", () => {
       baseSystem: "You are KOS.",
       profile: DEFAULT_PROFILE,
       projects: [],
-      recall: { facts: [], episodes: [] },
+      recall: { facts: [], events: [] },
     });
     expect(prompt.system).not.toContain("## Tables");
   });
@@ -112,7 +112,7 @@ describe("assembleSystemPrompt", () => {
       baseSystem: "You are KOS.",
       profile: DEFAULT_PROFILE,
       projects: [],
-      recall: { facts: [], episodes: [] },
+      recall: { facts: [], events: [] },
     });
     // An empty block would still be a difference between turns, and one
     // difference is all it takes to end the cached prefix.

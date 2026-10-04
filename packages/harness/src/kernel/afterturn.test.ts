@@ -12,9 +12,9 @@ function deps(over: Partial<AfterTurnDeps> = {}): AfterTurnDeps & { log: string[
     runs: { start: (kind) => { log.push(`run:${kind}`); return 1; }, finish: (_id, status, error) => { log.push(`finish:${status}:${error ?? ""}`); } },
     facts: { ingest: async (_u, text) => { log.push(`fact:${text}`); } },
     embedder: { embed: async (texts) => texts.map(() => [0.1, 0.2]) },
-    episodic: { add: (_u, text) => { log.push(`episode:${text.split("\n")[0]}`); } },
+    events: { append: (e) => { log.push(`event:${e.role}:${e.text}:${e.projectSlug ?? "-"}`); } },
     conversations: {
-      get: (id) => ({ id, title: "hello there…", channel: null }),
+      get: (id) => ({ id, title: "hello there…", channel: null, projectSlug: id === "project:books" ? "books" : null }),
       rename: (id, title) => { log.push(`rename:${id}:${title}`); },
     },
     inference: { generate: async () => ({ content: [{ type: "text", text: "Greetings chat" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" }) } as unknown as Inference,
@@ -23,10 +23,10 @@ function deps(over: Partial<AfterTurnDeps> = {}): AfterTurnDeps & { log: string[
 }
 
 describe("after a turn", () => {
-  it("remembers the exchange as a fact and an episode", async () => {
+  it("remembers the exchange as a fact and as two events, where they happened", async () => {
     const d = deps();
-    await new AfterTurn(d).remember("owner", "I like tea", "Noted.");
-    expect(d.log).toEqual(["fact:I like tea", "episode:user: I like tea"]);
+    await new AfterTurn(d).remember("owner", "I like tea", "Noted.", "project:books");
+    expect(d.log).toEqual(["fact:I like tea", "event:owner:I like tea:books", "event:agent:Noted.:books"]);
   });
 
   it("logs a failed write as a run rather than failing the turn", async () => {
@@ -34,8 +34,8 @@ describe("after a turn", () => {
     await expect(new AfterTurn(d).remember("owner", "x", "y")).resolves.toBeUndefined();
     expect(d.log).toContain("run:memory.facts");
     expect(d.log).toContain("finish:error:disk full");
-    // The episode still went in; one failure does not stop the other.
-    expect(d.log.some((l) => l.startsWith("episode:"))).toBe(true);
+    // The events still went in; one failure does not stop the other.
+    expect(d.log.some((l) => l.startsWith("event:"))).toBe(true);
   });
 
   it("names a conversation nobody has named", async () => {
@@ -45,9 +45,9 @@ describe("after a turn", () => {
   });
 
   it("leaves a fixed thread, a chosen title, and a closing host alone", async () => {
-    const fixed = deps({ conversations: { get: () => ({ id: "orchestrator:owner", title: "KOS", channel: null }), rename: () => { throw new Error("must not"); } } });
+    const fixed = deps({ conversations: { get: () => ({ id: "orchestrator:owner", title: "KOS", channel: null, projectSlug: null }), rename: () => { throw new Error("must not"); } } });
     await new AfterTurn(fixed).nameIfUnnamed("orchestrator:owner", "x", "y");
-    const chosen = deps({ conversations: { get: (id) => ({ id, title: "Taxes 2026", channel: null }), rename: () => { throw new Error("must not"); } } });
+    const chosen = deps({ conversations: { get: (id) => ({ id, title: "Taxes 2026", channel: null, projectSlug: null }), rename: () => { throw new Error("must not"); } } });
     await new AfterTurn(chosen).nameIfUnnamed("c2", "something else", "y");
     const closing = deps({ isClosed: () => true });
     await new AfterTurn(closing).nameIfUnnamed("c3", "hello there", "y");
