@@ -345,6 +345,21 @@ export class DiscordAdapter implements ChannelAdapter {
       ],
       partials: [Partials.Channel, Partials.Message, Partials.Reaction],
     });
+    /*
+     * A gateway error is a log line, not the end of the host.
+     *
+     * The host once died at 9am from "Opening handshake has timed out": the
+     * laptop had slept, the socket to Discord went stale, and the error it
+     * raised while reconnecting had nothing listening for it. An unheard
+     * error event brings the process down. discord.js reconnects on its own
+     * once the socket closes; all it needs from here is someone listening.
+     */
+    this.client.on(Events.Error, (err: Error) => {
+      console.error(`Discord: ${err.message}`);
+    });
+    this.client.on(Events.ShardError, (err: Error) => {
+      console.error(`Discord gateway: ${err.message}`);
+    });
   }
 
   /** Told what the slash commands do, when the harness wires them. */

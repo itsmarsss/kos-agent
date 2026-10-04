@@ -126,6 +126,15 @@ describe("agent-authored cards and buttons", () => {
   });
 });
 
+describe("staying up", () => {
+  it("listens for gateway errors so one cannot bring the host down", () => {
+    const adapter = new DiscordAdapter({ token: "t" });
+    const client = (adapter as unknown as { client: { listenerCount(e: string): number } }).client;
+    expect(client.listenerCount("error")).toBeGreaterThan(0);
+    expect(client.listenerCount("shardError")).toBeGreaterThan(0);
+  });
+});
+
 describe("the answer a turn shaped", () => {
   /**
    * acknowledge() returns the handle the runtime completes a turn through, so
