@@ -36,7 +36,8 @@ import { listDirectory, readFile, readImage } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
 import { readSkills } from "../skills/manifest.js";
-import { listPages, readPage } from "../memory/pages.js";
+import { importPage, listPages, readPage } from "../memory/pages.js";
+import { applyResolution } from "../memory/resolve.js";
 import { mayRead } from "../memory/callers.js";
 import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
 import { MODULES_KEY, parseModuleSettings, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
@@ -1692,16 +1693,29 @@ export async function handleApiRequest(
 
   /** What the dream job left for the owner: open items first, then the recent resolved ones. */
   if (method === "GET" && path === "/api/memory/review") {
-    return ok({ pending: kernel.review.pending(), recent: kernel.review.recent(20), pages: listPages(kernel.workspace) });
+    return ok({ pending: kernel.review.pending(), recent: kernel.review.recent(20), pages: listPages(kernel.workspace), edited: kernel.pageLog.edited(kernel.workspace) });
   }
 
+  /** The owner's answer, carried out: keep archives the other side, promote writes global. */
   if (method === "POST" && path === "/api/memory/review/resolve") {
     const id = Number(body.id);
-    const resolution = typeof body.resolution === "string" ? body.resolution.trim() : "";
-    if (!Number.isInteger(id) || !resolution) return { status: 400, body: { error: "id and resolution required" } };
-    const item = kernel.review.resolve(id, resolution);
-    if (!item) return { status: 404, body: { error: "no such item" } };
-    return ok(item);
+    const action = body.action === "keep" || body.action === "both" || body.action === "promote" || body.action === "dismiss" ? body.action : undefined;
+    if (!Number.isInteger(id) || !action) return { status: 400, body: { error: "id and action (keep, both, promote, dismiss) required" } };
+    try {
+      const report = applyResolution(kernel.facts, kernel.review, kernel.profile.ownerId, id, { action, ...(typeof body.key === "string" ? { key: body.key } : {}) });
+      if (!report) return { status: 404, body: { error: "no such open item" } };
+      return ok(report);
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  /** Read the owner's page edits back into memory, one page or every edited one. */
+  if (method === "POST" && path === "/api/memory/pages/import") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const names = name ? [name] : kernel.pageLog.edited(kernel.workspace);
+    const imported = names.map((n) => importPage(kernel.workspace, kernel.facts, kernel.pageLog, kernel.profile.ownerId, n));
+    return ok({ imported });
   }
 
   if (method === "GET" && path === "/api/memory/page") {

@@ -13,6 +13,7 @@ import { MemoryExtractor, type ExtractionReport } from "../memory/extractor.js";
 import { MEMORY_JOB } from "../memory/job.js";
 import type { ReviewQueue } from "../memory/review.js";
 import type { CallerStore } from "../memory/callers.js";
+import type { PageLog } from "../memory/pages.js";
 import type { Task } from "../models/router.js";
 import type { Provider } from "../models/provider.js";
 import { CUSTOM_PROVIDER, OpenAICompatibleProvider } from "../models/providers/compat.js";
@@ -200,6 +201,8 @@ export class Kernel {
   readonly review: ReviewQueue;
   /** Other programs that share memory, within a grant. */
   readonly callers: CallerStore;
+  /** The pages as last written, so the owner's edits can be read back. */
+  readonly pageLog: PageLog;
   /** Noticing failures, telling the owner, and trying to fix them. */
   readonly caretaker: Caretaker;
   /** Carrying out approve and deny, including the recovery path for an orphaned action. */
@@ -278,6 +281,7 @@ export class Kernel {
     mcp: McpModule;
     review: ReviewQueue;
     callers: CallerStore;
+    pageLog: PageLog;
     permissions: PermissionStore;
     settings: SettingsStore;
     memoryWriter: MemoryWriter;
@@ -322,6 +326,7 @@ export class Kernel {
     this.mcp = args.mcp;
     this.review = args.review;
     this.callers = args.callers;
+    this.pageLog = args.pageLog;
     this.permissions = args.permissions;
     this.decisions = new Decisions({
       ownerId: args.profile.ownerId,

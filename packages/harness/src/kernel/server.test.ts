@@ -772,6 +772,24 @@ describe("handleApiRequest", () => {
     });
   });
 
+  it("carries out a review decision and reads page edits back", async () => {
+    kernel.facts.upsert("owner", { key: "city", value: "Montreal", kind: "fact" });
+    kernel.facts.upsert("owner", { key: "city", value: "Lisbon", kind: "fact", scope: "project:trip" });
+    const item = kernel.review.add("contradiction", ["global/city", "project:trip/city"], "which?");
+    const bad = await handleApiRequest(kernel, { method: "POST", path: "/api/memory/review/resolve", body: { id: item.id, resolution: "keep first" } });
+    expect(bad.status).toBe(400);
+    const done = await handleApiRequest(kernel, { method: "POST", path: "/api/memory/review/resolve", body: { id: item.id, action: "keep", key: "global/city" } });
+    expect(done.body).toMatchObject({ archived: ["project:trip/city"], promoted: [] });
+    expect(kernel.facts.get("owner", "city", "project:trip")).toBeUndefined();
+    mkdirSync(kernel.workspace.resolve("memory"), { recursive: true });
+    writeFileSync(join(kernel.workspace.resolve("memory"), "profile.md"), "- city: Porto\n");
+    const review = await handleApiRequest(kernel, { method: "GET", path: "/api/memory/review" });
+    expect((review.body as { edited: string[] }).edited).toEqual(["profile"]);
+    const imported = await handleApiRequest(kernel, { method: "POST", path: "/api/memory/pages/import", body: {} });
+    expect((imported.body as { imported: { imported: string[] }[] }).imported[0]!.imported).toEqual(["city"]);
+    expect(kernel.facts.get("owner", "city")).toMatchObject({ value: "Porto", trust: "owner" });
+  });
+
   it("still honours an explicit limit", async () => {
     for (let i = 0; i < 5; i++) {
       kernel.facts.upsert("owner", { key: `k${i}`, value: `v${i}`, kind: "fact" });
