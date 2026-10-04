@@ -33,7 +33,7 @@ describe("the dream and observe evals", () => {
     ]);
     const r = await runDreamEval(model, cases);
     expect(r).toMatchObject({ job: "dream", score: 1, clean: 1, total: 1 });
-    expect(r.cases[0]!.met).toEqual(["merged global/favorite_tea into global/favourite_tea"]);
+    expect(r.cases[0]!.met).toEqual(["merged global/favourite_tea and global/favorite_tea into one"]);
   }, 30_000);
 
   it("counts a lost claim as harm and a missing flag as a miss", async () => {

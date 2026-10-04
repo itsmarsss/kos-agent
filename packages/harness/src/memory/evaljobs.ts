@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { Inference } from "../agent/loop.js";
 import { Kernel } from "../kernel/kernel.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
-import { CLAIM_LINE, listPages, readPage } from "./pages.js";
+import { CLAIM_LINE, readPage } from "./pages.js";
 import { splitQualified } from "./resolve.js";
 
 /**
@@ -109,7 +109,8 @@ export async function runDreamEval(inference: Inference, cases: DreamCase[] = lo
       const missed: string[] = [];
       const harm: string[] = [];
       const check = (label: string, ok: boolean): void => { (ok ? met : missed).push(label); };
-      for (const [keep, drop] of c.expect.merged ?? []) check(`merged ${drop} into ${keep}`, current(keep) && !current(drop));
+      // Either direction is a merge; which key survives is the model's call.
+      for (const [a, b] of c.expect.merged ?? []) check(`merged ${a} and ${b} into one`, current(a) !== current(b));
       for (const q of c.expect.archived ?? []) check(`archived ${q}`, !current(q) && archivedFor(q));
       const kinds = kernel.review.pending().map((i) => i.kind);
       for (const k of c.expect.flagged ?? []) check(`flagged ${k}`, kinds.includes(k));
