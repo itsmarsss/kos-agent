@@ -50,6 +50,16 @@ export interface McpServerConfig {
   enabled?: boolean;
   /** Floor for every tool this server provides. Default risky. */
   risk?: Extract<RiskTier, "safe" | "risky">;
+  /**
+   * A floor per tool, overriding the server default.
+   *
+   * A key is the tool's own name (navigate, click), or a glob over it
+   * (browser_*, *_get). This is how a browser becomes usable without a tap
+   * per action: read-only tools (navigate, snapshot, find) are made safe
+   * while the ones that change the page (click, type, fill_form) stay risky.
+   * The owner writes these; the harness never guesses a tool is safe.
+   */
+  tools?: Record<string, Extract<RiskTier, "safe" | "risky">>;
 }
 
 export interface McpConfig {
@@ -80,6 +90,13 @@ export function parseMcpConfig(raw: unknown): McpConfig {
     if (isStringMap(v["headers"])) entry.headers = v["headers"];
     if (typeof v["enabled"] === "boolean") entry.enabled = v["enabled"];
     if (v["risk"] === "safe" || v["risk"] === "risky") entry.risk = v["risk"];
+    if (typeof v["tools"] === "object" && v["tools"] !== null) {
+      const floors: Record<string, "safe" | "risky"> = {};
+      for (const [tool, floor] of Object.entries(v["tools"] as Record<string, unknown>)) {
+        if (floor === "safe" || floor === "risky") floors[tool] = floor;
+      }
+      if (Object.keys(floors).length) entry.tools = floors;
+    }
     // One transport or the other. Neither is a typo, both is a contradiction.
     if ((entry.command === undefined) === (entry.url === undefined)) continue;
     out[name] = entry;
@@ -93,6 +110,35 @@ function isStringMap(value: unknown): value is Record<string, string> {
     value !== null &&
     Object.values(value as Record<string, unknown>).every((x) => typeof x === "string")
   );
+}
+
+/** Match a glob (only * is special) against a tool name. */
+function globMatch(pattern: string, name: string): boolean {
+  const re = new RegExp(
+    `^${pattern.split("*").map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`,
+  );
+  return re.test(name);
+}
+
+/**
+ * The floor for one of a server's tools.
+ *
+ * An exact name wins over a glob, a glob over the server default, the server
+ * default over the built-in risky. Globs are tried in the order the owner
+ * wrote them, so a specific one can precede a catch-all.
+ */
+export function floorFor(
+  server: McpServerConfig,
+  toolName: string,
+): Extract<RiskTier, "safe" | "risky"> {
+  const fallback = server.risk ?? "risky";
+  const tools = server.tools;
+  if (!tools) return fallback;
+  if (toolName in tools) return tools[toolName]!;
+  for (const [pattern, floor] of Object.entries(tools)) {
+    if (pattern.includes("*") && globMatch(pattern, toolName)) return floor;
+  }
+  return fallback;
 }
 
 /** `mcp.<server>.<tool>`, each part reduced to what a tool name may hold. */
@@ -209,7 +255,7 @@ export function createMcpModule(options: McpModuleOptions): { module: KosModule;
                 if (result.isError) throw new Error(text || `${tool.name} reported an error`);
                 return text;
               },
-              { floor: server.risk ?? "risky" },
+              { floor: floorFor(server, tool.name) },
             );
           } catch (err) {
             // A name already taken is this tool's problem, not the server's.
