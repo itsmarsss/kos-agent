@@ -182,39 +182,6 @@ export function channelGuidance(channel?: string): string | undefined {
   ].join("\n");
 }
 
-/**
- * Infer scope tags from user text so tagged tools surface when relevant.
- * Untagged tools are always offered by the registry.
- */
-export function inferScopeTags(text: string): string[] {
-  const t = text.toLowerCase();
-  const tags = new Set<string>();
-  if (/\b(cron|schedule|remind|every day|hourly)\b/.test(t)) tags.add("cron");
-  if (/\b(http|fetch|url|https?:\/\/|api\.|webhook)\b/.test(t)) tags.add("http");
-  if (
-    /\b(migrate|schema|project|page|widget|dashboard|budget|table)\b/.test(t)
-  ) {
-    tags.add("systems");
-  }
-  if (/\b(task|todo|checklist|habit)\b/.test(t)) tags.add("tasks");
-  if (/\b(search|find|grep|look up|semantic)\b/.test(t)) tags.add("search");
-  if (/\b(export|csv|spreadsheet|download|report)\b/.test(t)) tags.add("export");
-  if (/\b(skill|script|automate|reusable|routine)\b/.test(t)) tags.add("skills");
-  if (/\b(file|read|write|edit|folder|directory|scratch)\b/.test(t)) {
-    tags.add("files");
-  }
-  // A long-running program of its own: the app behind a tracker, a worker, a
-  // bot. "server" and "app" are here because that is what an owner calls one.
-  if (/\b(daemon|server|service|worker|backend|app|running|logs?)\b/.test(t)) {
-    tags.add("daemons");
-  }
-  // Always allow systems when talking about building things.
-  if (/\b(build|track|create a|make me|set up)\b/.test(t)) {
-    tags.add("systems");
-    tags.add("tasks");
-  }
-  return [...tags];
-}
 
 /**
  * Take the turn's recalled context back out before the turn is stored.

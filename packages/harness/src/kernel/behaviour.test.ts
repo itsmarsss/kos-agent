@@ -43,13 +43,4 @@ describe("behaviour settings", () => {
     expect(parseBehaviour({ selfPromptsPerHour: 0 }).selfPromptsPerHour).toBe(0);
   });
 
-  it("carries the old auto-fix switch across", () => {
-    // It shipped under its own key. Upgrading must not quietly turn it off.
-    expect(parseBehaviour(undefined, { enabled: true }).autoFix).toBe(true);
-    expect(parseBehaviour(undefined, { enabled: false }).autoFix).toBe(false);
-    // Once saved in the new shape, the new value wins.
-    expect(parseBehaviour({ autoFix: false }, { enabled: true }).autoFix).toBe(
-      false,
-    );
-  });
 });
