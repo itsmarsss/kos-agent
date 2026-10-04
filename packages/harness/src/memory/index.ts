@@ -38,8 +38,9 @@ export { runMemoryEval, renderEvalReport, loadGolden, type EvalReport, type Gold
 export { MEMORY_JOB, MEMORY_JOB_PROMPT, MEMORY_JOB_SCHEDULE, ensureDefaultMemoryCron } from "./job.js";
 export { relatedClaims, takeBatch } from "./extractor.js";
 export { ReviewQueue, type ReviewItem, type ReviewKind } from "./review.js";
-export { listPages, readPage, writePage, PAGES_DIR, type PageInfo } from "./pages.js";
+export { listPages, readPage, writePage, importPage, pageScope, PageLog, CLAIM_LINE, PAGES_DIR, type PageInfo, type PageImport } from "./pages.js";
 export { DREAM_JOB, DREAM_JOB_PROMPT, ensureDefaultDreamCron } from "./job.js";
 export { ObservationStore, type Observation } from "./observations.js";
 export { OBSERVE_JOB, OBSERVE_JOB_PROMPT, ensureDefaultObserveCron } from "./job.js";
 export { CallerStore, mayRead, CALLER_NAME, type Caller } from "./callers.js";
+export { applyResolution, splitQualified, type ReviewAction, type Resolution, type ResolutionReport } from "./resolve.js";
