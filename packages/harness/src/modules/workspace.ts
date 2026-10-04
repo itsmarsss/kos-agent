@@ -105,22 +105,35 @@ export function readWorkspaceModules(ws: Workspace): { modules: WorkspaceModule[
 }
 
 export interface ModuleSettings {
-  /** Off is the default: a module runs only after the owner switched it on. */
+  /** Off is the default: a workspace module runs only after the owner switched it on. */
   enabled: string[];
+  /** On is the default for a built-in feature; these are the ones switched off. */
+  disabledBuiltins: string[];
+}
+
+function names(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.filter((n): n is string => typeof n === "string" && n.trim() !== "").map((n) => n.trim()))];
 }
 
 export function parseModuleSettings(raw: unknown): ModuleSettings {
-  if (typeof raw !== "object" || raw === null) return { enabled: [] };
-  const list = (raw as { enabled?: unknown }).enabled;
-  if (!Array.isArray(list)) return { enabled: [] };
-  return { enabled: [...new Set(list.filter((n): n is string => typeof n === "string" && n.trim() !== "").map((n) => n.trim()))] };
+  if (typeof raw !== "object" || raw === null) return { enabled: [], disabledBuiltins: [] };
+  const r = raw as { enabled?: unknown; disabledBuiltins?: unknown };
+  return { enabled: names(r.enabled), disabledBuiltins: names(r.disabledBuiltins) };
 }
 
 export function withModuleEnabled(current: ModuleSettings, name: string, enabled: boolean): ModuleSettings {
   const on = new Set(current.enabled);
   if (enabled) on.add(name);
   else on.delete(name);
-  return { enabled: [...on].sort() };
+  return { ...current, enabled: [...on].sort() };
+}
+
+export function withBuiltinEnabled(current: ModuleSettings, name: string, enabled: boolean): ModuleSettings {
+  const off = new Set(current.disabledBuiltins);
+  if (enabled) off.delete(name);
+  else off.add(name);
+  return { ...current, disabledBuiltins: [...off].sort() };
 }
 
 /**

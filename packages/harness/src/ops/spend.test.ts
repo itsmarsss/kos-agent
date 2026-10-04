@@ -55,6 +55,12 @@ describe("what KOS has spent", () => {
      * A response that reported nothing is an absence, not a free call. Storing
      * it would show as a call that cost zero, which is a claim.
      */
+    it("prices the owner's own model once a rate is set, never before", () => {
+      const used = { provider: "custom", model: "local-7b", inputTokens: 1_000_000, outputTokens: 500_000 };
+      expect(costOf(used, {})).toBeUndefined();
+      expect(costOf(used, { "custom:local-7b": { inputPerMillion: 0.2, outputPerMillion: 0.6 } })).toBeCloseTo(0.5);
+    });
+
     it("does not record a response that reported no usage", () => {
       usage({ inputTokens: 0, outputTokens: 0 });
       expect(spend.byModel()).toEqual([]);

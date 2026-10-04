@@ -11,6 +11,7 @@ import {
   readWorkspaceModules,
   scaffoldModule,
   serverFor,
+  withBuiltinEnabled,
   withModuleEnabled,
 } from "./workspace.js";
 
@@ -62,10 +63,13 @@ describe("modules in a workspace", () => {
     scaffoldModule(ws, "two", "Two");
     expect(Object.keys(enabledServers(ws, [], false))).toEqual([]);
     expect(Object.keys(enabledServers(ws, ["two", "ghost"], false))).toEqual(["two"]);
-    expect(parseModuleSettings(undefined)).toEqual({ enabled: [] });
-    const on = withModuleEnabled({ enabled: [] }, "two", true);
-    expect(on).toEqual({ enabled: ["two"] });
-    expect(withModuleEnabled(on, "two", false)).toEqual({ enabled: [] });
+    expect(parseModuleSettings(undefined)).toEqual({ enabled: [], disabledBuiltins: [] });
+    const on = withModuleEnabled({ enabled: [], disabledBuiltins: [] }, "two", true);
+    expect(on).toEqual({ enabled: ["two"], disabledBuiltins: [] });
+    expect(withModuleEnabled(on, "two", false)).toEqual({ enabled: [], disabledBuiltins: [] });
+    const off = withBuiltinEnabled(on, "tasks", false);
+    expect(off).toEqual({ enabled: ["two"], disabledBuiltins: ["tasks"] });
+    expect(withBuiltinEnabled(off, "tasks", true).disabledBuiltins).toEqual([]);
   });
 
   it("scaffolds a module that reads back valid, and refuses to clobber one", () => {

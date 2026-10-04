@@ -7,6 +7,8 @@ import { ToolRegistry } from "../agent/registry.js";
 import { type CronActionResult, runCronJob, type CronExecResult } from "../cron/executor.js";
 import { CronStore } from "../cron/store.js";
 import type { McpModule } from "../tools/mcp.js";
+import { BUILTIN_FEATURES, isBuiltinFeature } from "../modules/builtins.js";
+import { MODULES_KEY, parseModuleSettings, withBuiltinEnabled } from "../modules/workspace.js";
 import { bootKernel } from "./boot.js";
 import { CronService, type CronFireResult } from "./cronservice.js";
 import { MemoryExtractor, type ExtractionReport } from "../memory/extractor.js";
@@ -397,6 +399,18 @@ export class Kernel {
     this.system = args.system;
     this.sessionless = args.sessionless;
     this.onApprovalRequested = args.onApprovalRequested;
+  }
+
+  /** The built-in features and whether each is on right now. */
+  builtins(): { name: string; description: string; enabled: boolean }[] {
+    return BUILTIN_FEATURES.map((f) => ({ ...f, enabled: this.loader.isActive(f.name) }));
+  }
+
+  /** Switch a built-in feature on or off now: its tools come and go, no restart. */
+  async setBuiltinEnabled(name: string, enabled: boolean): Promise<boolean> {
+    if (!isBuiltinFeature(name)) return false;
+    this.settings.set(MODULES_KEY, withBuiltinEnabled(parseModuleSettings(this.settings.get(MODULES_KEY)), name, enabled));
+    return enabled ? this.loader.enable(name) : this.loader.disable(name);
   }
 
   /** Build a kernel over a workspace. What it is made of is in boot.ts. */

@@ -162,6 +162,10 @@ servers are child processes that do not outlive the host.
 
 ### Modules
 
+Four built-in features, tasks, sites, export and builds, are switchable under
+Settings, Modules: off takes their tools away at once. Everything else the
+kernel loads is the harness itself.
+
 The kernel is primitives: files, search, shell, HTTP, SQL, memory, schedules,
 daemons, delegation, skills, MCP. A feature is a module, and a module is a
 folder under `modules/` with a `module.json` and a server that speaks the
@@ -329,6 +333,7 @@ ANTHROPIC_API_KEY=      # preferred when both are set
 OPENAI_API_KEY=         # works alone; the router falls back
 KOS_CUSTOM_BASE_URL=    # any OpenAI-compatible endpoint: your own model, a local
 KOS_SECRET_CUSTOM=      # server, a gateway; the key only if it wants one
+                        # its price goes under Spend > Rates once it has been used
 
 KOS_SECRET_DISCORD=     # bot token
 KOS_OWNER_DISCORD=      # your user id, and the inbound gate

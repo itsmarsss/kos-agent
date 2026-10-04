@@ -44,6 +44,7 @@ import { createHttpModule } from "../tools/http.js";
 import { createMcpModule, readMcpConfig } from "../tools/mcp.js";
 import { createModulesModule } from "../tools/modules.js";
 import { MODULES_KEY, enabledServers, parseModuleSettings } from "../modules/workspace.js";
+import { isBuiltinFeature } from "../modules/builtins.js";
 import { isContained } from "../sandbox/jail.js";
 import { PermissionStore } from "../ops/permissions.js";
 import { createDaemonsModule } from "../tools/daemons.js";
@@ -452,7 +453,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     ...(options.extraModules ?? []),
   ];
   const loader = new ModuleLoader(toolRegistryContext(registry, services));
-  const loadReport = await loader.load(modules);
+  const loadReport = await loader.load(modules, { skip: parseModuleSettings(settings.get(MODULES_KEY)).disabledBuiltins.filter(isBuiltinFeature) });
 
   ensureDefaultBackupCron(crons);
   ensureDefaultMemoryCron(crons);

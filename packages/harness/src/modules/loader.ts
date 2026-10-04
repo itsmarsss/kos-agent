@@ -110,14 +110,33 @@ export function toolRegistryContext(
 export class ModuleLoader {
   /** What activated, in the order it did, so it can be let go in reverse. */
   private readonly active: KosModule[] = [];
+  /** Every module handed to load, by name, so one switched off can be switched back on. */
+  private readonly known = new Map<string, KosModule>();
+  /** The tools each module registered, so they can be taken back. */
+  private readonly tools = new Map<string, string[]>();
 
   constructor(private readonly ctx: ModuleContext) {}
 
-  async load(modules: KosModule[]): Promise<LoadReport> {
+  /** A context that remembers what the module registered under its name. */
+  private contextFor(name: string): ModuleContext {
+    const registered = this.tools.get(name) ?? [];
+    this.tools.set(name, registered);
+    return {
+      ...this.ctx,
+      registerTool: (def, handler, risk, meta) => {
+        this.ctx.registerTool(def, handler, risk, meta);
+        registered.push(def.name);
+      },
+    };
+  }
+
+  async load(modules: KosModule[], options: { skip?: Iterable<string> } = {}): Promise<LoadReport> {
     const loaded: string[] = [];
     const failed: ModuleFailure[] = [];
     const activated = new Map<string, string>(); // capabilityKey -> version
-    const pending = [...modules];
+    const skip = new Set(options.skip ?? []);
+    for (const m of modules) this.known.set(m.manifest.name, m);
+    const pending = modules.filter((m) => !skip.has(m.manifest.name));
 
     let progressed = true;
     while (pending.length > 0 && progressed) {
@@ -130,7 +149,7 @@ export class ModuleLoader {
         i--;
         progressed = true;
         try {
-          await mod.activate(this.ctx);
+          await mod.activate(this.contextFor(mod.manifest.name));
           this.active.push(mod);
           for (const cap of mod.manifest.provides) {
             activated.set(capabilityKey(cap), cap.version);
@@ -155,6 +174,36 @@ export class ModuleLoader {
     }
 
     return { loaded, failed };
+  }
+
+  /** Whether a module is active right now. */
+  isActive(name: string): boolean {
+    return this.active.some((m) => m.manifest.name === name);
+  }
+
+  /** Switch a known module off: deactivate it and take its tools back. */
+  async disable(name: string): Promise<boolean> {
+    const i = this.active.findIndex((m) => m.manifest.name === name);
+    if (i === -1) return false;
+    const [mod] = this.active.splice(i, 1);
+    try {
+      await mod!.deactivate?.();
+    } catch {
+      // Its tools go regardless; a module that will not let go still loses them.
+    }
+    for (const tool of this.tools.get(name) ?? []) this.ctx.unregisterTool?.(tool);
+    this.tools.set(name, []);
+    return true;
+  }
+
+  /** Switch a known module on again. */
+  async enable(name: string): Promise<boolean> {
+    if (this.isActive(name)) return true;
+    const mod = this.known.get(name);
+    if (!mod) return false;
+    await mod.activate(this.contextFor(name));
+    this.active.push(mod);
+    return true;
   }
 
   /**

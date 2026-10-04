@@ -331,7 +331,7 @@ export function SettingsPage(): ReactElement {
   useEffect(() => {
     if (active === "skills") loadSkills();
   }, [active, loadSkills]);
-  const [modules, setModules] = useState<{ modules: ModuleInfo[]; invalid: { name: string; reason: string }[] }>({
+  const [modules, setModules] = useState<{ modules: ModuleInfo[]; invalid: { name: string; reason: string }[]; builtins?: { name: string; description: string; enabled: boolean }[] }>({
     modules: [],
     invalid: [],
   });
@@ -1104,8 +1104,29 @@ export function SettingsPage(): ReactElement {
         )}
         {active === "modules" && (
           <Section title="Modules" blurb="Each one is a folder under modules/ with a module.json and a server. Off is the default: KOS can write a module, and nothing runs until you switch it on here.">
+            {(modules.builtins ?? []).length > 0 && (
+              <div className="set-group">
+                <h3>Built in</h3>
+                <p className="hint">Features the kernel ships but does not insist on. Off takes their tools away at once; on brings them back.</p>
+                {(modules.builtins ?? []).map((b) => (
+                  <Field key={b.name} label={b.name} hint={b.description}>
+                    <label className="set-toggle">
+                      <input
+                        type="checkbox"
+                        checked={b.enabled}
+                        onChange={(e) => {
+                          const enabled = e.target.checked;
+                          void api.setModuleEnabled(b.name, enabled).then(loadModules, loadModules);
+                        }}
+                      />
+                      <span>{b.enabled ? "On" : "Off"}</span>
+                    </label>
+                  </Field>
+                ))}
+              </div>
+            )}
             {modules.modules.length === 0 && modules.invalid.length === 0 && (
-              <p className="hint">No modules yet. Ask KOS to make one with modules.create, or add a folder under modules/.</p>
+              <p className="hint">No workspace modules yet. Ask KOS to make one with modules.create, or add a folder under modules/.</p>
             )}
             {modules.modules.map((m) => (
               <Field
