@@ -249,6 +249,19 @@ describe("handleApiRequest", () => {
     expect(unknown.status).toBe(404);
   });
 
+  it("starts a conversation inside a project, and routes a project turn", async () => {
+    const project = kernel.manifest.createProject({ name: "Budget", type: "budget" });
+    const made = await handleApiRequest(kernel, { method: "POST", path: "/api/conversations/new", body: { title: "Receipts", projectSlug: project.slug } });
+    expect((made.body as { projectSlug: string | null }).projectSlug).toBe(project.slug);
+
+    const turn = await handleApiRequest(kernel, { method: "POST", path: "/api/message", body: { text: "hello", sessionId: `project:${project.slug}` } });
+    expect(turn.status).toBe(200);
+    expect((turn.body as { conversationId: string }).conversationId).toBe(`project:${project.slug}`);
+    const listed = await handleApiRequest(kernel, { method: "GET", path: "/api/conversations" });
+    const row = (listed.body as { id: string; kind: string; projectSlug: string | null }[]).find((c) => c.id === `project:${project.slug}`);
+    expect(row).toMatchObject({ kind: "project", projectSlug: project.slug });
+  });
+
   it("validates and 404s", async () => {
     expect((await handleApiRequest(kernel, { method: "POST", path: "/api/message", body: {} })).status).toBe(400);
     expect((await handleApiRequest(kernel, { method: "GET", path: "/nope" })).status).toBe(404);

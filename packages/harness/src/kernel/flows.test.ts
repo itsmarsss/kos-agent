@@ -1218,6 +1218,48 @@ describe("KOS end-to-end flows", () => {
     expect(model.systems[1]).toContain("- pr-review (prompt): Review a pull request");
   });
 
+  it("gives a project its own orchestrator, scoped to that project", async () => {
+    /*
+     * Two levels. KOS at the root sees every project. A project's
+     * orchestrator holds the same chats tools, scoped: it can start agents
+     * for its project, those agents carry its slug and hold no chats tools,
+     * and another project's orchestrator cannot reach them.
+     */
+    const model = scripted([
+      toolCall("c1", "chats.create", { title: "Catalogue", brief: "Catalogue the books" }),
+      text("started"),
+      text("ok"),
+      toolCall("c2", "chats.dispatch", { id: "books-agent", message: "hello" }),
+      text("done"),
+    ]);
+    kernel = await boot(model.inference);
+    const books = kernel.manifest.createProject({ name: "Books", type: "tracker" });
+    const notes = kernel.manifest.createProject({ name: "Notes", type: "notes" });
+
+    const first = await kernel.handleProjectTurn(books.slug, "start a catalogue agent");
+    expect(first.conversationId).toBe(`project:${books.slug}`);
+    const offered = (model.calls[0]!.request.tools ?? []).map((t) => t.name);
+    expect(offered).toContain("chats.create");
+
+    const agent = kernel.conversations.list("owner").find((c) => c.title === "Catalogue");
+    expect(agent?.projectSlug).toBe(books.slug);
+    expect(kernel.conversations.get(`project:${books.slug}`)?.projectSlug).toBe(books.slug);
+
+    await kernel.handleMessage("hi", { sessionId: agent!.id });
+    const agentTools = (model.calls.at(-1)!.request.tools ?? []).map((t) => t.name);
+    expect(agentTools.some((n) => n.startsWith("chats."))).toBe(false);
+
+    // A second agent under books with a known id, so the other project's
+    // orchestrator can be scripted to reach for it by name.
+    kernel.conversations.create({ id: "books-agent", userId: "owner", title: "Shelf", projectSlug: books.slug });
+    await kernel.handleProjectTurn(notes.slug, "poke the books agent");
+    const transcript = kernel.sessions.get(`project:${notes.slug}`);
+    const refused = transcript.some((m) =>
+      m.content.some((b) => b.type === "tool_result" && b.isError === true && String(b.content).includes("no such conversation")),
+    );
+    expect(refused).toBe(true);
+  });
+
   it("leaves an unscoped conversation with the full toolset", async () => {
     const model = scripted([text("ok")]);
     kernel = await boot(model.inference);

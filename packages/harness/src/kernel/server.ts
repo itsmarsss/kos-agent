@@ -579,6 +579,14 @@ export async function handleApiRequest(
     // different toolkits behind them.
     const attachments = parseAttachments(body.attachments);
     try {
+      if (sessionId.startsWith("project:")) {
+        return ok(
+          await kernel.handleProjectTurn(sessionId.slice("project:".length), text, {
+            channel: "dashboard",
+            attachments,
+          }),
+        );
+      }
       if (sessionId === orchestratorId(kernel.profile.ownerId)) {
         return ok(
           await kernel.handleOrchestratorTurn(text, {
@@ -1333,10 +1341,12 @@ export async function handleApiRequest(
 
   if (method === "POST" && path === "/api/conversations/new") {
     const title = typeof body.title === "string" ? body.title : undefined;
+    const projectSlug = typeof body.projectSlug === "string" && body.projectSlug.trim() ? body.projectSlug.trim() : undefined;
     const created = kernel.conversations.create({
       userId: kernel.profile.ownerId,
       channel: "dashboard",
       ...(title ? { title } : {}),
+      ...(projectSlug ? { projectSlug } : {}),
     });
     kernel.conversations.setActive("dashboard", kernel.profile.ownerId, created.id);
     return ok(created);
