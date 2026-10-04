@@ -120,6 +120,12 @@ export interface DashboardServerOptions {
    * loopback daemon.
    */
   allowedOrigins?: string[];
+  /**
+   * An inbound text, posted by the SMS provider to POST /api/sms/inbound.
+   * Verified by the provider's signature rather than the dashboard token,
+   * which the provider cannot send. Unset means the route does not exist.
+   */
+  smsInbound?: (input: { url: string; params: Record<string, string>; signature: string | undefined }) => Promise<boolean>;
 }
 
 /** Widget types that may carry a guarded mutation target. */
@@ -1974,6 +1980,12 @@ async function loadPageData(kernel: Kernel, spec: PageSpec): Promise<PageData> {
   return { data, errors };
 }
 
+async function readRaw(stream: NodeJS.ReadableStream): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(chunk as Buffer);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 async function readBody(stream: NodeJS.ReadableStream): Promise<unknown> {
   const chunks: Buffer[] = [];
   for await (const chunk of stream) chunks.push(chunk as Buffer);
@@ -2191,6 +2203,35 @@ export function createDashboardServer(
 
       if (method === "GET" && path === "/api/events") {
         streamProgress(kernel, req, res, options);
+        return;
+      }
+
+      /*
+       * The SMS provider's webhook: a form, not JSON, signed over the exact
+       * URL it was told to post to. Answered with empty TwiML so the
+       * provider sends nothing back on its own; KOS replies through the API
+       * when the turn is done.
+       */
+      if (method === "POST" && path === "/api/sms/inbound") {
+        if (!options.smsInbound) {
+          res.writeHead(404, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "no sms surface" }));
+          return;
+        }
+        const raw = await readRaw(req);
+        const params = Object.fromEntries(new URLSearchParams(raw));
+        const proto = String(req.headers["x-forwarded-proto"] ?? "http").split(",")[0]!.trim();
+        const host = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "");
+        const url = `${proto}://${host}${rawUrl}`;
+        const signature = typeof req.headers["x-twilio-signature"] === "string" ? req.headers["x-twilio-signature"] : undefined;
+        const accepted = await options.smsInbound({ url, params, signature });
+        if (!accepted) {
+          res.writeHead(403, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "bad signature" }));
+          return;
+        }
+        res.writeHead(200, { "content-type": "text/xml" });
+        res.end("<Response></Response>");
         return;
       }
 
