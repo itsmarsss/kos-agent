@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { ToolRegistry } from "../agent/registry.js";
+import { toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import {
   createMcpModule,
@@ -145,6 +146,37 @@ describe("a floor per tool", () => {
       servers: { b: { command: "x", tools: { navigate: "safe", click: "risky", bogus: "maybe" } } },
     });
     expect(config.servers.b!.tools).toEqual({ navigate: "safe", click: "risky" });
+  });
+});
+
+describe("reloading when the set of servers changes", () => {
+  it("brings a server up, takes its tools back when it goes, and leaves the rest alone", async () => {
+    const fake = fakeServer();
+    const config: McpConfig = { servers: { a: { command: "x", risk: "safe" }, b: { command: "y", risk: "safe" } } };
+    const registry = new ToolRegistry();
+    const module = createMcpModule({
+      workspaceRoot: "/tmp/kos-mcp-test",
+      secrets: new SecretsRegistry(),
+      config: () => config,
+      transportFor: () => fake.transport(),
+      report: () => undefined,
+    });
+    await module.activate(toolRegistryContext(registry));
+    expect(Object.keys(module.status()).sort()).toEqual(["a", "b"]);
+    expect(registry.has("mcp.a.add")).toBe(true);
+    expect(registry.has("mcp.b.add")).toBe(true);
+
+    delete config.servers.b;
+    config.servers.c = { command: "z" };
+    const after = await module.reload();
+    expect(Object.keys(after).sort()).toEqual(["a", "c"]);
+    expect(registry.has("mcp.b.add")).toBe(false);
+    expect(registry.has("mcp.c.add")).toBe(true);
+    // c took the default floor; a kept what it had.
+    expect(registry.classify("mcp.c.add", {}).tier).toBe("risky");
+    expect(registry.classify("mcp.a.add", {}).tier).toBe("safe");
+    await module.deactivate!();
+    expect(registry.has("mcp.a.add")).toBe(false);
   });
 });
 

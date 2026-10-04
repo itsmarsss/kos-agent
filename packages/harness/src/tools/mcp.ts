@@ -48,6 +48,8 @@ export interface McpServerConfig {
   headers?: Record<string, string>;
   /** Off without deleting it. Default on. */
   enabled?: boolean;
+  /** Where a stdio server runs. The workspace root unless a module says its own directory. */
+  cwd?: string;
   /** Floor for every tool this server provides. Default risky. */
   risk?: Extract<RiskTier, "safe" | "risky">;
   /**
@@ -181,13 +183,21 @@ interface Connected {
   tools: string[];
 }
 
+export type McpStatus = Record<string, { connected: boolean; tools: string[]; error?: string }>;
+
+/** The MCP module, which can also be told that the set of servers changed. */
+export interface McpModule extends KosModule {
+  reload(): Promise<McpStatus>;
+  status(): McpStatus;
+}
+
 /**
  * The module, plus a way to close what it opened.
  *
  * A stdio server is a child process that must not outlive the host, so the
  * module deactivates by closing every connection it opened.
  */
-export function createMcpModule(options: McpModuleOptions): KosModule {
+export function createMcpModule(options: McpModuleOptions): McpModule {
   const report = options.report ?? ((m: string) => console.error(`[mcp] ${m}`));
   const connected = new Map<string, Connected>();
 
@@ -202,7 +212,7 @@ export function createMcpModule(options: McpModuleOptions): KosModule {
         // variables, HOME inside the workspace, and only this server's own
         // settings on top, secrets already substituted.
         env: childEnv({ home: options.workspaceRoot }, injectSecrets(server.env ?? {}, options.secrets)),
-        cwd: options.workspaceRoot,
+        cwd: server.cwd ?? options.workspaceRoot,
         stderr: "ignore",
       });
     }
@@ -219,7 +229,84 @@ export function createMcpModule(options: McpModuleOptions): KosModule {
     return { client, tools: listed.tools.map((t) => t.name) };
   }
 
-  const module: KosModule = {
+  const status: McpStatus = {};
+  let context: ModuleContext | undefined;
+
+  /** Connect a server and register its tools. A failure is a status line, not a throw. */
+  async function bring(name: string, server: McpServerConfig): Promise<void> {
+    let link: Connected;
+    try {
+      link = await connect(name, server);
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      status[name] = { connected: false, tools: [], error };
+      report(`${name}: not connected (${error})`);
+      return;
+    }
+    connected.set(name, link);
+    const registered: string[] = [];
+    const listed = await link.client.listTools();
+    for (const tool of listed.tools) {
+      const def: ToolDef = {
+        name: mcpToolName(name, tool.name),
+        description: tool.description ?? `${tool.name} from ${name}`,
+        inputSchema: (tool.inputSchema as Record<string, unknown>) ?? { type: "object" },
+      };
+      try {
+        context!.registerTool(
+          def,
+          async (input) => {
+            const live = connected.get(name) ?? (await reconnect(name, server));
+            const result = await live.client.callTool({ name: tool.name, arguments: input });
+            const text = renderContent(result.content);
+            if (result.isError) throw new Error(text || `${tool.name} reported an error`);
+            return text;
+          },
+          { floor: floorFor(server, tool.name) },
+        );
+        registered.push(def.name);
+      } catch (err) {
+        // A name already taken is this tool's problem, not the server's.
+        report(`${def.name}: not registered (${err instanceof Error ? err.message : String(err)})`);
+      }
+    }
+    status[name] = { connected: true, tools: registered };
+  }
+
+  /** Close a server and take its tools back. */
+  async function drop(name: string): Promise<void> {
+    const link = connected.get(name);
+    if (link) {
+      try {
+        await link.client.close();
+      } catch {
+        // Already gone. The point was that it is not running any more.
+      }
+      connected.delete(name);
+    }
+    for (const tool of status[name]?.tools ?? []) context!.unregisterTool?.(tool);
+    delete status[name];
+  }
+
+  /**
+   * Make the live set match the config: servers no longer wanted are
+   * dropped, servers newly wanted are brought up. What is already up and
+   * still wanted is left alone, so a toggle elsewhere does not restart it.
+   */
+  async function reload(): Promise<McpStatus> {
+    if (!context) throw new Error("mcp module is not active");
+    const config = (options.config ?? (() => readMcpConfig(options.workspaceRoot)))();
+    const wanted = new Set(Object.entries(config.servers).filter(([, s]) => s.enabled !== false).map(([n]) => n));
+    for (const name of Object.keys(status)) {
+      if (!wanted.has(name)) await drop(name);
+    }
+    for (const name of wanted) {
+      if (!(name in status)) await bring(name, config.servers[name]!);
+    }
+    return { ...status };
+  }
+
+  const module: McpModule = {
     manifest: {
       name: "mcp",
       version: "1.0.0",
@@ -227,43 +314,14 @@ export function createMcpModule(options: McpModuleOptions): KosModule {
       riskTier: "risky",
     },
     async activate(ctx: ModuleContext) {
-      const config = (options.config ?? (() => readMcpConfig(options.workspaceRoot)))();
-      for (const [name, server] of Object.entries(config.servers)) {
-        if (server.enabled === false) continue;
-        let link: Connected;
-        try {
-          link = await connect(name, server);
-        } catch (err) {
-          report(`${name}: not connected (${err instanceof Error ? err.message : String(err)})`);
-          continue;
-        }
-        connected.set(name, link);
-        const listed = await link.client.listTools();
-        for (const tool of listed.tools) {
-          const def: ToolDef = {
-            name: mcpToolName(name, tool.name),
-            description: tool.description ?? `${tool.name} from ${name}`,
-            inputSchema: (tool.inputSchema as Record<string, unknown>) ?? { type: "object" },
-          };
-          try {
-            ctx.registerTool(
-              def,
-              async (input) => {
-                const live = connected.get(name) ?? (await reconnect(name, server));
-                const result = await live.client.callTool({ name: tool.name, arguments: input });
-                const text = renderContent(result.content);
-                if (result.isError) throw new Error(text || `${tool.name} reported an error`);
-                return text;
-              },
-              { floor: floorFor(server, tool.name) },
-            );
-          } catch (err) {
-            // A name already taken is this tool's problem, not the server's.
-            report(`${def.name}: not registered (${err instanceof Error ? err.message : String(err)})`);
-          }
-        }
-      }
+      context = ctx;
+      await reload();
     },
+    async deactivate() {
+      for (const name of Object.keys(status)) await drop(name);
+    },
+    reload,
+    status: () => ({ ...status }),
   };
 
   async function reconnect(name: string, server: McpServerConfig): Promise<Connected> {
@@ -272,16 +330,5 @@ export function createMcpModule(options: McpModuleOptions): KosModule {
     return link;
   }
 
-  async function close(): Promise<void> {
-    for (const [name, link] of connected) {
-      try {
-        await link.client.close();
-      } catch {
-        // Already gone. The point was that it is not running any more.
-      }
-      connected.delete(name);
-    }
-  }
-
-  return { ...module, deactivate: close };
+  return module;
 }
