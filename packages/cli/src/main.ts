@@ -34,6 +34,16 @@ function allowedHosts(): string[] {
     .filter((h) => h.length > 0);
 }
 
+/**
+ * Not under KOS_SECRET_: that prefix hands a value to the agent as a
+ * secret it can use, and the thing that lets the outside start a job is
+ * not something the agent should hold.
+ */
+function hookSecret(): string | undefined {
+  const s = process.env.KOS_HOOK_SECRET?.trim();
+  return s ? s : undefined;
+}
+
 function dashboardToken(): string | undefined {
   const t = process.env.KOS_DASHBOARD_TOKEN;
   return t && t.length > 0 ? t : undefined;
@@ -256,6 +266,7 @@ async function cmdStart(
     host,
     port,
     ...(dashboardToken() ? { token: dashboardToken() } : {}),
+    ...(hookSecret() ? { hookSecret: hookSecret() } : {}),
     discord: flags["no-discord"] === true ? false : true,
     requireDiscord: flags.discord === true,
     sitesPort: sitesPort(flags["sites-port"], port),

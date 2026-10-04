@@ -67,6 +67,11 @@ including tools narrowed out of the current turn.
 
 **Supervises daemons.** Programs it spawns are restarted with backoff.
 
+**Answers a hook.** With `KOS_HOOK_SECRET` set, `POST /api/hooks/<job name>`
+with that secret as a bearer token starts the named job. The secret opens
+nothing else, the body is ignored, and the run reports to health like a
+scheduled one.
+
 **Writes its own memory.** A salience heuristic decides what persists. Recall
 is semantic via `sqlite-vec`, with literal search as the fast path.
 

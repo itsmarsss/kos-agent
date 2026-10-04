@@ -395,6 +395,70 @@ describe("handleApiRequest", () => {
       expect(res.status).toBe(404);
     });
 
+    describe("fired from outside by a hook", () => {
+      const hook = (name: string, secret?: string, method = "POST") =>
+        handleApiRequest(
+          kernel,
+          {
+            method,
+            path: `/api/hooks/${name}`,
+            ...(secret ? { headers: { authorization: `Bearer ${secret}` } } : {}),
+          },
+          { token: "dash", hookSecret: "hook" },
+        );
+
+      function job(enabled = true) {
+        return kernel.crons.create({
+          name: "poke",
+          schedule: "0 3 * * *",
+          type: "actions",
+          actions: [{ tool: "files.read", args: { path: "nope.md" } }],
+          enabled,
+        });
+      }
+
+      it("runs the named job, and answers before the run is done", async () => {
+        const made = job();
+        const res = await hook("poke", "hook");
+        expect(res).toEqual({ status: 202, body: { accepted: "poke" } });
+        // The run happened through the schedule's own path, so it is on the
+        // job's record and in health, as a 3am run would be.
+        await expect.poll(() => kernel.crons.get(made.id)?.lastRunAt ?? null).not.toBeNull();
+        await expect.poll(() => kernel.health.failing().length).toBe(1);
+      });
+
+      it("takes the hook secret and nothing else", async () => {
+        job();
+        expect((await hook("poke")).status).toBe(401);
+        // The dashboard token is not a hook secret.
+        expect((await hook("poke", "dash")).status).toBe(401);
+        // And the hook secret opens no other route.
+        const list = await handleApiRequest(
+          kernel,
+          { method: "GET", path: "/api/crons", headers: { authorization: "Bearer hook" } },
+          { token: "dash", hookSecret: "hook" },
+        );
+        expect(list.status).toBe(401);
+      });
+
+      it("is off until a secret is set", async () => {
+        job();
+        const res = await handleApiRequest(kernel, {
+          method: "POST",
+          path: "/api/hooks/poke",
+          headers: { authorization: "Bearer anything" },
+        });
+        expect(res.status).toBe(403);
+      });
+
+      it("will not start a paused job, or one that does not exist", async () => {
+        job(false);
+        expect((await hook("poke", "hook")).status).toBe(409);
+        expect((await hook("other", "hook")).status).toBe(404);
+        expect((await hook("poke", "hook", "GET")).status).toBe(405);
+      });
+    });
+
     it("forgets a failure the owner has dealt with", async () => {
       kernel.health.observe("cron:1", "check", false, "boom");
       const res = await handleApiRequest(kernel, {
