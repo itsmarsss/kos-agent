@@ -82,7 +82,29 @@ function imessageConfig(): { handle: string; dbPath: string } | null {
  * Multi-modal host: one Kernel, cron, local API/UI, optional Discord.
  * This is what `kos start` runs. CLI clients attach over the API.
  */
+/**
+ * An error nobody caught is logged, and the host goes on.
+ *
+ * The default is to exit, which is right for a script and wrong for a
+ * daemon that is the owner's only agent: the previous host died at 9am
+ * from a timed-out socket inside a library, and nothing noticed until
+ * the afternoon. Everything that matters is either answered on its own
+ * promise chain or restarted by the kernel; a stray throw has nowhere
+ * useful to go but the log.
+ */
+function keepRunning(): void {
+  const describe = (err: unknown): string =>
+    err instanceof Error ? (err.stack ?? err.message) : String(err);
+  process.on("uncaughtException", (err) => {
+    console.error(`uncaught exception, still running: ${describe(err)}`);
+  });
+  process.on("unhandledRejection", (reason) => {
+    console.error(`unhandled rejection, still running: ${describe(reason)}`);
+  });
+}
+
 export async function runHost(options: HostOptions): Promise<void> {
+  keepRunning();
   let imessageAdapter: IMessageAdapter | undefined;
   let imessageClaim: HandleClaim | undefined;
   let imessageRuntime: ReturnType<typeof connectChannel> | undefined;
