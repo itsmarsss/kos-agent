@@ -135,6 +135,31 @@ export function sameThing(proposed: string, shown: Fact[]): string | undefined {
   return undefined;
 }
 
+/**
+ * The claims a batch might be talking about: current, in its scopes,
+ * sharing any word with it. Shown to the reader so it supersedes instead
+ * of inventing a second key; a loose match costs a few tokens, a missed
+ * one costs a duplicate, so the floor here is lower than for a turn.
+ */
+export function relatedClaims(facts: FactsStore, ownerId: string, batch: MemoryEvent[]): Fact[] {
+  const projects = [...new Set(batch.map((e) => e.projectSlug).filter((p): p is string => p !== null))];
+  const scopes = [GLOBAL_SCOPE, ...projects.map(projectScope)];
+  const text = batch.map((e) => e.text).join("\n");
+  return facts.search(ownerId, text, 40, { scopes, minScore: 1 });
+}
+
+/** A batch of unread events, as many as fit the budget, never none when there is one. */
+export function takeBatch(fresh: MemoryEvent[], batchChars: number): MemoryEvent[] {
+  const batch: MemoryEvent[] = [];
+  let chars = 0;
+  for (const e of fresh) {
+    if (batch.length > 0 && chars + e.text.length > batchChars) break;
+    batch.push(e);
+    chars += e.text.length;
+  }
+  return batch;
+}
+
 function describe(e: MemoryEvent): string {
   const when = new Date(e.ts).toISOString().slice(0, 10);
   const where = e.projectSlug ? `, project ${e.projectSlug}` : "";
@@ -184,28 +209,11 @@ export class MemoryExtractor {
   }
 
   private nextBatch(batchChars: number): MemoryEvent[] {
-    const fresh = this.deps.events.since(this.deps.ownerId, this.state().lastEventId, 200);
-    const batch: MemoryEvent[] = [];
-    let chars = 0;
-    for (const e of fresh) {
-      if (batch.length > 0 && chars + e.text.length > batchChars) break;
-      batch.push(e);
-      chars += e.text.length;
-    }
-    return batch;
+    return takeBatch(this.deps.events.since(this.deps.ownerId, this.state().lastEventId, 200), batchChars);
   }
 
-  /**
-   * The claims the batch might be talking about: current, in its scopes,
-   * sharing any word with it. Shown to the model so it supersedes instead
-   * of inventing a second key; a loose match costs a few tokens, a missed
-   * one costs a duplicate, so the floor here is lower than for a turn.
-   */
   private related(batch: MemoryEvent[]): Fact[] {
-    const projects = [...new Set(batch.map((e) => e.projectSlug).filter((p): p is string => p !== null))];
-    const scopes = [GLOBAL_SCOPE, ...projects.map(projectScope)];
-    const text = batch.map((e) => e.text).join("\n");
-    return this.deps.facts.search(this.deps.ownerId, text, 40, { scopes, minScore: 1 });
+    return relatedClaims(this.deps.facts, this.deps.ownerId, batch);
   }
 
   private async extract(batch: MemoryEvent[], report: ExtractionReport): Promise<void> {

@@ -34,4 +34,6 @@ export {
   type RecallOptions,
 } from "./retriever.js";
 export { MemoryExtractor, parseProposals, EXTRACTOR_KEY, type ExtractionReport, type ExtractorState } from "./extractor.js";
-export { runMemoryEval, renderEvalReport, loadGolden, type EvalReport, type GoldenCase } from "./eval.js";
+export { runMemoryEval, renderEvalReport, loadGolden, type EvalReport, type GoldenCase, type MemoryReader } from "./eval.js";
+export { MEMORY_JOB, MEMORY_JOB_PROMPT, MEMORY_JOB_SCHEDULE, ensureDefaultMemoryCron } from "./job.js";
+export { relatedClaims, takeBatch } from "./extractor.js";
