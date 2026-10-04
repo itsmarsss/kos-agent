@@ -31,7 +31,7 @@ import { FilesPage } from "./FilesPage.js";
 import { AgentsPage } from "./AgentsPage.js";
 import { SettingsPage } from "./SettingsPage.js";
 import { ProjectsPage } from "./ProjectsPage.js";
-import { KnowledgePage } from "./KnowledgePage.js";
+import { MemoryPage } from "./MemoryPage.js";
 import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { PageRenderer } from "./widgets/PageRenderer.js";
@@ -966,7 +966,7 @@ export function App(): React.ReactElement {
 
   if (route.name === "memory") {
     return shell(
-      <KnowledgePage
+      <MemoryPage
         facts={facts}
         tags={factTags}
         onChanged={() => void refresh()}

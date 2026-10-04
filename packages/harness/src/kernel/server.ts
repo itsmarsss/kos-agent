@@ -1706,6 +1706,17 @@ export async function handleApiRequest(
     return ok({ id, revoked: kernel.callers.revoke(id) });
   }
 
+  /** The log: what was said, by words and meaning when asked, the latest otherwise. */
+  if (method === "GET" && path === "/api/memory/log") {
+    const q = queryParams(req.url);
+    const query = q.get("query")?.trim() ?? "";
+    const limit = clampLimit(q.get("limit"), 50);
+    const owner = kernel.profile.ownerId;
+    if (!query) return ok({ events: kernel.events.latest(owner, limit), query: "" });
+    const [embedding] = await kernel.embedder.embed([query], "query");
+    return ok({ events: kernel.events.search({ userId: owner, query, ...(embedding ? { embedding } : {}), k: limit }), query });
+  }
+
   /** What the dream job left for the owner: open items first, then the recent resolved ones. */
   if (method === "GET" && path === "/api/memory/review") {
     return ok({ pending: kernel.review.pending(), recent: kernel.review.recent(20), pages: listPages(kernel.workspace), edited: kernel.pageLog.edited(kernel.workspace) });
