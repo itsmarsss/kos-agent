@@ -16,6 +16,8 @@
   --warn-dim: rgba(230, 184, 77, 0.12);
   --danger: #f07178;
   --danger-dim: rgba(240, 113, 120, 0.12);
+  /* Text on an accent or ok surface: dark on the bright dark-theme colours. */
+  --on-accent: #0b0e14;
   --radius: 8px;
   --font: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
@@ -66,8 +68,30 @@
  * than flipped from the dark set. Charts read from these tokens only, so a page
  * that opts into the light theme stays legible without touching widget markup.
  */
+/*
+ * The light palette. Same roles, chosen for paper: the accent and the state
+ * colours go darker so they clear 4.5:1 on white, and text on them turns
+ * white in step.
+ */
 :root[data-theme="light"] {
   color-scheme: light;
+  --bg: #f4f5f8;
+  --panel: #ffffff;
+  --panel-2: #eceef3;
+  --line: #dde1e8;
+  --line-strong: #bfc6d3;
+  --text: #161a22;
+  --muted: #58607a;
+  --faint: #8089a0;
+  --accent: #3558d6;
+  --accent-dim: rgba(53, 88, 214, 0.1);
+  --ok: #1a8f5c;
+  --ok-dim: rgba(26, 143, 92, 0.1);
+  --warn: #a36f00;
+  --warn-dim: rgba(163, 111, 0, 0.1);
+  --danger: #cf3b47;
+  --danger-dim: rgba(207, 59, 71, 0.1);
+  --on-accent: #ffffff;
   --chart-1: #2a78d6;
   --chart-2: #eb6834;
   --chart-3: #1baf7a;
@@ -238,7 +262,7 @@ select {
 .ops-btn--primary {
   background: var(--accent);
   border-color: transparent;
-  color: #0b0e14;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
@@ -781,7 +805,7 @@ select {
 .kos-btn--primary {
   background: var(--accent);
   border-color: transparent;
-  color: #0b0e14;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
@@ -1797,13 +1821,13 @@ select {
 .btn--primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #0b0d12;
+  color: var(--on-accent);
   font-weight: 600;
 }
 .btn--primary:hover { filter: brightness(1.08); background: var(--accent); }
 .btn--ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .btn--ghost:hover { color: var(--text); background: var(--panel); }
-.btn--ok { background: var(--ok); border-color: var(--ok); color: #06180f; font-weight: 600; }
+.btn--ok { background: var(--ok); border-color: var(--ok); color: var(--on-accent); font-weight: 600; }
 .btn--ok:hover { filter: brightness(1.08); background: var(--ok); }
 .btn--danger-ghost { background: transparent; border-color: var(--line); color: var(--danger); }
 .btn--danger-ghost:hover { background: var(--danger-dim); border-color: var(--danger); }
@@ -2080,7 +2104,7 @@ select {
   white-space: pre-wrap;
   word-break: break-word;
 }
-.bubble--you { align-self: flex-end; background: var(--accent); color: #0b0d12; }
+.bubble--you { align-self: flex-end; background: var(--accent); color: var(--on-accent); }
 .bubble--kos { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--line); }
 .is-thinking {
   display: flex;
