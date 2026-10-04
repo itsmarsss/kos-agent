@@ -61,10 +61,18 @@ export function requireServices(ctx: ModuleContext): ModuleServices {
   return ctx.services;
 }
 
-/** A loadable module: its declared manifest plus an activation function. */
+/**
+ * A loadable module: its declared manifest, an activation function, and
+ * for one that holds something open, a way to let it go.
+ *
+ * Deactivate is for child processes, sockets and timers a module started:
+ * an MCP server is a process that must not outlive the host. Tools need
+ * no unregistering; the registry goes with the kernel.
+ */
 export interface KosModule {
   manifest: ModuleManifest;
   activate(ctx: ModuleContext): void | Promise<void>;
+  deactivate?(): void | Promise<void>;
 }
 
 export interface ModuleFailure {
@@ -97,6 +105,9 @@ export function toolRegistryContext(
  * into a crash.
  */
 export class ModuleLoader {
+  /** What activated, in the order it did, so it can be let go in reverse. */
+  private readonly active: KosModule[] = [];
+
   constructor(private readonly ctx: ModuleContext) {}
 
   async load(modules: KosModule[]): Promise<LoadReport> {
@@ -117,6 +128,7 @@ export class ModuleLoader {
         progressed = true;
         try {
           await mod.activate(this.ctx);
+          this.active.push(mod);
           for (const cap of mod.manifest.provides) {
             activated.set(capabilityKey(cap), cap.version);
           }
@@ -140,6 +152,23 @@ export class ModuleLoader {
     }
 
     return { loaded, failed };
+  }
+
+  /**
+   * Deactivate everything that activated, last first, so a dependent is
+   * gone before what it depended on. One module failing to let go does not
+   * keep the rest from doing so; the failures are reported, not thrown.
+   */
+  async unload(): Promise<ModuleFailure[]> {
+    const failed: ModuleFailure[] = [];
+    for (const mod of this.active.splice(0).reverse()) {
+      try {
+        await mod.deactivate?.();
+      } catch (err) {
+        failed.push({ name: mod.manifest.name, reason: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    return failed;
   }
 
   private needsMet(
