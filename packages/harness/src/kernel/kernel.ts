@@ -88,6 +88,7 @@ import { sitesModule } from "../tools/sites.js";
 import { systemsModule } from "../tools/systems.js";
 import { tasksModule } from "../tools/tasks.js";
 import { Heartbeat, heartbeatBeat } from "./heartbeat.js";
+import { AfterTurn } from "./afterturn.js";
 import {
   assembleSystemPrompt,
   withoutTurnContext,
@@ -114,10 +115,7 @@ import {
 } from "./session.js";
 import {
   ConversationStore,
-  isFixed,
-  titleFromText,
   type Conversation, projectConversationId } from "./conversations.js";
-import { looksAutoTitled, nameConversation } from "./naming.js";
 import {
   parseChatCommand,
   runChatCommand,
@@ -308,6 +306,8 @@ export class Kernel {
   readonly daemons: DaemonStore;
   readonly supervisor: DaemonSupervisor;
   private readonly closeMcp: () => Promise<void>;
+  /** Remembering and naming, once a turn has answered. */
+  private readonly afterTurn: AfterTurn;
   /** Decisions the owner has made before, so the same shape stops asking. */
   readonly permissions: PermissionStore;
   readonly settings: SettingsStore;
@@ -319,8 +319,6 @@ export class Kernel {
   private readonly onApprovalRequested?: (action: PendingAction) => void;
   private readonly notify?: (payload: NotifyPayload) => Promise<void>;
   private readonly sessionless: boolean;
-  private readonly embedder: EmbeddingProvider;
-  private readonly episodic: EpisodicStore;
   private scheduler?: CronScheduler;
   private heartbeat?: Heartbeat;
   /**
@@ -418,11 +416,19 @@ export class Kernel {
     this.supervisor = args.supervisor;
     this.closeMcp = args.closeMcp;
     this.permissions = args.permissions;
+    this.afterTurn = new AfterTurn({
+      ownerId: args.profile.ownerId,
+      isClosed: () => this.closed,
+      runs: args.runs,
+      facts: args.memoryWriter,
+      embedder: args.embedder,
+      episodic: args.episodic,
+      conversations: args.conversations,
+      inference: args.inference,
+    });
     this.settings = args.settings;
     this.memoryWriter = args.memoryWriter;
     this.memoryRetriever = args.memoryRetriever;
-    this.embedder = args.embedder;
-    this.episodic = args.episodic;
     this.inference = args.inference;
     this.system = args.system;
     this.sessionless = args.sessionless;
@@ -1451,41 +1457,7 @@ export class Kernel {
     return res.reply;
   }
 
-  /**
-   * Give a conversation a name the first time it says anything.
-   *
-   * Only while it is still carrying the message it was opened with, so a
-   * name the owner chose, or one KOS chose earlier, is never overwritten.
-   */
-  private async nameIfUnnamed(
-    sessionId: string,
-    text: string,
-    reply: string,
-  ): Promise<void> {
-    const conversation = this.conversations.get(sessionId);
-    if (!conversation) return;
-    // Fixed threads are named for what they are, not for what was said in
-    // them: a surface's stream is "Discord" however the first message went.
-    if (isFixed(conversation, this.profile.ownerId)) return;
-    // Either the title it was opened with, or one that was never chosen:
-    // conversations from before naming existed get one the next time they
-    // are used rather than staying half-sentences forever.
-    if (
-      conversation.title !== titleFromText(text) &&
-      !looksAutoTitled(conversation.title)
-    ) {
-      return;
-    }
 
-    const named = await nameConversation(this.inference, text, reply);
-    if (!named || this.closed) return;
-    // Checked again: the turn that follows may have renamed it, and a label
-    // arriving late must not undo that.
-    const now = this.conversations.get(sessionId);
-    if (now && now.title === conversation.title) {
-      this.conversations.rename(sessionId, named);
-    }
-  }
 
   /**
    * The end of a turn, wherever it happens.
@@ -2052,47 +2024,9 @@ export class Kernel {
 
 
 
-  /**
-   * Persist what this exchange is worth remembering. Memory is best-effort: a
-   * failed write must never fail the user's turn, but it must not be invisible
-   * either, so each failure is logged as its own run.
-   */
-  private async rememberExchange(
-    userId: string,
-    text: string,
-    finalText: string,
-  ): Promise<void> {
-    const record = async (
-      label: string,
-      write: () => Promise<unknown>,
-    ): Promise<void> => {
-      try {
-        await write();
-      } catch (err) {
-        const runId = this.runs.start(label);
-        this.runs.finish(
-          runId,
-          "error",
-          err instanceof Error ? err.message : String(err),
-        );
-      }
-    };
 
-    await record("memory.facts", () =>
-      this.memoryWriter.ingest(userId, text, "chat"),
-    );
-    await record("memory.episodic", () =>
-      this.storeEpisode(
-        userId,
-        `user: ${text}\nassistant: ${finalText.slice(0, 500)}`,
-      ),
-    );
-  }
 
-  private async storeEpisode(userId: string, text: string): Promise<void> {
-    const [embedding] = await this.embedder.embed([text]);
-    if (embedding) this.episodic.add(userId, text, embedding);
-  }
+
 
   private guardedTools(opts: {
     userId?: string;
@@ -2245,14 +2179,14 @@ export class Kernel {
        * where messages are going. Not awaited: the answer is already written
        * and nobody should wait on a label for it.
        */
-      if (origin !== "system") void this.nameIfUnnamed(sessionId, text, reply);
+      if (origin !== "system") void this.afterTurn.nameIfUnnamed(sessionId, text, reply);
     }
 
     // Only owner turns are remembered; harness-generated ones are plumbing.
     // Awaited so a write cannot be lost when the process exits right after a
     // reply, and so failures surface in the runs log instead of vanishing.
     if (origin !== "system") {
-      await this.rememberExchange(userId, text, reply);
+      await this.afterTurn.remember(userId, text, reply);
     }
 
     this.runs.finish(runId, "ok");
