@@ -286,7 +286,17 @@ export async function handleApiRequest(
       routes: kernel.routes() ?? null,
       saved: kernel.settings.get(MODEL_SETTINGS_KEY) ?? {},
       efforts: EFFORTS,
+      providers: kernel.providerNames(),
+      custom: kernel.customEndpoint() ?? null,
     });
+  }
+
+  /** The owner's own endpoint: an OpenAI-compatible URL, a key under KOS_SECRET_CUSTOM if it wants one. */
+  if (method === "POST" && path === "/api/settings/models/custom") {
+    const baseUrl = typeof body.baseUrl === "string" ? body.baseUrl.trim() : "";
+    if (baseUrl && !/^https?:\/\//.test(baseUrl)) return { status: 400, body: { error: "baseUrl must start with http:// or https://" } };
+    const saved = kernel.setCustomEndpoint(baseUrl);
+    return ok({ custom: saved ?? null, providers: kernel.providerNames() });
   }
 
   if (method === "POST" && path === "/api/settings/models") {

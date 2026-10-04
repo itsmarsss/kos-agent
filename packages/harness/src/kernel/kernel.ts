@@ -12,6 +12,9 @@ import { CronService, type CronFireResult } from "./cronservice.js";
 import { MemoryExtractor, type ExtractionReport } from "../memory/extractor.js";
 import { MEMORY_JOB } from "../memory/job.js";
 import type { Task } from "../models/router.js";
+import type { Provider } from "../models/provider.js";
+import { CUSTOM_PROVIDER, OpenAICompatibleProvider } from "../models/providers/compat.js";
+import { CUSTOM_ENDPOINT_KEY, parseCustomEndpoint, type CustomEndpoint } from "../models/settings.js";
 import type { CronJob } from "../cron/types.js";
 import {
   FactsStore,
@@ -1770,8 +1773,36 @@ export class Kernel {
    * kept in a list here. A hard-coded list is how the OpenAI route sat on
    * gpt-4o long after better models existed.
    */
+  /** The providers a route may name right now. */
+  providerNames(): string[] {
+    const router = this.inference as { providerNames?: () => string[] };
+    return router.providerNames?.() ?? [];
+  }
+
+  /**
+   * Point the custom provider at an endpoint, now, without a restart. An
+   * empty URL takes it away; a route still naming it will fail loudly at
+   * the next turn, which is the honest outcome.
+   */
+  setCustomEndpoint(baseUrl: string): CustomEndpoint | undefined {
+    const parsed = parseCustomEndpoint({ baseUrl }, {});
+    this.settings.set(CUSTOM_ENDPOINT_KEY, parsed ?? {});
+    const router = this.inference as { addProvider?: (p: Provider) => void };
+    if (parsed) router.addProvider?.(new OpenAICompatibleProvider(parsed.baseUrl));
+    return parsed;
+  }
+
+  customEndpoint(): CustomEndpoint | undefined {
+    return parseCustomEndpoint(this.settings.get(CUSTOM_ENDPOINT_KEY));
+  }
+
   async availableModels(): Promise<string[]> {
     const route = this.routes()?.["reasoning"];
+    if (route?.provider === CUSTOM_PROVIDER) {
+      const router = this.inference as { provider?: (name: string) => Provider | undefined };
+      const custom = router.provider?.(CUSTOM_PROVIDER) as OpenAICompatibleProvider | undefined;
+      return custom ? custom.listModels(this.secrets.get(CUSTOM_PROVIDER) ?? "") : [];
+    }
     if (route?.provider !== "openai") return [];
     const key = this.secrets.get("openai");
     if (!key) return [];
