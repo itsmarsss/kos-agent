@@ -176,13 +176,13 @@ export function KnowledgePage({
   return (
     <div className="know">
       <PageHead
-        title="Knowledge"
-        subtitle="Shared across every conversation. Agents read this and write to it."
+        title="Claims"
+        subtitle="What KOS believes: shared by every conversation, scoped to a project or to you everywhere, each with where it came from."
         search={
           <input
             className="list-search"
             value={query}
-            placeholder="Search knowledge…"
+            placeholder="Search claims…"
             onChange={(e) => setQuery(e.target.value)}
           />
         }
