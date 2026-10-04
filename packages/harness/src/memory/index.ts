@@ -42,3 +42,4 @@ export { listPages, readPage, writePage, PAGES_DIR, type PageInfo } from "./page
 export { DREAM_JOB, DREAM_JOB_PROMPT, ensureDefaultDreamCron } from "./job.js";
 export { ObservationStore, type Observation } from "./observations.js";
 export { OBSERVE_JOB, OBSERVE_JOB_PROMPT, ensureDefaultObserveCron } from "./job.js";
+export { CallerStore, mayRead, CALLER_NAME, type Caller } from "./callers.js";
