@@ -54,6 +54,8 @@ import { createSkillsModule } from "../tools/skills.js";
 import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import { createChatsModule } from "../tools/chats.js";
 import { createMemoryModule } from "../tools/memory.js";
+import { EXTRACTOR_KEY } from "../memory/extractor.js";
+import { ensureDefaultMemoryCron } from "../memory/job.js";
 import { createCronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
 import { createNotifyModule, noticeText, type NotifyPayload } from "../tools/notify.js";
@@ -393,6 +395,11 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
         const id = kernelRef?.currentConversationId;
         return id ? (conversations.get(id)?.projectSlug ?? undefined) : undefined;
       },
+      // One watermark for both readers: the fixed extractor and the memory job.
+      watermark: {
+        get: () => settings.get<{ lastEventId?: number }>(EXTRACTOR_KEY)?.lastEventId ?? 0,
+        set: (lastEventId) => settings.set(EXTRACTOR_KEY, { lastEventId }),
+      },
       // Attributed to the conversation that wrote it, so the owner can see
       // which agent believed what.
       currentSource: () => kernelRef?.currentConversationId ?? "agent",
@@ -432,6 +439,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const loadReport = await loader.load(modules);
 
   ensureDefaultBackupCron(crons);
+  ensureDefaultMemoryCron(crons);
 
   // The pre-existing primary session becomes the first conversation, so an
   // upgraded workspace keeps its transcript instead of orphaning it.

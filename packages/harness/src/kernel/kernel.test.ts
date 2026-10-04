@@ -247,6 +247,14 @@ describe("Kernel", () => {
     });
   });
 
+  it("ships a memory job, off, on the cheap route, with a brief the owner can read", async () => {
+    kernel = await boot(stubInference([]));
+    const job = kernel.crons.list().find((c) => c.name === "kos.memory")!;
+    expect(job).toMatchObject({ type: "self_prompt", enabled: false, task: "cheap" });
+    expect(job.prompt).toContain("memory.unread");
+    expect(job.prompt).toContain("memory.mark_read");
+  });
+
   it("runs a scheduled actions job through the guarded path", async () => {
     const sent: string[] = [];
     kernel = await boot(stubInference([]), async (payload) => {
