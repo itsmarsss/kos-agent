@@ -81,7 +81,10 @@ scheduled self-prompt with a brief you can read and edit, reads what was said
 with `memory.unread` and keeps what matters with `memory.remember`, citing
 the events it read; a claim that cites events it was not shown is refused.
 It runs on whichever model class the job names. A fixed extractor behind the
-same contract is the floor when the job is off. `kos eval memory`, with or
+same contract is the floor when the job is off. Nightly, `kos.dream` tidies:
+it merges claims that are one thing, archives what has gone stale, flags
+what it cannot settle for the owner to decide, and writes the pages under
+`memory/` (one for the owner, one per project) that are memory in prose. `kos eval memory`, with or
 without `--agent`, scores either reader on a golden set with the embedder
 held constant, so a change is measured rather than felt.
 
