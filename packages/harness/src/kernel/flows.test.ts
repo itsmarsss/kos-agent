@@ -1185,6 +1185,9 @@ describe("KOS end-to-end flows", () => {
       ),
     );
     kernel = await boot(model.inference);
+    // Its own budget, so the test is about running out rather than about
+    // whatever the default happens to be.
+    kernel.settings.set(BEHAVIOUR_KEY, { maxSteps: 5 });
     const res = await kernel.handleMessage("do the thing");
     expect(res.reply.trim()).not.toBe("");
     expect(res.reply).toMatch(/stuck|too many steps/i);

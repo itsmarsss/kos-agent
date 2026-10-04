@@ -57,7 +57,7 @@ export interface Behaviour {
 export const BEHAVIOUR_DEFAULTS: Behaviour = {
   engine: "api",
   autoFix: false,
-  maxSteps: 10,
+  maxSteps: 50,
   fixSteps: 24,
   selfPromptsPerHour: 10,
   agentMinutes: 15,
@@ -98,19 +98,14 @@ function clamp(value: unknown, key: keyof typeof BEHAVIOUR_LIMITS): number {
  * were collected together, so turning it on does not silently turn itself
  * off again on upgrade.
  */
-export function parseBehaviour(raw: unknown, legacyAutoFix?: unknown): Behaviour {
+export function parseBehaviour(raw: unknown): Behaviour {
   const input =
     typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
-
-  const legacy =
-    typeof legacyAutoFix === "object" && legacyAutoFix !== null
-      ? (legacyAutoFix as { enabled?: unknown }).enabled === true
-      : false;
 
   return {
     engine: input["engine"] === "sdk" ? "sdk" : "api",
     autoFix:
-      typeof input["autoFix"] === "boolean" ? input["autoFix"] : legacy,
+      typeof input["autoFix"] === "boolean" ? input["autoFix"] : BEHAVIOUR_DEFAULTS.autoFix,
     maxSteps: clamp(input["maxSteps"], "maxSteps"),
     fixSteps: clamp(input["fixSteps"], "fixSteps"),
     selfPromptsPerHour: clamp(input["selfPromptsPerHour"], "selfPromptsPerHour"),

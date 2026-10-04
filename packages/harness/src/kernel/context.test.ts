@@ -5,7 +5,6 @@ import {
   TURN_CONTEXT_HEADER,
   withoutTurnContext,
   channelGuidance,
-  inferScopeTags,
 } from "./context.js";
 import { DEFAULT_PROFILE } from "./profile.js";
 
@@ -60,6 +59,36 @@ describe("assembleSystemPrompt", () => {
     expect(prompt.turnContext).toContain(TURN_CONTEXT_HEADER);
   });
 
+  it("puts the tables the projects own in front of the model", () => {
+    // Without this the model guessed column names, and lost 77 times on one
+    // workspace. The physical names are what it has to type.
+    const prompt = assembleSystemPrompt({
+      baseSystem: "You are KOS.",
+      profile: DEFAULT_PROFILE,
+      projects: [],
+      schemas: [
+        {
+          slug: "budget",
+          lastTouchedAt: 0,
+          tables: [{ name: "budget_tx", columns: ["id", "amount", "posted_on"] }],
+        },
+      ],
+      recall: { facts: [], episodes: [] },
+    });
+    expect(prompt.system).toContain("## Tables");
+    expect(prompt.system).toContain("- budget_tx: id, amount, posted_on");
+  });
+
+  it("says nothing about tables when there are none", () => {
+    const prompt = assembleSystemPrompt({
+      baseSystem: "You are KOS.",
+      profile: DEFAULT_PROFILE,
+      projects: [],
+      recall: { facts: [], episodes: [] },
+    });
+    expect(prompt.system).not.toContain("## Tables");
+  });
+
   it("hands back no turn context when nothing was recalled", () => {
     const prompt = assembleSystemPrompt({
       baseSystem: "You are KOS.",
@@ -104,19 +133,6 @@ describe("keeping recalled context out of the transcript", () => {
   });
 });
 
-describe("inferScopeTags", () => {
-  it("detects domain keywords", () => {
-    expect(inferScopeTags("schedule a cron job")).toContain("cron");
-    expect(inferScopeTags("fetch https://example.com")).toContain("http");
-    expect(inferScopeTags("create a task list")).toEqual(
-      expect.arrayContaining(["tasks", "systems"]),
-    );
-    // Without this the daemon tools existed and were never offered: they are
-    // tagged, and nothing an owner says about an app inferred the tag.
-    expect(inferScopeTags("is the api server still running")).toContain("daemons");
-    expect(inferScopeTags("show me the logs for that worker")).toContain("daemons");
-  });
-});
 
 describe("channelGuidance", () => {
   it("says a message can be a card, not only prose", () => {

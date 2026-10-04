@@ -16,9 +16,6 @@ export interface GuardedToolsDeps {
    * intersection plus all untagged (global) tools. When omitted/empty, every
    * registered tool is offered (scoping is advisory, never a hard lock-out).
    */
-  scopeTags?: string[];
-  /** Cap tools offered to the model (default unlimited). */
-  toolLimit?: number;
   /**
    * Hard allow-list of tool name prefixes for this conversation. Omitted means
    * unrestricted; an empty array means no tools at all. Unlike scope tags this
@@ -127,43 +124,21 @@ export class GuardedTools implements ToolBox {
     ].join(" ");
   }
 
+  /**
+   * Every tool this conversation may reach, offered every turn.
+   *
+   * This used to narrow the set by tags inferred from the message once the
+   * registry passed a cap, so tools appeared and vanished between turns as
+   * the inference read each message differently. With a few dozen tools the
+   * cap never engaged, and a model that cannot see a tool reports the job
+   * done by other means. Everything permitted is simply offered.
+   */
   defs(): ReturnType<ToolRegistry["defs"]> {
-    const { allow, registry, scopeTags, toolLimit, grant } = this.deps;
+    const { registry, grant } = this.deps;
     const granted = grant?.length ? registry.restrictedDefs(grant) : [];
-    const all = [...registry.defs(), ...granted].filter((d) =>
-      this.permitted(d.name),
-    );
-
-    /*
-     * An allow-list is already the answer to "which tools".
-     *
-     * Narrowing it again by inferred scope dropped tools the caller had
-     * explicitly allowed, because the two filters answer different questions:
-     * the allow-list says what this conversation may reach, and scope tags
-     * guess at what this message is about. The orchestrator is allowed the
-     * memory tools and lost them the moment the registry grew past the cap,
-     * because nothing it says infers the memory tag.
-     */
-    if (allow !== undefined) {
-      return toolLimit !== undefined ? all.slice(0, toolLimit) : all;
-    }
-
-    // Scoping exists for the many-modules case. While every tool still fits
-    // under the cap, narrowing only makes the offered set change shape from
-    // turn to turn as the scope inference reads a different message, which
-    // reads to the model as capabilities appearing and vanishing mid-task.
-    const fitsWithoutScoping =
-      toolLimit === undefined || registry.size <= toolLimit;
-    if (fitsWithoutScoping || !scopeTags || scopeTags.length === 0) {
-      return toolLimit !== undefined ? all.slice(0, toolLimit) : all;
-    }
-
-    const scoped = registry
-      .scopedDefs({ tags: scopeTags })
-      .filter((d) => this.permitted(d.name));
-    const withGrants = [...scoped, ...granted];
-    return toolLimit !== undefined ? withGrants.slice(0, toolLimit) : withGrants;
+    return [...registry.defs(), ...granted].filter((d) => this.permitted(d.name));
   }
+
 
   /**
    * Break a repeated call.

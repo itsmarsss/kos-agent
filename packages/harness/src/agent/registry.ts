@@ -39,12 +39,6 @@ export interface ToolExecution {
   isError: boolean;
 }
 
-export interface ScopeOptions {
-  /** Active scope tags (e.g. the current project/instance). */
-  tags?: string[];
-  /** Cap the number of tools returned (global first, then scoped). */
-  limit?: number;
-}
 
 /**
  * The set of tools the agent can call. Tools are primitives the agent composes;
@@ -112,21 +106,7 @@ export class ToolRegistry {
     return this.tools.get(name)?.restricted === true;
   }
 
-  /**
-   * Scoped tool definitions: global tools (no tags) plus tools whose tags
-   * intersect the active scope, optionally capped. This is how the agent loop
-   * surfaces only relevant tools instead of every tool every turn.
-   */
-  scopedDefs(opts: ScopeOptions = {}): ToolDef[] {
-    const active = new Set(opts.tags ?? []);
-    const selected = [...this.tools.values()].filter(
-      (t) =>
-        !t.restricted &&
-        (t.tags.length === 0 || t.tags.some((tag) => active.has(tag))),
-    );
-    const defs = selected.map((t) => t.def);
-    return opts.limit !== undefined ? defs.slice(0, opts.limit) : defs;
-  }
+
 
   /**
    * Run a tool by name. Unknown tools and handler throws both come back as

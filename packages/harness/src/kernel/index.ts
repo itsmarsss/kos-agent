@@ -30,7 +30,6 @@ export {
 } from "./session.js";
 export {
   assembleSystemPrompt,
-  inferScopeTags,
   type ContextParts,
 } from "./context.js";
 export {

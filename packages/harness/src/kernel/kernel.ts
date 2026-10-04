@@ -61,11 +61,11 @@ import { SkillPromoter, type PromoteInput, type PromoteOutcome } from "../skills
 import { Workspace } from "../store/workspace.js";
 import { InstanceConfig } from "../systems/config.js";
 import { ProjectManifest } from "../systems/manifest.js";
+import { describeActive } from "../systems/schema.js";
 import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
 import { createHttpModule } from "../tools/http.js";
 import { createDaemonsModule } from "../tools/daemons.js";
-import { createToolsModule } from "../tools/tools.js";
 import { createSearchModule } from "../tools/search.js";
 import { exportModule } from "../tools/export.js";
 import { createSkillsModule } from "../tools/skills.js";
@@ -88,7 +88,6 @@ import {
   assembleSystemPrompt,
   withoutTurnContext,
   channelGuidance,
-  inferScopeTags,
 } from "./context.js";
 import { GuardedTools } from "./guarded.js";
 import { ProgressBus } from "./progress.js";
@@ -167,8 +166,6 @@ const DEFAULT_BACKUP_CRON = "0 3 * * *";
 const PRESS_ROUTE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Owner settings for build sub-agents. */
-/** Whether an unattended failure starts a fix attempt on its own. */
-export const AUTOFIX_KEY = "autofix";
 
 export const BUILD_SETTINGS_KEY = "builds";
 /** Set once the one-time retirement of pre-surface pointers has happened. */
@@ -326,7 +323,6 @@ export class Kernel {
    * drop the tools the conversation has been using. Scope only ever grows
    * within a session; clearing the session clears it.
    */
-  private readonly sessionScope = new Map<string, Set<string>>();
   /** The conversation currently running a turn, for memory attribution. */
   currentConversationId: string | undefined;
 
@@ -574,12 +570,6 @@ export class Kernel {
         allowedHosts: options.allowedHosts ?? [],
       }),
       createSearchModule(),
-      createToolsModule({
-        // The live registry: a module loaded after boot is a capability the
-        // agent should be able to find out about.
-        registry: () => registry,
-        allow: () => kernelRef?.conversations.get(kernelRef.currentConversationId ?? "")?.toolAllow ?? undefined,
-      }),
       createDaemonsModule({
         store: daemons,
         supervisor,
@@ -693,12 +683,6 @@ export class Kernel {
     // up and why, rather than re-deriving it from scratch every invocation.
     const orchestrator = orchestratorId(profile.ownerId);
     const existing = conversations.get(orchestrator);
-    // Renamed in place: it was called Command, which named the keystroke
-    // rather than the thing, and a workspace that predates the rename should
-    // not keep the old label forever.
-    if (existing && existing.title === "Command") {
-      conversations.rename(orchestrator, "KOS");
-    }
     if (!existing) {
       conversations.create({
         id: orchestrator,
@@ -844,7 +828,6 @@ export class Kernel {
   async handleMessage(
     text: string,
     opts: {
-      scopeTags?: string[];
       userId?: string;
       sessionId?: string;
       /** Skip session history for this turn only. */
@@ -917,7 +900,6 @@ export class Kernel {
     userId: string,
     sessionId: string,
     opts: {
-      scopeTags?: string[];
       noSession?: boolean;
       origin?: "owner" | "system";
       channel?: string;
@@ -938,8 +920,6 @@ export class Kernel {
       try {
         // A conversation may be a scoped agent: its own brief, its own reach.
         const conversation = this.conversations.get(sessionId);
-        const inferred = opts.scopeTags ?? inferScopeTags(text);
-        const scopeTags = this.accumulateScope(sessionId, inferred);
         /*
          * Told the first time a call in this turn suspends on the owner, so
          * the caller can be answered while the turn itself keeps waiting.
@@ -953,7 +933,6 @@ export class Kernel {
           userId,
           conversationId: sessionId,
           onQueued: (action) => suspend?.(action),
-          ...(scopeTags.length ? { scopeTags } : {}),
           // null is unrestricted; an array is the exact scope, empty included.
           // An explicit override wins: it says what this caller is, and the
           // conversation's own scope is what the owner set for ordinary turns.
@@ -1002,10 +981,14 @@ export class Kernel {
         const extra = [formatting, conversation?.brief, scopeNote]
           .filter((part): part is string => Boolean(part && part.trim()))
           .join("\n\n");
+        const projects = this.manifest.list();
         const { system, turnContext } = assembleSystemPrompt({
           baseSystem: this.system,
           profile: this.profile,
-          projects: this.manifest.list(),
+          projects,
+          // The tables those projects own. Without them the model guessed
+          // column names, and 77 sql calls on one workspace failed that way.
+          schemas: describeActive(this.workspace.db, projects),
           recall,
           ...(extra ? { extra } : {}),
           // What this message pulled in, kept out of the system prompt so the
@@ -1732,7 +1715,6 @@ export class Kernel {
 
   clearSession(sessionId: string): void {
     this.sessions.clear(sessionId);
-    this.sessionScope.delete(sessionId);
   }
 
   /**
@@ -1943,10 +1925,14 @@ export class Kernel {
       factLimit: 10,
       episodeLimit: 4,
     });
+    const projects = this.manifest.list();
     const assembled = assembleSystemPrompt({
       baseSystem: this.system,
       profile: this.profile,
-      projects: this.manifest.list(),
+      projects,
+      // The tables those projects own. Without them the model guessed
+      // column names, and 77 sql calls on one workspace failed that way.
+      schemas: describeActive(this.workspace.db, projects),
       recall,
       extra: [
         "## Scheduled run",
@@ -1965,13 +1951,7 @@ export class Kernel {
       .join("\n\n");
   }
 
-  /** Union this turn's inferred tags into the session's running scope. */
-  private accumulateScope(sessionId: string, inferred: string[]): string[] {
-    const existing = this.sessionScope.get(sessionId) ?? new Set<string>();
-    for (const tag of inferred) existing.add(tag);
-    this.sessionScope.set(sessionId, existing);
-    return [...existing];
-  }
+
 
   /**
    * Persist what this exchange is worth remembering. Memory is best-effort: a
@@ -2016,7 +1996,6 @@ export class Kernel {
   }
 
   private guardedTools(opts: {
-    scopeTags?: string[];
     userId?: string;
     /** The conversation this turn belongs to, for approval routing. */
     conversationId?: string;
@@ -2039,9 +2018,7 @@ export class Kernel {
       // narrowing was on for every turn of every conversation, so the offered
       // set changed shape with the wording of each message and nothing said
       // so. Scoping is for the many-modules case it was written for.
-      toolLimit: 96,
       ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
-      ...(opts.scopeTags ? { scopeTags: opts.scopeTags } : {}),
       ...(opts.allow !== undefined ? { allow: opts.allow } : {}),
       ...(opts.grant?.length ? { grant: opts.grant } : {}),
       ...(opts.waitForApproval === false ? { waitForApproval: false } : {}),
@@ -2526,10 +2503,7 @@ export class Kernel {
    * next turn, not the next restart.
    */
   behaviour(): Behaviour {
-    return parseBehaviour(
-      this.settings.get(BEHAVIOUR_KEY),
-      this.settings.get(AUTOFIX_KEY),
-    );
+    return parseBehaviour(this.settings.get(BEHAVIOUR_KEY));
   }
 
   /**
