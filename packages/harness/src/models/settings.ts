@@ -100,3 +100,18 @@ export function parseCustomEndpoint(raw: unknown, env: NodeJS.ProcessEnv = proce
   }
   return { baseUrl: url.replace(/\/$/, "") };
 }
+
+/** Where a classifier answers, when the owner has one; the cheap route stands in otherwise. */
+export const CLASSIFIER_KEY = "models.classifier";
+
+export function parseClassifierEndpoint(raw: unknown, env: NodeJS.ProcessEnv = process.env): { url: string } | undefined {
+  const fromSettings = typeof raw === "object" && raw !== null ? (raw as { url?: unknown }).url : undefined;
+  const url = typeof fromSettings === "string" && fromSettings.trim() ? fromSettings.trim() : env["KOS_CLASSIFIER_URL"]?.trim();
+  if (!url) return undefined;
+  try {
+    new URL(url);
+  } catch {
+    return undefined;
+  }
+  return { url };
+}

@@ -34,3 +34,4 @@ export {
   type ModelSettings,
   type TaskModelSetting,
 } from "./settings.js";
+export { HttpClassifier, LlmClassifier, parseClassification, type Classifier, type ClassifyRequest, type Classification } from "./classify.js";
