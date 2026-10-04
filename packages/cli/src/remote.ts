@@ -1,6 +1,6 @@
 import { primarySessionId } from "@kos/harness";
 
-import type { KosClient } from "./client.js";
+import type { KosClient } from "@kos/client";
 
 /**
  * Run offline-style CLI commands against a live kos host (no local Kernel).

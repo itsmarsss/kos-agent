@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { Kernel, primarySessionId } from "@kos/harness";
 
-import { KosClient, probeDaemon } from "./client.js";
+import { KosClient, probeDaemon } from "@kos/client";
 import { OFFLINE_COMMANDS, parseArgs, runCommand, statusLine } from "./commands.js";
 import { runDoctor } from "./doctor.js";
 import { envFilePath, loadEnv } from "./env.js";

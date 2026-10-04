@@ -12,6 +12,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
+    "@kos/client": "workspace:*",
     "@kos/harness": "workspace:*"
   }
 }

@@ -5,5 +5,5 @@
     "rootDir": "./src"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../harness" }, { "path": "../shared" }]
+  "references": [{ "path": "../client" }, { "path": "../harness" }, { "path": "../shared" }]
 }
