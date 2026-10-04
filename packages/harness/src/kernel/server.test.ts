@@ -750,13 +750,14 @@ describe("handleApiRequest", () => {
       expect((await asCaller(token, "GET", "memory")).status).toBe(401);
     });
 
-    it("ingests a caller's conversation as the outside world's words, out of the memory job's reach", async () => {
+    it("ingests a caller's conversation as the outside world's words, which a reader sees as such", async () => {
       const { token } = kernel.callers.create("notes");
       const res = await asCaller(token, "POST", "ingest", { events: [{ role: "owner", text: "we chose the blue theme", conversation: "c7" }, { role: "agent", text: "noted" }, { text: "" }] });
       expect(res.body).toEqual({ ingested: 2 });
       const hit = kernel.events.search({ userId: "owner", query: "blue theme" })[0]!;
       expect(hit).toMatchObject({ caller: "notes", trust: "external", conversationId: "caller:notes:c7" });
-      expect(kernel.events.since("owner", 0).some((e) => e.caller === "notes")).toBe(false);
+      const read = kernel.events.since("owner", 0).find((e) => e.caller === "notes")!;
+      expect(read.trust).toBe("external");
     });
 
     it("lets the owner make, list and revoke callers, showing the token once", async () => {

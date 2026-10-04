@@ -338,6 +338,8 @@ export class FactsStore {
   setPinned(userId: string, key: string, pinned: boolean, scope?: ClaimScope): Fact | undefined {
     const claim = this.get(userId, key, scope);
     if (!claim) return undefined;
+    // The outside world's word does not go into every prompt unasked.
+    if (pinned && claim.trust === "external") throw new Error(`${key} came from outside (${claim.source ?? "a caller"}); say it yourself to pin it`);
     this.db.prepare(`UPDATE memory_claims SET pinned = ?, updated_at = ? WHERE id = ?`).run(pinned ? 1 : 0, this.now(), claim.id);
     this.revise(claim.id, pinned ? "pin" : "unpin", null);
     return this.byId(claim.id);

@@ -24,9 +24,9 @@ import { FactsStore, GLOBAL_SCOPE, projectScope, type Fact } from "./facts.js";
 export interface GoldenCase {
   name: string;
   seed?: { key: string; value: string; kind: "fact" | "preference"; scope?: string }[];
-  events: { role: "owner" | "agent"; text: string; project?: string }[];
+  events: { role: "owner" | "agent"; text: string; project?: string; trust?: "external"; caller?: string }[];
   /** Key and value may list alternatives: any one agreeing is a match. */
-  expect: { key: string | string[]; value: string | string[]; scope?: string }[];
+  expect: { key: string | string[]; value: string | string[]; scope?: string; trust?: string }[];
   forbid: string[];
 }
 
@@ -69,7 +69,8 @@ function matches(claim: Fact, want: GoldenCase["expect"][number]): boolean {
   const keyOk = list(want.key).some((k) => k.toLowerCase().split(/[_\s]+/).filter(Boolean).some((t) => mine.some((m) => wordsAgree(m, t))));
   const valueOk = list(want.value).some((v) => claim.value.toLowerCase().includes(v.toLowerCase()));
   const scopeOk = !want.scope || claim.scope === want.scope;
-  return keyOk && valueOk && scopeOk;
+  const trustOk = !want.trust || claim.trust === want.trust;
+  return keyOk && valueOk && scopeOk && trustOk;
 }
 
 export type MemoryReader = "extractor" | "agent";
@@ -91,7 +92,7 @@ async function readWithExtractor(inference: Inference, c: GoldenCase, ws: Worksp
   });
   for (const e of c.events) {
     const [vec] = await embedder.embed([e.text]);
-    events.append({ userId: "owner", role: e.role, text: e.text, ...(e.project ? { projectSlug: e.project } : {}) }, vec);
+    events.append({ userId: "owner", role: e.role, text: e.text, ...(e.project ? { projectSlug: e.project } : {}), ...(e.trust ? { trust: e.trust, caller: e.caller ?? "caller" } : {}) }, vec);
   }
   const report = await extractor.run();
   return { facts, written: report.claims };
@@ -108,7 +109,7 @@ async function readWithAgent(inference: Inference, c: GoldenCase, root: string):
   try {
     for (const s of c.seed ?? []) kernel.facts.upsert("owner", { key: s.key, value: s.value, kind: s.kind, ...(s.scope ? { scope: s.scope } : {}) }, "seed");
     for (const e of c.events) {
-      kernel.events.append({ userId: kernel.profile.ownerId, role: e.role, text: e.text, ...(e.project ? { projectSlug: e.project } : {}) });
+      kernel.events.append({ userId: kernel.profile.ownerId, role: e.role, text: e.text, ...(e.project ? { projectSlug: e.project } : {}), ...(e.trust ? { trust: e.trust, caller: e.caller ?? "caller" } : {}) });
     }
     const job = kernel.crons.list().find((j) => j.name === "kos.memory")!;
     kernel.crons.update(job.id, { name: job.name, schedule: job.schedule, type: "self_prompt", prompt: job.prompt!, task: job.task, enabled: true });

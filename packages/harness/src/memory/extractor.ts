@@ -160,10 +160,21 @@ export function takeBatch(fresh: MemoryEvent[], batchChars: number): MemoryEvent
   return batch;
 }
 
+/**
+ * What a claim drawn from these events may be trusted as: the owner's own
+ * word only when every cited event is the owner's; the outside world's if
+ * any came through a caller; the agent's otherwise.
+ */
+export function trustOf(cited: MemoryEvent[]): "owner" | "agent" | "external" {
+  if (cited.some((e) => e.trust === "external")) return "external";
+  return cited.length > 0 && cited.every((e) => e.role === "owner") ? "owner" : "agent";
+}
+
 function describe(e: MemoryEvent): string {
   const when = new Date(e.ts).toISOString().slice(0, 10);
   const where = e.projectSlug ? `, project ${e.projectSlug}` : "";
-  return `[#${e.id}] (${e.role}${where}, ${when}): ${e.text.slice(0, 1500)}`;
+  const via = e.trust === "external" ? `, via ${e.caller}` : "";
+  return `[#${e.id}] (${e.role}${where}${via}, ${when}): ${e.text.slice(0, 1500)}`;
 }
 
 export class MemoryExtractor {
@@ -241,7 +252,7 @@ export class MemoryExtractor {
       // Scope and trust come from the evidence, not the model's say-so.
       const project = cited[0]!.projectSlug;
       const scope = p.scope === "project" && project && cited.every((e) => e.projectSlug === project) ? projectScope(project) : GLOBAL_SCOPE;
-      const trust = cited.every((e) => e.role === "owner") ? "owner" : "agent";
+      const trust = trustOf(cited);
       // A new key that merely elaborates a shown one (home_city for city) is
       // the same claim: write it under the key the owner already has.
       const key = relatedKeys.has(`${scope}:${p.key}`) ? p.key : (sameThing(p.key, related.filter((f) => f.scope === scope)) ?? p.key);

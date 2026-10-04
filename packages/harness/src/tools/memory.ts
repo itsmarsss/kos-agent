@@ -1,6 +1,6 @@
 import type { EmbeddingProvider } from "../memory/embeddings.js";
 import type { EventLog } from "../memory/events.js";
-import { BATCH_CHARS, relatedClaims, takeBatch } from "../memory/extractor.js";
+import { BATCH_CHARS, relatedClaims, takeBatch, trustOf } from "../memory/extractor.js";
 import { GLOBAL_SCOPE, projectScope, type FactsStore } from "../memory/facts.js";
 import { importPage, listPages, readPage, writePage, type PageLog } from "../memory/pages.js";
 import type { ReviewQueue } from "../memory/review.js";
@@ -167,9 +167,9 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
         throw new Error(`evidence must be event ids you were shown by memory.unread or memory.recall; not shown: ${unseen.join(", ")}`);
       }
       const cited = evidence.map((id) => deps.events?.get(id)).filter((e): e is NonNullable<typeof e> => e !== undefined);
-      // The owner's own words, cited, make an owner-trust claim; anything
-      // else is the agent's belief until the owner says it.
-      const trust = cited.length && cited.every((e) => e.role === "owner") ? "owner" : "agent";
+      // The owner's own words, cited, make an owner-trust claim; a caller's
+      // words make an external one; anything else is the agent's belief.
+      const trust = trustOf(cited);
       const written = facts.upsert(
         ownerId,
         {
@@ -322,6 +322,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
           when: new Date(e.ts).toISOString(),
           who: e.role,
           ...(e.projectSlug ? { project: e.projectSlug } : {}),
+          ...(e.trust === "external" ? { via: e.caller, trust: "external" } : {}),
           text: e.text.slice(0, 1500),
         })),
         related: related.map((f) => ({ key: f.key, scope: f.scope, kind: f.kind, value: f.value })),

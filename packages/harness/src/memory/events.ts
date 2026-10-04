@@ -221,13 +221,14 @@ export class EventLog {
 
   /**
    * Events after a watermark, oldest first: what the extractor has not read.
-   * Only what people said; tool output never becomes memory on its own,
-   * and a forgotten event has nothing left to read.
+   * What people said, the owner's, KOS's, or a caller's; tool output never
+   * becomes memory on its own, and a forgotten event has nothing left to
+   * read. A caller's words carry external trust, and a reader keeps that.
    */
   since(userId: string, afterId: number, limit = 500): MemoryEvent[] {
     const rows = this.db
       .prepare(
-        `SELECT * FROM memory_log WHERE user_id = ? AND id > ? AND role IN ('owner', 'agent') AND trust IN ('owner', 'agent') AND text <> '[forgotten]'
+        `SELECT * FROM memory_log WHERE user_id = ? AND id > ? AND role IN ('owner', 'agent') AND trust IN ('owner', 'agent', 'external') AND text <> '[forgotten]'
          ORDER BY id LIMIT ?`,
       )
       .all(userId, afterId, limit) as Row[];

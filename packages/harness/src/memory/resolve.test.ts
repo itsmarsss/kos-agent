@@ -54,6 +54,15 @@ describe("carrying out a review decision", () => {
     expect(facts.get("owner", "editor", "project:site")).toBeUndefined();
   });
 
+  it("will not promote the outside world's word", () => {
+    facts.upsert("owner", { key: "target", value: "staff roles", kind: "fact", scope: "project:resume", trust: "external" });
+    const item = queue.add("promotion", ["project:resume/target"], "seen twice");
+    const r = applyResolution(facts, queue, "owner", item.id, { action: "promote" })!;
+    expect(r.promoted).toEqual([]);
+    expect(facts.get("owner", "target", "global")).toBeUndefined();
+    expect(facts.get("owner", "target", "project:resume")).toBeDefined();
+  });
+
   it("both and dismiss change nothing but the record, and a settled item stays settled", () => {
     facts.upsert("owner", { key: "a", value: "1", kind: "fact" });
     const item = queue.add("other", ["global/a"], "hm");
