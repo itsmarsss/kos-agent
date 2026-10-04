@@ -1,5 +1,6 @@
 import type { EmbeddingProvider } from "../memory/embeddings.js";
 import type { EventLog } from "../memory/events.js";
+import { BATCH_CHARS, relatedClaims, takeBatch } from "../memory/extractor.js";
 import { GLOBAL_SCOPE, projectScope, type FactsStore } from "../memory/facts.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
@@ -23,6 +24,8 @@ export const MEMORY_TOOLS = [
   "memory.forget",
   "memory.tags",
   "memory.trace",
+  "memory.unread",
+  "memory.mark_read",
 ] as const;
 
 export interface MemoryToolDeps {
@@ -35,6 +38,8 @@ export interface MemoryToolDeps {
   currentSource?: () => string;
   /** The project the writing conversation is in, the default scope of a claim made there. */
   currentProject?: () => string | undefined;
+  /** How far the log has been read for memory, shared with the fixed extractor. */
+  watermark?: { get: () => number; set: (lastEventId: number) => void };
 }
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -65,6 +70,18 @@ const KINDS = ["fact", "preference"] as const;
 function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
   const { facts, ownerId } = deps;
   const source = (): string => deps.currentSource?.() ?? "agent";
+  /*
+   * Event ids each conversation has been shown, by memory.unread or recall
+   * with history. Evidence on a remember must come from here: a claim may
+   * only cite what its writer actually read, which is what makes "where
+   * did this come from" an answer rather than a guess.
+   */
+  const shown = new Map<string, Set<number>>();
+  const show = (ids: number[]): void => {
+    const set = shown.get(source()) ?? new Set<number>();
+    for (const id of ids) set.add(id);
+    shown.set(source(), set);
+  };
   /** "global", "project" (this one), or a project slug; the project in play by default. */
   const scopeOf = (raw: unknown): string => {
     const here = deps.currentProject?.();
@@ -102,6 +119,11 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
             description:
               'where it is true: "global" for something about the owner everywhere; "project" (the default inside a project chat) or a project slug for something about that project only',
           },
+          evidence: {
+            type: "array",
+            items: { type: "number" },
+            description: "ids of the events this came from, as memory.unread or memory.recall with history gave them to you",
+          },
         },
         required: ["key", "value"],
       },
@@ -109,6 +131,16 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
     (input) => {
       const key = normalizeKey(str(input, "key"));
       const tags = stringList(input, "tags");
+      const evidence = Array.isArray(input.evidence) ? input.evidence.filter((x): x is number => typeof x === "number") : [];
+      const seen = shown.get(source());
+      const unseen = evidence.filter((id) => !seen?.has(id));
+      if (unseen.length) {
+        throw new Error(`evidence must be event ids you were shown by memory.unread or memory.recall; not shown: ${unseen.join(", ")}`);
+      }
+      const cited = evidence.map((id) => deps.events?.get(id)).filter((e): e is NonNullable<typeof e> => e !== undefined);
+      // The owner's own words, cited, make an owner-trust claim; anything
+      // else is the agent's belief until the owner says it.
+      const trust = cited.length && cited.every((e) => e.role === "owner") ? "owner" : "agent";
       const written = facts.upsert(
         ownerId,
         {
@@ -116,15 +148,14 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
           value: str(input, "value"),
           kind: input.kind === "preference" ? "preference" : "fact",
           scope: scopeOf(input.scope),
-          // Written by an agent, so it is an agent's belief unless the owner
-          // said it in so many words; the extractor will grade that later.
-          trust: "agent",
+          trust,
+          ...(evidence.length ? { evidence } : {}),
           ...(tags.length ? { tags } : {}),
           ...(typeof input.pinned === "boolean" ? { pinned: input.pinned } : {}),
         },
         source(),
       );
-      return JSON.stringify({ remembered: key, scope: written.scope, ...(written.supersedes ? { replaced: true } : {}) });
+      return JSON.stringify({ remembered: key, scope: written.scope, trust, ...(written.supersedes ? { replaced: true } : {}) });
     },
     { floor: "safe" },
     { tags: ["memory"] },
@@ -165,9 +196,11 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       }));
       if (input.history === true && deps.events && query) {
         const [embedding] = deps.embedder ? await deps.embedder.embed([query], "query") : [undefined];
-        const history = deps.events
-          .search({ userId: ownerId, query, ...(embedding ? { embedding } : {}), k: limit })
+        const hits = deps.events.search({ userId: ownerId, query, ...(embedding ? { embedding } : {}), k: limit });
+        show(hits.map((e) => e.id));
+        const history = hits
           .map((e) => ({
+            id: e.id,
             when: new Date(e.ts).toISOString(),
             who: e.role,
             ...(e.projectSlug ? { project: e.projectSlug } : {}),
@@ -233,6 +266,58 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
     // One key at a time, no bulk delete, and the nightly git snapshot covers
     // undo. Making this risky would put an approval in front of routine
     // correction, which is how memory goes stale.
+    { floor: "safe" },
+    { tags: ["memory"] },
+  );
+
+  ctx.registerTool(
+    {
+      name: "memory.unread",
+      description:
+        "What has been said since memory was last read: new events with ids, and the claims already remembered that might relate. Read it, keep what matters with memory.remember and evidence, then memory.mark_read with the cursor.",
+      inputSchema: {
+        type: "object",
+        properties: { chars: { type: "number", description: "how much to read at once, in characters (default 6000)" } },
+      },
+    },
+    (input) => {
+      if (!deps.events || !deps.watermark) throw new Error("memory.unread needs the events log");
+      const chars = typeof input.chars === "number" && input.chars > 500 ? Math.min(input.chars, 40_000) : BATCH_CHARS;
+      const fresh = deps.events.since(ownerId, deps.watermark.get(), 500);
+      const batch = takeBatch(fresh, chars);
+      show(batch.map((e) => e.id));
+      const related = relatedClaims(facts, ownerId, batch);
+      return JSON.stringify({
+        events: batch.map((e) => ({
+          id: e.id,
+          when: new Date(e.ts).toISOString(),
+          who: e.role,
+          ...(e.projectSlug ? { project: e.projectSlug } : {}),
+          text: e.text.slice(0, 1500),
+        })),
+        related: related.map((f) => ({ key: f.key, scope: f.scope, kind: f.kind, value: f.value })),
+        cursor: batch.length ? batch[batch.length - 1]!.id : deps.watermark.get(),
+        remaining: Math.max(0, fresh.length - batch.length),
+      });
+    },
+    { floor: "safe" },
+    { tags: ["memory"] },
+  );
+
+  ctx.registerTool(
+    {
+      name: "memory.mark_read",
+      description: "Say memory has been read through a cursor from memory.unread, so the next read starts after it.",
+      inputSchema: { type: "object", properties: { cursor: { type: "number" } }, required: ["cursor"] },
+    },
+    (input) => {
+      if (!deps.watermark) throw new Error("memory.mark_read needs the events log");
+      const cursor = typeof input.cursor === "number" ? Math.floor(input.cursor) : NaN;
+      if (!Number.isFinite(cursor)) throw new Error("cursor must be an event id from memory.unread");
+      const current = deps.watermark.get();
+      if (cursor > current) deps.watermark.set(cursor);
+      return JSON.stringify({ readThrough: Math.max(cursor, current) });
+    },
     { floor: "safe" },
     { tags: ["memory"] },
   );
