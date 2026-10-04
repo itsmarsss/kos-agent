@@ -9,7 +9,7 @@ import {
   type SettingsPayload, type ModuleInfo, type SkillInfo, type PermissionRule } from "./api.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { Select } from "./Select.js";
-import { isTheme, readTheme, setTheme, type Theme } from "./theme.js";
+import { isDensity, isTheme, readDensity, readTheme, setDensity, setTheme, type Density, type Theme } from "./theme.js";
 import { SpendPanel } from "./SpendPanel.js";
 
 /**
@@ -73,7 +73,7 @@ const SECTIONS: { id: SectionId; group: string; label: string; blurb: string }[]
   { id: "models", group: "Account", label: "Models", blurb: "Which model answers, which builds, which is cheap" },
   { id: "conversation", group: "Conduct", label: "Conversation", blurb: "How much history is kept" },
   { id: "behaviour", group: "Conduct", label: "Behaviour", blurb: "How KOS acts when you are not watching" },
-  { id: "appearance", group: "Conduct", label: "Appearance", blurb: "Dark, light, or what the system says" },
+  { id: "appearance", group: "Conduct", label: "Appearance", blurb: "Palette and density, for this browser" },
   { id: "skills", group: "Extensions", label: "Skills", blurb: "What KOS knows how to do, and which are on" },
   { id: "modules", group: "Extensions", label: "Modules", blurb: "Features built as servers, and which are running" },
   { id: "permissions", group: "Access", label: "Permissions", blurb: "Decisions you made at a prompt and kept" },
@@ -323,6 +323,7 @@ export function SettingsPage({
   const [error, setError] = useState<string | null>(null);
   const [active, setActiveState] = useState<SectionId>(isSection(section) ? section : "you");
   const [theme, setThemeState] = useState<Theme>(readTheme);
+  const [density, setDensityState] = useState<Density>(readDensity);
   useEffect(() => {
     if (isSection(section)) setActiveState(section);
   }, [section]);
@@ -951,7 +952,7 @@ export function SettingsPage({
         {active === "appearance" && (
           <Section
             title="Appearance"
-            blurb="Which palette this browser shows. Kept here, not in the workspace, so a phone and a desk can differ."
+            blurb="How this browser shows KOS. Kept here, not in the workspace, so a phone and a desk can differ."
           >
             <Field label="Theme" hint="Dark is the default. System follows the device and changes with it.">
               <Select
@@ -967,6 +968,27 @@ export function SettingsPage({
                   if (isTheme(v)) {
                     setTheme(v);
                     setThemeState(v);
+                  }
+                }}
+              />
+            </Field>
+            <Field
+              label="Density"
+              hint="Compact fits more rows on a laptop. Comfortable makes type and spacing a little larger everywhere, for a phone or a long read."
+            >
+              <Select
+                className="set-select"
+                label="Density"
+                value={density}
+                options={[
+                  { value: "compact", label: "Compact" },
+                  { value: "standard", label: "Standard" },
+                  { value: "comfortable", label: "Comfortable" },
+                ]}
+                onChange={(v) => {
+                  if (isDensity(v)) {
+                    setDensity(v);
+                    setDensityState(v);
                   }
                 }}
               />

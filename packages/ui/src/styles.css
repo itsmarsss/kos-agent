@@ -69,6 +69,14 @@
  * that opts into the light theme stays legible without touching widget markup.
  */
 /*
+ * Density. Every size is in rem, so the root size moves type and spacing
+ * together; the line height loosens with it so comfortable reads as air
+ * rather than zoom.
+ */
+:root[data-density="compact"] { font-size: 15px; line-height: 1.4; }
+:root[data-density="comfortable"] { font-size: 17px; line-height: 1.55; }
+
+/*
  * The light palette. Same roles, chosen for paper: the accent and the state
  * colours go darker so they clear 4.5:1 on white, and text on them turns
  * white in step.
@@ -2191,9 +2199,33 @@ select {
 }
 .hint { color: var(--faint); font-size: var(--text-base); }
 
+/*
+ * A phone-width top bar. The wordmark stays one word, the tabs scroll
+ * sideways under a thumb, and the model name and the search shortcut go:
+ * both are desk things, and the bar had wrapped into three rows to hold
+ * them.
+ */
 @media (max-width: 640px) {
-  .topbar { flex-wrap: wrap; }
+  .topbar { gap: 0.5rem; padding: 0.6rem 0 0.8rem; }
+  .brand { white-space: nowrap; }
+  .topbar-left { flex: 1; min-width: 0; }
+  .topbar-left .tabs { flex: 1; min-width: 0; }
+  .topbar-right { gap: 0.4rem; flex: none; }
+  .topbar-right .health--model,
+  .topbar-right .hint { display: none; }
+  /* The dot alone says running, broken or stopped; its size is in pixels, so
+     zeroing the font collapses only the word beside it. */
+  .topbar-right .health { font-size: 0; gap: 0; }
+  .topbar-right kbd { display: none; }
   .card-grid { grid-template-columns: 1fr; }
+  /* The composer's row: the context meter's detail goes, Send keeps its width. */
+  .sheet-composer-bar { gap: 0.4rem; }
+  .sheet-composer-bar > * { min-width: 0; }
+  .sheet-composer-bar .ctx-track,
+  .sheet-composer-bar .ctx-detail { display: none; }
+  .sheet-composer-bar .ctx-text { white-space: nowrap; }
+  .sheet-composer-bar .btn--primary,
+  .sheet-composer-bar .btn--stop { flex: none; }
 }
 
 /* —— conversation switcher —— */
@@ -3204,9 +3236,39 @@ li:hover .chats-item-when { opacity: 0; }
   color: var(--faint);
 }
 
+/*
+ * A phone: one pane at a time. Until a chat is open the list is the page.
+ * Once one is, the chat is, and the list is a drawer over it from the left,
+ * opened by the toggle in the chat's header and closed by picking a chat,
+ * the backdrop, or Escape.
+ */
 @media (max-width: 860px) {
-  .chats { grid-template-columns: 1fr; }
-  .chats-list { position: static; }
+  .chats { grid-template-columns: 1fr; height: calc(100vh - 6.5rem); }
+  .chats.is-narrow:not(.has-active) .chats-view { display: none; }
+  .chats.is-narrow .chats-list { border-right: 0; padding-right: 0; }
+  .chats.is-narrow.has-active .chats-list {
+    position: fixed;
+    inset: 0 18% 0 0;
+    z-index: 70;
+    padding: 0.5rem;
+    background: var(--panel);
+    border-right: 1px solid var(--line);
+    transform: translateX(-100%);
+    transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .chats.is-narrow.has-active.is-list-open .chats-list {
+    transform: none;
+    box-shadow: 12px 0 40px rgba(0, 0, 0, 0.35);
+  }
+  .chats-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 69;
+    background: rgba(0, 0, 0, 0.45);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chats.is-narrow.has-active .chats-list { transition: none; }
+  }
 }
 
 /* —— tool calls in a transcript —— */

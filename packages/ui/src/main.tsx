@@ -3,11 +3,12 @@ import { createRoot } from "react-dom/client";
 import { domAnimation, LazyMotion, MotionConfig } from "motion/react";
 
 import { App } from "./App.js";
-import { applyTheme, readTheme } from "./theme.js";
+import { applyDensity, applyTheme, readDensity, readTheme } from "./theme.js";
 import "./styles.css";
 
 // Before the first paint, so a light-theme owner never sees a dark flash.
 applyTheme(readTheme());
+applyDensity(readDensity());
 
 const root = document.getElementById("root");
 if (root) {

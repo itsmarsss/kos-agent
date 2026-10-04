@@ -163,6 +163,22 @@ export function ChatsPage({
   }, [conversations, progress, activeId]);
   const [creating, setCreating] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  /*
+   * On a phone there is no room for two panes. The list is the page until a
+   * chat is open; then the chat is, and the list slides over it from the
+   * toggle, closing again when a chat is picked.
+   */
+  const narrow = useNarrow();
+  const [listOpen, setListOpen] = useState(false);
+  useEffect(() => setListOpen(false), [activeId]);
+  useEffect(() => {
+    if (!listOpen) return;
+    const key = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") setListOpen(false);
+    };
+    document.addEventListener("keydown", key);
+    return () => document.removeEventListener("keydown", key);
+  }, [listOpen]);
   const [showArchived, setShowArchived] = useState(false);
   const [showScheduled, setShowScheduled] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
@@ -753,7 +769,12 @@ export function ChatsPage({
   };
 
   return (
-    <div className={`chats ${collapsed ? "is-collapsed" : ""}`}>
+    <div
+      className={`chats ${collapsed && !narrow ? "is-collapsed" : ""} ${narrow ? "is-narrow" : ""} ${active ? "has-active" : ""} ${listOpen ? "is-list-open" : ""}`}
+    >
+      {narrow && listOpen && (
+        <div className="chats-backdrop" aria-hidden="true" onClick={() => setListOpen(false)} />
+      )}
       <aside className="chats-list">
         <div className="chats-list-head">
           {/* There was no way to start a chat at all: every conversation had
@@ -1084,10 +1105,10 @@ export function ChatsPage({
                   <button
                     type="button"
                     className="chats-toggle"
-                    aria-label={collapsed ? "Show chats" : "Hide chats"}
-                    onClick={() => setCollapsed((v) => !v)}
+                    aria-label={narrow ? "Show chats" : collapsed ? "Show chats" : "Hide chats"}
+                    onClick={() => (narrow ? setListOpen(true) : setCollapsed((v) => !v))}
                   >
-                    {collapsed ? "›" : "‹"}
+                    {narrow ? "‹" : collapsed ? "›" : "‹"}
                   </button>
                   {active.title}
                 </h1>
@@ -1573,4 +1594,19 @@ export function ChatsPage({
       </section>
     </div>
   );
+}
+
+/** True below the width at which the two panes stop fitting side by side. */
+function useNarrow(): boolean {
+  const [narrow, setNarrow] = useState(() =>
+    typeof matchMedia === "function" ? matchMedia("(max-width: 860px)").matches : false,
+  );
+  useEffect(() => {
+    if (typeof matchMedia !== "function") return;
+    const mq = matchMedia("(max-width: 860px)");
+    const sync = (): void => setNarrow(mq.matches);
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  return narrow;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isTheme, resolveTheme } from "./theme.js";
+import { isDensity, isTheme, resolveTheme } from "./theme.js";
 
 describe("the theme choice", () => {
   it("lands dark or light on its own, and follows the system when asked", () => {
@@ -14,5 +14,7 @@ describe("the theme choice", () => {
     expect(isTheme("light")).toBe(true);
     expect(isTheme("sepia")).toBe(false);
     expect(isTheme(null)).toBe(false);
+    expect(isDensity("comfortable")).toBe(true);
+    expect(isDensity("cozy")).toBe(false);
   });
 });
