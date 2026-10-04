@@ -109,4 +109,12 @@ describe("rendering the tables section", () => {
   it("is absent when there is nothing to describe", () => {
     expect(renderSchemas([])).toBeUndefined();
   });
+
+  it("does not hand a longer sibling slug's tables to the shorter one", () => {
+    const db = new Database(":memory:");
+    db.exec(`CREATE TABLE pantry_items (id INTEGER); CREATE TABLE pantry_2_items (id INTEGER);`);
+    const mine = describeProject(db, "pantry", 0, ["pantry", "pantry_2"]);
+    expect(mine.tables.map((t) => t.name)).toEqual(["pantry_items"]);
+    expect(describeProject(db, "pantry_2", 0, ["pantry", "pantry_2"]).tables.map((t) => t.name)).toEqual(["pantry_2_items"]);
+  });
 });

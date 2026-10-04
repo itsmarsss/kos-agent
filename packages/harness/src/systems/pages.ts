@@ -34,6 +34,15 @@ export interface PageRecord {
   updatedAt: number;
 }
 
+/** The project a physical table belongs to: the longest slug that prefixes it. */
+export function ownerOf(table: string, slugs: string[]): string | undefined {
+  let best: string | undefined;
+  for (const slug of slugs) {
+    if ((table === slug || table.startsWith(`${slug}_`)) && (best === undefined || slug.length > best.length)) best = slug;
+  }
+  return best;
+}
+
 export class PageStore {
   constructor(
     private readonly db: Db,
@@ -149,25 +158,27 @@ export class PageStore {
    * someone else's project on the Projects tab.
    */
   private assertQueriesStayInProject(projectSlug: string, page: PageSpec): void {
-    const slugs = this.manifest
-      .list()
-      .map((p) => p.slug)
-      .filter((s) => s !== projectSlug);
-    if (slugs.length === 0) return;
+    const all = this.manifest.list().map((p) => p.slug);
+    const others = all.filter((s) => s !== projectSlug);
+    if (others.length === 0) return;
 
     page.widgets.forEach((widget, index) => {
       const query = (widget as { query?: unknown }).query;
       if (typeof query !== "string") return;
-      for (const other of slugs) {
+      for (const other of others) {
         // Word-boundary match on the namespace prefix: budget_tracker_expenses
         // belongs to budget_tracker, and nothing else looks like that.
         const re = new RegExp(`\\b${other}_[a-z0-9_]+`, "i");
         const hit = re.exec(query)?.[0];
-        if (hit) {
-          throw new Error(
-            `widget[${index}]: query reads "${hit}", which belongs to project "${other}", not "${projectSlug}". Write this page under "${other}", or create the project it really belongs to.`,
-          );
-        }
+        if (!hit) continue;
+        // One slug can be a prefix of another: pantry and pantry_2. The
+        // table belongs to the longest slug that prefixes it, which is how
+        // a second instance of a blueprint keeps its own tables.
+        const owner = ownerOf(hit, all);
+        if (owner === projectSlug) continue;
+        throw new Error(
+          `widget[${index}]: query reads "${hit}", which belongs to project "${owner}", not "${projectSlug}". Write this page under "${owner}", or create the project it really belongs to.`,
+        );
       }
     });
   }

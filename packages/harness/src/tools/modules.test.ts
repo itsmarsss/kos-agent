@@ -7,7 +7,11 @@ import { ToolRegistry } from "../agent/registry.js";
 import { toolRegistryContext } from "../modules/loader.js";
 import { enabledServers } from "../modules/workspace.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
+import { CronStore } from "../cron/store.js";
 import { Workspace } from "../store/workspace.js";
+import { ProjectManifest } from "../systems/manifest.js";
+import { Migrator } from "../systems/migrate.js";
+import { PageStore } from "../systems/pages.js";
 import { createMcpModule } from "./mcp.js";
 import { createModulesModule } from "./modules.js";
 
@@ -22,7 +26,16 @@ describe("modules tools", () => {
     ws = Workspace.open(root);
     registry = new ToolRegistry();
     enabled = [];
-    const ctx = toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() });
+    const manifest = new ProjectManifest(ws.db);
+    const ctx = toolRegistryContext(registry, {
+      workspace: ws,
+      db: ws.db,
+      secrets: new SecretsRegistry(),
+      manifest,
+      migrator: new Migrator(ws.db, manifest),
+      pages: new PageStore(ws.db, ws, manifest),
+      crons: new CronStore(ws.db),
+    });
     await createModulesModule({ enabled: () => enabled, status: () => ({}) }).activate(ctx);
   });
   afterEach(() => {
@@ -36,6 +49,11 @@ describe("modules tools", () => {
     const list = JSON.parse((await registry.execute("modules.list", {})).content) as { modules: { name: string; enabled: boolean }[] };
     expect(list.modules).toEqual([expect.objectContaining({ name: "hello", enabled: false })]);
     expect(registry.classify("modules.create", {}).tier).toBe("safe");
+  });
+
+  it("promotes a project only past the owner, then makes more of it freely", async () => {
+    expect(registry.classify("modules.promote", { project: "x", description: "d" }).tier).toBe("risky");
+    expect(registry.classify("modules.instantiate", { module: "x", name: "y" }).tier).toBe("safe");
   });
 
   it("scaffolds a server that really speaks the protocol", async () => {

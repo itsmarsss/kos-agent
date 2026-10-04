@@ -82,6 +82,15 @@ export interface ModuleInfo {
   connected?: boolean;
   tools?: string[];
   error?: string;
+  /** Absent for a server; present for a project template. */
+  blueprint?: {
+    type: string;
+    instancing: "single" | "multi";
+    schema: number;
+    pages: number;
+    jobs: number;
+    instances: { slug: string; name: string; status: string }[];
+  };
 }
 
 /** Something the dream job left for the owner to decide. */
@@ -593,6 +602,8 @@ export const api = {
   setSkillEnabled: (name: string, enabled: boolean) =>
     post<{ name: string; enabled: boolean }>("/api/skills/enable", { name, enabled }),
   modules: () => get<{ modules: ModuleInfo[]; invalid: { name: string; reason: string }[]; builtins?: BuiltinInfo[] }>("/api/modules"),
+  instantiateModule: (module: string, name: string) =>
+    post<{ project: Project }>("/api/modules/instantiate", { module, name }),
   setModuleEnabled: (name: string, enabled: boolean) =>
     post<{ name: string; enabled: boolean; connected?: boolean; tools?: string[]; error?: string }>("/api/modules/enable", { name, enabled }),
   crons: () => get<CronJob[]>("/api/crons"),
