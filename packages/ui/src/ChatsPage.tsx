@@ -382,6 +382,13 @@ export function ChatsPage({
    * it by recency. Neither is theirs to rename, archive or delete, and the
    * list offers none of those here.
    */
+  const projects = useMemo(
+    () =>
+      conversations
+        .filter((c) => c.kind === "project")
+        .sort((a, b) => a.title.localeCompare(b.title)),
+    [conversations],
+  );
   const surfaces = useMemo(
     () =>
       conversations
@@ -775,7 +782,7 @@ export function ChatsPage({
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        {(orchestrator || surfaces.length > 0) && (
+        {(orchestrator || projects.length > 0 || surfaces.length > 0) && (
           <div className="chats-pinned">
             {orchestrator && (
               <a
@@ -796,6 +803,29 @@ export function ChatsPage({
                   Routes work across your chats
                 </span>
               </a>
+            )}
+            {projects.length > 0 && (
+              /* One row per project, beside KOS: each is that project's own
+                 orchestrator, the second level of the hierarchy. */
+              <div className="chats-projects">
+                {projects.map((c) => (
+                  <a
+                    key={c.id}
+                    className={`chats-item chats-item--pinned ${c.id === activeId ? "is-active" : ""}`}
+                    href={hrefFor({ name: "chats", id: c.id })}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onOpen(c.id);
+                    }}
+                  >
+                    <span className="chats-item-top">
+                      <span className="chats-item-title">{c.title}</span>
+                      <span className="chats-badge">project</span>
+                    </span>
+                    <span className="chats-item-brief">Runs this project's agents</span>
+                  </a>
+                ))}
+              </div>
             )}
             {surfaces.length > 0 && (
               /* One line however many there are. A surface is a way in, not

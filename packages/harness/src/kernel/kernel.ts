@@ -1728,28 +1728,33 @@ export class Kernel {
    * agents for its own work and nothing else. An agent it starts never holds
    * chats tools at all, so there is no third level.
    */
+  /** The project's orchestrator conversation, made on first use so it can be opened before it is spoken to. */
+  ensureProjectConversation(slug: string): Conversation {
+    const project = this.manifest.list().find((p) => p.slug === slug);
+    if (!project) throw new Error(`no project with slug ${slug}`);
+    const id = projectConversationId(slug);
+    const existing = this.conversations.get(id);
+    if (existing) return existing;
+    return this.conversations.create({
+      id,
+      userId: this.profile.ownerId,
+      title: project.name,
+      channel: "dashboard",
+      projectSlug: slug,
+      brief: [
+        `You are the orchestrator for the project "${project.name}" (slug ${slug}).`,
+        "You see only this project's chats and may start agents for its work.",
+        "You cannot reach other projects; KOS at the root does that.",
+      ].join(" "),
+    });
+  }
+
   async handleProjectTurn(
     slug: string,
     text: string,
     opts: { channel?: string; attachments?: Attachment[] } = {},
   ): Promise<HandleResult & { conversationId: string }> {
-    const project = this.manifest.list().find((p) => p.slug === slug);
-    if (!project) throw new Error(`no project with slug ${slug}`);
-    const id = projectConversationId(slug);
-    if (!this.conversations.get(id)) {
-      this.conversations.create({
-        id,
-        userId: this.profile.ownerId,
-        title: project.name,
-        channel: "dashboard",
-        projectSlug: slug,
-        brief: [
-          `You are the orchestrator for the project "${project.name}" (slug ${slug}).`,
-          "You see only this project's chats and may start agents for its work.",
-          "You cannot reach other projects; KOS at the root does that.",
-        ].join(" "),
-      });
-    }
+    const id = this.ensureProjectConversation(slug).id;
     const res = await this.handleMessage(text, {
       sessionId: id,
       userId: this.profile.ownerId,

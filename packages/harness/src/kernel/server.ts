@@ -309,6 +309,16 @@ export async function handleApiRequest(
     return ok(call);
   }
 
+  if (method === "POST" && path === "/api/projects/chat") {
+    const slug = typeof body.slug === "string" ? body.slug.trim() : "";
+    if (!slug) return { status: 400, body: { error: "slug required" } };
+    try {
+      return ok(kernel.ensureProjectConversation(slug));
+    } catch (err) {
+      return { status: 404, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
   if (method === "GET" && path === "/api/skills") {
     const { skills, invalid } = readSkills(kernel.workspace);
     const off = new Set(parseSkillSettings(kernel.settings.get(SKILLS_KEY)).disabled);

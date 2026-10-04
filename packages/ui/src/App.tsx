@@ -486,6 +486,17 @@ export function App(): React.ReactElement {
             onOpenPage={openPage}
             crons={crons}
             onFix={(detail) => void beginFix(detail)}
+            onOpenProjectChat={(slug) => {
+              void api
+                .projectChat(slug)
+                .then((c) => {
+                  setInspect(null);
+                  go({ name: "chats", id: c.id });
+                })
+                .catch((err: unknown) =>
+                  flash("err", err instanceof Error ? err.message : String(err)),
+                );
+            }}
             onOpenFolder={(path) => {
               setInspect(null);
               go({ name: "files", path });
