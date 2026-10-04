@@ -84,6 +84,17 @@ export interface ModuleInfo {
   error?: string;
 }
 
+/** Something the dream job left for the owner to decide. */
+export interface ReviewItem {
+  id: number;
+  kind: "contradiction" | "promotion" | "other";
+  keys: string[];
+  note: string;
+  createdAt: number;
+  resolvedAt: number | null;
+  resolution: string | null;
+}
+
 /** A decision the owner made and kept. */
 export interface PermissionRule {
   id: number;
@@ -728,6 +739,11 @@ export const api = {
     get<{ facts: FactRow[]; tags: string[] }>(`/api/memory?limit=${limit}`),
   pinMemory: (key: string, pinned: boolean) =>
     post<FactRow>("/api/memory/pin", { key, pinned }),
+  memoryReview: () =>
+    get<{ pending: ReviewItem[]; recent: ReviewItem[]; pages: { name: string; path: string; updatedAt: number }[] }>("/api/memory/review"),
+  resolveMemoryReview: (id: number, resolution: string) =>
+    post<ReviewItem>("/api/memory/review/resolve", { id, resolution }),
+  memoryPage: (name: string) => get<{ name: string; markdown: string }>(`/api/memory/page?name=${encodeURIComponent(name)}`),
   saveMemory: (
     key: string,
     value: string,

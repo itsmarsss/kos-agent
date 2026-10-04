@@ -1,6 +1,6 @@
-import { useMemo, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
 
-import { api, type FactRow } from "./api.js";
+import { api, type FactRow, type ReviewItem } from "./api.js";
 import { Drawer } from "./Drawer.js";
 import { Select } from "./Select.js";
 import { PageHead } from "./PageHead.js";
@@ -196,6 +196,7 @@ export function KnowledgePage({
           </button>
         }
       />
+      <ReviewQueue />
 
       {adding && (
         <div className="know-add">
@@ -440,6 +441,79 @@ export function KnowledgePage({
           {items.map(entry)}
         </section>
       ))}
+    </div>
+  );
+}
+
+/**
+ * What the dream job left for the owner, and the pages it wrote.
+ *
+ * Self-contained: it reads its own data when the page opens, so the rest
+ * of the page does not learn about review items it never shows.
+ */
+function ReviewQueue(): ReactElement | null {
+  const [pending, setPending] = useState<ReviewItem[]>([]);
+  const [pages, setPages] = useState<{ name: string; path: string }[]>([]);
+  const [page, setPage] = useState<{ name: string; markdown: string } | null>(null);
+  const load = (): void => {
+    void api
+      .memoryReview()
+      .then((r) => {
+        setPending(r.pending);
+        setPages(r.pages);
+      })
+      .catch(() => undefined);
+  };
+  useEffect(load, []);
+  if (pending.length === 0 && pages.length === 0) return null;
+  return (
+    <div className="know-review">
+      {pending.length > 0 && (
+        <section className="set-group">
+          <h3>Needs a decision</h3>
+          {pending.map((item) => (
+            <div key={item.id} className="know-review-item">
+              <div>
+                <span className="ops-mono">{item.kind}</span> {item.keys.join(" vs ")}
+                <div className="hint">{item.note}</div>
+              </div>
+              <div className="know-review-actions">
+                {(item.kind === "promotion" ? ["promote", "keep as is"] : ["keep first", "keep second", "both are right"]).map((choice) => (
+                  <button
+                    key={choice}
+                    type="button"
+                    className="btn btn--sm"
+                    onClick={() => void api.resolveMemoryReview(item.id, choice).then(load, load)}
+                  >
+                    {choice}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+          <p className="hint">A decision here is recorded; the claims themselves change when you edit them or the next dream reads your answer.</p>
+        </section>
+      )}
+      {pages.length > 0 && (
+        <section className="set-group">
+          <h3>Pages</h3>
+          <div className="know-pages">
+            {pages.map((p) => (
+              <button
+                key={p.name}
+                type="button"
+                className="btn btn--sm"
+                onClick={() => void api.memoryPage(p.name).then(setPage).catch(() => undefined)}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+          {page && (
+            <pre className="know-page">{page.markdown}</pre>
+          )}
+        </section>
+      )}
     </div>
   );
 }

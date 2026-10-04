@@ -115,6 +115,40 @@ describe("FactsStore", () => {
     expect(facts.get("u1", "k")).toMatchObject({ useCount: 1, lastUsedAt: 3000 });
   });
 
+  it("archives without forgetting, and merges two claims into one", () => {
+    facts.upsert("u1", { key: "trip", value: "maybe Lisbon in May", kind: "fact", evidence: [1] });
+    facts.upsert("u1", { key: "city", value: "Montreal", kind: "fact", evidence: [2] });
+    facts.upsert("u1", { key: "home_city", value: "Montreal, Plateau", kind: "fact", evidence: [3] });
+    clock = 5000;
+    expect(facts.archive("u1", "trip", "global", "dream", "a plan, not a fact")).toMatchObject({ supersededAt: 5000 });
+    expect(facts.get("u1", "trip")).toBeUndefined();
+    expect(facts.history("u1", "trip")).toHaveLength(1);
+    expect(facts.trace(facts.history("u1", "trip")[0]!.id)!.revisions.map((r) => r.action)).toEqual(["add", "archive"]);
+    const kept = facts.merge("u1", { key: "city", scope: "global" }, { key: "home_city", scope: "global" }, "dream")!;
+    expect(kept.key).toBe("city");
+    expect(facts.get("u1", "home_city")).toBeUndefined();
+    expect(facts.trace(kept.id)!.evidence).toEqual([2, 3]);
+    expect(facts.trace(kept.id)!.revisions.map((r) => r.action)).toEqual(["add", "merge"]);
+    expect(facts.merge("u1", { key: "city", scope: "global" }, { key: "city", scope: "global" }, "dream")).toBeUndefined();
+  });
+
+  it("names the pairs worth a look, and what has gone stale", () => {
+    facts.upsert("u1", { key: "city", value: "Montreal", kind: "fact" });
+    facts.upsert("u1", { key: "city", value: "Lisbon", kind: "fact", scope: "project:trip" });
+    facts.upsert("u1", { key: "coffee_order", value: "flat white", kind: "preference" });
+    facts.upsert("u1", { key: "coffee_shop", value: "Dispatch", kind: "fact" });
+    facts.upsert("u1", { key: "owner_name", value: "Ada", kind: "fact" });
+    const pairs = facts.pairs("u1").map((p) => [p.why, p.a.key, p.b.key]);
+    expect(pairs).toContainEqual(["same_key", "city", "city"]);
+    expect(pairs).toContainEqual(["shared_word", "coffee_order", "coffee_shop"]);
+    expect(pairs.some((p) => p[1] === "owner_name" || p[2] === "owner_name")).toBe(false);
+    clock = 1000 + 100 * 86_400_000;
+    facts.upsert("u1", { key: "fresh", value: "new", kind: "fact" });
+    facts.setPinned("u1", "owner_name", true);
+    const stale = facts.stale("u1", 60 * 86_400_000).map((f) => `${f.scope}/${f.key}`).sort();
+    expect(stale).toEqual(["global/city", "global/coffee_order", "global/coffee_shop", "project:trip/city"]);
+  });
+
   it("brings an older workspace's facts in as claims, once", () => {
     ws.db.exec(`CREATE TABLE memory_facts (id INTEGER PRIMARY KEY, user_id TEXT, key TEXT, value TEXT, kind TEXT, source TEXT, tags TEXT, pinned INTEGER, created_at INTEGER, updated_at INTEGER)`);
     ws.db.prepare(`INSERT INTO memory_facts VALUES (1, 'u9', 'name', 'Ada', 'fact', 'chat', '["me"]', 1, 10, 20)`).run();

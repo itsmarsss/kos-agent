@@ -100,6 +100,8 @@ interface Row {
 }
 
 export const GLOBAL_SCOPE = "global";
+/** Key words too common to suggest two claims are about one thing. */
+const GENERIC = new Set(["owner", "the", "and", "for", "with", "has", "is", "user", "my", "name", "info", "preference", "pref"]);
 export const projectScope = (slug: string): string => `project:${slug}`;
 export const callerScope = (name: string): string => `caller:${name}`;
 
@@ -419,6 +421,68 @@ export class FactsStore {
     }
     scored.sort((a, b) => b.score - a.score || b.fact.updatedAt - a.fact.updatedAt);
     return scored.slice(0, limit).map((s) => s.fact);
+  }
+
+  /**
+   * Put a claim away without forgetting it: closed like a superseded one,
+   * with nothing after it. History keeps it; recall stops offering it.
+   */
+  archive(userId: string, key: string, scope: ClaimScope, actor: string | null, reason: string | null = null): Fact | undefined {
+    const claim = this.current(userId, key, scope);
+    if (!claim) return undefined;
+    this.db.prepare(`UPDATE memory_claims SET superseded_at = ? WHERE id = ?`).run(this.now(), claim.id);
+    this.revise(claim.id, "archive", actor, reason);
+    return this.byId(claim.id);
+  }
+
+  /**
+   * Two claims that are one thing: the one dropped is closed and points
+   * at the one kept, its evidence moves across, and both are revised so
+   * the merge can be read back and undone by hand if it was wrong.
+   */
+  merge(userId: string, keep: { key: string; scope: ClaimScope }, drop: { key: string; scope: ClaimScope }, actor: string | null): Fact | undefined {
+    const kept = this.current(userId, keep.key, keep.scope);
+    const dropped = this.current(userId, drop.key, drop.scope);
+    if (!kept || !dropped || kept.id === dropped.id) return undefined;
+    this.db.transaction(() => {
+      this.db.prepare(`INSERT OR IGNORE INTO memory_evidence (claim_id, event_id) SELECT ?, event_id FROM memory_evidence WHERE claim_id = ?`).run(kept.id, dropped.id);
+      this.db.prepare(`UPDATE memory_claims SET superseded_at = ? WHERE id = ?`).run(this.now(), dropped.id);
+      this.revise(dropped.id, "merged_into", actor, `${keep.scope}/${keep.key}`);
+      this.revise(kept.id, "merge", actor, `absorbed ${drop.scope}/${drop.key}: ${dropped.value}`);
+    })();
+    return this.byId(kept.id);
+  }
+
+  /** Current claims nobody has used in a while, never pinned ones. */
+  stale(userId: string, olderThanMs: number): Fact[] {
+    const cutoff = this.now() - olderThanMs;
+    return this.all(userId).filter((f) => !f.pinned && (f.lastUsedAt ?? f.createdAt) < cutoff);
+  }
+
+  /**
+   * Pairs that may be one thing or may disagree: the same key in two
+   * scopes, or keys sharing a word whose values differ. Candidates for the
+   * dream job to judge, not judgements.
+   */
+  pairs(userId: string): { a: Fact; b: Fact; why: "same_key" | "shared_word" }[] {
+    const all = this.all(userId);
+    const out: { a: Fact; b: Fact; why: "same_key" | "shared_word" }[] = [];
+    const words = (f: Fact): Set<string> => new Set(f.key.split("_").filter((w) => w.length >= 3 && !GENERIC.has(w)));
+    for (let i = 0; i < all.length; i++) {
+      for (let j = i + 1; j < all.length; j++) {
+        const a = all[i]!;
+        const b = all[j]!;
+        if (a.key === b.key && a.scope !== b.scope) {
+          out.push({ a, b, why: "same_key" });
+          continue;
+        }
+        if (a.key === b.key) continue;
+        const wa = words(a);
+        if (wa.size === 0) continue;
+        if ([...words(b)].some((w) => wa.has(w))) out.push({ a, b, why: "shared_word" });
+      }
+    }
+    return out.slice(0, 200);
   }
 
   /**

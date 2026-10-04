@@ -2,6 +2,8 @@ import type { EmbeddingProvider } from "../memory/embeddings.js";
 import type { EventLog } from "../memory/events.js";
 import { BATCH_CHARS, relatedClaims, takeBatch } from "../memory/extractor.js";
 import { GLOBAL_SCOPE, projectScope, type FactsStore } from "../memory/facts.js";
+import { listPages, readPage, writePage } from "../memory/pages.js";
+import type { ReviewQueue } from "../memory/review.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 
@@ -26,6 +28,12 @@ export const MEMORY_TOOLS = [
   "memory.trace",
   "memory.unread",
   "memory.mark_read",
+  "memory.review",
+  "memory.merge",
+  "memory.archive",
+  "memory.flag",
+  "memory.page",
+  "memory.pages",
 ] as const;
 
 export interface MemoryToolDeps {
@@ -40,6 +48,10 @@ export interface MemoryToolDeps {
   currentProject?: () => string | undefined;
   /** How far the log has been read for memory, shared with the fixed extractor. */
   watermark?: { get: () => number; set: (lastEventId: number) => void };
+  /** Where the dream job leaves what it could not settle. */
+  review?: ReviewQueue;
+  /** Days without use before a claim counts as stale. */
+  staleDays?: number;
 }
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -317,6 +329,141 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       const current = deps.watermark.get();
       if (cursor > current) deps.watermark.set(cursor);
       return JSON.stringify({ readThrough: Math.max(cursor, current) });
+    },
+    { floor: "safe" },
+    { tags: ["memory"] },
+  );
+
+  const scopeArg = (raw: unknown): string => (typeof raw === "string" && raw.trim() ? (raw.trim() === "global" ? GLOBAL_SCOPE : raw.trim().startsWith("project:") || raw.trim().startsWith("caller:") ? raw.trim() : projectScope(raw.trim())) : GLOBAL_SCOPE);
+  const brief = (f: { key: string; scope: string; kind: string; value: string; trust: string; createdAt: number; lastUsedAt: number | null; useCount: number }) => ({
+    key: f.key, scope: f.scope, kind: f.kind, value: f.value, trust: f.trust,
+    since: new Date(f.createdAt).toISOString().slice(0, 10),
+    lastUsed: f.lastUsedAt ? new Date(f.lastUsedAt).toISOString().slice(0, 10) : null,
+    used: f.useCount,
+  });
+
+  ctx.registerTool(
+    {
+      name: "memory.review",
+      description:
+        "What memory tidying has to look at: pairs of claims that may be one thing or may disagree, claims nobody has used for a long time, and the pages that exist. For the dream job; decide with memory.merge, memory.archive, memory.flag and memory.page.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    () => {
+      const ws = requireServices(ctx).workspace;
+      const staleMs = (deps.staleDays ?? 60) * 86_400_000;
+      return JSON.stringify({
+        pairs: facts.pairs(ownerId).map((p) => ({ why: p.why, a: brief(p.a), b: brief(p.b) })),
+        stale: facts.stale(ownerId, staleMs).slice(0, 50).map(brief),
+        pages: listPages(ws).map((p) => ({ name: p.name, updated: new Date(p.updatedAt).toISOString().slice(0, 10) })),
+        projects: [...new Set(facts.all(ownerId).map((f) => f.scope).filter((s) => s.startsWith("project:")))],
+        pending: deps.review?.pending().length ?? 0,
+      });
+    },
+    { floor: "safe" },
+    { tags: ["memory"] },
+  );
+
+  ctx.registerTool(
+    {
+      name: "memory.merge",
+      description:
+        "Two claims are one thing: keep one, fold the other into it. The dropped claim is closed, its evidence moves across, both are on the record. Keys are scope-qualified by the scope arguments.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          keep: { type: "string" }, keepScope: { type: "string", description: "global, or a project slug" },
+          drop: { type: "string" }, dropScope: { type: "string" },
+          value: { type: "string", description: "optionally the better wording for the kept claim" },
+        },
+        required: ["keep", "drop"],
+      },
+    },
+    (input) => {
+      const keep = { key: normalizeKey(str(input, "keep")), scope: scopeArg(input.keepScope) };
+      const drop = { key: normalizeKey(str(input, "drop")), scope: scopeArg(input.dropScope) };
+      const kept = facts.merge(ownerId, keep, drop, source());
+      if (!kept) throw new Error("one of those claims is not current, or they are the same claim");
+      if (typeof input.value === "string" && input.value.trim() && input.value.trim() !== kept.value) {
+        facts.upsert(ownerId, { key: kept.key, value: input.value.trim(), kind: kept.kind, scope: kept.scope }, source());
+      }
+      return JSON.stringify({ kept: `${keep.scope}/${keep.key}`, dropped: `${drop.scope}/${drop.key}` });
+    },
+    { floor: "safe" },
+    { tags: ["memory"] },
+  );
+
+  ctx.registerTool(
+    {
+      name: "memory.archive",
+      description: "Put a stale claim away without forgetting it: out of recall, kept in history with the reason.",
+      inputSchema: { type: "object", properties: { key: { type: "string" }, scope: { type: "string" }, reason: { type: "string" } }, required: ["key", "reason"] },
+    },
+    (input) => {
+      const key = normalizeKey(str(input, "key"));
+      const scope = scopeArg(input.scope);
+      const archived = facts.archive(ownerId, key, scope, source(), str(input, "reason"));
+      if (!archived) throw new Error(`no current claim ${scope}/${key}`);
+      return JSON.stringify({ archived: `${scope}/${key}` });
+    },
+    { floor: "safe" },
+    { tags: ["memory"] },
+  );
+
+  ctx.registerTool(
+    {
+      name: "memory.flag",
+      description: "Leave something for the owner to decide: a contradiction you cannot settle, or a project claim that should become global. Say which claims and why in one line.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          kind: { type: "string", enum: ["contradiction", "promotion", "other"] },
+          keys: { type: "array", items: { type: "string" }, description: "scope-qualified keys, e.g. global/city, project:pantry/city" },
+          note: { type: "string" },
+        },
+        required: ["kind", "keys", "note"],
+      },
+    },
+    (input) => {
+      if (!deps.review) throw new Error("no review queue");
+      const kind = input.kind === "contradiction" || input.kind === "promotion" ? input.kind : "other";
+      const keys = stringList(input, "keys");
+      if (keys.length === 0) throw new Error("keys is required");
+      const item = deps.review.add(kind, keys, str(input, "note"));
+      return JSON.stringify({ flagged: item.id, kind: item.kind, keys: item.keys });
+    },
+    { floor: "safe" },
+    { tags: ["memory"] },
+  );
+
+  ctx.registerTool(
+    {
+      name: "memory.page",
+      description: "Write a page the owner can read: memory/<name>.md, rendered from current claims. profile for the owner everywhere, a project slug for that project.",
+      inputSchema: { type: "object", properties: { name: { type: "string" }, markdown: { type: "string" } }, required: ["name", "markdown"] },
+    },
+    (input) => {
+      const ws = requireServices(ctx).workspace;
+      const page = writePage(ws, str(input, "name"), str(input, "markdown"));
+      return JSON.stringify({ wrote: page.path, bytes: page.bytes });
+    },
+    { floor: "safe" },
+    { tags: ["memory"] },
+  );
+
+  ctx.registerTool(
+    {
+      name: "memory.pages",
+      description: "The pages memory has written, or one page's text when a name is given.",
+      inputSchema: { type: "object", properties: { name: { type: "string" } } },
+    },
+    (input) => {
+      const ws = requireServices(ctx).workspace;
+      if (typeof input.name === "string" && input.name.trim()) {
+        const text = readPage(ws, input.name.trim());
+        return text ?? JSON.stringify({ name: input.name, exists: false });
+      }
+      return JSON.stringify(listPages(ws).map((p) => ({ name: p.name, path: p.path, updated: new Date(p.updatedAt).toISOString() })));
     },
     { floor: "safe" },
     { tags: ["memory"] },

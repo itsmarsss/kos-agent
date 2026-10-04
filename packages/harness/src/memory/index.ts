@@ -37,3 +37,6 @@ export { MemoryExtractor, parseProposals, EXTRACTOR_KEY, type ExtractionReport, 
 export { runMemoryEval, renderEvalReport, loadGolden, type EvalReport, type GoldenCase, type MemoryReader } from "./eval.js";
 export { MEMORY_JOB, MEMORY_JOB_PROMPT, MEMORY_JOB_SCHEDULE, ensureDefaultMemoryCron } from "./job.js";
 export { relatedClaims, takeBatch } from "./extractor.js";
+export { ReviewQueue, type ReviewItem, type ReviewKind } from "./review.js";
+export { listPages, readPage, writePage, PAGES_DIR, type PageInfo } from "./pages.js";
+export { DREAM_JOB, DREAM_JOB_PROMPT, ensureDefaultDreamCron } from "./job.js";

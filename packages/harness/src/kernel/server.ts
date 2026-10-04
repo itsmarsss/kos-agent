@@ -36,6 +36,7 @@ import { listDirectory, readFile, readImage } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
 import { readSkills } from "../skills/manifest.js";
+import { listPages, readPage } from "../memory/pages.js";
 import { MODULES_KEY, parseModuleSettings, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillEnabled } from "../skills/settings.js";
 import { conversationKind } from "./conversations.js";
@@ -1582,6 +1583,27 @@ export async function handleApiRequest(
     if (kernel.extractor.busy) return { status: 409, body: { error: "the extractor is already running" } };
     const report = await kernel.extractMemory();
     return ok({ ...report, claims: report.claims.map((c) => ({ key: c.key, value: c.value, scope: c.scope, trust: c.trust, replaced: c.supersedes !== null })) });
+  }
+
+  /** What the dream job left for the owner: open items first, then the recent resolved ones. */
+  if (method === "GET" && path === "/api/memory/review") {
+    return ok({ pending: kernel.review.pending(), recent: kernel.review.recent(20), pages: listPages(kernel.workspace) });
+  }
+
+  if (method === "POST" && path === "/api/memory/review/resolve") {
+    const id = Number(body.id);
+    const resolution = typeof body.resolution === "string" ? body.resolution.trim() : "";
+    if (!Number.isInteger(id) || !resolution) return { status: 400, body: { error: "id and resolution required" } };
+    const item = kernel.review.resolve(id, resolution);
+    if (!item) return { status: 404, body: { error: "no such item" } };
+    return ok(item);
+  }
+
+  if (method === "GET" && path === "/api/memory/page") {
+    const name = queryParams(req.url).get("name") ?? "";
+    const text = name ? readPage(kernel.workspace, name) : undefined;
+    if (text === undefined) return { status: 404, body: { error: "no such page" } };
+    return ok({ name, markdown: text });
   }
 
   /** Where a belief came from, and what it replaced. */
