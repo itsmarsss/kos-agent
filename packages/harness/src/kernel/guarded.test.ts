@@ -132,6 +132,25 @@ describe("GuardedTools", () => {
     expect(res.content).toMatch(/not approved/);
   });
 
+
+  it("offers a project's tools only inside that project", async () => {
+    // A module for the pantry project: its tool exists in pantry's
+    // conversations and nowhere else, withheld rather than hidden.
+    registry.register(
+      { name: "mcp.shelf.count", description: "count", inputSchema: { type: "object", properties: {} } },
+      () => "3",
+      { floor: "safe" },
+      { tags: ["project:pantry"] },
+    );
+    const inside = guarded({ projectSlug: () => "pantry" });
+    const outside = guarded({ projectSlug: () => "garden" });
+    const root = guarded({ projectSlug: () => undefined });
+    expect(inside.defs().map((d) => d.name)).toContain("mcp.shelf.count");
+    expect(outside.defs().map((d) => d.name)).not.toContain("mcp.shelf.count");
+    expect(root.defs().map((d) => d.name)).not.toContain("mcp.shelf.count");
+    expect((await outside.execute("mcp.shelf.count", {})).isError).toBe(true);
+    expect((await inside.execute("mcp.shelf.count", {})).content).toBe("3");
+  });
 });
 
 

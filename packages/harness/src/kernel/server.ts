@@ -591,6 +591,7 @@ export async function handleApiRequest(
     if (!known) return { status: 404, body: { error: `no module named ${name}` } };
     kernel.settings.set(MODULES_KEY, withModuleEnabled(parseModuleSettings(kernel.settings.get(MODULES_KEY)), name, enabled));
     const status = await kernel.mcp.reload();
+    kernel.bus.emit({ kind: enabled ? "module:enabled" : "module:disabled", name });
     return ok({ name, enabled, ...(status[name] ?? {}) });
   }
 

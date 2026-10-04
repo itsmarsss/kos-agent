@@ -1607,6 +1607,22 @@ describe("KOS end-to-end flows", () => {
     expect(order).toEqual(["owner", "dispatch"]);
   });
 
+  it("tells modules what happens: a turn, its tool, a decision", async () => {
+    const model = scripted([toolCall("t1", "files.write", { path: "a.txt", content: "x" }), text("wrote it")]);
+    kernel = await boot(model.inference);
+    const kinds: string[] = [];
+    kernel.bus.on("*", (e) => {
+      kinds.push(e.kind);
+    });
+    const c = kernel.conversations.create({ userId: "owner", title: "Ev" });
+    await kernel.handleMessage("write a.txt", { sessionId: c.id });
+    expect(kinds).toEqual(["turn:start", "tool:end", "turn:end"]);
+    kinds.length = 0;
+    const action = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "a.txt" }, riskTier: "risky" });
+    await kernel.deny(action.id, "owner");
+    expect(kinds).toContain("approval:decided");
+  });
+
   it("one conversation remembers, another recalls it", async () => {
     const model = scripted([
       toolCall("m1", "memory.remember", {

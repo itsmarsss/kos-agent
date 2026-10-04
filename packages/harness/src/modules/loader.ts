@@ -11,6 +11,7 @@ import type { ProjectManifest } from "../systems/manifest.js";
 import type { Migrator } from "../systems/migrate.js";
 import type { PageStore } from "../systems/pages.js";
 import type { CronStore } from "../cron/store.js";
+import type { KernelEvents } from "./events.js";
 import { satisfies } from "./semver.js";
 
 /**
@@ -56,6 +57,8 @@ export interface ModuleContext {
   /** Take a tool back, for a module whose server the owner switched off. */
   unregisterTool?(name: string): boolean;
   services?: ModuleServices;
+  /** What happens in the kernel. A subscription made here ends when the module is switched off. */
+  events?: KernelEvents;
 }
 
 /** Assert the host provided kernel services; for modules that require them. */
@@ -94,12 +97,14 @@ export interface LoadReport {
 export function toolRegistryContext(
   registry: ToolRegistry,
   services?: ModuleServices,
+  events?: KernelEvents,
 ): ModuleContext {
   return {
     registerTool: (def, handler, risk, meta) =>
       registry.register(def, handler, risk, meta),
     unregisterTool: (name) => registry.unregister(name),
     ...(services ? { services } : {}),
+    ...(events ? { events } : {}),
   };
 }
 
@@ -117,19 +122,36 @@ export class ModuleLoader {
   private readonly known = new Map<string, KosModule>();
   /** The tools each module registered, so they can be taken back. */
   private readonly tools = new Map<string, string[]>();
+  /** The subscriptions each module made, so they end with it. */
+  private readonly subscriptions = new Map<string, (() => void)[]>();
 
   constructor(private readonly ctx: ModuleContext) {}
 
-  /** A context that remembers what the module registered under its name. */
+  /** A context that remembers what the module registered and subscribed under its name. */
   private contextFor(name: string): ModuleContext {
     const registered = this.tools.get(name) ?? [];
     this.tools.set(name, registered);
+    const subscribed = this.subscriptions.get(name) ?? [];
+    this.subscriptions.set(name, subscribed);
+    const events = this.ctx.events;
     return {
       ...this.ctx,
       registerTool: (def, handler, risk, meta) => {
         this.ctx.registerTool(def, handler, risk, meta);
         registered.push(def.name);
       },
+      ...(events
+        ? {
+            events: {
+              on: (kind, handler) => {
+                const off = events.on(kind, handler);
+                subscribed.push(off);
+                return off;
+              },
+              emit: (event) => events.emit(event),
+            },
+          }
+        : {}),
     };
   }
 
@@ -196,6 +218,8 @@ export class ModuleLoader {
     }
     for (const tool of this.tools.get(name) ?? []) this.ctx.unregisterTool?.(tool);
     this.tools.set(name, []);
+    for (const off of this.subscriptions.get(name) ?? []) off();
+    this.subscriptions.set(name, []);
     return true;
   }
 

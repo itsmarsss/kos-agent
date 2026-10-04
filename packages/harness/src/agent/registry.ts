@@ -107,6 +107,11 @@ export class ToolRegistry {
       .map((t) => t.def);
   }
 
+  /** The scope tags a tool was registered with. */
+  tagsOf(name: string): string[] {
+    return this.tools.get(name)?.tags ?? [];
+  }
+
   isRestricted(name: string): boolean {
     return this.tools.get(name)?.restricted === true;
   }
