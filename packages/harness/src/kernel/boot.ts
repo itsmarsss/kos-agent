@@ -58,6 +58,7 @@ import { EXTRACTOR_KEY } from "../memory/extractor.js";
 import { ensureDefaultDreamCron, ensureDefaultMemoryCron, ensureDefaultObserveCron } from "../memory/job.js";
 import { ObservationStore } from "../memory/observations.js";
 import { CallerStore } from "../memory/callers.js";
+import { PageLog } from "../memory/pages.js";
 import { ReviewQueue } from "../memory/review.js";
 import { createCronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
@@ -222,6 +223,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const review = new ReviewQueue(workspace.db);
   const observations = new ObservationStore(workspace.db);
   const callers = new CallerStore(workspace.db);
+  const pageLog = new PageLog(workspace.db);
   const embedder = pickEmbedder(secrets);
   const events = new EventLog(workspace.db, embedder.dimension, Date.now, embedder.name);
   const memoryRetriever = new MemoryRetriever(facts, events, embedder);
@@ -402,6 +404,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
         return id ? (conversations.get(id)?.projectSlug ?? undefined) : undefined;
       },
       review,
+      pages: pageLog,
       threads: {
         sessions,
         conversations,
@@ -568,6 +571,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     mcp,
     review,
     callers,
+    pageLog,
     permissions,
     workspace,
     secrets,
