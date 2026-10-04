@@ -19,6 +19,11 @@ export class MemoryWriter {
   constructor(
     private readonly facts: FactsStore,
     private readonly confirmer?: SalienceConfirmer,
+    /**
+     * A cheaper question before the confirm: is this worth a second look at
+     * all? False skips the confirmer, which is most of the "maybe" traffic.
+     */
+    private readonly gate?: (text: string) => Promise<boolean>,
   ) {}
 
   async ingest(
@@ -35,7 +40,8 @@ export class MemoryWriter {
     if (result.verdict === "durable") {
       toWrite = result.candidates;
     } else if (result.verdict === "maybe" && this.confirmer) {
-      toWrite = await this.confirmer.confirm(text, result.candidates);
+      const worth = this.gate ? await this.gate(text).catch(() => true) : true;
+      toWrite = worth ? await this.confirmer.confirm(text, result.candidates) : [];
     }
 
     for (const fact of toWrite) {
