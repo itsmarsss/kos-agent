@@ -1,4 +1,5 @@
 import type { Inference } from "../agent/loop.js";
+import type { NewEvent } from "../memory/events.js";
 import { isFixed, titleFromText } from "./conversations.js";
 import { looksAutoTitled, nameConversation } from "./naming.js";
 
@@ -22,9 +23,9 @@ export interface AfterTurnDeps {
   };
   facts: { ingest: (userId: string, text: string, source: string) => Promise<unknown> };
   embedder: { embed: (texts: string[]) => Promise<number[][]> };
-  episodic: { add: (userId: string, text: string, embedding: number[]) => unknown };
+  events: { append: (event: NewEvent, embedding?: number[]) => unknown };
   conversations: {
-    get: (id: string) => { title: string; id: string; channel: string | null } | undefined;
+    get: (id: string) => { title: string; id: string; channel: string | null; projectSlug: string | null } | undefined;
     rename: (id: string, title: string) => unknown;
   };
   inference: Inference;
@@ -39,7 +40,8 @@ export class AfterTurn {
    * Best effort: a failed write must never fail the owner's turn, but it
    * must not be invisible either, so each failure is logged as its own run.
    */
-  async remember(userId: string, text: string, reply: string): Promise<void> {
+  async remember(userId: string, text: string, reply: string, conversationId?: string): Promise<void> {
+    const where = conversationId ? this.deps.conversations.get(conversationId) : undefined;
     const record = async (label: string, write: () => Promise<unknown>): Promise<void> => {
       try {
         await write();
@@ -49,12 +51,16 @@ export class AfterTurn {
       }
     };
     await record("memory.facts", () => this.deps.facts.ingest(userId, text, "chat"));
-    await record("memory.episodic", () => this.storeEpisode(userId, `user: ${text}\nassistant: ${reply.slice(0, 500)}`));
-  }
-
-  private async storeEpisode(userId: string, text: string): Promise<void> {
-    const [embedding] = await this.deps.embedder.embed([text]);
-    if (embedding) this.deps.episodic.add(userId, text, embedding);
+    // Both sides of the exchange, each its own event, so what the owner said
+    // and what KOS answered are found and trusted separately.
+    await record("memory.events", async () => {
+      const said = text.trim();
+      const answered = reply.trim().slice(0, 2000);
+      const [a, b] = await this.deps.embedder.embed([said, answered]);
+      const place = { conversationId: conversationId ?? null, projectSlug: where?.projectSlug ?? null };
+      this.deps.events.append({ userId, role: "owner", text: said, ...place }, a);
+      if (answered) this.deps.events.append({ userId, role: "agent", text: answered, ...place }, b);
+    });
   }
 
   /**

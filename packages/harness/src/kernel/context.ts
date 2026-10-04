@@ -109,15 +109,17 @@ export function assembleSystemPrompt(parts: ContextParts): AssembledPrompt {
    */
   const volatile: string[] = [];
   if (parts.turnExtra?.trim()) volatile.push(parts.turnExtra.trim());
-  const { facts, episodes } = parts.recall;
-  if (facts.length > 0 || episodes.length > 0) {
+  const { facts, events } = parts.recall;
+  if (facts.length > 0 || events.length > 0) {
     const mem: string[] = ["## Salient memory"];
     for (const f of facts.slice(0, 12)) {
       const marks = [f.kind, ...(f.pinned ? ["pinned"] : []), ...f.tags];
       mem.push(`- (${marks.join(", ")}) ${f.key}: ${f.value}`);
     }
-    for (const e of episodes.slice(0, 5)) {
-      mem.push(`- episode: ${e.text.slice(0, 200)}`);
+    for (const e of events.slice(0, 5)) {
+      const when = new Date(e.ts).toISOString().slice(0, 10);
+      const where = e.projectSlug ? `, ${e.projectSlug}` : "";
+      mem.push(`- earlier (${when}${where}, ${e.role}): ${e.text.slice(0, 200)}`);
     }
     volatile.push(mem.join("\n"));
   }

@@ -14,7 +14,7 @@ import {
   FactsStore,
   MemoryRetriever,
   MemoryWriter,
-  EpisodicStore,
+  EventLog,
   type EmbeddingProvider,
 } from "../memory/index.js";
 import type { ContentBlock, ModelMessage } from "../models/types.js";
@@ -265,7 +265,7 @@ export class Kernel {
     memoryWriter: MemoryWriter;
     memoryRetriever: MemoryRetriever;
     embedder: EmbeddingProvider;
-    episodic: EpisodicStore;
+    events: EventLog;
     inference: Inference;
     system: string;
     sessionless: boolean;
@@ -353,7 +353,7 @@ export class Kernel {
       runs: args.runs,
       facts: args.memoryWriter,
       embedder: args.embedder,
-      episodic: args.episodic,
+      events: args.events,
       conversations: args.conversations,
       inference: args.inference,
     });
@@ -501,8 +501,8 @@ export class Kernel {
 
         const recall = await this.memoryRetriever.recall(userId, text, {
           factLimit: 10,
-          episodeLimit: 4,
-          minFactsBeforeVector: 2,
+          eventLimit: 4,
+          projectSlug: conversation?.projectSlug ?? null,
         });
         // Pinned entries are the handful of things every conversation should
         // know without having to match them, so they bypass retrieval.
@@ -1324,7 +1324,8 @@ export class Kernel {
     const query = job.prompt ?? job.name;
     const recall = await this.memoryRetriever.recall(this.profile.ownerId, query, {
       factLimit: 10,
-      episodeLimit: 4,
+      eventLimit: 4,
+      projectSlug: job.projectSlug,
     });
     const projects = this.manifest.list();
     const assembled = assembleSystemPrompt({
@@ -1517,7 +1518,7 @@ export class Kernel {
     // Awaited so a write cannot be lost when the process exits right after a
     // reply, and so failures surface in the runs log instead of vanishing.
     if (origin !== "system") {
-      await this.afterTurn.remember(userId, text, reply);
+      await this.afterTurn.remember(userId, text, reply, sessionId);
     }
 
     this.runs.finish(runId, "ok");

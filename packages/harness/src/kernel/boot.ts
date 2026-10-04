@@ -11,7 +11,7 @@ import {
   MemoryRetriever,
   MemoryWriter,
   OpenAIEmbeddingProvider,
-  EpisodicStore,
+  EventLog,
   type EmbeddingProvider,
 } from "../memory/index.js";
 import { createDefaultRouter } from "../models/router.js";
@@ -215,13 +215,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const conversations = new ConversationStore(workspace.db);
   const facts = new FactsStore(workspace.db);
   const embedder = pickEmbedder(secrets);
-  const episodic = new EpisodicStore(
-    workspace.db,
-    embedder.dimension,
-    Date.now,
-    embedder.name,
-  );
-  const memoryRetriever = new MemoryRetriever(facts, episodic, embedder);
+  const events = new EventLog(workspace.db, embedder.dimension, Date.now, embedder.name);
+  const memoryRetriever = new MemoryRetriever(facts, events, embedder);
 
   const services: ModuleServices = {
     workspace,
@@ -314,7 +309,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       // call rather than the next restart.
       allowedHosts: options.allowedHosts ?? [],
     }),
-    createSearchModule(),
+    createSearchModule({ events, embedder }),
     createShellModule(),
     createModulesModule({
       enabled: () => parseModuleSettings(settings.get(MODULES_KEY)).enabled,
@@ -389,6 +384,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     }),
     createMemoryModule({
       facts,
+      events,
+      embedder,
       ownerId: profile.ownerId,
       // Attributed to the conversation that wrote it, so the owner can see
       // which agent believed what.
@@ -569,7 +566,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     memoryWriter,
     memoryRetriever,
     embedder,
-    episodic,
+    events,
     inference,
     system: options.system ?? DEFAULT_SYSTEM,
     sessionless: options.sessionless === true,
