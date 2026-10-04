@@ -166,9 +166,11 @@ export interface Conversation {
   brief: string | null;
   /** null is the full toolkit; an array is an exact scope, empty included. */
   toolAllow: string[] | null;
+  /** The project this conversation belongs to, or null at the root. */
+  projectSlug: string | null;
   /** The orchestrator is a conversation, but not one of the owner's chats. */
   /** What sort of thread this is, for grouping in the list. */
-  kind?: "orchestrator" | "surface" | "schedule" | "chat";
+  kind?: "orchestrator" | "project" | "surface" | "schedule" | "chat";
   /** What the thread is doing, so the list can say rather than look idle. */
   activity?: "working" | "needs-you" | "idle";
 }
@@ -643,8 +645,13 @@ export const api = {
     id: string,
     config: { brief?: string | null; toolAllow?: string[] | null },
   ) => post<Conversation>("/api/conversations/configure", { id, ...config }),
-  newConversation: (title?: string) =>
-    post<Conversation>("/api/conversations/new", title ? { title } : {}),
+  newConversation: (title?: string, projectSlug?: string) =>
+    post<Conversation>("/api/conversations/new", {
+      ...(title ? { title } : {}),
+      ...(projectSlug ? { projectSlug } : {}),
+    }),
+  /** A project's own chat, made on first use so it can be opened before it is spoken to. */
+  projectChat: (slug: string) => post<Conversation>("/api/projects/chat", { slug }),
   folders: () => get<{ folders: string[] }>("/api/folders"),
   mentions: (q: string, kind?: string, limit?: number) =>
     get<{

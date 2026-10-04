@@ -28,12 +28,35 @@ export const CHAT_TOOLS = [
   "chats.dispatch",
 ] as const;
 
+/**
+ * Which conversations a caller may see.
+ *
+ * A project orchestrator sees its own project and no other, and never
+ * another project's orchestrator, so one project cannot reach into the next
+ * through a dispatch. The root, with no scope, sees everything.
+ */
+function inScopeFor(deps: ChatToolDeps): (c: { id: string; projectSlug: string | null }) => boolean {
+  return (c) => {
+    const scope = deps.scope?.();
+    if (scope === undefined) return true;
+    return c.projectSlug === scope && !c.id.startsWith("project:");
+  };
+}
+
 export interface ChatToolDeps {
   conversations: ConversationStore;
   sessions: SessionStore;
   ownerId: string;
   /** Conversations the orchestrator should never surface, e.g. itself. */
   hide?: string[];
+  /**
+   * The project the calling conversation belongs to, read at call time.
+   *
+   * Set, the tools see only that project's conversations and stamp new ones
+   * with it: a project orchestrator manages its own project and nothing
+   * else. Unset is the root, which sees everything.
+   */
+  scope?: () => string | undefined;
   /**
    * Run a turn inside another conversation and return its reply. Supplied by
    * the kernel, which owns the queue discipline this has to respect.
@@ -85,8 +108,9 @@ const MAX_HITS = 8;
 function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
   const { conversations, sessions, ownerId } = deps;
   const hidden = new Set(deps.hide ?? []);
+  const inScope = inScopeFor(deps);
   const visible = (): ReturnType<ConversationStore["list"]> =>
-    conversations.list(ownerId).filter((c) => !hidden.has(c.id));
+    conversations.list(ownerId).filter((c) => !hidden.has(c.id) && inScope(c));
 
   ctx.registerTool(
     {
@@ -164,7 +188,8 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
     },
     (input) => {
       const id = str(input, "id");
-      if (hidden.has(id) || !conversations.get(id)) {
+      const target = conversations.get(id);
+      if (hidden.has(id) || !target || !inScope(target)) {
         throw new Error(`no such conversation: ${id}`);
       }
       const limit =
@@ -214,6 +239,7 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
         ? (input.toolAllow as unknown[]).filter((x): x is string => typeof x === "string")
         : undefined;
       const created = conversations.create({
+        projectSlug: deps.scope?.() ?? null,
         userId: ownerId,
         title: str(input, "title"),
         brief: str(input, "brief"),
@@ -251,6 +277,7 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
 function defineDispatchTool(deps: ChatToolDeps, ctx: ModuleContext): void {
   const { conversations, ownerId } = deps;
   const hidden = new Set(deps.hide ?? []);
+  const inScope = inScopeFor(deps);
 
   ctx.registerTool(
     {
@@ -274,7 +301,9 @@ function defineDispatchTool(deps: ChatToolDeps, ctx: ModuleContext): void {
       const from = (): string | undefined => deps.currentConversationId?.();
       if (hidden.has(id)) throw new Error("cannot dispatch to this conversation");
       const target = conversations.get(id);
-      if (!target || target.userId !== ownerId) {
+      // Out of scope reads as absent, on purpose: a project orchestrator
+      // cannot learn that another project's conversation exists.
+      if (!target || target.userId !== ownerId || !inScope(target)) {
         throw new Error(`no such conversation: ${id}`);
       }
       /*

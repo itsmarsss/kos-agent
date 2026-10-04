@@ -75,6 +75,8 @@ export function Inspector(props: {
   onOpenPage?: (id: string) => void;
   /** Show a project's folder in the file browser. */
   onOpenFolder?: (path: string) => void;
+  /** Open the project's own chat, its orchestrator, making it if need be. */
+  onOpenProjectChat?: (slug: string) => void;
   /** Put KOS on this failure, in its own chat. */
   onFix?: (detail: {
     label: string;
@@ -505,6 +507,18 @@ export function Inspector(props: {
                   <div>
                     <dt>Module</dt>
                     <dd className="ops-mono">{p.module ?? "embedded"}</dd>
+                  </div>
+                  <div>
+                    <dt>Chat</dt>
+                    <dd>
+                      <button
+                        type="button"
+                        className="ops-link"
+                        onClick={() => props.onOpenProjectChat?.(p.slug)}
+                      >
+                        Open this project's chat
+                      </button>
+                    </dd>
                   </div>
                   <div>
                     <dt>Folder</dt>

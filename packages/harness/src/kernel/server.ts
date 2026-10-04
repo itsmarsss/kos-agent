@@ -309,6 +309,16 @@ export async function handleApiRequest(
     return ok(call);
   }
 
+  if (method === "POST" && path === "/api/projects/chat") {
+    const slug = typeof body.slug === "string" ? body.slug.trim() : "";
+    if (!slug) return { status: 400, body: { error: "slug required" } };
+    try {
+      return ok(kernel.ensureProjectConversation(slug));
+    } catch (err) {
+      return { status: 404, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
   if (method === "GET" && path === "/api/skills") {
     const { skills, invalid } = readSkills(kernel.workspace);
     const off = new Set(parseSkillSettings(kernel.settings.get(SKILLS_KEY)).disabled);
@@ -579,6 +589,14 @@ export async function handleApiRequest(
     // different toolkits behind them.
     const attachments = parseAttachments(body.attachments);
     try {
+      if (sessionId.startsWith("project:")) {
+        return ok(
+          await kernel.handleProjectTurn(sessionId.slice("project:".length), text, {
+            channel: "dashboard",
+            attachments,
+          }),
+        );
+      }
       if (sessionId === orchestratorId(kernel.profile.ownerId)) {
         return ok(
           await kernel.handleOrchestratorTurn(text, {
@@ -1333,10 +1351,12 @@ export async function handleApiRequest(
 
   if (method === "POST" && path === "/api/conversations/new") {
     const title = typeof body.title === "string" ? body.title : undefined;
+    const projectSlug = typeof body.projectSlug === "string" && body.projectSlug.trim() ? body.projectSlug.trim() : undefined;
     const created = kernel.conversations.create({
       userId: kernel.profile.ownerId,
       channel: "dashboard",
       ...(title ? { title } : {}),
+      ...(projectSlug ? { projectSlug } : {}),
     });
     kernel.conversations.setActive("dashboard", kernel.profile.ownerId, created.id);
     return ok(created);

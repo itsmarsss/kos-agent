@@ -34,6 +34,14 @@ export interface Conversation {
    * "empty" made "give this conversation nothing" impossible to express.
    */
   toolAllow: string[] | null;
+  /**
+   * The project this conversation belongs to, when it belongs to one.
+   *
+   * A project orchestrator carries its own slug; an agent it starts inherits
+   * it. The slug scopes the chats tools and, later, keys remembered
+   * permissions. Null is the root: KOS itself and plain chats.
+   */
+  projectSlug: string | null;
 }
 
 const SCHEMA = `
@@ -69,6 +77,7 @@ interface Row {
   archived: number;
   brief: string | null;
   tool_allow: string | null;
+  project_slug?: string | null;
 }
 
 function toConversation(row: Row): Conversation {
@@ -82,6 +91,7 @@ function toConversation(row: Row): Conversation {
     archived: row.archived === 1,
     brief: row.brief ?? null,
     toolAllow: parseAllow(row.tool_allow),
+    projectSlug: row.project_slug ?? null,
   };
 }
 
@@ -120,6 +130,7 @@ export interface CreateConversationInput {
   userId: string;
   brief?: string;
   toolAllow?: string[] | null;
+  projectSlug?: string | null;
   /** Omit to use a placeholder until the first message names it. */
   title?: string;
   channel?: string;
@@ -137,13 +148,19 @@ export interface CreateConversationInput {
  * were protected by not being shown, which is not the same as protected --
  * the endpoints took any id at all.
  */
-export type ConversationKind = "orchestrator" | "surface" | "schedule" | "chat";
+export type ConversationKind = "orchestrator" | "project" | "surface" | "schedule" | "chat";
+
+/** The id of a project's own orchestrator: one per project, like `cron:<id>`. */
+export function projectConversationId(slug: string): string {
+  return `project:${slug}`;
+}
 
 export function conversationKind(
   conversation: Pick<Conversation, "id" | "channel">,
   ownerId: string,
 ): ConversationKind {
   if (conversation.id === `orchestrator:${ownerId}`) return "orchestrator";
+  if (conversation.id.startsWith("project:")) return "project";
   if (conversation.id.startsWith("cron:")) return "schedule";
   // A surface's own stream is the channel's name and the owner's. A thread
   // on a surface that has them is `channel:threadId`, which is not this.
@@ -179,6 +196,9 @@ export class ConversationStore {
     if (!has("tool_allow")) {
       this.db.exec(`ALTER TABLE conversations ADD COLUMN tool_allow TEXT`);
     }
+    if (!has("project_slug")) {
+      this.db.exec(`ALTER TABLE conversations ADD COLUMN project_slug TEXT`);
+    }
   }
 
   /** Ids are readable and sortable; uniqueness is enforced by the primary key. */
@@ -203,11 +223,12 @@ export class ConversationStore {
       archived: false,
       brief: input.brief?.trim() || null,
       toolAllow: input.toolAllow ?? null,
+      projectSlug: input.projectSlug ?? null,
     };
     this.db
       .prepare(
-        `INSERT INTO conversations (id, user_id, title, channel, created_at, updated_at, archived, brief, tool_allow)
-         VALUES (@id, @userId, @title, @channel, @createdAt, @updatedAt, 0, @brief, @toolAllow)
+        `INSERT INTO conversations (id, user_id, title, channel, created_at, updated_at, archived, brief, tool_allow, project_slug)
+         VALUES (@id, @userId, @title, @channel, @createdAt, @updatedAt, 0, @brief, @toolAllow, @projectSlug)
          ON CONFLICT(id) DO NOTHING`,
       )
       .run({

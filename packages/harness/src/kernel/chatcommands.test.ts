@@ -38,8 +38,8 @@ describe("parseChatCommand", () => {
 
 describe("resolveConversation", () => {
   const list = [
-    { id: "a", title: "Budget review", userId: "o", channel: null, createdAt: 0, updatedAt: 0, archived: false, brief: null, toolAllow: null },
-    { id: "b", title: "Shoot plan", userId: "o", channel: null, createdAt: 0, updatedAt: 0, archived: false, brief: null, toolAllow: null },
+    { id: "a", title: "Budget review", userId: "o", channel: null, createdAt: 0, updatedAt: 0, archived: false, brief: null, toolAllow: null, projectSlug: null },
+    { id: "b", title: "Shoot plan", userId: "o", channel: null, createdAt: 0, updatedAt: 0, archived: false, brief: null, toolAllow: null, projectSlug: null },
   ];
 
   it("prefers the listed position", () => {
