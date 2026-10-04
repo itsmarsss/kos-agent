@@ -5731,3 +5731,9 @@ a.health {
 .set-instance-list { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 .set-instance-new { display: flex; gap: 0.4rem; align-items: center; }
 .set-instance-new .kos-input { width: 16rem; max-width: 60vw; }
+
+/* Settings > Modules: installing, and what an installed module can do. */
+.set-install { margin-bottom: 0.5rem; }
+.set-install .kos-input { width: 24rem; max-width: 70vw; }
+.set-module-actions { display: flex; gap: 0.75rem; align-items: baseline; margin-top: 0.35rem; font-size: var(--text-sm); }
+.set-module-actions .link.is-danger { color: var(--danger); }

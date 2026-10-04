@@ -39,3 +39,5 @@ export {
 } from "./sites/server.js";
 export type { Site } from "./sites/server.js";
 export { createDefaultRouter } from "./models/router.js";
+export { installModule, updateModule, removeModule, originOf, isGitSource, nameFromSource, type InstalledModule } from "./modules/install.js";
+export { readWorkspaceModules, MODULES_DIR } from "./modules/workspace.js";

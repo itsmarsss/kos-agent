@@ -82,6 +82,8 @@ export interface ModuleInfo {
   connected?: boolean;
   tools?: string[];
   error?: string;
+  /** The repository it was installed from, when it was. */
+  origin?: string | null;
   /** Absent for a server; present for a project template. */
   blueprint?: {
     type: string;
@@ -602,6 +604,10 @@ export const api = {
   setSkillEnabled: (name: string, enabled: boolean) =>
     post<{ name: string; enabled: boolean }>("/api/skills/enable", { name, enabled }),
   modules: () => get<{ modules: ModuleInfo[]; invalid: { name: string; reason: string }[]; builtins?: BuiltinInfo[] }>("/api/modules"),
+  installModule: (source: string, name?: string) =>
+    post<{ installed: string; dir: string; origin: string | null }>("/api/modules/install", { source, ...(name ? { name } : {}) }),
+  updateModule: (name: string) => post<{ updated: string }>("/api/modules/update", { name }),
+  removeModule: (name: string) => post<{ removed: string }>("/api/modules/remove", { name }),
   instantiateModule: (module: string, name: string) =>
     post<{ project: Project }>("/api/modules/instantiate", { module, name }),
   setModuleEnabled: (name: string, enabled: boolean) =>

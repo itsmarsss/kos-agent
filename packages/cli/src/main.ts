@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
-import { Kernel, SecretsRegistry, createDefaultRouter, primarySessionId, renderEvalReport, renderJobEvalReport, runDreamEval, runMemoryEval, runObserveEval } from "@kos/harness";
+import { Kernel, SecretsRegistry, Workspace, createDefaultRouter, installModule, readWorkspaceModules, removeModule, updateModule, originOf, MODULES_DIR, primarySessionId, renderEvalReport, renderJobEvalReport, runDreamEval, runMemoryEval, runObserveEval } from "@kos/harness";
 
 import { KosClient, probeDaemon } from "@kos/client";
 import { OFFLINE_COMMANDS, parseArgs, runCommand, statusLine } from "./commands.js";
@@ -356,6 +356,52 @@ async function cmdService(
   process.exitCode = 1;
 }
 
+/**
+ * kos module install <git url | folder> [--name x] | update <name> | remove <name> | list
+ *
+ * Against the workspace folder, not the running host: a module is files,
+ * and the host reads modules/ fresh when asked. Installed is off; the
+ * owner switches it on in Settings.
+ */
+async function cmdModule(rootDir: string, rest: string[], flags: Record<string, string | boolean>): Promise<void> {
+  const [sub, arg] = rest;
+  const ws = Workspace.open(rootDir);
+  try {
+    if (sub === "install" && arg) {
+      const made = await installModule(ws, arg, typeof flags.name === "string" ? { name: flags.name } : {});
+      console.log(`installed ${made.name} at ${made.dir}${made.origin ? ` from ${made.origin}` : ""}; off until you switch it on in Settings > Modules`);
+      return;
+    }
+    if (sub === "update" && arg) {
+      const made = await updateModule(ws, arg);
+      console.log(`updated ${made.name}${made.origin ? ` from ${made.origin}` : ""}; restart its server from Settings if it is on`);
+      return;
+    }
+    if (sub === "remove" && arg) {
+      removeModule(ws, arg);
+      console.log(`removed ${arg}`);
+      return;
+    }
+    if (sub === "list" || sub === undefined) {
+      const { modules, invalid } = readWorkspaceModules(ws);
+      if (modules.length === 0 && invalid.length === 0) console.log(`no modules under ${MODULES_DIR}/`);
+      for (const m of modules) {
+        const origin = await originOf(ws.resolve(m.dir));
+        console.log(`${m.manifest.name}  ${m.manifest.blueprint ? "blueprint" : "server"}  ${m.manifest.description}${origin ? `  (${origin})` : ""}`);
+      }
+      for (const bad of invalid) console.log(`${bad.name}  invalid: ${bad.reason}`);
+      return;
+    }
+    console.error("usage: kos module install <git url | folder> [--name x] | update <name> | remove <name> | list");
+    process.exitCode = 1;
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exitCode = 1;
+  } finally {
+    ws.close();
+  }
+}
+
 async function cmdStop(rootDir: string): Promise<void> {
   const state = readDaemonState(rootDir);
   if (!state) {
@@ -466,6 +512,11 @@ async function main(): Promise<void> {
 
   if (command === "service") {
     await cmdService(rootDir, rest[0], flags);
+    return;
+  }
+
+  if (command === "module") {
+    await cmdModule(rootDir, rest, flags);
     return;
   }
 

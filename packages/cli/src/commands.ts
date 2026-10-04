@@ -65,7 +65,8 @@ Typical flow:
   kos restart          # after changing config or rebuilding
   kos stop
 
-Chat needs ANTHROPIC_API_KEY or OPENAI_API_KEY in .env.`;
+Chat needs ANTHROPIC_API_KEY or OPENAI_API_KEY in .env.
+  module install <git url | folder> [--name x] | update <name> | remove <name> | list`;
 
 export function statusLine(kernel: Kernel): string {
   const crons = kernel.crons.list().length;

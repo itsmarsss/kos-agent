@@ -43,6 +43,7 @@ import { mayRead } from "../memory/callers.js";
 import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
 import { MODULES_KEY, parseModuleSettings, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
 import { instantiateBlueprint } from "../modules/blueprint.js";
+import { installModule, originOf, removeModule, updateModule } from "../modules/install.js";
 import { isBuiltinFeature } from "../modules/builtins.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillEnabled } from "../skills/settings.js";
 import { conversationKind } from "./conversations.js";
@@ -557,7 +558,12 @@ export async function handleApiRequest(
   }
 
   if (method === "GET" && path === "/api/modules") {
-    return ok(modulesReport(kernel));
+    const report = modulesReport(kernel);
+    // Where each came from, for the ones that came from a repository.
+    const withOrigin = await Promise.all(
+      report.modules.map(async (m) => ({ ...m, origin: await originOf(kernel.workspace.resolve(String(m["dir"]))) })),
+    );
+    return ok({ ...report, modules: withOrigin });
   }
 
   /*
@@ -565,6 +571,46 @@ export async function handleApiRequest(
    * tools; off takes them back. The reply says whether it came up, so the
    * page can show "not connected" instead of a lying toggle.
    */
+  /** A module from a git URL or a folder, switched off until the owner says. */
+  if (method === "POST" && path === "/api/modules/install") {
+    const source = typeof body.source === "string" ? body.source.trim() : "";
+    if (!source) return { status: 400, body: { error: "source required: a git URL or a folder" } };
+    try {
+      const made = await installModule(kernel.workspace, source, typeof body.name === "string" && body.name.trim() ? { name: body.name.trim() } : {});
+      return ok({ installed: made.name, dir: made.dir, origin: made.origin });
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  if (method === "POST" && path === "/api/modules/update") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (!name) return { status: 400, body: { error: "name required" } };
+    try {
+      const made = await updateModule(kernel.workspace, name);
+      // A running server serves the old code until it is brought up again.
+      const status = await kernel.mcp.reload();
+      return ok({ updated: made.name, origin: made.origin, ...(status[name] ?? {}) });
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  if (method === "POST" && path === "/api/modules/remove") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (!name) return { status: 400, body: { error: "name required" } };
+    try {
+      // Off first, so its server is down and its tools are gone before the code is.
+      kernel.settings.set(MODULES_KEY, withModuleEnabled(parseModuleSettings(kernel.settings.get(MODULES_KEY)), name, false));
+      await kernel.mcp.reload();
+      removeModule(kernel.workspace, name);
+      kernel.bus.emit({ kind: "module:disabled", name });
+      return ok({ removed: name });
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
   /** A new instance of a blueprint, from Settings. Additive, so no approval. */
   if (method === "POST" && path === "/api/modules/instantiate") {
     const name = typeof body.module === "string" ? body.module.trim() : "";
