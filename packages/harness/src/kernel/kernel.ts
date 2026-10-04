@@ -764,39 +764,15 @@ export class Kernel {
                 costUSD: used.costUSD,
               });
             }
-            this.runs.finish(runId, "ok");
             return reply;
           };
 
           // Same bargain as the other engine: the call stays suspended inside
           // the turn, and the caller is answered rather than held for as long
           // as the owner takes to decide.
-          const first = await Promise.race([
-            sdkRun.then((r) => ({ kind: "done" as const, sdk: r })),
-            waiting.then((action) => ({ kind: "waiting" as const, action })),
-          ]);
-
-          if (first.kind === "waiting") {
-            suspended = true;
-            void sdkRun
-              .then((r) => (this.closed ? "" : settleSdk(r)))
-              .catch((err: unknown) => {
-                if (this.closed) return;
-                this.runs.finish(
-                  runId,
-                  "error",
-                  err instanceof Error ? err.message : String(err),
-                );
-              })
-              .finally(() => this.endTurn(sessionId));
-            return {
-              reply: `Waiting on you: ${first.action.tool} needs approval (#${first.action.id}). I will carry on as soon as you decide.`,
-              halted: false,
-              sessionId,
-            };
-          }
-
-          return { reply: settleSdk(first.sdk), halted: false, sessionId };
+          const outcome = await this.raceWithApproval(sdkRun, waiting, (r) => settleSdk(r), { sessionId, runId });
+          suspended = outcome.suspended;
+          return { reply: outcome.reply, halted: false, sessionId };
         }
 
         const running = runAgent(this.inference, tools, input, {
@@ -828,57 +804,14 @@ export class Kernel {
          * as the owner takes to decide, so the first suspension is answered
          * immediately and the rest of the turn carries on behind it.
          */
-        const outcome = await Promise.race([
-          running.then((r) => ({ kind: "done" as const, result: r })),
-          waiting.then((action) => ({ kind: "waiting" as const, action })),
-        ]);
-
-        if (outcome.kind === "waiting") {
-          suspended = true;
-          // Finishes on its own, once the decision comes. The transcript, the
-          // memory write and the run log all happen there, exactly as they
-          // would have here.
-          void running
-            .then((r) =>
-              this.closed
-                ? ""
-                : this.settleTurn(r, {
-                sessionId,
-                userId,
-                text,
-                ...(opts.origin ? { origin: opts.origin } : {}),
-                    runId,
-                    useSession,
-                  }),
-            )
-            .catch((err: unknown) => {
-              if (this.closed) return;
-              this.runs.finish(
-                runId,
-                "error",
-                err instanceof Error ? err.message : String(err),
-              );
-            })
-            .finally(() => this.endTurn(sessionId));
-          return {
-            reply: `Waiting on you: ${outcome.action.tool} needs approval (#${outcome.action.id}). I will carry on as soon as you decide.`,
-            halted: false,
-            sessionId,
-          };
-        }
-
-        const result = outcome.result;
-
-        const reply = await this.settleTurn(result, {
-          sessionId,
-          userId,
-          text,
-          ...(opts.origin ? { origin: opts.origin } : {}),
-          runId,
-          useSession,
-        });
-        this.runs.finish(runId, "ok");
-        return { reply, halted: false, sessionId };
+        const outcome = await this.raceWithApproval(
+          running,
+          waiting,
+          (r) => this.settleTurn(r, { sessionId, userId, text, ...(opts.origin ? { origin: opts.origin } : {}), runId, useSession }),
+          { sessionId, runId },
+        );
+        suspended = outcome.suspended;
+        return { reply: outcome.reply, halted: false, sessionId };
       } catch (err) {
         this.runs.finish(
           runId,
@@ -911,6 +844,48 @@ export class Kernel {
    * Open only for the length of that turn: an interaction is good for
    * minutes, and a card sent into a stale one is a card nobody sees.
    */
+  /**
+   * One lifecycle for both engines.
+   *
+   * Run until the engine is done, or until a tool needs the owner. In the
+   * second case the turn answers now with what it is waiting on, and
+   * settles itself in the background when the decision lands: the same
+   * settle, the same run log, the same end of turn, whichever engine ran.
+   * The two engines used to carry this race each; a change to one was a
+   * change the other did not get.
+   */
+  private async raceWithApproval<T>(
+    run: Promise<T>,
+    waiting: Promise<PendingAction>,
+    settle: (result: T) => Promise<string> | string,
+    ctx: { sessionId: string; runId: number },
+  ): Promise<{ reply: string; suspended: boolean }> {
+    const first = await Promise.race([
+      run.then((result) => ({ kind: "done" as const, result })),
+      waiting.then((action) => ({ kind: "waiting" as const, action })),
+    ]);
+    if (first.kind === "waiting") {
+      void run
+        .then(async (result) => {
+          if (this.closed) return;
+          await settle(result);
+          this.runs.finish(ctx.runId, "ok");
+        })
+        .catch((err: unknown) => {
+          if (this.closed) return;
+          this.runs.finish(ctx.runId, "error", err instanceof Error ? err.message : String(err));
+        })
+        .finally(() => this.endTurn(ctx.sessionId));
+      return {
+        reply: `Waiting on you: ${first.action.tool} needs approval (#${first.action.id}). I will carry on as soon as you decide.`,
+        suspended: true,
+      };
+    }
+    const reply = await settle(first.result);
+    this.runs.finish(ctx.runId, "ok");
+    return { reply, suspended: false };
+  }
+
   private readonly replySurfaces = new Map<
     string,
     (msg: { text: string; card?: MessageCard; buttons?: MessageButton[] }) => Promise<void>
