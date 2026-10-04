@@ -41,7 +41,7 @@ describe("memory tools: reading the log and citing it", () => {
     watermark = 0;
     where = "cron:9";
     reviewQueue = new ReviewQueue(ws.db);
-    sessions = new SessionStore(ws.db, { autoTrim: false });
+    sessions = new SessionStore(ws.db, { autoTrim: false, maxChars: 1250 });
     busy = [];
     registry = new ToolRegistry();
     await createMemoryModule({
@@ -137,10 +137,10 @@ describe("memory tools: reading the log and citing it", () => {
       events.append({ userId: "owner", role: "owner", text: `question ${i}`, conversationId: "chat:long" });
       events.append({ userId: "owner", role: "agent", text: `answer ${i}`, conversationId: "chat:long" });
     }
-    const threads = (await call("memory.threads", { minChars: 500 })).json!;
+    const threads = (await call("memory.threads")).json!;
     expect((threads["threads"] as { id: string; messages: number }[]).map((t) => [t.id, t.messages])).toEqual([["chat:long", 16]]);
     busy = ["chat:long"];
-    expect((await call("memory.threads", { minChars: 500 })).json!["threads"]).toEqual([]);
+    expect((await call("memory.threads")).json!["threads"]).toEqual([]);
     busy = [];
     const older = (await call("memory.thread", { id: "chat:long" })).json!;
     expect(older).toMatchObject({ covering: 4, keeping: 4 });

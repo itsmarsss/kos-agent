@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
-import { Kernel, SecretsRegistry, createDefaultRouter, primarySessionId, renderEvalReport, runMemoryEval } from "@kos/harness";
+import { Kernel, SecretsRegistry, createDefaultRouter, primarySessionId, renderEvalReport, renderJobEvalReport, runDreamEval, runMemoryEval, runObserveEval } from "@kos/harness";
 
 import { KosClient, probeDaemon } from "@kos/client";
 import { OFFLINE_COMMANDS, parseArgs, runCommand, statusLine } from "./commands.js";
@@ -431,14 +431,20 @@ async function main(): Promise<void> {
   // kos eval memory: run the extractor over the golden set with the real
   // cheap model and print the numbers. Spends a little; prints what it did.
   if (command === "eval") {
+    const inference = createDefaultRouter(SecretsRegistry.fromEnv());
+    if (rest[0] === "dream" || rest[0] === "observe") {
+      const report = rest[0] === "dream" ? await runDreamEval(inference) : await runObserveEval(inference);
+      console.log(flags.json === true ? JSON.stringify(report, null, 2) : renderJobEvalReport(report));
+      return;
+    }
     if (rest[0] !== "memory") {
-      console.error("usage: kos eval memory [--json]");
+      console.error("usage: kos eval memory [--agent] | dream | observe  [--json]");
       process.exitCode = 1;
       return;
     }
     // --agent runs the memory job itself, a turn per case, on the job's route.
     const reader = flags.agent === true ? "agent" : "extractor";
-    const report = await runMemoryEval(createDefaultRouter(SecretsRegistry.fromEnv()), undefined, { reader });
+    const report = await runMemoryEval(inference, undefined, { reader });
     console.log(flags.json === true ? JSON.stringify(report, null, 2) : renderEvalReport(report, reader));
     return;
   }

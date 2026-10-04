@@ -519,13 +519,15 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       name: "memory.threads",
       description:
         "Conversations whose transcript has grown past the budget and are not busy right now: candidates for an observation. For the observe job.",
-      inputSchema: { type: "object", properties: { minChars: { type: "number", description: "transcript size that counts as long; default 40% of the history budget" } } },
+      // No knobs: a reader that could pass a number could talk itself out of
+      // the work. Long is 40% of the history budget, decided here.
+      inputSchema: { type: "object", properties: {} },
     },
-    (input) => {
+    () => {
       const t = deps.threads;
       if (!t) throw new Error("memory.threads needs the conversations");
       const budget = t.sessions.retention().maxChars;
-      const minChars = typeof input.minChars === "number" && input.minChars > 0 ? input.minChars : Math.round((budget > 0 ? budget : 60_000) * 0.4);
+      const minChars = Math.round((budget > 0 ? budget : 60_000) * 0.4);
       const busy = new Set(t.busy());
       const out = [];
       for (const c of t.conversations.list(ownerId)) {
