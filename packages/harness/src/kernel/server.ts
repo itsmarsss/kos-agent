@@ -1555,6 +1555,25 @@ export async function handleApiRequest(
     return ok({ key, removed: gone.removed, redactedEvents: gone.evidence.length });
   }
 
+  /** What the extractor has not read yet, and whether it is on. */
+  if (method === "GET" && path === "/api/memory/extract") {
+    const how = kernel.behaviour();
+    return ok({
+      enabled: how.memoryExtraction,
+      everyChars: how.extractEveryChars,
+      pending: kernel.extractor.pending(),
+      lastEventId: kernel.extractor.state().lastEventId,
+      running: kernel.extractor.busy,
+    });
+  }
+
+  /** Read everything new now, whatever the toggle says: the owner asked. */
+  if (method === "POST" && path === "/api/memory/extract") {
+    if (kernel.extractor.busy) return { status: 409, body: { error: "the extractor is already running" } };
+    const report = await kernel.extractMemory();
+    return ok({ ...report, claims: report.claims.map((c) => ({ key: c.key, value: c.value, scope: c.scope, trust: c.trust, replaced: c.supersedes !== null })) });
+  }
+
   /** Where a belief came from, and what it replaced. */
   if (method === "GET" && path === "/api/memory/trace") {
     const key = queryParams(req.url).get("key") ?? "";

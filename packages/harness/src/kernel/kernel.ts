@@ -9,6 +9,7 @@ import { CronStore } from "../cron/store.js";
 import type { McpModule } from "../tools/mcp.js";
 import { bootKernel } from "./boot.js";
 import { CronService, type CronFireResult } from "./cronservice.js";
+import { MemoryExtractor, type ExtractionReport } from "../memory/extractor.js";
 import type { CronJob } from "../cron/types.js";
 import {
   FactsStore,
@@ -206,6 +207,8 @@ export class Kernel {
   private readonly sessionless: boolean;
   /** Scheduled jobs: when they run and what a run is on the record. */
   private readonly cron: CronService;
+  /** Reads new conversation in the background and proposes claims. Off until the owner turns it on. */
+  readonly extractor: MemoryExtractor;
   private heartbeat?: Heartbeat;
   /**
    * Scope tags accumulated per session. Inference reads only the latest
@@ -349,6 +352,13 @@ export class Kernel {
       report: (key, label, ok, error) => this.caretaker.report(key, label, ok, error),
       backup: args.backup,
       run: (job) => this.runScheduledJob(job),
+    });
+    this.extractor = new MemoryExtractor({
+      ownerId: args.profile.ownerId,
+      events: args.events,
+      facts: args.facts,
+      inference: args.inference,
+      settings: args.settings,
     });
     this.afterTurn = new AfterTurn({
       ownerId: args.profile.ownerId,
@@ -1529,6 +1539,7 @@ export class Kernel {
     // reply, and so failures surface in the runs log instead of vanishing.
     if (origin !== "system") {
       await this.afterTurn.remember(userId, text, reply, sessionId);
+      this.maybeExtract();
     }
 
     this.runs.finish(runId, "ok");
@@ -1663,6 +1674,33 @@ export class Kernel {
    * time rather than cached: a change in settings should take effect on the
    * next turn, not the next restart.
    */
+  /**
+   * Let the extractor read, when the owner has it on and enough has been
+   * said. Not awaited: a reply is already written, and a background read
+   * is nobody's turn. Recorded as a run so what it did is in History.
+   */
+  private maybeExtract(): void {
+    const how = this.behaviour();
+    if (!how.memoryExtraction || this.extractor.busy || this.closed) return;
+    if (this.extractor.pending().chars < how.extractEveryChars) return;
+    void this.extractMemory().catch(() => undefined);
+  }
+
+  /** Run the extractor now over everything it has not read, and say what it did. */
+  async extractMemory(): Promise<ExtractionReport> {
+    return this.queue.enqueue(async () => {
+      const runId = this.runs.start("memory.extract");
+      try {
+        const report = await this.extractor.run();
+        this.runs.finish(runId, "ok");
+        return report;
+      } catch (err) {
+        this.runs.finish(runId, "error", err instanceof Error ? err.message : String(err));
+        throw err;
+      }
+    }, "memory");
+  }
+
   behaviour(): Behaviour {
     return parseBehaviour(this.settings.get(BEHAVIOUR_KEY));
   }
