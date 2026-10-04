@@ -202,3 +202,54 @@ export async function probeDaemon(baseUrl: string, token?: string): Promise<bool
     return false;
   }
 }
+
+/**
+ * What another program sees of KOS's memory: its own scope, and the
+ * owner's global claims within the tags it was granted. Made with a
+ * caller token from Settings, Callers; the dashboard token opens nothing
+ * here and this token opens nothing there.
+ */
+export class CallerClient {
+  private readonly baseUrl: string;
+
+  constructor(private readonly options: { baseUrl: string; token: string }) {
+    this.baseUrl = options.baseUrl.replace(/\/$/, "");
+  }
+
+  private async send<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+    const res = await fetch(`${this.baseUrl}/api/caller/${path}`, {
+      method,
+      headers: { authorization: `Bearer ${this.options.token}`, ...(body !== undefined ? { "content-type": "application/json" } : {}) },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+    if (!res.ok) throw new Error(`/api/caller/${path}: ${res.status} ${await res.text()}`);
+    return (await res.json()) as T;
+  }
+
+  /** Claims you may see, matching the words when given. */
+  recall(query?: string, limit?: number): Promise<{ caller: string; scope: string; claims: Fact[] }> {
+    const q = new URLSearchParams();
+    if (query) q.set("query", query);
+    if (limit) q.set("limit", String(limit));
+    const qs = q.toString();
+    return this.send("GET", `memory${qs ? `?${qs}` : ""}`);
+  }
+
+  /** Into your own scope, or global if your grant allows it. */
+  remember(key: string, value: string, opts: { kind?: "fact" | "preference"; tags?: string[]; scope?: "global" } = {}): Promise<Fact> {
+    return this.send("POST", "memory", { key, value, ...opts });
+  }
+
+  forget(key: string): Promise<{ key: string; removed: boolean }> {
+    return this.send("POST", "memory/delete", { key });
+  }
+
+  trace(key: string): Promise<{ key: string; claim: Fact; before: Fact[] }> {
+    return this.send("GET", `memory/trace?key=${encodeURIComponent(key)}`);
+  }
+
+  /** Your conversation, into KOS's log as the outside world's words: searchable, never treated as the owner's own. */
+  ingest(events: { role: "owner" | "agent"; text: string; conversation?: string }[]): Promise<{ ingested: number }> {
+    return this.send("POST", "ingest", { events });
+  }
+}

@@ -19,6 +19,7 @@ import {
   uninstallService,
 } from "./service.js";
 import { runHost, waitForPortFree } from "./host.js";
+import { serveMemoryMcp } from "./memorymcp.js";
 import { runRemoteCommand } from "./remote.js";
 import {
   clearDaemonState,
@@ -410,6 +411,20 @@ async function main(): Promise<void> {
 
   if (command === "doctor") {
     console.log(await runDoctor({ workspace: rootDir }));
+    return;
+  }
+
+  // kos memory-mcp: KOS memory as an MCP server for another agent, within a
+  // caller's grant. Stdio, so it is wired into the other agent's config.
+  if (command === "memory-mcp") {
+    const token = typeof flags.token === "string" ? flags.token : process.env.KOS_CALLER_TOKEN ?? "";
+    if (!token) {
+      console.error("usage: kos memory-mcp --token kosc_... [--url http://127.0.0.1:4317]  (or KOS_CALLER_TOKEN)");
+      process.exitCode = 1;
+      return;
+    }
+    const url = typeof flags.url === "string" ? flags.url : `http://${listenHost(flags.host)}:${listenPort(flags.port)}`;
+    await serveMemoryMcp({ baseUrl: url, token });
     return;
   }
 

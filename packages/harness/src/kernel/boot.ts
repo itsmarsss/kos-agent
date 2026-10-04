@@ -57,6 +57,7 @@ import { createMemoryModule } from "../tools/memory.js";
 import { EXTRACTOR_KEY } from "../memory/extractor.js";
 import { ensureDefaultDreamCron, ensureDefaultMemoryCron, ensureDefaultObserveCron } from "../memory/job.js";
 import { ObservationStore } from "../memory/observations.js";
+import { CallerStore } from "../memory/callers.js";
 import { ReviewQueue } from "../memory/review.js";
 import { createCronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
@@ -220,6 +221,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const facts = new FactsStore(workspace.db);
   const review = new ReviewQueue(workspace.db);
   const observations = new ObservationStore(workspace.db);
+  const callers = new CallerStore(workspace.db);
   const embedder = pickEmbedder(secrets);
   const events = new EventLog(workspace.db, embedder.dimension, Date.now, embedder.name);
   const memoryRetriever = new MemoryRetriever(facts, events, embedder);
@@ -565,6 +567,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     loader,
     mcp,
     review,
+    callers,
     permissions,
     workspace,
     secrets,

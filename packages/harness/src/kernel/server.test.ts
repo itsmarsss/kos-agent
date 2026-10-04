@@ -712,6 +712,66 @@ describe("handleApiRequest", () => {
     expect(kernel.runs.recent().some((r) => r.kind === "memory.extract" && r.status === "ok")).toBe(true);
   });
 
+  describe("a caller with a grant", () => {
+    const asCaller = (token: string, method: string, sub: string, body?: unknown) =>
+      handleApiRequest(kernel, { method, path: `/api/caller/${sub.split("?")[0]}`, url: `/api/caller/${sub}`, headers: { authorization: `Bearer ${token}` }, ...(body !== undefined ? { body } : {}) }, { token: "dash" });
+
+    it("sees its own scope and only the global tags it was granted", async () => {
+      kernel.facts.upsert("owner", { key: "resume_target", value: "staff roles", kind: "fact", tags: ["career"] });
+      kernel.facts.upsert("owner", { key: "dentist", value: "Dr Lee", kind: "fact", tags: ["health"] });
+      kernel.facts.upsert("owner", { key: "pantry_db", value: "sqlite", kind: "fact", scope: "project:pantry" });
+      const { token } = kernel.callers.create("resume-ops", { readTags: ["career"] });
+      const seen = await asCaller(token, "GET", "memory");
+      expect(seen.status).toBe(200);
+      expect(((seen.body as { claims: { key: string }[] }).claims).map((c) => c.key)).toEqual(["resume_target"]);
+      // Its own writes land in its scope, marked external, and come back to it; the owner's view keeps them apart.
+      const wrote = await asCaller(token, "POST", "memory", { key: "last_posting", value: "Acme staff engineer", tags: ["career"] });
+      expect(wrote.body).toMatchObject({ scope: "caller:resume-ops", trust: "external" });
+      expect(((await asCaller(token, "GET", "memory")).body as { claims: { key: string }[] }).claims.map((c) => c.key).sort()).toEqual(["last_posting", "resume_target"]);
+      // The owner sees it too, in the caller's scope, never as a global claim.
+      expect(kernel.facts.get("owner", "last_posting", "global")).toBeUndefined();
+      expect(kernel.facts.get("owner", "last_posting")?.scope).toBe("caller:resume-ops");
+      // No grant to write global, and no way to forget the owner's claims.
+      expect((await asCaller(token, "POST", "memory", { key: "x", value: "y", scope: "global" })).status).toBe(403);
+      await asCaller(token, "POST", "memory/delete", { key: "resume_target" });
+      expect(kernel.facts.get("owner", "resume_target")?.value).toBe("staff roles");
+      expect((await asCaller(token, "GET", "memory/trace?key=dentist")).status).toBe(404);
+      expect((await asCaller(token, "GET", "memory/trace?key=resume_target")).status).toBe(200);
+    });
+
+    it("takes only its own token, and loses it on revoke", async () => {
+      const { caller, token } = kernel.callers.create("tool");
+      expect((await asCaller("dash", "GET", "memory")).status).toBe(401);
+      expect((await asCaller(token, "GET", "memory")).status).toBe(200);
+      // The caller token opens nothing else.
+      const other = await handleApiRequest(kernel, { method: "GET", path: "/api/memory", headers: { authorization: `Bearer ${token}` } }, { token: "dash" });
+      expect(other.status).toBe(401);
+      kernel.callers.revoke(caller.id);
+      expect((await asCaller(token, "GET", "memory")).status).toBe(401);
+    });
+
+    it("ingests a caller's conversation as the outside world's words, out of the memory job's reach", async () => {
+      const { token } = kernel.callers.create("notes");
+      const res = await asCaller(token, "POST", "ingest", { events: [{ role: "owner", text: "we chose the blue theme", conversation: "c7" }, { role: "agent", text: "noted" }, { text: "" }] });
+      expect(res.body).toEqual({ ingested: 2 });
+      const hit = kernel.events.search({ userId: "owner", query: "blue theme" })[0]!;
+      expect(hit).toMatchObject({ caller: "notes", trust: "external", conversationId: "caller:notes:c7" });
+      expect(kernel.events.since("owner", 0).some((e) => e.caller === "notes")).toBe(false);
+    });
+
+    it("lets the owner make, list and revoke callers, showing the token once", async () => {
+      const made = await handleApiRequest(kernel, { method: "POST", path: "/api/callers", body: { name: "resume-ops", readTags: ["career"], writeGlobal: true } });
+      expect(made.status).toBe(200);
+      expect((made.body as { token: string }).token).toMatch(/^kosc_/);
+      const list = await handleApiRequest(kernel, { method: "GET", path: "/api/callers" });
+      expect((list.body as { callers: { name: string; writeGlobal: boolean }[] }).callers).toEqual([expect.objectContaining({ name: "resume-ops", writeGlobal: true })]);
+      expect(JSON.stringify(list.body)).not.toContain("kosc_");
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/callers", body: { name: "resume-ops" } })).status).toBe(400);
+      const id = (made.body as { caller: { id: number } }).caller.id;
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/callers/revoke", body: { id } })).body).toEqual({ id, revoked: true });
+    });
+  });
+
   it("still honours an explicit limit", async () => {
     for (let i = 0; i < 5; i++) {
       kernel.facts.upsert("owner", { key: `k${i}`, value: `v${i}`, kind: "fact" });

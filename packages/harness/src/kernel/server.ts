@@ -37,6 +37,8 @@ import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/se
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
 import { readSkills } from "../skills/manifest.js";
 import { listPages, readPage } from "../memory/pages.js";
+import { mayRead } from "../memory/callers.js";
+import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
 import { MODULES_KEY, parseModuleSettings, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillEnabled } from "../skills/settings.js";
 import { conversationKind } from "./conversations.js";
@@ -127,6 +129,7 @@ const WRITE_CAPABLE = new Set(["list", "card", "form"]);
  * queries.
  */
 const HOOKS_PREFIX = "/api/hooks/";
+const CALLER_PREFIX = "/api/caller/";
 
 export async function handleApiRequest(
   kernel: Kernel,
@@ -167,6 +170,82 @@ export async function handleApiRequest(
       console.error(`hook ${job.name}: ${err instanceof Error ? err.message : String(err)}`);
     });
     return { status: 202, body: { accepted: job.name } };
+  }
+
+  /*
+   * A caller: another program with its own token and its own scope.
+   *
+   * Ahead of the dashboard token, like a hook: the token opens these
+   * routes and nothing else. What it reads of the owner's memory is the
+   * global claims whose tags it was granted, and its own scope; what it
+   * writes lands in its own scope unless the grant says global.
+   */
+  if (path.startsWith(CALLER_PREFIX)) {
+    const bearer = bearerOf(req);
+    const caller = bearer ? kernel.callers.authenticate(bearer) : undefined;
+    if (!caller) return { status: 401, body: { error: "unauthorized" } };
+    const owner = kernel.profile.ownerId;
+    const mine = callerScope(caller.name);
+    const visible = (f: Fact): boolean => f.scope === mine || (f.scope === GLOBAL_SCOPE && mayRead(caller, f.tags));
+    const sub = path.slice(CALLER_PREFIX.length);
+
+    if (method === "GET" && sub === "memory") {
+      const query = queryParams(req.url).get("query") ?? "";
+      const limit = clampLimit(queryParams(req.url).get("limit"), 50);
+      const claims = (query ? kernel.facts.search(owner, query, 200, { scopes: [GLOBAL_SCOPE, mine] }) : kernel.facts.all(owner, [GLOBAL_SCOPE, mine]))
+        .filter(visible)
+        .slice(0, limit);
+      return ok({ caller: caller.name, scope: mine, claims });
+    }
+    if (method === "POST" && sub === "memory") {
+      const key = typeof body.key === "string" ? body.key.trim() : "";
+      const value = typeof body.value === "string" ? body.value : "";
+      if (!key || value === "") return { status: 400, body: { error: "key and value required" } };
+      const wantsGlobal = body.scope === "global";
+      if (wantsGlobal && !caller.writeGlobal) return { status: 403, body: { error: "this caller may not write global memory" } };
+      const tags = Array.isArray(body.tags) ? (body.tags as unknown[]).filter((t): t is string => typeof t === "string") : undefined;
+      const written = kernel.facts.upsert(
+        owner,
+        { key, value, kind: body.kind === "preference" ? "preference" : "fact", scope: wantsGlobal ? GLOBAL_SCOPE : mine, trust: "external", ...(tags ? { tags } : {}) },
+        `caller:${caller.name}`,
+      );
+      return ok(written);
+    }
+    if (method === "POST" && sub === "memory/delete") {
+      const key = typeof body.key === "string" ? body.key.trim() : "";
+      if (!key) return { status: 400, body: { error: "key required" } };
+      // Only its own scope: a caller cannot forget what the owner knows.
+      const gone = kernel.facts.delete(owner, key, mine);
+      return ok({ key, removed: gone.removed });
+    }
+    if (method === "GET" && sub === "memory/trace") {
+      const key = queryParams(req.url).get("key") ?? "";
+      const claim = kernel.facts.get(owner, key, mine) ?? kernel.facts.get(owner, key, GLOBAL_SCOPE);
+      if (!claim || !visible(claim)) return { status: 404, body: { error: "not known to you" } };
+      const trace = kernel.facts.trace(claim.id)!;
+      return ok({ key, claim, before: trace.before.filter(visible), revisions: trace.revisions });
+    }
+    if (method === "POST" && sub === "ingest") {
+      // The caller's own conversation, into the log, as the outside world's words.
+      const events = Array.isArray(body.events) ? (body.events as unknown[]) : [];
+      const ids: number[] = [];
+      for (const e of events.slice(0, 200)) {
+        if (typeof e !== "object" || e === null) continue;
+        const ev = e as { role?: unknown; text?: unknown; conversation?: unknown };
+        const text = typeof ev.text === "string" ? ev.text.trim().slice(0, 4000) : "";
+        if (!text) continue;
+        ids.push(kernel.events.append({
+          userId: owner,
+          role: ev.role === "agent" ? "agent" : "owner",
+          text,
+          caller: caller.name,
+          trust: "external",
+          conversationId: typeof ev.conversation === "string" ? `caller:${caller.name}:${ev.conversation}` : null,
+        }));
+      }
+      return ok({ ingested: ids.length });
+    }
+    return { status: 404, body: { error: "not found" } };
   }
 
   // A configured token guards every route. Reads leak workspace state just as
@@ -1585,6 +1664,32 @@ export async function handleApiRequest(
     return ok({ ...report, claims: report.claims.map((c) => ({ key: c.key, value: c.value, scope: c.scope, trust: c.trust, replaced: c.supersedes !== null })) });
   }
 
+  /** Callers: the owner's grants to other programs. The token is in the create reply and nowhere else. */
+  if (method === "GET" && path === "/api/callers") {
+    return ok({ callers: kernel.callers.list() });
+  }
+  if (method === "POST" && path === "/api/callers") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const readTags = Array.isArray(body.readTags) ? (body.readTags as unknown[]).filter((t): t is string => typeof t === "string") : [];
+    try {
+      const made = kernel.callers.create(name, { readTags, writeGlobal: body.writeGlobal === true });
+      return ok(made);
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+  if (method === "POST" && path === "/api/callers/update") {
+    const id = Number(body.id);
+    const readTags = Array.isArray(body.readTags) ? (body.readTags as unknown[]).filter((t): t is string => typeof t === "string") : undefined;
+    const updated = kernel.callers.update(id, { ...(readTags ? { readTags } : {}), ...(typeof body.writeGlobal === "boolean" ? { writeGlobal: body.writeGlobal } : {}) });
+    if (!updated) return { status: 404, body: { error: "no such caller" } };
+    return ok(updated);
+  }
+  if (method === "POST" && path === "/api/callers/revoke") {
+    const id = Number(body.id);
+    return ok({ id, revoked: kernel.callers.revoke(id) });
+  }
+
   /** What the dream job left for the owner: open items first, then the recent resolved ones. */
   if (method === "GET" && path === "/api/memory/review") {
     return ok({ pending: kernel.review.pending(), recent: kernel.review.recent(20), pages: listPages(kernel.workspace) });
@@ -1673,6 +1778,12 @@ function maskedSecrets(): Record<
     };
   }
   return out;
+}
+
+/** The bearer a request carries, if any. */
+function bearerOf(req: ApiRequest): string | undefined {
+  const auth = header(req.headers ?? {}, "authorization");
+  return auth?.startsWith("Bearer ") ? auth.slice(7) : undefined;
 }
 
 function authorized(req: ApiRequest, token: string): boolean {

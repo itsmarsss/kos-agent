@@ -95,6 +95,16 @@ export interface ReviewItem {
   resolution: string | null;
 }
 
+/** Another program that shares memory, within a grant. */
+export interface CallerInfo {
+  id: number;
+  name: string;
+  readTags: string[];
+  writeGlobal: boolean;
+  createdAt: number;
+  lastSeenAt: number | null;
+}
+
 /** A decision the owner made and kept. */
 export interface PermissionRule {
   id: number;
@@ -764,6 +774,10 @@ export const api = {
       id,
       ...(remember ? { remember: true } : {}),
     }),
+  callers: () => get<{ callers: CallerInfo[] }>("/api/callers"),
+  createCaller: (name: string, readTags: string[], writeGlobal: boolean) =>
+    post<{ caller: CallerInfo; token: string }>("/api/callers", { name, readTags, writeGlobal }),
+  revokeCaller: (id: number) => post<{ id: number; revoked: boolean }>("/api/callers/revoke", { id }),
   permissions: () => get<{ rules: PermissionRule[] }>("/api/permissions"),
   revokePermission: (id: number) => post<{ id: number; revoked: boolean }>("/api/permissions/revoke", { id }),
   deny: (id: number) =>

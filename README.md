@@ -184,6 +184,27 @@ KOS running it. Switched on, it runs from its own folder in the jail, its
 tools register as `mcp.<module>.<tool>`, floored as the manifest says and
 risky where it says nothing. Off takes the tools back, no restart.
 
+### Sharing memory with other programs
+
+A caller is another program with its own token and its own corner of
+memory, made under Settings, Callers. It reads the owner's global claims
+only under the tags it was granted, writes global only if the grant says
+so, and never sees a project or another caller. Two ways in:
+
+```ts
+import { CallerClient } from "@kos/client";
+const mem = new CallerClient({ baseUrl: "http://127.0.0.1:4317", token: process.env.KOS_CALLER_TOKEN });
+await mem.remember("last_posting", "Acme, staff engineer", { tags: ["career"] });
+const { claims } = await mem.recall("resume");
+```
+
+```bash
+claude mcp add kos-memory -- kos memory-mcp --token kosc_...   # or any agent that takes an MCP server
+```
+
+What a caller hands over with `ingest` is kept as the outside world's words:
+searchable, never read as the owner's own by the memory job.
+
 ### Mail
 
 Mail is an external service, so it comes in the same way. An IMAP server

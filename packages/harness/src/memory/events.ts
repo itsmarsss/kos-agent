@@ -227,7 +227,7 @@ export class EventLog {
   since(userId: string, afterId: number, limit = 500): MemoryEvent[] {
     const rows = this.db
       .prepare(
-        `SELECT * FROM memory_log WHERE user_id = ? AND id > ? AND role IN ('owner', 'agent') AND text <> '[forgotten]'
+        `SELECT * FROM memory_log WHERE user_id = ? AND id > ? AND role IN ('owner', 'agent') AND trust IN ('owner', 'agent') AND text <> '[forgotten]'
          ORDER BY id LIMIT ?`,
       )
       .all(userId, afterId, limit) as Row[];
