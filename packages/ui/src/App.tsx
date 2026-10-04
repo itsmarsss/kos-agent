@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   type FailingJob,
@@ -14,17 +14,17 @@ import {
   type RunRecord,
   type Status,
   type Conversation,
+  type InboxData,
 } from "./api.js";
 import { Inspector, type InspectTarget } from "./Inspector.js";
 import { ListPage } from "./ListPage.js";
 import { AnimatePresence, m } from "motion/react";
 
-import { hrefFor, NAV, parseRoute, type Route } from "./routes.js";
+import { hrefFor, parseRoute, type Route } from "./routes.js";
 import { Drawer } from "./Drawer.js";
 import { CronEditor } from "./CronEditor.js";
 import { ease, spring } from "./motion.js";
 import { HistoryPage, type HistoryRow } from "./HistoryPage.js";
-import { useDismiss } from "./useDismiss.js";
 import { HomePage } from "./HomePage.js";
 import { ChatsPage } from "./ChatsPage.js";
 import { FilesPage } from "./FilesPage.js";
@@ -32,6 +32,9 @@ import { AgentsPage } from "./AgentsPage.js";
 import { SettingsPage } from "./SettingsPage.js";
 import { ProjectsPage } from "./ProjectsPage.js";
 import { MemoryPage } from "./MemoryPage.js";
+import { InboxPage } from "./InboxPage.js";
+import { RunsTabs } from "./RunsTabs.js";
+import { Sidebar } from "./Sidebar.js";
 import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { PageRenderer } from "./widgets/PageRenderer.js";
@@ -64,10 +67,8 @@ export function App(): React.ReactElement {
   const [cronFilter, setCronFilter] = useState<"all" | "on" | "off">("all");
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  /** The topbar overflow menu, controlled so it can be dismissed. */
-  const [moreOpen, setMoreOpen] = useState(false);
-  const moreRef = useRef<HTMLDetailsElement>(null);
-  useDismiss(moreRef, moreOpen, () => setMoreOpen(false));
+  /** Everything waiting on the owner, for the Inbox and its badge. */
+  const [inbox, setInbox] = useState<InboxData | null>(null);
   // Where sites are served, so the palette can open one directly.
   const [sitesBase, setSitesBase] = useState<string | null>(null);
   const [agents, setAgents] = useState<BuildRecord[]>([]);
@@ -91,7 +92,7 @@ export function App(): React.ReactElement {
     };
     // One fewer request than this used to make: the failures-only view was a
     // separate fetch, and History filters the rows it already has.
-    const [s, a, p, c, pg, act, mem, r, convos, ag] = await Promise.allSettled([
+    const [s, a, p, c, pg, act, mem, r, convos, ag, ib] = await Promise.allSettled([
       api.status(),
       api.approvals(),
       api.projects(),
@@ -102,8 +103,10 @@ export function App(): React.ReactElement {
       api.runs(200, false),
       api.conversations(),
       api.agents(),
+      api.inbox(),
     ]);
     apply(s, setStatus);
+    apply(ib, setInbox);
     apply(a, setApprovals);
     apply(ag, (v) => setAgents(v.builds));
     apply(p, setProjects);
@@ -458,6 +461,24 @@ export function App(): React.ReactElement {
       {/* The chat route owns the whole window: the shell's scroll padding is
           for pages that scroll, and with it the document ran past the viewport
           so the page moved behind the chat, top bar and all. */}
+      <div className="app">
+      <Sidebar
+        route={route}
+        status={status}
+        inboxCount={inbox ? inbox.approvals.length + inbox.decisions.length + inbox.failures.length : approvals.length}
+        busy={busy}
+        onSearch={() => setPaletteOpen(true)}
+        onRefresh={() => void refresh()}
+        onSnapshot={() => void doSnapshot()}
+        onOpenWorkspace={() => {
+          void api
+            .openWorkspace()
+            .then((r) => flash("ok", `Opened ${r.opened}`))
+            .catch((err: unknown) => flash("err", err instanceof Error ? err.message : String(err)));
+        }}
+        onCopyWorkspace={() => void copyWorkspace()}
+        onToggleKill={() => void toggleKill()}
+      />
       <main className={`ops ${route.name === "chats" ? "ops--full" : ""}`}>
         <AnimatePresence>
           {toast && (
@@ -511,144 +532,7 @@ export function App(): React.ReactElement {
           )}
         </AnimatePresence>
 
-        <header className="topbar">
-          <div className="topbar-left">
-            <a className="brand" href="#/">
-              K<span>-OS</span>
-            </a>
-            <nav className="tabs" aria-label="Primary">
-              {NAV.map((item) => {
-                // A page counts as its project's tab, since that is where it
-                // was opened from and where its back link returns to.
-                const pageOwner =
-                  route.name === "page" &&
-                  [...pagesByProject.values()].some((list) =>
-                    list.some((pg) => pg.id === route.id),
-                  );
-                const active =
-                  route.name === item.route.name ||
-                  (item.route.name === "projects" && pageOwner) ||
-                  (item.route.name === "home" &&
-                    route.name === "page" &&
-                    !pageOwner);
-                return (
-                  <a
-                    key={item.label}
-                    href={hrefFor(item.route)}
-                    className={`tab ${active ? "is-active" : ""}`}
-                  >
-                    {item.label}
-                  </a>
-                );
-              })}
-            </nav>
-          </div>
-          <div className="topbar-right">
-            {busy && <span className="hint">{busy}…</span>}
-            {/* Three states, in the order that matters: stopped, broken,
-                fine. It said "Running" regardless, so a job that had been
-                failing for two days sat behind a green dot. */}
-            <a
-              className={`health ${
-                status?.halted
-                  ? "health--halted"
-                  : (status?.unhealthy ?? 0) > 0
-                    ? "health--bad"
-                    : "health--ok"
-              }`}
-              href="#/"
-              title={
-                (status?.unhealthy ?? 0) > 0
-                  ? "Something is failing. Open home for what and for how long."
-                  : (status?.workspace ?? "")
-              }
-            >
-              <span className="health-dot" />
-              {status?.halted
-                ? "Halted"
-                : (status?.unhealthy ?? 0) > 0
-                  ? `${status?.unhealthy} failing`
-                  : "Running"}
-            </a>
-            {/* Which model is answering. The routing table is picked from
-                whichever API keys are present, so a workspace with one
-                provider gets a different agent from the default; without this
-                the only way to find out was to read the router. */}
-            {status?.routes?.["reasoning"] && (
-              <span
-                className="health health--model"
-                title={`${status.routes["reasoning"].provider} · reasoning turns`}
-              >
-                {status.routes["reasoning"].model}
-              </span>
-            )}
-            <button
-              type="button"
-              className="btn btn--primary"
-              onClick={() => setPaletteOpen(true)}
-            >
-              Search <kbd>⌘K</kbd>
-            </button>
-            {/* A native details stays open when something inside it is
-                clicked, so the menu sat over whatever it had just opened.
-                It also stays open when you click anywhere else on the page,
-                or scroll away from it, which is why this is controlled now
-                rather than left to the element. */}
-            <details
-              className="menu"
-              ref={moreRef}
-              open={moreOpen}
-              onToggle={(e) => setMoreOpen(e.currentTarget.open)}
-              onClick={(e) => {
-                const target = e.target as HTMLElement;
-                if (target.closest("button, a")) setMoreOpen(false);
-              }}
-            >
-              <summary className="btn btn--ghost" aria-label="More">⋯</summary>
-              <div className="menu-body">
-                <button type="button" onClick={() => void refresh()}>Refresh</button>
-                <button type="button" onClick={() => void doSnapshot()}>Snapshot now</button>
-                <button type="button" onClick={() => go({ name: "settings" })}>
-                  Settings
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void api
-                      .openWorkspace()
-                      .then((r) => flash("ok", `Opened ${r.opened}`))
-                      .catch((err: unknown) =>
-                        flash("err", err instanceof Error ? err.message : String(err)),
-                      );
-                  }}
-                >
-                  Open workspace folder
-                </button>
-                <button type="button" onClick={() => void copyWorkspace()}>Copy workspace path</button>
-                <button type="button" className="is-danger" onClick={() => void toggleKill()}>
-                  {status?.halted ? "Resume KOS" : "Halt KOS"}
-                </button>
-              </div>
-            </details>
-          </div>
-        </header>
 
-        <AnimatePresence initial={false}>
-          {approvals.length > 0 && route.name !== "home" && (
-            <m.a
-              className="attention"
-              href="#/"
-              initial={{ opacity: 0, height: 0, marginBottom: 0 }}
-              animate={{ opacity: 1, height: "auto", marginBottom: 16 }}
-              exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-              transition={ease}
-            >
-              <strong>{approvals.length}</strong>
-              {approvals.length === 1 ? " action needs you" : " actions need you"}
-              <span className="attention-go">Review →</span>
-            </m.a>
-          )}
-        </AnimatePresence>
 
         {/* A page arriving. Keyed on the route so switching tabs is a change
             the eye can follow rather than a swap between two frames. Short
@@ -722,6 +606,7 @@ export function App(): React.ReactElement {
           ctx={paletteContext}
         />
       </main>
+      </div>
     </ErrorBoundary>
   );
 
@@ -793,11 +678,13 @@ export function App(): React.ReactElement {
 
   if (route.name === "agents") {
     return shell(
-      <AgentsPage
-        deciding={deciding}
-        onDecide={(id, approved, remember) => void decide(id, approved, remember)}
-        {...(route.id !== undefined ? { openId: route.id } : {})}
-      />,
+      <RunsTabs current="agents">
+        <AgentsPage
+          deciding={deciding}
+          onDecide={(id, approved, remember) => void decide(id, approved, remember)}
+          {...(route.id !== undefined ? { openId: route.id } : {})}
+        />
+      </RunsTabs>,
     );
   }
 
@@ -824,14 +711,16 @@ export function App(): React.ReactElement {
 
   if (route.name === "history") {
     return shell(
-      <HistoryPage
-        tools={activity}
-        runs={runs}
-        crons={crons}
-        onOpenTool={(t) => setInspect({ kind: "tool", data: t })}
-        onOpenRun={(r) => setInspect({ kind: "run", data: r })}
-        onFix={(row) => void startFix(row)}
-      />,
+      <RunsTabs current="history">
+        <HistoryPage
+          tools={activity}
+          runs={runs}
+          crons={crons}
+          onOpenTool={(t) => setInspect({ kind: "tool", data: t })}
+          onOpenRun={(r) => setInspect({ kind: "run", data: r })}
+          onFix={(row) => void startFix(row)}
+        />
+      </RunsTabs>,
     );
   }
 
@@ -842,6 +731,7 @@ export function App(): React.ReactElement {
       return true;
     });
     return shell(
+      <RunsTabs current="crons">
       <ListPage
         title="Schedule"
         subtitle="Jobs KOS runs on its own. Click a row to edit it."
@@ -965,6 +855,22 @@ export function App(): React.ReactElement {
             ),
           },
         ]}
+      />
+      </RunsTabs>,
+    );
+  }
+
+  if (route.name === "inbox") {
+    return shell(
+      <InboxPage
+        data={inbox}
+        deciding={deciding}
+        onDecide={(id, approved, remember) => void decide(id, approved, remember)}
+        onOpenChat={(id) => go({ name: "chats", id })}
+        onDismissFailure={(key) => void dismissFailure(key)}
+        onOpenFailure={(key) => openFailure(key)}
+        onFixFailure={fixFailure}
+        onChanged={() => void refresh()}
       />,
     );
   }

@@ -2,6 +2,7 @@
 
 export type Route =
   | { name: "home" }
+  | { name: "inbox" }
   | { name: "projects" }
   | { name: "crons" }
   | { name: "memory" }
@@ -15,7 +16,11 @@ export type Route =
 export function parseRoute(hash: string): Route {
   const h = hash.replace(/^#/, "") || "/";
   const path = h.startsWith("/") ? h : `/${h}`;
-  if (path === "/" || path === "") return { name: "home" };
+  // Opening KOS is opening a conversation: that is what it is for. The
+  // overview is a page of its own now.
+  if (path === "/" || path === "") return { name: "chats" };
+  if (path === "/home" || path === "/overview") return { name: "home" };
+  if (path === "/inbox") return { name: "inbox" };
   if (path === "/projects") return { name: "projects" };
   if (path === "/chats") return { name: "chats" };
   if (path === "/files") return { name: "files" };
@@ -51,7 +56,7 @@ export function parseRoute(hash: string): Route {
 export function hrefFor(route: Route): string {
   switch (route.name) {
     case "home":
-      return "#/";
+      return "#/home";
     case "page":
       return `#/page/${encodeURIComponent(route.id)}`;
     case "chats":
@@ -68,21 +73,32 @@ export function hrefFor(route: Route): string {
 }
 
 /**
- * Primary nav.
+ * Primary nav, in the sidebar.
  *
- * Home is deliberately absent: it is reached by the wordmark, the way a site's
- * logo has meant home for thirty years, which buys back a slot in a bar that
- * had nine.
+ * Chats first because that is what KOS is for. Inbox second because it is
+ * the one place everything waiting on you is listed. Agents, Schedule and
+ * History are one entry, Runs: they are all what KOS does on its own, and
+ * none of them is a daily visit.
  * Labels name what you would go looking for, not the table the
  * data happens to live in: "Ops / Tools / Runs" told you nothing unless you
  * had read the source.
  */
 export const NAV: Array<{ route: Route; label: string }> = [
   { route: { name: "chats" }, label: "Chats" },
-  { route: { name: "files" }, label: "Files" },
+  { route: { name: "inbox" }, label: "Inbox" },
+  { route: { name: "home" }, label: "Overview" },
   { route: { name: "projects" }, label: "Projects" },
-  { route: { name: "agents" }, label: "Agents" },
-  { route: { name: "crons" }, label: "Schedule" },
+  { route: { name: "files" }, label: "Files" },
   { route: { name: "memory" }, label: "Memory" },
-  { route: { name: "history" }, label: "History" },
+  { route: { name: "history" }, label: "Runs" },
 ];
+
+/** The Runs entry covers three routes; this says which. */
+export const RUNS_ROUTES: ReadonlySet<Route["name"]> = new Set(["history", "crons", "agents"]);
+
+/** Whether a nav entry is the one the current route belongs to. */
+export function navActive(item: Route, route: Route): boolean {
+  if (item.name === "history") return RUNS_ROUTES.has(route.name);
+  if (item.name === "projects") return route.name === "projects" || route.name === "page";
+  return item.name === route.name;
+}

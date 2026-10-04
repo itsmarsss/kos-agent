@@ -158,16 +158,24 @@ export function buildActions(ctx: PaletteContext): Action[] {
     },
   ];
 
-  // Home is not in the nav any more, it is behind the wordmark. It is still a
-  // place you can go, so the palette still offers it: a page reachable by
-  // exactly one unlabelled click is a page people do not find.
-  actions.push({
-    id: "go-Home",
-    label: "Go to Home",
-    group: "Go to",
-    keywords: "dashboard start overview panels",
-    run: () => ctx.go({ name: "home" }),
-  });
+  // Agents and Schedule sit under Runs in the nav; the palette still names
+  // them, since "go to schedule" is what someone will type.
+  actions.push(
+    {
+      id: "go-Agents",
+      label: "Go to Agents",
+      group: "Go to",
+      keywords: "agents builds coding sub-agents runs",
+      run: () => ctx.go({ name: "agents" }),
+    },
+    {
+      id: "go-Schedule",
+      label: "Go to Schedule",
+      group: "Go to",
+      keywords: "schedule crons jobs runs",
+      run: () => ctx.go({ name: "crons" }),
+    },
+  );
 
   for (const item of NAV) {
     actions.push({

@@ -135,9 +135,9 @@ select {
 
 /* —— shell —— */
 .ops {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 0.85rem 1rem 2rem;
+  max-width: 1200px;
+  margin: 0;
+  padding: 1.25rem 1.5rem 2rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -1705,10 +1705,12 @@ select {
   --r-lg: 16px;
 }
 
+/* Beside a sidebar the page reads from the left edge; centring it left a
+   gutter the chat list floated in. */
 .ops {
   max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 1.25rem 4rem;
+  margin: 0;
+  padding: 1.25rem 1.5rem 4rem;
 }
 
 /* Exactly the viewport, so nothing behind the chat can scroll. The pane takes
@@ -1741,21 +1743,7 @@ select {
 }
 
 /* —— top bar —— */
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1rem 0 1.25rem;
-}
 
-.topbar-left,
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  min-width: 0;
-}
 
 .brand {
   font-weight: 700;
@@ -1766,24 +1754,7 @@ select {
 }
 .brand span { color: var(--accent); }
 
-.tabs {
-  display: flex;
-  gap: 0.15rem;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.tabs::-webkit-scrollbar { display: none; }
 
-.tab {
-  padding: 0.32rem 0.7rem;
-  border-radius: 999px;
-  color: var(--muted);
-  text-decoration: none;
-  font-size: var(--text-lg);
-  white-space: nowrap;
-}
-.tab:hover { color: var(--text); background: var(--panel); }
-.tab.is-active { color: var(--text); background: var(--panel-2); }
 
 .health {
   display: inline-flex;
@@ -1879,22 +1850,6 @@ select {
 }
 .menu-body button:hover { background: var(--panel); }
 .menu-body .is-danger { color: var(--danger); }
-
-/* —— attention —— */
-.attention {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.6rem 0.9rem;
-  margin-bottom: 1rem;
-  border-radius: var(--r-md);
-  background: var(--warn-dim);
-  border: 1px solid rgba(230, 184, 77, 0.28);
-  color: var(--text);
-  text-decoration: none;
-  font-size: var(--text-lg);
-}
-.attention-go { margin-left: auto; color: var(--warn); font-weight: 600; }
 
 .needs-you {
   margin-bottom: 2rem;
@@ -2199,24 +2154,7 @@ select {
 }
 .hint { color: var(--faint); font-size: var(--text-base); }
 
-/*
- * A phone-width top bar. The wordmark stays one word, the tabs scroll
- * sideways under a thumb, and the model name and the search shortcut go:
- * both are desk things, and the bar had wrapped into three rows to hold
- * them.
- */
 @media (max-width: 640px) {
-  .topbar { gap: 0.5rem; padding: 0.6rem 0 0.8rem; }
-  .brand { white-space: nowrap; }
-  .topbar-left { flex: 1; min-width: 0; }
-  .topbar-left .tabs { flex: 1; min-width: 0; }
-  .topbar-right { gap: 0.4rem; flex: none; }
-  .topbar-right .health--model,
-  .topbar-right .hint { display: none; }
-  /* The dot alone says running, broken or stopped; its size is in pixels, so
-     zeroing the font collapses only the word beside it. */
-  .topbar-right .health { font-size: 0; gap: 0; }
-  .topbar-right kbd { display: none; }
   .card-grid { grid-template-columns: 1fr; }
   /* The composer's row: the context meter's detail goes, Send keeps its width. */
   .sheet-composer-bar { gap: 0.4rem; }
@@ -5485,3 +5423,223 @@ a.health {
 .recall-key { font-family: var(--mono); color: var(--accent); }
 .recall-value { color: var(--text); flex: 1 1 100%; }
 .recall-meta { color: var(--faint); font-size: var(--text-xs); }
+
+/* —— the shell: a sidebar and the page —— */
+.app {
+  display: grid;
+  grid-template-columns: 13.5rem minmax(0, 1fr);
+  min-height: 100vh;
+}
+.side {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem 0.65rem;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+}
+.side-brand { padding: 0.2rem 0.7rem 0.8rem; }
+.side-nav { display: flex; flex-direction: column; gap: 0.1rem; }
+.side-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.7rem;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-md);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.side-link:hover { background: var(--panel-2); color: var(--text); }
+.side-link.is-active { background: var(--accent-dim); color: var(--text); font-weight: 500; }
+.side-badge {
+  margin-left: auto;
+  min-width: 1.3rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--warn);
+  color: var(--on-accent);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  line-height: 1.3rem;
+  text-align: center;
+}
+.side-badge--dot {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  min-width: 0;
+  width: 0.5rem;
+  height: 0.5rem;
+  padding: 0;
+  line-height: 0;
+}
+.side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 0.1rem; }
+.side-search kbd {
+  margin-left: auto;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+}
+.side-more > summary { list-style: none; }
+.side-more .menu-body { bottom: calc(100% + 0.25rem); top: auto; left: 0; }
+.side-health {
+  margin-top: 0.4rem;
+  padding: 0.5rem 0.7rem;
+  border-top: 1px solid var(--line);
+  text-decoration: none;
+  align-items: flex-start;
+  white-space: normal;
+}
+.side-health .health-dot { margin-top: 0.4rem; flex: none; }
+.side-health-text { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.side-model {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The phone bar shows only below the width where the sidebar fits. */
+.phonebar { display: none; }
+.side-backdrop { display: none; }
+@media (max-width: 860px) {
+  .app { grid-template-columns: 1fr; }
+  .ops { padding: 0.75rem 1rem 2rem; }
+  .ops--full { height: calc(100dvh - 3.25rem); padding-top: 0.5rem; }
+  .phonebar {
+    position: sticky;
+    top: 0;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: 3.25rem;
+    padding: 0 0.75rem;
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+  }
+  .phonebar .brand { flex: 1; }
+  .phonebar-menu {
+    position: relative;
+    width: 2.25rem;
+    height: 2.25rem;
+    border: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    cursor: pointer;
+  }
+  .phonebar-menu:hover { background: var(--panel-2); }
+  .phonebar-menu-lines,
+  .phonebar-menu-lines::before,
+  .phonebar-menu-lines::after {
+    display: block;
+    width: 1.1rem;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--text);
+    content: "";
+  }
+  .phonebar-menu-lines { position: relative; margin: 0 auto; }
+  .phonebar-menu-lines::before { position: absolute; top: -6px; }
+  .phonebar-menu-lines::after { position: absolute; top: 6px; }
+  .phonebar-search { font-family: var(--mono); }
+  .side {
+    position: fixed;
+    inset: 0 22% 0 0;
+    z-index: 80;
+    height: auto;
+    transform: translateX(-100%);
+    transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
+    box-shadow: none;
+  }
+  .side.is-open { transform: none; box-shadow: 12px 0 40px rgba(0, 0, 0, 0.35); }
+  .side-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 79;
+    background: rgba(0, 0, 0, 0.45);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .side { transition: none; }
+  }
+}
+
+/* —— inbox —— */
+.inbox { display: flex; flex-direction: column; gap: 1.25rem; max-width: 60rem; }
+.inbox-clear {
+  padding: 2.5rem 1rem;
+  text-align: center;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+}
+.inbox-clear-title { margin: 0 0 0.4rem; font-size: var(--text-xl); font-weight: 600; }
+.inbox-clear .hint { margin: 0 auto; max-width: 32rem; }
+.inbox-group {
+  padding: 1rem 1.15rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.inbox-group-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.6rem;
+  font-size: var(--text-lg);
+}
+.inbox-approval { align-items: flex-start; }
+.inbox-why { display: block; color: var(--muted); font-size: var(--text-sm); }
+.inbox-meta { display: block; color: var(--faint); font-size: var(--text-sm); }
+.inbox-failure { display: flex; align-items: center; gap: 0.75rem; }
+.inbox-failure .panel-row { flex: 1; min-width: 0; }
+
+/* —— runs: three pages, one strip —— */
+.runs { display: flex; flex-direction: column; gap: 0.75rem; }
+.runs-tabs { display: flex; gap: 0.15rem; }
+.runs-tab {
+  padding: 0.32rem 0.8rem;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: var(--text-md);
+  text-decoration: none;
+}
+.runs-tab:hover { color: var(--text); background: var(--panel); }
+.runs-tab.is-active { color: var(--text); background: var(--panel-2); }
+
+/* —— chats: the front door —— */
+.chats-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+  max-width: 24rem;
+  text-align: center;
+}
+.chats-welcome-title { margin: 0; color: var(--text); font-size: var(--text-2xl); font-weight: 600; }
+.chats-welcome-recent {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.chats-welcome .hint { margin: 0; }

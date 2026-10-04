@@ -156,7 +156,7 @@ export function HomePage({
   return (
     <div className="home">
       <header className="home-bar">
-        <h1>Home</h1>
+        <h1>Overview</h1>
         <button
           type="button"
           className={`btn ${editing ? "btn--primary" : ""}`}

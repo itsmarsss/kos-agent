@@ -384,6 +384,13 @@ export interface HomeData {
   modules: { modules: ModuleInfo[]; builtins: BuiltinInfo[] };
 }
 
+/** Everything waiting on the owner. */
+export interface InboxData {
+  approvals: PendingAction[];
+  decisions: ReviewItem[];
+  failures: FailingJob[];
+}
+
 /** Memory at a glance, for the home page. */
 export interface HomeMemory {
   claims: number;
@@ -696,6 +703,7 @@ export const api = {
   forkPending: (id: number) =>
     post<{ conversationId: string }>("/api/pending/fork", { id }),
   home: () => get<HomeData>("/api/home"),
+  inbox: () => get<InboxData>("/api/inbox"),
   saveHome: (layout: import("@kos/shared").HomeLayout) =>
     post<{ layout: import("@kos/shared").HomeLayout }>("/api/home", { layout }),
   agents: () => get<{ builds: BuildRecord[] }>("/api/agents"),
