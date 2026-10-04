@@ -262,6 +262,19 @@ describe("handleApiRequest", () => {
     expect(row).toMatchObject({ kind: "project", projectSlug: project.slug });
   });
 
+  it("keeps a decision when asked to, and lists and revokes it", async () => {
+    const action = kernel.approvals.enqueue({ tool: "files.rm", args: { path: "projects/books/old.md" }, riskTier: "risky", reason: "test" });
+    await handleApiRequest(kernel, { method: "POST", path: "/api/approve", body: { id: action.id, remember: true } });
+    const listed = await handleApiRequest(kernel, { method: "GET", path: "/api/permissions" });
+    const rules = (listed.body as { rules: { id: number; tool: string; scope: string | null; project: string | null }[] }).rules;
+    expect(rules).toEqual([expect.objectContaining({ tool: "files.rm", scope: "dir:projects/books", project: null })]);
+    expect(kernel.permissions.allows("files.rm", { path: "projects/books/other.md" })).toBe(true);
+
+    const revoked = await handleApiRequest(kernel, { method: "POST", path: "/api/permissions/revoke", body: { id: rules[0]!.id } });
+    expect(revoked.status).toBe(200);
+    expect(kernel.permissions.allows("files.rm", { path: "projects/books/other.md" })).toBe(false);
+  });
+
   it("validates and 404s", async () => {
     expect((await handleApiRequest(kernel, { method: "POST", path: "/api/message", body: {} })).status).toBe(400);
     expect((await handleApiRequest(kernel, { method: "GET", path: "/nope" })).status).toBe(404);

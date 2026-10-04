@@ -168,7 +168,7 @@ export function AgentsPage({
   /** Opened straight from a link or a search result. */
   openId,
 }: {
-  onDecide: (pendingId: number, approved: boolean) => void;
+  onDecide: (pendingId: number, approved: boolean, remember?: boolean) => void;
   deciding: ReadonlySet<number>;
   openId?: number;
 }): ReactElement {

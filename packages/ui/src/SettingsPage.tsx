@@ -6,7 +6,7 @@ import {
   api,
   type Behaviour,
   type ModelRate,
-  type SettingsPayload, type SkillInfo } from "./api.js";
+  type SettingsPayload, type SkillInfo, type PermissionRule } from "./api.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { Select } from "./Select.js";
 import { SpendPanel } from "./SpendPanel.js";
@@ -55,6 +55,7 @@ type SectionId =
   | "network"
   | "spend"
   | "skills"
+  | "permissions"
   | "workspace";
 
 const SECTIONS: { id: SectionId; label: string; blurb: string }[] = [
@@ -70,6 +71,7 @@ const SECTIONS: { id: SectionId; label: string; blurb: string }[] = [
   { id: "network", label: "Network", blurb: "Ports, binding, and what the agent may reach" },
   { id: "spend", label: "Spend", blurb: "Tokens used and what they cost" },
   { id: "skills", label: "Skills", blurb: "What KOS knows how to do, and which are on" },
+  { id: "permissions", label: "Permissions", blurb: "Decisions you made at a prompt and kept" },
   { id: "workspace", label: "Workspace", blurb: "Where everything lives" },
 ];
 
@@ -323,6 +325,13 @@ export function SettingsPage(): ReactElement {
   useEffect(() => {
     if (active === "skills") loadSkills();
   }, [active, loadSkills]);
+  const [rules, setRules] = useState<PermissionRule[]>([]);
+  const loadRules = useCallback(() => {
+    void api.permissions().then((r) => setRules(r.rules)).catch(() => setRules([]));
+  }, []);
+  useEffect(() => {
+    if (active === "permissions") loadRules();
+  }, [active, loadRules]);
   const [saved, setSaved] = useState<Partial<Record<SectionId, string>>>({});
 
   const [profile, setProfile] = useState({ name: "", timezone: "" });
@@ -1040,6 +1049,30 @@ export function SettingsPage(): ReactElement {
                 ))}
               </div>
             )}
+          </Section>
+        )}
+        {active === "permissions" && (
+          <Section title="Permissions" blurb="Each rule is a decision you made at a prompt with Always. The same shape stops asking; a new shape still does. Revoke one and it asks again.">
+            {rules.length === 0 && (
+              <p className="hint">Nothing kept yet. When KOS asks before a risky action, Always approves it and keeps the decision for that shape.</p>
+            )}
+            {rules.map((r) => (
+              <Field
+                key={r.id}
+                label={`${r.tool}${r.scope ? ` · ${r.scope}` : ""}`}
+                hint={r.project ? `In project ${r.project}` : "Everywhere"}
+              >
+                <button
+                  type="button"
+                  className="btn btn--sm btn--danger-ghost"
+                  onClick={() => {
+                    void api.revokePermission(r.id).then(loadRules, loadRules);
+                  }}
+                >
+                  Revoke
+                </button>
+              </Field>
+            ))}
           </Section>
         )}
         {active === "spend" && (

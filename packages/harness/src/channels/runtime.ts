@@ -36,6 +36,7 @@ export interface DecisionContext {
   /** Pending-action id from the approval queue. */
   pendingId: string;
   approved: boolean;
+  remember?: boolean;
 }
 
 /** Handles an approve/deny decision that already passed the identity gate. */
@@ -169,6 +170,7 @@ export class ChannelRuntime {
         deciderId: decision.deciderId,
         pendingId: decision.id,
         approved: decision.approved,
+        ...(decision.remember ? { remember: true } : {}),
       });
     } catch {
       // The decision path has no reply channel of its own; never surface the

@@ -223,6 +223,8 @@ export interface ApprovalDecision {
   approved: boolean;
   /** Channel-native id of whoever decided. */
   deciderId: string;
+  /** Approve, and stop asking for this shape. */
+  remember?: boolean;
 }
 
 /**

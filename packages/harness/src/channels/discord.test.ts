@@ -8,6 +8,7 @@ import type {
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  ALWAYS_PREFIX,
   APPROVE_PREFIX,
   DENY_PREFIX,
   DiscordAdapter,
@@ -26,12 +27,19 @@ describe("discord approval customId codec", () => {
     expect(approvalCustomIds("p1")).toEqual({
       approve: `${APPROVE_PREFIX}p1`,
       deny: `${DENY_PREFIX}p1`,
+      always: `${ALWAYS_PREFIX}p1`,
     });
   });
 
   it("round-trips an approve decision", () => {
     const { approve } = approvalCustomIds("abc");
     expect(parseApprovalCustomId(approve)).toEqual({ id: "abc", approved: true });
+  });
+
+  it("round-trips an always decision as an approval that is remembered", () => {
+    const ids = approvalCustomIds("12");
+    expect(parseApprovalCustomId(ids.always)).toEqual({ id: "12", approved: true, remember: true });
+    expect(parseApprovalCustomId(ids.approve)).toEqual({ id: "12", approved: true });
   });
 
   it("round-trips a deny decision", () => {

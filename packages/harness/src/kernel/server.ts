@@ -319,6 +319,16 @@ export async function handleApiRequest(
     }
   }
 
+  if (method === "GET" && path === "/api/permissions") {
+    return ok({ rules: kernel.permissions.list() });
+  }
+
+  if (method === "POST" && path === "/api/permissions/revoke") {
+    const id = Number(body.id);
+    if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
+    return kernel.permissions.revoke(id) ? ok({ id, revoked: true }) : { status: 404, body: { error: `no rule #${id}` } };
+  }
+
   if (method === "GET" && path === "/api/skills") {
     const { skills, invalid } = readSkills(kernel.workspace);
     const off = new Set(parseSkillSettings(kernel.settings.get(SKILLS_KEY)).disabled);
@@ -557,7 +567,7 @@ export async function handleApiRequest(
   if (method === "POST" && path === "/api/approve") {
     const id = Number(body.id);
     if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
-    return ok(await kernel.approve(id));
+    return ok(await kernel.approve(id, undefined, { remember: body.remember === true }));
   }
 
   if (method === "POST" && path === "/api/deny") {

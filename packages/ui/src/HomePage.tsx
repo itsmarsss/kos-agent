@@ -53,7 +53,7 @@ export function HomePage({
 }: {
   onOpenChat: (id: string) => void;
   onGo: (to: "agents" | "history" | "projects" | "crons" | "chats" | "settings") => void;
-  onDecide: (id: number, approved: boolean) => void;
+  onDecide: (id: number, approved: boolean, remember?: boolean) => void;
   deciding: ReadonlySet<number>;
   onDismissFailure: (key: string) => void;
   onOpenFailure: (key: string) => void;
