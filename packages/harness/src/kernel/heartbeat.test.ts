@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { Heartbeat, HEARTBEAT_PROMPT } from "./heartbeat.js";
+import { Heartbeat, HEARTBEAT_PROMPT, heartbeatBeat } from "./heartbeat.js";
 
 /** A clock the test drives, so nothing waits on real minutes. */
 function fakeTimers() {
@@ -209,5 +209,55 @@ describe("what a beat asks for", () => {
     expect(HEARTBEAT_PROMPT).toContain("Silence is the normal outcome");
     expect(HEARTBEAT_PROMPT).toContain("Do not send a status");
     expect(HEARTBEAT_PROMPT).toContain("Do not repeat something you already");
+  });
+});
+
+describe("one beat", () => {
+  it("runs a system turn in its own thread and records the run", async () => {
+    const calls: string[] = [];
+    const beat = heartbeatBeat({
+      ownerId: "owner",
+      enqueue: async (work, lane) => {
+        calls.push(`enqueue:${lane}`);
+        await work();
+      },
+      runs: {
+        start: (kind, ref) => {
+          calls.push(`start:${kind}:${ref}`);
+          return 7;
+        },
+        finish: (id, status) => {
+          calls.push(`finish:${id}:${status}`);
+        },
+      },
+      conversationFor: (channel) => {
+        calls.push(`thread:${channel}`);
+        return {};
+      },
+      runTurn: async (text, userId, sessionId, opts) => {
+        calls.push(`turn:${sessionId}:${userId}:${opts.origin}:${text.includes("Nobody asked") ? "prompt" : "?"}`);
+      },
+    });
+    await beat();
+    expect(calls).toEqual([
+      "enqueue:heartbeat:owner",
+      "start:heartbeat:heartbeat:owner",
+      "thread:heartbeat",
+      "turn:heartbeat:owner:owner:system:prompt",
+      "finish:7:ok",
+    ]);
+  });
+
+  it("records a beat that threw, rather than losing it", async () => {
+    const finished: string[] = [];
+    const beat = heartbeatBeat({
+      ownerId: "owner",
+      enqueue: async (work) => work(),
+      runs: { start: () => 1, finish: (_id, status, error) => { finished.push(`${status}:${error ?? ""}`); } },
+      conversationFor: () => ({}),
+      runTurn: async () => { throw new Error("model down"); },
+    });
+    await beat();
+    expect(finished).toEqual(["error:model down"]);
   });
 });

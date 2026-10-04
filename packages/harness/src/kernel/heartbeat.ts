@@ -65,6 +65,37 @@ export interface HeartbeatDeps {
  * the setting takes effect at the next beat instead of needing a restart,
  * and so a slow beat cannot overlap the next one.
  */
+/** What one beat needs from the kernel, and nothing more. */
+export interface BeatDeps {
+  ownerId: string;
+  /** Serialise with everything else that talks to the model. */
+  enqueue: (work: () => Promise<void>, lane: string) => Promise<void>;
+  runs: { start: (kind: string, ref: string) => number; finish: (id: number, status: "ok" | "error", error?: string) => void };
+  /** Make sure the heartbeat's own thread exists before speaking in it. */
+  conversationFor: (channel: string, ownerId: string) => unknown;
+  /** Run the look-around as a system turn in that thread. */
+  runTurn: (text: string, userId: string, sessionId: string, opts: { origin: "system" }) => Promise<unknown>;
+}
+
+/**
+ * One look-around: a system turn in the heartbeat's own thread, recorded as
+ * a run so a failed beat is visible in History rather than lost. Built here
+ * so the kernel only has to say when; what a beat is lives with the timer.
+ */
+export function heartbeatBeat(deps: BeatDeps): () => Promise<void> {
+  return () =>
+    deps.enqueue(async () => {
+      const runId = deps.runs.start("heartbeat", HEARTBEAT_SESSION);
+      try {
+        deps.conversationFor("heartbeat", deps.ownerId);
+        await deps.runTurn(HEARTBEAT_PROMPT, deps.ownerId, HEARTBEAT_SESSION, { origin: "system" });
+        deps.runs.finish(runId, "ok");
+      } catch (err) {
+        deps.runs.finish(runId, "error", err instanceof Error ? err.message : String(err));
+      }
+    }, HEARTBEAT_SESSION);
+}
+
 export class Heartbeat {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private running = false;

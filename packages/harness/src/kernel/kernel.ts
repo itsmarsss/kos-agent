@@ -87,7 +87,7 @@ import { createBuildsModule } from "../tools/builds.js";
 import { sitesModule } from "../tools/sites.js";
 import { systemsModule } from "../tools/systems.js";
 import { tasksModule } from "../tools/tasks.js";
-import { Heartbeat, HEARTBEAT_PROMPT, HEARTBEAT_SESSION } from "./heartbeat.js";
+import { Heartbeat, heartbeatBeat } from "./heartbeat.js";
 import {
   assembleSystemPrompt,
   withoutTurnContext,
@@ -2287,7 +2287,13 @@ export class Kernel {
       // The interval is the rate limit; a second budget on top would only
       // make the cadence the owner set mean something other than it says.
       allowed: () => !this.killSwitch.halted,
-      beat: () => this.runHeartbeat(),
+      beat: heartbeatBeat({
+        ownerId: this.profile.ownerId,
+        enqueue: (work, lane) => this.queue.enqueue(work, lane),
+        runs: this.runs,
+        conversationFor: (channel, ownerId) => this.conversationFor(channel, ownerId),
+        runTurn: (text, userId, sessionId, opts) => this.runTurn(text, userId, sessionId, opts),
+      }),
     });
     this.heartbeat.start();
   }
@@ -2297,28 +2303,7 @@ export class Kernel {
     this.heartbeat = undefined;
   }
 
-  /** One look-around, recorded in its own thread whatever it decides. */
-  private async runHeartbeat(): Promise<void> {
-    await this.queue.enqueue(async () => {
-      const runId = this.runs.start("heartbeat", HEARTBEAT_SESSION);
-      try {
-        this.conversationFor("heartbeat", this.profile.ownerId);
-        await this.runTurn(
-          HEARTBEAT_PROMPT,
-          this.profile.ownerId,
-          HEARTBEAT_SESSION,
-          { origin: "system" },
-        );
-        this.runs.finish(runId, "ok");
-      } catch (err) {
-        this.runs.finish(
-          runId,
-          "error",
-          err instanceof Error ? err.message : String(err),
-        );
-      }
-    }, HEARTBEAT_SESSION);
-  }
+
 
   startCron(): void {
     this.scheduler = new CronScheduler(
