@@ -37,6 +37,7 @@ const HELP = `kos commands:
   start [--foreground] multi-modal host (API + cron + Discord if configured)
   stop                 stop the background host
   restart              stop then start; run pnpm build first to pick up code changes
+  service <install|uninstall|status>  run the host as a launchd agent (macOS)
   chat                 REPL (attaches to host if running; default)
   once <message>       one message (via host if running)
   status               crons, queue, kill switch, pending, host info
