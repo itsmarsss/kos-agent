@@ -144,6 +144,30 @@ profile.
 never logged. A server that fails to start is reported and skipped. Stdio
 servers are child processes that do not outlive the host.
 
+### Modules
+
+The kernel is primitives: files, search, shell, HTTP, SQL, memory, schedules,
+daemons, delegation, skills, MCP. A feature is a module, and a module is a
+folder under `modules/` with a `module.json` and a server that speaks the
+Model Context Protocol:
+
+```json
+{
+  "name": "notes",
+  "description": "Short notes with tags, searchable",
+  "command": "node",
+  "args": ["server.mjs"],
+  "tools": { "notes_search": "safe", "notes_list": "safe" }
+}
+```
+
+`modules.create` scaffolds one with a dependency-free server and an example
+tool, so KOS can build a feature itself. It does not run until the owner
+switches it on in Settings, which is the gate between KOS writing code and
+KOS running it. Switched on, it runs from its own folder in the jail, its
+tools register as `mcp.<module>.<tool>`, floored as the manifest says and
+risky where it says nothing. Off takes the tools back, no restart.
+
 ### Mail
 
 Mail is an external service, so it comes in the same way. An IMAP server
@@ -237,7 +261,9 @@ Open `http://127.0.0.1:4317`, or attach a REPL with `pnpm kos`.
 `pnpm start` leaves a detached process that nothing restarts. On macOS,
 `pnpm kos service install` makes the host a launchd agent instead: it comes
 back after a crash, starts at login, and `kos stop` still stops it.
-`kos service status` says which is running; `uninstall` removes it.
+`kos service status` says which is running; `uninstall` removes it. For
+iMessage under launchd, give the `node` binary Full Disk Access in System
+Settings: a terminal passes its own grant down, launchd passes nothing.
 
 ### Configuration
 
