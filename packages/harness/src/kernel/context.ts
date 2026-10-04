@@ -113,7 +113,7 @@ export function assembleSystemPrompt(parts: ContextParts): AssembledPrompt {
   if (facts.length > 0 || events.length > 0) {
     const mem: string[] = ["## Salient memory"];
     for (const f of facts.slice(0, 12)) {
-      const marks = [f.kind, ...(f.pinned ? ["pinned"] : []), ...f.tags];
+      const marks = [f.kind, ...(f.pinned ? ["pinned"] : []), ...(f.trust === "external" ? ["from outside"] : []), ...f.tags];
       mem.push(`- (${marks.join(", ")}) ${f.key}: ${f.value}`);
     }
     for (const e of events.slice(0, 5)) {

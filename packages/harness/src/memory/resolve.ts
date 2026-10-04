@@ -57,6 +57,8 @@ export function applyResolution(
       if (p.scope === GLOBAL_SCOPE) continue;
       const claim: Fact | undefined = facts.get(ownerId, p.key, p.scope);
       if (!claim) continue;
+      // What a caller said about a project is not the owner's word about themselves.
+      if (claim.trust === "external") continue;
       const evidence = facts.trace(claim.id)?.evidence ?? [];
       facts.upsert(ownerId, { key: claim.key, value: claim.value, kind: claim.kind, scope: GLOBAL_SCOPE, trust: claim.trust, tags: claim.tags, evidence }, "owner");
       facts.archive(ownerId, p.key, p.scope, "owner", "promoted to global");

@@ -90,6 +90,16 @@ describe("the extractor", () => {
     expect(facts.get("owner", "home_city")).toBeUndefined();
   });
 
+  it("keeps a caller's word at external trust, and says whose it was", async () => {
+    const a = events.append({ userId: "owner", role: "owner", text: "the resume target is staff roles", trust: "external", caller: "resume-ops" });
+    const seen: string[] = [];
+    const inf = fakeInference([`{"ops":[{"op":"add","key":"resume_target","value":"staff roles","kind":"fact","scope":"global","evidence":[${a}],"confidence":0.9}]}`], seen);
+    await extractor(inf).run();
+    expect(seen[0]).toContain("via resume-ops");
+    expect(facts.get("owner", "resume_target")!.trust).toBe("external");
+    expect(() => facts.setPinned("owner", "resume_target", true)).toThrow(/came from outside/);
+  });
+
   it("rejects a proposal without evidence, with evidence it was not shown, or without conviction", async () => {
     const a = say("owner", "I moved to Lisbon");
     const inf = fakeInference([`{"ops":[{"op":"add","key":"city","value":"Lisbon","kind":"fact","scope":"global","evidence":[],"confidence":0.9},{"op":"add","key":"city2","value":"Lisbon","kind":"fact","scope":"global","evidence":[999],"confidence":0.9},{"op":"add","key":"city3","value":"Lisbon","kind":"fact","scope":"global","evidence":[${a}],"confidence":0.2}]}`]);

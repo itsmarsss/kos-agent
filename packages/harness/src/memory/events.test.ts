@@ -115,6 +115,13 @@ describe("the events log", () => {
     expect(log.search({ userId: "owner", embedding: await embed("passport number") })).toEqual([]);
   });
 
+  it("hands a reader the owner's, KOS's and a caller's words, never a tool's", async () => {
+    const a = log.append({ userId: "owner", role: "owner", text: "mine" });
+    const b = log.append({ userId: "owner", role: "owner", text: "theirs", trust: "external", caller: "app" });
+    log.append({ userId: "owner", role: "tool", text: "tool output" });
+    expect(log.since("owner", 0).map((e) => [e.id, e.trust])).toEqual([[a, "owner"], [b, "external"]]);
+  });
+
   it("refuses a vector of the wrong size", () => {
     expect(() => log.append({ userId: "owner", role: "owner", text: "x" }, [1, 2, 3])).toThrow(/dimension/);
   });

@@ -257,6 +257,32 @@
         "train",
         "battery"
       ]
+    },
+    {
+      "name": "a caller's word stays the outside world's",
+      "events": [
+        {
+          "role": "owner",
+          "text": "For the resume project the target is staff engineer roles at Canadian fintechs.",
+          "trust": "external",
+          "caller": "resume-ops"
+        }
+      ],
+      "expect": [
+        {
+          "key": [
+            "target",
+            "resume",
+            "role"
+          ],
+          "value": [
+            "staff engineer",
+            "fintech"
+          ],
+          "trust": "external"
+        }
+      ],
+      "forbid": []
     }
   ]
 }
