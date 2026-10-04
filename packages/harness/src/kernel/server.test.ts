@@ -791,6 +791,18 @@ describe("handleApiRequest", () => {
     expect(kernel.facts.get("owner", "city")).toMatchObject({ value: "Porto", trust: "owner" });
   });
 
+  it("switches a built-in feature off and on in place", async () => {
+    const before = await handleApiRequest(kernel, { method: "GET", path: "/api/modules" });
+    expect((before.body as { builtins: { name: string; enabled: boolean }[] }).builtins).toEqual(expect.arrayContaining([expect.objectContaining({ name: "tasks", enabled: true })]));
+    expect(kernel.registry.has("tasks.add")).toBe(true);
+    const off = await handleApiRequest(kernel, { method: "POST", path: "/api/modules/enable", body: { name: "tasks", enabled: false } });
+    expect(off.body).toEqual({ name: "tasks", enabled: false, builtin: true });
+    expect(kernel.registry.has("tasks.add")).toBe(false);
+    expect(kernel.registry.has("files.read")).toBe(true);
+    await handleApiRequest(kernel, { method: "POST", path: "/api/modules/enable", body: { name: "tasks", enabled: true } });
+    expect(kernel.registry.has("tasks.add")).toBe(true);
+  });
+
   it("still honours an explicit limit", async () => {
     for (let i = 0; i < 5; i++) {
       kernel.facts.upsert("owner", { key: `k${i}`, value: `v${i}`, kind: "fact" });

@@ -555,7 +555,7 @@ export const api = {
   skills: () => get<{ skills: SkillInfo[]; invalid: { name: string; reason: string }[] }>("/api/skills"),
   setSkillEnabled: (name: string, enabled: boolean) =>
     post<{ name: string; enabled: boolean }>("/api/skills/enable", { name, enabled }),
-  modules: () => get<{ modules: ModuleInfo[]; invalid: { name: string; reason: string }[] }>("/api/modules"),
+  modules: () => get<{ modules: ModuleInfo[]; invalid: { name: string; reason: string }[]; builtins?: { name: string; description: string; enabled: boolean }[] }>("/api/modules"),
   setModuleEnabled: (name: string, enabled: boolean) =>
     post<{ name: string; enabled: boolean; connected?: boolean; tools?: string[]; error?: string }>("/api/modules/enable", { name, enabled }),
   crons: () => get<CronJob[]>("/api/crons"),

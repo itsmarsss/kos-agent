@@ -41,6 +41,7 @@ import { applyResolution } from "../memory/resolve.js";
 import { mayRead } from "../memory/callers.js";
 import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
 import { MODULES_KEY, parseModuleSettings, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
+import { isBuiltinFeature } from "../modules/builtins.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillEnabled } from "../skills/settings.js";
 import { conversationKind } from "./conversations.js";
 import { proxyToDaemon } from "../daemons/proxy.js";
@@ -490,6 +491,7 @@ export async function handleApiRequest(
         ...(status[m.manifest.name] ?? {}),
       })),
       invalid,
+      builtins: kernel.builtins(),
     });
   }
 
@@ -501,6 +503,11 @@ export async function handleApiRequest(
   if (method === "POST" && path === "/api/modules/enable") {
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const enabled = body.enabled === true;
+    // A built-in feature switches in place; a workspace module brings a server up or down.
+    if (isBuiltinFeature(name)) {
+      await kernel.setBuiltinEnabled(name, enabled);
+      return ok({ name, enabled, builtin: true });
+    }
     const known = readWorkspaceModules(kernel.workspace).modules.some((m) => m.manifest.name === name);
     if (!known) return { status: 404, body: { error: `no module named ${name}` } };
     kernel.settings.set(MODULES_KEY, withModuleEnabled(parseModuleSettings(kernel.settings.get(MODULES_KEY)), name, enabled));
