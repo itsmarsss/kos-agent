@@ -4000,6 +4000,17 @@ li:hover .chats-item-when { opacity: 0; }
   border-color: var(--accent);
   color: var(--text);
 }
+.set-rail-group { display: flex; flex-direction: column; gap: 0.15rem; }
+.set-rail-group + .set-rail-group { margin-top: 0.7rem; }
+.set-rail-head {
+  margin: 0 0 0.2rem;
+  padding: 0 0.7rem;
+  color: var(--faint);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
 .set-rail-label { font-size: var(--text-md); font-weight: 500; }
 .set-rail-blurb { font-size: var(--text-sm); color: var(--faint); line-height: 1.35; }
 

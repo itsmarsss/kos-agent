@@ -802,7 +802,12 @@ export function App(): React.ReactElement {
   }
 
   if (route.name === "settings") {
-    return shell(<SettingsPage />);
+    return shell(
+      <SettingsPage
+        section={route.section}
+        onSection={(section) => go({ name: "settings", section })}
+      />,
+    );
   }
 
   if (route.name === "projects") {
@@ -977,7 +982,7 @@ export function App(): React.ReactElement {
   return shell(
     <HomePage
       onOpenChat={(id) => go({ name: "chats", id })}
-      onGo={(to) => go({ name: to } as Route)}
+      onGo={(to, section) => go({ name: to, ...(section ? { section } : {}) } as Route)}
       deciding={deciding}
       onDecide={(id, approved, remember) => void decide(id, approved, remember)}
       onDismissFailure={(key) => void dismissFailure(key)}

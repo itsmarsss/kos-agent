@@ -15,7 +15,7 @@ import { hrefFor } from "./routes.js";
  * makes a dashboard trustworthy.
  */
 
-type Go = (to: "agents" | "history" | "projects" | "crons" | "chats" | "settings" | "memory") => void;
+type Go = (to: "agents" | "history" | "projects" | "crons" | "chats" | "settings" | "memory", section?: string) => void;
 
 function ago(ts: number): string {
   const mins = Math.max(0, Math.round((Date.now() - ts) / 60000));
@@ -440,7 +440,7 @@ export function Panel({
       const broken = mods.filter((m) => m.enabled && m.error);
       return (
         <div className={`panel${broken.length ? " panel--bad" : ""}`}>
-          <Head title={title ?? "Modules"} count={broken.length} onMore={() => onGo("settings")} />
+          <Head title={title ?? "Modules"} count={broken.length} onMore={() => onGo("settings", "modules")} />
           {mods.length === 0 ? (
             <Empty>{`No workspace modules. Built in: ${builtinsOn.map((b) => b.name).join(", ") || "none"}.`}</Empty>
           ) : (

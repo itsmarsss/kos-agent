@@ -13,6 +13,9 @@ describe("parseRoute", () => {
     // The tabs read Knowledge, Schedule and Activity; the routes were named
     // after their tables, so those URLs silently rendered Home.
     expect(parseRoute("#/knowledge")).toEqual({ name: "memory" });
+    // A settings section is a place you can be sent to, so it has a hash.
+    expect(parseRoute("#/settings/modules")).toEqual({ name: "settings", section: "modules" });
+    expect(hrefFor({ name: "settings", section: "modules" })).toBe("#/settings/modules");
     expect(parseRoute("#/schedule")).toEqual({ name: "crons" });
     expect(parseRoute("#/activity")).toEqual({ name: "history" });
     // Activity and Runs became one page. Their paths still resolve, because a
