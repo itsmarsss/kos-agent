@@ -30,6 +30,8 @@ export interface Attachment {
 }
 
 export interface TaskModelSetting {
+  /** anthropic, openai, or custom (the owner's own endpoint). */
+  provider?: string;
   model?: string;
   effort?: string;
   maxTokens?: number;
@@ -516,9 +518,15 @@ export const api = {
       > | null;
       saved: ModelSettings;
       efforts: string[];
+      /** Providers a task may be routed to right now. */
+      providers?: string[];
+      /** The owner's own OpenAI-compatible endpoint, when set. */
+      custom?: { baseUrl: string } | null;
     }>("/api/settings/models"),
   saveModelSettings: (settings: ModelSettings) =>
     post<{ saved: ModelSettings }>("/api/settings/models", settings),
+  saveCustomEndpoint: (baseUrl: string) =>
+    post<{ custom: { baseUrl: string } | null; providers: string[] }>("/api/settings/models/custom", { baseUrl }),
   availableModels: () => get<{ models: string[] }>("/api/models"),
   projects: () => get<Project[]>("/api/projects"),
   setProjectStatus: (slug: string, status: string) =>

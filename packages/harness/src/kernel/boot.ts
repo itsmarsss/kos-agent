@@ -18,7 +18,7 @@ import { createDefaultRouter } from "../models/router.js";
 import { SpendStore } from "../ops/spend.js";
 import { BuildRegistry } from "../builds/registry.js";
 import { PendingMessages } from "./pending.js";
-import { applyModelSettings, MODEL_SETTINGS_KEY, type ModelSettings } from "../models/settings.js";
+import { applyModelSettings, MODEL_SETTINGS_KEY, type ModelSettings, CUSTOM_ENDPOINT_KEY, parseCustomEndpoint } from "../models/settings.js";
 import { SettingsStore } from "../store/settings.js";
 import {
   ModuleLoader,
@@ -506,7 +506,10 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       text: `Trimmed ${dropped} older exchange${dropped === 1 ? "" : "s"} from this chat to stay inside the history budget. ${kept} kept. /compact turns the old ones into a summary instead, and Settings can raise the budget or turn trimming off.`,
     });
   });
-  const router = options.inference ? undefined : createDefaultRouter(secrets);
+  const custom = parseCustomEndpoint(settings.get(CUSTOM_ENDPOINT_KEY));
+  const router = options.inference
+    ? undefined
+    : createDefaultRouter(secrets, undefined, custom ? { customBaseUrl: custom.baseUrl } : {});
   // Saved model choices are applied before anything runs, so the first turn
   // after a restart uses what the owner picked rather than the default.
   if (router) {

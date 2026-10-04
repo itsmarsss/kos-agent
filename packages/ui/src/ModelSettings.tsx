@@ -35,9 +35,13 @@ export function ModelSettings({
   const [saved, setSaved] = useState<Settings>({});
   const [routes, setRoutes] = useState<Record<
     string,
-    { model: string; effort?: string; maxTokens?: number }
+    { provider: string; model: string; effort?: string; maxTokens?: number }
   > | null>(null);
   const [efforts, setEfforts] = useState<string[]>([]);
+  const [providers, setProviders] = useState<string[]>([]);
+  const [customUrl, setCustomUrl] = useState("");
+  const [customSaved, setCustomSaved] = useState("");
+  const [customStatus, setCustomStatus] = useState<string | null>(null);
   const [models, setModels] = useState<string[]>([]);
   /** What the server last confirmed, so an edit can be told from a load. */
   const [stored, setStored] = useState<Settings>({});
@@ -52,6 +56,9 @@ export function ModelSettings({
         setStored(s.saved ?? {});
         setRoutes(s.routes);
         setEfforts(s.efforts ?? []);
+        setProviders(s.providers ?? []);
+        setCustomUrl(s.custom?.baseUrl ?? "");
+        setCustomSaved(s.custom?.baseUrl ?? "");
       })
       .catch(() => setStatus("Could not load settings."));
     // A provider that cannot list its models is not a reason to block editing:
@@ -110,6 +117,20 @@ export function ModelSettings({
               <span className="hint">{hint}</span>
             </div>
 
+            <div className="kos-field">
+              <span className="kos-field-label">Provider</span>
+              <Select
+                className="settings-select"
+                label="Provider"
+                value={setting.provider ?? ""}
+                options={[
+                  { value: "", label: `current (${route?.provider ?? "default"})` },
+                  ...providers.map((p) => ({ value: p, label: p === "custom" ? "custom endpoint" : p })),
+                ]}
+                onChange={(provider) => update(key, { provider: provider || undefined })}
+              />
+            </div>
+
             <label className="kos-field">
               <span className="kos-field-label">Model</span>
               <input
@@ -163,7 +184,7 @@ export function ModelSettings({
                 rather than only written. */}
             {route && (
               <div className="settings-now">
-                now: <code>{route.model}</code>
+                now: <code>{route.provider}</code> <code>{route.model}</code>
                 {route.effort ? ` · ${route.effort} thinking` : ""}
                 {route.maxTokens ? ` · ${route.maxTokens} tokens` : ""}
               </div>
@@ -178,6 +199,47 @@ export function ModelSettings({
           instead.
         </p>
       )}
+
+      <section className="settings-group">
+        <div className="settings-group-head">
+          <strong>Your own endpoint</strong>
+          <span className="hint">any OpenAI-compatible server: your model, a local one, a gateway</span>
+        </div>
+        <label className="kos-field">
+          <span className="kos-field-label">Base URL</span>
+          <input
+            className="kos-input"
+            placeholder="http://127.0.0.1:11434/v1"
+            value={customUrl}
+            onChange={(e) => { setCustomUrl(e.target.value); setCustomStatus(null); }}
+          />
+        </label>
+        <p className="hint">
+          Saved on its own, takes effect at once. A key, if the server wants one, goes in .env as KOS_SECRET_CUSTOM.
+          Then pick "custom endpoint" as a provider above and type the model id it serves.
+        </p>
+        <div className="settings-actions">
+          <button
+            type="button"
+            className="btn"
+            disabled={customUrl.trim() === customSaved}
+            onClick={() => {
+              void api
+                .saveCustomEndpoint(customUrl.trim())
+                .then((r) => {
+                  setCustomSaved(r.custom?.baseUrl ?? "");
+                  setCustomUrl(r.custom?.baseUrl ?? "");
+                  setProviders(r.providers);
+                  setCustomStatus(r.custom ? "Endpoint saved." : "Endpoint removed.");
+                })
+                .catch((err: unknown) => setCustomStatus(err instanceof Error ? err.message : String(err)));
+            }}
+          >
+            Save endpoint
+          </button>
+          {customStatus && <span className="hint">{customStatus}</span>}
+        </div>
+      </section>
 
       <div className="settings-actions">
         {!onReady && (
