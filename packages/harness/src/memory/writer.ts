@@ -25,6 +25,7 @@ export class MemoryWriter {
     userId: string,
     text: string,
     source: string | null = null,
+    options: { evidence?: number[]; scope?: string } = {},
   ): Promise<CandidateFact[]> {
     const result = assessSalience(text);
 
@@ -38,7 +39,7 @@ export class MemoryWriter {
     }
 
     for (const fact of toWrite) {
-      this.facts.upsert(userId, fact, source);
+      this.facts.upsert(userId, { ...fact, ...(options.evidence ? { evidence: options.evidence } : {}), ...(options.scope ? { scope: options.scope } : {}) }, source);
     }
     return toWrite;
   }

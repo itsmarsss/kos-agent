@@ -31,6 +31,12 @@ describe("MemoryWriter", () => {
     expect(facts.get("u1", "timezone")?.value).toBe("UTC");
   });
 
+  it("points a fact at the event it was drawn from", async () => {
+    await new MemoryWriter(facts).ingest("u1", "My timezone is UTC", "chat", { evidence: [42] });
+    const f = facts.get("u1", "timezone")!;
+    expect(facts.trace(f.id)!.evidence).toEqual([42]);
+  });
+
   it("skips non-salient text", async () => {
     const writer = new MemoryWriter(facts);
     expect(await writer.ingest("u1", "nice weather")).toEqual([]);
