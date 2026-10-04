@@ -26,6 +26,7 @@ export {
 export { systemsModule } from "./systems.js";
 export { tasksModule } from "./tasks.js";
 export { exportModule, toCsv, toMarkdown } from "./export.js";
+export { createShellModule, runShell, type ShellResult } from "./shell.js";
 export { createSkillsModule } from "./skills.js";
 export { SKILLS_DIR } from "../skills/manifest.js";
 export { createChatsModule, CHAT_TOOLS, type ChatToolDeps } from "./chats.js";

@@ -115,3 +115,17 @@ export function writtenTables(sql: string): string[] {
   }
   return out;
 }
+
+/**
+ * The first word of a shell command, when it is one command and not a
+ * pipeline, a chain, a substitution or an assignment. Undefined otherwise,
+ * so nothing is named: a decision remembered for "git" must not cover
+ * "git status && rm -rf ." on the strength of its first word.
+ */
+export function programOf(command: string): string | undefined {
+  const text = command.trim();
+  if (!text || /[|;&`\n]|\$\(/.test(text)) return undefined;
+  const first = text.split(/\s+/)[0]!;
+  if (first.includes("=")) return undefined;
+  return first.includes("/") ? first.slice(first.lastIndexOf("/") + 1) : first;
+}
