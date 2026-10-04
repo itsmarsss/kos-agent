@@ -902,6 +902,9 @@ export class Kernel {
         id,
         userId: this.profile.ownerId,
         title: job.name,
+        // A job for a project runs in that project: what it remembers lands
+        // in the project's scope, and the project's claims are in reach.
+        ...(job.projectSlug ? { projectSlug: job.projectSlug } : {}),
         brief: [
           `The scheduled job "${job.name}" runs here, on ${job.schedule}.`,
           "Each run is a turn in this thread, so what it did last time is above.",
@@ -1594,7 +1597,12 @@ export class Kernel {
    */
   private async runScheduledJob(job: CronJob): Promise<CronExecResult> {
     const jobSession = job.type === "actions" ? this.jobThread(job) : undefined;
+    // The job's thread is the current conversation while it runs, as a
+    // turn's is: a claim the job makes is attributed to it and lands in the
+    // job's project.
+    const previousConversation = this.currentConversationId;
     if (jobSession) {
+      this.currentConversationId = jobSession;
       this.working.add(jobSession);
       this.progress.emit({ kind: "turn-start", conversationId: jobSession });
     }
@@ -1621,6 +1629,7 @@ export class Kernel {
       }
       return result;
     } finally {
+      this.currentConversationId = previousConversation;
       if (jobSession) this.endTurn(jobSession);
     }
   }
