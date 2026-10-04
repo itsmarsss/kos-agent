@@ -68,6 +68,7 @@ import { PermissionStore } from "../ops/permissions.js";
 import { createDaemonsModule } from "../tools/daemons.js";
 import { createSearchModule } from "../tools/search.js";
 import { exportModule } from "../tools/export.js";
+import { createShellModule } from "../tools/shell.js";
 import { createSkillsModule } from "../tools/skills.js";
 import { offeredSkills, readSkills } from "../skills/manifest.js";
 import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
@@ -626,6 +627,7 @@ export class Kernel {
         allowedHosts: options.allowedHosts ?? [],
       }),
       createSearchModule(),
+      createShellModule(),
       // Tools from the owner's MCP servers, as any other module's tools.
       mcp,
       createDaemonsModule({
