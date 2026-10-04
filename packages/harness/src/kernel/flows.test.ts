@@ -1574,6 +1574,39 @@ describe("KOS end-to-end flows", () => {
     expect(outcome).toBe("sub-agent done");
   });
 
+  it("a dispatched turn waits behind the target's own running turn", async () => {
+    // The owner is mid-turn in Worker when a dispatch arrives for it. Run
+    // bare, the two turns rewrote one transcript over each other; in the
+    // lane, the dispatch goes second.
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const order: string[] = [];
+    const inference: Inference = {
+      async generate(_t, req) {
+        // The dispatched turn's prompt recalls the owner's message from the
+        // log, so the turn is told apart by its own text, not the other's.
+        const last = JSON.stringify(req.messages.at(-1));
+        if (last.includes("dispatched second")) {
+          order.push("dispatch");
+        } else {
+          order.push("owner");
+          await gate;
+        }
+        return { content: [{ type: "text", text: "ok" }], stopReason: "end_turn" as const, usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    };
+    kernel = await boot(inference);
+    const target = kernel.conversations.create({ userId: "owner", title: "Worker" });
+    const first = kernel.handleMessage("owner first", { sessionId: target.id });
+    await new Promise((r) => setTimeout(r, 20));
+    const second = kernel.dispatchTo(target.id, "dispatched second");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(order).toEqual(["owner"]);
+    release();
+    await Promise.all([first, second]);
+    expect(order).toEqual(["owner", "dispatch"]);
+  });
+
   it("one conversation remembers, another recalls it", async () => {
     const model = scripted([
       toolCall("m1", "memory.remember", {

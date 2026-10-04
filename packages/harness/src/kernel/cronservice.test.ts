@@ -148,4 +148,18 @@ describe("CronService", () => {
   it("refuses a job that does not exist", async () => {
     await expect(service().fire(42)).rejects.toThrow(/no such cron/);
   });
+
+  it("fires each job in its own thread's lane, so two can run at once", async () => {
+    const lanes: string[] = [];
+    const svc = service({
+      enqueue: (work, lane) => {
+        lanes.push(lane);
+        return work();
+      },
+    });
+    const a = job("a");
+    const b = job("b");
+    await Promise.all([svc.fire(a.id), svc.fire(b.id)]);
+    expect(lanes.sort()).toEqual([`cron:${a.id}`, `cron:${b.id}`].sort());
+  });
 });
