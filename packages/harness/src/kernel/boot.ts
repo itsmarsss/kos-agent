@@ -55,7 +55,8 @@ import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import { createChatsModule } from "../tools/chats.js";
 import { createMemoryModule } from "../tools/memory.js";
 import { EXTRACTOR_KEY } from "../memory/extractor.js";
-import { ensureDefaultMemoryCron } from "../memory/job.js";
+import { ensureDefaultDreamCron, ensureDefaultMemoryCron } from "../memory/job.js";
+import { ReviewQueue } from "../memory/review.js";
 import { createCronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
 import { createNotifyModule, noticeText, type NotifyPayload } from "../tools/notify.js";
@@ -216,6 +217,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const sessions = new SessionStore(workspace.db);
   const conversations = new ConversationStore(workspace.db);
   const facts = new FactsStore(workspace.db);
+  const review = new ReviewQueue(workspace.db);
   const embedder = pickEmbedder(secrets);
   const events = new EventLog(workspace.db, embedder.dimension, Date.now, embedder.name);
   const memoryRetriever = new MemoryRetriever(facts, events, embedder);
@@ -395,6 +397,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
         const id = kernelRef?.currentConversationId;
         return id ? (conversations.get(id)?.projectSlug ?? undefined) : undefined;
       },
+      review,
       // One watermark for both readers: the fixed extractor and the memory job.
       watermark: {
         get: () => settings.get<{ lastEventId?: number }>(EXTRACTOR_KEY)?.lastEventId ?? 0,
@@ -440,6 +443,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
 
   ensureDefaultBackupCron(crons);
   ensureDefaultMemoryCron(crons);
+  ensureDefaultDreamCron(crons);
 
   // The pre-existing primary session becomes the first conversation, so an
   // upgraded workspace keeps its transcript instead of orphaning it.
@@ -551,6 +555,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   kernelRef = new Kernel({
     loader,
     mcp,
+    review,
     permissions,
     workspace,
     secrets,
