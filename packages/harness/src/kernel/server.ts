@@ -1816,6 +1816,7 @@ function parseCronInput(body: Record<string, unknown>): CreateCronInput | string
     input.projectSlug = body.projectSlug;
   }
 
+  if (body.task === "cheap" || body.task === "reasoning") input.task = body.task;
   if (type === "self_prompt") {
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
     if (!prompt) return "a self_prompt job needs a prompt";
