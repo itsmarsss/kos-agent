@@ -110,6 +110,8 @@ export interface CronJob {
   running?: boolean;
   /** When the last run touched the thread. */
   lastRunAt?: number;
+  /** Which model class answers a self_prompt. */
+  task?: "reasoning" | "cheap";
 }
 
 export interface RunRecord {

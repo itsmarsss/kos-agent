@@ -37,6 +37,7 @@ interface Row {
   actions_json: string | null;
   prompt: string | null;
   project_slug: string | null;
+  task: string | null;
   enabled: number;
   created_at: number;
   updated_at: number;
@@ -58,6 +59,7 @@ function toJob(row: Row): CronJob {
       : null,
     prompt: row.prompt,
     projectSlug: row.project_slug,
+    task: row.task === "cheap" ? "cheap" : "reasoning",
     enabled: row.enabled === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -88,6 +90,9 @@ export class CronStore {
     if (!columns.has("last_run_at")) {
       this.db.exec(`ALTER TABLE crons ADD COLUMN last_run_at INTEGER`);
     }
+    if (!columns.has("task")) {
+      this.db.exec(`ALTER TABLE crons ADD COLUMN task TEXT`);
+    }
   }
 
   create(input: CreateCronInput): CronJob {
@@ -100,8 +105,8 @@ export class CronStore {
     const ts = this.now();
     const info = this.db
       .prepare(
-        `INSERT INTO crons (name, schedule, type, query, condition_json, actions_json, prompt, project_slug, enabled, created_at, updated_at)
-         VALUES (@name, @schedule, @type, @query, @condition, @actions, @prompt, @projectSlug, @enabled, @ts, @ts)`,
+        `INSERT INTO crons (name, schedule, type, query, condition_json, actions_json, prompt, project_slug, task, enabled, created_at, updated_at)
+         VALUES (@name, @schedule, @type, @query, @condition, @actions, @prompt, @projectSlug, @task, @enabled, @ts, @ts)`,
       )
       .run({
         name: input.name,
@@ -112,6 +117,7 @@ export class CronStore {
         actions: input.actions ? JSON.stringify(input.actions) : null,
         prompt: input.prompt ?? null,
         projectSlug: input.projectSlug ?? null,
+        task: input.task ?? null,
         enabled: input.enabled === false ? 0 : 1,
         ts,
       });
@@ -133,7 +139,7 @@ export class CronStore {
       .prepare(
         `UPDATE crons SET name = @name, schedule = @schedule, type = @type,
            query = @query, condition_json = @condition, actions_json = @actions,
-           prompt = @prompt, project_slug = @projectSlug, updated_at = @ts
+           prompt = @prompt, project_slug = @projectSlug, task = @task, updated_at = @ts
          WHERE id = @id`,
       )
       .run({
@@ -146,6 +152,7 @@ export class CronStore {
         actions: input.actions ? JSON.stringify(input.actions) : null,
         prompt: input.prompt ?? null,
         projectSlug: input.projectSlug ?? null,
+        task: input.task ?? null,
         ts: this.now(),
       });
     return this.get(id);

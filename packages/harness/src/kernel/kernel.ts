@@ -10,6 +10,8 @@ import type { McpModule } from "../tools/mcp.js";
 import { bootKernel } from "./boot.js";
 import { CronService, type CronFireResult } from "./cronservice.js";
 import { MemoryExtractor, type ExtractionReport } from "../memory/extractor.js";
+import { MEMORY_JOB } from "../memory/job.js";
+import type { Task } from "../models/router.js";
 import type { CronJob } from "../cron/types.js";
 import {
   FactsStore,
@@ -474,6 +476,8 @@ export class Kernel {
       allow?: string[];
       attachments?: Attachment[];
       maxIterations?: number;
+      /** Which model class answers; the reasoning route unless a job says cheap. */
+      task?: Task;
     },
   ): Promise<HandleResult> {
     {
@@ -758,6 +762,7 @@ export class Kernel {
 
         const running = runAgent(this.inference, tools, input, {
           system,
+          ...(opts.task ? { task: opts.task } : {}),
           maxIterations: opts.maxIterations ?? this.behaviour().maxSteps,
           // Watched turns stream. A reader was shown one static word for the
           // whole of a turn, and with a reasoning model most of that time is
@@ -993,6 +998,7 @@ export class Kernel {
     // this would wait on a chain that includes the task doing the waiting.
     const res = await this.runTurn(prompt, this.profile.ownerId, id, {
       origin: "system",
+      task: job.task,
     });
     return res.reply;
   }
@@ -1683,6 +1689,13 @@ export class Kernel {
     const how = this.behaviour();
     if (!how.memoryExtraction || this.extractor.busy || this.closed) return;
     if (this.extractor.pending().chars < how.extractEveryChars) return;
+    // KOS reads its own memory when the owner has the job on; the fixed
+    // extractor is the floor when they have not.
+    const job = this.crons.list().find((c) => c.name === MEMORY_JOB);
+    if (job?.enabled) {
+      void this.cron.fire(job.id).catch(() => undefined);
+      return;
+    }
     void this.extractMemory().catch(() => undefined);
   }
 

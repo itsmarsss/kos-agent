@@ -378,6 +378,7 @@ describe("KOS end-to-end flows", () => {
     kernel = await boot(model.inference);
     kernel.startCron();
     const before = kernel.scheduledCronCount();
+    const listed = kernel.crons.list().length;
 
     await kernel.handleMessage("check every minute");
     await kernel.approve(kernel.approvals.pending()[0]!.id);
@@ -389,7 +390,7 @@ describe("KOS end-to-end flows", () => {
     // job scheduled after that was stored and enabled and never fired, so the
     // owner had an unattended job that did nothing until a restart.
     await vi.waitFor(() => {
-      expect(kernel.crons.list()).toHaveLength(before + 1);
+      expect(kernel.crons.list()).toHaveLength(listed + 1);
       expect(kernel.scheduledCronCount()).toBe(before + 1);
     });
   });
@@ -776,7 +777,8 @@ describe("KOS end-to-end flows", () => {
 
   it("asks before running a job by hand, then runs it the way it will run", async () => {
     const model = scripted([
-      toolCall("c1", "cron.run", { id: 2 }),
+      // Every workspace is seeded with the backup job (1) and the memory job (2).
+      toolCall("c1", "cron.run", { id: 3 }),
       text("Ran it."),
     ]);
     kernel = await boot(model.inference);
@@ -787,9 +789,8 @@ describe("KOS end-to-end flows", () => {
       actions: [{ tool: "notify", args: { text: "stand up" } }],
       enabled: true,
     });
-    // Every workspace is seeded with the nightly backup job, which holds 1.
     // Asserted rather than assumed: the scripted call above names an id.
-    expect(job.id).toBe(2);
+    expect(job.id).toBe(3);
 
     /*
      * Firing a job runs whatever it holds -- a write, a message to a channel

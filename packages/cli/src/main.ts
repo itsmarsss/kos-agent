@@ -421,8 +421,10 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    const report = await runMemoryEval(createDefaultRouter(SecretsRegistry.fromEnv()));
-    console.log(flags.json === true ? JSON.stringify(report, null, 2) : renderEvalReport(report));
+    // --agent runs the memory job itself, a turn per case, on the job's route.
+    const reader = flags.agent === true ? "agent" : "extractor";
+    const report = await runMemoryEval(createDefaultRouter(SecretsRegistry.fromEnv()), undefined, { reader });
+    console.log(flags.json === true ? JSON.stringify(report, null, 2) : renderEvalReport(report, reader));
     return;
   }
 

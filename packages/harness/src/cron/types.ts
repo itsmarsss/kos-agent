@@ -31,6 +31,8 @@ export interface CronJob {
   prompt: string | null;
   /** Project context for a self_prompt (manifest + salient memory). */
   projectSlug: string | null;
+  /** Which model class answers a self_prompt: the reasoning route, or the cheap one. */
+  task: "reasoning" | "cheap";
   enabled: boolean;
   createdAt: number;
   updatedAt: number;
@@ -47,5 +49,6 @@ export interface CreateCronInput {
   actions?: ToolCall[];
   prompt?: string;
   projectSlug?: string;
+  task?: "reasoning" | "cheap";
   enabled?: boolean;
 }

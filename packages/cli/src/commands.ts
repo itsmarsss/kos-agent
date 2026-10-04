@@ -44,7 +44,7 @@ const HELP = `kos commands:
   approvals | approve | deny | halt | resume
   crons | snapshot | clear | memory | pages
   doctor               preflight checks
-  eval memory [--json] run the memory extractor over the golden set, print the numbers
+  eval memory [--agent] [--json]  score memory reading on the golden set; --agent runs the kos.memory job itself
   serve                alias: host in foreground (API; Discord optional)
   discord              alias: host in foreground, require Discord
   help

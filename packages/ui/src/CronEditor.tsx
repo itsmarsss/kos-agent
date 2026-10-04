@@ -111,6 +111,7 @@ export function CronEditor({
   const [type, setType] = useState<"self_prompt" | "actions">(
     job?.type === "actions" ? "actions" : "self_prompt",
   );
+  const [task, setTask] = useState<"reasoning" | "cheap">(job?.task === "cheap" ? "cheap" : "reasoning");
   const [prompt, setPrompt] = useState(job?.prompt ?? "");
   const [actions, setActions] = useState(
     JSON.stringify(
@@ -138,7 +139,7 @@ export function CronEditor({
       name,
       schedule,
       type,
-      ...(type === "self_prompt" ? { prompt } : { actions: parsed }),
+      ...(type === "self_prompt" ? { prompt, task } : { actions: parsed }),
     };
     const call = job
       ? api.updateCron({ id: job.id, ...body })
@@ -294,6 +295,21 @@ export function CronEditor({
           />
         </div>
 
+        {type === "self_prompt" && (
+          <div className="kos-field">
+            <span className="kos-field-label">Model</span>
+            <Select
+              className="settings-select"
+              label="Model class"
+              value={task}
+              options={[
+                { value: "reasoning", label: "Reasoning", hint: "the model every chat turn uses" },
+                { value: "cheap", label: "Cheap", hint: "the small model from Settings, for reading and filing" },
+              ]}
+              onChange={(v) => setTask(v === "cheap" ? "cheap" : "reasoning")}
+            />
+          </div>
+        )}
         {type === "self_prompt" ? (
           <label className="kos-field">
             <span className="kos-field-label">Prompt</span>
