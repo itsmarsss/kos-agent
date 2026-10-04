@@ -87,6 +87,20 @@ describe("handleApiRequest", () => {
     expect(mod?.blueprint?.instances).toEqual([{ slug: "side_biz", name: "Side biz", status: "active" }]);
   });
 
+  it("installs a module from a folder, lists where it came from, and removes it", async () => {
+    const src = mkdtempSync(join(tmpdir(), "kos-modsrc-"));
+    writeFileSync(join(src, "module.json"), JSON.stringify({ name: "weather", description: "Weather", command: "node" }), "utf8");
+    const made = await handleApiRequest(kernel, { method: "POST", path: "/api/modules/install", body: { source: src, name: "weather" } });
+    expect(made.body).toMatchObject({ installed: "weather", origin: null });
+    const list = await handleApiRequest(kernel, { method: "GET", path: "/api/modules" });
+    expect((list.body as { modules: { name: string; enabled: boolean; origin: string | null }[] }).modules).toEqual([
+      expect.objectContaining({ name: "weather", enabled: false, origin: null }),
+    ]);
+    const gone = await handleApiRequest(kernel, { method: "POST", path: "/api/modules/remove", body: { name: "weather" } });
+    expect(gone.body).toEqual({ removed: "weather" });
+    rmSync(src, { recursive: true, force: true });
+  });
+
   it("toggles the kill switch", async () => {
     await handleApiRequest(kernel, { method: "POST", path: "/api/kill", body: { halted: true } });
     expect(kernel.killSwitch.halted).toBe(true);

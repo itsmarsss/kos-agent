@@ -360,6 +360,7 @@ export function SettingsPage({
   });
   const [moduleBusy, setModuleBusy] = useState<string | null>(null);
   const [newInstance, setNewInstance] = useState<Record<string, string>>({});
+  const [installSource, setInstallSource] = useState("");
   const loadModules = useCallback(() => {
     void api
       .modules()
@@ -1193,8 +1194,37 @@ export function SettingsPage({
               </div>
             )}
             {modules.modules.length === 0 && modules.invalid.length === 0 && (
-              <p className="hint">No workspace modules yet. Ask KOS to make one with modules.create, or add a folder under modules/.</p>
+              <p className="hint">No workspace modules yet. Ask KOS to make one with modules.create, install one below, or add a folder under modules/.</p>
             )}
+            {/* The second rung of the spec's distribution path: a repository
+                per module. Installed is off; nothing runs until switched on. */}
+            <form
+              className="set-instance-new set-install"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const source = installSource.trim();
+                if (!source) return;
+                setModuleBusy("install");
+                void api
+                  .installModule(source)
+                  .then(() => {
+                    setInstallSource("");
+                    loadModules();
+                  })
+                  .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+                  .finally(() => setModuleBusy(null));
+              }}
+            >
+              <input
+                className="kos-input"
+                placeholder="Install from a git URL or a folder path"
+                value={installSource}
+                onChange={(e) => setInstallSource(e.target.value)}
+              />
+              <button type="submit" className="btn btn--sm" disabled={moduleBusy === "install" || !installSource.trim()}>
+                {moduleBusy === "install" ? "…" : "Install"}
+              </button>
+            </form>
             {modules.modules.map((m) => (
               <Field
                 key={m.name}
@@ -1271,6 +1301,33 @@ export function SettingsPage({
                   <span>{moduleBusy === m.name ? "…" : m.enabled ? "On" : "Off"}</span>
                 </label>
                 )}
+                <span className="set-module-actions">
+                  {m.origin && (
+                    <button
+                      type="button"
+                      className="link"
+                      disabled={moduleBusy === m.name}
+                      onClick={() => {
+                        setModuleBusy(m.name);
+                        void api.updateModule(m.name).then(loadModules).catch((err: unknown) => setError(err instanceof Error ? err.message : String(err))).finally(() => setModuleBusy(null));
+                      }}
+                    >
+                      Update
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="link is-danger"
+                    disabled={moduleBusy === m.name}
+                    onClick={() => {
+                      setModuleBusy(m.name);
+                      void api.removeModule(m.name).then(loadModules).catch((err: unknown) => setError(err instanceof Error ? err.message : String(err))).finally(() => setModuleBusy(null));
+                    }}
+                  >
+                    Remove
+                  </button>
+                  {m.origin && <span className="hint ops-mono">{m.origin}</span>}
+                </span>
               </Field>
             ))}
             {modules.invalid.length > 0 && (
