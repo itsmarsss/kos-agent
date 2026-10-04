@@ -33,3 +33,5 @@ export {
   type Recall,
   type RecallOptions,
 } from "./retriever.js";
+export { MemoryExtractor, parseProposals, EXTRACTOR_KEY, type ExtractionReport, type ExtractorState } from "./extractor.js";
+export { runMemoryEval, renderEvalReport, loadGolden, type EvalReport, type GoldenCase } from "./eval.js";
