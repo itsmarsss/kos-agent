@@ -1,6 +1,6 @@
 import type { EmbeddingProvider } from "./embeddings.js";
 import type { EventHit, EventLog } from "./events.js";
-import type { Fact, FactsStore } from "./facts.js";
+import { GLOBAL_SCOPE, projectScope, type Fact, type FactsStore } from "./facts.js";
 
 export interface Recall {
   facts: Fact[];
@@ -11,8 +11,12 @@ export interface Recall {
 export interface RecallOptions {
   factLimit?: number;
   eventLimit?: number;
-  /** The project in play, whose events rank a little higher. */
+  /** The project in play: its claims are read beside the global ones, and its events rank a little higher. */
   projectSlug?: string | null;
+  /** Lowest keyword score a claim needs to be injected. Retrieved is not injected. */
+  minScore?: number;
+  /** Extra scopes to read, for an outside caller's own claims. */
+  scopes?: string[];
 }
 
 /**
@@ -29,7 +33,12 @@ export class MemoryRetriever {
   ) {}
 
   async recall(userId: string, query: string, options: RecallOptions = {}): Promise<Recall> {
-    const facts = this.facts.search(userId, query, options.factLimit ?? 10);
+    const scopes = [GLOBAL_SCOPE, ...(options.projectSlug ? [projectScope(options.projectSlug)] : []), ...(options.scopes ?? [])];
+    const facts = this.facts.search(userId, query, options.factLimit ?? 10, {
+      scopes,
+      ...(options.minScore !== undefined ? { minScore: options.minScore } : {}),
+    });
+    this.facts.markUsed(facts.map((f) => f.id));
     let events: EventHit[] = [];
     if (this.events && query.trim()) {
       const [embedding] = this.embedder ? await this.embedder.embed([query], "query") : [undefined];

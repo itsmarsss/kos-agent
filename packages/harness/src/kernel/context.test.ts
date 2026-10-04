@@ -37,6 +37,7 @@ describe("assembleSystemPrompt", () => {
             source: null,
       tags: [],
       pinned: false,
+          scope: "global", trust: "owner", confidence: 1, supersededAt: null, supersedes: null, lastUsedAt: null, useCount: 0,
             createdAt: 0,
             updatedAt: 0,
           },

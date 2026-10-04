@@ -177,6 +177,8 @@ export class Kernel {
   readonly sessions: SessionStore;
   readonly conversations: ConversationStore;
   readonly facts: FactsStore;
+  /** The log every exchange lands in; the ground truth under memory. */
+  readonly events: EventLog;
   /** Where a button press belongs, for the surface that receives one. */
   readonly presses: PressRoutes;
   /** The agent's long-running programs, and what is keeping them up. */
@@ -296,6 +298,7 @@ export class Kernel {
     this.sessions = args.sessions;
     this.conversations = args.conversations;
     this.facts = args.facts;
+    this.events = args.events;
     this.presses = args.presses;
     this.daemons = args.daemons;
     this.supervisor = args.supervisor;
@@ -503,6 +506,9 @@ export class Kernel {
           factLimit: 10,
           eventLimit: 4,
           projectSlug: conversation?.projectSlug ?? null,
+          // A single matching word is retrieval, not relevance: one key hit,
+          // a phrase, or two words in the value before a claim is injected.
+          minScore: 2,
         });
         // Pinned entries are the handful of things every conversation should
         // know without having to match them, so they bypass retrieval.
@@ -1326,6 +1332,7 @@ export class Kernel {
       factLimit: 10,
       eventLimit: 4,
       projectSlug: job.projectSlug,
+      minScore: 2,
     });
     const projects = this.manifest.list();
     const assembled = assembleSystemPrompt({

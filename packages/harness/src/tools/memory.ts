@@ -1,6 +1,6 @@
 import type { EmbeddingProvider } from "../memory/embeddings.js";
 import type { EventLog } from "../memory/events.js";
-import type { FactsStore } from "../memory/facts.js";
+import { GLOBAL_SCOPE, projectScope, type FactsStore } from "../memory/facts.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 
@@ -22,6 +22,7 @@ export const MEMORY_TOOLS = [
   "memory.recall",
   "memory.forget",
   "memory.tags",
+  "memory.trace",
 ] as const;
 
 export interface MemoryToolDeps {
@@ -32,6 +33,8 @@ export interface MemoryToolDeps {
   ownerId: string;
   /** Which conversation is writing, recorded as the entry's source. */
   currentSource?: () => string;
+  /** The project the writing conversation is in, the default scope of a claim made there. */
+  currentProject?: () => string | undefined;
 }
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -62,6 +65,13 @@ const KINDS = ["fact", "preference"] as const;
 function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
   const { facts, ownerId } = deps;
   const source = (): string => deps.currentSource?.() ?? "agent";
+  /** "global", "project" (this one), or a project slug; the project in play by default. */
+  const scopeOf = (raw: unknown): string => {
+    const here = deps.currentProject?.();
+    if (raw === "global") return GLOBAL_SCOPE;
+    if (typeof raw === "string" && raw.trim() && raw !== "project") return projectScope(raw.trim());
+    return here ? projectScope(here) : GLOBAL_SCOPE;
+  };
 
   ctx.registerTool(
     {
@@ -87,6 +97,11 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
             description:
               "put it in every conversation's context without needing a match. Reserve for the few things that always apply.",
           },
+          scope: {
+            type: "string",
+            description:
+              'where it is true: "global" for something about the owner everywhere; "project" (the default inside a project chat) or a project slug for something about that project only',
+          },
         },
         required: ["key", "value"],
       },
@@ -94,18 +109,22 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
     (input) => {
       const key = normalizeKey(str(input, "key"));
       const tags = stringList(input, "tags");
-      facts.upsert(
+      const written = facts.upsert(
         ownerId,
         {
           key,
           value: str(input, "value"),
           kind: input.kind === "preference" ? "preference" : "fact",
+          scope: scopeOf(input.scope),
+          // Written by an agent, so it is an agent's belief unless the owner
+          // said it in so many words; the extractor will grade that later.
+          trust: "agent",
           ...(tags.length ? { tags } : {}),
           ...(typeof input.pinned === "boolean" ? { pinned: input.pinned } : {}),
         },
         source(),
       );
-      return JSON.stringify({ remembered: key });
+      return JSON.stringify({ remembered: key, scope: written.scope, ...(written.supersedes ? { replaced: true } : {}) });
     },
     { floor: "safe" },
     { tags: ["memory"] },
@@ -205,11 +224,46 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
     },
     (input) => {
       const key = normalizeKey(str(input, "key"));
-      return JSON.stringify({ key, removed: facts.delete(ownerId, key) });
+      const gone = facts.delete(ownerId, key);
+      // Forgotten means gone: the words it was drawn from leave the log too,
+      // or a search by meaning would hand it straight back.
+      if (gone.evidence.length) deps.events?.redact(gone.evidence);
+      return JSON.stringify({ key, removed: gone.removed, ...(gone.evidence.length ? { redactedEvents: gone.evidence.length } : {}) });
     },
     // One key at a time, no bulk delete, and the nightly git snapshot covers
     // undo. Making this risky would put an approval in front of routine
     // correction, which is how memory goes stale.
+    { floor: "safe" },
+    { tags: ["memory"] },
+  );
+
+  ctx.registerTool(
+    {
+      name: "memory.trace",
+      description:
+        "Where a belief came from: the current claim under a key, what it replaced and when, who wrote each, and the moments in the log it was drawn from. Use it before contradicting the owner about something remembered.",
+      inputSchema: { type: "object", properties: { key: { type: "string" } }, required: ["key"] },
+    },
+    (input) => {
+      const key = normalizeKey(str(input, "key"));
+      const claim = facts.get(ownerId, key);
+      if (!claim) return JSON.stringify({ key, known: false, history: facts.history(ownerId, key).length });
+      const trace = facts.trace(claim.id)!;
+      const evidence = trace.evidence
+        .map((id) => deps.events?.get(id))
+        .filter((e): e is NonNullable<typeof e> => e !== undefined)
+        .map((e) => ({ when: new Date(e.ts).toISOString(), who: e.role, ...(e.projectSlug ? { project: e.projectSlug } : {}), text: e.text.slice(0, 300) }));
+      return JSON.stringify({
+        key,
+        value: claim.value,
+        scope: claim.scope,
+        trust: claim.trust,
+        source: claim.source,
+        since: new Date(claim.createdAt).toISOString(),
+        before: trace.before.map((b) => ({ value: b.value, from: new Date(b.createdAt).toISOString(), until: b.supersededAt ? new Date(b.supersededAt).toISOString() : null, source: b.source })),
+        evidence,
+      });
+    },
     { floor: "safe" },
     { tags: ["memory"] },
   );

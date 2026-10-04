@@ -387,6 +387,12 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       events,
       embedder,
       ownerId: profile.ownerId,
+      // The project the writing conversation belongs to, so a claim made
+      // inside a project chat lands in that project's scope by default.
+      currentProject: () => {
+        const id = kernelRef?.currentConversationId;
+        return id ? (conversations.get(id)?.projectSlug ?? undefined) : undefined;
+      },
       // Attributed to the conversation that wrote it, so the owner can see
       // which agent believed what.
       currentSource: () => kernelRef?.currentConversationId ?? "agent",
