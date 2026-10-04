@@ -1,13 +1,12 @@
 import { m } from "motion/react";
 import { ease } from "./motion.js";
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import {
   api,
   type Behaviour,
   type ModelRate,
-  type SettingsPayload,
-} from "./api.js";
+  type SettingsPayload, type SkillInfo } from "./api.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { Select } from "./Select.js";
 import { SpendPanel } from "./SpendPanel.js";
@@ -55,6 +54,7 @@ type SectionId =
   | "behaviour"
   | "network"
   | "spend"
+  | "skills"
   | "workspace";
 
 const SECTIONS: { id: SectionId; label: string; blurb: string }[] = [
@@ -69,6 +69,7 @@ const SECTIONS: { id: SectionId; label: string; blurb: string }[] = [
   },
   { id: "network", label: "Network", blurb: "Ports, binding, and what the agent may reach" },
   { id: "spend", label: "Spend", blurb: "Tokens used and what they cost" },
+  { id: "skills", label: "Skills", blurb: "What KOS knows how to do, and which are on" },
   { id: "workspace", label: "Workspace", blurb: "Where everything lives" },
 ];
 
@@ -309,6 +310,19 @@ export function SettingsPage(): ReactElement {
   /** ModelSettings owns its draft, so it reports whether that draft differs. */
   const [modelsDirty, setModelsDirty] = useState(false);
   const [busy, setBusy] = useState<SectionId | null>(null);
+  const [skills, setSkills] = useState<{ skills: SkillInfo[]; invalid: { name: string; reason: string }[] }>({
+    skills: [],
+    invalid: [],
+  });
+  const loadSkills = useCallback(() => {
+    void api
+      .skills()
+      .then(setSkills)
+      .catch(() => setSkills({ skills: [], invalid: [] }));
+  }, []);
+  useEffect(() => {
+    if (active === "skills") loadSkills();
+  }, [active, loadSkills]);
   const [saved, setSaved] = useState<Partial<Record<SectionId, string>>>({});
 
   const [profile, setProfile] = useState({ name: "", timezone: "" });
@@ -989,6 +1003,45 @@ export function SettingsPage(): ReactElement {
           </Section>
         )}
 
+        {active === "skills" && (
+          <Section title="Skills" blurb="Each one is a folder under skills/ with a skill.json. On is the default; off keeps it on disk but out of reach.">
+            {skills.skills.length === 0 && skills.invalid.length === 0 && (
+              <p className="hint">No skills yet. Ask KOS to make one with skills.create, or add a folder under skills/.</p>
+            )}
+            {skills.skills.map((sk) => (
+              <Field
+                key={sk.name}
+                label={`${sk.name} (${sk.kind})${sk.projects ? ` · ${sk.projects.join(", ")}` : ""}`}
+                hint={sk.description}
+              >
+                <label className="set-toggle">
+                  <input
+                    type="checkbox"
+                    checked={sk.enabled}
+                    onChange={(e) => {
+                      const enabled = e.target.checked;
+                      // Shown at once; the list is re-read after the save so
+                      // what is on screen is what the server has.
+                      setSkills((cur) => ({ ...cur, skills: cur.skills.map((x) => (x.name === sk.name ? { ...x, enabled } : x)) }));
+                      void api.setSkillEnabled(sk.name, enabled).then(loadSkills, loadSkills);
+                    }}
+                  />
+                  <span>{sk.enabled ? "On" : "Off"}</span>
+                </label>
+              </Field>
+            ))}
+            {skills.invalid.length > 0 && (
+              <div className="set-group">
+                <h3>Could not be read</h3>
+                {skills.invalid.map((bad) => (
+                  <p key={bad.name} className="hint">
+                    <span className="ops-mono">{bad.name}</span>: {bad.reason}
+                  </p>
+                ))}
+              </div>
+            )}
+          </Section>
+        )}
         {active === "spend" && (
           <Section title="Spend" blurb="Tokens as the provider counted them.">
             <SpendPanel />
