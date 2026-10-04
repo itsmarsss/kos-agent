@@ -35,6 +35,8 @@ import { conversationEvents } from "./transcript.js";
 import { listDirectory, readFile, readImage } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
+import { readSkills } from "../skills/manifest.js";
+import { SKILLS_KEY, parseSkillSettings, withSkillEnabled } from "../skills/settings.js";
 import { conversationKind } from "./conversations.js";
 import { proxyToDaemon } from "../daemons/proxy.js";
 import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId } from "./session.js";
@@ -305,6 +307,25 @@ export async function handleApiRequest(
     const call = kernel.audit.get(id);
     if (!call) return { status: 404, body: { error: "no such call" } };
     return ok(call);
+  }
+
+  if (method === "GET" && path === "/api/skills") {
+    const { skills, invalid } = readSkills(kernel.workspace);
+    const off = new Set(parseSkillSettings(kernel.settings.get(SKILLS_KEY)).disabled);
+    return ok({
+      skills: skills.map((s) => ({ ...s.manifest, file: s.file, enabled: !off.has(s.manifest.name) })),
+      invalid,
+    });
+  }
+
+  if (method === "POST" && path === "/api/skills/enable") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const enabled = body.enabled === true;
+    const known = readSkills(kernel.workspace).skills.some((s) => s.manifest.name === name);
+    if (!known) return { status: 404, body: { error: `no skill named ${name}` } };
+    const next = withSkillEnabled(parseSkillSettings(kernel.settings.get(SKILLS_KEY)), name, enabled);
+    kernel.settings.set(SKILLS_KEY, next);
+    return ok({ name, enabled });
   }
 
   if (method === "GET" && path === "/api/crons") {

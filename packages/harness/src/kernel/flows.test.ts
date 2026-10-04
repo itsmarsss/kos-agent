@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -14,6 +14,7 @@ import { BEHAVIOUR_KEY } from "./behaviour.js";
 import type { NotifyPayload } from "../tools/notify.js";
 import { withoutTurnContext } from "./context.js";
 import { Kernel } from "./kernel.js";
+import { SKILLS_KEY } from "../skills/settings.js";
 import { primarySessionId } from "./session.js";
 
 /**
@@ -1191,6 +1192,30 @@ describe("KOS end-to-end flows", () => {
     const res = await kernel.handleMessage("do the thing");
     expect(res.reply.trim()).not.toBe("");
     expect(res.reply).toMatch(/stuck|too many steps/i);
+  });
+
+  it("keeps a switched-off skill out of the prompt, and puts it back when on", async () => {
+    /*
+     * The toggle governs the Skills section of the system prompt and nothing
+     * else. Read the prompt the model was sent rather than asking the model:
+     * a live check asked it to list its skills and it named one that was off,
+     * because the transcript and recalled memory told it so. Only the prompt
+     * says what the toggle did.
+     */
+    const model = scripted([text("ok"), text("ok")]);
+    kernel = await boot(model.inference);
+    const dir = join(kernel.workspace.root, "skills", "pr-review");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "skill.json"), JSON.stringify({ name: "pr-review", description: "Review a pull request", kind: "prompt" }), "utf8");
+    writeFileSync(join(dir, "SKILL.md"), "Read the diff first.", "utf8");
+
+    kernel.settings.set(SKILLS_KEY, { disabled: ["pr-review"] });
+    await kernel.handleMessage("hello", { sessionId: "a:owner" });
+    expect(model.systems[0]).not.toContain("pr-review");
+
+    kernel.settings.set(SKILLS_KEY, { disabled: [] });
+    await kernel.handleMessage("hello again", { sessionId: "b:owner" });
+    expect(model.systems[1]).toContain("- pr-review (prompt): Review a pull request");
   });
 
   it("leaves an unscoped conversation with the full toolset", async () => {

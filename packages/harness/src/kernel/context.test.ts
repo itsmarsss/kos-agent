@@ -79,6 +79,24 @@ describe("assembleSystemPrompt", () => {
     expect(prompt.system).toContain("- budget_tx: id, amount, posted_on");
   });
 
+  it("lists the skills the model may reach for", () => {
+    const prompt = assembleSystemPrompt({
+      baseSystem: "You are KOS.",
+      profile: DEFAULT_PROFILE,
+      projects: [],
+      skills: [
+        {
+          manifest: { name: "pr-review", description: "How to review a pull request", kind: "prompt", instructions: "SKILL.md" },
+          dir: "skills/pr-review",
+          file: "skills/pr-review/SKILL.md",
+        },
+      ],
+      recall: { facts: [], episodes: [] },
+    });
+    expect(prompt.system).toContain("## Skills");
+    expect(prompt.system).toContain("- pr-review (prompt): How to review a pull request");
+  });
+
   it("says nothing about tables when there are none", () => {
     const prompt = assembleSystemPrompt({
       baseSystem: "You are KOS.",

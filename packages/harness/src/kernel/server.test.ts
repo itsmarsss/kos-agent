@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -227,6 +227,26 @@ describe("handleApiRequest", () => {
       url: "/api/activity/call?id=999999",
     });
     expect(missing.status).toBe(404);
+  });
+
+  it("lists skills and lets the owner switch one off and on", async () => {
+    const dir = join(kernel.workspace.root, "skills", "demo");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "skill.json"), JSON.stringify({ name: "demo", description: "A demo", kind: "prompt" }), "utf8");
+    writeFileSync(join(dir, "SKILL.md"), "do the demo", "utf8");
+
+    const listed = await handleApiRequest(kernel, { method: "GET", path: "/api/skills" });
+    expect((listed.body as { skills: { name: string; enabled: boolean }[] }).skills).toEqual([
+      expect.objectContaining({ name: "demo", enabled: true }),
+    ]);
+
+    const off = await handleApiRequest(kernel, { method: "POST", path: "/api/skills/enable", body: { name: "demo", enabled: false } });
+    expect(off.status).toBe(200);
+    const after = await handleApiRequest(kernel, { method: "GET", path: "/api/skills" });
+    expect((after.body as { skills: { enabled: boolean }[] }).skills[0]!.enabled).toBe(false);
+
+    const unknown = await handleApiRequest(kernel, { method: "POST", path: "/api/skills/enable", body: { name: "nope", enabled: false } });
+    expect(unknown.status).toBe(404);
   });
 
   it("validates and 404s", async () => {
