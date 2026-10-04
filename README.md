@@ -1,39 +1,62 @@
 # KOS
 
-**An AI agent with its own workspace, its own toolkit, and its own schedule.**
+**A personal agent with its own workspace, its own toolkit, its own memory,
+and its own schedule. Runs on your machine, in one directory it cannot
+leave.**
 
-Ask it for a reading tracker and it will:
-
-1. design a schema and migrate the database
-2. write the pages and serve the site on its own port
-3. schedule itself a daily check
-4. message you at noon with buttons to log progress
-
-It runs on your machine, in one directory it cannot leave.
+Ask it for a pantry tracker and it will design the schema, migrate the
+database, write the page, serve it, schedule itself a weekly check, and
+message you with buttons to log what ran out. Promote that tracker and it
+becomes a module you can hand to someone else. Tell it something once and it
+will remember, in words you can read and edit.
 
 ### By the numbers
 
 | | |
 | --- | --- |
-| **84 tools** in 16 families | files, SQL, migrations, HTTP, search, memory, projects, sites, daemons, schedules, sub-agents, skills |
-| **1,272 tests** across 126 files | ~19,000 lines of tests, ~41,000 of source |
-| **239 pull requests** | all merged, all green |
-| **4 surfaces** | Discord, iMessage, web dashboard, terminal REPL |
-| **21 tables, 70 API routes** | one SQLite file, one local server |
+| **17 tool families** | files, SQL, migrations, HTTP, shell, search, memory, projects, pages, sites, daemons, schedules, sub-agents, skills, modules, export, delegation |
+| **1,506 tests** across 159 files | about 23,000 lines of tests for 49,000 of source |
+| **291 pull requests** | all merged, all green |
+| **5 surfaces** | web dashboard, terminal REPL, Discord, iMessage, SMS |
+| **28 tables, 107 API routes** | one SQLite file, one local server |
 
 **Stack:** TypeScript, Node 20, React, SQLite with vector search, Docker,
-Anthropic and OpenAI, Discord API, AppleScript.
+Anthropic, OpenAI or any OpenAI-compatible endpoint, Discord, Twilio,
+AppleScript.
+
+---
+
+## The dashboard
+
+Open `http://127.0.0.1:4317` and you land in a conversation. The sidebar is
+the whole map:
+
+| | |
+| --- | --- |
+| **Chats** | Where you talk to KOS. KOS at the top routes work across your chats; each project has a chat that orchestrates it; the agents a project spawns sit under it. A chip beside the composer says what memory the last turn was given. |
+| **Inbox** | Everything waiting on you, in one list with the buttons to clear it: tool calls that need a yes, memory questions the tidy job could not settle, jobs failing now. The badge in the sidebar counts all three. |
+| **Overview** | A dashboard you arrange: what needs you, what is running, what broke, memory at a glance, modules, projects, activity, recent chats, spend. |
+| **Projects** | What KOS is keeping for you. A card opens the project's details: its tables, pages, sites, schedules, chat, folder and schema history. |
+| **Files** | The workspace, browsed. |
+| **Memory** | Claims, Decisions, Pages, Log, Jobs, Callers. See [docs/memory.md](docs/memory.md). |
+| **Runs** | History (everything KOS has done), Schedule (the jobs and their editor), Agents (coding sub-agents). |
+| **Settings** | Account, Conduct, Extensions, Access, Housekeeping. Models, keys, behaviour, appearance, skills, modules, permissions, network, spend, workspace. |
+
+`⌘K` finds anything: a chat, a file, a page, a schedule, a setting, a
+command. The full page-by-page guide is in
+[docs/dashboard.md](docs/dashboard.md).
 
 ---
 
 ## A turn
 
 ```
- STARTED BY      you  ·  a schedule  ·  the agent itself
+ STARTED BY      you  ·  a schedule  ·  the agent itself  ·  a hook  ·  a caller
                                 │
                                 ▼
  ┌────────────────────────────────────────────────────────────┐
  │  AGENT LOOP    model  →  tool calls  →  results  →  repeat │
+ │                with what memory recalled for this message  │
  └────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
@@ -43,57 +66,50 @@ Anthropic and OpenAI, Discord API, AppleScript.
                                 │
                                 ▼
  ┌────────────────────────────────────────────────────────────┐
- │  WORKSPACE     84 tools · SQLite · files · sites · daemons │
+ │  WORKSPACE     tools · SQLite · files · sites · daemons    │
  │                one directory, and no path may leave it     │
  └────────────────────────────────────────────────────────────┘
 ```
+
+Conversations run in parallel, one lane each: a follow-up in a chat waits
+behind that chat's turn and nothing else. Scheduled jobs and dispatched
+turns have lanes of their own.
 
 ---
 
 ## What it does on its own
 
-**Prompts itself.** A `self_prompt` schedule hands the agent an instruction
-and lets it decide what to do with it.
+**Prompts itself.** A self-prompt schedule hands the agent an instruction and
+lets it decide what to do with it. Each job names its model class, reasoning
+or cheap.
 
-**Delegates.** An orchestrator conversation dispatches work to other
-conversations, each with its own brief and tool allow-list. Dispatched
-conversations do not hold the dispatch tools, so delegation is one level deep.
+**Delegates.** KOS, the root conversation, dispatches work to project chats.
+A project chat spawns conversations for its work and sees only its own. A
+spawned conversation cannot spawn, so delegation is bounded.
 
-**Runs sub-agents.** Larger builds go to a Claude Code sub-agent whose working
-directory is a folder inside the workspace.
+**Runs sub-agents.** Larger builds go to a Claude Code sub-agent working in
+one folder of the workspace. Chat turns can run on your Claude subscription
+the same way, with KOS's own tools and nothing else.
 
-**Reads its own toolkit.** `tools.list` returns everything available,
-including tools narrowed out of the current turn.
+**Remembers.** Every exchange is logged. What KOS believes is a claim, scoped
+to a project or global, with the evidence it came from. Three jobs maintain
+it, each off until you switch it on. [docs/memory.md](docs/memory.md).
+
+**Looks around.** A heartbeat, off by default, wakes on an interval you set,
+checks what changed, and says nothing unless something is worth saying.
+
+**Answers a hook.** `POST /api/hooks/<job name>` with the hook secret starts
+the named job, and nothing else.
 
 **Supervises daemons.** Programs it spawns are restarted with backoff.
 
-**Answers a hook.** With `KOS_HOOK_SECRET` set, `POST /api/hooks/<job name>`
-with that secret as a bearer token starts the named job. The secret opens
-nothing else, the body is ignored, and the run reports to health like a
-scheduled one.
+**Extends itself.** Skills are sandbox-tested in a child process against a
+throwaway database copy, then promoted if safe or queued for your approval.
+Modules it writes do not run until you switch them on.
 
-**Writes its own memory.** Every exchange lands in an events log, searchable
-by words and by meaning. What KOS believes is a claim: scoped to a project or
-global, never overwritten (a change supersedes, the old row stays), linked to
-the events it came from, hard-forgotten on request down to the vectors.
-Heuristics catch the obvious. The rest is KOS's own job: `kos.memory`, a
-scheduled self-prompt with a brief you can read and edit, reads what was said
-with `memory.unread` and keeps what matters with `memory.remember`, citing
-the events it read; a claim that cites events it was not shown is refused.
-It runs on whichever model class the job names. A fixed extractor behind the
-same contract is the floor when the job is off. Nightly, `kos.dream` tidies:
-it merges claims that are one thing, archives what has gone stale, flags
-what it cannot settle for the owner to decide, and writes the pages under
-`memory/` (one for the owner, one per project) that are memory in prose.
-Hourly, `kos.observe` keeps long threads readable: a dated note of the older
-exchanges stands in for them, the recent ones stay, and the covered events
-are shadowed in the log rather than deleted. `kos eval memory`, with or
-without `--agent`, scores either reader on a golden set with the embedder
-held constant, so a change is measured rather than felt.
-
-**Extends itself.** New skills are sandbox-tested in a child process against a
-throwaway database copy, then promoted automatically if safe, or queued for
-approval if not.
+**Promotes what it built.** A project can become a blueprint module: its
+schema, pages and jobs, none of its data. A new instance is a new project
+from it. [docs/modules.md](docs/modules.md).
 
 ---
 
@@ -102,196 +118,27 @@ approval if not.
 | | |
 | --- | --- |
 | **Path jail** | One `resolvePath()` gate. Rejects `..`, NUL bytes, absolute escapes, and all symlinks |
-| **Risk tiers** | Static floor per tool, escalated deterministically by arguments. The model is not consulted |
-| **Approvals** | Interactive turns suspend and resume on the decision. Scheduled runs queue the action and finish |
-| **Schema changes** | Guarded `migrate` primitive: versioned, git-snapshotted, restorable |
-| **Skills** | Sandbox-tested before promotion |
+| **Container** | The container is the jail for unattended work. On macOS a sandbox profile confines shell commands to the workspace |
+| **Risk tiers** | A static floor per tool, escalated deterministically by arguments. The model is never asked whether something is safe |
+| **Approvals** | Interactive turns suspend and resume on your decision. Scheduled runs queue the action and finish. A decision remembered with Always covers that shape, in that project, and nothing wider |
+| **Schema changes** | A guarded `migrate` primitive: versioned, git-snapshotted, restorable |
 | **Audit** | Every call logged with arguments, result, risk tier, caller |
 | **Secrets** | Held outside the workspace, referenced by name, injected at call time, redacted from logs. Child processes get an allow-listed environment |
-| **Shell** | `shell.run` is jailed: by the container, or on macOS by a sandbox profile under which the owner's home is unreadable except the workspace and writes land only inside it. Risky by floor; a remembered permission is per program and never covers a chain or a pipeline |
+| **Outside code** | MCP servers and workspace modules are risky by default; you floor tools safe one at a time, by name or glob. The harness never guesses a tool is safe |
+| **One owner** | iMessage reads one thread, SMS answers one number, Discord one account. A stranger is dropped, never answered |
 
-### Reading iMessage
-
-Apple's `chat.db` holds every conversation on the machine. The reader binds
-every query to a single conversation in the SQL itself, and no code path
-constructs a statement without that binding.
-
-It is tested against a fixture containing other people's messages.
-
-### MCP servers
-
-Tools from Model Context Protocol servers are offered like any other tool.
-A server is declared in `mcp.json` at the workspace root, in the shape Claude
-Code uses, and each tool it lists registers as `mcp.<server>.<tool>`.
-
-A server's tools are **risky** by default: it is someone else's code, and the
-harness classifies it rather than trusting it. `"risk": "safe"` lowers the
-whole server; a `"tools"` map floors tools one at a time, by name or glob, so
-a read-only tool can be safe while a mutating one stays risky. The harness
-never guesses a tool is safe.
-
-```json
-{
-  "servers": {
-    "browser": {
-      "command": "npx",
-      "args": ["-y", "@playwright/mcp@latest", "--isolated",
-               "--user-data-dir", "projects/browser-profile"],
-      "risk": "risky",
-      "tools": {
-        "browser_navigate": "safe", "browser_navigate_back": "safe",
-        "browser_snapshot": "safe", "browser_find": "safe",
-        "browser_take_screenshot": "safe", "browser_wait_for": "safe",
-        "browser_console_messages": "safe", "browser_network_requests": "safe"
-      }
-    }
-  }
-}
-```
-
-The browser runs its **own profile inside the workspace** (`--user-data-dir`
-under a project, `--isolated` so each run starts clean), never the owner's
-logged-in Chrome. Anything that changes a page (click, type, fill a form)
-stays risky and asks, or runs under a remembered permission. KOS never enters
-a password or payment detail; the owner signs into a site once in KOS's own
-profile.
-
-`{{secret:NAME}}` in a server's `env` or `headers` is injected at connect and
-never logged. A server that fails to start is reported and skipped. Stdio
-servers are child processes that do not outlive the host.
-
-### Modules
-
-Four built-in features, tasks, sites, export and builds, are switchable under
-Settings, Modules: off takes their tools away at once. Everything else the
-kernel loads is the harness itself.
-
-The kernel is primitives: files, search, shell, HTTP, SQL, memory, schedules,
-daemons, delegation, skills, MCP. A feature is a module, and a module is a
-folder under `modules/` with a `module.json` and a server that speaks the
-Model Context Protocol:
-
-```json
-{
-  "name": "notes",
-  "description": "Short notes with tags, searchable",
-  "command": "node",
-  "args": ["server.mjs"],
-  "tools": { "notes_search": "safe", "notes_list": "safe" }
-}
-```
-
-`modules.create` scaffolds one with a dependency-free server and an example
-tool, so KOS can build a feature itself. It does not run until the owner
-switches it on in Settings, which is the gate between KOS writing code and
-KOS running it. Switched on, it runs from its own folder in the jail, its
-tools register as `mcp.<module>.<tool>`, floored as the manifest says and
-risky where it says nothing. Off takes the tools back, no restart.
-
-### Sharing memory with other programs
-
-A caller is another program with its own token and its own corner of
-memory, made under Settings, Callers. It reads the owner's global claims
-only under the tags it was granted, writes global only if the grant says
-so, and never sees a project or another caller. Two ways in:
-
-```ts
-import { CallerClient } from "@kos/client";
-const mem = new CallerClient({ baseUrl: "http://127.0.0.1:4317", token: process.env.KOS_CALLER_TOKEN });
-await mem.remember("last_posting", "Acme, staff engineer", { tags: ["career"] });
-const { claims } = await mem.recall("resume");
-```
-
-```bash
-claude mcp add kos-memory -- kos memory-mcp --token kosc_...   # or any agent that takes an MCP server
-```
-
-What a caller hands over with `ingest` is kept as the outside world's words:
-searchable, never read as the owner's own by the memory job.
-
-### Mail
-
-Mail is an external service, so it comes in the same way. An IMAP server
-works with any provider and keeps sending off until it is switched on:
-
-```json
-{
-  "servers": {
-    "mail": {
-      "command": "npx",
-      "args": ["-y", "@aiwerk/mcp-server-imap"],
-      "env": {
-        "IMAP_HOST": "imap.example.com",
-        "IMAP_USER": "you@example.com",
-        "IMAP_PASS": "{{secret:mail}}"
-      },
-      "tools": {
-        "email_list": "safe", "email_read": "safe", "email_search": "safe",
-        "email_folders": "safe", "email_attachment": "safe"
-      }
-    }
-  }
-}
-```
-
-The password is `KOS_SECRET_MAIL` in `.env`, an app password rather than
-the account's own. Reading is floored safe, so the heartbeat can look at
-what arrived without asking. Moving, flagging, deleting, sending and
-replying stay risky: each asks, or runs under a permission the owner
-remembered for that tool. Sending also needs the server's own opt-in,
-`SMTP_SEND_ENABLED=true` with `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` and
-`SMTP_FROM` in `env`. A Gmail-specific server with OAuth fits the same
-shape; what changes is the tool names in the floors map.
-
----
-
-## Architecture
-
-| Package | Role |
-| --- | --- |
-| `packages/harness` | Kernel: agent loop, jail, store, tools, cron, memory, channels, ops |
-| `packages/ui` | React shell rendering agent-authored page specs |
-| `packages/cli` | The `kos` command: REPL, host, ops, doctor |
-| `packages/shared` | Contracts both sides import |
-
-- **Conversations are the unit of work.** Each carries a brief and a tool
-  allow-list, set by the owner rather than by the agent.
-- **Execution is serial.** Conversations are parallel as threads, not as
-  running work. A lane-based queue keeps same-lane calls ordered.
-- **SQLite only.** One workspace file, JSON columns for documents,
-  `sqlite-vec` for embeddings.
-- **The agent emits JSON, not React.** Page specs render through a fixed
-  library of 8 widget kinds. `custom_html` renders in a sandboxed iframe.
-- **The container is the jail.** `resolvePath()` is the in-process perimeter
-  on top of it.
-
----
-
-## Testing
-
-Tests are written per failure mode. The load-bearing ones were checked by
-reintroducing the bug and confirming they fail.
-
-Regressions with dedicated tests:
-
-- the path jail refusing a symlinked component
-- the iMessage reader reaching another conversation
-- a scheduled run blocking on an approval instead of queueing it
-- the orchestrator calling a tool it was not granted
-- an undeliverable message taking down the host
-
-CI runs typecheck, lint, the suite, a UI build and the container build on
-every pull request.
+Nothing in the repository holds a credential, a phone number or a handle.
+Those live in `.env`.
 
 ---
 
 ## Quick start
 
-Node >= 20 and pnpm.
+Node 20 or newer, and pnpm.
 
 ```bash
 pnpm install
-pnpm build:all          # TypeScript + UI assets
+pnpm build              # TypeScript + UI assets
 cp .env.example .env    # set at least one model key
 pnpm doctor             # preflight
 pnpm start              # API + dashboard + cron + channels
@@ -299,77 +146,99 @@ pnpm start              # API + dashboard + cron + channels
 
 Open `http://127.0.0.1:4317`, or attach a REPL with `pnpm kos`.
 
-`pnpm start` leaves a detached process that nothing restarts. On macOS,
-`pnpm kos service install` makes the host a launchd agent instead: it comes
-back after a crash, starts at login, and `kos stop` still stops it.
-`kos service status` says which is running; `uninstall` removes it. For
-iMessage under launchd, give the `node` binary Full Disk Access in System
-Settings: a terminal passes its own grant down, launchd passes nothing.
+`pnpm start` leaves a detached process. On macOS, `pnpm kos service install`
+makes the host a launchd agent that restarts after a crash and starts at
+login; `kos service status` says which is running. For unattended use
+anywhere else, `docker compose up` runs the host in the container that is its
+jail.
 
-### Connecting from outside
+Then, in Settings:
 
-`@kos/client` is a typed, dependency-free client for a running host: health
-and status, a turn in a project's conversation, the shared memory, approvals,
-modules, and a job's inbound hook. It is how another program borrows KOS
-rather than carrying an agent of its own.
+1. **Models.** Which model answers, which one is cheap, and where builds run.
+   Any OpenAI-compatible endpoint works as the custom provider.
+2. **Behaviour.** Whether KOS tries to fix its own failures, how hard it
+   tries, and the budget for unattended work.
+3. **Memory, Jobs.** Switch on Read, Tidy and Condense when you are ready
+   for KOS to maintain its own memory.
+
+[docs/configuration.md](docs/configuration.md) lists every setting and
+variable. [docs/channels.md](docs/channels.md) covers Discord, iMessage, SMS
+and hooks.
+
+---
+
+## Connecting from outside
+
+`@kos/client` is a typed, dependency-free client for a running host: a turn
+in a project's conversation, the shared memory, approvals, modules, a job's
+hook. Another program borrows KOS rather than carrying an agent of its own.
 
 ```ts
 import { KosClient } from "@kos/client";
 
 const kos = new KosClient({ baseUrl: "http://127.0.0.1:4317", token: process.env.KOS_DASHBOARD_TOKEN });
-await kos.remember("resume_target", "staff engineer roles", { tags: ["resume"] });
 const { reply } = await kos.ask("resume-ops", "tailor the summary to this posting: ...");
 ```
 
-The host binds to loopback by default; a caller on another machine needs
-`KOS_HOST` and a `KOS_DASHBOARD_TOKEN`.
+A **caller** is another program with its own token and its own corner of
+memory, made under Memory, Callers. It reads your global claims only under
+the tags you grant. `kos memory-mcp --token kosc_...` serves that grant as an
+MCP server to Claude Code or any agent that takes one.
 
-### Configuration
+---
 
-`.env` is git-ignored; `.env.example` documents every key.
+## Architecture
 
-```bash
-ANTHROPIC_API_KEY=      # preferred when both are set
-OPENAI_API_KEY=         # works alone; the router falls back
-KOS_CUSTOM_BASE_URL=    # any OpenAI-compatible endpoint: your own model, a local
-KOS_SECRET_CUSTOM=      # server, a gateway; the key only if it wants one
-KOS_CLASSIFIER_URL=     # a "which of these" model (Jev or your own) for the typed
-KOS_SECRET_CLASSIFIER=  # questions; the cheap chat route stands in without one
-                        # its price goes under Spend > Rates once it has been used
+| Package | Role |
+| --- | --- |
+| `packages/harness` | The kernel: agent loop, jail, store, tools, cron, memory, channels, modules, ops |
+| `packages/ui` | The dashboard: a React shell that also renders agent-authored page specs |
+| `packages/cli` | The `kos` command: host, REPL, service, modules, evals, doctor |
+| `packages/client` | `@kos/client` and the caller client |
+| `packages/shared` | Contracts both sides import |
 
-KOS_SECRET_DISCORD=     # bot token
-KOS_OWNER_DISCORD=      # your user id, and the inbound gate
+- **The kernel is primitives; a feature is a module.** Files, SQL, shell,
+  HTTP, search, memory, schedules, daemons, delegation, skills, MCP are the
+  kernel. Tasks, sites, export and builds are built-in modules you can switch
+  off. Everything else is a folder under `modules/`.
+- **Modules compose through shared surfaces**: the workspace, the tool
+  registry, the project manifest, and the event bus. Never through each
+  other.
+- **Conversations are the unit of work**, each with a brief and a tool
+  allow-list set by you.
+- **SQLite only.** One workspace file, JSON columns for documents,
+  `sqlite-vec` for embeddings.
+- **The agent emits JSON, not React.** Page specs render through a fixed
+  library of eight widget kinds; `custom_html` renders in a sandboxed frame.
 
-KOS_OWNER_IMESSAGE=     # your own handle; enables the iMessage surface
-KOS_WORKSPACE=          # defaults to ~/kos-workspace
-```
+---
 
-iMessage is macOS only. It needs Full Disk Access and Automation permission
-for Messages, reads one thread, and stays off unless configured.
+## Testing
 
-### Contained
+Tests are written per failure mode, and the load-bearing ones were checked
+by reintroducing the bug and watching them fail: the path jail refusing a
+symlinked component, the iMessage reader reaching another conversation, a
+scheduled run blocking on an approval, the orchestrator calling a tool it was
+not granted, an undeliverable message taking down the host, a second
+instance's tables being claimed by the first.
 
-```bash
-docker compose up
-```
-
-Required for unattended cron. iMessage is the exception: it needs the host's
-Messages.app.
+CI runs typecheck, lint, the suite, a UI build and the container build on
+every pull request.
 
 ---
 
 ## Status
 
-The agent loop, store, channels, tools, memory, projects, cron, operational
-spine and UI are in place, with the conversation and orchestration layers
-above them.
+Everything in the build order is in place: store and jail, agent loop and
+router, channels, tools with risk tiers and the sandbox, memory, the project
+builder, cron with the container jail, the operational spine, the dashboard.
+Above it: conversations and orchestration, the memory system, callers and
+the client, workspace modules with blueprints and git distribution, module
+events, the subscription engine, SMS, PDF export.
 
-Not built:
-
-- SMS (Discord and iMessage are)
-- the module promotion path, beyond one module using instancing
-- PDF export
-- parallel execution across conversations, which is deliberate
+Deferred by design: voice and telephony; multi-user beyond the identity seam.
+Not verified against live accounts: SMS (needs a Twilio account and a public
+URL) and the external classifier endpoint.
 
 ---
 
