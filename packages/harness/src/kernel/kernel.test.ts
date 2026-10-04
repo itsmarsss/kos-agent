@@ -256,6 +256,9 @@ describe("Kernel", () => {
     const dream = kernel.crons.list().find((c) => c.name === "kos.dream")!;
     expect(dream).toMatchObject({ type: "self_prompt", enabled: false, task: "cheap", schedule: "0 4 * * *" });
     expect(dream.prompt).toContain("memory.review");
+    const observe = kernel.crons.list().find((c) => c.name === "kos.observe")!;
+    expect(observe).toMatchObject({ type: "self_prompt", enabled: false, task: "cheap" });
+    expect(observe.prompt).toContain("memory.observe");
   });
 
   it("runs a scheduled actions job through the guarded path", async () => {

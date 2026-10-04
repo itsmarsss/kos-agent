@@ -77,7 +77,7 @@ function startsExchange(message: ModelMessage): boolean {
  * and carrying its assistant replies and tool round-trips. Truncating at these
  * boundaries is what keeps every tool_use paired with its tool_result.
  */
-function toExchanges(messages: ModelMessage[]): ModelMessage[][] {
+export function toExchanges(messages: ModelMessage[]): ModelMessage[][] {
   const exchanges: ModelMessage[][] = [];
   for (const message of messages) {
     if (startsExchange(message) || exchanges.length === 0) {

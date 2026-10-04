@@ -84,7 +84,10 @@ It runs on whichever model class the job names. A fixed extractor behind the
 same contract is the floor when the job is off. Nightly, `kos.dream` tidies:
 it merges claims that are one thing, archives what has gone stale, flags
 what it cannot settle for the owner to decide, and writes the pages under
-`memory/` (one for the owner, one per project) that are memory in prose. `kos eval memory`, with or
+`memory/` (one for the owner, one per project) that are memory in prose.
+Hourly, `kos.observe` keeps long threads readable: a dated note of the older
+exchanges stands in for them, the recent ones stay, and the covered events
+are shadowed in the log rather than deleted. `kos eval memory`, with or
 without `--agent`, scores either reader on a golden set with the embedder
 held constant, so a change is measured rather than felt.
 

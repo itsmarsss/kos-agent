@@ -94,3 +94,37 @@ export function ensureDefaultDreamCron(crons: CronStore): void {
     enabled: false,
   });
 }
+
+export const OBSERVE_JOB = "kos.observe";
+export const OBSERVE_JOB_SCHEDULE = "15 * * * *";
+
+export const OBSERVE_JOB_PROMPT = [
+  "You are keeping long conversations readable by writing notes for yourself, so a thread keeps",
+  "its memory without its tokens.",
+  "",
+  "1. Call memory.threads. It lists conversations whose transcript has grown past the budget,",
+  "   with how much is there.",
+  "2. For each, call memory.thread with its id to read the older part, the exchanges that would",
+  "   be covered. Write a dated note of them, for yourself to pick the work back up: what the",
+  "   owner asked for and any constraint or preference they stated; decisions and why; what was",
+  "   actually done, with real names and ids; what is unfinished and the next step; anything the",
+  "   owner corrected you about. Drop pleasantries, retries and reasoning that led nowhere. Do not",
+  "   invent anything, and do not soften a failure into a success.",
+  "3. Call memory.observe with the id and the note. The note stands in for the older part; the",
+  "   recent exchanges stay as they are.",
+  "",
+  "Finish with one short line: which threads you observed, or that none needed it.",
+].join("\n");
+
+/** The observation job exists in every workspace, off until the owner switches it on. */
+export function ensureDefaultObserveCron(crons: CronStore): void {
+  if (crons.list().some((j) => j.name === OBSERVE_JOB)) return;
+  crons.create({
+    name: OBSERVE_JOB,
+    schedule: OBSERVE_JOB_SCHEDULE,
+    type: "self_prompt",
+    prompt: OBSERVE_JOB_PROMPT,
+    task: "cheap",
+    enabled: false,
+  });
+}

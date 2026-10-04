@@ -4,6 +4,10 @@ import { BATCH_CHARS, relatedClaims, takeBatch } from "../memory/extractor.js";
 import { GLOBAL_SCOPE, projectScope, type FactsStore } from "../memory/facts.js";
 import { listPages, readPage, writePage } from "../memory/pages.js";
 import type { ReviewQueue } from "../memory/review.js";
+import type { ObservationStore } from "../memory/observations.js";
+import type { ModelMessage } from "../models/types.js";
+import { COMPACTED_PREFIX } from "../kernel/compact.js";
+import { toExchanges } from "../kernel/session.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 
@@ -34,6 +38,9 @@ export const MEMORY_TOOLS = [
   "memory.flag",
   "memory.page",
   "memory.pages",
+  "memory.threads",
+  "memory.thread",
+  "memory.observe",
 ] as const;
 
 export interface MemoryToolDeps {
@@ -52,6 +59,13 @@ export interface MemoryToolDeps {
   review?: ReviewQueue;
   /** Days without use before a claim counts as stale. */
   staleDays?: number;
+  /** Threads, for observations: the transcripts, the conversations, where notes go, and who is busy. */
+  threads?: {
+    sessions: { get: (id: string) => ModelMessage[]; set: (id: string, messages: ModelMessage[]) => void; retention: () => { maxChars: number } };
+    conversations: { list: (userId: string) => { id: string; title: string; projectSlug: string | null }[] };
+    observations: ObservationStore;
+    busy: () => string[];
+  };
 }
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -464,6 +478,102 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
         return text ?? JSON.stringify({ name: input.name, exists: false });
       }
       return JSON.stringify(listPages(ws).map((p) => ({ name: p.name, path: p.path, updated: new Date(p.updatedAt).toISOString() })));
+    },
+    { floor: "safe" },
+    { tags: ["memory"] },
+  );
+
+  const KEEP_EXCHANGES = 4;
+  const turnText = (m: ModelMessage): string =>
+    m.content
+      .map((b) => (b.type === "text" ? b.text : b.type === "tool_use" ? `[called ${b.name} ${JSON.stringify(b.input).slice(0, 200)}]` : b.type === "tool_result" ? `[result${b.isError ? " (error)" : ""}: ${(typeof b.content === "string" ? b.content : JSON.stringify(b.content)).slice(0, 300)}]` : ""))
+      .filter(Boolean)
+      .join("\n");
+
+  ctx.registerTool(
+    {
+      name: "memory.threads",
+      description:
+        "Conversations whose transcript has grown past the budget and are not busy right now: candidates for an observation. For the observe job.",
+      inputSchema: { type: "object", properties: { minChars: { type: "number", description: "transcript size that counts as long; default 40% of the history budget" } } },
+    },
+    (input) => {
+      const t = deps.threads;
+      if (!t) throw new Error("memory.threads needs the conversations");
+      const budget = t.sessions.retention().maxChars;
+      const minChars = typeof input.minChars === "number" && input.minChars > 0 ? input.minChars : Math.round((budget > 0 ? budget : 60_000) * 0.4);
+      const busy = new Set(t.busy());
+      const out = [];
+      for (const c of t.conversations.list(ownerId)) {
+        if (busy.has(c.id)) continue;
+        const history = t.sessions.get(c.id);
+        const chars = JSON.stringify(history).length;
+        if (chars < minChars || toExchanges(history).length <= KEEP_EXCHANGES) continue;
+        out.push({ id: c.id, title: c.title, ...(c.projectSlug ? { project: c.projectSlug } : {}), messages: history.length, chars, observations: t.observations.count(c.id) });
+      }
+      return JSON.stringify({ threads: out.sort((a, b) => b.chars - a.chars).slice(0, 10), minChars });
+    },
+    { floor: "safe" },
+    { tags: ["memory"] },
+  );
+
+  ctx.registerTool(
+    {
+      name: "memory.thread",
+      description: "The older part of a conversation, the exchanges an observation would stand in for; the most recent few are left out because they stay.",
+      inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+    },
+    (input) => {
+      const t = deps.threads;
+      if (!t) throw new Error("memory.thread needs the conversations");
+      const id = str(input, "id");
+      const exchanges = toExchanges(t.sessions.get(id));
+      const covered = exchanges.slice(0, Math.max(0, exchanges.length - KEEP_EXCHANGES));
+      return JSON.stringify({
+        id,
+        covering: covered.length,
+        keeping: exchanges.length - covered.length,
+        earlier: t.observations.list(id).map((o) => ({ when: new Date(o.createdAt).toISOString().slice(0, 10), text: o.text })),
+        turns: covered.flat().map((m) => ({ who: m.role === "user" ? "owner" : "kos", text: turnText(m).slice(0, 1500) })).filter((x) => x.text),
+      });
+    },
+    { floor: "safe" },
+    { tags: ["memory"] },
+  );
+
+  ctx.registerTool(
+    {
+      name: "memory.observe",
+      description:
+        "Stand a dated note in for the older part of a conversation. The recent exchanges stay; the covered events are shadowed in the log, not deleted.",
+      inputSchema: { type: "object", properties: { id: { type: "string" }, note: { type: "string" } }, required: ["id", "note"] },
+    },
+    (input) => {
+      const t = deps.threads;
+      if (!t) throw new Error("memory.observe needs the conversations");
+      const id = str(input, "id");
+      const note = str(input, "note");
+      const history = t.sessions.get(id);
+      const exchanges = toExchanges(history);
+      const covered = exchanges.slice(0, Math.max(0, exchanges.length - KEEP_EXCHANGES));
+      if (covered.length === 0) throw new Error("nothing to cover: the conversation is short enough as it is");
+      const kept = exchanges.slice(covered.length).flat();
+      const when = new Date().toISOString().slice(0, 10);
+      const earlier = t.observations.list(id);
+      const stood = earlier.map((o) => `${new Date(o.createdAt).toISOString().slice(0, 10)}: ${o.text}`).concat(`${when}: ${note}`).join("\n\n");
+      t.sessions.set(id, [
+        { role: "user", content: [{ type: "text", text: `${COMPACTED_PREFIX}\n\n${stood}` }] },
+        ...kept,
+      ]);
+      const observation = t.observations.add(id, note, covered.flat().length);
+      // The log keeps the words; they leave the model's context, not the record.
+      if (deps.events) {
+        const recent = deps.events.recent(id, 2000);
+        const keepEvents = kept.length;
+        const toShadow = recent.slice(0, Math.max(0, recent.length - keepEvents)).filter((e) => !e.shadowed).map((e) => e.id);
+        deps.events.shadow(toShadow);
+      }
+      return JSON.stringify({ observed: id, seq: observation.seq, covered: observation.covered, kept: kept.length });
     },
     { floor: "safe" },
     { tags: ["memory"] },
