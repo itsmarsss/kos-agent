@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { m } from "motion/react";
 
-import { api, type PageSummary, type Project, type SiteInfo } from "./api.js";
+import { api, type Conversation, type PageSummary, type Project, type SiteInfo } from "./api.js";
 import { card, stagger } from "./motion.js";
 import { hrefFor } from "./routes.js";
 
@@ -17,6 +17,8 @@ import { hrefFor } from "./routes.js";
 export interface ProjectsPageProps {
   projects: Project[];
   pagesByProject: Map<string, PageSummary[]>;
+  /** Every conversation, so a card can link to the project's chat and count its agents. */
+  conversations: Conversation[];
   onInspect: (project: Project, pages: PageSummary[]) => void;
 }
 
@@ -52,9 +54,12 @@ function relative(ts: number): string {
 export function ProjectsPage({
   projects,
   pagesByProject,
+  conversations,
   onInspect,
 }: ProjectsPageProps): ReactElement {
   const [query, setQuery] = useState("");
+  const agentsOf = (slug: string): number =>
+    conversations.filter((c) => c.kind === "chat" && c.projectSlug === slug && !c.archived).length;
   // Sites live under their project, so they belong on its card rather than in
   // a tab of their own: the tracker, its pages and its site are one thing.
   const [sites, setSites] = useState<{ base: string | null; sites: SiteInfo[] }>({
@@ -219,6 +224,14 @@ export function ProjectsPage({
 
                   <div className="card-foot">
                     <span>{p.type}</span>
+                    {/* The project's chat is where its work happens; the card
+                        said nothing about it, so the way in was the chat list. */}
+                    <a className="link" href={hrefFor({ name: "chats", id: `project:${p.slug}` })}>
+                      Chat
+                    </a>
+                    {agentsOf(p.slug) > 0 && (
+                      <span>{agentsOf(p.slug)} {agentsOf(p.slug) === 1 ? "agent" : "agents"}</span>
+                    )}
                     <button
                       type="button"
                       className="link project-more"
