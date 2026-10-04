@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { hrefFor, NAV, parseRoute } from "./routes.js";
+import { hrefFor, NAV, navActive, parseRoute } from "./routes.js";
 
 describe("parseRoute", () => {
   it("round-trips every nav destination", () => {
@@ -23,6 +23,21 @@ describe("parseRoute", () => {
     expect(parseRoute("#/runs")).toEqual({ name: "history" });
     expect(parseRoute("#/tools")).toEqual({ name: "history" });
     expect(parseRoute("#/history")).toEqual({ name: "history" });
+  });
+
+  it("opens on a conversation, with the overview and inbox as pages", () => {
+    expect(parseRoute("#/")).toEqual({ name: "chats" });
+    expect(parseRoute("")).toEqual({ name: "chats" });
+    expect(parseRoute("#/home")).toEqual({ name: "home" });
+    expect(hrefFor({ name: "home" })).toBe("#/home");
+    expect(parseRoute("#/inbox")).toEqual({ name: "inbox" });
+  });
+
+  it("lights the Runs entry for all three of its routes, and Projects for a page", () => {
+    expect(navActive({ name: "history" }, { name: "crons" })).toBe(true);
+    expect(navActive({ name: "history" }, { name: "agents", id: 3 })).toBe(true);
+    expect(navActive({ name: "projects" }, { name: "page", id: "x" })).toBe(true);
+    expect(navActive({ name: "chats" }, { name: "inbox" })).toBe(false);
   });
 
   it("keeps ids and paths through a round trip", () => {

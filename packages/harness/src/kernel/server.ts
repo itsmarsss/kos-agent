@@ -1209,6 +1209,19 @@ export async function handleApiRequest(
     return ok({ interrupted: true, builds: kernel.builds.list() });
   }
 
+  /*
+   * Everything waiting on the owner, in one list: tool approvals, memory's
+   * open questions, and jobs failing now. They lived on three pages, and the
+   * banner that said "needs you" counted only the first.
+   */
+  if (method === "GET" && path === "/api/inbox") {
+    return ok({
+      approvals: kernel.approvals.pending(),
+      decisions: kernel.review.pending(),
+      failures: kernel.health.report().failing,
+    });
+  }
+
   if (method === "GET" && path === "/api/home") {
     return ok({
       layout: parseHomeLayout(kernel.settings.get(HOME_LAYOUT_KEY)),

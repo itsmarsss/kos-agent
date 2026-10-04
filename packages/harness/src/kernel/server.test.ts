@@ -54,6 +54,15 @@ describe("handleApiRequest", () => {
     expect(body.modules.builtins.map((b) => b.name)).toContain("tasks");
   });
 
+  it("lists everything waiting on the owner in one inbox", async () => {
+    kernel.approvals.enqueue({ tool: "files.read", args: { path: "x" }, riskTier: "risky" });
+    const res = await handleApiRequest(kernel, { method: "GET", path: "/api/inbox" });
+    const body = res.body as { approvals: unknown[]; decisions: unknown[]; failures: unknown[] };
+    expect(body.approvals).toHaveLength(1);
+    expect(body.decisions).toEqual([]);
+    expect(body.failures).toEqual([]);
+  });
+
   it("toggles the kill switch", async () => {
     await handleApiRequest(kernel, { method: "POST", path: "/api/kill", body: { halted: true } });
     expect(kernel.killSwitch.halted).toBe(true);

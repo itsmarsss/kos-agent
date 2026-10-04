@@ -68,6 +68,34 @@ function when(ts: number): string {
   return new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+/** One open question from the dream job, with the choices that settle it. */
+export function MemoryDecision({ item, onResolved }: { item: ReviewItem; onResolved: () => void }): ReactElement {
+  const choices =
+    item.kind === "promotion"
+      ? [{ label: "promote to global", action: "promote" as const }, { label: "keep as is", action: "dismiss" as const }]
+      : [...item.keys.map((k) => ({ label: `keep ${k}`, action: "keep" as const, key: k })), { label: "both are right", action: "both" as const }];
+  return (
+    <div className="mem-decision">
+      <div>
+        <span className="mem-kind">{item.kind}</span> <span className="ops-mono">{item.keys.join(" vs ")}</span>
+        <div className="hint">{item.note}</div>
+      </div>
+      <div className="mem-actions">
+        {choices.map((choice) => (
+          <button
+            key={choice.label}
+            type="button"
+            className="btn btn--sm"
+            onClick={() => void api.resolveMemoryReview(item.id, choice.action, "key" in choice ? choice.key : undefined).then(onResolved, onResolved)}
+          >
+            {choice.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
   const [pending, setPending] = useState<ReviewItem[]>([]);
   const [recent, setRecent] = useState<ReviewItem[]>([]);
@@ -80,22 +108,7 @@ function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
       <Group title="Needs a decision" blurb="Keeping one side archives the other; promoting writes the claim global. Both are on the record as yours.">
         {pending.length === 0 && <p className="hint">Nothing waiting. The dream job flags a contradiction it cannot settle, or a project claim that may be true everywhere.</p>}
         {pending.map((item) => (
-          <div key={item.id} className="mem-decision">
-            <div>
-              <span className="mem-kind">{item.kind}</span> <span className="ops-mono">{item.keys.join(" vs ")}</span>
-              <div className="hint">{item.note}</div>
-            </div>
-            <div className="mem-actions">
-              {(item.kind === "promotion"
-                ? [{ label: "promote to global", action: "promote" as const }, { label: "keep as is", action: "dismiss" as const }]
-                : [...item.keys.map((k) => ({ label: `keep ${k}`, action: "keep" as const, key: k })), { label: "both are right", action: "both" as const }]
-              ).map((choice) => (
-                <button key={choice.label} type="button" className="btn btn--sm" onClick={() => void api.resolveMemoryReview(item.id, choice.action, "key" in choice ? choice.key : undefined).then(() => { load(); onChanged(); }, load)}>
-                  {choice.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          <MemoryDecision key={item.id} item={item} onResolved={() => { load(); onChanged(); }} />
         ))}
       </Group>
       {recent.length > 0 && (

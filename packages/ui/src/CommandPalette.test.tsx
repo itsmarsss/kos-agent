@@ -94,7 +94,7 @@ describe("what the palette does with what you type", () => {
      */
     it("can go to every page in the nav", () => {
       const labels = buildActions(ctx()).map((a) => a.label);
-      for (const page of ["Home", "Chats", "Files", "Projects", "Schedule"]) {
+      for (const page of ["Overview", "Chats", "Inbox", "Files", "Projects", "Schedule", "Runs"]) {
         expect(labels, `no way to reach ${page}`).toContain(`Go to ${page}`);
       }
     });

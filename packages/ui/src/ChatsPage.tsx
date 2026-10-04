@@ -1092,7 +1092,43 @@ export function ChatsPage({
       <section className="chats-view">
         {!active ? (
           <div className="chats-placeholder">
-            <p>Pick a chat, or press ⌘K to start one.</p>
+            {/* Opening KOS lands here. It used to say "pick a chat"; a front
+                door should offer the way in. */}
+            <div className="chats-welcome">
+              <p className="chats-welcome-title">What do you want done?</p>
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={creating}
+                onClick={() => {
+                  setCreating(true);
+                  void api
+                    .newConversation()
+                    .then((c) => {
+                      onChanged();
+                      onOpen(c.id);
+                    })
+                    .finally(() => setCreating(false));
+                }}
+              >
+                New chat
+              </button>
+              {conversations.filter((c) => !c.archived).length > 0 && (
+                <ul className="chats-welcome-recent">
+                  {conversations
+                    .filter((c) => !c.archived)
+                    .slice(0, 5)
+                    .map((c) => (
+                      <li key={c.id}>
+                        <button type="button" className="link" onClick={() => onOpen(c.id)}>
+                          {c.title}
+                        </button>
+                      </li>
+                    ))}
+                </ul>
+              )}
+              <p className="hint">⌘K finds anything: a chat, a file, a page, a setting.</p>
+            </div>
           </div>
         ) : (
           <>
