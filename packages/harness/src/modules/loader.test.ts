@@ -102,6 +102,22 @@ describe("ModuleLoader", () => {
     expect(order).toHaveLength(3);
   });
 
+  it("skips what the owner switched off, and switches a module off and on with its tools", async () => {
+    const registry = new ToolRegistry();
+    const loader = new ModuleLoader(toolRegistryContext(registry));
+    const report = await loader.load([toolModule("tasks", "tasks.add"), toolModule("files", "files.read")], { skip: ["tasks"] });
+    expect(report.loaded).toEqual(["files"]);
+    expect(registry.has("tasks.add")).toBe(false);
+    expect(loader.isActive("tasks")).toBe(false);
+    expect(await loader.enable("tasks")).toBe(true);
+    expect(registry.has("tasks.add")).toBe(true);
+    expect(await loader.disable("tasks")).toBe(true);
+    expect(registry.has("tasks.add")).toBe(false);
+    expect(registry.has("files.read")).toBe(true);
+    expect(await loader.disable("tasks")).toBe(false);
+    expect(await loader.enable("ghost")).toBe(false);
+  });
+
   it("isolates a throwing module and loads the rest", async () => {
     const registry = new ToolRegistry();
     const loader = new ModuleLoader(toolRegistryContext(registry));
