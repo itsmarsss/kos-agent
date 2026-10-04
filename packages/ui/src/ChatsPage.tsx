@@ -16,6 +16,7 @@ import { ease, listItem, spring } from "./motion.js";
 import { useDismiss } from "./useDismiss.js";
 
 import { ContextMeter } from "./ContextMeter.js";
+import { groupChats, isBusy, projectSummary } from "./chattree.js";
 import {
   api,
   type ChatEvent,
@@ -412,12 +413,37 @@ export function ChatsPage({
         .sort((a, b) => a.title.localeCompare(b.title)),
     [conversations],
   );
-  const filtered = useMemo(() => {
-    const chats = conversations.filter((c) => c.kind === "chat");
-    const q = query.trim().toLowerCase();
-    if (!q) return chats;
-    return chats.filter((c) => c.title.toLowerCase().includes(q));
-  }, [conversations, query]);
+  const tree = useMemo(() => groupChats(conversations), [conversations]);
+  const q = query.trim().toLowerCase();
+  const matches = (c: Conversation): boolean => !q || c.title.toLowerCase().includes(q);
+  const filtered = useMemo(() => tree.roots.filter(matches), [tree, q]);
+  /*
+   * Which projects are unfolded. Your choice is kept per project; a project
+   * whose agent is busy, or that owns the chat you are in, is open regardless,
+   * because that is the one you are looking for.
+   */
+  const [openProjects, setOpenProjects] = useState<Record<string, boolean>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("kos.chats.projects") ?? "{}") as Record<string, boolean>;
+    } catch {
+      return {};
+    }
+  });
+  const toggleProject = (slug: string, open: boolean): void => {
+    const next = { ...openProjects, [slug]: open };
+    setOpenProjects(next);
+    try {
+      localStorage.setItem("kos.chats.projects", JSON.stringify(next));
+    } catch {
+      // Remembered for this visit only.
+    }
+  };
+  const activeConversation = conversations.find((c) => c.id === activeId);
+  const projectOpen = (slug: string, agents: Conversation[]): boolean =>
+    (q !== "" && agents.some(matches)) ||
+    agents.some(isBusy) ||
+    activeConversation?.projectSlug === slug ||
+    (openProjects[slug] ?? false);
 
   /*
    * Threads a schedule runs in, kept apart from the ones the owner started.
@@ -768,6 +794,120 @@ export function ChatsPage({
     );
   };
 
+  /** One chat in the list, at the root or under its project. */
+  const renderChat = (c: Conversation, nested = false): ReactElement => (
+      <li key={c.id} className={nested ? "chats-child" : undefined}>
+        {/* Hover reveals what can be done with a chat, so the list is
+            a list until you need it to be more. */}
+        <div className="chats-row">
+          <button
+            type="button"
+            className="chats-more"
+            aria-label={`Actions for ${c.title}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuFor(menuFor === c.id ? null : c.id);
+            }}
+          >
+            <MoreIcon />
+          </button>
+          {/* Wrapped so it leaves as well as arrives: without this the
+              menu appeared gently and then simply stopped existing. */}
+          <AnimatePresence>
+          {menuFor === c.id && (
+            <m.div
+              className="chats-menu"
+              role="menu"
+              ref={menuRef}
+              initial={{ opacity: 0, scale: 0.96, y: -4 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97, y: -3 }}
+              transition={ease}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuFor(null);
+                  // Renaming was only reachable by typing /rename, which
+                  // is a strange thing to have to know for the one bit
+                  // of a chat the owner is most likely to change.
+                  setRenaming({ id: c.id, title: c.title });
+                }}
+              >
+                Rename
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuFor(null);
+                  void api.rewind(c.id, 0, { forkTitle: `${c.title} copy` })
+                    .then((r) => {
+                      onChanged();
+                      onOpen(r.conversationId);
+                    })
+                    .catch(() => undefined);
+                }}
+              >
+                Duplicate
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuFor(null);
+                  void api.archiveConversation(c.id).then(onChanged);
+                }}
+              >
+                {showArchived ? "Unarchive" : "Archive"}
+              </button>
+              <button
+                type="button"
+                className="is-danger"
+                onClick={() => {
+                  setMenuFor(null);
+                  void api.deleteConversation(c.id).then(onChanged);
+                }}
+              >
+                Delete
+              </button>
+            </m.div>
+          )}
+          </AnimatePresence>
+        </div>
+        <a
+          className={`chats-item ${c.id === activeId ? "is-active" : ""}`}
+          href={hrefFor({ name: "chats", id: c.id })}
+          onClick={(e) => {
+            e.preventDefault();
+            onOpen(c.id);
+          }}
+        >
+          <span className="chats-item-top">
+            <span className="chats-item-title">{c.title}</span>
+            {/* A thread mid-turn or sitting on an approval looked
+                exactly like an idle one, and the only way to find out
+                was to open it. */}
+            {progress[c.id] && !progress[c.id]!.ended ? (
+              <span className="chats-flag chats-flag--working">
+                {liveLabel(progress[c.id])}
+              </span>
+            ) : c.activity && c.activity !== "idle" ? (
+              <span className={`chats-flag chats-flag--${c.activity}`}>
+                {c.activity === "working" ? "working" : "needs you"}
+              </span>
+            ) : (
+              <span className="chats-item-when">{relative(c.updatedAt)}</span>
+            )}
+          </span>
+          {c.brief && <span className="chats-item-brief">{c.brief}</span>}
+          {c.toolAllow !== null && (
+            <span className="chats-item-tools">
+              {c.toolAllow.length === 0 ? "no tools" : c.toolAllow.join(" · ")}
+            </span>
+          )}
+        </a>
+      </li>
+  );
+
   return (
     <div
       className={`chats ${collapsed && !narrow ? "is-collapsed" : ""} ${narrow ? "is-narrow" : ""} ${active ? "has-active" : ""} ${listOpen ? "is-list-open" : ""}`}
@@ -829,23 +969,46 @@ export function ChatsPage({
               /* One row per project, beside KOS: each is that project's own
                  orchestrator, the second level of the hierarchy. */
               <div className="chats-projects">
-                {projects.map((c) => (
-                  <a
-                    key={c.id}
-                    className={`chats-item chats-item--pinned ${c.id === activeId ? "is-active" : ""}`}
-                    href={hrefFor({ name: "chats", id: c.id })}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      onOpen(c.id);
-                    }}
-                  >
-                    <span className="chats-item-top">
-                      <span className="chats-item-title">{c.title}</span>
-                      <span className="chats-badge">project</span>
-                    </span>
-                    <span className="chats-item-brief">Runs this project's agents</span>
-                  </a>
-                ))}
+                {projects.map((c) => {
+                  const slug = c.projectSlug ?? "";
+                  const agents = tree.byProject.get(slug) ?? [];
+                  const open = projectOpen(slug, agents);
+                  const shown = q ? agents.filter(matches) : agents;
+                  return (
+                    <div key={c.id} className="chats-project">
+                      <div className="chats-project-row">
+                        <a
+                          className={`chats-item chats-item--pinned ${c.id === activeId ? "is-active" : ""}`}
+                          href={hrefFor({ name: "chats", id: c.id })}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            onOpen(c.id);
+                          }}
+                        >
+                          <span className="chats-item-top">
+                            <span className="chats-item-title">{c.title}</span>
+                            <span className="chats-badge">project</span>
+                          </span>
+                          <span className="chats-item-brief">{projectSummary(agents)}</span>
+                        </a>
+                        {agents.length > 0 && (
+                          <button
+                            type="button"
+                            className={`chats-disclose${open ? " is-open" : ""}`}
+                            aria-label={open ? `Hide ${c.title}'s agents` : `Show ${c.title}'s agents`}
+                            aria-expanded={open}
+                            onClick={() => toggleProject(slug, !open)}
+                          >
+                            ▾
+                          </button>
+                        )}
+                      </div>
+                      {open && shown.length > 0 && (
+                        <ul className="chats-agents">{shown.map((a) => renderChat(a, true))}</ul>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
             {surfaces.length > 0 && (
@@ -933,118 +1096,7 @@ export function ChatsPage({
         )}
 
         <ul>
-          {(showArchived ? archived : filtered).map((c) => (
-            <li key={c.id}>
-              {/* Hover reveals what can be done with a chat, so the list is
-                  a list until you need it to be more. */}
-              <div className="chats-row">
-                <button
-                  type="button"
-                  className="chats-more"
-                  aria-label={`Actions for ${c.title}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setMenuFor(menuFor === c.id ? null : c.id);
-                  }}
-                >
-                  <MoreIcon />
-                </button>
-                {/* Wrapped so it leaves as well as arrives: without this the
-                    menu appeared gently and then simply stopped existing. */}
-                <AnimatePresence>
-                {menuFor === c.id && (
-                  <m.div
-                    className="chats-menu"
-                    role="menu"
-                    ref={menuRef}
-                    initial={{ opacity: 0, scale: 0.96, y: -4 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.97, y: -3 }}
-                    transition={ease}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMenuFor(null);
-                        // Renaming was only reachable by typing /rename, which
-                        // is a strange thing to have to know for the one bit
-                        // of a chat the owner is most likely to change.
-                        setRenaming({ id: c.id, title: c.title });
-                      }}
-                    >
-                      Rename
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMenuFor(null);
-                        void api.rewind(c.id, 0, { forkTitle: `${c.title} copy` })
-                          .then((r) => {
-                            onChanged();
-                            onOpen(r.conversationId);
-                          })
-                          .catch(() => undefined);
-                      }}
-                    >
-                      Duplicate
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMenuFor(null);
-                        void api.archiveConversation(c.id).then(onChanged);
-                      }}
-                    >
-                      {showArchived ? "Unarchive" : "Archive"}
-                    </button>
-                    <button
-                      type="button"
-                      className="is-danger"
-                      onClick={() => {
-                        setMenuFor(null);
-                        void api.deleteConversation(c.id).then(onChanged);
-                      }}
-                    >
-                      Delete
-                    </button>
-                  </m.div>
-                )}
-                </AnimatePresence>
-              </div>
-              <a
-                className={`chats-item ${c.id === activeId ? "is-active" : ""}`}
-                href={hrefFor({ name: "chats", id: c.id })}
-                onClick={(e) => {
-                  e.preventDefault();
-                  onOpen(c.id);
-                }}
-              >
-                <span className="chats-item-top">
-                  <span className="chats-item-title">{c.title}</span>
-                  {/* A thread mid-turn or sitting on an approval looked
-                      exactly like an idle one, and the only way to find out
-                      was to open it. */}
-                  {progress[c.id] && !progress[c.id]!.ended ? (
-                    <span className="chats-flag chats-flag--working">
-                      {liveLabel(progress[c.id])}
-                    </span>
-                  ) : c.activity && c.activity !== "idle" ? (
-                    <span className={`chats-flag chats-flag--${c.activity}`}>
-                      {c.activity === "working" ? "working" : "needs you"}
-                    </span>
-                  ) : (
-                    <span className="chats-item-when">{relative(c.updatedAt)}</span>
-                  )}
-                </span>
-                {c.brief && <span className="chats-item-brief">{c.brief}</span>}
-                {c.toolAllow !== null && (
-                  <span className="chats-item-tools">
-                    {c.toolAllow.length === 0 ? "no tools" : c.toolAllow.join(" · ")}
-                  </span>
-                )}
-              </a>
-            </li>
-          ))}
+          {(showArchived ? archived : filtered).map((c) => renderChat(c))}
           {(showArchived ? archived : filtered).length === 0 && (
             <li className="chats-empty">
               {showArchived
@@ -1148,6 +1200,21 @@ export function ChatsPage({
                   </button>
                   {active.title}
                 </h1>
+                {/* Where this chat sits in the tree. An agent a project made
+                    looked exactly like a chat you began. */}
+                {active.kind === "chat" && active.projectSlug && (
+                  <p className="chats-lineage">
+                    An agent of{" "}
+                    <a href={hrefFor({ name: "chats", id: `project:${active.projectSlug}` })} onClick={(e) => { e.preventDefault(); onOpen(`project:${active.projectSlug}`); }}>
+                      {projects.find((p) => p.projectSlug === active.projectSlug)?.title ?? active.projectSlug}
+                    </a>
+                  </p>
+                )}
+                {active.kind === "project" && (
+                  <p className="chats-lineage">
+                    Orchestrates this project · {projectSummary(tree.byProject.get(active.projectSlug ?? "") ?? []).replace("Runs this project's agents", "no agents yet")}
+                  </p>
+                )}
                 {active.brief && <p className="chats-brief">{active.brief}</p>}
                 {/* Counts are not something anyone came here to read. Only
                     the tool scope is said, and only when it is not the
