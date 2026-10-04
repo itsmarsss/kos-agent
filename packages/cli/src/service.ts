@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -108,6 +108,14 @@ export interface ServiceState {
   loaded: boolean;
   /** The host launchd is running right now, if any. */
   pid?: number;
+  /** The workspace the installed agent serves, read from its plist. */
+  workspace?: string;
+}
+
+/** The --workspace argument in an installed plist, so another workspace's start does not touch this agent. */
+export function workspaceOfPlist(plist: string): string | undefined {
+  const m = /<string>--workspace<\/string>\s*<string>([^<]*)<\/string>/.exec(plist);
+  return m ? m[1]!.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">") : undefined;
 }
 
 function domain(): string {
@@ -131,11 +139,14 @@ export function parsePrint(out: string): { pid?: number } {
 }
 
 export async function serviceState(label: string): Promise<ServiceState> {
-  const installed = existsSync(plistPath(label));
-  if (process.platform !== "darwin") return { installed, loaded: false };
+  const file = plistPath(label);
+  const installed = existsSync(file);
+  const workspace = installed ? workspaceOfPlist(readFileSync(file, "utf8")) : undefined;
+  const base: ServiceState = { installed, loaded: false, ...(workspace ? { workspace } : {}) };
+  if (process.platform !== "darwin") return base;
   const res = await launchctl("print", `${domain()}/${label}`);
-  if (!res.ok) return { installed, loaded: false };
-  return { installed, loaded: true, ...parsePrint(res.out) };
+  if (!res.ok) return base;
+  return { ...base, loaded: true, ...parsePrint(res.out) };
 }
 
 function assertMac(): void {

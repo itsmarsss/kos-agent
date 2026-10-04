@@ -221,7 +221,9 @@ async function cmdStart(
   if (!foreground) {
     // Re-exec ourselves in the background as the host process.
     const service = await serviceState(SERVICE_LABEL);
-    if (service.loaded) {
+    // Only the workspace the agent was installed for: a scratch host on
+    // another port must not kick the owner's real one.
+    if (service.loaded && service.workspace === rootDir) {
       // launchd owns the host: a detached one beside it would fight for
       // the port and lose, and launchd would restart its own anyway.
       await kickstart(SERVICE_LABEL);
@@ -326,6 +328,10 @@ async function cmdService(
     const baseUrl = `http://${listenHost(flags.host)}:${listenPort(flags.port)}`;
     if (await waitForDaemon(baseUrl, dashboardToken())) {
       console.log(`KOS running under launchd on ${baseUrl}; it restarts after a crash and starts at login`);
+      if (process.env.KOS_OWNER_IMESSAGE?.trim()) {
+        // A terminal passes its own Full Disk Access down; launchd passes nothing.
+        console.log(`iMessage under launchd needs Full Disk Access for ${process.execPath}: System Settings > Privacy & Security > Full Disk Access, then kos restart`);
+      }
     } else {
       console.error(`launchd has it, but the host did not answer within 15s; check ${join(rootDir, ".kos", "daemon.log")}`);
       process.exitCode = 1;
