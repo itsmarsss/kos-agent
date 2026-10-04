@@ -702,6 +702,7 @@ export function App(): React.ReactElement {
       <ProjectsPage
         projects={projects}
         pagesByProject={pagesByProject}
+        conversations={conversations}
         onInspect={(project, pages) =>
           setInspect({ kind: "project", data: project, pages })
         }

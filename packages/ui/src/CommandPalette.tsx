@@ -106,6 +106,27 @@ export function fuzzyScore(text: string, query: string): number {
   return score - text.length / 100;
 }
 
+/**
+ * Each group once, in the order its best result earned.
+ *
+ * The server ranks what it found by relevance across kinds, so a chat, a
+ * project and another chat came back in that order and the list showed
+ * "Chats" twice. Clustering keeps each group's internal order and puts the
+ * group where its first result was.
+ */
+export function clusterByGroup<T extends { group: string }>(items: T[]): T[] {
+  const order: string[] = [];
+  const byGroup = new Map<string, T[]>();
+  for (const item of items) {
+    if (!byGroup.has(item.group)) {
+      order.push(item.group);
+      byGroup.set(item.group, []);
+    }
+    byGroup.get(item.group)!.push(item);
+  }
+  return order.flatMap((g) => byGroup.get(g)!);
+}
+
 /** The things you can do, as opposed to the things you can open. */
 export function buildActions(ctx: PaletteContext): Action[] {
   const actions: Action[] = [
@@ -269,7 +290,7 @@ export function CommandPalette({
           .sort((x, y) => y.score - x.score)
           .map((x) => x.a);
 
-    const opened: Action[] = found.map((m) => ({
+    const opened: Action[] = clusterByGroup(found.map((m) => ({
       id: `${m.kind}:${m.id}`,
       label: m.label,
       group: KIND_GROUP[m.kind] ?? m.kind,
@@ -286,7 +307,7 @@ export function CommandPalette({
           window.open(`${ctx.sitesBase}/${m.id}/`, "_blank", "noreferrer");
         }
       },
-    }));
+    })));
 
     // Nothing typed: a short list of what you probably want beats a long list
     // of everything the workspace contains.

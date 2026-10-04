@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { buildActions, fuzzyScore, parseQuery, type PaletteContext } from "./CommandPalette.js";
+import { buildActions, clusterByGroup, fuzzyScore, parseQuery, type PaletteContext } from "./CommandPalette.js";
 
 describe("what the palette does with what you type", () => {
   describe("operators", () => {
@@ -111,5 +111,15 @@ describe("what the palette does with what you type", () => {
       // "api key" is why you would go to Settings, and is not in its label.
       expect(fuzzyScore(settings?.keywords ?? "", "api key")).toBeGreaterThan(0);
     });
+  });
+
+  it("shows each group once, where its best result was", () => {
+    const out = clusterByGroup([
+      { id: 1, group: "Chats" },
+      { id: 2, group: "Projects" },
+      { id: 3, group: "Chats" },
+      { id: 4, group: "Schedule" },
+    ]);
+    expect(out.map((x) => x.id)).toEqual([1, 3, 2, 4]);
   });
 });
