@@ -32,6 +32,8 @@ export interface HostOptions {
   host: string;
   port: number;
   token?: string;
+  /** Secret for `POST /api/hooks/<job>`; hooks are off without one. */
+  hookSecret?: string;
   /** Start Discord when token+owner are present (default true). */
   discord?: boolean;
   /** Require Discord credentials or fail. */
@@ -216,6 +218,7 @@ export async function runHost(options: HostOptions): Promise<void> {
     // dotfile. Refused if it ever resolves inside the workspace.
     envPath: envFilePath(),
     ...(options.token ? { token: options.token } : {}),
+    ...(options.hookSecret ? { hookSecret: options.hookSecret } : {}),
     host: options.host,
     meta,
   });
@@ -265,6 +268,7 @@ export async function runHost(options: HostOptions): Promise<void> {
   }
 
   console.log(`KOS host on http://${options.host}:${options.port}`);
+  if (options.hookSecret) console.log("hooks: POST /api/hooks/<job name>");
   console.log(`workspace: ${kernel.workspace.root}`);
   console.log(`session: ${primarySessionId(kernel.profile.ownerId)}`);
   if (siteServer) console.log(`sites: http://${options.host}:${sitesPort}`);
