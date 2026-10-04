@@ -370,7 +370,15 @@ export async function handleApiRequest(
       efforts: EFFORTS,
       providers: kernel.providerNames(),
       custom: kernel.customEndpoint() ?? null,
+      classifier: kernel.classifierEndpoint() ?? null,
     });
+  }
+
+  /** The owner's classifier: a URL that answers a choice or a score with a confidence, a key under KOS_SECRET_CLASSIFIER if it wants one. */
+  if (method === "POST" && path === "/api/settings/models/classifier") {
+    const url = typeof body.url === "string" ? body.url.trim() : "";
+    if (url && !/^https?:\/\//.test(url)) return { status: 400, body: { error: "url must start with http:// or https://" } };
+    return ok({ classifier: kernel.setClassifierEndpoint(url) ?? null });
   }
 
   /** The owner's own endpoint: an OpenAI-compatible URL, a key under KOS_SECRET_CUSTOM if it wants one. */

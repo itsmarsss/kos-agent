@@ -19,7 +19,8 @@ import type { PageLog } from "../memory/pages.js";
 import type { Task } from "../models/router.js";
 import type { Provider } from "../models/provider.js";
 import { CUSTOM_PROVIDER, OpenAICompatibleProvider } from "../models/providers/compat.js";
-import { CUSTOM_ENDPOINT_KEY, parseCustomEndpoint, type CustomEndpoint } from "../models/settings.js";
+import { CLASSIFIER_KEY, CUSTOM_ENDPOINT_KEY, parseClassifierEndpoint, parseCustomEndpoint, type CustomEndpoint } from "../models/settings.js";
+import { HttpClassifier, LlmClassifier, type Classifier } from "../models/classify.js";
 import type { CronJob } from "../cron/types.js";
 import {
   FactsStore,
@@ -205,6 +206,8 @@ export class Kernel {
   readonly callers: CallerStore;
   /** The pages as last written, so the owner's edits can be read back. */
   readonly pageLog: PageLog;
+  /** Answers "which of these" and "how much": the owner's endpoint when set, the cheap route otherwise. */
+  classifier: Classifier;
   /** Noticing failures, telling the owner, and trying to fix them. */
   readonly caretaker: Caretaker;
   /** Carrying out approve and deny, including the recovery path for an orphaned action. */
@@ -329,6 +332,10 @@ export class Kernel {
     this.review = args.review;
     this.callers = args.callers;
     this.pageLog = args.pageLog;
+    const configured = parseClassifierEndpoint(args.settings.get(CLASSIFIER_KEY));
+    this.classifier = configured
+      ? new HttpClassifier({ url: configured.url, ...(args.secrets.get("classifier") ? { apiKey: args.secrets.get("classifier")! } : {}) })
+      : new LlmClassifier(args.inference);
     this.permissions = args.permissions;
     this.decisions = new Decisions({
       ownerId: args.profile.ownerId,
@@ -1820,6 +1827,20 @@ export class Kernel {
     if (parsed) router.addProvider?.(new OpenAICompatibleProvider(parsed.baseUrl));
     else router.removeProvider?.(CUSTOM_PROVIDER);
     return parsed;
+  }
+
+  /** Point classification at an endpoint, now; an empty URL goes back to the cheap route. */
+  setClassifierEndpoint(url: string): { url: string } | undefined {
+    const parsed = parseClassifierEndpoint({ url }, {});
+    this.settings.set(CLASSIFIER_KEY, parsed ?? {});
+    this.classifier = parsed
+      ? new HttpClassifier({ url: parsed.url, ...(this.secrets.get("classifier") ? { apiKey: this.secrets.get("classifier")! } : {}) })
+      : new LlmClassifier(this.inference);
+    return parsed;
+  }
+
+  classifierEndpoint(): { url: string } | undefined {
+    return parseClassifierEndpoint(this.settings.get(CLASSIFIER_KEY));
   }
 
   customEndpoint(): CustomEndpoint | undefined {

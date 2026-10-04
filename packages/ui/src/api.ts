@@ -543,9 +543,13 @@ export const api = {
       providers?: string[];
       /** The owner's own OpenAI-compatible endpoint, when set. */
       custom?: { baseUrl: string } | null;
+      /** The owner's classifier endpoint, when set. */
+      classifier?: { url: string } | null;
     }>("/api/settings/models"),
   saveModelSettings: (settings: ModelSettings) =>
     post<{ saved: ModelSettings }>("/api/settings/models", settings),
+  saveClassifierEndpoint: (url: string) =>
+    post<{ classifier: { url: string } | null }>("/api/settings/models/classifier", { url }),
   saveCustomEndpoint: (baseUrl: string) =>
     post<{ custom: { baseUrl: string } | null; providers: string[] }>("/api/settings/models/custom", { baseUrl }),
   availableModels: () => get<{ models: string[] }>("/api/models"),
