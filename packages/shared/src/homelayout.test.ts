@@ -23,6 +23,12 @@ describe("the home layout", () => {
     }
   });
 
+  it("has a panel for memory and one for modules", () => {
+    const layout = parseHomeLayout({ panels: [{ kind: "memory", span: "half" }, { kind: "modules", span: "half" }] });
+    expect(layout.panels.map((p) => p.kind)).toEqual(["memory", "modules"]);
+    expect(DEFAULT_HOME.panels.map((p) => p.kind)).toContain("memory");
+  });
+
   it("drops a panel kind it does not have", () => {
     const layout = parseHomeLayout({
       panels: [{ kind: "nonsense" }, { kind: "spend", span: "half" }],

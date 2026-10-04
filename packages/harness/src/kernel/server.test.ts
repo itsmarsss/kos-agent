@@ -43,6 +43,17 @@ describe("handleApiRequest", () => {
     expect(res.body).toMatchObject({ halted: false, queueDepth: 0 });
   });
 
+  it("hands the home page memory and modules in the one payload", async () => {
+    kernel.facts.upsert(kernel.profile.ownerId, { key: "city", value: "Toronto", kind: "fact" }, "test");
+    const res = await handleApiRequest(kernel, { method: "GET", path: "/api/home" });
+    const body = res.body as { memory: { claims: number; unread: number; decisions: number; jobs: { name: string }[] }; modules: { modules: unknown[]; builtins: { name: string }[] } };
+    expect(body.memory.claims).toBe(1);
+    expect(body.memory.decisions).toBe(0);
+    expect(body.memory.jobs.map((j) => j.name).sort()).toEqual(["kos.dream", "kos.memory", "kos.observe"]);
+    expect(body.modules.modules).toEqual([]);
+    expect(body.modules.builtins.map((b) => b.name)).toContain("tasks");
+  });
+
   it("toggles the kill switch", async () => {
     await handleApiRequest(kernel, { method: "POST", path: "/api/kill", body: { halted: true } });
     expect(kernel.killSwitch.halted).toBe(true);

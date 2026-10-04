@@ -32,6 +32,8 @@ const CATALOGUE: { kind: PanelKind; label: string; blurb: string }[] = [
   { kind: "chats", label: "Chats", blurb: "Recent conversations" },
   { kind: "schedule", label: "Schedule", blurb: "Jobs that run on their own" },
   { kind: "spend", label: "Spend", blurb: "Tokens used this week" },
+  { kind: "memory", label: "Memory", blurb: "What KOS holds, has not read, and asks you about" },
+  { kind: "modules", label: "Modules", blurb: "Which modules are on and connected" },
   { kind: "note", label: "Note", blurb: "Text you write yourself" },
 ];
 
@@ -52,7 +54,7 @@ export function HomePage({
   onFixFailure,
 }: {
   onOpenChat: (id: string) => void;
-  onGo: (to: "agents" | "history" | "projects" | "crons" | "chats" | "settings") => void;
+  onGo: (to: "agents" | "history" | "projects" | "crons" | "chats" | "settings" | "memory") => void;
   onDecide: (id: number, approved: boolean, remember?: boolean) => void;
   deciding: ReadonlySet<number>;
   onDismissFailure: (key: string) => void;
