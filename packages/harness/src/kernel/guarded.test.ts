@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ToolRegistry } from "../agent/registry.js";
 import { AuditLog } from "../ops/audit.js";
 import { ApprovalQueue } from "../ops/approvals.js";
+import { PermissionStore } from "../ops/permissions.js";
 import { RISKY } from "../risk/tiers.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
@@ -36,6 +37,27 @@ describe("GuardedTools", () => {
   function guarded(over: Partial<GuardedToolsDeps> = {}): GuardedTools {
     return new GuardedTools({ registry, secrets, audit, approvals, ...over });
   }
+
+  it("runs a risky call the owner already decided, without asking", async () => {
+    /*
+     * 96 of 97 approvals on a real workspace were granted. A decision made
+     * for this shape is not asked again: the call runs, audited as risky,
+     * and nothing reaches the queue. A shape with no rule still queues.
+     */
+    registry.register({ name: "danger", description: "d", inputSchema: { type: "object" } }, () => "done", { floor: "risky" });
+    const permissions = new PermissionStore(ws.db);
+    const tools = guarded({ permissions, projectSlug: () => undefined, waitForApproval: false });
+
+    const asked = await tools.execute("danger", { x: 1 });
+    expect(asked.content).toMatch(/Queued for approval/);
+    expect(approvals.pending()).toHaveLength(1);
+
+    permissions.add({ tool: "danger", scope: null, project: null });
+    const ran = await tools.execute("danger", { x: 1 });
+    expect(ran.content).toBe("done");
+    expect(approvals.pending()).toHaveLength(1);
+    expect(audit.recent(1)[0]).toMatchObject({ tool: "danger", riskTier: "risky" });
+  });
 
   it("runs a safe tool, injecting secrets and auditing", async () => {
     let seen: string | undefined;

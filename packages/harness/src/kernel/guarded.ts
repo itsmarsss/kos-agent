@@ -33,6 +33,10 @@ export interface GuardedToolsDeps {
   onQueued?: (action: PendingAction) => void;
   /** The conversation making the call, so approving resumes the right agent. */
   conversationId?: string;
+  /** Decisions the owner has made before. A match runs without asking. */
+  permissions?: { allows(tool: string, input: Record<string, unknown>, project?: string): boolean };
+  /** The project the calling conversation belongs to, for scoping those decisions. */
+  projectSlug?: () => string | undefined;
   /**
    * Called after a tool actually ran. Some tools change state the kernel holds
    * outside the database, and it has to hear about it.
@@ -184,6 +188,27 @@ export class GuardedTools implements ToolBox {
     const assessment = registry.classify(name, input);
 
     if (assessment.tier === "risky") {
+      /*
+       * Already decided.
+       *
+       * Measured on a real workspace, 96 of 97 approvals were granted. A
+       * decision the owner has made for this shape, in this project, is not
+       * asked again: the call runs as an approved one would, and the audit
+       * shows it ran as risky.
+       */
+      if (this.deps.permissions?.allows(name, input, this.deps.projectSlug?.())) {
+        const allowedResult = await registry.execute(name, injectSecrets(input, secrets));
+        audit.record({
+          tool: name,
+          args: input,
+          result: allowedResult.content,
+          isError: allowedResult.isError,
+          riskTier: "risky",
+          ...(userId ? { userId } : {}),
+        });
+        this.deps.onExecuted?.(name, allowedResult);
+        return allowedResult;
+      }
       const action = approvals.enqueue({
         tool: name,
         args: input,

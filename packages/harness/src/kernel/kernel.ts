@@ -66,6 +66,7 @@ import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
 import { createHttpModule } from "../tools/http.js";
 import { createMcpModule } from "../tools/mcp.js";
+import { PermissionStore } from "../ops/permissions.js";
 import { createDaemonsModule } from "../tools/daemons.js";
 import { createSearchModule } from "../tools/search.js";
 import { exportModule } from "../tools/export.js";
@@ -307,6 +308,8 @@ export class Kernel {
   readonly daemons: DaemonStore;
   readonly supervisor: DaemonSupervisor;
   private readonly closeMcp: () => Promise<void>;
+  /** Decisions the owner has made before, so the same shape stops asking. */
+  readonly permissions: PermissionStore;
   readonly settings: SettingsStore;
   readonly memoryWriter: MemoryWriter;
   readonly memoryRetriever: MemoryRetriever;
@@ -374,6 +377,7 @@ export class Kernel {
     supervisor: DaemonSupervisor;
     /** Closes the MCP servers the tool module opened. */
     closeMcp: () => Promise<void>;
+    permissions: PermissionStore;
     settings: SettingsStore;
     memoryWriter: MemoryWriter;
     memoryRetriever: MemoryRetriever;
@@ -413,6 +417,7 @@ export class Kernel {
     this.daemons = args.daemons;
     this.supervisor = args.supervisor;
     this.closeMcp = args.closeMcp;
+    this.permissions = args.permissions;
     this.settings = args.settings;
     this.memoryWriter = args.memoryWriter;
     this.memoryRetriever = args.memoryRetriever;
@@ -453,6 +458,7 @@ export class Kernel {
     presses.prune(PRESS_ROUTE_TTL_MS);
 
     const daemons = new DaemonStore(workspace.db);
+    const permissions = new PermissionStore(workspace.db);
     const mcp = createMcpModule({ workspaceRoot: workspace.root, secrets });
     const supervisor = new DaemonSupervisor({
       workspaceRoot: workspace.root,
@@ -794,6 +800,7 @@ export class Kernel {
 
     kernelRef = new Kernel({
       closeMcp: mcp.close,
+      permissions,
       workspace,
       secrets,
       registry,
@@ -2096,6 +2103,11 @@ export class Kernel {
       // set changed shape with the wording of each message and nothing said
       // so. Scoping is for the many-modules case it was written for.
       ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
+      permissions: this.permissions,
+      projectSlug: () =>
+        opts.conversationId
+          ? (this.conversations.get(opts.conversationId)?.projectSlug ?? undefined)
+          : undefined,
       ...(opts.allow !== undefined ? { allow: opts.allow } : {}),
       ...(opts.grant?.length ? { grant: opts.grant } : {}),
       ...(opts.waitForApproval === false ? { waitForApproval: false } : {}),
