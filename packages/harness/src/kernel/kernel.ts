@@ -1787,8 +1787,9 @@ export class Kernel {
   setCustomEndpoint(baseUrl: string): CustomEndpoint | undefined {
     const parsed = parseCustomEndpoint({ baseUrl }, {});
     this.settings.set(CUSTOM_ENDPOINT_KEY, parsed ?? {});
-    const router = this.inference as { addProvider?: (p: Provider) => void };
+    const router = this.inference as { addProvider?: (p: Provider) => void; removeProvider?: (name: string) => void };
     if (parsed) router.addProvider?.(new OpenAICompatibleProvider(parsed.baseUrl));
+    else router.removeProvider?.(CUSTOM_PROVIDER);
     return parsed;
   }
 

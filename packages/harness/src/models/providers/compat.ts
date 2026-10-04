@@ -2,7 +2,7 @@ import OpenAI from "openai";
 
 import type { ModelSpec, Provider } from "../provider.js";
 import type { ContentBlock, GenerateRequest, ModelMessage, ModelResponse, StopReason } from "../types.js";
-import { fromOpenAIToolName, toOpenAIToolName, toReasoningEffort } from "./openai.js";
+import { fromOpenAIToolName, toOpenAIToolName } from "./openai.js";
 
 /**
  * Any OpenAI-compatible endpoint: the owner's own model, a local server,
@@ -104,7 +104,9 @@ export class OpenAICompatibleProvider implements Provider {
       }));
       params.parallel_tool_calls = spec.parallelToolCalls === true;
     }
-    if (spec.effort) params.reasoning_effort = toReasoningEffort(spec.effort);
+    // No reasoning_effort: an effort inherited from a big-provider route
+    // would be sent to a server that may not know the field. The owner's
+    // endpoint gets the model id and the messages, nothing it did not ask for.
     const options = req.signal ? { signal: req.signal } : {};
 
     if (!req.onDelta) {

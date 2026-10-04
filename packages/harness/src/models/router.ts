@@ -110,6 +110,11 @@ export class ModelRouter {
     this.providers.set(provider.name, provider);
   }
 
+  /** Take a provider away, for an endpoint the owner cleared. A route still naming it fails at its next turn. */
+  removeProvider(name: string): void {
+    this.providers.delete(name);
+  }
+
   /** Which providers a route may name. */
   providerNames(): string[] {
     return [...this.providers.keys()];
