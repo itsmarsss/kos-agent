@@ -300,6 +300,8 @@ The host binds to loopback by default; a caller on another machine needs
 ```bash
 ANTHROPIC_API_KEY=      # preferred when both are set
 OPENAI_API_KEY=         # works alone; the router falls back
+KOS_CUSTOM_BASE_URL=    # any OpenAI-compatible endpoint: your own model, a local
+KOS_SECRET_CUSTOM=      # server, a gateway; the key only if it wants one
 
 KOS_SECRET_DISCORD=     # bot token
 KOS_OWNER_DISCORD=      # your user id, and the inbound gate
