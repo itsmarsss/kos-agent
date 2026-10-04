@@ -80,6 +80,11 @@ export class ToolRegistry {
     return this.tools.has(name);
   }
 
+  /** Take a tool back, for a module the owner switched off. True if it was there. */
+  unregister(name: string): boolean {
+    return this.tools.delete(name);
+  }
+
   get(name: string): RegisteredTool | undefined {
     return this.tools.get(name);
   }
