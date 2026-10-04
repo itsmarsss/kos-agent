@@ -58,3 +58,42 @@ export function setTheme(theme: Theme): void {
   }
   applyTheme(theme);
 }
+
+/**
+ * How much fits on the screen.
+ *
+ * Every size in the app is in rem, so the root size is the one knob that
+ * moves type and spacing together: compact fits more rows on a laptop,
+ * comfortable gives a phone or a long read some air. Standard is what it
+ * always was.
+ */
+export type Density = "compact" | "standard" | "comfortable";
+
+export const DENSITY_KEY = "kos.density";
+
+export function isDensity(v: unknown): v is Density {
+  return v === "compact" || v === "standard" || v === "comfortable";
+}
+
+export function readDensity(): Density {
+  try {
+    const v = localStorage.getItem(DENSITY_KEY);
+    return isDensity(v) ? v : "standard";
+  } catch {
+    return "standard";
+  }
+}
+
+export function applyDensity(density: Density): void {
+  if (density === "standard") delete document.documentElement.dataset["density"];
+  else document.documentElement.dataset["density"] = density;
+}
+
+export function setDensity(density: Density): void {
+  try {
+    localStorage.setItem(DENSITY_KEY, density);
+  } catch {
+    // Still applied for this visit.
+  }
+  applyDensity(density);
+}
