@@ -10,9 +10,9 @@ function deps(over: Partial<AfterTurnDeps> = {}): AfterTurnDeps & { log: string[
     ownerId: "owner",
     isClosed: () => false,
     runs: { start: (kind) => { log.push(`run:${kind}`); return 1; }, finish: (_id, status, error) => { log.push(`finish:${status}:${error ?? ""}`); } },
-    facts: { ingest: async (_u, text) => { log.push(`fact:${text}`); } },
+    facts: { ingest: async (_u, text, _s, o) => { log.push(`fact:${text}:${(o?.evidence ?? []).join(",")}`); } },
     embedder: { embed: async (texts) => texts.map(() => [0.1, 0.2]) },
-    events: { append: (e) => { log.push(`event:${e.role}:${e.text}:${e.projectSlug ?? "-"}`); } },
+    events: { append: (e) => { log.push(`event:${e.role}:${e.text}:${e.projectSlug ?? "-"}`); return log.length; } },
     conversations: {
       get: (id) => ({ id, title: "hello there…", channel: null, projectSlug: id === "project:books" ? "books" : null }),
       rename: (id, title) => { log.push(`rename:${id}:${title}`); },
@@ -26,7 +26,8 @@ describe("after a turn", () => {
   it("remembers the exchange as a fact and as two events, where they happened", async () => {
     const d = deps();
     await new AfterTurn(d).remember("owner", "I like tea", "Noted.", "project:books");
-    expect(d.log).toEqual(["fact:I like tea", "event:owner:I like tea:books", "event:agent:Noted.:books"]);
+    // The owner's event id rides along as the fact's evidence.
+    expect(d.log).toEqual(["event:owner:I like tea:books", "event:agent:Noted.:books", "fact:I like tea:1"]);
   });
 
   it("logs a failed write as a run rather than failing the turn", async () => {

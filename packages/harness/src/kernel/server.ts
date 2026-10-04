@@ -1530,25 +1530,46 @@ export async function handleApiRequest(
     const tags = Array.isArray(body.tags)
       ? (body.tags as unknown[]).filter((t): t is string => typeof t === "string")
       : undefined;
-    kernel.facts.upsert(
-      kernel.profile.ownerId,
-      {
-        key,
-        value,
-        kind,
-        ...(tags ? { tags } : {}),
-        ...(typeof body.pinned === "boolean" ? { pinned: body.pinned } : {}),
-      },
-      "dashboard",
+    const scope = typeof body.scope === "string" && body.scope.trim() ? body.scope.trim() : "global";
+    return ok(
+      kernel.facts.upsert(
+        kernel.profile.ownerId,
+        {
+          key,
+          value,
+          kind,
+          scope,
+          ...(tags ? { tags } : {}),
+          ...(typeof body.pinned === "boolean" ? { pinned: body.pinned } : {}),
+        },
+        "dashboard",
+      ),
     );
-    return ok(kernel.facts.get(kernel.profile.ownerId, key));
   }
 
   if (method === "POST" && path === "/api/memory/delete") {
     const key = typeof body.key === "string" ? body.key : "";
     if (!key) return { status: 400, body: { error: "key required" } };
-    const removed = kernel.facts.delete(kernel.profile.ownerId, key);
-    return ok({ key, removed });
+    const gone = kernel.facts.delete(kernel.profile.ownerId, key);
+    if (gone.evidence.length) kernel.events.redact(gone.evidence);
+    return ok({ key, removed: gone.removed, redactedEvents: gone.evidence.length });
+  }
+
+  /** Where a belief came from, and what it replaced. */
+  if (method === "GET" && path === "/api/memory/trace") {
+    const key = queryParams(req.url).get("key") ?? "";
+    if (!key) return { status: 400, body: { error: "key required" } };
+    const claim = kernel.facts.get(kernel.profile.ownerId, key);
+    const history = kernel.facts.history(kernel.profile.ownerId, key);
+    if (!claim) return ok({ key, claim: null, history });
+    const trace = kernel.facts.trace(claim.id)!;
+    return ok({
+      key,
+      claim,
+      before: trace.before,
+      revisions: trace.revisions,
+      evidence: trace.evidence.map((id) => kernel.events.get(id)).filter((e) => e !== undefined),
+    });
   }
 
   return { status: 404, body: { error: "not found" } };

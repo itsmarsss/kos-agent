@@ -107,6 +107,14 @@ describe("the events log", () => {
     expect(new EventLog(ws.db, embedder.dimension, () => clock++, embedder.name).count("owner")).toBe(1);
   });
 
+  it("redacts what the owner forgot: words gone from text, index and vectors, row kept", async () => {
+    const id = await say("my passport number is 123456", { conversationId: "c1" });
+    log.redact([id]);
+    expect(log.get(id)).toMatchObject({ text: "[forgotten]", conversationId: "c1" });
+    expect(log.search({ userId: "owner", query: "passport" })).toEqual([]);
+    expect(log.search({ userId: "owner", embedding: await embed("passport number") })).toEqual([]);
+  });
+
   it("refuses a vector of the wrong size", () => {
     expect(() => log.append({ userId: "owner", role: "owner", text: "x" }, [1, 2, 3])).toThrow(/dimension/);
   });

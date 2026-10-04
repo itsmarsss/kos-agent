@@ -21,9 +21,9 @@ export interface AfterTurnDeps {
     start: (kind: string) => number;
     finish: (id: number, status: "ok" | "error", error?: string) => void;
   };
-  facts: { ingest: (userId: string, text: string, source: string) => Promise<unknown> };
+  facts: { ingest: (userId: string, text: string, source: string, options?: { evidence?: number[] }) => Promise<unknown> };
   embedder: { embed: (texts: string[]) => Promise<number[][]> };
-  events: { append: (event: NewEvent, embedding?: number[]) => unknown };
+  events: { append: (event: NewEvent, embedding?: number[]) => number };
   conversations: {
     get: (id: string) => { title: string; id: string; channel: string | null; projectSlug: string | null } | undefined;
     rename: (id: string, title: string) => unknown;
@@ -50,17 +50,19 @@ export class AfterTurn {
         this.deps.runs.finish(runId, "error", err instanceof Error ? err.message : String(err));
       }
     };
-    await record("memory.facts", () => this.deps.facts.ingest(userId, text, "chat"));
     // Both sides of the exchange, each its own event, so what the owner said
-    // and what KOS answered are found and trusted separately.
+    // and what KOS answered are found and trusted separately. The log goes
+    // first: a fact drawn from the owner's words points at the event.
+    let saidId: number | undefined;
     await record("memory.events", async () => {
       const said = text.trim();
       const answered = reply.trim().slice(0, 2000);
       const [a, b] = await this.deps.embedder.embed([said, answered]);
       const place = { conversationId: conversationId ?? null, projectSlug: where?.projectSlug ?? null };
-      this.deps.events.append({ userId, role: "owner", text: said, ...place }, a);
+      saidId = this.deps.events.append({ userId, role: "owner", text: said, ...place }, a);
       if (answered) this.deps.events.append({ userId, role: "agent", text: answered, ...place }, b);
     });
+    await record("memory.facts", () => this.deps.facts.ingest(userId, text, "chat", saidId ? { evidence: [saidId] } : {}));
   }
 
   /**

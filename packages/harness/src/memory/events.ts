@@ -205,6 +205,20 @@ export class EventLog {
     this.db.transaction(() => { for (const id of ids) stmt.run(id); })();
   }
 
+  /**
+   * Blank the text of events the owner asked to forget. The rows stay, so
+   * the conversation's shape and timing survive, but the words are gone
+   * from the text, the index and the vectors alike.
+   */
+  redact(ids: number[]): void {
+    if (ids.length === 0) return;
+    const marks = ids.map(() => "?").join(",");
+    this.db.transaction(() => {
+      this.db.prepare(`UPDATE memory_log SET text = '[forgotten]', provider = NULL WHERE id IN (${marks})`).run(...ids);
+      this.db.prepare(`DELETE FROM ${this.vecTable} WHERE rowid IN (${marks})`).run(...ids.map((i) => BigInt(i)));
+    })();
+  }
+
   /** The newest events in a conversation, oldest first. */
   recent(conversationId: string, limit = 50): MemoryEvent[] {
     const rows = this.db

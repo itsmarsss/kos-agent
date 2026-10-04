@@ -177,6 +177,8 @@ export class Kernel {
   readonly sessions: SessionStore;
   readonly conversations: ConversationStore;
   readonly facts: FactsStore;
+  /** The log every exchange lands in; the ground truth under memory. */
+  readonly events: EventLog;
   /** Where a button press belongs, for the surface that receives one. */
   readonly presses: PressRoutes;
   /** The agent's long-running programs, and what is keeping them up. */
@@ -296,6 +298,7 @@ export class Kernel {
     this.sessions = args.sessions;
     this.conversations = args.conversations;
     this.facts = args.facts;
+    this.events = args.events;
     this.presses = args.presses;
     this.daemons = args.daemons;
     this.supervisor = args.supervisor;
@@ -503,6 +506,9 @@ export class Kernel {
           factLimit: 10,
           eventLimit: 4,
           projectSlug: conversation?.projectSlug ?? null,
+          // A single matching word is retrieval, not relevance: one key hit,
+          // a phrase, or two words in the value before a claim is injected.
+          minScore: 2,
         });
         // Pinned entries are the handful of things every conversation should
         // know without having to match them, so they bypass retrieval.
@@ -896,6 +902,9 @@ export class Kernel {
         id,
         userId: this.profile.ownerId,
         title: job.name,
+        // A job for a project runs in that project: what it remembers lands
+        // in the project's scope, and the project's claims are in reach.
+        ...(job.projectSlug ? { projectSlug: job.projectSlug } : {}),
         brief: [
           `The scheduled job "${job.name}" runs here, on ${job.schedule}.`,
           "Each run is a turn in this thread, so what it did last time is above.",
@@ -1326,6 +1335,7 @@ export class Kernel {
       factLimit: 10,
       eventLimit: 4,
       projectSlug: job.projectSlug,
+      minScore: 2,
     });
     const projects = this.manifest.list();
     const assembled = assembleSystemPrompt({
@@ -1587,7 +1597,12 @@ export class Kernel {
    */
   private async runScheduledJob(job: CronJob): Promise<CronExecResult> {
     const jobSession = job.type === "actions" ? this.jobThread(job) : undefined;
+    // The job's thread is the current conversation while it runs, as a
+    // turn's is: a claim the job makes is attributed to it and lands in the
+    // job's project.
+    const previousConversation = this.currentConversationId;
     if (jobSession) {
+      this.currentConversationId = jobSession;
       this.working.add(jobSession);
       this.progress.emit({ kind: "turn-start", conversationId: jobSession });
     }
@@ -1614,6 +1629,7 @@ export class Kernel {
       }
       return result;
     } finally {
+      this.currentConversationId = previousConversation;
       if (jobSession) this.endTurn(jobSession);
     }
   }
