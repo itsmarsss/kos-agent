@@ -55,7 +55,8 @@ import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import { createChatsModule } from "../tools/chats.js";
 import { createMemoryModule } from "../tools/memory.js";
 import { EXTRACTOR_KEY } from "../memory/extractor.js";
-import { ensureDefaultDreamCron, ensureDefaultMemoryCron } from "../memory/job.js";
+import { ensureDefaultDreamCron, ensureDefaultMemoryCron, ensureDefaultObserveCron } from "../memory/job.js";
+import { ObservationStore } from "../memory/observations.js";
 import { ReviewQueue } from "../memory/review.js";
 import { createCronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
@@ -218,6 +219,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const conversations = new ConversationStore(workspace.db);
   const facts = new FactsStore(workspace.db);
   const review = new ReviewQueue(workspace.db);
+  const observations = new ObservationStore(workspace.db);
   const embedder = pickEmbedder(secrets);
   const events = new EventLog(workspace.db, embedder.dimension, Date.now, embedder.name);
   const memoryRetriever = new MemoryRetriever(facts, events, embedder);
@@ -398,6 +400,12 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
         return id ? (conversations.get(id)?.projectSlug ?? undefined) : undefined;
       },
       review,
+      threads: {
+        sessions,
+        conversations,
+        observations,
+        busy: () => kernelRef?.busyConversations() ?? [],
+      },
       // One watermark for both readers: the fixed extractor and the memory job.
       watermark: {
         get: () => settings.get<{ lastEventId?: number }>(EXTRACTOR_KEY)?.lastEventId ?? 0,
@@ -444,6 +452,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   ensureDefaultBackupCron(crons);
   ensureDefaultMemoryCron(crons);
   ensureDefaultDreamCron(crons);
+  ensureDefaultObserveCron(crons);
 
   // The pre-existing primary session becomes the first conversation, so an
   // upgraded workspace keeps its transcript instead of orphaning it.
