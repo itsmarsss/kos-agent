@@ -219,6 +219,21 @@ export class EventLog {
     })();
   }
 
+  /**
+   * Events after a watermark, oldest first: what the extractor has not read.
+   * Only what people said; tool output never becomes memory on its own,
+   * and a forgotten event has nothing left to read.
+   */
+  since(userId: string, afterId: number, limit = 500): MemoryEvent[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM memory_log WHERE user_id = ? AND id > ? AND role IN ('owner', 'agent') AND text <> '[forgotten]'
+         ORDER BY id LIMIT ?`,
+      )
+      .all(userId, afterId, limit) as Row[];
+    return rows.map(toEvent);
+  }
+
   /** The newest events in a conversation, oldest first. */
   recent(conversationId: string, limit = 50): MemoryEvent[] {
     const rows = this.db
