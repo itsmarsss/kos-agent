@@ -68,6 +68,15 @@ export interface SkillInfo {
   enabled: boolean;
 }
 
+/** A decision the owner made and kept. */
+export interface PermissionRule {
+  id: number;
+  tool: string;
+  scope: string | null;
+  project: string | null;
+  createdAt: number;
+}
+
 export interface CronJob {
   id: number;
   name: string;
@@ -699,10 +708,14 @@ export const api = {
     }),
   deleteMemory: (key: string) =>
     post<{ key: string; removed: boolean }>("/api/memory/delete", { key }),
-  approve: (id: number) =>
+  /** Approve; with remember, the same shape stops asking. */
+  approve: (id: number, remember = false) =>
     post<{ ok: boolean; message: string; reply?: string }>("/api/approve", {
       id,
+      ...(remember ? { remember: true } : {}),
     }),
+  permissions: () => get<{ rules: PermissionRule[] }>("/api/permissions"),
+  revokePermission: (id: number) => post<{ id: number; revoked: boolean }>("/api/permissions/revoke", { id }),
   deny: (id: number) =>
     post<{ ok: boolean; message: string; reply?: string }>("/api/deny", { id }),
   setKill: (halted: boolean) => post<Status>("/api/kill", { halted }),

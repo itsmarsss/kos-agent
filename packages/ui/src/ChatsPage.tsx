@@ -80,7 +80,7 @@ export interface ChatsPageProps {
   onOpenAgent: (id: number) => void;
   onOpen: (id: string) => void;
   onChanged: () => void;
-  onDecide: (pendingId: string, approved: boolean) => void;
+  onDecide: (pendingId: string, approved: boolean, remember?: boolean) => void;
   /**
    * A message handed to the server rather than typed here, shown until the
    * transcript has it. Without it a fix attempt opened on an agent thinking
@@ -1267,7 +1267,7 @@ export function ChatsPage({
                     <Decision
                       id={a.id}
                       deciding={deciding}
-                      onDecide={(id, ok) => onDecide(String(id), ok)}
+                      onDecide={(id, ok, remember) => onDecide(String(id), ok, remember)}
                     />
                   </div>
                 </m.div>

@@ -208,17 +208,17 @@ export function App(): React.ReactElement {
     go({ name: "page", id });
   };
 
-  const decide = async (id: number, approved: boolean): Promise<void> => {
+  const decide = async (id: number, approved: boolean, remember = false): Promise<void> => {
     // Tracked per id rather than as one busy flag, so a second approval
     // pending elsewhere is not disabled by this one, and every copy of the
     // buttons for this action agrees about what is happening.
     setDeciding((current) => new Set(current).add(id));
     setBusy(approved ? `approving #${id}` : `denying #${id}`);
     try {
-      const res = await (approved ? api.approve(id) : api.deny(id));
+      const res = await (approved ? api.approve(id, remember) : api.deny(id));
       // The agent's continuation shows in the conversation it belongs to,
       // which Chats is already watching; there is no panel to echo it into.
-      flash("ok", res.reply ? res.reply.slice(0, 120) : approved ? `Approved #${id}` : `Denied #${id}`);
+      flash("ok", res.reply ? res.reply.slice(0, 120) : approved ? (remember ? `Approved #${id}, and remembered` : `Approved #${id}`) : `Denied #${id}`);
       await refresh();
     } catch (err) {
       flash("err", err instanceof Error ? err.message : String(err));
@@ -439,9 +439,9 @@ export function App(): React.ReactElement {
     [approvals],
   );
 
-  const decideByPendingId = (pendingId: string, approved: boolean): void => {
+  const decideByPendingId = (pendingId: string, approved: boolean, remember = false): void => {
     const id = Number(pendingId);
-    if (Number.isInteger(id)) void decide(id, approved);
+    if (Number.isInteger(id)) void decide(id, approved, remember);
   };
 
   const inspectKey =
@@ -794,7 +794,7 @@ export function App(): React.ReactElement {
     return shell(
       <AgentsPage
         deciding={deciding}
-        onDecide={(id, approved) => void decide(id, approved)}
+        onDecide={(id, approved, remember) => void decide(id, approved, remember)}
         {...(route.id !== undefined ? { openId: route.id } : {})}
       />,
     );
@@ -978,7 +978,7 @@ export function App(): React.ReactElement {
       onOpenChat={(id) => go({ name: "chats", id })}
       onGo={(to) => go({ name: to } as Route)}
       deciding={deciding}
-      onDecide={(id, approved) => void decide(id, approved)}
+      onDecide={(id, approved, remember) => void decide(id, approved, remember)}
       onDismissFailure={(key) => void dismissFailure(key)}
       onOpenFailure={(key) => openFailure(key)}
       onFixFailure={fixFailure}

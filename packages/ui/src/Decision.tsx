@@ -23,7 +23,7 @@ export function Decision({
   id: number;
   /** Ids currently being decided, so every copy of these buttons agrees. */
   deciding: ReadonlySet<number>;
-  onDecide: (id: number, approved: boolean) => void;
+  onDecide: (id: number, approved: boolean, remember?: boolean) => void;
   small?: boolean;
 }): ReactElement {
   const busy = deciding.has(id);
@@ -45,6 +45,15 @@ export function Decision({
         ) : (
           "Approve"
         )}
+      </button>
+      <button
+        type="button"
+        className={`btn btn--primary${size}`}
+        disabled={busy}
+        title="Approve, and stop asking for this shape in this project"
+        onClick={() => onDecide(id, true, true)}
+      >
+        Always
       </button>
       <button
         type="button"

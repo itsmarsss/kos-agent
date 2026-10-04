@@ -20,7 +20,7 @@ export function ToolCall({
   event: Extract<ChatEvent, { kind: "tool" }>;
   /** True while its pending action is still undecided. */
   awaitingApproval?: boolean;
-  onDecide?: (pendingId: string, approved: boolean) => void;
+  onDecide?: (pendingId: string, approved: boolean, remember?: boolean) => void;
   /** Ids being decided right now, so the buttons can say so. */
   deciding?: ReadonlySet<number>;
 }): ReactElement {
@@ -63,7 +63,7 @@ export function ToolCall({
           <span className="toolcall-approve-text">
             This needs your approval before it runs.
           </span>
-          <Decision id={Number(event.pendingId)} deciding={deciding} onDecide={(id, ok) => onDecide?.(String(id), ok)} small />
+          <Decision id={Number(event.pendingId)} deciding={deciding} onDecide={(id, ok, remember) => onDecide?.(String(id), ok, remember)} small />
         </div>
       )}
 
