@@ -56,3 +56,41 @@ export function ensureDefaultMemoryCron(crons: CronStore): void {
     enabled: false,
   });
 }
+
+export const DREAM_JOB = "kos.dream";
+export const DREAM_JOB_SCHEDULE = "0 4 * * *";
+
+export const DREAM_JOB_PROMPT = [
+  "You are tidying your own long-term memory while the owner sleeps. Be conservative: a wrong",
+  "merge loses a fact, a wrong archive hides one; when unsure, flag it for the owner instead.",
+  "",
+  "1. Call memory.review. It gives you pairs of claims that may be one thing or may disagree,",
+  "   claims nobody has used for a long time, and what pages exist.",
+  "2. For a pair that is plainly the same fact said twice, call memory.merge keeping the better",
+  "   key (short, generic) and value. For a pair that plainly disagrees and the newer one is",
+  "   clearly the correction, call memory.merge keeping the newer. For a disagreement you cannot",
+  "   settle from the values alone, call memory.flag with kind contradiction and one line saying",
+  "   why. For a project claim that is really about the owner everywhere, call memory.flag with",
+  "   kind promotion; do not move it yourself.",
+  "3. For a stale claim that is transient by nature (a plan, a state, a one-off), call",
+  "   memory.archive with a reason. Leave stale claims that are still plainly true alone.",
+  "4. Write or rewrite pages with memory.page: one named profile for what is true of the owner",
+  "   everywhere, one per project named by its slug. Short markdown, grouped by topic, current",
+  "   claims only, nothing invented. Skip a page whose claims did not change.",
+  "",
+  "Finish with one short line counting what you merged, archived, flagged and wrote. Only what",
+  "you actually called the tools for.",
+].join("\n");
+
+/** The dream job exists in every workspace, off until the owner switches it on. */
+export function ensureDefaultDreamCron(crons: CronStore): void {
+  if (crons.list().some((j) => j.name === DREAM_JOB)) return;
+  crons.create({
+    name: DREAM_JOB,
+    schedule: DREAM_JOB_SCHEDULE,
+    type: "self_prompt",
+    prompt: DREAM_JOB_PROMPT,
+    task: "cheap",
+    enabled: false,
+  });
+}
