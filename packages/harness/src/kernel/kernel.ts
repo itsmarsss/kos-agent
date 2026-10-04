@@ -53,9 +53,8 @@ import {
 } from "../chat/sdkchat.js";
 import { HealthMonitor } from "../ops/health.js";
 import { RunsLog } from "../ops/runs.js";
-import { SHARED_LANE, WorkQueue } from "../ops/queue.js";
+import { WorkQueue } from "../ops/queue.js";
 import { WorkspaceBackup } from "../ops/backup.js";
-import { injectSecrets } from "../secrets/inject.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { SkillPromoter, type PromoteInput, type PromoteOutcome } from "../skills/promote.js";
 import { Workspace } from "../store/workspace.js";
@@ -90,6 +89,7 @@ import { tasksModule } from "../tools/tasks.js";
 import { Heartbeat, heartbeatBeat } from "./heartbeat.js";
 import { AfterTurn } from "./afterturn.js";
 import { Caretaker } from "./caretaker.js";
+import { Decisions, type DecisionResult } from "./decisions.js";
 import {
   assembleSystemPrompt,
   withoutTurnContext,
@@ -173,11 +173,6 @@ export const BUILD_SETTINGS_KEY = "builds";
 /** Set once the one-time retirement of pre-surface pointers has happened. */
 const SURFACE_THREADS_KEY = "surfaces.threaded";
 
-/**
- * Prefix on a queued action that belongs to a build sub-agent rather than to
- * the tool registry. See approve(): these are decisions, not calls.
- */
-const BUILD_ACTION_PREFIX = "build.";
 
 /** The orchestrator's own conversation id. */
 export function orchestratorId(ownerId = "owner"): string {
@@ -309,6 +304,8 @@ export class Kernel {
   private readonly closeMcp: () => Promise<void>;
   /** Noticing failures, telling the owner, and trying to fix them. */
   readonly caretaker: Caretaker;
+  /** Carrying out approve and deny, including the recovery path for an orphaned action. */
+  private readonly decisions: Decisions;
   /** Remembering and naming, once a turn has answered. */
   private readonly afterTurn: AfterTurn;
   /** Decisions the owner has made before, so the same shape stops asking. */
@@ -418,6 +415,27 @@ export class Kernel {
     this.supervisor = args.supervisor;
     this.closeMcp = args.closeMcp;
     this.permissions = args.permissions;
+    this.decisions = new Decisions({
+      ownerId: args.profile.ownerId,
+      approvals: args.approvals,
+      permissions: args.permissions,
+      conversations: args.conversations,
+      audit: args.audit,
+      registry: args.registry,
+      secrets: args.secrets,
+      queue: args.queue,
+      inConversation: async (conversationId, work) => {
+        const previous = this.currentConversationId;
+        if (conversationId) this.currentConversationId = conversationId;
+        try {
+          return await work();
+        } finally {
+          this.currentConversationId = previous;
+        }
+      },
+      onToolRan: (tool) => this.afterToolRan(tool),
+      handleMessage: (text, opts) => this.handleMessage(text, opts),
+    });
     this.caretaker = new Caretaker({
       ownerId: args.profile.ownerId,
       isClosed: () => this.closed,
@@ -1487,213 +1505,9 @@ export class Kernel {
     this.progress.emit({ kind: "turn-end", conversationId: sessionId });
   }
 
-  /**
-   * Approve a pending risky action, execute it, resume the agent so it can
-   * finish the plan, and notify the owner with the continuation reply.
-   */
-  async approve(
-    id: number,
-    decidedBy?: string,
-    options: { remember?: boolean } = {},
-  ): Promise<{
-    ok: boolean;
-    message: string;
-    isError?: boolean;
-    reply?: string;
-  }> {
-    const action = this.approvals.get(id);
-    if (!action || action.status !== "pending") {
-      return { ok: false, message: `no pending action #${id}` };
-    }
-    /*
-     * A turn suspended on this decision does the rest itself.
-     *
-     * The call is still sitting inside the turn that made it, waiting; the
-     * decision releases it, and it runs the tool, records it, and carries on
-     * in the same turn with the same live view. Everything below is the
-     * recovery path for an action nobody is waiting on any more, which is
-     * what a pending row becomes when the host restarts under it.
-     */
-    const awaited = this.approvals.isAwaited(id);
-    this.approvals.approve(id, decidedBy ?? this.profile.ownerId);
-    /*
-     * Kept, when the owner said so.
-     *
-     * The rule is the shape of this call, in the project it came from, or
-     * everywhere when it came from the root. A call whose shape cannot be
-     * named makes no rule, and keeps asking.
-     */
-    if (options.remember) {
-      const project = action.conversationId
-        ? (this.conversations.get(action.conversationId)?.projectSlug ?? null)
-        : null;
-      const rule = this.permissions.ruleFor(action.tool, JSON.parse(action.args) as Record<string, unknown>, project);
-      if (rule) this.permissions.add(rule);
-    }
-    if (awaited) {
-      return {
-        ok: true,
-        message: `Approved #${id}. ${action.tool} is running.`,
-      };
-    }
-    const stored = JSON.parse(action.args) as Record<string, unknown>;
 
-    /*
-     * A build's permission request is a decision, not a call to make here.
-     *
-     * Builds queue their tool requests as build.Bash, build.Read and so on.
-     * Those are not registered tools: the sub-agent performs the action itself
-     * the moment it sees the row flip to approved. Executing them here looked
-     * up a tool that does not exist, recorded "unknown tool: build.Bash" in the
-     * audit log, and then resumed the parent agent with outcome=FAILED,
-     * telling it the thing it had just watched succeed had failed.
-     */
-    if (action.tool.startsWith(BUILD_ACTION_PREFIX)) {
-      const wanted = action.tool.slice(BUILD_ACTION_PREFIX.length);
-      this.audit.record({
-        tool: action.tool,
-        args: stored,
-        result: `approved; the build runs ${wanted} itself`,
-        isError: false,
-        riskTier: "risky",
-        userId: decidedBy ?? this.profile.ownerId,
-      });
-      // No resume turn either. The build is not a conversation waiting on a
-      // tool result; it is a process that was blocked and is now unblocked.
-      return { ok: true, message: `Approved. The build continues with ${wanted}.` };
-    }
 
-    // Approvals arrive whenever the owner taps a button, so the execution has
-    // to join the serial queue like any other job. Running it inline races
-    // whatever is already in flight: two git snapshots in one repo, or a cron
-    // job's read-modify-write interleaved across an await.
-    //
-    // Only the execution is enqueued. The resume turn below goes through
-    // handleMessage, which enqueues itself; nesting would wait on a chain that
-    // includes this very task and deadlock.
-    const result = await this.queue.enqueue(async () => {
-      /*
-       * The approved call belongs to the conversation that asked for it.
-       *
-       * currentConversationId was only ever set inside runTurn, so a tool
-       * executed from an approval ran with none. Anything that asks which
-       * conversation it is working for got nothing: a build started this way
-       * was orphaned from its own chat, so its permission requests carried no
-       * conversation and its progress was emitted for nobody. The chat that
-       * started it showed the request go out and then nothing at all.
-       */
-      const previous = this.currentConversationId;
-      if (action.conversationId) this.currentConversationId = action.conversationId;
-      let r;
-      try {
-        r = await this.registry.execute(
-          action.tool,
-          injectSecrets(stored, this.secrets),
-        );
-      } finally {
-        this.currentConversationId = previous;
-      }
-      this.audit.record({
-        tool: action.tool,
-        args: stored,
-        result: r.content,
-        isError: r.isError,
-        riskTier: "risky",
-        userId: decidedBy ?? this.profile.ownerId,
-      });
-      // cron.schedule is risky, so this is the path a scheduled job normally
-      // takes: approved here, never through the guarded executor.
-      if (!r.isError) this.afterToolRan(action.tool);
-      return r;
-      // The lane of the conversation that asked, so approving in one chat does
-      // not sit behind a long turn running in another.
-    }, action.conversationId ?? SHARED_LANE);
 
-    const userId = decidedBy ?? this.profile.ownerId;
-    // Resume the conversation that asked. Resuming the primary one left the
-    // waiting agent still waiting, and put the result in front of the wrong
-    // reader.
-    const sessionId =
-      action.conversationId ?? primarySessionId(this.profile.ownerId);
-    const outcome = result.isError ? "FAILED" : "SUCCEEDED";
-    const resumePrompt = [
-      `System: the owner approved pending action #${id}.`,
-      `tool=${action.tool}`,
-      `outcome=${outcome}`,
-      `result=${result.content}`,
-      "Continue the owner's prior request now.",
-      "Do not re-create resources that already exist (use slugs/ids from result).",
-      "If this was tasks.create_list, use tasks.add / tasks.list with the returned slug as instance.",
-      "Prefer short checklist-style replies.",
-    ].join(" ");
-
-    let reply: string | undefined;
-    try {
-      const cont = await this.handleMessage(resumePrompt, {
-        sessionId,
-        userId,
-        origin: "system",
-      });
-      reply = cont.reply;
-    } catch (err) {
-      reply = `Approved #${id} but resume failed: ${err instanceof Error ? err.message : String(err)}`;
-    }
-
-    // Channel/CLI deliver `reply` to the owner (avoid double-notify here).
-    return {
-      ok: true,
-      message: result.content,
-      isError: result.isError,
-      ...(reply !== undefined ? { reply } : {}),
-    };
-  }
-
-  async deny(
-    id: number,
-    decidedBy?: string,
-  ): Promise<{ ok: boolean; message: string; reply?: string }> {
-    // As with approve: a turn waiting on this handles the refusal itself,
-    // inside the turn that asked. Only an orphaned row needs telling.
-    const awaited = this.approvals.isAwaited(id);
-    const denied = this.approvals.deny(id, decidedBy ?? this.profile.ownerId);
-    if (!denied) {
-      return { ok: false, message: `no pending action #${id}` };
-    }
-    if (awaited) {
-      return { ok: true, message: `Declined #${id}.` };
-    }
-    // As with approve: the build sees the decision itself and adapts. Resuming
-    // the parent conversation would tell an agent that is not waiting on
-    // anything that something it never asked for was refused.
-    if (denied.tool.startsWith(BUILD_ACTION_PREFIX)) {
-      const wanted = denied.tool.slice(BUILD_ACTION_PREFIX.length);
-      return {
-        ok: true,
-        message: `Declined. The build was told it may not ${wanted}.`,
-      };
-    }
-    const sessionId =
-      denied.conversationId ?? primarySessionId(this.profile.ownerId);
-    let reply: string | undefined;
-    try {
-      const cont = await this.handleMessage(
-        `System: the owner denied pending action #${id}. Acknowledge briefly and ask how to proceed without that action.`,
-        {
-          sessionId,
-          userId: decidedBy ?? this.profile.ownerId,
-          origin: "system",
-        },
-      );
-      reply = cont.reply;
-    } catch {
-      reply = `Denied #${id}.`;
-    }
-    return {
-      ok: true,
-      message: `denied #${id}`,
-      ...(reply !== undefined ? { reply } : {}),
-    };
-  }
 
   /**
    * A turn with the orchestrator. It runs in its own conversation and is the
@@ -1777,6 +1591,15 @@ export class Kernel {
   /** Open a chat to work out why something failed. The dashboard calls this. */
   startFix(input: { label: string; error: string; what: string; ref?: string }): Promise<{ conversationId: string; title: string; prompt: string }> {
     return this.caretaker.startFix(input);
+  }
+
+  /** Carry out the owner's decision on a queued action. Every surface comes through here. */
+  approve(id: number, decidedBy?: string, options: { remember?: boolean } = {}): Promise<DecisionResult> {
+    return this.decisions.approve(id, decidedBy, options);
+  }
+
+  deny(id: number, decidedBy?: string): Promise<DecisionResult> {
+    return this.decisions.deny(id, decidedBy);
   }
 
   async dispatchTo(
