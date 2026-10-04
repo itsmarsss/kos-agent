@@ -44,6 +44,7 @@ const HELP = `kos commands:
   approvals | approve | deny | halt | resume
   crons | snapshot | clear | memory | pages
   doctor               preflight checks
+  eval memory [--json] run the memory extractor over the golden set, print the numbers
   serve                alias: host in foreground (API; Discord optional)
   discord              alias: host in foreground, require Discord
   help

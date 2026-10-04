@@ -72,8 +72,14 @@ with that secret as a bearer token starts the named job. The secret opens
 nothing else, the body is ignored, and the run reports to health like a
 scheduled one.
 
-**Writes its own memory.** A salience heuristic decides what persists. Recall
-is semantic via `sqlite-vec`, with literal search as the fast path.
+**Writes its own memory.** Every exchange lands in an events log, searchable
+by words and by meaning. What KOS believes is a claim: scoped to a project or
+global, never overwritten (a change supersedes, the old row stays), linked to
+the events it came from, hard-forgotten on request down to the vectors.
+Heuristics catch the obvious; with extraction switched on in Settings, a
+cheap model reads new conversation in batches and proposes claims that must
+cite their sources. `kos eval memory` scores that reader against a fixed
+golden set, embedder held constant, so a change is measured rather than felt.
 
 **Extends itself.** New skills are sandbox-tested in a child process against a
 throwaway database copy, then promoted automatically if safe, or queued for

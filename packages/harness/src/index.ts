@@ -38,3 +38,4 @@ export {
   sitesDirFor,
 } from "./sites/server.js";
 export type { Site } from "./sites/server.js";
+export { createDefaultRouter } from "./models/router.js";

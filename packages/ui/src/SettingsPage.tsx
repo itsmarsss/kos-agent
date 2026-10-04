@@ -39,6 +39,8 @@ const BEHAVIOUR_FALLBACK: Behaviour = {
   stallMinutes: 3,
   approvalMinutes: 30,
   heartbeatMinutes: 0,
+  memoryExtraction: false,
+  extractEveryChars: 6000,
 };
 
 /**
@@ -796,6 +798,19 @@ export function SettingsPage(): ReactElement {
                 up.
               </p>
               <Field
+                label="Extract memory in the background"
+                hint="Off by default. On, a cheap model reads new conversation in batches and proposes claims; what it writes is attributed to it, cites its sources, and shows in Memory. Run it once from the Memory page first and see what it does."
+              >
+                <label className="set-toggle">
+                  <input
+                    type="checkbox"
+                    checked={how.memoryExtraction}
+                    onChange={(e) => setHow({ ...how, memoryExtraction: e.target.checked })}
+                  />
+                  <span>{how.memoryExtraction ? "On" : "Off"}</span>
+                </label>
+              </Field>
+              <Field
                 label="Try to fix failures on its own"
                 hint="On the first failure of a job, KOS opens a chat, works out why, and repairs it if it safely can. Later failures of the same job do not start another attempt. Everything it does there still asks you before anything risky."
               >
@@ -849,6 +864,15 @@ export function SettingsPage(): ReactElement {
                   range={limits.heartbeatMinutes}
                   onChange={(heartbeatMinutes) =>
                     setHow({ ...how, heartbeatMinutes })
+                  }
+                />
+                <Limit
+                  label="Memory extraction: read every N characters of new conversation"
+                  hint="A cheap model reads what was said since it last looked and proposes what to remember, each proposal citing the messages it came from. Default 6000, about a page and a half."
+                  value={how.extractEveryChars}
+                  range={limits.extractEveryChars}
+                  onChange={(extractEveryChars) =>
+                    setHow({ ...how, extractEveryChars })
                   }
                 />
                 <Limit

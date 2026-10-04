@@ -52,6 +52,10 @@ export interface Behaviour {
    * than because the owner asked for something.
    */
   heartbeatMinutes: number;
+  /** Let a cheap model read new conversation and propose claims, in the background. */
+  memoryExtraction: boolean;
+  /** How much new conversation, in characters, before the extractor reads it. */
+  extractEveryChars: number;
 }
 
 export const BEHAVIOUR_DEFAULTS: Behaviour = {
@@ -65,11 +69,13 @@ export const BEHAVIOUR_DEFAULTS: Behaviour = {
   stallMinutes: 3,
   approvalMinutes: 30,
   heartbeatMinutes: 0,
+  memoryExtraction: false,
+  extractEveryChars: 6000,
 };
 
 /** Range for each number, as [min, max]. */
 export const BEHAVIOUR_LIMITS: Record<
-  Exclude<keyof Behaviour, "autoFix" | "engine">,
+  Exclude<keyof Behaviour, "autoFix" | "engine" | "memoryExtraction">,
   [number, number]
 > = {
   maxSteps: [1, 100],
@@ -82,6 +88,7 @@ export const BEHAVIOUR_LIMITS: Record<
   // Zero is off. Below fifteen minutes it is a background process with a
   // model attached, not an assistant checking in.
   heartbeatMinutes: [0, 1440],
+  extractEveryChars: [1000, 50000],
 };
 
 function clamp(value: unknown, key: keyof typeof BEHAVIOUR_LIMITS): number {
@@ -114,5 +121,8 @@ export function parseBehaviour(raw: unknown): Behaviour {
     stallMinutes: clamp(input["stallMinutes"], "stallMinutes"),
     approvalMinutes: clamp(input["approvalMinutes"], "approvalMinutes"),
     heartbeatMinutes: clamp(input["heartbeatMinutes"], "heartbeatMinutes"),
+    memoryExtraction:
+      typeof input["memoryExtraction"] === "boolean" ? input["memoryExtraction"] : BEHAVIOUR_DEFAULTS.memoryExtraction,
+    extractEveryChars: clamp(input["extractEveryChars"], "extractEveryChars"),
   };
 }

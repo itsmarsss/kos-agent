@@ -697,6 +697,21 @@ describe("handleApiRequest", () => {
     expect((res.body as { facts: unknown[] }).facts.length).toBe(5);
   });
 
+  it("reports what the extractor has not read, and reads it on request", async () => {
+    await handleApiRequest(kernel, { method: "POST", path: "/api/message", body: { text: "my sister Nadia is a nurse in Halifax" } });
+    const before = await handleApiRequest(kernel, { method: "GET", path: "/api/memory/extract" });
+    expect(before.body).toMatchObject({ enabled: false, running: false });
+    expect((before.body as { pending: { count: number } }).pending.count).toBeGreaterThan(0);
+    // The stub model answers "hi", not JSON: a read that proposes nothing.
+    const ran = await handleApiRequest(kernel, { method: "POST", path: "/api/memory/extract" });
+    expect(ran.status).toBe(200);
+    expect(ran.body).toMatchObject({ proposed: 0, added: 0 });
+    expect((ran.body as { events: number }).events).toBeGreaterThan(0);
+    const after = await handleApiRequest(kernel, { method: "GET", path: "/api/memory/extract" });
+    expect((after.body as { pending: { count: number } }).pending.count).toBe(0);
+    expect(kernel.runs.recent().some((r) => r.kind === "memory.extract" && r.status === "ok")).toBe(true);
+  });
+
   it("still honours an explicit limit", async () => {
     for (let i = 0; i < 5; i++) {
       kernel.facts.upsert("owner", { key: `k${i}`, value: `v${i}`, kind: "fact" });

@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
-import { Kernel, primarySessionId } from "@kos/harness";
+import { Kernel, SecretsRegistry, createDefaultRouter, primarySessionId, renderEvalReport, runMemoryEval } from "@kos/harness";
 
 import { KosClient, probeDaemon } from "@kos/client";
 import { OFFLINE_COMMANDS, parseArgs, runCommand, statusLine } from "./commands.js";
@@ -410,6 +410,19 @@ async function main(): Promise<void> {
 
   if (command === "doctor") {
     console.log(await runDoctor({ workspace: rootDir }));
+    return;
+  }
+
+  // kos eval memory: run the extractor over the golden set with the real
+  // cheap model and print the numbers. Spends a little; prints what it did.
+  if (command === "eval") {
+    if (rest[0] !== "memory") {
+      console.error("usage: kos eval memory [--json]");
+      process.exitCode = 1;
+      return;
+    }
+    const report = await runMemoryEval(createDefaultRouter(SecretsRegistry.fromEnv()));
+    console.log(flags.json === true ? JSON.stringify(report, null, 2) : renderEvalReport(report));
     return;
   }
 

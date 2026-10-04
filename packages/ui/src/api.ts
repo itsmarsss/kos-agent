@@ -313,6 +313,10 @@ export interface Behaviour {
   approvalMinutes: number;
   /** Minutes between unprompted look-arounds. Zero is off. */
   heartbeatMinutes: number;
+  /** A cheap model reads new conversation and proposes memory claims, in the background. */
+  memoryExtraction: boolean;
+  /** How much new conversation, in characters, before it reads. */
+  extractEveryChars: number;
 }
 
 export interface FailingJob {
