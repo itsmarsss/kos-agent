@@ -1,5 +1,5 @@
 import type { Db } from "../store/db.js";
-import { hostOf, isSqlWrite, writtenTables } from "../risk/rules.js";
+import { hostOf, isSqlWrite, programOf, writtenTables } from "../risk/rules.js";
 
 /**
  * Decisions the owner has made before, kept.
@@ -63,6 +63,13 @@ export function scopeOf(tool: string, input: Record<string, unknown>): string | 
     if (!isSqlWrite(sql)) return null;
     const [table] = writtenTables(sql);
     return table ? `table:${table}` : undefined;
+  }
+  if (tool === "shell.run") {
+    // One plain command is named by its program, as Claude Code does with
+    // Bash(git:*). A chain or a pipeline is not: a remembered "git" must not
+    // let "git status && rm -rf ." through on the strength of its first word.
+    const program = typeof input["command"] === "string" ? programOf(input["command"]) : undefined;
+    return program ? `cmd:${program}` : undefined;
   }
   if (tool === "systems.migrate") {
     const spec = input["spec"];
