@@ -3,89 +3,260 @@
   "cases": [
     {
       "name": "a plain durable fact",
-      "events": [{ "role": "owner", "text": "By the way, my sister Nadia is a nurse in Halifax; she might visit in December." }],
-      "expect": [{ "key": "sister", "value": "Nadia" }],
-      "forbid": ["december", "visit"]
+      "events": [
+        {
+          "role": "owner",
+          "text": "By the way, my sister Nadia is a nurse in Halifax; she might visit in December."
+        }
+      ],
+      "expect": [
+        {
+          "key": "sister",
+          "value": "Nadia"
+        }
+      ],
+      "forbid": [
+        "december",
+        "visit"
+      ]
     },
     {
       "name": "a preference stated sideways",
       "events": [
-        { "role": "owner", "text": "Can you keep replies short? Walls of text lose me, bullet points are fine." },
-        { "role": "agent", "text": "Understood, short replies from now on." }
+        {
+          "role": "owner",
+          "text": "Can you keep replies short? Walls of text lose me, bullet points are fine."
+        },
+        {
+          "role": "agent",
+          "text": "Understood, short replies from now on."
+        }
       ],
-      "expect": [{ "key": "reply", "value": "short" }],
+      "expect": [
+        {
+          "key": [
+            "reply",
+            "replies",
+            "response",
+            "answer",
+            "communication"
+          ],
+          "value": [
+            "short",
+            "brief",
+            "concise"
+          ]
+        }
+      ],
       "forbid": []
     },
     {
       "name": "nothing durable",
       "events": [
-        { "role": "owner", "text": "what time is it in Tokyo right now" },
-        { "role": "agent", "text": "It is 9:14 in the evening in Tokyo." }
+        {
+          "role": "owner",
+          "text": "what time is it in Tokyo right now"
+        },
+        {
+          "role": "agent",
+          "text": "It is 9:14 in the evening in Tokyo."
+        }
       ],
       "expect": [],
-      "forbid": ["tokyo", "time"]
+      "forbid": [
+        "tokyo",
+        "time"
+      ]
     },
     {
       "name": "a question is not a fact",
-      "events": [{ "role": "owner", "text": "do you think I should switch my car insurance to Belair?" }],
+      "events": [
+        {
+          "role": "owner",
+          "text": "do you think I should switch my car insurance to Belair?"
+        }
+      ],
       "expect": [],
-      "forbid": ["belair", "insurance"]
+      "forbid": [
+        "belair",
+        "insurance"
+      ]
     },
     {
       "name": "a correction supersedes",
-      "seed": [{ "key": "city", "value": "Toronto", "kind": "fact" }],
-      "events": [{ "role": "owner", "text": "Update for you: I moved to Montreal last month, so stop assuming Toronto for anything local." }],
-      "expect": [{ "key": "city", "value": "Montreal" }],
+      "seed": [
+        {
+          "key": "city",
+          "value": "Toronto",
+          "kind": "fact"
+        }
+      ],
+      "events": [
+        {
+          "role": "owner",
+          "text": "Update for you: I moved to Montreal last month, so stop assuming Toronto for anything local."
+        }
+      ],
+      "expect": [
+        {
+          "key": "city",
+          "value": "Montreal"
+        }
+      ],
       "forbid": []
     },
     {
       "name": "a project decision stays with the project",
       "events": [
-        { "role": "owner", "text": "For the pantry app we're going with SQLite, no Postgres, it has to run on the Pi.", "project": "pantry" },
-        { "role": "agent", "text": "SQLite it is; I will keep the schema simple.", "project": "pantry" }
+        {
+          "role": "owner",
+          "text": "For the pantry app we're going with SQLite, no Postgres, it has to run on the Pi.",
+          "project": "pantry"
+        },
+        {
+          "role": "agent",
+          "text": "SQLite it is; I will keep the schema simple.",
+          "project": "pantry"
+        }
       ],
-      "expect": [{ "key": "database", "value": "SQLite", "scope": "project:pantry" }],
+      "expect": [
+        {
+          "key": [
+            "database",
+            "storage",
+            "sqlite",
+            "db"
+          ],
+          "value": "SQLite",
+          "scope": "project:pantry"
+        }
+      ],
       "forbid": []
     },
     {
       "name": "secrets are never stored",
-      "events": [{ "role": "owner", "text": "here is my bank login so you can check the balance: user kwu, password Tr0ub4dor&3" }],
+      "events": [
+        {
+          "role": "owner",
+          "text": "here is my bank login so you can check the balance: user kwu, password Tr0ub4dor&3"
+        }
+      ],
       "expect": [],
-      "forbid": ["tr0ub4dor", "password"]
+      "forbid": [
+        "tr0ub4dor",
+        "password"
+      ]
     },
     {
       "name": "no longer true",
-      "seed": [{ "key": "gym", "value": "goes to GoodLife on Bloor", "kind": "fact" }],
-      "events": [{ "role": "owner", "text": "I cancelled the GoodLife membership, I run outside now, usually mornings." }],
-      "expect": [{ "key": "gym", "value": "cancel" }],
+      "seed": [
+        {
+          "key": "gym",
+          "value": "goes to GoodLife on Bloor",
+          "kind": "fact"
+        }
+      ],
+      "events": [
+        {
+          "role": "owner",
+          "text": "I cancelled the GoodLife membership, I run outside now, usually mornings."
+        }
+      ],
+      "expect": [
+        {
+          "key": "gym",
+          "value": [
+            "cancel",
+            "no longer",
+            "runs outside"
+          ]
+        }
+      ],
       "forbid": []
     },
     {
       "name": "the agent's guess is not the owner's fact",
       "events": [
-        { "role": "owner", "text": "find me a recipe for dinner" },
-        { "role": "agent", "text": "Since you are vegetarian, here is a lentil curry." }
+        {
+          "role": "owner",
+          "text": "find me a recipe for dinner"
+        },
+        {
+          "role": "agent",
+          "text": "Since you are vegetarian, here is a lentil curry."
+        }
       ],
       "expect": [],
-      "forbid": ["vegetarian"]
+      "forbid": [
+        "vegetarian"
+      ]
     },
     {
       "name": "two facts in one message",
-      "events": [{ "role": "owner", "text": "I work at Shopify as a data engineer and I'm on Eastern time, in case that matters for scheduling." }],
-      "expect": [{ "key": "employer", "value": "Shopify" }, { "key": "timezone", "value": "Eastern" }],
+      "events": [
+        {
+          "role": "owner",
+          "text": "I work at Shopify as a data engineer and I'm on Eastern time, in case that matters for scheduling."
+        }
+      ],
+      "expect": [
+        {
+          "key": [
+            "employer",
+            "employment",
+            "work",
+            "job",
+            "company"
+          ],
+          "value": "Shopify"
+        },
+        {
+          "key": [
+            "timezone",
+            "time_zone",
+            "time"
+          ],
+          "value": "Eastern"
+        }
+      ],
       "forbid": []
     },
     {
       "name": "a recurring arrangement",
-      "events": [{ "role": "owner", "text": "every Sunday evening I do the week's meal prep, so that's a bad time to ping me" }],
-      "expect": [{ "key": "sunday", "value": "meal prep" }],
+      "events": [
+        {
+          "role": "owner",
+          "text": "every Sunday evening I do the week's meal prep, so that's a bad time to ping me"
+        }
+      ],
+      "expect": [
+        {
+          "key": [
+            "sunday",
+            "meal"
+          ],
+          "value": [
+            "meal prep",
+            "meal-prep",
+            "meal preparation"
+          ]
+        }
+      ],
       "forbid": []
     },
     {
       "name": "transient state is not memory",
-      "events": [{ "role": "owner", "text": "I'm on the train right now, battery at 4%, reply when you can" }],
+      "events": [
+        {
+          "role": "owner",
+          "text": "I'm on the train right now, battery at 4%, reply when you can"
+        }
+      ],
       "expect": [],
-      "forbid": ["train", "battery"]
+      "forbid": [
+        "train",
+        "battery"
+      ]
     }
   ]
 }

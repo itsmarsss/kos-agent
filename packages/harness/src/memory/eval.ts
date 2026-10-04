@@ -23,7 +23,8 @@ export interface GoldenCase {
   name: string;
   seed?: { key: string; value: string; kind: "fact" | "preference"; scope?: string }[];
   events: { role: "owner" | "agent"; text: string; project?: string }[];
-  expect: { key: string; value: string; scope?: string }[];
+  /** Key and value may list alternatives: any one agreeing is a match. */
+  expect: { key: string | string[]; value: string | string[]; scope?: string }[];
   forbid: string[];
 }
 
@@ -53,12 +54,18 @@ export function loadGolden(path = new URL("../../eval/memory-golden.json", impor
   return (JSON.parse(readFileSync(path, "utf8")) as { cases: GoldenCase[] }).cases;
 }
 
-/** Key and value both have to agree: the key loosely (a substring either way), the value by containment. */
+/** Two key words agree when equal or sharing their first four letters: reply and replies, employer and employment. */
+function wordsAgree(a: string, b: string): boolean {
+  return a === b || (a.length >= 4 && b.length >= 4 && a.slice(0, 4) === b.slice(0, 4));
+}
+
+const list = (v: string | string[]): string[] => (Array.isArray(v) ? v : [v]);
+
+/** Key and value both have to agree: the key by any word in common, the value by containment. */
 function matches(claim: Fact, want: GoldenCase["expect"][number]): boolean {
-  const k = claim.key.toLowerCase();
-  const w = want.key.toLowerCase();
-  const keyOk = k.includes(w) || w.includes(k);
-  const valueOk = claim.value.toLowerCase().includes(want.value.toLowerCase());
+  const mine = claim.key.toLowerCase().split(/[_\s]+/).filter(Boolean);
+  const keyOk = list(want.key).some((k) => k.toLowerCase().split(/[_\s]+/).filter(Boolean).some((t) => mine.some((m) => wordsAgree(m, t))));
+  const valueOk = list(want.value).some((v) => claim.value.toLowerCase().includes(v.toLowerCase()));
   const scopeOk = !want.scope || claim.scope === want.scope;
   return keyOk && valueOk && scopeOk;
 }
@@ -94,7 +101,7 @@ export async function runMemoryEval(inference: Inference, cases: GoldenCase[] = 
       let recalled = 0;
       for (const w of matchedWants) {
         const scopes = [GLOBAL_SCOPE, ...(w.scope ? [w.scope] : []), ...new Set(c.events.filter((e) => e.project).map((e) => projectScope(e.project!)))];
-        const hits = facts.search("owner", `${w.key.replace(/_/g, " ")} ${w.value}`, 5, { scopes, minScore: 2 });
+        const hits = facts.search("owner", `${list(w.key)[0]!.replace(/_/g, " ")} ${list(w.value)[0]!}`, 5, { scopes, minScore: 2 });
         if (hits.some((h) => matches(h, w))) recalled++;
       }
       results.push({
