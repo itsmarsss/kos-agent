@@ -87,6 +87,19 @@ describe("export.query tool", () => {
     expect(written).toBe("note,amount\ncoffee,12.5\ngroceries,40\n");
   });
 
+  it("writes a pdf the owner can open", async () => {
+    const res = await registry.execute("export.query", {
+      query: "SELECT note, amount FROM tx ORDER BY amount",
+      path: "exports/spend.pdf",
+      format: "pdf",
+      title: "Spending",
+    });
+    expect(JSON.parse(res.content)).toMatchObject({ path: "exports/spend.pdf", rows: 2 });
+    const bytes = readFileSync(join(ws.root, "exports/spend.pdf"));
+    expect(bytes.subarray(0, 8).toString("latin1")).toBe("%PDF-1.4");
+    expect(bytes.toString("latin1")).toContain("(Spending) Tj");
+  });
+
   it("writes markdown with a title", async () => {
     await registry.execute("export.query", {
       query: "SELECT note FROM tx ORDER BY note",
@@ -122,8 +135,8 @@ describe("export.query tool", () => {
   it("rejects an unsupported format", async () => {
     const res = await registry.execute("export.query", {
       query: "SELECT 1 AS n",
-      path: "exports/x.pdf",
-      format: "pdf",
+      path: "exports/x.xlsx",
+      format: "xlsx",
     });
     expect(res.isError).toBe(true);
     expect(res.content).toMatch(/unsupported format/);

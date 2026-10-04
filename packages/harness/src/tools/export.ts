@@ -5,6 +5,7 @@ import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import type { Workspace } from "../store/workspace.js";
 import { runDisplayQuery } from "../systems/display.js";
+import { toPdf } from "./pdf.js";
 
 /**
  * The `export` tool module: turn a read-only query into a file the owner can
@@ -61,12 +62,13 @@ export function toMarkdown(rows: Row[], title?: string): string {
   return `${head}${lines.join("\n")}\n`;
 }
 
-const FORMATS = ["csv", "markdown", "json"] as const;
+const FORMATS = ["csv", "markdown", "json", "pdf"] as const;
 type Format = (typeof FORMATS)[number];
 
-function render(format: Format, rows: Row[], title?: string): string {
+function render(format: Format, rows: Row[], title?: string): string | Buffer {
   if (format === "csv") return toCsv(rows);
   if (format === "markdown") return toMarkdown(rows, title);
+  if (format === "pdf") return toPdf(rows, title);
   return `${JSON.stringify(rows, null, 2)}\n`;
 }
 
@@ -75,7 +77,7 @@ function defineExportTool(ws: Workspace, ctx: ModuleContext): void {
     {
       name: "export.query",
       description:
-        "Run a read-only SELECT and write the result to a workspace file as csv, markdown, or json. Returns the path and row count. Use this to hand the owner a file rather than pasting a big table into chat.",
+        "Run a read-only SELECT and write the result to a workspace file as csv, markdown, json, or pdf (a paged monospace table). Returns the path and row count. Use this to hand the owner a file rather than pasting a big table into chat.",
       inputSchema: {
         type: "object",
         properties: {
@@ -87,7 +89,7 @@ function defineExportTool(ws: Workspace, ctx: ModuleContext): void {
           format: { type: "string", enum: [...FORMATS] },
           title: {
             type: "string",
-            description: "heading, markdown only",
+            description: "heading, markdown and pdf",
           },
           rowCap: { type: "number" },
         },
@@ -110,7 +112,9 @@ function defineExportTool(ws: Workspace, ctx: ModuleContext): void {
       const abs = ws.resolve(rel);
       mkdirSync(dirname(abs), { recursive: true });
       const title = typeof input.title === "string" ? input.title : undefined;
-      writeFileSync(abs, render(format, result.rows, title), "utf8");
+      const rendered = render(format, result.rows, title);
+      if (Buffer.isBuffer(rendered)) writeFileSync(abs, rendered);
+      else writeFileSync(abs, rendered, "utf8");
       return JSON.stringify({
         path: rel,
         format,
