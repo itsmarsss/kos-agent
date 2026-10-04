@@ -390,7 +390,7 @@ export class Kernel {
       crons: args.crons,
       killSwitch: this.killSwitch,
       selfPromptsPerHour: () => this.behaviour().selfPromptsPerHour,
-      enqueue: (work) => this.queue.enqueue(work),
+      enqueue: (work, lane) => this.queue.enqueue(work, lane),
       runs: args.runs,
       health: args.health,
       report: (key, label, ok, error) => this.caretaker.report(key, label, ok, error),
@@ -1154,9 +1154,20 @@ export class Kernel {
     if (!conversation) throw new Error(`no such conversation: ${conversationId}`);
     // The sub-agent is never granted the chats tools, so a dispatched turn
     // cannot dispatch again and there is no recursion to bound.
-    const res = await this.runTurn(text, conversation.userId, conversation.id, {
-      channel: "dispatch",
-    });
+    const turn = (): Promise<HandleResult> =>
+      this.runTurn(text, conversation.userId, conversation.id, { channel: "dispatch" });
+    /*
+     * In the target's own lane, behind anything already running there.
+     *
+     * It used to run bare, inside the dispatcher's slot, so a message the
+     * owner sent to the same conversation could run at the same time and
+     * the two turns would rewrite one transcript over each other. The lanes
+     * are independent, so waiting here cannot wait on the dispatcher. The
+     * one shape that would deadlock, a conversation dispatching to itself,
+     * the chats tools never allow: the root hides itself and a project
+     * chat's scope excludes project chats.
+     */
+    const res = await this.queue.enqueue(turn, conversation.id);
     return { reply: res.reply, conversationId: conversation.id };
   }
 

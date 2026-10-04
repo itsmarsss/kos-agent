@@ -3,6 +3,7 @@ import { CronScheduler, type FireOutcome, type KillSwitch } from "../cron/schedu
 import type { CronStore } from "../cron/store.js";
 import type { CronJob } from "../cron/types.js";
 import type { RunStatus } from "../ops/runs.js";
+import { cronSessionId } from "./session.js";
 
 /**
  * Scheduled jobs, as the kernel sees them: when the scheduler runs, what
@@ -27,8 +28,12 @@ export interface CronServiceDeps {
   crons: CronStore;
   killSwitch: KillSwitch;
   selfPromptsPerHour: () => number;
-  /** Serialise with everything else that talks to the model. */
-  enqueue: <T>(work: () => Promise<T>) => Promise<T>;
+  /**
+   * Run in a lane. A job runs in its own thread's lane, so two jobs run at
+   * once and a job never waits on a chat, but a job cannot overlap a message
+   * the owner sends to its thread.
+   */
+  enqueue: <T>(work: () => Promise<T>, lane: string) => Promise<T>;
   runs: {
     start: (kind: string, ref: string) => number;
     finish: (id: number, status: RunStatus, error?: string | null) => void;
@@ -52,7 +57,7 @@ export class CronService {
   start(): void {
     this.scheduler = new CronScheduler(
       this.deps.crons,
-      (job) => this.deps.enqueue(() => this.runLogged(job)),
+      (job) => this.deps.enqueue(() => this.runLogged(job), cronSessionId(job.id)),
       {
         killSwitch: this.deps.killSwitch,
         maxSelfPromptsPerHour: () => this.deps.selfPromptsPerHour(),
