@@ -56,3 +56,4 @@ export { IMessageAdapter, renderForText, parseDecision } from "./imessage.js";
 export type { IMessageOptions } from "./imessage.js";
 export { ThreadReader } from "./imessagedb.js";
 export type { ThreadMessage } from "./imessagedb.js";
+export { SmsAdapter, chunkSms, twilioSignature, verifyTwilioSignature, type SmsOptions } from "./sms.js";

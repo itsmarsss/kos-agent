@@ -11,6 +11,8 @@ import {
   type ChannelAdapter,
   DiscordAdapter,
   IMessageAdapter,
+  SmsAdapter,
+  verifyTwilioSignature,
   Kernel,
   connectChannel,
   conversationKind,
@@ -71,6 +73,21 @@ function discordCreds(): { token: string; ownerId: string } | null {
  * phone number or Apple ID, and this repository is public. Absent it, the
  * surface stays off rather than guessing at a thread.
  */
+/**
+ * SMS through Twilio, when the owner set it up. Four values, none of them
+ * in code: the account, its auth token (a secret), the number KOS sends
+ * from, and the owner's own number.
+ */
+function smsConfig(): { accountSid: string; authToken: string; from: string; owner: string; publicUrl?: string } | null {
+  const accountSid = process.env.KOS_TWILIO_SID?.trim();
+  const authToken = (process.env.KOS_SECRET_TWILIO ?? process.env.TWILIO_AUTH_TOKEN)?.trim();
+  const from = process.env.KOS_TWILIO_FROM?.trim();
+  const owner = process.env.KOS_OWNER_SMS?.trim();
+  if (!accountSid || !authToken || !from || !owner) return null;
+  const publicUrl = process.env.KOS_PUBLIC_URL?.trim();
+  return { accountSid, authToken, from, owner, ...(publicUrl ? { publicUrl } : {}) };
+}
+
 function imessageConfig(): { handle: string; dbPath: string } | null {
   const handle = process.env.KOS_OWNER_IMESSAGE?.trim();
   if (!handle) return null;
@@ -130,9 +147,15 @@ export async function runHost(options: HostOptions): Promise<void> {
    */
   const surfaces = new Map<string, () => ChannelAdapter | undefined>();
   surfaces.set("discord", () => adapter);
+  const sms = smsConfig();
+  let smsAdapter: SmsAdapter | undefined;
+  if (sms) surfaces.set("sms", () => smsAdapter);
+  /** The surface a message goes to when none is named: the first one wired. */
+  const defaultSurface = creds && wantDiscord ? "discord" : sms ? "sms" : "discord";
+  const ownerOn = (surface: string): string => (surface === "sms" ? sms?.owner ?? "" : creds?.ownerId ?? "");
 
   const notify =
-    creds && wantDiscord
+    (creds && wantDiscord) || sms
       ? async (payload: NotifyPayload) => {
           const wanted = payload.target.surface;
           const connected = [...surfaces.keys()].filter((name) =>
@@ -143,12 +166,13 @@ export async function runHost(options: HostOptions): Promise<void> {
               `no ${wanted} surface here. Connected: ${connected.join(", ") || "none"}.`,
             );
           }
-          // No surface named means wherever the owner already is, which is
-          // the only one wired.
-          const send = surfaces.get(wanted ?? "discord")?.();
+          // No surface named means wherever the owner already is: the
+          // first one wired.
+          const surface = wanted ?? defaultSurface;
+          const send = surfaces.get(surface)?.();
           if (!send) {
             throw new Error(
-              `the ${wanted ?? "discord"} surface is not connected. Connected: ${
+              `the ${surface} surface is not connected. Connected: ${
                 connected.join(", ") || "none"
               }.`,
             );
@@ -161,7 +185,7 @@ export async function runHost(options: HostOptions): Promise<void> {
           // An addressed message goes through sendTo; the owner's DM is the
           // path everything took before and still takes.
           if (payload.target.kind === "owner") {
-            await send.send(creds.ownerId, msg);
+            await send.send(ownerOn(surface), msg);
             return;
           }
           await send.sendTo?.(payload.target, msg);
@@ -174,17 +198,18 @@ export async function runHost(options: HostOptions): Promise<void> {
     rootDir: options.rootDir,
     allowedHosts: options.allowedHosts,
     ...(notify ? { notify } : {}),
-    ...(creds && wantDiscord
+    ...((creds && wantDiscord) || sms
       ? {
           onApprovalRequested: (action) => {
-            if (!adapter) return;
-            void adapter.requestApproval(creds.ownerId, {
+            const request = {
               id: String(action.id),
               text: `Approve ${action.tool}?`,
               tool: action.tool,
               args: action.args,
               reason: action.reason,
-            });
+            };
+            if (adapter && creds) void adapter.requestApproval(creds.ownerId, request);
+            if (smsAdapter && sms) void smsAdapter.requestApproval(sms.owner, request);
           },
         }
       : {}),
@@ -221,6 +246,18 @@ export async function runHost(options: HostOptions): Promise<void> {
     ...(options.hookSecret ? { hookSecret: options.hookSecret } : {}),
     host: options.host,
     meta,
+    ...(sms
+      ? {
+          smsInbound: async ({ url, params, signature }) => {
+            // Signed over the URL Twilio was given, which a tunnel or proxy
+            // may hide from the request; the owner can say it outright.
+            const signedUrl = sms.publicUrl ? `${sms.publicUrl.replace(/\/$/, "")}/api/sms/inbound` : url;
+            if (!verifyTwilioSignature(signedUrl, params, signature, sms.authToken)) return false;
+            if (smsAdapter) await smsAdapter.receive(params);
+            return true;
+          },
+        }
+      : {}),
   });
 
   await new Promise<void>((resolveListen, reject) => {
@@ -365,6 +402,24 @@ export async function runHost(options: HostOptions): Promise<void> {
     );
   }
 
+  let smsRuntime: ReturnType<typeof connectChannel> | undefined;
+  if (sms) {
+    smsAdapter = new SmsAdapter({
+      accountSid: sms.accountSid,
+      authToken: sms.authToken,
+      from: sms.from,
+      owner: sms.owner,
+      ...(sms.publicUrl ? { publicUrl: sms.publicUrl } : {}),
+      report: (m) => console.log(m),
+    });
+    smsRuntime = connectChannel(smsAdapter, kernel, {
+      ownerRecipientId: sms.owner,
+      identity: new AllowlistMapping([{ channel: smsAdapter.name, senderId: sms.owner }], kernel.profile.ownerId),
+    });
+    await smsRuntime.start();
+    console.log(`SMS: texts to ${sms.from} from your number arrive at POST /api/sms/inbound`);
+  }
+
   /*
    * iMessage, when the owner has said which thread.
    *
@@ -427,6 +482,7 @@ export async function runHost(options: HostOptions): Promise<void> {
     void (async () => {
       try {
         if (runtime) await runtime.stop();
+        if (smsRuntime) await smsRuntime.stop();
         if (imessageRuntime) await imessageRuntime.stop();
         imessageClaim?.release();
       } catch {
