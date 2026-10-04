@@ -58,6 +58,16 @@ export interface Project {
   createdAt?: number;
 }
 
+/** A skill as the owner sees it in Settings. */
+export interface SkillInfo {
+  name: string;
+  description: string;
+  kind: "script" | "prompt";
+  file: string;
+  projects?: string[];
+  enabled: boolean;
+}
+
 export interface CronJob {
   id: number;
   name: string;
@@ -479,6 +489,9 @@ export const api = {
   projects: () => get<Project[]>("/api/projects"),
   setProjectStatus: (slug: string, status: string) =>
     post<Project>("/api/projects/status", { slug, status }),
+  skills: () => get<{ skills: SkillInfo[]; invalid: { name: string; reason: string }[] }>("/api/skills"),
+  setSkillEnabled: (name: string, enabled: boolean) =>
+    post<{ name: string; enabled: boolean }>("/api/skills/enable", { name, enabled }),
   crons: () => get<CronJob[]>("/api/crons"),
   createCron: (job: Record<string, unknown>) =>
     post<CronJob>("/api/crons/create", job),

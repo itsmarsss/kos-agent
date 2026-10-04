@@ -1,6 +1,7 @@
 import type { ModelMessage } from "../models/types.js";
 import type { Project } from "../systems/manifest.js";
 import { renderSchemas, type ProjectSchema } from "../systems/schema.js";
+import { renderSkillsSection, type SkillRecord } from "../skills/manifest.js";
 import type { Recall } from "../memory/retriever.js";
 import type { Profile } from "./profile.js";
 
@@ -16,6 +17,8 @@ export interface ContextParts {
   projects: Project[];
   /** The tables the active projects own, so sql is written against real names. */
   schemas?: ProjectSchema[];
+  /** Skills the owner has not switched off, by name and description, so the model can reach for one. */
+  skills?: SkillRecord[];
   recall: Recall;
   /** Per-conversation, so it belongs with the fixed half. */
   extra?: string;
@@ -89,6 +92,8 @@ export function assembleSystemPrompt(parts: ContextParts): AssembledPrompt {
   sections.push(projectLines.join("\n"));
   const tables = renderSchemas(parts.schemas ?? []);
   if (tables) sections.push(tables);
+  const skills = renderSkillsSection(parts.skills ?? []);
+  if (skills) sections.push(skills);
 
   /*
    * What changes every turn goes last, not in the middle.
@@ -130,7 +135,7 @@ export function assembleSystemPrompt(parts: ContextParts): AssembledPrompt {
       "A project is what a page or a table belongs to. Pick it by the data: a page goes in the project whose tables its queries read. A page that queries nothing reads no project's data, so it gets its own project via systems.project_create, never the nearest slug from the list above. The list is what exists, not a menu to file new work under.",
       "Prefer sql SELECT for inspection; writes may require approval.",
       "Use export.query to hand over a csv/markdown/json file instead of pasting a large table into chat.",
-      "For a reusable script: write it with files.write under skills/, then skills.test, then skills.promote. Never run one live without testing it first.",
+      "For something you will do again, make a skill with skills.create: instructions as a prompt skill, code as a script skill. A script is tested with skills.test and promoted with skills.promote before skills.run may run it.",
     ].join("\n"),
   );
 

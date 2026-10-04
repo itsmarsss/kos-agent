@@ -70,6 +70,8 @@ import { createDaemonsModule } from "../tools/daemons.js";
 import { createSearchModule } from "../tools/search.js";
 import { exportModule } from "../tools/export.js";
 import { createSkillsModule } from "../tools/skills.js";
+import { offeredSkills, readSkills } from "../skills/manifest.js";
+import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import { createChatsModule, CHAT_TOOLS } from "../tools/chats.js";
 import { createMemoryModule } from "../tools/memory.js";
 import { createCronModule } from "../tools/cron.js";
@@ -638,7 +640,11 @@ export class Kernel {
       }),
       tasksModule,
       exportModule,
-      createSkillsModule(promoter),
+      createSkillsModule({
+        promoter,
+        // Read on every call, so a toggle in Settings takes effect at once.
+        disabled: () => parseSkillSettings(settings.get(SKILLS_KEY)).disabled,
+      }),
       createMemoryModule({
         facts,
         ownerId: profile.ownerId,
@@ -998,6 +1004,7 @@ export class Kernel {
           // The tables those projects own. Without them the model guessed
           // column names, and 77 sql calls on one workspace failed that way.
           schemas: describeActive(this.workspace.db, projects),
+          skills: this.skillsOffered(),
           recall,
           ...(extra ? { extra } : {}),
           // What this message pulled in, kept out of the system prompt so the
@@ -1928,6 +1935,15 @@ export class Kernel {
    * memory a chat turn gets. Unattended jobs previously ran with no system
    * prompt at all, so the agent woke with no identity and no project context.
    */
+  /** Skills the model may reach from here: on, valid, and for this project if they say. */
+  private skillsOffered(projectSlug?: string): ReturnType<typeof offeredSkills> {
+    return offeredSkills(
+      readSkills(this.workspace).skills,
+      parseSkillSettings(this.settings.get(SKILLS_KEY)).disabled,
+      projectSlug,
+    );
+  }
+
   private async cronSystemPrompt(job: CronJob): Promise<string> {
     const query = job.prompt ?? job.name;
     const recall = await this.memoryRetriever.recall(this.profile.ownerId, query, {
@@ -1942,6 +1958,7 @@ export class Kernel {
       // The tables those projects own. Without them the model guessed
       // column names, and 77 sql calls on one workspace failed that way.
       schemas: describeActive(this.workspace.db, projects),
+      skills: this.skillsOffered(job.projectSlug ?? undefined),
       recall,
       extra: [
         "## Scheduled run",
