@@ -27,6 +27,8 @@ export interface Provider {
   readonly name: string;
   /** Secret name under which this provider's API key is registered. */
   readonly keyName: string;
+  /** True for an endpoint that may want no key at all, such as a local server. */
+  readonly optionalKey?: boolean;
   generate(
     req: GenerateRequest,
     spec: ModelSpec,
