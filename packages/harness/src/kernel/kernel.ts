@@ -65,6 +65,7 @@ import { describeActive } from "../systems/schema.js";
 import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
 import { createHttpModule } from "../tools/http.js";
+import { createMcpModule } from "../tools/mcp.js";
 import { createDaemonsModule } from "../tools/daemons.js";
 import { createSearchModule } from "../tools/search.js";
 import { exportModule } from "../tools/export.js";
@@ -304,6 +305,7 @@ export class Kernel {
   /** The agent's long-running programs, and what is keeping them up. */
   readonly daemons: DaemonStore;
   readonly supervisor: DaemonSupervisor;
+  private readonly closeMcp: () => Promise<void>;
   readonly settings: SettingsStore;
   readonly memoryWriter: MemoryWriter;
   readonly memoryRetriever: MemoryRetriever;
@@ -369,6 +371,8 @@ export class Kernel {
     presses: PressRoutes;
     daemons: DaemonStore;
     supervisor: DaemonSupervisor;
+    /** Closes the MCP servers the tool module opened. */
+    closeMcp: () => Promise<void>;
     settings: SettingsStore;
     memoryWriter: MemoryWriter;
     memoryRetriever: MemoryRetriever;
@@ -407,6 +411,7 @@ export class Kernel {
     this.presses = args.presses;
     this.daemons = args.daemons;
     this.supervisor = args.supervisor;
+    this.closeMcp = args.closeMcp;
     this.settings = args.settings;
     this.memoryWriter = args.memoryWriter;
     this.memoryRetriever = args.memoryRetriever;
@@ -447,6 +452,7 @@ export class Kernel {
     presses.prune(PRESS_ROUTE_TTL_MS);
 
     const daemons = new DaemonStore(workspace.db);
+    const mcp = createMcpModule({ workspaceRoot: workspace.root, secrets });
     const supervisor = new DaemonSupervisor({
       workspaceRoot: workspace.root,
       // A daemon that has given up is news: it was running unattended, and
@@ -570,6 +576,8 @@ export class Kernel {
         allowedHosts: options.allowedHosts ?? [],
       }),
       createSearchModule(),
+      // Tools from the owner's MCP servers, as any other module's tools.
+      mcp.module,
       createDaemonsModule({
         store: daemons,
         supervisor,
@@ -774,6 +782,7 @@ export class Kernel {
     );
 
     kernelRef = new Kernel({
+      closeMcp: mcp.close,
       workspace,
       secrets,
       registry,
@@ -2992,6 +3001,8 @@ export class Kernel {
     // Not awaited: close is synchronous everywhere it is called from, and the
     // children are killed either way once this process goes.
     void this.supervisor.stopAll();
+    // Stdio servers are child processes and must not outlive the host.
+    void this.closeMcp();
     this.workspace.close();
   }
 }
