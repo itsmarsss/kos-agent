@@ -63,3 +63,18 @@ describe("applyModelSettings", () => {
     expect(r.routeFor("reasoning")).toEqual(before);
   });
 });
+
+describe("the owner's own endpoint", () => {
+  it("reads a base url from settings, else the environment, and refuses junk", async () => {
+    const { parseCustomEndpoint } = await import("./settings.js");
+    expect(parseCustomEndpoint({ baseUrl: "http://127.0.0.1:11434/v1/" }, {})).toEqual({ baseUrl: "http://127.0.0.1:11434/v1" });
+    expect(parseCustomEndpoint(undefined, { KOS_CUSTOM_BASE_URL: "https://gw.example/v1" })).toEqual({ baseUrl: "https://gw.example/v1" });
+    expect(parseCustomEndpoint({ baseUrl: "not a url" }, {})).toBeUndefined();
+    expect(parseCustomEndpoint({}, {})).toBeUndefined();
+  });
+
+  it("lets a setting move a task to another provider", async () => {
+    const { parseModelSettings } = await import("./settings.js");
+    expect(parseModelSettings({ cheap: { provider: "custom", model: "local-7b" } })).toEqual({ cheap: { provider: "custom", model: "local-7b" } });
+  });
+});

@@ -13,6 +13,8 @@ import type { ModelRouter, Task } from "./router.js";
 export const MODEL_SETTINGS_KEY = "models";
 
 export interface TaskModelSetting {
+  /** Which provider answers: anthropic, openai, or custom. Unset keeps the current one. */
+  provider?: string;
   model?: string;
   effort?: Effort;
   maxTokens?: number;
@@ -36,6 +38,9 @@ export function parseModelSettings(raw: unknown): ModelSettings {
     const e = entry as Record<string, unknown>;
     const setting: TaskModelSetting = {};
 
+    if (typeof e["provider"] === "string" && e["provider"].trim() !== "") {
+      setting.provider = e["provider"].trim();
+    }
     if (typeof e["model"] === "string" && e["model"].trim() !== "") {
       setting.model = e["model"].trim();
     }
@@ -66,7 +71,7 @@ export function applyModelSettings(
     if (!setting) continue;
     const current = router.routeFor(task);
     router.setRoute(task, {
-      provider: current.provider,
+      provider: setting.provider ?? current.provider,
       spec: {
         ...current.spec,
         ...(setting.model ? { model: setting.model } : {}),
@@ -75,4 +80,23 @@ export function applyModelSettings(
       },
     });
   }
+}
+
+/** Where the owner's own endpoint lives. Settings first, the environment as the default. */
+export const CUSTOM_ENDPOINT_KEY = "models.custom";
+
+export interface CustomEndpoint {
+  baseUrl: string;
+}
+
+export function parseCustomEndpoint(raw: unknown, env: NodeJS.ProcessEnv = process.env): CustomEndpoint | undefined {
+  const fromSettings = typeof raw === "object" && raw !== null ? (raw as { baseUrl?: unknown }).baseUrl : undefined;
+  const url = typeof fromSettings === "string" && fromSettings.trim() ? fromSettings.trim() : env["KOS_CUSTOM_BASE_URL"]?.trim();
+  if (!url) return undefined;
+  try {
+    new URL(url);
+  } catch {
+    return undefined;
+  }
+  return { baseUrl: url.replace(/\/$/, "") };
 }

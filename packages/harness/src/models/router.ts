@@ -1,6 +1,7 @@
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import { AnthropicProvider } from "./providers/anthropic.js";
 import { OpenAIProvider } from "./providers/openai.js";
+import { OpenAICompatibleProvider } from "./providers/compat.js";
 import type { ModelSpec, Provider } from "./provider.js";
 import type { GenerateRequest, ModelResponse } from "./types.js";
 
@@ -104,6 +105,20 @@ export class ModelRouter {
    * Point a task class at a different model. Applied in place so a change the
    * owner makes takes effect on the next turn rather than the next restart.
    */
+  /** Add or replace a provider, for an endpoint the owner configured at runtime. */
+  addProvider(provider: Provider): void {
+    this.providers.set(provider.name, provider);
+  }
+
+  /** Which providers a route may name. */
+  providerNames(): string[] {
+    return [...this.providers.keys()];
+  }
+
+  provider(name: string): Provider | undefined {
+    return this.providers.get(name);
+  }
+
   setRoute(task: Task, route: Route): void {
     if (!this.providers.has(route.provider)) {
       throw new Error(`no provider registered for route: ${route.provider}`);
@@ -146,7 +161,7 @@ export class ModelRouter {
     if (!provider) {
       throw new Error(`no provider registered for route: ${route.provider}`);
     }
-    const apiKey = this.secrets.require(provider.keyName);
+    const apiKey = provider.optionalKey ? (this.secrets.get(provider.keyName) ?? "") : this.secrets.require(provider.keyName);
     const response = await provider.generate(req, route.spec, apiKey);
     try {
       this.onUsage?.({
@@ -176,10 +191,10 @@ export class ModelRouter {
 export function createDefaultRouter(
   secrets: SecretsRegistry,
   routing?: RoutingTable,
+  options: { customBaseUrl?: string } = {},
 ): ModelRouter {
-  return new ModelRouter(
-    [new AnthropicProvider(), new OpenAIProvider()],
-    routing ?? routingForSecrets(secrets),
-    secrets,
-  );
+  const providers: Provider[] = [new AnthropicProvider(), new OpenAIProvider()];
+  // The owner's own endpoint: a URL and, if it wants one, a key.
+  if (options.customBaseUrl) providers.push(new OpenAICompatibleProvider(options.customBaseUrl));
+  return new ModelRouter(providers, routing ?? routingForSecrets(secrets), secrets);
 }
