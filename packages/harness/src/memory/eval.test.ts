@@ -41,6 +41,15 @@ describe("the extractor eval", () => {
     expect(r.cases[1]!.forbidden).toEqual(["time"]);
   });
 
+  it("can run the memory job itself, and scores a reader that keeps nothing honestly", async () => {
+    // A model that never calls a tool: the job runs, writes nothing, and the
+    // score says so rather than crediting the silence.
+    const mute = scripted(() => "Nothing worth keeping.");
+    const r = await runMemoryEval(mute, [cases[0]!], { reader: "agent" });
+    expect(r).toMatchObject({ recall: 0, precision: 1, clean: 1, total: 1 });
+    expect(r.cases[0]!.claims).toEqual([]);
+  }, 30_000);
+
   it("ships a golden set that reads", () => {
     const golden = loadGolden();
     expect(golden.length).toBeGreaterThan(8);

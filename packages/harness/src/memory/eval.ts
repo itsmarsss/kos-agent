@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { Inference } from "../agent/loop.js";
+import { Kernel } from "../kernel/kernel.js";
+import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { HashingEmbeddingProvider } from "./embeddings.js";
 import { EventLog } from "./events.js";
@@ -70,30 +72,73 @@ function matches(claim: Fact, want: GoldenCase["expect"][number]): boolean {
   return keyOk && valueOk && scopeOk;
 }
 
-export async function runMemoryEval(inference: Inference, cases: GoldenCase[] = loadGolden()): Promise<EvalReport> {
+export type MemoryReader = "extractor" | "agent";
+
+/**
+ * One case through the fixed extractor: the floor.
+ */
+async function readWithExtractor(inference: Inference, c: GoldenCase, ws: Workspace, embedder: HashingEmbeddingProvider): Promise<{ facts: FactsStore; written: Fact[] }> {
+  const events = new EventLog(ws.db, embedder.dimension, Date.now, embedder.name);
+  const facts = new FactsStore(ws.db);
+  for (const s of c.seed ?? []) facts.upsert("owner", { key: s.key, value: s.value, kind: s.kind, ...(s.scope ? { scope: s.scope } : {}) }, "seed");
+  const settings = new Map<string, unknown>();
+  const extractor = new MemoryExtractor({
+    ownerId: "owner",
+    events,
+    facts,
+    inference,
+    settings: { get: <T,>(k: string) => settings.get(k) as T | undefined, set: (k, v) => settings.set(k, v) },
+  });
+  for (const e of c.events) {
+    const [vec] = await embedder.embed([e.text]);
+    events.append({ userId: "owner", role: e.role, text: e.text, ...(e.project ? { projectSlug: e.project } : {}) }, vec);
+  }
+  const report = await extractor.run();
+  return { facts, written: report.claims };
+}
+
+/**
+ * One case through KOS itself: a kernel in a scratch workspace, the memory
+ * job fired by hand, its claims read back. The ceiling, and what the owner
+ * actually runs.
+ */
+async function readWithAgent(inference: Inference, c: GoldenCase, root: string): Promise<{ facts: FactsStore; written: Fact[] }> {
+  // No provider keys: the hashing embedder, so retrieval is held fixed.
+  const kernel = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference, sessionless: true });
+  try {
+    for (const s of c.seed ?? []) kernel.facts.upsert("owner", { key: s.key, value: s.value, kind: s.kind, ...(s.scope ? { scope: s.scope } : {}) }, "seed");
+    for (const e of c.events) {
+      kernel.events.append({ userId: kernel.profile.ownerId, role: e.role, text: e.text, ...(e.project ? { projectSlug: e.project } : {}) });
+    }
+    const job = kernel.crons.list().find((j) => j.name === "kos.memory")!;
+    kernel.crons.update(job.id, { name: job.name, schedule: job.schedule, type: "self_prompt", prompt: job.prompt!, task: job.task, enabled: true });
+    kernel.startCron();
+    const before = new Set(kernel.facts.all(kernel.profile.ownerId).map((f) => f.id));
+    await kernel.fireCron(job.id);
+    await kernel.queue.drain();
+    const written = kernel.facts.all(kernel.profile.ownerId).filter((f) => !before.has(f.id));
+    // Read back through a store on the same file so the caller can search it after close.
+    return { facts: kernel.facts, written };
+  } finally {
+    kernel.stopCron();
+  }
+}
+
+export async function runMemoryEval(
+  inference: Inference,
+  cases: GoldenCase[] = loadGolden(),
+  options: { reader?: MemoryReader } = {},
+): Promise<EvalReport> {
   const embedder = new HashingEmbeddingProvider(64);
+  const reader = options.reader ?? "extractor";
   const results: CaseResult[] = [];
   for (const c of cases) {
     const root = mkdtempSync(join(tmpdir(), "kos-memeval-"));
-    const ws = Workspace.open(root);
+    const ws = reader === "extractor" ? Workspace.open(root) : undefined;
     try {
-      const events = new EventLog(ws.db, embedder.dimension, Date.now, embedder.name);
-      const facts = new FactsStore(ws.db);
-      for (const s of c.seed ?? []) facts.upsert("owner", { key: s.key, value: s.value, kind: s.kind, ...(s.scope ? { scope: s.scope } : {}) }, "seed");
-      const settings = new Map<string, unknown>();
-      const extractor = new MemoryExtractor({
-        ownerId: "owner",
-        events,
-        facts,
-        inference,
-        settings: { get: <T,>(k: string) => settings.get(k) as T | undefined, set: (k, v) => settings.set(k, v) },
-      });
-      for (const e of c.events) {
-        const [vec] = await embedder.embed([e.text]);
-        events.append({ userId: "owner", role: e.role, text: e.text, ...(e.project ? { projectSlug: e.project } : {}) }, vec);
-      }
-      const report = await extractor.run();
-      const written = report.claims;
+      const { facts, written } = ws
+        ? await readWithExtractor(inference, c, ws, embedder)
+        : await readWithAgent(inference, c, root);
       const matchedWants = c.expect.filter((w) => written.some((cl) => matches(cl, w)));
       const unexpected = written.filter((cl) => !c.expect.some((w) => matches(cl, w))).map((cl) => `${cl.key}: ${cl.value}`);
       const forbidden = c.forbid.filter((word) => written.some((cl) => `${cl.key} ${cl.value}`.toLowerCase().includes(word.toLowerCase())));
@@ -114,7 +159,7 @@ export async function runMemoryEval(inference: Inference, cases: GoldenCase[] = 
         recalled,
       });
     } finally {
-      ws.close();
+      ws?.close();
       rmSync(root, { recursive: true, force: true });
     }
   }
@@ -132,9 +177,9 @@ export async function runMemoryEval(inference: Inference, cases: GoldenCase[] = 
 }
 
 /** A terminal-friendly account of a report. */
-export function renderEvalReport(report: EvalReport): string {
+export function renderEvalReport(report: EvalReport, reader: MemoryReader = "extractor"): string {
   const lines = [
-    `memory extractor eval: recall ${(report.recall * 100).toFixed(0)}%, precision ${(report.precision * 100).toFixed(0)}%, clean ${report.clean}/${report.total}`,
+    `memory ${reader} eval: recall ${(report.recall * 100).toFixed(0)}%, precision ${(report.precision * 100).toFixed(0)}%, clean ${report.clean}/${report.total}`,
     "",
   ];
   for (const r of report.cases) {
