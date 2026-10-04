@@ -10,7 +10,14 @@ import { Kernel, primarySessionId } from "@kos/harness";
 import { KosClient, probeDaemon } from "./client.js";
 import { OFFLINE_COMMANDS, parseArgs, runCommand, statusLine } from "./commands.js";
 import { runDoctor } from "./doctor.js";
-import { loadEnv } from "./env.js";
+import { envFilePath, loadEnv } from "./env.js";
+import {
+  SERVICE_LABEL,
+  installService,
+  kickstart,
+  serviceState,
+  uninstallService,
+} from "./service.js";
 import { runHost, waitForPortFree } from "./host.js";
 import { runRemoteCommand } from "./remote.js";
 import {
@@ -213,6 +220,20 @@ async function cmdStart(
 
   if (!foreground) {
     // Re-exec ourselves in the background as the host process.
+    const service = await serviceState(SERVICE_LABEL);
+    if (service.loaded) {
+      // launchd owns the host: a detached one beside it would fight for
+      // the port and lose, and launchd would restart its own anyway.
+      await kickstart(SERVICE_LABEL);
+      const baseUrl = `http://${host}:${port}`;
+      if (await waitForDaemon(baseUrl, dashboardToken())) {
+        console.log(`KOS started under launchd on ${baseUrl}`);
+      } else {
+        console.error(`launchd started the host but it did not answer within 15s; check ${join(rootDir, ".kos", "daemon.log")}`);
+        process.exitCode = 1;
+      }
+      return;
+    }
     const self = fileURLToPath(import.meta.url);
     const args = [
       self,
@@ -240,18 +261,12 @@ async function cmdStart(
     });
     child.unref();
 
-    // Wait until health responds.
-    const token = dashboardToken();
     const baseUrl = `http://${host}:${port}`;
-    const deadline = Date.now() + 15_000;
-    while (Date.now() < deadline) {
-      if (await probeDaemon(baseUrl, token)) {
-        console.log(`KOS started (pid ${child.pid}) on ${baseUrl}`);
-        console.log(`log: ${logPath}`);
-        console.log("Attach: kos   |  Discord: DM the bot if configured");
-        return;
-      }
-      await new Promise((r) => setTimeout(r, 200));
+    if (await waitForDaemon(baseUrl, dashboardToken())) {
+      console.log(`KOS started (pid ${child.pid}) on ${baseUrl}`);
+      console.log(`log: ${logPath}`);
+      console.log("Attach: kos   |  Discord: DM the bot if configured");
+      return;
     }
     console.error(
       `host did not become ready within 15s; check ${logPath}`,
@@ -271,6 +286,67 @@ async function cmdStart(
     requireDiscord: flags.discord === true,
     sitesPort: sitesPort(flags["sites-port"], port),
   });
+}
+
+/** Poll health until it answers, or give up after 15s. */
+async function waitForDaemon(baseUrl: string, token: string | undefined): Promise<boolean> {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    if (await probeDaemon(baseUrl, token)) return true;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return false;
+}
+
+/**
+ * kos service install | uninstall | status
+ *
+ * Install stops a host started by hand first: launchd starts its own at
+ * once, and two on one port is one host and a restart loop.
+ */
+async function cmdService(
+  rootDir: string,
+  sub: string | undefined,
+  flags: Record<string, string | boolean>,
+): Promise<void> {
+  if (sub === "install") {
+    const state = readDaemonState(rootDir);
+    if (state && isPidAlive(state.pid)) await cmdStop(rootDir);
+    const file = await installService({
+      label: SERVICE_LABEL,
+      node: process.execPath,
+      main: fileURLToPath(import.meta.url),
+      cwd: dirname(envFilePath()),
+      workspace: rootDir,
+      host: listenHost(flags.host),
+      port: listenPort(flags.port),
+      discord: flags["no-discord"] !== true,
+    });
+    console.log(`installed ${file}`);
+    const baseUrl = `http://${listenHost(flags.host)}:${listenPort(flags.port)}`;
+    if (await waitForDaemon(baseUrl, dashboardToken())) {
+      console.log(`KOS running under launchd on ${baseUrl}; it restarts after a crash and starts at login`);
+    } else {
+      console.error(`launchd has it, but the host did not answer within 15s; check ${join(rootDir, ".kos", "daemon.log")}`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+  if (sub === "uninstall") {
+    const was = await uninstallService(SERVICE_LABEL);
+    console.log(was ? "removed the launchd agent; the host it ran is stopped" : "no launchd agent was installed");
+    return;
+  }
+  if (sub === "status" || sub === undefined) {
+    const s = await serviceState(SERVICE_LABEL);
+    if (!s.installed && !s.loaded) console.log("not installed; kos service install makes the host a launchd agent");
+    else if (!s.loaded) console.log("plist on disk but launchd does not have it; kos service install again");
+    else if (s.pid) console.log(`running under launchd (pid ${s.pid})`);
+    else console.log("loaded in launchd but not running; kos start brings it up");
+    return;
+  }
+  console.error("usage: kos service install | uninstall | status");
+  process.exitCode = 1;
 }
 
 async function cmdStop(rootDir: string): Promise<void> {
@@ -343,6 +419,11 @@ async function main(): Promise<void> {
 
   if (command === "restart") {
     await cmdRestart(rootDir, flags);
+    return;
+  }
+
+  if (command === "service") {
+    await cmdService(rootDir, rest[0], flags);
     return;
   }
 
