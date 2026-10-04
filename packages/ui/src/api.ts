@@ -750,9 +750,11 @@ export const api = {
   pinMemory: (key: string, pinned: boolean) =>
     post<FactRow>("/api/memory/pin", { key, pinned }),
   memoryReview: () =>
-    get<{ pending: ReviewItem[]; recent: ReviewItem[]; pages: { name: string; path: string; updatedAt: number }[] }>("/api/memory/review"),
-  resolveMemoryReview: (id: number, resolution: string) =>
-    post<ReviewItem>("/api/memory/review/resolve", { id, resolution }),
+    get<{ pending: ReviewItem[]; recent: ReviewItem[]; pages: { name: string; path: string; updatedAt: number }[]; edited: string[] }>("/api/memory/review"),
+  resolveMemoryReview: (id: number, action: "keep" | "both" | "promote" | "dismiss", key?: string) =>
+    post<{ item: ReviewItem; archived: string[]; promoted: string[] }>("/api/memory/review/resolve", { id, action, ...(key ? { key } : {}) }),
+  importMemoryPages: (name?: string) =>
+    post<{ imported: { name: string; imported: string[]; unchanged: number }[] }>("/api/memory/pages/import", name ? { name } : {}),
   memoryPage: (name: string) => get<{ name: string; markdown: string }>(`/api/memory/page?name=${encodeURIComponent(name)}`),
   saveMemory: (
     key: string,

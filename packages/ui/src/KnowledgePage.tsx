@@ -454,6 +454,7 @@ export function KnowledgePage({
 function ReviewQueue(): ReactElement | null {
   const [pending, setPending] = useState<ReviewItem[]>([]);
   const [pages, setPages] = useState<{ name: string; path: string }[]>([]);
+  const [edited, setEdited] = useState<string[]>([]);
   const [page, setPage] = useState<{ name: string; markdown: string } | null>(null);
   const load = (): void => {
     void api
@@ -461,6 +462,7 @@ function ReviewQueue(): ReactElement | null {
       .then((r) => {
         setPending(r.pending);
         setPages(r.pages);
+        setEdited(r.edited ?? []);
       })
       .catch(() => undefined);
   };
@@ -478,25 +480,39 @@ function ReviewQueue(): ReactElement | null {
                 <div className="hint">{item.note}</div>
               </div>
               <div className="know-review-actions">
-                {(item.kind === "promotion" ? ["promote", "keep as is"] : ["keep first", "keep second", "both are right"]).map((choice) => (
+                {(item.kind === "promotion"
+                  ? [{ label: "promote to global", action: "promote" as const }, { label: "keep as is", action: "dismiss" as const }]
+                  : [
+                      ...item.keys.map((k) => ({ label: `keep ${k}`, action: "keep" as const, key: k })),
+                      { label: "both are right", action: "both" as const },
+                    ]
+                ).map((choice) => (
                   <button
-                    key={choice}
+                    key={choice.label}
                     type="button"
                     className="btn btn--sm"
-                    onClick={() => void api.resolveMemoryReview(item.id, choice).then(load, load)}
+                    onClick={() => void api.resolveMemoryReview(item.id, choice.action, "key" in choice ? choice.key : undefined).then(load, load)}
                   >
-                    {choice}
+                    {choice.label}
                   </button>
                 ))}
               </div>
             </div>
           ))}
-          <p className="hint">A decision here is recorded; the claims themselves change when you edit them or the next dream reads your answer.</p>
+          <p className="hint">Keeping one side archives the other; promoting writes the claim global. Both are on the record as yours.</p>
         </section>
       )}
       {pages.length > 0 && (
         <section className="set-group">
           <h3>Pages</h3>
+          {edited.length > 0 && (
+            <p className="hint">
+              Edited since memory wrote them: {edited.join(", ")}.{" "}
+              <button type="button" className="btn btn--sm" onClick={() => void api.importMemoryPages().then(load, load)}>
+                Read edits into memory
+              </button>
+            </p>
+          )}
           <div className="know-pages">
             {pages.map((p) => (
               <button
