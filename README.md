@@ -96,6 +96,48 @@ constructs a statement without that binding.
 
 It is tested against a fixture containing other people's messages.
 
+### MCP servers
+
+Tools from Model Context Protocol servers are offered like any other tool.
+A server is declared in `mcp.json` at the workspace root, in the shape Claude
+Code uses, and each tool it lists registers as `mcp.<server>.<tool>`.
+
+A server's tools are **risky** by default: it is someone else's code, and the
+harness classifies it rather than trusting it. `"risk": "safe"` lowers the
+whole server; a `"tools"` map floors tools one at a time, by name or glob, so
+a read-only tool can be safe while a mutating one stays risky. The harness
+never guesses a tool is safe.
+
+```json
+{
+  "servers": {
+    "browser": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest", "--isolated",
+               "--user-data-dir", "projects/browser-profile"],
+      "risk": "risky",
+      "tools": {
+        "browser_navigate": "safe", "browser_navigate_back": "safe",
+        "browser_snapshot": "safe", "browser_find": "safe",
+        "browser_take_screenshot": "safe", "browser_wait_for": "safe",
+        "browser_console_messages": "safe", "browser_network_requests": "safe"
+      }
+    }
+  }
+}
+```
+
+The browser runs its **own profile inside the workspace** (`--user-data-dir`
+under a project, `--isolated` so each run starts clean), never the owner's
+logged-in Chrome. Anything that changes a page (click, type, fill a form)
+stays risky and asks, or runs under a remembered permission. KOS never enters
+a password or payment detail; the owner signs into a site once in KOS's own
+profile.
+
+`{{secret:NAME}}` in a server's `env` or `headers` is injected at connect and
+never logged. A server that fails to start is reported and skipped. Stdio
+servers are child processes that do not outlive the host.
+
 ---
 
 ## Architecture

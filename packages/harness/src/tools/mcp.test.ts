@@ -7,6 +7,7 @@ import { ToolRegistry } from "../agent/registry.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import {
   createMcpModule,
+  floorFor,
   mcpToolName,
   parseMcpConfig,
   renderContent,
@@ -94,6 +95,32 @@ describe("naming and reading config", () => {
   });
 });
 
+describe("a floor per tool", () => {
+  it("takes an exact tool floor over a glob over the server default", () => {
+    const server = {
+      command: "x",
+      risk: "risky" as const,
+      tools: { browser_navigate: "safe" as const, "browser_*": "risky" as const, "*_get": "safe" as const },
+    };
+    expect(floorFor(server, "browser_navigate")).toBe("safe");
+    expect(floorFor(server, "browser_click")).toBe("risky");
+    expect(floorFor(server, "cookie_get")).toBe("safe");
+    expect(floorFor(server, "cookie_set")).toBe("risky");
+  });
+
+  it("falls back to the server default, then to risky", () => {
+    expect(floorFor({ command: "x", risk: "safe" }, "anything")).toBe("safe");
+    expect(floorFor({ command: "x" }, "anything")).toBe("risky");
+  });
+
+  it("parses the tools map and drops values that are not a floor", () => {
+    const config = parseMcpConfig({
+      servers: { b: { command: "x", tools: { navigate: "safe", click: "risky", bogus: "maybe" } } },
+    });
+    expect(config.servers.b!.tools).toEqual({ navigate: "safe", click: "risky" });
+  });
+});
+
 describe("tools from a server", () => {
   it("registers each tool and calls straight through", async () => {
     const h = harness({ servers: { fake: { command: "unused" } } });
@@ -123,6 +150,17 @@ describe("tools from a server", () => {
     await h.module.activate({ registerTool: (d, f, r, m) => h.registry.register(d, f, r, m) });
     expect(h.registry.classify("mcp.fake.add", {}).tier).toBe("risky");
     expect(h.registry.classify("mcp.trusted.add", {}).tier).toBe("safe");
+    await h.close();
+  });
+
+  it("floors individual tools through the whole registration path", async () => {
+    const h = harness({
+      servers: { fake: { command: "unused", risk: "risky", tools: { add: "safe", "explod*": "safe" } } },
+    });
+    await h.module.activate({ registerTool: (d, f, r, m) => h.registry.register(d, f, r, m) });
+    expect(h.registry.classify("mcp.fake.add", {}).tier).toBe("safe");
+    expect(h.registry.classify("mcp.fake.explode", {}).tier).toBe("safe");
+    expect(h.registry.classify("mcp.fake.picture", {}).tier).toBe("risky");
     await h.close();
   });
 
