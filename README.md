@@ -265,6 +265,24 @@ back after a crash, starts at login, and `kos stop` still stops it.
 iMessage under launchd, give the `node` binary Full Disk Access in System
 Settings: a terminal passes its own grant down, launchd passes nothing.
 
+### Connecting from outside
+
+`@kos/client` is a typed, dependency-free client for a running host: health
+and status, a turn in a project's conversation, the shared memory, approvals,
+modules, and a job's inbound hook. It is how another program borrows KOS
+rather than carrying an agent of its own.
+
+```ts
+import { KosClient } from "@kos/client";
+
+const kos = new KosClient({ baseUrl: "http://127.0.0.1:4317", token: process.env.KOS_DASHBOARD_TOKEN });
+await kos.remember("resume_target", "staff engineer roles", { tags: ["resume"] });
+const { reply } = await kos.ask("resume-ops", "tailor the summary to this posting: ...");
+```
+
+The host binds to loopback by default; a caller on another machine needs
+`KOS_HOST` and a `KOS_DASHBOARD_TOKEN`.
+
 ### Configuration
 
 `.env` is git-ignored; `.env.example` documents every key.
