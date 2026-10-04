@@ -6,7 +6,7 @@ import {
   api,
   type Behaviour,
   type ModelRate,
-  type SettingsPayload, type ModuleInfo, type SkillInfo, type CallerInfo, type PermissionRule } from "./api.js";
+  type SettingsPayload, type ModuleInfo, type SkillInfo, type PermissionRule } from "./api.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { Select } from "./Select.js";
 import { SpendPanel } from "./SpendPanel.js";
@@ -59,7 +59,6 @@ type SectionId =
   | "skills"
   | "modules"
   | "permissions"
-  | "callers"
   | "workspace";
 
 const SECTIONS: { id: SectionId; label: string; blurb: string }[] = [
@@ -77,7 +76,6 @@ const SECTIONS: { id: SectionId; label: string; blurb: string }[] = [
   { id: "skills", label: "Skills", blurb: "What KOS knows how to do, and which are on" },
   { id: "modules", label: "Modules", blurb: "Features built as servers, and which are running" },
   { id: "permissions", label: "Permissions", blurb: "Decisions you made at a prompt and kept" },
-  { id: "callers", label: "Callers", blurb: "Other programs that share memory, and what each may see" },
   { id: "workspace", label: "Workspace", blurb: "Where everything lives" },
 ];
 
@@ -345,15 +343,6 @@ export function SettingsPage(): ReactElement {
   useEffect(() => {
     if (active === "modules") loadModules();
   }, [active, loadModules]);
-  const [callers, setCallers] = useState<CallerInfo[]>([]);
-  const [newCaller, setNewCaller] = useState({ name: "", tags: "", writeGlobal: false });
-  const [issued, setIssued] = useState<{ name: string; token: string } | null>(null);
-  const loadCallers = useCallback(() => {
-    void api.callers().then((r) => setCallers(r.callers)).catch(() => setCallers([]));
-  }, []);
-  useEffect(() => {
-    if (active === "callers") loadCallers();
-  }, [active, loadCallers]);
   const [rules, setRules] = useState<PermissionRule[]>([]);
   const loadRules = useCallback(() => {
     void api.permissions().then((r) => setRules(r.rules)).catch(() => setRules([]));
@@ -1191,55 +1180,6 @@ export function SettingsPage(): ReactElement {
                 </button>
               </Field>
             ))}
-          </Section>
-        )}
-        {active === "callers" && (
-          <Section title="Callers" blurb="A caller is another program with its own token and its own corner of memory. It reads the owner's global claims only under the tags you grant, and writes global only if you say so. The token is shown once.">
-            {issued && (
-              <div className="set-group">
-                <h3>Token for {issued.name}</h3>
-                <p className="hint">Copy it now; it is not stored and cannot be shown again.</p>
-                <code className="ops-mono">{issued.token}</code>
-              </div>
-            )}
-            {callers.map((c) => (
-              <Field key={c.id} label={c.name} hint={`reads ${c.readTags.length ? c.readTags.join(", ") : "nothing global"}${c.writeGlobal ? " · may write global" : ""}${c.lastSeenAt ? ` · last seen ${new Date(c.lastSeenAt).toLocaleDateString()}` : " · never used"}`}>
-                <button type="button" className="btn btn--sm btn--danger-ghost" onClick={() => { void api.revokeCaller(c.id).then(loadCallers, loadCallers); }}>
-                  Revoke
-                </button>
-              </Field>
-            ))}
-            <div className="set-group">
-              <h3>New caller</h3>
-              <label className="kos-field">
-                <span className="kos-field-label">Name</span>
-                <input className="kos-input" placeholder="resume-ops" value={newCaller.name} onChange={(e) => setNewCaller({ ...newCaller, name: e.target.value })} />
-              </label>
-              <label className="kos-field">
-                <span className="kos-field-label">Global tags it may read</span>
-                <input className="kos-input" placeholder="career, resume  (or * for all)" value={newCaller.tags} onChange={(e) => setNewCaller({ ...newCaller, tags: e.target.value })} />
-              </label>
-              <label className="set-toggle">
-                <input type="checkbox" checked={newCaller.writeGlobal} onChange={(e) => setNewCaller({ ...newCaller, writeGlobal: e.target.checked })} />
-                <span>May write global memory</span>
-              </label>
-              <div className="settings-actions">
-                <button
-                  type="button"
-                  className="btn btn--primary"
-                  disabled={!newCaller.name.trim()}
-                  onClick={() => {
-                    const tags = newCaller.tags.split(",").map((t) => t.trim()).filter(Boolean);
-                    void api
-                      .createCaller(newCaller.name.trim(), tags, newCaller.writeGlobal)
-                      .then((r) => { setIssued({ name: r.caller.name, token: r.token }); setNewCaller({ name: "", tags: "", writeGlobal: false }); loadCallers(); })
-                      .catch(() => undefined);
-                  }}
-                >
-                  Create
-                </button>
-              </div>
-            </div>
           </Section>
         )}
         {active === "spend" && (

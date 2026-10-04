@@ -760,6 +760,11 @@ export const api = {
   importMemoryPages: (name?: string) =>
     post<{ imported: { name: string; imported: string[]; unchanged: number }[] }>("/api/memory/pages/import", name ? { name } : {}),
   memoryPage: (name: string) => get<{ name: string; markdown: string }>(`/api/memory/page?name=${encodeURIComponent(name)}`),
+  memoryLog: (query?: string, limit = 50) =>
+    get<{ events: { id: number; ts: number; role: string; text: string; projectSlug: string | null; conversationId: string | null; caller: string; trust: string; shadowed: boolean }[]; query: string }>(
+      `/api/memory/log?limit=${limit}${query ? `&query=${encodeURIComponent(query)}` : ""}`,
+    ),
+  memoryExtractStatus: () => get<{ enabled: boolean; everyChars: number; pending: { count: number; chars: number }; lastEventId: number; running: boolean }>("/api/memory/extract"),
   saveMemory: (
     key: string,
     value: string,

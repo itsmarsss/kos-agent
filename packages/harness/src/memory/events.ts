@@ -235,6 +235,11 @@ export class EventLog {
     return rows.map(toEvent);
   }
 
+  /** The newest events anywhere, newest first. */
+  latest(userId: string, limit = 50): MemoryEvent[] {
+    return (this.db.prepare(`SELECT * FROM memory_log WHERE user_id = ? ORDER BY id DESC LIMIT ?`).all(userId, limit) as Row[]).map(toEvent);
+  }
+
   /** The newest events in a conversation, oldest first. */
   recent(conversationId: string, limit = 50): MemoryEvent[] {
     const rows = this.db

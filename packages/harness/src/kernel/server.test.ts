@@ -815,6 +815,15 @@ describe("handleApiRequest", () => {
     expect(kernel.registry.has("tasks.add")).toBe(true);
   });
 
+  it("shows the log, latest first, and by words and meaning when asked", async () => {
+    kernel.events.append({ userId: "owner", role: "owner", text: "the garden shed needs a new roof" });
+    kernel.events.append({ userId: "owner", role: "agent", text: "noted" });
+    const latest = await handleApiRequest(kernel, { method: "GET", path: "/api/memory/log", url: "/api/memory/log?limit=10" });
+    expect(((latest.body as { events: { text: string }[] }).events).map((e) => e.text)).toEqual(["noted", "the garden shed needs a new roof"]);
+    const found = await handleApiRequest(kernel, { method: "GET", path: "/api/memory/log", url: "/api/memory/log?query=shed%20roof" });
+    expect(((found.body as { events: { text: string }[] }).events).map((e) => e.text)).toEqual(["the garden shed needs a new roof"]);
+  });
+
   it("still honours an explicit limit", async () => {
     for (let i = 0; i < 5; i++) {
       kernel.facts.upsert("owner", { key: `k${i}`, value: `v${i}`, kind: "fact" });

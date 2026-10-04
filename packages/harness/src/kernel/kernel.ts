@@ -191,6 +191,8 @@ export class Kernel {
   readonly facts: FactsStore;
   /** The log every exchange lands in; the ground truth under memory. */
   readonly events: EventLog;
+  /** Makes the vectors the log is searched by. */
+  readonly embedder: EmbeddingProvider;
   /** Where a button press belongs, for the surface that receives one. */
   readonly presses: PressRoutes;
   /** The agent's long-running programs, and what is keeping them up. */
@@ -324,6 +326,7 @@ export class Kernel {
     this.conversations = args.conversations;
     this.facts = args.facts;
     this.events = args.events;
+    this.embedder = args.embedder;
     this.presses = args.presses;
     this.daemons = args.daemons;
     this.supervisor = args.supervisor;
