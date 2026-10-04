@@ -5,13 +5,12 @@ import { DaemonStore } from "../daemons/store.js";
 import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry } from "../agent/registry.js";
 import {
-  cronFailure,
   type CronActionResult,
   runCronJob,
   type CronExecResult,
 } from "../cron/executor.js";
-import { CronScheduler, type FireOutcome } from "../cron/scheduler.js";
 import { CronStore } from "../cron/store.js";
+import { CronService, type CronFireResult } from "./cronservice.js";
 import type { CronJob } from "../cron/types.js";
 import {
   FactsStore,
@@ -146,13 +145,7 @@ export interface KernelOptions {
   sessionless?: boolean;
 }
 
-/** What running a job by hand produced, in terms the caller can report. */
-export interface CronFireResult {
-  outcome: FireOutcome;
-  /** Fired and every action succeeded. */
-  ok: boolean;
-  error?: string;
-}
+export type { CronFireResult } from "./cronservice.js";
 
 export interface HandleResult {
   reply: string;
@@ -319,7 +312,8 @@ export class Kernel {
   private readonly system: string;
   private readonly onApprovalRequested?: (action: PendingAction) => void;
   private readonly sessionless: boolean;
-  private scheduler?: CronScheduler;
+  /** Scheduled jobs: when they run and what a run is on the record. */
+  private readonly cron: CronService;
   private heartbeat?: Heartbeat;
   /**
    * Scope tags accumulated per session. Inference reads only the latest
@@ -448,6 +442,17 @@ export class Kernel {
       crons: args.crons,
       manifest: args.manifest,
       handleMessage: (text, opts) => this.handleMessage(text, opts),
+    });
+    this.cron = new CronService({
+      crons: args.crons,
+      killSwitch: this.killSwitch,
+      selfPromptsPerHour: () => this.behaviour().selfPromptsPerHour,
+      enqueue: (work) => this.queue.enqueue(work),
+      runs: args.runs,
+      health: args.health,
+      report: (key, label, ok, error) => this.caretaker.report(key, label, ok, error),
+      backup: args.backup,
+      run: (job) => this.runScheduledJob(job),
     });
     this.afterTurn = new AfterTurn({
       ownerId: args.profile.ownerId,
@@ -2082,92 +2087,50 @@ export class Kernel {
 
 
   startCron(): void {
-    this.scheduler = new CronScheduler(
-      this.crons,
-      (job) =>
-        this.queue.enqueue(async () => {
-          const runId = this.runs.start("cron", String(job.id));
-          const key = `cron:${job.id}`;
-          try {
-            // Built-in workspace backup job runs outside the tool path.
-            if (job.name === "kos.backup" && job.type === "actions") {
-              await this.backup.ensureRepo();
-              await this.backup.snapshot("scheduled backup");
-              this.runs.finish(runId, "ok");
-              this.caretaker.report(key, job.name, true, null);
-              return { ran: true, results: [] };
-            }
-            /*
-             * A fixed-actions job runs in its thread too.
-             *
-             * Binding the toolbox to it is what makes the run watchable: the
-             * guarded path already emits a bubble per call, and with no
-             * conversation to emit into they went nowhere. The thread is made
-             * up front for the same reason.
-             */
-            const jobSession =
-              job.type === "actions" ? this.jobThread(job) : undefined;
-            if (jobSession) {
-              this.working.add(jobSession);
-              this.progress.emit({
-                kind: "turn-start",
-                conversationId: jobSession,
-              });
-            }
-            const result = await runCronJob(job, {
-              // The job's query and condition are reads that build the
-              // variable scope, so they run on the read-only handle. Writes
-              // belong in the job's actions, which go through the guarded
-              // tool path and its risk tiers.
-              db: this.workspace.reader,
-              tools: this.guardedTools({
-                ...(jobSession ? { conversationId: jobSession } : {}),
-                // Unattended: queue what needs a decision and finish, rather
-                // than holding a queue slot until the owner wakes up.
-                waitForApproval: false,
-              }),
-              inference: this.inference,
-              buildSystem: (j) => this.cronSystemPrompt(j),
-              // In the job's own thread, so a run can be watched while it
-              // happens, asked about afterwards, and read back next week.
-              runInConversation: (prompt, j) => this.runJobTurn(prompt, j),
-            });
-            if (jobSession) {
-              // Written whatever happened: a run where every action failed is
-              // the one most worth being able to read afterwards.
-              if (result.ran && result.type === "actions") {
-                this.recordActionRun(job, result.results);
-              }
-              this.endTurn(jobSession);
-            }
-            const problem = cronFailure(result);
-            // A job whose condition said "not now" did what it was written to
-            // do, so it is healthy rather than nothing having happened.
-            this.runs.finish(
-              runId,
-              problem ? "error" : result.ran ? "ok" : "skipped",
-              problem,
-            );
-            this.caretaker.report(key, job.name, problem === null, problem);
-            return result;
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            if (job.type === "actions") this.endTurn(cronSessionId(job.id));
-            this.runs.finish(runId, "error", message);
-            this.caretaker.report(key, job.name, false, message);
-            throw err;
-          }
+    this.cron.start();
+  }
+
+  /**
+   * One scheduled job, in its own thread, with the guarded toolbox.
+   *
+   * A fixed-actions job runs in its thread too. Binding the toolbox to it
+   * is what makes the run watchable: the guarded path already emits a
+   * bubble per call, and with no conversation to emit into they went
+   * nowhere. The thread is made up front for the same reason, and closed
+   * whatever happened: a run where every action failed is the one most
+   * worth being able to read afterwards.
+   */
+  private async runScheduledJob(job: CronJob): Promise<CronExecResult> {
+    const jobSession = job.type === "actions" ? this.jobThread(job) : undefined;
+    if (jobSession) {
+      this.working.add(jobSession);
+      this.progress.emit({ kind: "turn-start", conversationId: jobSession });
+    }
+    try {
+      const result = await runCronJob(job, {
+        // The job's query and condition are reads that build the variable
+        // scope, so they run on the read-only handle. Writes belong in the
+        // job's actions, which go through the guarded tool path.
+        db: this.workspace.reader,
+        tools: this.guardedTools({
+          ...(jobSession ? { conversationId: jobSession } : {}),
+          // Unattended: queue what needs a decision and finish, rather than
+          // holding a queue slot until the owner wakes up.
+          waitForApproval: false,
         }),
-      {
-        killSwitch: this.killSwitch,
-        maxSelfPromptsPerHour: () => this.behaviour().selfPromptsPerHour,
-      },
-    );
-    this.scheduler.start();
-    // Also at boot, not only on reload: a job deleted while the host was down
-    // would otherwise keep its failure on the health report until something
-    // else happened to touch a schedule.
-    this.pruneHealth();
+        inference: this.inference,
+        buildSystem: (j) => this.cronSystemPrompt(j),
+        // In the job's own thread, so a run can be watched while it happens,
+        // asked about afterwards, and read back next week.
+        runInConversation: (prompt, j) => this.runJobTurn(prompt, j),
+      });
+      if (jobSession && result.ran && result.type === "actions") {
+        this.recordActionRun(job, result.results);
+      }
+      return result;
+    } finally {
+      if (jobSession) this.endTurn(jobSession);
+    }
   }
 
   /**
@@ -2551,104 +2514,26 @@ export class Kernel {
     return { ...res, conversationId: target };
   }
 
-  /**
-   * Run what fell due while the host was down.
-   *
-   * Called after the schedule is registered, not inside start(), so a reload
-   * after an edit does not re-fire anything: only a real boot catches up.
-   */
   catchUpCron(): number {
-    return this.scheduler?.catchUp() ?? 0;
+    return this.cron.catchUp();
   }
 
   reloadCron(): void {
-    this.scheduler?.reload();
-    this.pruneHealth();
+    this.cron.reload();
   }
 
-  /**
-   * Forget failures belonging to jobs that no longer exist.
-   *
-   * A broken job that gets deleted -- by the owner, or by a fix attempt that
-   * decided removing it was the repair -- left its failure in the health
-   * report and the header counting it forever, with Dismiss as the only way
-   * out. Hung off the cron reload, which every path that changes a job
-   * already calls.
-   */
-  private pruneHealth(): void {
-    const alive = new Set(this.crons.list().map((c) => `cron:${c.id}`));
-    for (const failing of this.health.failing()) {
-      if (failing.key.startsWith("cron:") && !alive.has(failing.key)) {
-        this.health.forget(failing.key);
-      }
-    }
-  }
-
-  /**
-   * Run one job now, through the same path the schedule uses.
-   *
-   * "Does this job actually work" was previously answerable only by waiting
-   * for its schedule to come round, which for a nightly job means a day per
-   * attempt. Going through fire() rather than the runner directly means the
-   * kill switch, the rate limit, the run log, and the health report all see it
-   * exactly as they would at 3am.
-   */
-  async fireCron(id: number): Promise<CronFireResult> {
-    const job = this.crons.get(id);
-    if (!job) throw new Error(`no such cron: ${id}`);
-    if (!this.scheduler) {
-      this.startCron();
-    }
-    /*
-     * A job cannot fire while it is already firing.
-     *
-     * A self-prompt job whose prompt asks KOS to run a job can name itself,
-     * and each run would start another before the first had finished. The
-     * rate limit bounds how many self-prompts happen in an hour, which is a
-     * cap on the damage rather than a stop; this is the stop. It also breaks
-     * the longer loop, A firing B firing A, because A is still in flight.
-     */
-    if (this.firingCrons.has(id)) {
-      const outcome: FireOutcome = {
-        fired: false,
-        reason: "error",
-        error: `${job.name} is already running`,
-      };
-      return { outcome, ok: false, error: outcome.error! };
-    }
-    this.firingCrons.add(id);
-    try {
-      return await this.fireOnce(job);
-    } finally {
-      this.firingCrons.delete(id);
-    }
-  }
-
-  /** Jobs firing right now, so one cannot be started on top of itself. */
-  private readonly firingCrons = new Set<number>();
-
-  private async fireOnce(job: CronJob): Promise<CronFireResult> {
-    const outcome = await this.scheduler!.fire(job);
-    if (!outcome.fired) {
-      return { outcome, ok: false, error: outcome.error ?? outcome.reason };
-    }
-    // "It fired" is not "it worked": a job every one of whose actions errored
-    // fires perfectly well, and reporting that as a success is how a broken
-    // job gets confirmed as healthy by the person checking it.
-    const failure = cronFailure(outcome.result as CronExecResult);
-    return failure
-      ? { outcome, ok: false, error: failure }
-      : { outcome, ok: true };
+  /** Run one job now, through the same path the schedule uses. */
+  fireCron(id: number): Promise<CronFireResult> {
+    return this.cron.fire(id);
   }
 
   /** Jobs the running scheduler actually holds, as opposed to rows in the table. */
   scheduledCronCount(): number {
-    return this.scheduler?.scheduledCount() ?? 0;
+    return this.cron.scheduledCount();
   }
 
   stopCron(): void {
-    this.scheduler?.stop();
-    this.scheduler = undefined;
+    this.cron.stop();
   }
 
   /**

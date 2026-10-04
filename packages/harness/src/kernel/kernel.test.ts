@@ -259,9 +259,8 @@ describe("Kernel", () => {
       actions: [{ tool: "notify", args: { text: "scheduled hi" } }],
     });
     kernel.startCron();
-    // fire directly rather than waiting for the cron tick
-    const sched = (kernel as unknown as { scheduler: { fire: (j: typeof job) => Promise<unknown> } }).scheduler;
-    await sched.fire(job);
+    // Fired by hand rather than waiting for the tick; the same path either way.
+    await kernel.fireCron(job.id);
     await kernel.queue.drain();
     expect(sent).toEqual(["scheduled hi"]);
     expect(kernel.runs.recent().some((r) => r.kind === "cron" && r.status === "ok")).toBe(
