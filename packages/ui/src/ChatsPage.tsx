@@ -181,8 +181,22 @@ export function ChatsPage({
     return () => document.removeEventListener("keydown", key);
   }, [listOpen]);
   const [showArchived, setShowArchived] = useState(false);
+  /** The row whose Delete was pressed once; a second press deletes. */
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  /** A chat just archived from its header, offered back for a moment. */
+  const [undo, setUndo] = useState<{ id: string; title: string } | null>(null);
+  useEffect(() => {
+    if (!undo) return;
+    const t = setTimeout(() => setUndo(null), 8000);
+    return () => clearTimeout(t);
+  }, [undo]);
+  /** What is typed on the landing, before there is a chat to put it in. */
+  const [opening, setOpening] = useState("");
   const [showScheduled, setShowScheduled] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (menuFor === null) setConfirmDelete(null);
+  }, [menuFor]);
   /** The chat being renamed, with its title as the field starts. */
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(
     null,
@@ -214,6 +228,10 @@ export function ChatsPage({
   activeIdRef.current = activeId;
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useAutoGrow(inputRef, draft);
+  // Opening a chat puts the cursor in its box: that is what you came to do.
+  useEffect(() => {
+    if (activeId && !narrow) inputRef.current?.focus();
+  }, [activeId, narrow]);
 
   const [trigger, setTrigger] = useState<Trigger | null>(null);
   const [acCursor, setAcCursor] = useState(0);
@@ -854,20 +872,28 @@ export function ChatsPage({
                 type="button"
                 onClick={() => {
                   setMenuFor(null);
-                  void api.archiveConversation(c.id).then(onChanged);
+                  void api.archiveConversation(c.id, !showArchived).then(onChanged);
                 }}
               >
                 {showArchived ? "Unarchive" : "Archive"}
               </button>
+              {/* Two presses: delete is the one thing here that cannot be
+                  undone, and a menu item that does it on one click is a
+                  trap beside Archive. */}
               <button
                 type="button"
                 className="is-danger"
                 onClick={() => {
+                  if (confirmDelete !== c.id) {
+                    setConfirmDelete(c.id);
+                    return;
+                  }
                   setMenuFor(null);
+                  setConfirmDelete(null);
                   void api.deleteConversation(c.id).then(onChanged);
                 }}
               >
-                Delete
+                {confirmDelete === c.id ? "Really delete" : "Delete"}
               </button>
             </m.div>
           )}
@@ -943,7 +969,8 @@ export function ChatsPage({
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        {(orchestrator || projects.length > 0 || surfaces.length > 0) && (
+        {showArchived && <div className="chats-section">Archived chats</div>}
+        {!showArchived && (orchestrator || projects.length > 0 || surfaces.length > 0) && (
           <div className="chats-pinned">
             {orchestrator && (
               <a
@@ -1142,41 +1169,80 @@ export function ChatsPage({
       </aside>
 
       <section className="chats-view">
+        {undo && (
+          <div className="chats-undo" role="status">
+            <span>Archived “{undo.title}”.</span>
+            <button
+              type="button"
+              className="link"
+              onClick={() => {
+                const back = undo;
+                setUndo(null);
+                void api.archiveConversation(back.id, false).then(() => {
+                  onChanged();
+                  onOpen(back.id);
+                });
+              }}
+            >
+              Undo
+            </button>
+          </div>
+        )}
         {!active ? (
           <div className="chats-placeholder">
             {/* Opening KOS lands here. It used to say "pick a chat"; a front
                 door should offer the way in. */}
             <div className="chats-welcome">
               <p className="chats-welcome-title">What do you want done?</p>
-              <button
-                type="button"
-                className="btn btn--primary"
-                disabled={creating}
-                onClick={() => {
+              {/* The question has to be answerable here. A button that leads
+                  to an empty chat is a detour; typing is the way in. */}
+              <form
+                className="chats-welcome-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const text = opening.trim();
+                  if (!text || creating) return;
                   setCreating(true);
                   void api
                     .newConversation()
                     .then((c) => {
+                      // Sent before the view opens, so the chat loads with
+                      // the message already in it and the turn under way.
+                      void api.message(text, c.id).catch(() => undefined);
+                      setOpening("");
                       onChanged();
                       onOpen(c.id);
                     })
                     .finally(() => setCreating(false));
                 }}
               >
-                New chat
-              </button>
-              {conversations.filter((c) => !c.archived).length > 0 && (
+                <textarea
+                  className="hl-area chats-welcome-input"
+                  rows={2}
+                  autoFocus
+                  value={opening}
+                  placeholder="Ask, or tell KOS what to build…"
+                  onChange={(e) => setOpening(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      e.currentTarget.form?.requestSubmit();
+                    }
+                  }}
+                />
+                <button type="submit" className="btn btn--primary" disabled={creating || !opening.trim()}>
+                  {creating ? "Opening…" : "Send"}
+                </button>
+              </form>
+              {tree.roots.length > 0 && (
                 <ul className="chats-welcome-recent">
-                  {conversations
-                    .filter((c) => !c.archived)
-                    .slice(0, 5)
-                    .map((c) => (
-                      <li key={c.id}>
-                        <button type="button" className="link" onClick={() => onOpen(c.id)}>
-                          {c.title}
-                        </button>
-                      </li>
-                    ))}
+                  {tree.roots.slice(0, 5).map((c) => (
+                    <li key={c.id}>
+                      <button type="button" className="link" onClick={() => onOpen(c.id)}>
+                        {c.title}
+                      </button>
+                    </li>
+                  ))}
                 </ul>
               )}
               <p className="hint">⌘K finds anything: a chat, a file, a page, a setting.</p>
@@ -1242,7 +1308,12 @@ export function ChatsPage({
                     type="button"
                     className="btn btn--ghost"
                     onClick={() => {
-                      void api.archiveConversation(active.id).then(onChanged);
+                      const was = { id: active.id, title: active.title };
+                      void api.archiveConversation(active.id).then(() => {
+                        onChanged();
+                        setUndo(was);
+                        window.location.hash = "#/";
+                      });
                     }}
                   >
                     Archive
@@ -1595,7 +1666,7 @@ export function ChatsPage({
                   ref={inputRef}
                   rows={1}
                   value={draft}
-                  placeholder={`Message ${active.title}…  @ to reference, / for commands`}
+                  placeholder={`Message ${active.title.length > 32 ? "KOS" : active.title}…  @ to reference, / for commands`}
                   onChange={(e) => {
                     setDraft(e.target.value);
                     syncTrigger();

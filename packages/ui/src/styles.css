@@ -3411,7 +3411,10 @@ li:hover .chats-item-when { opacity: 0; }
 }
 /* Content had none of its own, so every dialog's fields sat against the
    edge of the box. */
-.modal-body { overflow-y: auto; padding: 1rem 1.1rem 1.1rem; }
+/* min-height 0: a flex column child will not shrink below its content
+   otherwise, so a tall body pushed the footer off the screen instead of
+   scrolling. */
+.modal-body { overflow-y: auto; min-height: 0; padding: 1rem 1.1rem 1.1rem; }
 /* Except where the content already brings its own. */
 .modal-body .chatcfg { border-bottom: 0; background: transparent; padding: 0; }
 .modal-body > .settings { padding: 0; }
@@ -5737,3 +5740,32 @@ a.health {
 .set-install .kos-input { width: 24rem; max-width: 70vw; }
 .set-module-actions { display: flex; gap: 0.75rem; align-items: baseline; margin-top: 0.35rem; font-size: var(--text-sm); }
 .set-module-actions .link.is-danger { color: var(--danger); }
+
+/* Chats: the landing composer, and the moment after an archive. */
+.chats-welcome-form { display: flex; flex-direction: column; gap: 0.5rem; width: min(34rem, 100%); }
+.chats-welcome-input {
+  width: 100%;
+  min-height: 4.5rem;
+  padding: 0.7rem 0.85rem;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-md);
+  resize: vertical;
+}
+.chats-welcome-input:focus { outline: none; border-color: var(--accent); }
+.chats-welcome-form .btn { align-self: flex-end; }
+.chats-welcome { max-width: 34rem; }
+.chats-undo {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.25rem 0 0.5rem;
+  padding: 0.5rem 0.85rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+}

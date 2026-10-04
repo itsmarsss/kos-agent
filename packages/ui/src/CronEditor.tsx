@@ -324,6 +324,12 @@ export function CronEditor({
               Written as an instruction to KOS, the way you would say it.
             </span>
           </label>
+        ) : job?.name === "kos.backup" ? (
+          <p className="hint">
+            The built-in workspace backup: a git snapshot of the whole
+            workspace, taken outside the tool path. It has no tool calls to
+            edit; its schedule above is the only setting.
+          </p>
         ) : (
           <label className="kos-field">
             <span className="kos-field-label">Tool calls</span>

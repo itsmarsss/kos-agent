@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 
-import { api, type CallerInfo, type CronJob, type FactRow, type ReviewItem } from "./api.js";
+import { api, type CallerInfo, type CronJob, type FactRow, type ReviewItem, type Conversation } from "./api.js";
 import { KnowledgePage } from "./KnowledgePage.js";
 
 /**
@@ -23,7 +23,19 @@ const TABS: { id: Tab; label: string; blurb: string }[] = [
   { id: "callers", label: "Callers", blurb: "other programs, and what each may see" },
 ];
 
-export function MemoryPage({ facts, tags, onChanged }: { facts: FactRow[]; tags: string[]; onChanged: () => void }): ReactElement {
+export function MemoryPage({
+  facts,
+  tags,
+  conversations = [],
+  onChanged,
+}: {
+  facts: FactRow[];
+  tags: string[];
+  /** So a log row can name the chat it came from rather than show its id. */
+  conversations?: Conversation[];
+  onChanged: () => void;
+}): ReactElement {
+  const titles = useMemo(() => new Map(conversations.map((c) => [c.id, c.title])), [conversations]);
   const [tab, setTab] = useState<Tab>(() => {
     const m = /[?&]tab=([a-z]+)/.exec(window.location.hash);
     return (TABS.find((t) => t.id === m?.[1])?.id ?? "claims");
@@ -45,7 +57,7 @@ export function MemoryPage({ facts, tags, onChanged }: { facts: FactRow[]; tags:
       {tab === "claims" && <KnowledgePage facts={facts} tags={tags} onChanged={onChanged} />}
       {tab === "decisions" && <DecisionsTab onChanged={onChanged} />}
       {tab === "pages" && <PagesTab />}
-      {tab === "log" && <LogTab />}
+      {tab === "log" && <LogTab titles={titles} />}
       {tab === "jobs" && <JobsTab />}
       {tab === "callers" && <CallersTab />}
     </div>
@@ -159,7 +171,7 @@ function PagesTab(): ReactElement {
   );
 }
 
-function LogTab(): ReactElement {
+function LogTab({ titles }: { titles: Map<string, string> }): ReactElement {
   const [query, setQuery] = useState("");
   const [events, setEvents] = useState<{ id: number; ts: number; role: string; text: string; projectSlug: string | null; conversationId: string | null; caller: string; trust: string; shadowed: boolean }[]>([]);
   useEffect(() => {
@@ -178,7 +190,11 @@ function LogTab(): ReactElement {
             <span className="mem-kind">{e.role}</span>
             {e.trust === "external" && <span className="mem-kind mem-kind--outside">via {e.caller}</span>}
             {e.projectSlug && <span className="ops-mono">{e.projectSlug}</span>}
-            {e.conversationId && <a className="ops-muted" href={`#/chats/${encodeURIComponent(e.conversationId)}`}>{e.conversationId}</a>}
+            {e.conversationId && (
+              <a className="ops-muted" href={`#/chats/${encodeURIComponent(e.conversationId)}`}>
+                {titles.get(e.conversationId) ?? "a deleted chat"}
+              </a>
+            )}
             <span className="ops-muted">{when(e.ts)}</span>
           </div>
           <div className="mem-event-text">{e.text.length > 400 ? `${e.text.slice(0, 400)}…` : e.text}</div>
@@ -258,6 +274,7 @@ function CallersTab(): ReactElement {
           <code className="ops-mono">{issued.token}</code>
         </div>
       )}
+      {callers.length === 0 && <p className="hint">No callers yet. Make one below and give the token to the other program.</p>}
       {callers.map((c) => (
         <div key={c.id} className="mem-row mem-row--split">
           <div>

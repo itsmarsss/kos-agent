@@ -448,10 +448,18 @@ export function Panel({
               {mods.slice(0, limit).map((mod) => (
                 <li key={mod.name}>
                   <span className={`panel-row${mod.enabled && mod.error ? " is-error" : ""}`}>
-                    <span className={`agent-dot agent-dot--${!mod.enabled ? "stopped" : mod.error ? "failed" : mod.connected ? "running" : "waiting"}`} />
+                    <span className={`agent-dot agent-dot--${mod.blueprint ? "waiting" : !mod.enabled ? "stopped" : mod.error ? "failed" : mod.connected ? "running" : "waiting"}`} />
                     <span className="panel-row-main">{mod.name}</span>
                     <span className="panel-row-side">
-                      {!mod.enabled ? "off" : mod.error ? "not connected" : mod.tools ? `${mod.tools.length} tools` : "starting"}
+                      {mod.blueprint
+                        ? `blueprint · ${mod.blueprint.instances.length} ${mod.blueprint.instances.length === 1 ? "instance" : "instances"}`
+                        : !mod.enabled
+                          ? "off"
+                          : mod.error
+                            ? "not connected"
+                            : mod.tools
+                              ? `${mod.tools.length} tools`
+                              : "starting"}
                     </span>
                   </span>
                 </li>

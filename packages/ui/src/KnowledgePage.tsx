@@ -31,6 +31,25 @@ export interface KnowledgePageProps {
 
 const UNTAGGED = "untagged";
 
+/** A claim's scope, in words. */
+export function describeScope(scope: string | undefined): string {
+  if (!scope || scope === "global") return "everywhere";
+  if (scope.startsWith("project:")) return `project ${scope.slice("project:".length)}`;
+  if (scope.startsWith("caller:")) return `caller ${scope.slice("caller:".length)}`;
+  return scope;
+}
+
+/** Who wrote a claim, in words rather than the id the store keeps. */
+export function describeSource(source: string | null | undefined): string {
+  if (!source) return "unknown";
+  if (source === "dashboard") return "you, here";
+  if (source === "chat") return "a chat";
+  if (source.startsWith("cron:")) return `a scheduled job (#${source.slice("cron:".length)})`;
+  if (source.startsWith("caller:")) return `the ${source.slice("caller:".length)} caller`;
+  if (source.startsWith("project:")) return `the ${source.slice("project:".length)} project's chat`;
+  return source.replace(/:owner$/, "");
+}
+
 export function KnowledgePage({
   facts,
   tags,
@@ -413,10 +432,12 @@ export function KnowledgePage({
                   <span className="ops-muted">none</span>
                 )}
               </dd>
+              <dt>Where it applies</dt>
+              <dd>{describeScope(open.scope)}</dd>
               <dt>Written by</dt>
-              <dd>{open.source ? open.source.replace(/:owner$/, "") : "unknown"}</dd>
-              <dt>In every conversation</dt>
-              <dd>{open.pinned ? "yes" : "no"}</dd>
+              <dd>{describeSource(open.source)}</dd>
+              <dt>Pinned</dt>
+              <dd>{open.pinned ? "yes, in every conversation" : "no"}</dd>
             </dl>
           </div>
         )}

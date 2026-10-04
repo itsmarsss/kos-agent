@@ -1323,7 +1323,12 @@ export async function handleApiRequest(
       health: kernel.health.report(),
       activity: kernel.audit.recent(20),
       projects: kernel.manifest.list(),
-      chats: kernel.conversations.list(kernel.profile.ownerId).slice(0, 10),
+      // Chats you began. A job's thread or the router is not something you
+      // would open from a panel called Chats.
+      chats: kernel.conversations
+        .list(kernel.profile.ownerId)
+        .filter((c) => conversationKind(c, kernel.profile.ownerId) === "chat")
+        .slice(0, 10),
       crons: kernel.crons.list(),
       spend: {
         models: kernel.spend.byModel(Date.now() - 7 * 24 * 60 * 60 * 1000),
