@@ -41,6 +41,9 @@ importers:
       '@kos/shared':
         specifier: workspace:*
         version: link:../shared
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.30.0
+        version: 1.30.0(zod@4.5.4)
       better-sqlite3:
         specifier: ^11.7.0
         version: 11.10.0
