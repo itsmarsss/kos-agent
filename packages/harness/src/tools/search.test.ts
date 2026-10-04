@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
 import { HashingEmbeddingProvider } from "../memory/embeddings.js";
-import { EpisodicStore } from "../memory/episodic.js";
+import { EventLog } from "../memory/events.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
@@ -109,18 +109,19 @@ describe("search module", () => {
 
   it("registers semantic search and ranks by similarity when wired", async () => {
     const embedder = new HashingEmbeddingProvider(128);
-    const episodic = new EpisodicStore(ws.db, embedder.dimension);
+    const events = new EventLog(ws.db, embedder.dimension, Date.now, embedder.name);
     const [a] = await embedder.embed(["hiking and camping in the mountains"]);
     const [b] = await embedder.embed(["quarterly tax accounting"]);
-    episodic.add("owner", "hiking and camping in the mountains", a!);
-    episodic.add("owner", "quarterly tax accounting", b!);
+    events.append({ userId: "owner", role: "owner", text: "hiking and camping in the mountains", projectSlug: "trips" }, a!);
+    events.append({ userId: "owner", role: "owner", text: "quarterly tax accounting" }, b!);
 
-    const registry = await load(createSearchModule({ episodic, embedder }));
+    const registry = await load(createSearchModule({ events, embedder }));
     expect(registry.has("search.semantic")).toBe(true);
     const res = await registry.execute("search.semantic", {
       query: "camping trip",
     });
     const hits = JSON.parse(res.content);
     expect(hits[0].text).toContain("hiking");
+    expect(hits[0]).toMatchObject({ who: "owner", project: "trips" });
   });
 });

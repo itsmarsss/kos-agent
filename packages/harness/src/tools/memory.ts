@@ -1,3 +1,5 @@
+import type { EmbeddingProvider } from "../memory/embeddings.js";
+import type { EventLog } from "../memory/events.js";
 import type { FactsStore } from "../memory/facts.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
@@ -24,6 +26,9 @@ export const MEMORY_TOOLS = [
 
 export interface MemoryToolDeps {
   facts: FactsStore;
+  /** The log, for recall with history. Optional so the tools work without it. */
+  events?: EventLog;
+  embedder?: EmbeddingProvider;
   ownerId: string;
   /** Which conversation is writing, recorded as the entry's source. */
   currentSource?: () => string;
@@ -117,10 +122,11 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
           query: { type: "string", description: "omit to list by recency" },
           tags: { type: "array", items: { type: "string" } },
           limit: { type: "number" },
+          history: { type: "boolean", description: "also search everything that was said, by words and meaning, with when and where" },
         },
       },
     },
-    (input) => {
+    async (input) => {
       const limit =
         typeof input.limit === "number" && input.limit > 0
           ? Math.min(100, Math.floor(input.limit))
@@ -138,6 +144,19 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
         pinned: f.pinned,
         source: f.source,
       }));
+      if (input.history === true && deps.events && query) {
+        const [embedding] = deps.embedder ? await deps.embedder.embed([query], "query") : [undefined];
+        const history = deps.events
+          .search({ userId: ownerId, query, ...(embedding ? { embedding } : {}), k: limit })
+          .map((e) => ({
+            when: new Date(e.ts).toISOString(),
+            who: e.role,
+            ...(e.projectSlug ? { project: e.projectSlug } : {}),
+            ...(e.conversationId ? { conversation: e.conversationId } : {}),
+            text: e.text.slice(0, 500),
+          }));
+        return JSON.stringify({ found, history });
+      }
       /*
        * An empty array reads as "nothing is known", and the reply that
        * follows says so. Usually the words were wrong rather than the store

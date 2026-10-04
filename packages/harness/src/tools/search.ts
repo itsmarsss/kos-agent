@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import type { EmbeddingProvider } from "../memory/embeddings.js";
-import type { EpisodicStore } from "../memory/episodic.js";
+import type { EventLog } from "../memory/events.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import type { Workspace } from "../store/workspace.js";
@@ -12,7 +12,7 @@ const exec = promisify(execFile);
 
 export interface SearchModuleOptions {
   /** Wire these to enable the semantic search tool; grep needs neither. */
-  episodic?: EpisodicStore;
+  events?: EventLog;
   embedder?: EmbeddingProvider;
   /** ripgrep binary; injectable for tests. */
   rgPath?: string;
@@ -93,14 +93,14 @@ export function defineSearchTools(
     { floor: "safe" },
   );
 
-  if (opts.episodic && opts.embedder) {
-    const episodic = opts.episodic;
+  if (opts.events && opts.embedder) {
+    const events = opts.events;
     const embedder = opts.embedder;
     ctx.registerTool(
       {
         name: "search.semantic",
         description:
-          "Semantic/concept search over episodic memory (vector similarity).",
+          "Search everything that has been said, by meaning and by words at once: what the owner and KOS said in any conversation, with when and where.",
         inputSchema: {
           type: "object",
           properties: {
@@ -116,9 +116,15 @@ export function defineSearchTools(
         if (!embedding) return "[]";
         const userId = typeof input.userId === "string" ? input.userId : "owner";
         const k = typeof input.k === "number" ? input.k : 5;
-        const hits = episodic.search(userId, embedding, k);
+        const hits = events.search({ userId, query: str(input, "query"), embedding, k });
         return JSON.stringify(
-          hits.map((h) => ({ text: h.text, distance: h.distance })),
+          hits.map((h) => ({
+            text: h.text,
+            who: h.role,
+            when: new Date(h.ts).toISOString(),
+            ...(h.projectSlug ? { project: h.projectSlug } : {}),
+            ...(h.conversationId ? { conversation: h.conversationId } : {}),
+          })),
         );
       },
       { floor: "safe" },
@@ -133,7 +139,7 @@ export function defineSearchTools(
  */
 export function createSearchModule(opts: SearchModuleOptions = {}): KosModule {
   const provides = [{ kind: "tool" as const, name: "search.grep", version: "1.0.0" }];
-  if (opts.episodic && opts.embedder) {
+  if (opts.events && opts.embedder) {
     provides.push({ kind: "tool", name: "search.semantic", version: "1.0.0" });
   }
   return {
