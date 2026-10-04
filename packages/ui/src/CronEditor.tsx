@@ -91,9 +91,12 @@ export function CronEditor({
   onRunNow,
   onToggle,
   onDelete,
+  hooks = false,
 }: {
   /** Absent when writing a new one. */
   job?: CronJob;
+  /** Whether the host takes inbound hooks, so the job's address can be shown. */
+  hooks?: boolean;
   onDone: () => void;
   onCancel: () => void;
   /** Fire it now, so "does this work" is not a day's wait per attempt. */
@@ -201,6 +204,13 @@ export function CronEditor({
               </button>
             )}
           </span>
+          {/* Where an outside service posts to start this job. Only when
+              the host has a hook secret; without one there is no address. */}
+          {hooks && (
+            <code className="cron-hook" title="POST here with the hook secret as a bearer token">
+              POST /api/hooks/{encodeURIComponent(job.name)}
+            </code>
+          )}
         </div>
       )}
 

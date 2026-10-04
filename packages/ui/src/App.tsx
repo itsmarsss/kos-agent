@@ -680,6 +680,7 @@ export function App(): React.ReactElement {
           {editingCron && (
             <CronEditor
               {...(editingCron.job ? { job: editingCron.job } : {})}
+              hooks={status?.hooks === true}
               onDone={() => {
                 setEditingCron(null);
                 void refresh();

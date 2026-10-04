@@ -5180,6 +5180,7 @@ a.health {
    that changes it. Save and Cancel stay at the foot on their own. */
 .cron-state {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 0.6rem;
@@ -5187,6 +5188,12 @@ a.health {
   border-bottom: 1px solid var(--line);
 }
 .cron-extra { display: flex; gap: 0.4rem; }
+.cron-hook {
+  flex-basis: 100%;
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
 .cron-badge {
   display: inline-flex;
   align-items: center;

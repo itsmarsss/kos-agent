@@ -8,6 +8,8 @@ export interface Status {
   projects?: number;
   pages?: number;
   discord?: boolean;
+  /** Whether an outside service can start a job through /api/hooks. */
+  hooks?: boolean;
   pid?: number;
   workspace?: string;
   orchestratorId?: string;
