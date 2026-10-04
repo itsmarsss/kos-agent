@@ -117,7 +117,8 @@ describe("memory tools: reading the log and citing it", () => {
     expect(flagged).toMatchObject({ kind: "contradiction", keys: ["global/city", "project:trip/city"] });
     expect(reviewQueue.pending()).toHaveLength(1);
     expect((await call("memory.page", { name: "profile", markdown: "# Owner\n- city: Montreal" })).json).toMatchObject({ wrote: "memory/profile.md" });
-    expect((await call("memory.pages", { name: "profile" })).content).toContain("city: Montreal");
+    // A page comes back as its text, not JSON.
+    expect((await registry.execute("memory.pages", { name: "profile" })).content).toContain("city: Montreal");
     expect((await call("memory.page", { name: "../x", markdown: "no" })).isError).toBe(true);
     for (const safe of ["memory.review", "memory.merge", "memory.archive", "memory.flag", "memory.page", "memory.pages", "memory.threads", "memory.thread", "memory.observe"]) {
       expect(registry.classify(safe, {}).tier).toBe("safe");
