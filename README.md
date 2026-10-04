@@ -76,10 +76,14 @@ scheduled one.
 by words and by meaning. What KOS believes is a claim: scoped to a project or
 global, never overwritten (a change supersedes, the old row stays), linked to
 the events it came from, hard-forgotten on request down to the vectors.
-Heuristics catch the obvious; with extraction switched on in Settings, a
-cheap model reads new conversation in batches and proposes claims that must
-cite their sources. `kos eval memory` scores that reader against a fixed
-golden set, embedder held constant, so a change is measured rather than felt.
+Heuristics catch the obvious. The rest is KOS's own job: `kos.memory`, a
+scheduled self-prompt with a brief you can read and edit, reads what was said
+with `memory.unread` and keeps what matters with `memory.remember`, citing
+the events it read; a claim that cites events it was not shown is refused.
+It runs on whichever model class the job names. A fixed extractor behind the
+same contract is the floor when the job is off. `kos eval memory`, with or
+without `--agent`, scores either reader on a golden set with the embedder
+held constant, so a change is measured rather than felt.
 
 **Extends itself.** New skills are sandbox-tested in a child process against a
 throwaway database copy, then promoted automatically if safe, or queued for
