@@ -15,7 +15,7 @@ import { hrefFor } from "./routes.js";
  * makes a dashboard trustworthy.
  */
 
-type Go = (to: "agents" | "history" | "projects" | "crons" | "chats" | "settings") => void;
+type Go = (to: "agents" | "history" | "projects" | "crons" | "chats" | "settings" | "memory", section?: string) => void;
 
 function ago(ts: number): string {
   const mins = Math.max(0, Math.round((Date.now() - ts) / 60000));
@@ -86,11 +86,22 @@ export function Panel({
   switch (panel.kind) {
     case "approvals": {
       const rows = data.approvals;
+      const decisions = data.memory.decisions;
       return (
         <div className="panel panel--attention">
-          <Head title={title ?? "Needs you"} count={rows.length} />
+          <Head title={title ?? "Needs you"} count={rows.length + decisions} />
+          {decisions > 0 && (
+            /* Memory's open questions count as waiting on you too; they are
+               answered on the Memory page, where the claims are. */
+            <button type="button" className="panel-row panel-approval-memory" onClick={() => onGo("memory")}>
+              <span className="panel-row-main">
+                {decisions === 1 ? "A memory decision" : `${decisions} memory decisions`}: what to keep, what to promote
+              </span>
+              <span className="panel-row-side">Decide →</span>
+            </button>
+          )}
           {rows.length === 0 ? (
-            <Empty>Nothing is waiting on you.</Empty>
+            decisions === 0 && <Empty>Nothing is waiting on you.</Empty>
           ) : (
             <ul className="panel-list">
               {rows.slice(0, limit).map((a) => (
@@ -385,6 +396,67 @@ export function Panel({
                 </div>
               )}
             </div>
+          )}
+        </div>
+      );
+    }
+
+    case "memory": {
+      const mem = data.memory;
+      const jobLabel: Record<string, string> = { "kos.memory": "Read", "kos.dream": "Tidy", "kos.observe": "Condense" };
+      const on = mem.jobs.filter((j) => j.enabled);
+      const latest = mem.jobs.reduce<number | null>((t, j) => (j.lastRunAt && (!t || j.lastRunAt > t) ? j.lastRunAt : t), null);
+      return (
+        <div className={`panel${mem.decisions > 0 ? " panel--attention" : ""}`}>
+          <Head title={title ?? "Memory"} count={mem.decisions} onMore={() => onGo("memory")} />
+          <div className="panel-stats">
+            <div>
+              <span className="panel-stat">{mem.claims}</span>
+              <span className="panel-stat-label">claims</span>
+            </div>
+            <div>
+              <span className="panel-stat">{mem.unread}</span>
+              <span className="panel-stat-label">unread</span>
+            </div>
+            <div>
+              <span className="panel-stat">{mem.decisions}</span>
+              <span className="panel-stat-label">to decide</span>
+            </div>
+          </div>
+          <p className="panel-note panel-memory-jobs">
+            {mem.jobs.length === 0
+              ? "No memory jobs yet."
+              : on.length === 0
+                ? `Jobs off${mem.extraction ? "; reading after each turn" : "; nothing reads the log"}.`
+                : `${on.map((j) => jobLabel[j.name] ?? j.name).join(", ")} on${latest ? `, last ran ${ago(latest)} ago` : ", never ran"}.`}
+          </p>
+        </div>
+      );
+    }
+
+    case "modules": {
+      const mods = data.modules.modules;
+      const builtinsOn = data.modules.builtins.filter((b) => b.enabled);
+      const broken = mods.filter((m) => m.enabled && m.error);
+      return (
+        <div className={`panel${broken.length ? " panel--bad" : ""}`}>
+          <Head title={title ?? "Modules"} count={broken.length} onMore={() => onGo("settings", "modules")} />
+          {mods.length === 0 ? (
+            <Empty>{`No workspace modules. Built in: ${builtinsOn.map((b) => b.name).join(", ") || "none"}.`}</Empty>
+          ) : (
+            <ul className="panel-list">
+              {mods.slice(0, limit).map((mod) => (
+                <li key={mod.name}>
+                  <span className={`panel-row${mod.enabled && mod.error ? " is-error" : ""}`}>
+                    <span className={`agent-dot agent-dot--${!mod.enabled ? "stopped" : mod.error ? "failed" : mod.connected ? "running" : "waiting"}`} />
+                    <span className="panel-row-main">{mod.name}</span>
+                    <span className="panel-row-side">
+                      {!mod.enabled ? "off" : mod.error ? "not connected" : mod.tools ? `${mod.tools.length} tools` : "starting"}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       );

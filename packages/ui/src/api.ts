@@ -306,6 +306,15 @@ export interface ContextUse {
   total: { inputTokens: number; outputTokens: number; calls: number };
   /** Absent when the model's window is not known. */
   window?: number;
+  /** What the last turn was given from memory. Absent until a turn has run. */
+  recalled?: TurnRecall;
+}
+
+export interface TurnRecall {
+  at: number;
+  projectSlug: string | null;
+  facts: { id: number; key: string; value: string; scope: string; pinned: boolean; trust: string }[];
+  events: { id: number; role: string; text: string; ts: number }[];
 }
 
 export interface ContextUseDetail {
@@ -371,6 +380,23 @@ export interface HomeData {
   chats: Conversation[];
   crons: CronJob[];
   spend: { models: ModelSpend[] };
+  memory: HomeMemory;
+  modules: { modules: ModuleInfo[]; builtins: BuiltinInfo[] };
+}
+
+/** Memory at a glance, for the home page. */
+export interface HomeMemory {
+  claims: number;
+  unread: number;
+  extraction: boolean;
+  decisions: number;
+  jobs: { id: number; name: string; enabled: boolean; lastRunAt: number | null }[];
+}
+
+export interface BuiltinInfo {
+  name: string;
+  description: string;
+  enabled: boolean;
 }
 
 export interface BuildRecord {
@@ -559,7 +585,7 @@ export const api = {
   skills: () => get<{ skills: SkillInfo[]; invalid: { name: string; reason: string }[] }>("/api/skills"),
   setSkillEnabled: (name: string, enabled: boolean) =>
     post<{ name: string; enabled: boolean }>("/api/skills/enable", { name, enabled }),
-  modules: () => get<{ modules: ModuleInfo[]; invalid: { name: string; reason: string }[]; builtins?: { name: string; description: string; enabled: boolean }[] }>("/api/modules"),
+  modules: () => get<{ modules: ModuleInfo[]; invalid: { name: string; reason: string }[]; builtins?: BuiltinInfo[] }>("/api/modules"),
   setModuleEnabled: (name: string, enabled: boolean) =>
     post<{ name: string; enabled: boolean; connected?: boolean; tools?: string[]; error?: string }>("/api/modules/enable", { name, enabled }),
   crons: () => get<CronJob[]>("/api/crons"),

@@ -61,23 +61,29 @@ type SectionId =
   | "permissions"
   | "workspace";
 
-const SECTIONS: { id: SectionId; label: string; blurb: string }[] = [
-  { id: "you", label: "You", blurb: "Who KOS thinks it is working for" },
-  { id: "providers", label: "Providers", blurb: "API keys and channel credentials" },
-  { id: "models", label: "Models", blurb: "Which model answers, and which builds" },
-  { id: "conversation", label: "Conversation", blurb: "How much history is kept" },
-  {
-    id: "behaviour",
-    label: "Behaviour",
-    blurb: "How KOS acts when you are not watching",
-  },
-  { id: "network", label: "Network", blurb: "Ports, binding, and what the agent may reach" },
-  { id: "spend", label: "Spend", blurb: "Tokens used and what they cost" },
-  { id: "skills", label: "Skills", blurb: "What KOS knows how to do, and which are on" },
-  { id: "modules", label: "Modules", blurb: "Features built as servers, and which are running" },
-  { id: "permissions", label: "Permissions", blurb: "Decisions you made at a prompt and kept" },
-  { id: "workspace", label: "Workspace", blurb: "Where everything lives" },
+/**
+ * The rail, grouped by what you came to do. Eleven subjects in one column did
+ * not scan; five headings do, and each one names a reason to be here.
+ */
+const SECTIONS: { id: SectionId; group: string; label: string; blurb: string }[] = [
+  { id: "you", group: "Account", label: "You", blurb: "Who KOS thinks it is working for" },
+  { id: "providers", group: "Account", label: "Providers", blurb: "API keys and channel credentials" },
+  { id: "models", group: "Account", label: "Models", blurb: "Which model answers, which builds, which is cheap" },
+  { id: "conversation", group: "Conduct", label: "Conversation", blurb: "How much history is kept" },
+  { id: "behaviour", group: "Conduct", label: "Behaviour", blurb: "How KOS acts when you are not watching" },
+  { id: "skills", group: "Extensions", label: "Skills", blurb: "What KOS knows how to do, and which are on" },
+  { id: "modules", group: "Extensions", label: "Modules", blurb: "Features built as servers, and which are running" },
+  { id: "permissions", group: "Access", label: "Permissions", blurb: "Decisions you made at a prompt and kept" },
+  { id: "network", group: "Access", label: "Network", blurb: "Ports, binding, and what the agent may reach" },
+  { id: "spend", group: "Housekeeping", label: "Spend", blurb: "Tokens used and what they cost" },
+  { id: "workspace", group: "Housekeeping", label: "Workspace", blurb: "Where everything lives" },
 ];
+
+const GROUPS = [...new Set(SECTIONS.map((s) => s.group))];
+
+function isSection(id: string | undefined): id is SectionId {
+  return SECTIONS.some((s) => s.id === id);
+}
 
 /** One setting: a label, the control, and why you would touch it. */
 function Field({
@@ -302,10 +308,24 @@ function timezones(): string[] {
   }
 }
 
-export function SettingsPage(): ReactElement {
+export function SettingsPage({
+  section,
+  onSection,
+}: {
+  /** The section the hash names, so a link can land on one. */
+  section?: string;
+  onSection?: (section: SectionId) => void;
+} = {}): ReactElement {
   const [data, setData] = useState<SettingsPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [active, setActive] = useState<SectionId>("you");
+  const [active, setActiveState] = useState<SectionId>(isSection(section) ? section : "you");
+  useEffect(() => {
+    if (isSection(section)) setActiveState(section);
+  }, [section]);
+  const setActive = (id: SectionId): void => {
+    setActiveState(id);
+    onSection?.(id);
+  };
   const [how, setHow] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
   /** The last values the server confirmed, so an edit can be seen as one. */
   const [savedHow, setSavedHow] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
@@ -524,16 +544,21 @@ export function SettingsPage(): ReactElement {
   return (
     <div className="settings-page">
       <nav className="set-rail" aria-label="Settings sections">
-        {SECTIONS.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            className={`set-rail-item ${active === s.id ? "is-on" : ""}`}
-            onClick={() => setActive(s.id)}
-          >
-            <span className="set-rail-label">{s.label}</span>
-            <span className="set-rail-blurb">{s.blurb}</span>
-          </button>
+        {GROUPS.map((group) => (
+          <div key={group} className="set-rail-group">
+            <h3 className="set-rail-head">{group}</h3>
+            {SECTIONS.filter((s) => s.group === group).map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={`set-rail-item ${active === s.id ? "is-on" : ""}`}
+                onClick={() => setActive(s.id)}
+              >
+                <span className="set-rail-label">{s.label}</span>
+                <span className="set-rail-blurb">{s.blurb}</span>
+              </button>
+            ))}
+          </div>
         ))}
       </nav>
 

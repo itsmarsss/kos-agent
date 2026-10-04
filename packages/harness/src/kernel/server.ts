@@ -8,6 +8,7 @@ import { parseHomeLayout,
 } from "@kos/shared";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
+import { DREAM_JOB, MEMORY_JOB, OBSERVE_JOB } from "../memory/job.js";
 import { runDisplayQuery } from "../systems/display.js";
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
@@ -132,6 +133,52 @@ const WRITE_CAPABLE = new Set(["list", "card", "form"]);
  */
 const HOOKS_PREFIX = "/api/hooks/";
 const CALLER_PREFIX = "/api/caller/";
+
+/** Every module the workspace has, with whether it is on and whether its server came up. */
+function modulesReport(kernel: Kernel): {
+  modules: Record<string, unknown>[];
+  invalid: { name: string; reason: string }[];
+  builtins: { name: string; description: string; enabled: boolean }[];
+} {
+  const { modules, invalid } = readWorkspaceModules(kernel.workspace);
+  const on = new Set(parseModuleSettings(kernel.settings.get(MODULES_KEY)).enabled);
+  const status = kernel.mcp.status();
+  return {
+    modules: modules.map((m) => ({
+      ...m.manifest,
+      dir: m.dir,
+      enabled: on.has(m.manifest.name),
+      ...(status[m.manifest.name] ?? {}),
+    })),
+    invalid,
+    builtins: kernel.builtins(),
+  };
+}
+
+/**
+ * Memory at a glance: how much it holds, what it has not read, what it is
+ * waiting on the owner for, and whether its jobs are on. The home page draws
+ * this; the Memory page has the detail.
+ */
+function memoryReport(kernel: Kernel): {
+  claims: number;
+  unread: number;
+  extraction: boolean;
+  decisions: number;
+  jobs: { id: number; name: string; enabled: boolean; lastRunAt: number | null }[];
+} {
+  const mine = new Set([MEMORY_JOB, DREAM_JOB, OBSERVE_JOB]);
+  return {
+    claims: kernel.facts.all(kernel.profile.ownerId).length,
+    unread: kernel.extractor.pending().count,
+    extraction: kernel.behaviour().memoryExtraction,
+    decisions: kernel.review.pending().length,
+    jobs: kernel.crons
+      .list()
+      .filter((j) => mine.has(j.name))
+      .map((j) => ({ id: j.id, name: j.name, enabled: j.enabled, lastRunAt: j.lastRunAt ?? null })),
+  };
+}
 
 export async function handleApiRequest(
   kernel: Kernel,
@@ -488,19 +535,7 @@ export async function handleApiRequest(
   }
 
   if (method === "GET" && path === "/api/modules") {
-    const { modules, invalid } = readWorkspaceModules(kernel.workspace);
-    const on = new Set(parseModuleSettings(kernel.settings.get(MODULES_KEY)).enabled);
-    const status = kernel.mcp.status();
-    return ok({
-      modules: modules.map((m) => ({
-        ...m.manifest,
-        dir: m.dir,
-        enabled: on.has(m.manifest.name),
-        ...(status[m.manifest.name] ?? {}),
-      })),
-      invalid,
-      builtins: kernel.builtins(),
-    });
+    return ok(modulesReport(kernel));
   }
 
   /*
@@ -1191,6 +1226,8 @@ export async function handleApiRequest(
       spend: {
         models: kernel.spend.byModel(Date.now() - 7 * 24 * 60 * 60 * 1000),
       },
+      memory: memoryReport(kernel),
+      modules: modulesReport(kernel),
     });
   }
 
@@ -1257,6 +1294,7 @@ export async function handleApiRequest(
         maxExchanges: retention.maxExchanges,
       },
       ...(last ? { last } : {}),
+      ...(kernel.recalled(id) ? { recalled: kernel.recalled(id) } : {}),
       total: kernel.spend.forConversation(id),
       window: last
         ? windowFor(

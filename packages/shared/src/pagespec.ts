@@ -125,6 +125,8 @@ export type PanelKind =
   | "chats"
   | "schedule"
   | "spend"
+  | "memory"
+  | "modules"
   | "note";
 
 export interface HomePanel {
@@ -153,6 +155,8 @@ const PANEL_KINDS: PanelKind[] = [
   "chats",
   "schedule",
   "spend",
+  "memory",
+  "modules",
   "note",
 ];
 
@@ -170,6 +174,8 @@ export const DEFAULT_HOME: HomeLayout = {
     { id: "approvals", kind: "approvals", span: "full" },
     { id: "agents", kind: "agents", span: "half" },
     { id: "failures", kind: "failures", span: "half", limit: 5 },
+    { id: "memory", kind: "memory", span: "half" },
+    { id: "modules", kind: "modules", span: "half" },
     { id: "projects", kind: "projects", span: "full" },
     { id: "activity", kind: "activity", span: "half", limit: 8 },
     { id: "chats", kind: "chats", span: "half", limit: 6 },

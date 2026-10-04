@@ -4000,6 +4000,17 @@ li:hover .chats-item-when { opacity: 0; }
   border-color: var(--accent);
   color: var(--text);
 }
+.set-rail-group { display: flex; flex-direction: column; gap: 0.15rem; }
+.set-rail-group + .set-rail-group { margin-top: 0.7rem; }
+.set-rail-head {
+  margin: 0 0 0.2rem;
+  padding: 0 0.7rem;
+  color: var(--faint);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
 .set-rail-label { font-size: var(--text-md); font-weight: 500; }
 .set-rail-blurb { font-size: var(--text-sm); color: var(--faint); line-height: 1.35; }
 
@@ -5345,3 +5356,46 @@ a.health {
 .mem-issued code { display: block; margin-top: 0.4rem; word-break: break-all; }
 .mem-new { display: grid; gap: 0.5rem; grid-template-columns: 1fr 1fr auto auto; align-items: center; padding-top: 0.6rem; border-top: 1px solid var(--line); }
 @media (max-width: 720px) { .mem-new { grid-template-columns: 1fr; } .mem-decision, .mem-job, .mem-row--split { flex-direction: column; } }
+
+/* Home: the memory and modules panels. */
+.panel-approval-memory { width: 100%; text-align: left; margin-bottom: 0.4rem; }
+.panel-approval-memory .panel-row-side { color: var(--accent); }
+.panel-memory-jobs { margin: 0.6rem 0 0; color: var(--faint); font-size: var(--text-sm); }
+
+/* Chat: what the last turn was given from memory, beside the context meter. */
+.recall { position: relative; display: inline-flex; }
+.recall--none { color: var(--faint); font-size: var(--text-sm); }
+.recall-chip {
+  padding: 0.15rem 0.5rem;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-sm);
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.recall-chip:hover, .recall-chip.is-open { color: var(--text); border-color: var(--accent); }
+.recall-pop {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  left: 0;
+  z-index: 30;
+  width: min(28rem, 80vw);
+  max-height: 22rem;
+  overflow: auto;
+  padding: 0.7rem 0.85rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.35);
+  font-size: var(--text-sm);
+}
+.recall-scope, .recall-head { margin: 0 0 0.4rem; color: var(--faint); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; }
+.recall-head { margin-top: 0.7rem; }
+.recall-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.recall-list li { display: flex; flex-wrap: wrap; gap: 0.2rem 0.5rem; align-items: baseline; }
+.recall-key { font-family: var(--mono); color: var(--accent); }
+.recall-value { color: var(--text); flex: 1 1 100%; }
+.recall-meta { color: var(--faint); font-size: var(--text-xs); }
