@@ -61,6 +61,7 @@ import { SkillPromoter, type PromoteInput, type PromoteOutcome } from "../skills
 import { Workspace } from "../store/workspace.js";
 import { InstanceConfig } from "../systems/config.js";
 import { ProjectManifest } from "../systems/manifest.js";
+import { describeActive } from "../systems/schema.js";
 import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
 import { createHttpModule } from "../tools/http.js";
@@ -1002,10 +1003,14 @@ export class Kernel {
         const extra = [formatting, conversation?.brief, scopeNote]
           .filter((part): part is string => Boolean(part && part.trim()))
           .join("\n\n");
+        const projects = this.manifest.list();
         const { system, turnContext } = assembleSystemPrompt({
           baseSystem: this.system,
           profile: this.profile,
-          projects: this.manifest.list(),
+          projects,
+          // The tables those projects own. Without them the model guessed
+          // column names, and 77 sql calls on one workspace failed that way.
+          schemas: describeActive(this.workspace.db, projects),
           recall,
           ...(extra ? { extra } : {}),
           // What this message pulled in, kept out of the system prompt so the
@@ -1943,10 +1948,14 @@ export class Kernel {
       factLimit: 10,
       episodeLimit: 4,
     });
+    const projects = this.manifest.list();
     const assembled = assembleSystemPrompt({
       baseSystem: this.system,
       profile: this.profile,
-      projects: this.manifest.list(),
+      projects,
+      // The tables those projects own. Without them the model guessed
+      // column names, and 77 sql calls on one workspace failed that way.
+      schemas: describeActive(this.workspace.db, projects),
       recall,
       extra: [
         "## Scheduled run",

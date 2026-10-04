@@ -60,6 +60,36 @@ describe("assembleSystemPrompt", () => {
     expect(prompt.turnContext).toContain(TURN_CONTEXT_HEADER);
   });
 
+  it("puts the tables the projects own in front of the model", () => {
+    // Without this the model guessed column names, and lost 77 times on one
+    // workspace. The physical names are what it has to type.
+    const prompt = assembleSystemPrompt({
+      baseSystem: "You are KOS.",
+      profile: DEFAULT_PROFILE,
+      projects: [],
+      schemas: [
+        {
+          slug: "budget",
+          lastTouchedAt: 0,
+          tables: [{ name: "budget_tx", columns: ["id", "amount", "posted_on"] }],
+        },
+      ],
+      recall: { facts: [], episodes: [] },
+    });
+    expect(prompt.system).toContain("## Tables");
+    expect(prompt.system).toContain("- budget_tx: id, amount, posted_on");
+  });
+
+  it("says nothing about tables when there are none", () => {
+    const prompt = assembleSystemPrompt({
+      baseSystem: "You are KOS.",
+      profile: DEFAULT_PROFILE,
+      projects: [],
+      recall: { facts: [], episodes: [] },
+    });
+    expect(prompt.system).not.toContain("## Tables");
+  });
+
   it("hands back no turn context when nothing was recalled", () => {
     const prompt = assembleSystemPrompt({
       baseSystem: "You are KOS.",

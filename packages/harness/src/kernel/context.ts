@@ -1,5 +1,6 @@
 import type { ModelMessage } from "../models/types.js";
 import type { Project } from "../systems/manifest.js";
+import { renderSchemas, type ProjectSchema } from "../systems/schema.js";
 import type { Recall } from "../memory/retriever.js";
 import type { Profile } from "./profile.js";
 
@@ -13,6 +14,8 @@ export interface ContextParts {
   baseSystem: string;
   profile: Profile;
   projects: Project[];
+  /** The tables the active projects own, so sql is written against real names. */
+  schemas?: ProjectSchema[];
   recall: Recall;
   /** Per-conversation, so it belongs with the fixed half. */
   extra?: string;
@@ -84,6 +87,8 @@ export function assembleSystemPrompt(parts: ContextParts): AssembledPrompt {
     }
   }
   sections.push(projectLines.join("\n"));
+  const tables = renderSchemas(parts.schemas ?? []);
+  if (tables) sections.push(tables);
 
   /*
    * What changes every turn goes last, not in the middle.
