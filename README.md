@@ -199,6 +199,11 @@ pnpm start              # API + dashboard + cron + channels
 
 Open `http://127.0.0.1:4317`, or attach a REPL with `pnpm kos`.
 
+`pnpm start` leaves a detached process that nothing restarts. On macOS,
+`pnpm kos service install` makes the host a launchd agent instead: it comes
+back after a crash, starts at login, and `kos stop` still stops it.
+`kos service status` says which is running; `uninstall` removes it.
+
 ### Configuration
 
 `.env` is git-ignored; `.env.example` documents every key.
