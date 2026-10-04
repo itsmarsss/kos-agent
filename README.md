@@ -92,6 +92,7 @@ approval if not.
 | **Skills** | Sandbox-tested before promotion |
 | **Audit** | Every call logged with arguments, result, risk tier, caller |
 | **Secrets** | Held outside the workspace, referenced by name, injected at call time, redacted from logs. Child processes get an allow-listed environment |
+| **Shell** | `shell.run` is jailed: by the container, or on macOS by a sandbox profile under which the owner's home is unreadable except the workspace and writes land only inside it. Risky by floor; a remembered permission is per program and never covers a chain or a pipeline |
 
 ### Reading iMessage
 

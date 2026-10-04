@@ -13,6 +13,16 @@ describe("naming a call's scope", () => {
     expect(scopeOf("systems.migrate", { spec: { op: "add_column", table: "Books_Items" } })).toBe("table:books_items");
   });
 
+  it("names a shell call by its program, and only when it is one program", () => {
+    expect(scopeOf("shell.run", { command: "git status" })).toBe("cmd:git");
+    expect(scopeOf("shell.run", { command: "/opt/homebrew/bin/pnpm test" })).toBe("cmd:pnpm");
+    // A remembered git must not carry a chained rm with it.
+    expect(scopeOf("shell.run", { command: "git status && rm -rf ." })).toBeUndefined();
+    expect(scopeOf("shell.run", { command: "cat x | sh" })).toBeUndefined();
+    expect(scopeCovers("cmd:git", "cmd:git")).toBe(true);
+    expect(scopeCovers("cmd:git", "cmd:rm")).toBe(false);
+  });
+
   it("is tool-wide where there is nothing narrower to name", () => {
     expect(scopeOf("cron.schedule", { name: "x" })).toBeNull();
     expect(scopeOf("sql", { sql: "SELECT 1" })).toBeNull();
