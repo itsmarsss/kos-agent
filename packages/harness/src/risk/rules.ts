@@ -31,7 +31,7 @@ export function sqlWriteEscalation(sensitiveTables: string[]): Escalation {
   };
 }
 
-function hostOf(url: string): string | undefined {
+export function hostOf(url: string): string | undefined {
   try {
     return new URL(url).hostname.toLowerCase();
   } catch {
@@ -95,4 +95,23 @@ export function pathOutsideScratchEscalation(scratchPrefix: string): Escalation 
     const normalized = normalizeSlashes(path);
     return normalized !== prefix && !normalized.startsWith(`${prefix}/`);
   };
+}
+
+/**
+ * The tables a write statement touches, lower-cased, in order of appearance.
+ *
+ * Used to name the scope of a remembered permission: "sql writes to this
+ * table" is a thing an owner can mean, "sql writes" is not. Deliberately
+ * simple: the statement shapes the agent produces are INSERT INTO t, UPDATE
+ * t, DELETE FROM t, and the DDL forms. A statement this cannot read yields
+ * no tables, and a rule with no table never matches it.
+ */
+export function writtenTables(sql: string): string[] {
+  const out: string[] = [];
+  const re = /\b(?:insert\s+into|update|delete\s+from|alter\s+table|drop\s+table(?:\s+if\s+exists)?|create\s+table(?:\s+if\s+not\s+exists)?|truncate(?:\s+table)?|replace\s+into)\s+[`"\[]?([a-z_][a-z0-9_]*)/gi;
+  for (const m of sql.matchAll(re)) {
+    const t = m[1]!.toLowerCase();
+    if (!out.includes(t)) out.push(t);
+  }
+  return out;
 }
