@@ -29,7 +29,8 @@ export const MEMORY_JOB_PROMPT = [
   "   timezone, city, coffee_order), never sentences. A key names the owner's own attribute; a fact",
   "   about someone else goes under that person (sister: Nadia, a nurse in Halifax), never under",
   "   the owner's city or job. When a related claim already covers the thing, use its exact key so",
-  '   the new value replaces the old, even if you would name it differently. Scope "project" for things about',
+  '   the new value replaces the old, even if you would name it differently. If a related claim already',
+  '   says the same thing, keep nothing for it. Scope "project" for things about',
   '   the project the events belong to, "global" for the owner anywhere.',
   "3. Do not keep: questions, one-off requests, small talk, how the owner feels today, where they",
   "   are right now, battery or weather or traffic, plans that merely might happen, anything you",
@@ -38,7 +39,8 @@ export const MEMORY_JOB_PROMPT = [
   "4. Call memory.mark_read with the cursor you were given. If remaining was above zero, go back",
   "   to step 1, up to five times.",
   "",
-  "Finish with one short line: what you kept, or that there was nothing to keep. No report.",
+  "Finish with one short line listing the keys you called memory.remember for in this run, or the",
+  "words \"nothing new\". Never say you kept something you did not call memory.remember for.",
 ].join("\n");
 
 /** The memory job exists in every workspace, off until the owner switches it on. */
