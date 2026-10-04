@@ -89,6 +89,13 @@ export interface DashboardServerOptions {
    * requests must send `Authorization: Bearer <token>` or `x-kos-token: <token>`.
    */
   token?: string;
+  /**
+   * The secret an outside service sends to fire a job by name through
+   * `POST /api/hooks/<name>`. Its own secret, not the dashboard token: a
+   * hook caller can start a job the owner wrote and nothing else. Unset
+   * means there are no hooks.
+   */
+  hookSecret?: string;
   /** Bind policy hint for logs; enforcement is host-level. Default loopback. */
   host?: string;
   /** Hosted-mode metadata for /api/health and /api/status (daemon). */
@@ -117,6 +124,8 @@ const WRITE_CAPABLE = new Set(["list", "card", "form"]);
  * (approve/deny, kill switch, prompt box), page specs, and read-only display
  * queries.
  */
+const HOOKS_PREFIX = "/api/hooks/";
+
 export async function handleApiRequest(
   kernel: Kernel,
   req: ApiRequest,
@@ -128,6 +137,34 @@ export async function handleApiRequest(
 
   if (method === "OPTIONS") {
     return { status: 204, body: null };
+  }
+
+  /*
+   * An inbound hook: an outside service firing a job by name.
+   *
+   * Ahead of the dashboard token on purpose. The caller holds a secret made
+   * for this and nothing else; it opens no read and no other route. The
+   * body is ignored, so a caller can start a job the owner already wrote
+   * but cannot put words in it. The reply comes before the run: a webhook
+   * sender gives up in seconds, a self-prompt can take minutes, and the
+   * run reports to health the way a scheduled one does.
+   */
+  if (path.startsWith(HOOKS_PREFIX)) {
+    if (method !== "POST") return { status: 405, body: { error: "POST only" } };
+    if (!options.hookSecret) {
+      return { status: 403, body: { error: "hooks are off: set KOS_HOOK_SECRET" } };
+    }
+    if (!authorized(req, options.hookSecret)) {
+      return { status: 401, body: { error: "unauthorized" } };
+    }
+    const name = decodeURIComponent(path.slice(HOOKS_PREFIX.length));
+    const job = kernel.crons.list().find((c) => c.name === name);
+    if (!job) return { status: 404, body: { error: "no such job" } };
+    if (!job.enabled) return { status: 409, body: { error: `${job.name} is paused` } };
+    void kernel.fireCron(job.id).catch((err: unknown) => {
+      console.error(`hook ${job.name}: ${err instanceof Error ? err.message : String(err)}`);
+    });
+    return { status: 202, body: { accepted: job.name } };
   }
 
   // A configured token guards every route. Reads leak workspace state just as
@@ -155,6 +192,7 @@ export async function handleApiRequest(
       projects: kernel.manifest.list().length,
       pages: kernel.pages.list().length,
       discord: options.meta?.discord === true,
+      hooks: options.hookSecret !== undefined,
       pid: options.meta?.pid ?? process.pid,
       workspace: options.meta?.workspace ?? kernel.workspace.root,
       orchestratorId: orchestratorId(kernel.profile.ownerId),
