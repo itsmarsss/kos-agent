@@ -796,8 +796,8 @@ export const api = {
     }),
   renameConversation: (id: string, title: string) =>
     post<Conversation>("/api/conversations/rename", { id, title }),
-  archiveConversation: (id: string) =>
-    post<Conversation>("/api/conversations/archive", { id, archived: true }),
+  archiveConversation: (id: string, archived = true) =>
+    post<Conversation>("/api/conversations/archive", { id, archived }),
   deleteConversation: (id: string) =>
     post<{ id: string; removed: boolean }>("/api/conversations/delete", { id }),
   memory: (limit = 200) =>

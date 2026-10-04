@@ -14,7 +14,9 @@ export type Route =
   | { name: "page"; id: string };
 
 export function parseRoute(hash: string): Route {
-  const h = hash.replace(/^#/, "") || "/";
+  // A query on a hash route (#/memory?tab=log) is the page's own business;
+  // it used to make the whole route unrecognised and land on the overview.
+  const h = (hash.replace(/^#/, "").split("?")[0] ?? "") || "/";
   const path = h.startsWith("/") ? h : `/${h}`;
   // Opening KOS is opening a conversation: that is what it is for. The
   // overview is a page of its own now.

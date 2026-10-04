@@ -84,10 +84,11 @@ export function ProjectsPage({
     sites.sites.filter((s) => s.project === slug);
 
   /** A card's own action: its page if it has one, otherwise its details. */
+  // A card is the project. Its pages are the chips on it, each its own
+  // link; sending a click on the card to the first page made the card a
+  // lottery.
   const open = (project: Project, pages: PageSummary[]): void => {
-    const page = pages[0];
-    if (page) window.location.hash = hrefFor({ name: "page", id: page.id });
-    else onInspect(project, pages);
+    onInspect(project, pages);
   };
 
   const groups = useMemo(() => {

@@ -881,6 +881,7 @@ export function App(): React.ReactElement {
       <MemoryPage
         facts={facts}
         tags={factTags}
+        conversations={conversations}
         onChanged={() => void refresh()}
       />,
     );

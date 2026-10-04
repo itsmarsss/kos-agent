@@ -31,6 +31,8 @@ describe("parseRoute", () => {
     expect(parseRoute("#/home")).toEqual({ name: "home" });
     expect(hrefFor({ name: "home" })).toBe("#/home");
     expect(parseRoute("#/inbox")).toEqual({ name: "inbox" });
+    // A page's own query does not change which page it is.
+    expect(parseRoute("#/memory?tab=log")).toEqual({ name: "memory" });
   });
 
   it("lights the Runs entry for all three of its routes, and Projects for a page", () => {
