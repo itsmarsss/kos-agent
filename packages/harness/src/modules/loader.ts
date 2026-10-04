@@ -50,6 +50,8 @@ export interface ModuleContext {
     risk?: ToolRisk,
     meta?: ToolMeta,
   ): void;
+  /** Take a tool back, for a module whose server the owner switched off. */
+  unregisterTool?(name: string): boolean;
   services?: ModuleServices;
 }
 
@@ -93,6 +95,7 @@ export function toolRegistryContext(
   return {
     registerTool: (def, handler, risk, meta) =>
       registry.register(def, handler, risk, meta),
+    unregisterTool: (name) => registry.unregister(name),
     ...(services ? { services } : {}),
   };
 }

@@ -41,7 +41,10 @@ import { ProjectManifest } from "../systems/manifest.js";
 import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
 import { createHttpModule } from "../tools/http.js";
-import { createMcpModule } from "../tools/mcp.js";
+import { createMcpModule, readMcpConfig } from "../tools/mcp.js";
+import { createModulesModule } from "../tools/modules.js";
+import { MODULES_KEY, enabledServers, parseModuleSettings } from "../modules/workspace.js";
+import { isContained } from "../sandbox/jail.js";
 import { PermissionStore } from "../ops/permissions.js";
 import { createDaemonsModule } from "../tools/daemons.js";
 import { createSearchModule } from "../tools/search.js";
@@ -171,7 +174,24 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
 
   const daemons = new DaemonStore(workspace.db);
   const permissions = new PermissionStore(workspace.db);
-  const mcp = createMcpModule({ workspaceRoot: workspace.root, secrets });
+  const settings = new SettingsStore(workspace.db);
+  /*
+   * Servers from mcp.json, and the workspace's own modules the owner has
+   * switched on, each run from its folder in the jail. A module that
+   * shares a name with an mcp.json server loses: the owner's file wins.
+   */
+  const mcp = createMcpModule({
+    workspaceRoot: workspace.root,
+    secrets,
+    config: () => {
+      const servers = { ...readMcpConfig(workspace.root).servers };
+      const enabled = parseModuleSettings(settings.get(MODULES_KEY)).enabled;
+      for (const [name, server] of Object.entries(enabledServers(workspace, enabled, !isContained()))) {
+        if (!(name in servers)) servers[name] = server;
+      }
+      return { servers };
+    },
+  });
   const supervisor = new DaemonSupervisor({
     workspaceRoot: workspace.root,
     // A daemon that has given up is news: it was running unattended, and
@@ -296,6 +316,10 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     }),
     createSearchModule(),
     createShellModule(),
+    createModulesModule({
+      enabled: () => parseModuleSettings(settings.get(MODULES_KEY)).enabled,
+      status: () => mcp.status(),
+    }),
     // Tools from the owner's MCP servers, as any other module's tools.
     mcp,
     createDaemonsModule({
@@ -430,7 +454,6 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     });
   }
 
-  const settings = new SettingsStore(workspace.db);
   // Retention the owner set, applied before any turn reads history, so a
   // restart does not quietly go back to the defaults.
   /*
@@ -513,6 +536,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
 
   kernelRef = new Kernel({
     loader,
+    mcp,
     permissions,
     workspace,
     secrets,

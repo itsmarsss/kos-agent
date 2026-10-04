@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { launchdPlist, logPath, parsePrint, plistPath } from "./service.js";
+import { launchdPlist, logPath, parsePrint, plistPath, workspaceOfPlist } from "./service.js";
 
 const spec = {
   label: "dev.kos.host",
@@ -60,6 +60,12 @@ describe("the launchd agent", () => {
 
   it("lives under the user's LaunchAgents", () => {
     expect(plistPath("dev.kos.host")).toMatch(/\/Library\/LaunchAgents\/dev\.kos\.host\.plist$/);
+  });
+
+  it("reads the workspace back out of its own plist", () => {
+    expect(workspaceOfPlist(launchdPlist(spec))).toBe("/Users/me/kos-workspace");
+    expect(workspaceOfPlist(launchdPlist({ ...spec, workspace: "/Users/me/a&b <ws>" }))).toBe("/Users/me/a&b <ws>");
+    expect(workspaceOfPlist("<plist/>")).toBeUndefined();
   });
 
   it("reads the pid out of launchctl print", () => {

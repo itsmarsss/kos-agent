@@ -70,6 +70,18 @@ export interface SkillInfo {
   enabled: boolean;
 }
 
+/** A module in the workspace as the owner sees it in Settings. */
+export interface ModuleInfo {
+  name: string;
+  description: string;
+  dir: string;
+  enabled: boolean;
+  /** Set once the server was asked to come up. */
+  connected?: boolean;
+  tools?: string[];
+  error?: string;
+}
+
 /** A decision the owner made and kept. */
 export interface PermissionRule {
   id: number;
@@ -505,6 +517,9 @@ export const api = {
   skills: () => get<{ skills: SkillInfo[]; invalid: { name: string; reason: string }[] }>("/api/skills"),
   setSkillEnabled: (name: string, enabled: boolean) =>
     post<{ name: string; enabled: boolean }>("/api/skills/enable", { name, enabled }),
+  modules: () => get<{ modules: ModuleInfo[]; invalid: { name: string; reason: string }[] }>("/api/modules"),
+  setModuleEnabled: (name: string, enabled: boolean) =>
+    post<{ name: string; enabled: boolean; connected?: boolean; tools?: string[]; error?: string }>("/api/modules/enable", { name, enabled }),
   crons: () => get<CronJob[]>("/api/crons"),
   createCron: (job: Record<string, unknown>) =>
     post<CronJob>("/api/crons/create", job),

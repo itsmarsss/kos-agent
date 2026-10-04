@@ -68,14 +68,19 @@ export function isContained(): boolean {
   return process.env.KOS_CONTAINED === "1" || existsSync("/.dockerenv");
 }
 
-/** The process to spawn for a shell command, jailed for this platform. */
-export function jailedCommand(command: string, options: JailOptions): JailedCommand {
+/** A program and its arguments, jailed for this platform. */
+export function jailedProgram(file: string, args: string[], options: JailOptions): JailedCommand {
   const platform = options.platform ?? process.platform;
   if (options.contained ?? isContained()) {
-    return { file: "/bin/sh", args: ["-c", command] };
+    return { file, args };
   }
   if (platform === "darwin") {
-    return { file: "/usr/bin/sandbox-exec", args: ["-p", sandboxProfile(options), "/bin/sh", "-c", command] };
+    return { file: "/usr/bin/sandbox-exec", args: ["-p", sandboxProfile(options), file, ...args] };
   }
-  throw new Error("shell.run needs a jail: run the host in the container (docker compose up), or on macOS");
+  throw new Error("this needs a jail: run the host in the container (docker compose up), or on macOS");
+}
+
+/** The process to spawn for a shell command, jailed for this platform. */
+export function jailedCommand(command: string, options: JailOptions): JailedCommand {
+  return jailedProgram("/bin/sh", ["-c", command], options);
 }

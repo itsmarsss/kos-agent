@@ -6,7 +6,7 @@ import {
   api,
   type Behaviour,
   type ModelRate,
-  type SettingsPayload, type SkillInfo, type PermissionRule } from "./api.js";
+  type SettingsPayload, type ModuleInfo, type SkillInfo, type PermissionRule } from "./api.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { Select } from "./Select.js";
 import { SpendPanel } from "./SpendPanel.js";
@@ -55,6 +55,7 @@ type SectionId =
   | "network"
   | "spend"
   | "skills"
+  | "modules"
   | "permissions"
   | "workspace";
 
@@ -71,6 +72,7 @@ const SECTIONS: { id: SectionId; label: string; blurb: string }[] = [
   { id: "network", label: "Network", blurb: "Ports, binding, and what the agent may reach" },
   { id: "spend", label: "Spend", blurb: "Tokens used and what they cost" },
   { id: "skills", label: "Skills", blurb: "What KOS knows how to do, and which are on" },
+  { id: "modules", label: "Modules", blurb: "Features built as servers, and which are running" },
   { id: "permissions", label: "Permissions", blurb: "Decisions you made at a prompt and kept" },
   { id: "workspace", label: "Workspace", blurb: "Where everything lives" },
 ];
@@ -325,6 +327,20 @@ export function SettingsPage(): ReactElement {
   useEffect(() => {
     if (active === "skills") loadSkills();
   }, [active, loadSkills]);
+  const [modules, setModules] = useState<{ modules: ModuleInfo[]; invalid: { name: string; reason: string }[] }>({
+    modules: [],
+    invalid: [],
+  });
+  const [moduleBusy, setModuleBusy] = useState<string | null>(null);
+  const loadModules = useCallback(() => {
+    void api
+      .modules()
+      .then(setModules)
+      .catch(() => setModules({ modules: [], invalid: [] }));
+  }, []);
+  useEffect(() => {
+    if (active === "modules") loadModules();
+  }, [active, loadModules]);
   const [rules, setRules] = useState<PermissionRule[]>([]);
   const loadRules = useCallback(() => {
     void api.permissions().then((r) => setRules(r.rules)).catch(() => setRules([]));
@@ -1043,6 +1059,52 @@ export function SettingsPage(): ReactElement {
               <div className="set-group">
                 <h3>Could not be read</h3>
                 {skills.invalid.map((bad) => (
+                  <p key={bad.name} className="hint">
+                    <span className="ops-mono">{bad.name}</span>: {bad.reason}
+                  </p>
+                ))}
+              </div>
+            )}
+          </Section>
+        )}
+        {active === "modules" && (
+          <Section title="Modules" blurb="Each one is a folder under modules/ with a module.json and a server. Off is the default: KOS can write a module, and nothing runs until you switch it on here.">
+            {modules.modules.length === 0 && modules.invalid.length === 0 && (
+              <p className="hint">No modules yet. Ask KOS to make one with modules.create, or add a folder under modules/.</p>
+            )}
+            {modules.modules.map((m) => (
+              <Field
+                key={m.name}
+                label={m.name}
+                hint={
+                  m.error
+                    ? `${m.description} · not connected: ${m.error}`
+                    : m.connected && m.tools
+                      ? `${m.description} · serving ${m.tools.length} tool${m.tools.length === 1 ? "" : "s"}`
+                      : m.description
+                }
+              >
+                <label className="set-toggle">
+                  <input
+                    type="checkbox"
+                    checked={m.enabled}
+                    disabled={moduleBusy === m.name}
+                    onChange={(e) => {
+                      const enabled = e.target.checked;
+                      // The server comes up or goes down on the save, so the
+                      // list is re-read afterwards to show what happened.
+                      setModuleBusy(m.name);
+                      void api.setModuleEnabled(m.name, enabled).then(loadModules, loadModules).finally(() => setModuleBusy(null));
+                    }}
+                  />
+                  <span>{moduleBusy === m.name ? "…" : m.enabled ? "On" : "Off"}</span>
+                </label>
+              </Field>
+            ))}
+            {modules.invalid.length > 0 && (
+              <div className="set-group">
+                <h3>Could not be read</h3>
+                {modules.invalid.map((bad) => (
                   <p key={bad.name} className="hint">
                     <span className="ops-mono">{bad.name}</span>: {bad.reason}
                   </p>
