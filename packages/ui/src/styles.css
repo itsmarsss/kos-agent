@@ -4617,6 +4617,7 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
 
 /* The context meter now lives in the composer bar. */
 .sheet-composer-bar .ctx { margin-left: 0.25rem; }
+.sheet-composer-bar .ctx-text { white-space: nowrap; }
 .sheet-composer-bar .ctx-track { width: 2.5rem; }
 
 /* Full screen: a build log is long and wide, and the dialog was neither. */
@@ -5390,6 +5391,7 @@ a.health {
 .recall { position: relative; display: inline-flex; }
 .recall--none { color: var(--faint); font-size: var(--text-sm); }
 .recall-chip {
+  white-space: nowrap;
   padding: 0.15rem 0.5rem;
   background: transparent;
   border: 1px solid var(--line);
@@ -5643,3 +5645,35 @@ a.health {
   gap: 0.3rem;
 }
 .chats-welcome .hint { margin: 0; }
+
+/* —— the chat list as a tree —— */
+.chats-project-row { display: flex; align-items: stretch; }
+.chats-project-row .chats-item { flex: 1; min-width: 0; }
+.chats-disclose {
+  flex: none;
+  width: 1.6rem;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transform: rotate(-90deg);
+  transition: transform 160ms ease, color 0.12s ease;
+}
+.chats-disclose:hover { color: var(--text); }
+.chats-disclose.is-open { transform: none; }
+.chats-agents { list-style: none; margin: 0; padding: 0 0 0.2rem; }
+.chats-child .chats-item { padding-left: 1.5rem; }
+.chats-child .chats-item-title { font-size: var(--text-base); }
+.chats-child .chats-row { position: relative; }
+.chats-child .chats-row::before {
+  content: "";
+  position: absolute;
+  left: 0.85rem;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--line);
+}
+.chats-lineage { margin: 0.1rem 0 0; color: var(--muted); font-size: var(--text-sm); }
+.chats-lineage a { color: var(--accent); text-decoration: none; }
+.chats-lineage a:hover { text-decoration: underline; }
