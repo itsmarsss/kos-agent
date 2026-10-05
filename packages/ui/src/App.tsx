@@ -31,6 +31,7 @@ import { FilesPage } from "./FilesPage.js";
 import { AgentsPage } from "./AgentsPage.js";
 import { SettingsPage } from "./SettingsPage.js";
 import { ProjectsPage } from "./ProjectsPage.js";
+import { ProjectWorkspacePage } from "./ProjectWorkspacePage.js";
 import { MemoryPage } from "./MemoryPage.js";
 import { InboxPage } from "./InboxPage.js";
 import { RunsTabs } from "./RunsTabs.js";
@@ -660,6 +661,7 @@ export function App(): React.ReactElement {
         agents={agents}
         onOpenAgent={(id) => go({ name: "agents", id })}
         onOpen={(id) => go({ name: "chats", id })}
+        onOpenProject={(slug) => go({ name: "project", slug })}
         onChanged={() => void refresh()}
         onDecide={decideByPendingId}
         {...(seed ? { seed } : {})}
@@ -703,9 +705,23 @@ export function App(): React.ReactElement {
         projects={projects}
         pagesByProject={pagesByProject}
         conversations={conversations}
+        onOpen={(slug) => go({ name: "project", slug })}
         onInspect={(project, pages) =>
           setInspect({ kind: "project", data: project, pages })
         }
+      />,
+    );
+  }
+
+  if (route.name === "project") {
+    return shell(
+      <ProjectWorkspacePage
+        slug={route.slug}
+        onOpenChat={(id) => go({ name: "chats", id })}
+        onOpenPage={openPage}
+        onOpenFile={(path) => go({ name: "files", path })}
+        onChanged={() => void refresh()}
+        onError={(text) => flash("err", text)}
       />,
     );
   }

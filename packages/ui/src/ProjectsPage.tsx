@@ -19,6 +19,9 @@ export interface ProjectsPageProps {
   pagesByProject: Map<string, PageSummary[]>;
   /** Every conversation, so a card can link to the project's chat and count its agents. */
   conversations: Conversation[];
+  /** The card itself: the project's workspace. */
+  onOpen: (slug: string) => void;
+  /** The drawer, for status and metadata. */
   onInspect: (project: Project, pages: PageSummary[]) => void;
 }
 
@@ -55,6 +58,7 @@ export function ProjectsPage({
   projects,
   pagesByProject,
   conversations,
+  onOpen,
   onInspect,
 }: ProjectsPageProps): ReactElement {
   const [query, setQuery] = useState("");
@@ -82,14 +86,6 @@ export function ProjectsPage({
 
   const sitesFor = (slug: string): SiteInfo[] =>
     sites.sites.filter((s) => s.project === slug);
-
-  /** A card's own action: its page if it has one, otherwise its details. */
-  // A card is the project. Its pages are the chips on it, each its own
-  // link; sending a click on the card to the first page made the card a
-  // lottery.
-  const open = (project: Project, pages: PageSummary[]): void => {
-    onInspect(project, pages);
-  };
 
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -155,17 +151,18 @@ export function ProjectsPage({
                   className="card project-card"
                   role="button"
                   tabIndex={0}
-                  // The card looked clickable and was not: only the chips and
-                  // Details did anything. Clicking it opens the project's page
-                  // when it has one, and its details when it does not.
+                  // A card is the project, so clicking it opens the project's
+                  // workspace. Its pages are the chips on it, each its own
+                  // link; sending the click to the first page made the card a
+                  // lottery, and sending it to a drawer made it a summary.
                   onClick={(e) => {
                     if ((e.target as HTMLElement).closest("a, button")) return;
-                    open(p, pages);
+                    onOpen(p.slug);
                   }}
                   onKeyDown={(e) => {
                     if (e.key !== "Enter" && e.key !== " ") return;
                     e.preventDefault();
-                    open(p, pages);
+                    onOpen(p.slug);
                   }}
                 >
                   <div className="card-top">

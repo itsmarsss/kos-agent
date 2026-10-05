@@ -5924,3 +5924,64 @@ a.health {
 .chats-flat .chats-item { padding: 0.5rem 0.6rem; }
 .chats-item.is-active { background: var(--accent-dim); box-shadow: inset 2px 0 0 var(--accent); }
 .chats-item-title { font-size: var(--text-md); }
+
+/* —— project workspace —— */
+/* One project as a place: agents and files on the left, pages and tables
+   beside them. Panels, stats and rows are the drawer's own, so the page
+   and the drawer read as two views of one thing. */
+.project-ws { display: flex; flex-direction: column; gap: 0.9rem; }
+.project-ws .ops-back { align-self: flex-start; }
+.project-ws .insp-stats { margin-bottom: 0; }
+.project-ws .list-head-tools .hint { font-size: var(--text-sm); }
+.project-ws-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 18rem);
+  gap: 0.9rem;
+  align-items: start;
+}
+.project-ws-main,
+.project-ws-side { display: flex; flex-direction: column; gap: 0.9rem; min-width: 0; }
+.project-ws-panel { display: flex; flex-direction: column; gap: 0.6rem; padding: 0.8rem 0.9rem; }
+.project-ws-panel .hint { margin: 0; }
+.project-ws-panel .insp-rows { margin: 0; }
+/* A dragged file is aimed at the panel, so the panel says so. */
+.project-ws-drop.is-over { border-color: var(--accent); background: var(--accent-dim); }
+.project-ws-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+
+.project-ws-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.6rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.project-ws-form-row { display: flex; justify-content: flex-end; gap: 0.4rem; }
+
+.project-ws-agents { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.project-ws-agent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.project-ws-agent:hover { background: var(--panel-2); }
+.project-ws-agent-main { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.project-ws-agent-main > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-ws-agent-title { font-weight: 500; }
+.project-ws-agent > .chats-flag,
+.project-ws-agent > .insp-meta { flex: none; white-space: nowrap; }
+
+@media (max-width: 900px) {
+  .project-ws-cols { grid-template-columns: 1fr; }
+}
