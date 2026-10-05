@@ -1247,7 +1247,13 @@ export function ChatsPage({
             {/* Opening KOS lands here. It used to say "pick a chat"; a front
                 door should offer the way in. */}
             <div className="chats-welcome">
-              <p className="chats-welcome-title">What do you want done?</p>
+              <span className="chats-welcome-glyph" aria-hidden="true">✦</span>
+              <div className="chats-welcome-head">
+                <p className="chats-welcome-title">What do you want done?</p>
+                <p className="chats-welcome-sub">
+                  KOS routes it to the right project or agent, or stands a new one up.
+                </p>
+              </div>
               {/* The question has to be answerable here. A button that leads
                   to an empty chat is a detour; typing is the way in. */}
               <form
@@ -1270,34 +1276,52 @@ export function ChatsPage({
                     .finally(() => setCreating(false));
                 }}
               >
-                <textarea
-                  className="hl-area chats-welcome-input"
-                  rows={2}
-                  autoFocus
-                  value={opening}
-                  placeholder="Ask, or tell KOS what to build…"
-                  onChange={(e) => setOpening(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      e.currentTarget.form?.requestSubmit();
-                    }
-                  }}
-                />
-                <button type="submit" className="btn btn--primary" disabled={creating || !opening.trim()}>
-                  {creating ? "Opening…" : "Send"}
-                </button>
+                <div className="chats-welcome-field">
+                  <textarea
+                    className="hl-area chats-welcome-input"
+                    rows={2}
+                    autoFocus
+                    value={opening}
+                    placeholder="Ask, or tell KOS what to build…"
+                    onChange={(e) => setOpening(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        e.currentTarget.form?.requestSubmit();
+                      }
+                    }}
+                  />
+                  <div className="chats-welcome-actions">
+                    <span className="chats-welcome-kbd">
+                      Enter to send, Shift+Enter for a new line
+                    </span>
+                    <button
+                      type="submit"
+                      className="btn btn--primary"
+                      disabled={creating || !opening.trim()}
+                    >
+                      {creating ? "Opening…" : "Send"}
+                    </button>
+                  </div>
+                </div>
               </form>
               {tree.roots.length > 0 && (
-                <ul className="chats-welcome-recent">
-                  {tree.roots.slice(0, 5).map((c) => (
-                    <li key={c.id}>
-                      <button type="button" className="link" onClick={() => onOpen(c.id)}>
-                        {c.title}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                <div className="chats-welcome-recent">
+                  <span className="chats-welcome-recent-label">Recent</span>
+                  <ul>
+                    {tree.roots.slice(0, 5).map((c) => (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          className="chats-welcome-chip"
+                          onClick={() => onOpen(c.id)}
+                        >
+                          {c.title}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
               <p className="hint">⌘K finds anything: a chat, a file, a page, a setting.</p>
             </div>
