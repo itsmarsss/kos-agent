@@ -5,7 +5,7 @@ import { highlights, tokenize } from "./highlight.js";
 import { ease } from "./motion.js";
 import { api, type DirEntry, type FileContent } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
-import { Thumb } from "./FileThumb.js";
+import { ImageView, Thumb } from "./FileThumb.js";
 import { Markdown } from "./Markdown.js";
 import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";
@@ -92,38 +92,6 @@ function readStored<T extends string>(key: string, allowed: T[], fallback: T): T
     // Private browsing, or storage disabled. A default is fine.
     return fallback;
   }
-}
-
-/** The image itself, when the thing being viewed is a picture. */
-function ImageView({ path }: { path: string }): ReactElement {
-  const [url, setUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let revoked: string | null = null;
-    let cancelled = false;
-    void api
-      .imageUrl(path)
-      .then((u) => {
-        if (cancelled) {
-          URL.revokeObjectURL(u);
-          return;
-        }
-        revoked = u;
-        setUrl(u);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      });
-    return () => {
-      cancelled = true;
-      if (revoked) URL.revokeObjectURL(revoked);
-    };
-  }, [path]);
-
-  if (error) return <p className="hint">{error}</p>;
-  if (!url) return <p className="hint">Loading…</p>;
-  return <img className="files-image" src={url} alt={path} />;
 }
 
 /** A directory listing, or the file, depending on what the path points at. */

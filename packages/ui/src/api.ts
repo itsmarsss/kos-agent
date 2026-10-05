@@ -788,11 +788,14 @@ export const api = {
     post<{ written: string[]; cleared: string[] }>("/api/settings", { values }),
   projectDetail: (slug: string) =>
     get<ProjectDetail>(`/api/projects/${encodeURIComponent(slug)}/detail`),
-  /** Put a file in the project's folder. The name is kept to its last segment. */
-  uploadProjectFile: (slug: string, file: Attachment) =>
+  /**
+   * Put a file in the project's folder, or a folder inside it. The name is
+   * kept to its last segment; the folder must stay inside the project.
+   */
+  uploadProjectFile: (slug: string, file: Attachment, dir = "") =>
     post<{ path: string; size: number }>(
       `/api/projects/${encodeURIComponent(slug)}/files`,
-      file,
+      { ...file, dir },
     ),
   /** Start an agent under the project; a task, when given, is asked at once. */
   createProjectAgent: (

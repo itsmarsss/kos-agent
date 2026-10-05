@@ -2252,7 +2252,9 @@ select {
 .chats {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(210px, 260px) 1fr;
+  /* Pixel tracks, set by the owner's drag handles, so the collapse is a
+     transition from one length to another rather than a jump. */
+  grid-template-columns: var(--rail-w, 240px) minmax(0, 1fr);
   /* An auto row is sized to its content, so the view grew past the container
      and the composer ended up below the fold. minmax(0, 1fr) pins it. */
   grid-template-rows: minmax(0, 1fr);
@@ -2269,16 +2271,59 @@ select {
 .chats {
   transition: grid-template-columns 220ms cubic-bezier(0.32, 0.72, 0, 1);
 }
-.chats.is-collapsed { grid-template-columns: 0fr 1fr; }
+.chats.is-collapsed { grid-template-columns: 0px minmax(0, 1fr); }
 /* Project mode: a third column carries the project's files, pages and
-   tables beside the thread, so the work and what it produced sit together. */
-.chats.is-project { grid-template-columns: minmax(200px, 232px) minmax(0, 1fr) minmax(240px, 292px); }
-.chats.is-project.is-collapsed { grid-template-columns: 0fr minmax(0, 1fr) minmax(240px, 292px); }
-.chats.is-project.panel-hidden { grid-template-columns: minmax(200px, 232px) minmax(0, 1fr); }
-.chats.is-project.panel-hidden.is-collapsed { grid-template-columns: 0fr minmax(0, 1fr); }
+   tables beside the thread, so the work and what it produced sit together.
+   Hidden, its track goes to zero the same way the list's does. */
+.chats.is-project { grid-template-columns: var(--rail-w, 240px) minmax(0, 1fr) var(--panel-w, 300px); }
+.chats.is-project.is-collapsed { grid-template-columns: 0px minmax(0, 1fr) var(--panel-w, 300px); }
+.chats.is-project.panel-hidden { grid-template-columns: var(--rail-w, 240px) minmax(0, 1fr) 0px; }
+.chats.is-project.panel-hidden.is-collapsed { grid-template-columns: 0px minmax(0, 1fr) 0px; }
+.chats.is-project.panel-hidden .project-panel {
+  opacity: 0;
+  border-left-color: transparent;
+  pointer-events: none;
+}
+/* Mid-drag the columns follow the pointer; easing would make them lag it. */
+.chats.is-resizing { transition: none; user-select: none; cursor: col-resize; }
+.chats.is-resizing .chats-list,
+.chats.is-resizing .project-panel { transition: none; }
+/* The handles sit in the gaps between columns: invisible until hovered,
+   a line while held. */
+.chats-gutter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+  width: 9px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: col-resize;
+  touch-action: none;
+}
+.chats-gutter::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+  transition: background 120ms ease;
+}
+.chats-gutter:hover::after,
+.chats-gutter:focus-visible::after,
+.chats-gutter.is-active::after { background: var(--accent); }
+.chats-gutter:focus { outline: none; }
+.chats-gutter--rail { left: calc(var(--rail-w, 240px) + 0.375rem - 4.5px); }
+.chats-gutter--panel { right: calc(var(--panel-w, 300px) + 0.375rem - 4.5px); }
+.chats.is-collapsed .chats-gutter--rail,
+.chats.panel-hidden .chats-gutter--panel { display: none; }
 @media (max-width: 1100px) {
-  .chats.is-project { grid-template-columns: minmax(200px, 232px) minmax(0, 1fr); }
-  .chats.is-project .project-panel { display: none; }
+  .chats.is-project { grid-template-columns: var(--rail-w, 240px) minmax(0, 1fr); }
+  .chats.is-project .project-panel,
+  .chats.is-project .chats-gutter--panel { display: none; }
 }
 .chats-list { min-width: 0; }
 .chats.is-collapsed .chats-list {
@@ -5759,37 +5804,8 @@ a.health {
 }
 .chats-welcome .hint { margin: 0; color: var(--faint); }
 
-/* —— the chat list as a tree —— */
-.chats-project-row { display: flex; align-items: stretch; }
-.chats-project-row .chats-item { flex: 1; min-width: 0; }
-.chats-disclose {
-  flex: none;
-  width: 1.6rem;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transform: rotate(-90deg);
-  transition: transform 160ms ease, color 0.12s ease;
-}
-.chats-disclose:hover { color: var(--text); }
-.chats-disclose.is-open { transform: none; }
+/* —— the chat header's lineage —— */
 .chats-toggle { display: inline-flex; align-items: center; justify-content: center; }
-.chats-agents { list-style: none; margin: 0; padding: 0 0 0.2rem; }
-.chats-child .chats-item { padding-left: 1.5rem; }
-.chats-child .chats-item-title { font-size: var(--text-base); }
-.chats-child .chats-row { position: relative; }
-.chats-child .chats-row::before {
-  content: "";
-  position: absolute;
-  left: 0.85rem;
-  top: 0;
-  bottom: 0;
-  border-left: 1px solid var(--line);
-}
 .chats-lineage { margin: 0.25rem 0 0; color: var(--muted); font-size: var(--text-sm); }
 .chats-lineage a { color: var(--accent); text-decoration: none; }
 .chats-lineage a:hover { text-decoration: underline; }
@@ -6227,12 +6243,16 @@ a.health {
 .chats-newproject .chats-search { flex: 1; min-width: 0; }
 .chats-newproject .btn { flex: none; }
 
-/* Projects: each a branch; the second level of the tree. */
-.chats-projects { padding: 0; display: flex; flex-direction: column; gap: 0.05rem; }
-.chats-project-row { display: flex; align-items: stretch; border-radius: var(--r-sm); }
-.chats-project-row:hover { background: var(--panel-2); }
-.chats-project-row .chats-item { flex: 1; min-width: 0; padding: 0.35rem 0.5rem; }
-.chats-project-row .chats-item:hover { background: transparent; }
+/* Projects: one row each, opening the project's own page. */
+.chats-list ul.chats-projects {
+  flex: none;
+  overflow: visible;
+  padding: 0 0 0.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+.chats-projects .chats-item { padding: 0.35rem 0.5rem; }
 .chats-item--pinned .chats-item-title { font-weight: 600; font-size: var(--text-md); }
 .chats-badge {
   flex: none;
@@ -6244,12 +6264,6 @@ a.health {
   font-size: var(--text-xs);
   letter-spacing: 0.02em;
 }
-
-/* Nested agents: the third level, under a project, with a connector. */
-.chats-agents { list-style: none; margin: 0 0 0.3rem; padding: 0; }
-.chats-child .chats-item { padding: 0.4rem 0.55rem 0.4rem 1.85rem; }
-.chats-child .chats-item-title { font-size: var(--text-base); }
-.chats-child .chats-row::before { left: 1rem; top: -0.1rem; bottom: 0.1rem; }
 
 /* The direct-chat rows: a little air, a clearer active state. */
 .chats-flat .chats-item { padding: 0.3rem 0.5rem; }
@@ -6330,6 +6344,7 @@ a.health {
   overflow: hidden auto;
   padding: 0 0 0.75rem 0.75rem;
   border-left: 1px solid var(--line);
+  transition: opacity 140ms ease, border-color 140ms ease;
 }
 .project-panel-head {
   display: flex;
@@ -6377,6 +6392,103 @@ a.health {
 .project-panel-drop { margin: -0.3rem; padding: 0.3rem; border: 1px dashed transparent; border-radius: var(--r-sm); }
 .project-panel-drop.is-over { border-color: var(--accent); background: var(--accent-dim); }
 .project-panel-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
-.project-panel .files-grid { grid-template-columns: repeat(auto-fill, minmax(6.25rem, 1fr)); gap: 0.4rem; }
-.project-panel .files-tile { padding: 0.45rem 0.35rem 0.4rem; gap: 0.25rem; }
-.project-panel .files-thumb { height: 3.4rem; }
+
+/* The project's folder, browsed in place: a trail, rows, and the open file. */
+.explorer-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.05rem;
+  min-width: 0;
+  color: var(--faint);
+}
+.explorer-crumbs button {
+  padding: 0.05rem 0.3rem;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.explorer-crumbs button:hover { color: var(--text); background: var(--panel-2); }
+.explorer-crumbs button.is-here { color: var(--text); cursor: default; }
+.explorer-crumb { display: inline-flex; align-items: center; gap: 0.05rem; }
+.explorer-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.explorer-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.3rem 0.4rem;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.explorer-row:hover { background: var(--panel-2); }
+.explorer-row .files-thumb { flex: none; width: 1.7rem; height: 1.7rem; border-radius: 5px; }
+.explorer-row .fi { flex: none; }
+.explorer-row > .fi:last-child { color: var(--faint); }
+.explorer-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-base);
+}
+.explorer-row--dir .explorer-name { font-weight: 500; }
+.explorer-meta {
+  flex: none;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+.explorer-file { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+.explorer-file-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.explorer-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 0;
+  padding: 0.15rem 0.4rem 0.15rem 0.2rem;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.explorer-back:hover { color: var(--text); background: var(--panel-2); }
+.explorer-file-name { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.4rem; min-width: 0; }
+.explorer-file-name strong {
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: var(--text-base);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.explorer-file .files-image { max-height: 50vh; border-radius: var(--r-sm); }
+.explorer-pre,
+.explorer-md {
+  margin: 0;
+  max-height: 50vh;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.explorer-pre { padding: 0.6rem; font-family: var(--mono); font-size: var(--text-sm); white-space: pre; }
+.explorer-md { padding: 0.5rem 0.65rem; font-size: var(--text-base); }

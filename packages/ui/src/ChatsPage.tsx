@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactElement,
 } from "react";
 
@@ -17,6 +18,7 @@ import { useDismiss } from "./useDismiss.js";
 
 import { ContextMeter } from "./ContextMeter.js";
 import { groupChats, isBusy, placeOf, projectSummary } from "./chattree.js";
+import { Gutter } from "./Gutter.js";
 import { NewAgentForm } from "./NewAgentForm.js";
 import { ProjectPanel } from "./ProjectPanel.js";
 import {
@@ -486,25 +488,6 @@ export function ChatsPage({
    * it by recency. Neither is theirs to rename, archive or delete, and the
    * list offers none of those here.
    */
-  const projectConvs = useMemo(
-    () =>
-      conversations
-        .filter((c) => c.kind === "project")
-        .sort((a, b) => a.title.localeCompare(b.title)),
-    [conversations],
-  );
-  /**
-   * Manifest projects with no orchestrator conversation yet: a project built
-   * inline (systems.project_create inside a plain chat) exists in the manifest
-   * but has no project:<slug> thread, so it would otherwise be invisible here.
-   * Clicking one stands its orchestrator up on demand.
-   */
-  const looseProjects = useMemo(() => {
-    const have = new Set(projectConvs.map((c) => c.projectSlug));
-    return projects
-      .filter((p) => p.status !== "archived" && !have.has(p.slug))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [projects, projectConvs]);
   const surfaces = useMemo(
     () =>
       conversations
@@ -516,33 +499,36 @@ export function ChatsPage({
   const q = query.trim().toLowerCase();
   const matches = (c: Conversation): boolean => !q || c.title.toLowerCase().includes(q);
   const filtered = useMemo(() => tree.roots.filter(matches), [tree, q]);
-  /*
-   * Which projects are unfolded. Your choice is kept per project; a project
-   * whose agent is busy, or that owns the chat you are in, is open regardless,
-   * because that is the one you are looking for.
+  /**
+   * The projects, one row each, from the manifest. A row opens the project's
+   * own page, where its orchestrator and agents are; nothing nests under it
+   * here. A project:<slug> thread whose project has left the manifest still
+   * gets a row, so it can be reached. Busy when any of its threads is.
    */
-  const [openProjects, setOpenProjects] = useState<Record<string, boolean>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem("kos.chats.projects") ?? "{}") as Record<string, boolean>;
-    } catch {
-      return {};
+  const projectRows = useMemo(() => {
+    const threads = new Map<string, Conversation>();
+    for (const c of conversations) {
+      if (c.kind === "project" && c.projectSlug) threads.set(c.projectSlug, c);
     }
-  });
-  const toggleProject = (slug: string, open: boolean): void => {
-    const next = { ...openProjects, [slug]: open };
-    setOpenProjects(next);
-    try {
-      localStorage.setItem("kos.chats.projects", JSON.stringify(next));
-    } catch {
-      // Remembered for this visit only.
+    const busy = (slug: string, thread: Conversation | undefined): boolean =>
+      (thread !== undefined && (isBusy(thread) || (progress[thread.id] !== undefined && !progress[thread.id]!.ended))) ||
+      (tree.byProject.get(slug) ?? []).some(isBusy);
+    const rows = projects
+      .filter((p) => p.status !== "archived")
+      .map((p) => ({ slug: p.slug, name: p.name, badge: p.type, thread: threads.get(p.slug), busy: busy(p.slug, threads.get(p.slug)) }));
+    for (const [slug, c] of threads) {
+      if (!rows.some((r) => r.slug === slug)) {
+        rows.push({ slug, name: c.title, badge: "project", thread: c, busy: busy(slug, c) });
+      }
     }
-  };
-  const activeConversation = conversations.find((c) => c.id === activeId);
-  const projectOpen = (slug: string, agents: Conversation[]): boolean =>
-    (q !== "" && agents.some(matches)) ||
-    agents.some(isBusy) ||
-    activeConversation?.projectSlug === slug ||
-    (openProjects[slug] ?? false);
+    return rows.sort((a, b) => a.name.localeCompare(b.name));
+  }, [conversations, projects, tree, progress]);
+  const shownProjects = q
+    ? projectRows.filter((p) => p.name.toLowerCase().includes(q) || (tree.byProject.get(p.slug) ?? []).some(matches))
+    : projectRows;
+  /** What a project is called, for a crumb: the manifest's name, else its thread's title. */
+  const projectName = (slug: string): string =>
+    projects.find((p) => p.slug === slug)?.name ?? conversations.find((c) => c.id === `project:${slug}`)?.title ?? slug;
 
   /*
    * Project mode. The project comes from the manifest, its orchestrator is
@@ -567,6 +553,11 @@ export function ChatsPage({
       .catch((err: unknown) => project.onError(err instanceof Error ? err.message : String(err)));
     // Once per project, and again only if its thread goes missing.
   }, [project?.slug, needsOrchestrator]);
+  /** Column widths the owner set by dragging, remembered per browser. */
+  const [railW, setRailW] = useState(() => readWidth(RAIL_W));
+  const [panelW, setPanelW] = useState(() => readWidth(PANEL_W));
+  /** Mid-drag: the columns follow the pointer with no easing in the way. */
+  const [resizing, setResizing] = useState(false);
   /** Whether the project's files, pages and tables are shown beside the thread. */
   const [panelOpen, setPanelOpen] = useState<boolean>(() => {
     try {
@@ -936,8 +927,8 @@ export function ChatsPage({
   };
 
   /** One chat in the list, at the root or under its project. */
-  const renderChat = (c: Conversation, nested = false): ReactElement => (
-      <li key={c.id} className={nested ? "chats-child" : undefined}>
+  const renderChat = (c: Conversation): ReactElement => (
+      <li key={c.id}>
         {/* Hover reveals what can be done with a chat, so the list is
             a list until you need it to be more. */}
         <div className="chats-row">
@@ -1058,7 +1049,8 @@ export function ChatsPage({
 
   return (
     <div
-      className={`chats ${collapsed && !narrow ? "is-collapsed" : ""} ${narrow ? "is-narrow" : ""} ${active ? "has-active" : ""} ${listOpen ? "is-list-open" : ""} ${project ? "is-project" : ""} ${project && !panelOpen ? "panel-hidden" : ""}`}
+      className={`chats ${collapsed && !narrow ? "is-collapsed" : ""} ${narrow ? "is-narrow" : ""} ${active ? "has-active" : ""} ${listOpen ? "is-list-open" : ""} ${project ? "is-project" : ""} ${project && !panelOpen ? "panel-hidden" : ""} ${resizing ? "is-resizing" : ""}`}
+      style={{ "--rail-w": `${railW}px`, "--panel-w": `${panelW}px` } as CSSProperties}
     >
       {narrow && listOpen && (
         <div className="chats-backdrop" aria-hidden="true" onClick={() => setListOpen(false)} />
@@ -1191,7 +1183,7 @@ export function ChatsPage({
             />
           </div>
           {showArchived && <div className="chats-section">Archived chats</div>}
-          {!showArchived && (orchestrator || projectConvs.length > 0 || looseProjects.length > 0 || surfaces.length > 0) && (
+          {!showArchived && (orchestrator || projectRows.length > 0 || surfaces.length > 0) && (
             <div className="chats-pinned">
               {orchestrator && (
                 <a
@@ -1215,93 +1207,44 @@ export function ChatsPage({
               <div className="chats-group-head">
                 <span>Projects</span>
               </div>
-              {projectConvs.length === 0 && looseProjects.length === 0 && (
+              {projectRows.length === 0 && (
                 <p className="chats-group-empty">
                   None yet. Start one from New chat, or just ask KOS and it stands
                   one up when the work needs its own space.
                 </p>
               )}
-              {projectConvs.length > 0 && (
-                /* Each project is its own orchestrator; expand to its agents. */
-                <div className="chats-projects">
-                  {projectConvs.map((c) => {
-                    const slug = c.projectSlug ?? "";
-                    const agents = tree.byProject.get(slug) ?? [];
-                    const open = projectOpen(slug, agents);
-                    const shown = q ? agents.filter(matches) : agents;
-                    return (
-                      <div key={c.id} className="chats-project">
-                        <div className="chats-project-row">
-                          <a
-                            className={`chats-item chats-item--pinned ${c.id === activeId ? "is-active" : ""}`}
-                            href={hrefFor({ name: "project", slug })}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              onOpenProject(slug);
-                            }}
-                          >
-                            {c.id === activeId && (
-                              <m.span className="chats-active-bar" layoutId="chat-active" transition={spring} />
-                            )}
-                            <span className="chats-item-top">
-                              <span className="chats-item-title">{c.title}</span>
-                              <span className="chats-badge">project</span>
-                            </span>
-                            <span className="chats-item-brief">{projectSummary(agents)}</span>
-                          </a>
-                          {agents.length > 0 && (
-                            <button
-                              type="button"
-                              className={`chats-disclose${open ? " is-open" : ""}`}
-                              aria-label={open ? `Hide ${c.title}'s agents` : `Show ${c.title}'s agents`}
-                              aria-expanded={open}
-                              onClick={() => toggleProject(slug, !open)}
-                            >
-                              <ChevronDown size={13} />
-                            </button>
-                          )}
-                        </div>
-                        {open && shown.length > 0 && (
-                          <ul className="chats-agents">{shown.map((a) => renderChat(a, true))}</ul>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+              {projectRows.length > 0 && shownProjects.length === 0 && (
+                <p className="chats-group-empty">No project matches.</p>
               )}
-              {looseProjects.length > 0 && (
-                /* Manifest projects without an orchestrator thread yet. Opening
-                   one stands its orchestrator up, after which it joins the list
-                   above with its own agents. */
-                <div className="chats-projects">
-                  {looseProjects.map((p) => (
-                    <div key={p.slug} className="chats-project">
-                      <div className="chats-project-row">
-                        <button
-                          type="button"
-                          className="chats-item chats-item--pinned"
-                          onClick={() => {
-                            void api
-                              .projectChat(p.slug)
-                              .then((c) => {
-                                onChanged();
-                                onOpen(c.id);
-                              })
-                              .catch(() => undefined);
-                          }}
-                        >
-                          <span className="chats-item-top">
-                            <span className="chats-item-title">{p.name}</span>
-                            <span className="chats-badge">{p.type}</span>
-                          </span>
-                          <span className="chats-item-brief">
-                            {p.description || "No orchestrator yet. Open to start one."}
-                          </span>
-                        </button>
-                      </div>
-                    </div>
+              {shownProjects.length > 0 && (
+                /* A row is the project. It opens as its own page, with its
+                   orchestrator and agents; nothing unfolds here. */
+                <ul className="chats-projects">
+                  {shownProjects.map((p) => (
+                    <li key={p.slug}>
+                      <a
+                        className={`chats-item chats-item--pinned ${p.thread?.id === activeId ? "is-active" : ""}`}
+                        href={hrefFor({ name: "project", slug: p.slug })}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          onOpenProject(p.slug);
+                        }}
+                      >
+                        {p.thread?.id === activeId && (
+                          <m.span className="chats-active-bar" layoutId="chat-active" transition={spring} />
+                        )}
+                        <span className="chats-item-top">
+                          <span className="chats-item-title">{p.name}</span>
+                          {p.busy ? (
+                            <span className="chats-flag chats-flag--working">working</span>
+                          ) : (
+                            <span className="chats-badge">{p.badge}</span>
+                          )}
+                        </span>
+                      </a>
+                    </li>
                   ))}
-                </div>
+                </ul>
               )}
               {surfaces.length > 0 && (
                 /* One line however many there are. A surface is a way in, not
@@ -1594,7 +1537,7 @@ export function ChatsPage({
                   if (orchestrator && active.id !== orchestrator.id) crumbs.push({ label: "KOS", id: orchestrator.id });
                   if (active.projectSlug && active.kind !== "project") {
                     crumbs.push({
-                      label: projectConvs.find((p) => p.projectSlug === active.projectSlug)?.title ?? active.projectSlug,
+                      label: projectName(active.projectSlug),
                       id: `project:${active.projectSlug}`,
                     });
                   }
@@ -1627,7 +1570,9 @@ export function ChatsPage({
                   {active.title}
                   {active.kind === "project" && <span className="chats-role">orchestrator</span>}
                 </h1>
-                {active.kind === "project" && (
+                {/* Inside the project the rail lists the agents, so the count
+                    would say what is already in view. */}
+                {active.kind === "project" && !project && (
                   <p className="chats-lineage">
                     {projectSummary(tree.byProject.get(active.projectSlug ?? "") ?? [])}
                   </p>
@@ -2132,17 +2077,87 @@ export function ChatsPage({
         )}
       </section>
 
-      {project && panelOpen && (
+      {project && (
+        /* Mounted while hidden, so hiding is the column sliding shut rather
+           than the panel vanishing; it polls nothing until it is back. */
         <ProjectPanel
           slug={project.slug}
           onOpenPage={project.onOpenPage}
           onOpenFile={project.onOpenFile}
           onChanged={onChanged}
           onError={project.onError}
+          hidden={!panelOpen}
+        />
+      )}
+
+      {/* The columns are the owner's to size. The handles sit in the gaps. */}
+      {!narrow && (
+        <Gutter
+          className="chats-gutter--rail"
+          label="the chat list"
+          value={railW}
+          min={RAIL_W.min}
+          max={RAIL_W.max}
+          fallback={RAIL_W.fallback}
+          grows="right"
+          onChange={(w) => {
+            setResizing(true);
+            setRailW(w);
+          }}
+          onDone={(w) => {
+            setResizing(false);
+            saveWidth(RAIL_W, w);
+          }}
+        />
+      )}
+      {project && !narrow && (
+        <Gutter
+          className="chats-gutter--panel"
+          label="the workspace panel"
+          value={panelW}
+          min={PANEL_W.min}
+          max={PANEL_W.max}
+          fallback={PANEL_W.fallback}
+          grows="left"
+          onChange={(w) => {
+            setResizing(true);
+            setPanelW(w);
+          }}
+          onDone={(w) => {
+            setResizing(false);
+            saveWidth(PANEL_W, w);
+          }}
         />
       )}
     </div>
   );
+}
+
+/** A draggable column: where its width is kept, its bounds, and where it starts. */
+interface ColumnSpec {
+  key: string;
+  min: number;
+  max: number;
+  fallback: number;
+}
+const RAIL_W: ColumnSpec = { key: "kos.chats.rail", min: 180, max: 420, fallback: 240 };
+const PANEL_W: ColumnSpec = { key: "kos.project.panel.w", min: 220, max: 640, fallback: 300 };
+
+function readWidth(spec: ColumnSpec): number {
+  try {
+    const n = Number(localStorage.getItem(spec.key));
+    return n >= spec.min && n <= spec.max ? n : spec.fallback;
+  } catch {
+    return spec.fallback;
+  }
+}
+
+function saveWidth(spec: ColumnSpec, width: number): void {
+  try {
+    localStorage.setItem(spec.key, String(width));
+  } catch {
+    // Remembered for this visit only.
+  }
 }
 
 /** True below the width at which the two panes stop fitting side by side. */

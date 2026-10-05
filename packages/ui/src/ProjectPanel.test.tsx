@@ -1,14 +1,13 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api, type ProjectDetail } from "./api.js";
 import { ProjectPanel } from "./ProjectPanel.js";
 
 /**
- * The column beside a project's threads: what is in its folder and what it
- * has made, each a way in, and the one thing the owner does by hand here,
- * putting a file in, going through the API and then re-reading.
+ * The column beside a project's threads: its folder, its pages and its
+ * tables, each a way in, with the Files page one explicit action away.
  */
 
 const slug = "kitchen_redo";
@@ -32,11 +31,7 @@ function detail(over: Partial<ProjectDetail> = {}): ProjectDetail {
     activity: [],
     folder: `projects/${slug}`,
     agents: [],
-    files: [
-      { name: "plan.md", path: `projects/${slug}/plan.md`, kind: "file", size: 2048, modifiedAt: 0 },
-      { name: "cat.png", path: `projects/${slug}/cat.png`, kind: "file", size: 10, modifiedAt: 0 },
-      { name: "pages", path: `projects/${slug}/pages`, kind: "dir", size: 0, modifiedAt: 0 },
-    ],
+    files: [],
     ...over,
   };
 }
@@ -48,20 +43,18 @@ type Handlers = {
   onError: ReturnType<typeof vi.fn>;
 };
 
-function open(over: Partial<ProjectDetail> = {}): Handlers {
+function open(over: Partial<ProjectDetail> = {}, files: { name: string; size: number }[] = [{ name: "plan.md", size: 2048 }]): Handlers {
   vi.spyOn(api, "projectDetail").mockResolvedValue(detail(over));
-  const h: Handlers = {
-    onOpenPage: vi.fn(),
-    onOpenFile: vi.fn(),
-    onChanged: vi.fn(),
-    onError: vi.fn(),
-  };
+  vi.spyOn(api, "files").mockResolvedValue({
+    path: `projects/${slug}`,
+    entries: files.map((f) => ({ name: f.name, path: `projects/${slug}/${f.name}`, kind: "file" as const, size: f.size, modifiedAt: 0 })),
+  });
+  const h: Handlers = { onOpenPage: vi.fn(), onOpenFile: vi.fn(), onChanged: vi.fn(), onError: vi.fn() };
   render(<ProjectPanel slug={slug} {...h} />);
   return h;
 }
 
 beforeEach(() => {
-  // Thumbnails wait to be near the screen; jsdom has no such thing.
   vi.stubGlobal(
     "IntersectionObserver",
     class {
@@ -69,7 +62,6 @@ beforeEach(() => {
       disconnect(): void {}
     },
   );
-  vi.spyOn(api, "imageUrl").mockResolvedValue("blob:cat");
 });
 
 afterEach(() => {
@@ -79,58 +71,23 @@ afterEach(() => {
 });
 
 describe("the project panel", () => {
-  it("shows the files, pages and tables, each a way in", async () => {
+  it("shows the folder, pages and tables, each a way in", async () => {
     const h = open();
     await screen.findByText("Kitchen redo");
-    expect(screen.getByText("plan.md")).toBeTruthy();
-    expect(screen.getByText("2.0 KB")).toBeTruthy();
+    expect(await screen.findByText("plan.md")).toBeTruthy();
     expect(screen.getByText("items")).toBeTruthy();
     expect(screen.getByText("5 rows")).toBeTruthy();
 
     fireEvent.click(screen.getByText("Kitchen board"));
     expect(h.onOpenPage).toHaveBeenCalledWith("tasks_kitchen_redo");
-    fireEvent.click(screen.getByText("plan.md"));
-    expect(h.onOpenFile).toHaveBeenCalledWith(`projects/${slug}/plan.md`);
-    fireEvent.click(screen.getByText("Folder"));
+    fireEvent.click(screen.getByText("Open in Files"));
     expect(h.onOpenFile).toHaveBeenCalledWith(`projects/${slug}`);
   });
 
-  it("sends a picked file as base64 and re-reads the project", async () => {
-    const upload = vi.spyOn(api, "uploadProjectFile").mockResolvedValue({ path: `projects/${slug}/notes.txt`, size: 5 });
-    const h = open();
-    await screen.findByText("Kitchen redo");
-    const read = api.projectDetail as ReturnType<typeof vi.fn>;
-    const before = read.mock.calls.length;
-
-    const file = new File(["hello"], "notes.txt", { type: "text/plain" });
-    fireEvent.change(screen.getByLabelText("Upload files"), { target: { files: [file] } });
-
-    await waitFor(() =>
-      expect(upload).toHaveBeenCalledWith(slug, {
-        name: "notes.txt",
-        mediaType: "text/plain",
-        data: btoa("hello"),
-      }),
-    );
-    await waitFor(() => expect(read.mock.calls.length).toBeGreaterThan(before));
-    await waitFor(() => expect(h.onChanged).toHaveBeenCalled());
-    expect(h.onError).not.toHaveBeenCalled();
-  });
-
-  it("says which upload failed and keeps the rest", async () => {
-    vi.spyOn(api, "uploadProjectFile").mockRejectedValue(new Error("big.bin is 9MB; the limit is 5MB"));
-    const h = open();
-    await screen.findByText("Kitchen redo");
-    fireEvent.change(screen.getByLabelText("Upload files"), {
-      target: { files: [new File(["x"], "big.bin")] },
-    });
-    await waitFor(() => expect(h.onError).toHaveBeenCalledWith("big.bin: big.bin is 9MB; the limit is 5MB"));
-  });
-
   it("leaves out what the project has none of, and says so", async () => {
-    open({ files: [], pages: [], tables: [] });
+    open({ pages: [], tables: [] }, []);
     await screen.findByText("Kitchen redo");
-    expect(screen.getByText(/Nothing here yet/)).toBeTruthy();
+    expect(await screen.findByText(/Nothing here yet/)).toBeTruthy();
     expect(screen.getByText("No pages yet.")).toBeTruthy();
     expect(screen.getByText("No tables yet.")).toBeTruthy();
     expect(screen.queryByText("Sites")).toBeNull();
@@ -140,5 +97,11 @@ describe("the project panel", () => {
     vi.spyOn(api, "projectDetail").mockRejectedValue(new Error("project not found"));
     render(<ProjectPanel slug="nope" onOpenPage={() => {}} onOpenFile={() => {}} onChanged={() => {}} onError={() => {}} />);
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "project not found");
+  });
+
+  it("fetches nothing while slid shut", () => {
+    const read = vi.spyOn(api, "projectDetail").mockResolvedValue(detail());
+    render(<ProjectPanel slug={slug} hidden onOpenPage={() => {}} onOpenFile={() => {}} onChanged={() => {}} onError={() => {}} />);
+    expect(read).not.toHaveBeenCalled();
   });
 });

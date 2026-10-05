@@ -1,16 +1,15 @@
-import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 
-import { api, type DirEntry, type ProjectDetail } from "./api.js";
-import { readFile, useDropZone } from "./Attachments.js";
-import { FileIcon, previewable } from "./FileIcon.js";
-import { Thumb } from "./FileThumb.js";
+import { api, type ProjectDetail } from "./api.js";
+import { PanelSection } from "./PanelSection.js";
+import { ProjectExplorer } from "./ProjectExplorer.js";
 import { hrefFor } from "./routes.js";
 
 /**
  * The column beside a project's threads: what the project has made and what
- * the owner has put in it. Files and pictures, with upload and drop; pages;
- * tables; sites. The work happens in the thread next to it, and this is
- * where the work lands, so the two sit side by side rather than a page apart.
+ * the owner has put in it. Its folder, browsed in place; pages; tables;
+ * sites. The work happens in the thread next to it, and this is where the
+ * work lands, so the two sit side by side rather than a page apart.
  */
 
 export interface ProjectPanelProps {
@@ -20,79 +19,20 @@ export interface ProjectPanelProps {
   /** Something changed that the rest of the dashboard lists too. */
   onChanged: () => void;
   onError: (message: string) => void;
+  /** Slid shut: still mounted so it can slide open, but polling nothing. */
+  hidden?: boolean;
 }
 
-/** How often the panel re-reads the project, so a file an agent wrote shows up. */
+/** How often the panel re-reads the project, so a page an agent made shows up. */
 const POLL_MS = 5000;
-
-function bytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function Section({
-  title,
-  count,
-  action,
-  className,
-  children,
-  ...rest
-}: {
-  title: string;
-  count?: number;
-  action?: ReactNode;
-  className?: string;
-  children: ReactNode;
-} & Omit<React.HTMLAttributes<HTMLElement>, "title" | "className" | "children">): ReactElement {
-  return (
-    <section className={`project-panel-section${className ? ` ${className}` : ""}`} {...rest}>
-      <div className="ops-section-head">
-        <h2>
-          {title}
-          {count !== undefined && count > 0 && <span className="project-panel-count">{count}</span>}
-        </h2>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function FileTile({ entry, onOpen }: { entry: DirEntry; onOpen: (path: string) => void }): ReactElement {
-  return (
-    <a
-      className="files-tile"
-      href={hrefFor({ name: "files", path: entry.path })}
-      title={entry.name}
-      onClick={(e) => {
-        e.preventDefault();
-        onOpen(entry.path);
-      }}
-    >
-      {entry.kind === "file" && previewable(entry.name) ? (
-        <Thumb path={entry.path} name={entry.name} />
-      ) : (
-        <div className="files-thumb">
-          <FileIcon name={entry.name} kind={entry.kind} size={26} />
-        </div>
-      )}
-      <span className="files-tile-name">{entry.name}</span>
-      <span className="files-tile-meta">{entry.kind === "file" ? bytes(entry.size) : "folder"}</span>
-    </a>
-  );
-}
-
-export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError }: ProjectPanelProps): ReactElement {
+export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError, hidden = false }: ProjectPanelProps): ReactElement {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  /** How far through a batch of uploads, while one is in flight. */
-  const [uploading, setUploading] = useState<{ done: number; total: number } | null>(null);
-  const picker = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -106,38 +46,18 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError 
   useEffect(() => {
     setDetail(null);
     setError(null);
+    if (hidden) return;
     void load();
     // Nothing is fetched for a tab nobody is looking at.
     const t = setInterval(() => {
       if (document.visibilityState !== "hidden") void load();
     }, POLL_MS);
     return () => clearInterval(t);
-  }, [load]);
-
-  const upload = async (list: FileList | null): Promise<void> => {
-    if (!list?.length || uploading) return;
-    const files = Array.from(list);
-    setUploading({ done: 0, total: files.length });
-    const failed: string[] = [];
-    for (const [i, file] of files.entries()) {
-      try {
-        await api.uploadProjectFile(slug, await readFile(file));
-      } catch (err) {
-        failed.push(`${file.name}: ${message(err)}`);
-      }
-      setUploading({ done: i + 1, total: files.length });
-    }
-    setUploading(null);
-    if (failed.length > 0) onError(failed.join(" · "));
-    await load();
-    onChanged();
-  };
-
-  const drop = useDropZone((list) => void upload(list));
+  }, [load, hidden]);
 
   if (error) {
     return (
-      <aside className="project-panel">
+      <aside className="project-panel" aria-hidden={hidden}>
         <p className="ops-alert ops-alert--err" role="alert">
           {error}
         </p>
@@ -146,16 +66,16 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError 
   }
   if (!detail) {
     return (
-      <aside className="project-panel">
+      <aside className="project-panel" aria-hidden={hidden}>
         <p className="ops-muted">Loading…</p>
       </aside>
     );
   }
 
-  const { project, tables, pages, sites, files } = detail;
+  const { project, tables, pages, sites } = detail;
 
   return (
-    <aside className="project-panel" aria-label={`${project.name} workspace`}>
+    <aside className="project-panel" aria-label={`${project.name} workspace`} aria-hidden={hidden}>
       <div className="project-panel-head">
         <div className="project-panel-title">
           <h2>{project.name}</h2>
@@ -165,53 +85,26 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError 
             <span className="ops-mono">{project.slug}</span>
           </div>
         </div>
-        <button type="button" className="btn btn--sm" onClick={() => onOpenFile(detail.folder)}>
-          Folder
+        <button
+          type="button"
+          className="btn btn--sm"
+          title="The project's folder on the Files page"
+          onClick={() => onOpenFile(detail.folder)}
+        >
+          Open in Files
         </button>
       </div>
 
-      <Section
-        title="Files & images"
-        count={files.length}
-        className={drop.over ? "project-panel-drop is-over" : "project-panel-drop"}
-        {...drop.handlers}
-        action={
-          <>
-            <button
-              type="button"
-              className="btn btn--sm"
-              disabled={uploading !== null}
-              onClick={() => picker.current?.click()}
-            >
-              {uploading ? `${uploading.done} of ${uploading.total}…` : "Upload"}
-            </button>
-            <input
-              ref={picker}
-              type="file"
-              multiple
-              hidden
-              aria-label="Upload files"
-              onChange={(e) => {
-                void upload(e.target.files);
-                // Cleared so picking the same file twice still fires a change.
-                e.target.value = "";
-              }}
-            />
-          </>
-        }
-      >
-        {files.length === 0 ? (
-          <p className="hint">Nothing here yet. Drop files here or upload them.</p>
-        ) : (
-          <div className="files-grid">
-            {files.map((f) => (
-              <FileTile key={f.path} entry={f} onOpen={onOpenFile} />
-            ))}
-          </div>
-        )}
-      </Section>
+      <ProjectExplorer
+        slug={slug}
+        root={detail.folder}
+        onOpenInFiles={onOpenFile}
+        onChanged={onChanged}
+        onError={onError}
+        paused={hidden}
+      />
 
-      <Section title="Pages" count={pages.length}>
+      <PanelSection title="Pages" count={pages.length}>
         {pages.length === 0 ? (
           <p className="hint">No pages yet.</p>
         ) : (
@@ -231,9 +124,9 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError 
             ))}
           </div>
         )}
-      </Section>
+      </PanelSection>
 
-      <Section title="Tables" count={tables.length}>
+      <PanelSection title="Tables" count={tables.length}>
         {tables.length === 0 ? (
           <p className="hint">No tables yet.</p>
         ) : (
@@ -248,10 +141,10 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError 
             ))}
           </ul>
         )}
-      </Section>
+      </PanelSection>
 
       {sites.length > 0 && (
-        <Section title="Sites" count={sites.length}>
+        <PanelSection title="Sites" count={sites.length}>
           <ul className="insp-rows">
             {sites.map((site) => (
               <li key={site.path}>
@@ -271,7 +164,7 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError 
               </li>
             ))}
           </ul>
-        </Section>
+        </PanelSection>
       )}
     </aside>
   );
