@@ -72,6 +72,33 @@ describe("progress handover", () => {
     expect(result.current.c1?.ended).toBeUndefined();
   });
 
+  it("keeps a congregation's roster on the turn, replaced whole as it moves", () => {
+    const { result } = renderHook(() => useProgress());
+    deliver({ kind: "turn-start", conversationId: "c1" });
+    deliver({
+      kind: "congregation",
+      conversationId: "c1",
+      members: [{ id: "a", title: "A", status: "working" }],
+    });
+    expect(result.current.c1?.congregation?.members[0]?.status).toBe("working");
+
+    deliver({
+      kind: "congregation",
+      conversationId: "c1",
+      members: [{ id: "a", title: "A", status: "done" }],
+    });
+    expect(result.current.c1?.congregation?.members[0]?.status).toBe("done");
+
+    // The roster stays up while the combined reply streams in under it.
+    deliver({ kind: "delta", conversationId: "c1", of: "text", text: "Combined" });
+    expect(result.current.c1?.congregation?.members).toHaveLength(1);
+    expect(result.current.c1?.text).toBe("Combined");
+
+    // And a fresh turn starts without it.
+    deliver({ kind: "turn-start", conversationId: "c1" });
+    expect(result.current.c1?.congregation).toBeUndefined();
+  });
+
   it("seeds a turn that started before the page was open", () => {
     const { result } = renderHook(() => useProgress());
     act(() => seedProgress(["c1"]));

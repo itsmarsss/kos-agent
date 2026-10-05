@@ -2122,6 +2122,28 @@ select {
 }
 .live-text { font-size: var(--text-lg); }
 
+/* Who a turn is waiting on, when it asked several chats at once. The same
+   gutter a thought gets: it is context for the answer, not the answer. */
+.congregation {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-width: 88%;
+  font-size: var(--text-base);
+  color: var(--muted);
+  border-left: 2px solid var(--line);
+  padding-left: 0.6rem;
+}
+.congregation-row { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; }
+.congregation-title {
+  color: inherit;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.congregation-title:hover { text-decoration: underline; }
+
 /* An approval resume is plumbing, not something the owner said. It stays in
    the thread because the continuation would otherwise come from nowhere. */
 .bubble--system {
