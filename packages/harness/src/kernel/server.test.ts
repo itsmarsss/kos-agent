@@ -349,6 +349,16 @@ describe("handleApiRequest", () => {
     const listed = await handleApiRequest(kernel, { method: "GET", path: "/api/conversations" });
     const row = (listed.body as { id: string; kind: string; projectSlug: string | null }[]).find((c) => c.id === `project:${project.slug}`);
     expect(row).toMatchObject({ kind: "project", projectSlug: project.slug });
+
+    // A slash command in the project's thread is a command there too, not a
+    // message for its orchestrator to improvise an answer to.
+    const help = await handleApiRequest(kernel, { method: "POST", path: "/api/message", body: { text: "/help", sessionId: `project:${project.slug}` } });
+    expect(help.body).toMatchObject({ isCommand: true });
+    expect((help.body as { reply: string }).reply).toContain("/agents");
+    const agent = await handleApiRequest(kernel, { method: "POST", path: "/api/message", body: { text: "/agent Tiles", sessionId: `project:${project.slug}` } });
+    const moved = agent.body as { isCommand: boolean; switchedTo?: string };
+    expect(moved.isCommand).toBe(true);
+    expect(kernel.conversations.get(moved.switchedTo!)).toMatchObject({ title: "Tiles", projectSlug: project.slug });
   });
 
   describe("a project's workspace", () => {
@@ -435,7 +445,10 @@ describe("handleApiRequest", () => {
         expect(kernel.sessions.get(worker.id).some((m) => m.role === "user")).toBe(true);
       });
 
-      expect((await handleApiRequest(kernel, { method: "POST", path: `/api/projects/${project.slug}/agents`, body: {} })).status).toBe(400);
+      // Untitled, like a new chat: its first message names it.
+      const bare = await handleApiRequest(kernel, { method: "POST", path: `/api/projects/${project.slug}/agents`, body: {} });
+      expect(bare.status).toBe(200);
+      expect(bare.body).toMatchObject({ projectSlug: project.slug, title: "New conversation", started: false });
       expect((await handleApiRequest(kernel, { method: "POST", path: "/api/projects/nope/agents", body: { title: "x" } })).status).toBe(404);
     });
 

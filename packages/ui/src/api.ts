@@ -797,10 +797,13 @@ export const api = {
       `/api/projects/${encodeURIComponent(slug)}/files`,
       { ...file, dir },
     ),
-  /** Start an agent under the project; a task, when given, is asked at once. */
+  /**
+   * Start an agent under the project. Untitled, its first message names it;
+   * a task, when given, is asked at once.
+   */
   createProjectAgent: (
     slug: string,
-    input: { title: string; brief?: string; task?: string },
+    input: { title?: string; brief?: string; task?: string } = {},
   ) =>
     post<Conversation & { started: boolean }>(
       `/api/projects/${encodeURIComponent(slug)}/agents`,

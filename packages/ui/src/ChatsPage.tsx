@@ -19,7 +19,6 @@ import { useDismiss } from "./useDismiss.js";
 import { ContextMeter } from "./ContextMeter.js";
 import { groupChats, isBusy, placeOf, projectSummary } from "./chattree.js";
 import { Gutter } from "./Gutter.js";
-import { NewAgentForm } from "./NewAgentForm.js";
 import { ProjectPanel } from "./ProjectPanel.js";
 import {
   api,
@@ -114,6 +113,8 @@ export interface ChatsPageProps {
    * is open, and a third column holds the project's files, pages and tables.
    */
   project?: ProjectMode;
+  /** `/btw <question>`: ask it beside this chat, in the quick-question window. */
+  onAside: (question: string) => void;
   onChanged: () => void;
   onDecide: (pendingId: string, approved: boolean, remember?: boolean) => void;
   /**
@@ -144,6 +145,7 @@ export function ChatsPage({
   onOpen,
   onOpenProject,
   project,
+  onAside,
   onChanged,
   onDecide,
   seed,
@@ -542,8 +544,20 @@ export function ChatsPage({
     : undefined;
   const projectAgents = project ? (tree.byProject.get(project.slug) ?? []) : [];
   const shownAgents = q ? projectAgents.filter(matches) : projectAgents;
-  const [addingAgent, setAddingAgent] = useState(false);
-  useEffect(() => setAddingAgent(false), [project?.slug]);
+  /** An agent thread in this project, opened empty, to be named by what is said in it. */
+  const startAgent = async (): Promise<void> => {
+    if (!project || creating) return;
+    setCreating(true);
+    try {
+      const made = await api.createProjectAgent(project.slug);
+      onChanged();
+      onOpen(made.id);
+    } catch (err) {
+      project.onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCreating(false);
+    }
+  };
   const needsOrchestrator = Boolean(project && projectRecord && !projectOrchestrator);
   useEffect(() => {
     if (!project || !needsOrchestrator) return;
@@ -596,10 +610,62 @@ export function ChatsPage({
     (c) => (progress[c.id] && !progress[c.id]!.ended) || c.activity === "working",
   ).length;
 
+  /** A note where a command's answer goes. */
+  const note = (text: string): void => setNotes((n) => [...n, { id: Date.now(), text }]);
+
+  /** This chat as a markdown file, saved by the browser. */
+  const exportTranscript = (): void => {
+    if (!active) return;
+    const lines = [`# ${active.title}`, ""];
+    for (const e of events) {
+      if (e.kind === "message") {
+        lines.push(`**${e.role === "you" ? "You" : e.role === "kos" ? "KOS" : "System"}**`, "", e.text, "");
+      } else if (e.kind === "tool") {
+        lines.push(`> \`${e.name}\` ${e.summary}${e.isError ? " (failed)" : ""}`, "");
+      }
+    }
+    const name = `${active.title.replace(/[\\/:*?"<>|]+/g, "-").trim() || "chat"}.md`;
+    const url = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/markdown" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+    note(`Saved ${name}.`);
+  };
+
+  /**
+   * Commands the page answers itself. The kernel has no window to open and
+   * no file to hand the browser, so these never reach it from here.
+   */
+  const runLocally = (text: string): boolean => {
+    const m = /^\/(btw|aside|export|download|files|workspace)\b\s*([\s\S]*)$/i.exec(text);
+    if (!m) return false;
+    const verb = m[1]!.toLowerCase();
+    const arg = m[2]!.trim();
+    if (verb === "btw" || verb === "aside") {
+      if (arg) onAside(arg);
+      else note("`/btw <question>` asks it beside this chat, without adding to it.");
+    } else if (verb === "export" || verb === "download") {
+      exportTranscript();
+    } else if (project) {
+      if (!panelOpen) togglePanel();
+    } else if (active?.projectSlug) {
+      onOpenProject(active.projectSlug);
+    } else {
+      window.location.hash = hrefFor({ name: "files" });
+    }
+    return true;
+  };
+
   async function send(): Promise<void> {
     const text = draft.trim();
     const target = activeId;
     if ((!text && attachments.files.length === 0) || !target) return;
+    if (runLocally(text)) {
+      setDraft("");
+      return;
+    }
     // Not blocked while a turn runs. A follow-up is queued on the server and
     // runs next, which is what the owner meant by sending it.
     setSendingIn(target);
@@ -642,6 +708,13 @@ export function ChatsPage({
       // A command may ask the surface to open something. The kernel has no UI,
       // so it names the panel and the surface obliges.
       if (res.opens === "tools") setEditing(true);
+      // A command that moved this surface (/new, /fork, /agent, /switch)
+      // moves the page with it; the reply went unheeded before.
+      if (res.switchedTo) {
+        onChanged();
+        onOpen(res.switchedTo);
+        return;
+      }
       // Reload rather than appending the reply: the turn may have made tool
       // calls, and those belong in the transcript too. A turn suspended on an
       // approval answers here too, and the reload is what puts its approval
@@ -1126,29 +1199,20 @@ export function ChatsPage({
           </div>
           <div className="chats-group-head">
             <span>Agents</span>
+            {/* Like New chat: the thread opens empty and the first message
+                names it. A form asking for a name, a brief and a task first
+                was three fields in the way of saying what you wanted. */}
             <button
               type="button"
               className="chats-group-add"
               aria-label="New agent"
-              title="Start an agent by hand"
-              aria-expanded={addingAgent}
-              onClick={() => setAddingAgent((v) => !v)}
+              title="Start an agent: a thread of this project, named by its first message"
+              disabled={creating}
+              onClick={() => void startAgent()}
             >
               +
             </button>
           </div>
-          {addingAgent && (
-            <NewAgentForm
-              slug={project.slug}
-              onCancel={() => setAddingAgent(false)}
-              onError={project.onError}
-              onMade={(id) => {
-                setAddingAgent(false);
-                onChanged();
-                onOpen(id);
-              }}
-            />
-          )}
           <ul className="chats-flat">
             {shownAgents.map((c) => renderChat(c))}
             {shownAgents.length === 0 && (

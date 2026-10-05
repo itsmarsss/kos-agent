@@ -6358,18 +6358,6 @@ a.health {
 .chats-panel-toggle:hover { color: var(--text); background: var(--panel-2); }
 .chats-panel-toggle.is-on { color: var(--accent); }
 
-.agent-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  margin: 0.1rem 0 0.4rem;
-  padding: 0.5rem;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-}
-.agent-form-row { display: flex; justify-content: flex-end; gap: 0.4rem; }
-
 .project-panel {
   display: flex;
   flex-direction: column;

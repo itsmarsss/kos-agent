@@ -103,6 +103,48 @@ describe("connectChannel", () => {
     expect(adapter.sent[0]?.msg.text).toBe("hi back");
   });
 
+  it("decides what the chat is waiting on with /approve and /deny", async () => {
+    await boot(stub(riskyScript()));
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "delete it" });
+    expect(kernel.approvals.pending()).toHaveLength(1);
+
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "/status" });
+    expect(adapter.sent.at(-1)?.msg.text).toMatch(/Waiting on you: 1 action \(1 in this chat/);
+
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "/approve" });
+    expect(adapter.sent.at(-1)?.msg.text).toMatch(/^Approved #\d+ /);
+    expect(kernel.approvals.pending()).toHaveLength(0);
+
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "/deny" });
+    expect(adapter.sent.at(-1)?.msg.text).toMatch(/Nothing is waiting on you in this chat/);
+  });
+
+  it("forks a chat with its history, its brief and its project, and moves to the copy", async () => {
+    await boot(
+      stub([
+        {
+          content: [{ type: "text", text: "hi back" }],
+          stopReason: "end_turn",
+          usage: { inputTokens: 0, outputTokens: 0 },
+          model: "stub",
+        },
+      ]),
+    );
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "hi" });
+    // The sender is the owner; the surface's stream is the owner's.
+    const before = kernel.conversationFor("memory", "owner").id;
+    kernel.conversations.configure(before, { brief: "Be brief." });
+
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "/fork Second take" });
+    expect(adapter.sent.at(-1)?.msg.text).toMatch(/Forked into “Second take”/);
+    const after = kernel.conversations.activeFor("memory", "owner");
+    expect(after).toBeTruthy();
+    expect(after).not.toBe(before);
+    const fork = kernel.conversations.get(after!);
+    expect(fork).toMatchObject({ title: "Second take", brief: "Be brief." });
+    expect(kernel.sessions.get(after!)).toEqual(kernel.sessions.get(before));
+  });
+
   it("surfaces a risky tool call as an approval prompt, then executes on approve", async () => {
     await boot(stub(riskyScript()));
     await adapter.receive({ channel: "memory", senderId: "u1", text: "delete it" });

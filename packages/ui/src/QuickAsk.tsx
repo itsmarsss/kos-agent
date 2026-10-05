@@ -113,6 +113,7 @@ export function QuickAsk({
   onOpen,
   contextId,
   contextTitle,
+  seed,
 }: {
   open: boolean;
   onClose: () => void;
@@ -120,6 +121,8 @@ export function QuickAsk({
   /** The chat currently open, whose history the aside is answered against. */
   contextId?: string;
   contextTitle?: string;
+  /** A question handed in from outside (`/btw` in the chat), asked as it arrives. */
+  seed?: { text: string; n: number };
 }): ReactElement | null {
   const key = contextId ?? "global";
   // The server streams the aside's live view under this key, never under the
@@ -235,8 +238,7 @@ export function QuickAsk({
       return { ...all, [key]: list };
     });
 
-  const ask = async (): Promise<void> => {
-    const q = text.trim();
+  const ask = async (q: string): Promise<void> => {
     if (!q || asking) return;
     // Earlier exchanges in this side thread go with the question, so a
     // follow-up ("and the second one?") has what it refers to.
@@ -258,6 +260,15 @@ export function QuickAsk({
       setAsking(false);
     }
   };
+
+  // A question handed in is asked once, when it arrives.
+  const askedSeed = useRef<number | null>(null);
+  useEffect(() => {
+    if (!seed || askedSeed.current === seed.n) return;
+    askedSeed.current = seed.n;
+    void ask(seed.text);
+    // ask closes over the thread; the seed's stamp is what makes this fire.
+  }, [seed?.n]);
 
   if (!shown) return null;
 
@@ -366,7 +377,7 @@ export function QuickAsk({
         className="quickask-composer"
         onSubmit={(e) => {
           e.preventDefault();
-          void ask();
+          void ask(text.trim());
         }}
       >
         <textarea

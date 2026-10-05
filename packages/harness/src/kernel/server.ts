@@ -1015,6 +1015,12 @@ export async function handleApiRequest(
     // different toolkits behind them.
     const attachments = parseAttachments(body.attachments);
     try {
+      // A slash command is bookkeeping, not something to ask a model about.
+      // Checked before the thread is routed: in a project's or KOS's own
+      // thread the commands used to reach the model as prose, which
+      // improvised an answer to "/status".
+      const command = await kernel.runCommandIn(sessionId, userId, text);
+      if (command) return ok(command);
       if (sessionId.startsWith("project:")) {
         return ok(
           await kernel.handleProjectTurn(sessionId.slice("project:".length), text, {
@@ -1031,9 +1037,6 @@ export async function handleApiRequest(
           }),
         );
       }
-      // A slash command is bookkeeping, not something to ask a model about.
-      const command = await kernel.runCommandIn(sessionId, userId, text);
-      if (command) return ok(command);
       return ok(
         await kernel.handleMessage(text, { sessionId, userId, attachments }),
       );
@@ -1645,15 +1648,15 @@ export async function handleApiRequest(
     const title = typeof body.title === "string" ? body.title.trim() : "";
     const brief = typeof body.brief === "string" ? body.brief.trim() : "";
     const task = typeof body.task === "string" ? body.task.trim() : "";
-    if (!title) return { status: 400, body: { error: "title required" } };
     if (task && kernel.killSwitch.halted) {
       return { status: 409, body: { error: "KOS is halted" } };
     }
+    // Untitled is fine: like any chat, its first message names it.
     const created = kernel.conversations.create({
       userId: kernel.profile.ownerId,
       channel: "dashboard",
       projectSlug: slug,
-      title,
+      ...(title ? { title } : {}),
       ...(brief ? { brief } : {}),
     });
     kernel.manifest.touchProject(slug);

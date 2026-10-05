@@ -71,6 +71,12 @@ export function App(): React.ReactElement {
   const [paletteOpen, setPaletteOpen] = useState(false);
   /** The quick-question window: the sidebar entry or Cmd/Ctrl+Shift+K. */
   const [askOpen, setAskOpen] = useState(false);
+  /** A question typed as `/btw` in a chat, handed to the window to ask. */
+  const [askSeed, setAskSeed] = useState<{ text: string; n: number } | null>(null);
+  const askAside = (text: string): void => {
+    setAskSeed({ text, n: Date.now() });
+    setAskOpen(true);
+  };
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "k") {
@@ -474,8 +480,20 @@ export function App(): React.ReactElement {
           : `project-${inspect.data.slug}`;
 
   /** A project's threads open inside the project; the rest open in Chats. */
-  const openConversation = (id: string): void =>
-    go(placeOf(id, conversations.find((c) => c.id === id)));
+  const openConversation = (id: string): void => {
+    const known = conversations.find((c) => c.id === id);
+    if (known) {
+      go(placeOf(id, known));
+      return;
+    }
+    // Just made (the + in a project, /agent, /fork), so not in the list this
+    // render has: ask for the list rather than guess, or an agent opened in
+    // Chats instead of in its project.
+    void api
+      .conversations()
+      .then((list) => go(placeOf(id, list.find((c) => c.id === id))))
+      .catch(() => go(placeOf(id)));
+  };
   /** The thread the quick question is asked beside, if one is open. */
   const askContext =
     route.name === "chats"
@@ -632,6 +650,7 @@ export function App(): React.ReactElement {
         open={askOpen}
         onClose={() => setAskOpen(false)}
         onOpen={openConversation}
+        {...(askSeed ? { seed: askSeed } : {})}
         {...(askContext
           ? {
               contextId: askContext,
@@ -695,6 +714,7 @@ export function App(): React.ReactElement {
         onOpenAgent={(id) => go({ name: "agents", id })}
         onOpen={openConversation}
         onOpenProject={(slug) => go({ name: "project", slug })}
+        onAside={askAside}
         onChanged={() => void refresh()}
         onDecide={decideByPendingId}
         {...(seed ? { seed } : {})}
@@ -728,6 +748,7 @@ export function App(): React.ReactElement {
           onOpenFile: (path) => go({ name: "files", path }),
           onError: (text) => flash("err", text),
         }}
+        onAside={askAside}
         onChanged={() => void refresh()}
         onDecide={decideByPendingId}
         {...(seed ? { seed } : {})}
