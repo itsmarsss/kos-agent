@@ -5888,40 +5888,17 @@ a.health {
   font-weight: 500;
 }
 
-/* —— Quick question: a floating thread over any page —— */
-.quickask-fab {
-  position: fixed;
-  right: 1.1rem;
-  bottom: 1.1rem;
-  z-index: 80;
-  width: 2.9rem;
-  height: 2.9rem;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 50%;
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: 1.2rem;
-  cursor: pointer;
-  box-shadow: 0 8px 24px -8px var(--accent);
-  transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
-}
-.quickask-fab:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 28px -8px var(--accent);
-}
-.quickask-fab.is-open {
-  transform: scale(0.9);
-  opacity: 0.8;
-}
+/* —— Quick question: a floating, draggable, resizable thread over any page.
+   Position and size are the owner's (set in JS, remembered); the header
+   drags it and the corner handle resizes it. No launcher button: it opens
+   from the sidebar entry or Cmd/Ctrl+Shift+K. —— */
 .quickask {
   position: fixed;
-  right: 1.1rem;
-  bottom: 4.4rem;
   z-index: 80;
-  width: min(23rem, calc(100vw - 2rem));
-  max-height: min(32rem, calc(100vh - 7rem));
+  min-width: 17.5rem;
+  min-height: 14rem;
+  max-width: calc(100vw - 1rem);
+  max-height: calc(100vh - 1rem);
   display: flex;
   flex-direction: column;
   background: var(--panel);
@@ -5929,6 +5906,7 @@ a.health {
   border-radius: var(--radius);
   box-shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.4);
   overflow: hidden;
+  resize: both;
 }
 .quickask-head {
   display: flex;
@@ -5937,6 +5915,9 @@ a.health {
   gap: 0.5rem;
   padding: 0.5rem 0.7rem;
   border-bottom: 1px solid var(--line);
+  cursor: move;
+  user-select: none;
+  touch-action: none;
 }
 .quickask-title-wrap {
   display: flex;

@@ -24,6 +24,7 @@ export function Sidebar({
   inboxCount,
   busy,
   onSearch,
+  onAsk,
   onRefresh,
   onSnapshot,
   onOpenWorkspace,
@@ -37,6 +38,8 @@ export function Sidebar({
   /** What the shell is doing right now, if anything. */
   busy: string | null;
   onSearch: () => void;
+  /** Toggle the quick-question window (the floating aside about the open chat). */
+  onAsk: () => void;
   onRefresh: () => void;
   onSnapshot: () => void;
   onOpenWorkspace: () => void;
@@ -135,6 +138,16 @@ export function Sidebar({
             <NavIcon name="search" />
             <span className="side-label">Search</span>
             <kbd>⌘K</kbd>
+          </button>
+          <button
+            type="button"
+            className="side-link side-search"
+            onClick={onAsk}
+            title="Quick question about the open chat"
+          >
+            <NavIcon name="ask" />
+            <span className="side-label">Quick question</span>
+            <kbd>⌘⇧K</kbd>
           </button>
           <a
             href={hrefFor({ name: "settings" })}

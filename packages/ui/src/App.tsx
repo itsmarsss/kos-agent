@@ -68,6 +68,20 @@ export function App(): React.ReactElement {
   const [cronFilter, setCronFilter] = useState<"all" | "on" | "off">("all");
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  /** The quick-question window: the sidebar entry or Cmd/Ctrl+Shift+K. */
+  const [askOpen, setAskOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setAskOpen((v) => !v);
+      } else if (e.key === "Escape") {
+        setAskOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   /** Everything waiting on the owner, for the Inbox and its badge. */
   const [inbox, setInbox] = useState<InboxData | null>(null);
   // Where sites are served, so the palette can open one directly.
@@ -469,6 +483,7 @@ export function App(): React.ReactElement {
         inboxCount={inbox ? inbox.approvals.length + inbox.decisions.length + inbox.failures.length + inbox.suggestions.length : approvals.length}
         busy={busy}
         onSearch={() => setPaletteOpen(true)}
+        onAsk={() => setAskOpen((v) => !v)}
         onRefresh={() => void refresh()}
         onSnapshot={() => void doSnapshot()}
         onOpenWorkspace={() => {
@@ -608,6 +623,8 @@ export function App(): React.ReactElement {
         />
       </main>
       <QuickAsk
+        open={askOpen}
+        onClose={() => setAskOpen(false)}
         onOpen={(id) => go({ name: "chats", id })}
         {...(route.name === "chats" && route.id
           ? {

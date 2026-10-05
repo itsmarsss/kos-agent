@@ -932,6 +932,10 @@ export async function handleApiRequest(
         sessionId: `aside:${contextId ?? "global"}`,
         noSession: true,
         channel: "dashboard",
+        // Purely a question: no tools and no MCP. An empty allow-list permits
+        // nothing on either engine, so the model answers from the context it
+        // was handed and cannot act on the workspace from the side.
+        allow: [],
         ...(contextId ? { contextFrom: contextId } : {}),
         ...(prior.length ? { priorTurns: prior } : {}),
       });
