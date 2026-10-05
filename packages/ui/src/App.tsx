@@ -653,6 +653,7 @@ export function App(): React.ReactElement {
     return shell(
       <ChatsPage
         conversations={conversations}
+        projects={projects}
         {...(route.id ? { activeId: route.id } : {})}
         pendingApprovals={pendingIds}
         approvals={approvals}

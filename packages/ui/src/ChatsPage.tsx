@@ -24,6 +24,7 @@ import {
   type BuildRecord,
   type PendingAction,
   type PendingMessage,
+  type Project,
 } from "./api.js";
 import { AttachButton, useAttachments, useDropZone } from "./Attachments.js";
 import { AttachmentStrip } from "./AttachmentStrip.js";
@@ -65,6 +66,8 @@ import { composerKeyDown, useAutoGrow, useStickToBottom } from "./composer.js";
 
 export interface ChatsPageProps {
   conversations: Conversation[];
+  /** Manifest projects, so the rail shows a project even before it has an orchestrator conversation. */
+  projects: Project[];
   activeId?: string;
   /** Pending-action ids still awaiting a decision. */
   pendingApprovals: Set<string>;
@@ -100,6 +103,7 @@ function relative(ts: number): string {
 
 export function ChatsPage({
   conversations,
+  projects,
   activeId,
   pendingApprovals,
   approvals,
@@ -432,13 +436,25 @@ export function ChatsPage({
    * it by recency. Neither is theirs to rename, archive or delete, and the
    * list offers none of those here.
    */
-  const projects = useMemo(
+  const projectConvs = useMemo(
     () =>
       conversations
         .filter((c) => c.kind === "project")
         .sort((a, b) => a.title.localeCompare(b.title)),
     [conversations],
   );
+  /**
+   * Manifest projects with no orchestrator conversation yet: a project built
+   * inline (systems.project_create inside a plain chat) exists in the manifest
+   * but has no project:<slug> thread, so it would otherwise be invisible here.
+   * Clicking one stands its orchestrator up on demand.
+   */
+  const looseProjects = useMemo(() => {
+    const have = new Set(projectConvs.map((c) => c.projectSlug));
+    return projects
+      .filter((p) => p.status !== "archived" && !have.has(p.slug))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [projects, projectConvs]);
   const surfaces = useMemo(
     () =>
       conversations
@@ -985,7 +1001,7 @@ export function ChatsPage({
           />
         </div>
         {showArchived && <div className="chats-section">Archived chats</div>}
-        {!showArchived && (orchestrator || projects.length > 0 || surfaces.length > 0) && (
+        {!showArchived && (orchestrator || projectConvs.length > 0 || looseProjects.length > 0 || surfaces.length > 0) && (
           <div className="chats-pinned">
             {orchestrator && (
               <a
@@ -1038,15 +1054,17 @@ export function ChatsPage({
                 </button>
               </form>
             )}
-            {projects.length === 0 && newProject === null && (
-              <p className="chats-group-empty">
-                None yet. KOS stands one up when work needs its own space, or add one with +.
-              </p>
-            )}
-            {projects.length > 0 && (
+            {projectConvs.length === 0 &&
+              looseProjects.length === 0 &&
+              newProject === null && (
+                <p className="chats-group-empty">
+                  None yet. KOS stands one up when work needs its own space, or add one with +.
+                </p>
+              )}
+            {projectConvs.length > 0 && (
               /* Each project is its own orchestrator; expand to its agents. */
               <div className="chats-projects">
-                {projects.map((c) => {
+                {projectConvs.map((c) => {
                   const slug = c.projectSlug ?? "";
                   const agents = tree.byProject.get(slug) ?? [];
                   const open = projectOpen(slug, agents);
@@ -1086,6 +1104,40 @@ export function ChatsPage({
                     </div>
                   );
                 })}
+              </div>
+            )}
+            {looseProjects.length > 0 && (
+              /* Manifest projects without an orchestrator thread yet. Opening
+                 one stands its orchestrator up, after which it joins the list
+                 above with its own agents. */
+              <div className="chats-projects">
+                {looseProjects.map((p) => (
+                  <div key={p.slug} className="chats-project">
+                    <div className="chats-project-row">
+                      <button
+                        type="button"
+                        className="chats-item chats-item--pinned"
+                        onClick={() => {
+                          void api
+                            .projectChat(p.slug)
+                            .then((c) => {
+                              onChanged();
+                              onOpen(c.id);
+                            })
+                            .catch(() => undefined);
+                        }}
+                      >
+                        <span className="chats-item-top">
+                          <span className="chats-item-title">{p.name}</span>
+                          <span className="chats-badge">{p.type}</span>
+                        </span>
+                        <span className="chats-item-brief">
+                          {p.description || "No orchestrator yet. Open to start one."}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
             {surfaces.length > 0 && (
@@ -1338,7 +1390,7 @@ export function ChatsPage({
                   if (orchestrator && active.id !== orchestrator.id) crumbs.push({ label: "KOS", id: orchestrator.id });
                   if (active.projectSlug && active.kind !== "project") {
                     crumbs.push({
-                      label: projects.find((p) => p.projectSlug === active.projectSlug)?.title ?? active.projectSlug,
+                      label: projectConvs.find((p) => p.projectSlug === active.projectSlug)?.title ?? active.projectSlug,
                       id: `project:${active.projectSlug}`,
                     });
                   }
