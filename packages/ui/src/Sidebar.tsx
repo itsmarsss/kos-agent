@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 
 import type { Status } from "./api.js";
 import { hrefFor, NAV, navActive, type Route } from "./routes.js";
+import { NavIcon } from "./icons.js";
 import { useDismiss } from "./useDismiss.js";
 
 /**
@@ -43,6 +44,23 @@ export function Sidebar({
   onToggleKill: () => void;
 }): ReactElement {
   const [open, setOpen] = useState(false);
+  const [railed, setRailed] = useState(() => {
+    try {
+      return localStorage.getItem("kos.sidebar") === "rail";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    // On the document, so the .app grid can widen the page beside a thin rail.
+    if (railed) document.documentElement.dataset["sidebar"] = "rail";
+    else delete document.documentElement.dataset["sidebar"];
+    try {
+      localStorage.setItem("kos.sidebar", railed ? "rail" : "wide");
+    } catch {
+      // Remembered for this visit only.
+    }
+  }, [railed]);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDetailsElement>(null);
   useDismiss(moreRef, moreOpen, () => setMoreOpen(false));
@@ -78,9 +96,23 @@ export function Sidebar({
       </header>
       {open && <div className="side-backdrop" aria-hidden="true" onClick={() => setOpen(false)} />}
       <aside className={`side${open ? " is-open" : ""}`} aria-label="Primary">
-        <a className="brand side-brand" href="#/">
-          K<span>-OS</span>
-        </a>
+        <div className="side-brand-row">
+          <a className="brand side-brand" href="#/">
+            K<span>-OS</span>
+          </a>
+          {/* Collapse to a rail. Desktop only; on a phone the sidebar is a
+              drawer and this button is hidden. */}
+          <button
+            type="button"
+            className="side-collapse"
+            aria-label={railed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-pressed={railed}
+            title={railed ? "Expand" : "Collapse"}
+            onClick={() => setRailed((v) => !v)}
+          >
+            {railed ? "»" : "«"}
+          </button>
+        </div>
         <nav className="side-nav">
           {NAV.map((item) => (
             <a
@@ -88,22 +120,29 @@ export function Sidebar({
               href={hrefFor(item.route)}
               className={`side-link${navActive(item.route, route) ? " is-active" : ""}`}
               aria-current={navActive(item.route, route) ? "page" : undefined}
+              title={item.label}
             >
-              {item.label}
-              {item.route.name === "inbox" && inboxCount > 0 && <span className="side-badge">{inboxCount}</span>}
+              <NavIcon name={item.route.name} />
+              <span className="side-label">{item.label}</span>
+              {item.route.name === "inbox" && inboxCount > 0 && (
+                <span className={`side-badge${railed ? " side-badge--dot" : ""}`}>{railed ? "" : inboxCount}</span>
+              )}
             </a>
           ))}
         </nav>
         <div className="side-foot">
-          <button type="button" className="side-link side-search" onClick={onSearch}>
-            Search
+          <button type="button" className="side-link side-search" onClick={onSearch} title="Search">
+            <NavIcon name="search" />
+            <span className="side-label">Search</span>
             <kbd>⌘K</kbd>
           </button>
           <a
             href={hrefFor({ name: "settings" })}
             className={`side-link${route.name === "settings" ? " is-active" : ""}`}
+            title="Settings"
           >
-            Settings
+            <NavIcon name="settings" />
+            <span className="side-label">Settings</span>
           </a>
           {/* Controlled rather than left to the element: a native details
               stays open over whatever it just opened, and when you click
@@ -118,7 +157,10 @@ export function Sidebar({
               if (target.closest("button, a")) setMoreOpen(false);
             }}
           >
-            <summary className="side-link">More…</summary>
+            <summary className="side-link" title="More">
+              <NavIcon name="more" />
+              <span className="side-label">More…</span>
+            </summary>
             <div className="menu-body">
               <button type="button" onClick={onRefresh}>Refresh</button>
               <button type="button" onClick={onSnapshot}>Snapshot now</button>

@@ -1252,6 +1252,28 @@ export function ChatsPage({
           <>
             <header className="chats-view-head">
               <div className="chats-view-title">
+                {/* The lineage, so every level of the tree is one click
+                    from any other: KOS routes, a project chat orchestrates,
+                    an agent does the work. */}
+                {(() => {
+                  const crumbs: { label: string; id: string }[] = [];
+                  if (orchestrator && active.id !== orchestrator.id) crumbs.push({ label: "KOS", id: orchestrator.id });
+                  if (active.projectSlug && active.kind !== "project") {
+                    crumbs.push({
+                      label: projects.find((p) => p.projectSlug === active.projectSlug)?.title ?? active.projectSlug,
+                      id: `project:${active.projectSlug}`,
+                    });
+                  }
+                  return crumbs.length > 0 ? (
+                    <nav className="chats-crumbs" aria-label="Where this chat sits">
+                      {crumbs.map((c) => (
+                        <button key={c.id} type="button" className="link" onClick={() => onOpen(c.id)}>
+                          {c.label}
+                        </button>
+                      ))}
+                    </nav>
+                  ) : null;
+                })()}
                 <h1>
                   {/* In the header rather than floating: positioned against
                       the grid it sat off the left edge of the window and was
@@ -1265,20 +1287,11 @@ export function ChatsPage({
                     {narrow ? "‹" : collapsed ? "›" : "‹"}
                   </button>
                   {active.title}
+                  {active.kind === "project" && <span className="chats-role">orchestrator</span>}
                 </h1>
-                {/* Where this chat sits in the tree. An agent a project made
-                    looked exactly like a chat you began. */}
-                {active.kind === "chat" && active.projectSlug && (
-                  <p className="chats-lineage">
-                    An agent of{" "}
-                    <a href={hrefFor({ name: "chats", id: `project:${active.projectSlug}` })} onClick={(e) => { e.preventDefault(); onOpen(`project:${active.projectSlug}`); }}>
-                      {projects.find((p) => p.projectSlug === active.projectSlug)?.title ?? active.projectSlug}
-                    </a>
-                  </p>
-                )}
                 {active.kind === "project" && (
                   <p className="chats-lineage">
-                    Orchestrates this project · {projectSummary(tree.byProject.get(active.projectSlug ?? "") ?? []).replace("Runs this project's agents", "no agents yet")}
+                    {projectSummary(tree.byProject.get(active.projectSlug ?? "") ?? []).replace("Runs this project's agents", "No agents yet")}
                   </p>
                 )}
                 {active.brief && <p className="chats-brief">{active.brief}</p>}
