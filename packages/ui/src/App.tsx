@@ -465,7 +465,7 @@ export function App(): React.ReactElement {
       <Sidebar
         route={route}
         status={status}
-        inboxCount={inbox ? inbox.approvals.length + inbox.decisions.length + inbox.failures.length : approvals.length}
+        inboxCount={inbox ? inbox.approvals.length + inbox.decisions.length + inbox.failures.length + inbox.suggestions.length : approvals.length}
         busy={busy}
         onSearch={() => setPaletteOpen(true)}
         onRefresh={() => void refresh()}

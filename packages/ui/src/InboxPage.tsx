@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import { summarizeAction } from "@kos/shared";
 
-import type { FailingJob, InboxData } from "./api.js";
+import { api, type FailingJob, type InboxData } from "./api.js";
 import { Decision } from "./Decision.js";
 import { MemoryDecision } from "./MemoryPage.js";
 import { PageHead } from "./PageHead.js";
@@ -48,7 +48,8 @@ export function InboxPage({
   const approvals = data?.approvals ?? [];
   const decisions = data?.decisions ?? [];
   const failures = data?.failures ?? [];
-  const total = approvals.length + decisions.length + failures.length;
+  const suggestions = data?.suggestions ?? [];
+  const total = approvals.length + decisions.length + failures.length + suggestions.length;
 
   return (
     <div className="inbox">
@@ -112,6 +113,42 @@ export function InboxPage({
           <p className="hint">Keeping one side archives the other; promoting writes the claim global. Both are on the record as yours.</p>
           {decisions.map((item) => (
             <MemoryDecision key={item.id} item={item} onResolved={onChanged} />
+          ))}
+        </section>
+      )}
+
+      {suggestions.length > 0 && (
+        <section className="inbox-group">
+          <h2 className="inbox-group-title">
+            Suggestions <span className="panel-count">{suggestions.length}</span>
+          </h2>
+          <p className="hint">Things KOS thinks it could make reusable. Nothing happens until you say so; accepting opens a chat that carries it out, with the usual approvals.</p>
+          {suggestions.map((s) => (
+            <div key={s.id} className="inbox-suggestion">
+              <div className="inbox-suggestion-main">
+                <span className="panel-row-main">
+                  <span className="mem-kind">{s.kind}</span> {s.title}
+                </span>
+                <span className="inbox-why">{s.detail}</span>
+              </div>
+              <span className="panel-approval-actions">
+                <button
+                  type="button"
+                  className="btn btn--sm"
+                  onClick={() =>
+                    void api.resolveImprovement(s.id, "accept").then((r) => {
+                      onChanged();
+                      if (r.conversationId) onOpenChat(r.conversationId);
+                    })
+                  }
+                >
+                  Do it
+                </button>
+                <button type="button" className="btn btn--sm btn--ghost" onClick={() => void api.resolveImprovement(s.id, "dismiss").then(onChanged)}>
+                  Dismiss
+                </button>
+              </span>
+            </div>
           ))}
         </section>
       )}

@@ -57,10 +57,30 @@ describe("handleApiRequest", () => {
   it("lists everything waiting on the owner in one inbox", async () => {
     kernel.approvals.enqueue({ tool: "files.read", args: { path: "x" }, riskTier: "risky" });
     const res = await handleApiRequest(kernel, { method: "GET", path: "/api/inbox" });
-    const body = res.body as { approvals: unknown[]; decisions: unknown[]; failures: unknown[] };
+    const body = res.body as { approvals: unknown[]; decisions: unknown[]; failures: unknown[]; suggestions: unknown[] };
     expect(body.approvals).toHaveLength(1);
     expect(body.decisions).toEqual([]);
     expect(body.failures).toEqual([]);
+    expect(body.suggestions).toEqual([]);
+  });
+
+  it("carries a suggestion in the inbox, and accepting it opens a chat while dismissing closes it", async () => {
+    const a = kernel.suggestions.add("blueprint", "Make the pantry a module", "three pantry-shaped projects", "Promote pantry.");
+    const b = kernel.suggestions.add("skill", "A digest skill", "done by hand four times");
+    const inbox = await handleApiRequest(kernel, { method: "GET", path: "/api/inbox" });
+    expect((inbox.body as { suggestions: { id: number }[] }).suggestions.map((s) => s.id)).toEqual([a.id, b.id]);
+
+    const accepted = await handleApiRequest(kernel, { method: "POST", path: "/api/improvements/resolve", body: { id: a.id, action: "accept" } });
+    const convoId = (accepted.body as { conversationId: string }).conversationId;
+    expect(convoId).toBeTruthy();
+    expect(kernel.conversations.get(convoId)?.title).toBe("Make the pantry a module");
+    expect(kernel.suggestions.get(a.id)?.resolvedAt).not.toBeNull();
+
+    await handleApiRequest(kernel, { method: "POST", path: "/api/improvements/resolve", body: { id: b.id, action: "dismiss" } });
+    expect(kernel.suggestions.pending()).toEqual([]);
+
+    const bad = await handleApiRequest(kernel, { method: "POST", path: "/api/improvements/resolve", body: { id: a.id, action: "nope" } });
+    expect(bad.status).toBe(400);
   });
 
   it("makes an instance of a blueprint module from the dashboard", async () => {

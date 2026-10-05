@@ -1308,7 +1308,24 @@ export async function handleApiRequest(
       approvals: kernel.approvals.pending(),
       decisions: kernel.review.pending(),
       failures: kernel.health.report().failing,
+      suggestions: kernel.suggestions.pending(),
     });
+  }
+
+  /** The owner's answer to something KOS suggested making reusable. */
+  if (method === "POST" && path === "/api/improvements/resolve") {
+    const id = Number(body.id);
+    const action = body.action === "accept" || body.action === "dismiss" ? body.action : undefined;
+    if (!Number.isInteger(id) || !action) return { status: 400, body: { error: "id and action (accept, dismiss) required" } };
+    const suggestion = kernel.suggestions.get(id);
+    if (!suggestion) return { status: 404, body: { error: "no such suggestion" } };
+    if (action === "dismiss") {
+      kernel.suggestions.resolve(id, "dismissed");
+      return ok({ dismissed: id });
+    }
+    const started = kernel.actOnSuggestion(id);
+    if (!started) return { status: 409, body: { error: "already resolved" } };
+    return ok({ accepted: id, conversationId: started.conversationId });
   }
 
   if (method === "GET" && path === "/api/home") {

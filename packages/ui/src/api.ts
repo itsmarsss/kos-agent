@@ -400,6 +400,17 @@ export interface InboxData {
   approvals: PendingAction[];
   decisions: ReviewItem[];
   failures: FailingJob[];
+  suggestions: Suggestion[];
+}
+
+/** Something KOS suggested making reusable, waiting on the owner. */
+export interface Suggestion {
+  id: number;
+  kind: "skill" | "blueprint" | "other";
+  title: string;
+  detail: string;
+  action: string | null;
+  createdAt: number;
 }
 
 /** Memory at a glance, for the home page. */
@@ -721,6 +732,8 @@ export const api = {
     post<{ conversationId: string }>("/api/pending/fork", { id }),
   home: () => get<HomeData>("/api/home"),
   inbox: () => get<InboxData>("/api/inbox"),
+  resolveImprovement: (id: number, action: "accept" | "dismiss") =>
+    post<{ accepted?: number; dismissed?: number; conversationId?: string }>("/api/improvements/resolve", { id, action }),
   saveHome: (layout: import("@kos/shared").HomeLayout) =>
     post<{ layout: import("@kos/shared").HomeLayout }>("/api/home", { layout }),
   agents: () => get<{ builds: BuildRecord[] }>("/api/agents"),

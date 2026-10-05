@@ -5769,3 +5769,8 @@ a.health {
   border-radius: var(--radius);
   font-size: var(--text-sm);
 }
+
+/* Inbox: a suggestion KOS raised, calmer than an approval. */
+.inbox-suggestion { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0; }
+.inbox-suggestion + .inbox-suggestion { border-top: 1px solid var(--line); }
+.inbox-suggestion-main { min-width: 0; }
