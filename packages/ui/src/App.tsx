@@ -27,6 +27,7 @@ import { ease, spring } from "./motion.js";
 import { HistoryPage, type HistoryRow } from "./HistoryPage.js";
 import { HomePage } from "./HomePage.js";
 import { ChatsPage } from "./ChatsPage.js";
+import { QuickAsk } from "./QuickAsk.js";
 import { FilesPage } from "./FilesPage.js";
 import { AgentsPage } from "./AgentsPage.js";
 import { SettingsPage } from "./SettingsPage.js";
@@ -606,6 +607,7 @@ export function App(): React.ReactElement {
           ctx={paletteContext}
         />
       </main>
+      <QuickAsk onOpen={(id) => go({ name: "chats", id })} />
       </div>
     </ErrorBoundary>
   );
