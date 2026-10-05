@@ -100,6 +100,8 @@ export function summarizeAction(
       return `Start conversation “${fmtVal(a.title)}”`;
     case "chats.dispatch":
       return `Hand work to conversation ${fmtVal(a.id)}`;
+    case "chats.congregate":
+      return `Gather from ${Array.isArray(a.targets) ? a.targets.length : "several"} conversations`;
     case "pages.get":
       return `Read page ${fmtVal(a.id)}`;
     case "pages.list":

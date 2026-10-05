@@ -2,6 +2,7 @@ import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { tokenize } from "../memory/facts.js";
 import type { ConversationStore } from "../kernel/conversations.js";
+import type { CongregationMember } from "../kernel/progress.js";
 import type { SessionStore } from "../kernel/session.js";
 
 /**
@@ -16,6 +17,10 @@ import type { SessionStore } from "../kernel/session.js";
  * that owns it and reports back what actually happened, instead of announcing
  * that a thread now exists.
  *
+ * Congregate is dispatch to several at once, waited on. Each member runs in
+ * its own lane, so they run in parallel, and every reply comes back in one
+ * result so the next model step can write a single answer from all of them.
+ *
  * A dispatched conversation never holds these tools itself, so a sub-agent
  * cannot dispatch further and the delegation is one level deep by construction.
  */
@@ -27,7 +32,19 @@ export const CHAT_TOOLS = [
   "chats.project",
   "chats.create",
   "chats.dispatch",
+  "chats.congregate",
 ] as const;
+
+/** The most conversations one congregation may ask at once. */
+export const MAX_CONGREGATION = 6;
+/** How long one member may run before the congregation gives up on it. */
+const DEFAULT_CONGREGATION_MS = 10 * 60_000;
+/**
+ * The most of one member's reply the result carries. Six long replies in one
+ * tool result would crowd out the context the synthesis needs; the whole
+ * reply stays in that member's own chat.
+ */
+const REPLY_CAP = 8_000;
 
 /**
  * Which conversations a caller may see.
@@ -78,6 +95,13 @@ export interface ChatToolDeps {
   ) => void;
   /** Which conversation is dispatching, for routing the answer back to it. */
   currentConversationId?: () => string | undefined;
+  /**
+   * Told as a congregation forms and again as each member settles, so the
+   * chat that asked can show who it is waiting on.
+   */
+  onCongregation?: (dispatchedFrom: string, members: CongregationMember[]) => void;
+  /** How long one member of a congregation may run, read at call time. */
+  congregationTimeoutMs?: () => number;
   /**
    * Stand up a project and its orchestrator. The kernel owns the manifest and
    * the conversation graph, so it does the work; this is how KOS at the root
@@ -377,6 +401,164 @@ function defineDispatchTool(deps: ChatToolDeps, ctx: ModuleContext): void {
   );
 }
 
+/** What one member of a congregation is asked, and where. */
+interface CongregationTarget {
+  id?: string;
+  title?: string;
+  brief?: string;
+  message: string;
+}
+
+/** Shape-check every target before anything is created or dispatched. */
+function parseTargets(raw: unknown): CongregationTarget[] {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error("targets must name at least one conversation to ask");
+  }
+  if (raw.length > MAX_CONGREGATION) {
+    throw new Error(`a congregation asks at most ${MAX_CONGREGATION} conversations at once; got ${raw.length}`);
+  }
+  return raw.map((entry, i) => {
+    const t = typeof entry === "object" && entry !== null ? (entry as Record<string, unknown>) : {};
+    const message = typeof t.message === "string" ? t.message.trim() : "";
+    if (!message) throw new Error(`targets[${i}] has no message`);
+    const id = typeof t.id === "string" && t.id !== "" ? t.id : undefined;
+    const title = typeof t.title === "string" && t.title.trim() !== "" ? t.title.trim() : undefined;
+    if (!id && !title) throw new Error(`targets[${i}] needs an id to reach or a title to start`);
+    const brief = typeof t.brief === "string" && t.brief.trim() !== "" ? t.brief.trim() : undefined;
+    return { message, ...(id ? { id } : {}), ...(title ? { title } : {}), ...(brief ? { brief } : {}) };
+  });
+}
+
+/** Reject after `ms`, and let the timer go the moment either side settles. */
+function withTimeout<T>(work: Promise<T>, ms: number, reason: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const expiry = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(reason)), ms);
+  });
+  return Promise.race([work, expiry]).finally(() => clearTimeout(timer));
+}
+
+function capReply(reply: string): string {
+  if (reply.length <= REPLY_CAP) return reply;
+  return `${reply.slice(0, REPLY_CAP)}\n[cut at ${REPLY_CAP} characters; the full reply is in that conversation]`;
+}
+
+function defineCongregateTool(deps: ChatToolDeps, ctx: ModuleContext): void {
+  const { conversations, ownerId } = deps;
+  const hidden = new Set(deps.hide ?? []);
+  const inScope = inScopeFor(deps);
+
+  ctx.registerTool(
+    {
+      name: "chats.congregate",
+      description:
+        "Ask several conversations at once and wait for all of them. Use this when a question needs more than one angle, or when several pieces of work can run at the same time: each target is an existing conversation by id, or a new one to start with a title and optional brief, and each gets its own message. It runs them in parallel, waits for every one, and returns every reply together. Then write ONE combined answer in your own words: reconcile what they agree and disagree on, drop repetition, and summarize. Do not paste the replies. A member that fails or runs too long comes back with ok:false and the reason; say so and answer from the rest.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          targets: {
+            type: "array",
+            minItems: 1,
+            maxItems: MAX_CONGREGATION,
+            description: "who to ask, one entry per conversation; at most six",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string", description: "an existing conversation to ask" },
+                title: {
+                  type: "string",
+                  description:
+                    "or a new conversation to start, named as it would appear in a list: \"Cost Angle\", \"Security Review\"",
+                },
+                brief: { type: "string", description: "standing instructions for a new conversation" },
+                message: {
+                  type: "string",
+                  description:
+                    "the task or question for this member, written as the owner would say it TO that agent, never as a question back to the owner",
+                },
+              },
+              required: ["message"],
+            },
+          },
+          question: {
+            type: "string",
+            description: "what the owner asked, echoed back beside the replies so the combined answer stays on it",
+          },
+        },
+        required: ["targets"],
+      },
+    },
+    async (input) => {
+      // Everything is checked before anything is made, so a bad id in the
+      // list does not leave a half-created congregation behind.
+      const targets = parseTargets(input.targets);
+      const question = typeof input.question === "string" && input.question.trim() !== "" ? input.question.trim() : undefined;
+      for (const t of targets) {
+        if (!t.id) continue;
+        const existing = conversations.get(t.id);
+        // Out of scope reads as absent, the same as dispatch: a project
+        // orchestrator cannot learn that another project's conversation exists.
+        if (hidden.has(t.id) || !existing || existing.userId !== ownerId || !inScope(existing)) {
+          throw new Error(`no such conversation: ${t.id}`);
+        }
+      }
+      // Read now, not when a member settles: by then another lane may be the
+      // current one.
+      const from = deps.currentConversationId?.();
+      const timeoutMs = deps.congregationTimeoutMs?.() ?? DEFAULT_CONGREGATION_MS;
+
+      const members: Array<CongregationMember & { message: string }> = targets.map((t) => {
+        const conversation = t.id
+          ? conversations.get(t.id)!
+          : conversations.create({
+              projectSlug: deps.scope?.() ?? null,
+              userId: ownerId,
+              title: t.title!,
+              ...(t.brief ? { brief: t.brief } : {}),
+            });
+        return { id: conversation.id, title: conversation.title, status: "working", message: t.message };
+      });
+
+      const roster = (): void => {
+        if (!from) return;
+        deps.onCongregation?.(
+          from,
+          members.map(({ id, title, status }) => ({ id, title, status })),
+        );
+      };
+      roster();
+
+      // Each member runs in its own lane, so this is the fan-out; one that
+      // fails or runs too long is reported as such instead of taking the
+      // others down with it.
+      const results = await Promise.all(
+        members.map(async (member) => {
+          try {
+            const res = await withTimeout(
+              deps.dispatch(member.id, member.message),
+              timeoutMs,
+              `gave up waiting after ${Math.round(timeoutMs / 60_000)} minutes; it may still be working in its own conversation`,
+            );
+            member.status = "done";
+            return { id: member.id, title: member.title, ok: true, reply: capReply(res.reply) };
+          } catch (err) {
+            member.status = "failed";
+            const reason = err instanceof Error ? err.message : String(err);
+            return { id: member.id, title: member.title, ok: false, reply: `It failed: ${reason}` };
+          } finally {
+            roster();
+          }
+        }),
+      );
+
+      return JSON.stringify({ ...(question ? { question } : {}), members: results });
+    },
+    // Every member's turn is governed by its own conversation's risk tiers.
+    { floor: "safe" },
+    { restricted: true },
+  );
+}
+
 export function createChatsModule(deps: ChatToolDeps): KosModule {
   return {
     manifest: {
@@ -393,6 +575,7 @@ export function createChatsModule(deps: ChatToolDeps): KosModule {
       requireServices(ctx);
       defineChatTools(deps, ctx);
       defineDispatchTool(deps, ctx);
+      defineCongregateTool(deps, ctx);
     },
   };
 }

@@ -443,6 +443,12 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
         }
         kernelRef?.caretaker.tell(summary);
       },
+      // The roster of a fan-out, shown in the chat that asked while it waits.
+      onCongregation: (from, members) => {
+        kernelRef?.progress.emit({ kind: "congregation", conversationId: from, members });
+      },
+      // A member is an agent's turn, so it gets the time an agent gets.
+      congregationTimeoutMs: () => (kernelRef?.behaviour().agentMinutes ?? 15) * 60_000,
       // KOS at the root stands up a project and its orchestrator with this.
       standUpProject: (input) => kernelRef!.standUpProject(input),
       // It should not offer you its own thread as somewhere to put work.
