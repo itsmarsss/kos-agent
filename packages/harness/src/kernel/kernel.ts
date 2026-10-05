@@ -659,10 +659,20 @@ export class Kernel {
         // An aside has no tools, and the model should know that up front:
         // without this the SDK engine narrated attempts at its built-ins and
         // their refusals instead of just answering.
-        const asideNote =
-          opts.contextFrom !== undefined
-            ? "This is a quick side question about the conversation above, asked without adding to it. You have no tools this turn: answer from the conversation and what you know, briefly, and do not try to run, read or look anything up."
-            : null;
+        // Any tool-less, unrecorded turn is an aside, with or without a chat
+        // behind it; the global one (no chat open) needs the note just as much.
+        const isAside = opts.noSession === true && opts.allow !== undefined && opts.allow.length === 0;
+        const asideNote = isAside
+          ? [
+              "This is a quick side question",
+              opts.contextFrom !== undefined
+                ? " about the conversation above, asked without adding to it."
+                : ".",
+              " You have no tools this turn, by design: answer from ",
+              opts.contextFrom !== undefined ? "the conversation and " : "",
+              "what you know, briefly. Do not try to run, read, query or look anything up, and do not describe tool attempts or ask for approvals; if something cannot be known without looking, say so in one line.",
+            ].join("")
+          : null;
         const extra = [formatting, conversation?.brief, scopeNote, asideNote]
           .filter((part): part is string => Boolean(part && part.trim()))
           .join("\n\n");
