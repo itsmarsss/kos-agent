@@ -112,6 +112,8 @@ export interface SdkChatOptions {
   /** Streamed reasoning and text, for the live view. */
   onDelta?: (delta: { kind: "reasoning" | "text"; text: string }) => void;
   env?: NodeJS.ProcessEnv;
+  /** Aborts the SDK query when the owner presses Stop. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -259,9 +261,19 @@ export async function runSdkChat(
       })()
     : options.prompt;
 
+  // The SDK cancels a query through an AbortController, so bridge the caller's
+  // signal (from kernel.stop()) to one. An already-aborted signal aborts it at
+  // once, so a stop requested before the query starts still takes.
+  const ac = new AbortController();
+  if (options.signal) {
+    if (options.signal.aborted) ac.abort();
+    else options.signal.addEventListener("abort", () => ac.abort(), { once: true });
+  }
+
   const stream = query({
     prompt,
     options: {
+      abortController: ac,
       cwd: options.cwd,
       additionalDirectories: [],
       permissionMode: "default",
@@ -283,6 +295,7 @@ export async function runSdkChat(
     },
   });
 
+  try {
   for await (const message of stream as AsyncIterable<SDKMessage>) {
     const m = message as unknown as Record<string, unknown>;
 
@@ -333,6 +346,12 @@ export async function runSdkChat(
       costUSD = Number(m["total_cost_usd"] ?? 0);
       break;
     }
+  }
+  } catch (err) {
+    // Aborting the SDK query rejects the stream; that is the owner pressing
+    // Stop, a clean stop rather than a failure. Anything else still throws.
+    if (ac.signal.aborted) stopped = true;
+    else throw err;
   }
 
   /*
