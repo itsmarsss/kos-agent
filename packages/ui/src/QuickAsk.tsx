@@ -1,50 +1,58 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
 
-import { api, type ChatTurn } from "./api.js";
+import { api } from "./api.js";
 import { useProgress } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
 import { Markdown } from "./Markdown.js";
-import { ease, spring } from "./motion.js";
+import { spring } from "./motion.js";
 
 /**
- * A quick question to KOS, on the side.
+ * A quick question on the side, like Claude Code's /btw.
  *
- * A floating thread that lives over whatever page you are on, so an aside
- * does not mean leaving what you were doing. It reuses one conversation
- * ("Quick questions") so follow-ups keep their context, and "Open in chat"
- * promotes it to the full view when an aside turns into real work.
+ * It is asked about the chat you have open: KOS answers with that chat's
+ * history as context, but nothing is recorded into it, so an aside never
+ * derails the thread it is about. The side thread is kept per chat for the
+ * life of the page, so a follow-up keeps its context too. With no chat open
+ * it is a plain question to KOS.
  *
- * Cmd/Ctrl+J toggles it; Escape closes it.
+ * Cmd/Ctrl+Shift+K toggles it, beside Cmd+K for the palette; Escape closes it.
  */
 
-const QUICK_KEY = "kos.quick.id";
+interface Aside {
+  q: string;
+  /** Undefined while the answer is still streaming. */
+  a?: string;
+}
 
 export function QuickAsk({
   onOpen,
+  contextId,
+  contextTitle,
 }: {
   onOpen: (id: string) => void;
+  /** The chat currently open, whose history the aside is answered against. */
+  contextId?: string;
+  contextTitle?: string;
 }): ReactElement {
+  const key = contextId ?? "global";
+  // The server streams the aside's live view under this key, never under the
+  // chat's own id, so the main transcript stays untouched.
+  const progressKey = `aside:${key}`;
   const [open, setOpen] = useState(false);
-  const [quickId, setQuickId] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem(QUICK_KEY);
-    } catch {
-      return null;
-    }
-  });
-  const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [threads, setThreads] = useState<Record<string, Aside[]>>({});
   const [text, setText] = useState("");
-  const [starting, setStarting] = useState(false);
+  const [asking, setAsking] = useState(false);
   const progress = useProgress();
-  const live = quickId ? progress[quickId] : undefined;
-  const working = Boolean(live) && !live?.ended;
+  const live = progress[progressKey];
   const bodyRef = useRef<HTMLDivElement>(null);
+  const thread = threads[key] ?? [];
 
-  // Cmd/Ctrl+J toggles; Escape closes.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
+      // Cmd/Ctrl+Shift+K, beside Cmd+K for the palette. (Cmd+J was the
+      // browser's Downloads shortcut and never reached the page.)
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setOpen((v) => !v);
       } else if (e.key === "Escape" && open) {
@@ -55,60 +63,41 @@ export function QuickAsk({
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  const refresh = (id: string): void => {
-    void api
-      .conversation(id)
-      .then((c) => setTurns(c.messages))
-      .catch(() => {
-        // The remembered thread was deleted: forget it and start fresh.
-        setQuickId(null);
-        setTurns([]);
-        try {
-          localStorage.removeItem(QUICK_KEY);
-        } catch {
-          /* private window */
-        }
-      });
-  };
-
-  // Load the thread when the panel opens, and again when a reply settles.
-  useEffect(() => {
-    if (open && quickId) refresh(quickId);
-  }, [open, quickId]);
-  const ended = live?.ended;
-  useEffect(() => {
-    if (ended && quickId) refresh(quickId);
-  }, [ended, quickId]);
-
   // Keep the newest exchange in view.
   useEffect(() => {
     const el = bodyRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [turns, live?.text, live?.steps.length, open]);
+  }, [thread, live?.text, live?.steps.length, open]);
+
+  const setAnswer = (answer: string): void =>
+    setThreads((all) => {
+      const list = [...(all[key] ?? [])];
+      const last = list.length - 1;
+      if (last >= 0) list[last] = { ...list[last]!, a: answer };
+      return { ...all, [key]: list };
+    });
 
   const ask = async (): Promise<void> => {
     const q = text.trim();
-    if (!q || starting) return;
-    setStarting(true);
+    if (!q || asking) return;
+    // Earlier exchanges in this side thread go with the question, so a
+    // follow-up ("and the second one?") has what it refers to.
+    const prior = thread
+      .filter((t): t is Aside & { a: string } => typeof t.a === "string")
+      .flatMap((t) => [
+        { role: "user" as const, text: t.q },
+        { role: "assistant" as const, text: t.a },
+      ]);
+    setThreads((all) => ({ ...all, [key]: [...(all[key] ?? []), { q }] }));
+    setText("");
+    setAsking(true);
     try {
-      let id = quickId;
-      if (!id) {
-        const c = await api.newConversation("Quick questions");
-        id = c.id;
-        setQuickId(id);
-        try {
-          localStorage.setItem(QUICK_KEY, id);
-        } catch {
-          /* private window */
-        }
-      }
-      // Show the question at once; the authoritative list replaces this when
-      // the reply settles, so there is no duplicate.
-      setTurns((t) => [...t, { role: "you", text: q }]);
-      setText("");
-      void api.message(q, id).catch(() => undefined);
+      const res = await api.aside(q, contextId, prior);
+      setAnswer(res.reply);
+    } catch (err) {
+      setAnswer(`It failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      setStarting(false);
+      setAsking(false);
     }
   };
 
@@ -119,7 +108,7 @@ export function QuickAsk({
         className={`quickask-fab ${open ? "is-open" : ""}`}
         onClick={() => setOpen((v) => !v)}
         aria-label="Quick question"
-        title="Quick question (Cmd/Ctrl+J)"
+        title="Quick question (Cmd/Ctrl+Shift+K)"
       >
         <span aria-hidden="true">✦</span>
       </button>
@@ -135,23 +124,34 @@ export function QuickAsk({
             transition={spring}
           >
             <header className="quickask-head">
-              <span className="quickask-title">
-                <span className="quickask-glyph" aria-hidden="true">
-                  ✦
+              <div className="quickask-title-wrap">
+                <span className="quickask-title">
+                  <span className="quickask-glyph" aria-hidden="true">
+                    ✦
+                  </span>
+                  Quick question
                 </span>
-                Quick question
-              </span>
+                <span className="quickask-context">
+                  {contextId ? (
+                    <>
+                      about <b>{contextTitle ?? contextId}</b>, without adding to it
+                    </>
+                  ) : (
+                    "no chat open, so a plain question to KOS"
+                  )}
+                </span>
+              </div>
               <div className="quickask-head-actions">
-                {quickId && (
+                {contextId && (
                   <button
                     type="button"
                     className="link"
                     onClick={() => {
-                      onOpen(quickId);
+                      onOpen(contextId);
                       setOpen(false);
                     }}
                   >
-                    Open in chat
+                    Go to chat
                   </button>
                 )}
                 <button
@@ -165,22 +165,34 @@ export function QuickAsk({
               </div>
             </header>
             <div className="quickask-body" ref={bodyRef}>
-              {turns.length === 0 && !working && (
+              {thread.length === 0 && (
                 <p className="quickask-empty">
-                  Ask KOS anything on the side. It keeps this thread, so you can
-                  follow up. Cmd/Ctrl+J toggles this window.
+                  {contextId
+                    ? "Ask a side question about this chat. KOS answers with its context, and the chat itself is left as it is."
+                    : "Open a chat to ask about it, or just ask KOS something."}
                 </p>
               )}
-              {turns.map((t, i) => (
-                <div key={i} className={`quickask-turn quickask-turn--${t.role}`}>
-                  <Markdown text={t.text} />
-                </div>
-              ))}
-              {working && live && (
-                <div className="quickask-turn quickask-turn--kos">
-                  <LiveTurn live={live} />
-                </div>
-              )}
+              {thread.map((t, i) => {
+                const pending = i === thread.length - 1 && t.a === undefined;
+                return (
+                  <Fragment key={i}>
+                    <div className="quickask-turn quickask-turn--you">
+                      <Markdown text={t.q} />
+                    </div>
+                    {t.a !== undefined ? (
+                      <div className="quickask-turn quickask-turn--kos">
+                        <Markdown text={t.a} />
+                      </div>
+                    ) : pending && live && !live.ended ? (
+                      <div className="quickask-turn quickask-turn--kos">
+                        <LiveTurn live={live} />
+                      </div>
+                    ) : pending ? (
+                      <div className="quickask-turn quickask-turn--kos quickask-wait">Thinking…</div>
+                    ) : null}
+                  </Fragment>
+                );
+              })}
             </div>
             <form
               className="quickask-composer"
@@ -194,7 +206,7 @@ export function QuickAsk({
                 rows={1}
                 autoFocus
                 value={text}
-                placeholder="Ask a quick question…"
+                placeholder={contextId ? "Ask about this chat…" : "Ask KOS…"}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
@@ -206,9 +218,9 @@ export function QuickAsk({
               <button
                 type="submit"
                 className="btn btn--primary btn--sm"
-                disabled={starting || !text.trim()}
+                disabled={asking || !text.trim()}
               >
-                Ask
+                {asking ? "…" : "Ask"}
               </button>
             </form>
           </m.div>

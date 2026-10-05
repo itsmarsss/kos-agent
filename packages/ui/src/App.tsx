@@ -607,7 +607,15 @@ export function App(): React.ReactElement {
           ctx={paletteContext}
         />
       </main>
-      <QuickAsk onOpen={(id) => go({ name: "chats", id })} />
+      <QuickAsk
+        onOpen={(id) => go({ name: "chats", id })}
+        {...(route.name === "chats" && route.id
+          ? {
+              contextId: route.id,
+              contextTitle: conversations.find((c) => c.id === route.id)?.title ?? route.id,
+            }
+          : {})}
+      />
       </div>
     </ErrorBoundary>
   );

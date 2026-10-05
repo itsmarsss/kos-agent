@@ -674,6 +674,18 @@ export const api = {
     get<Conversation[]>(
       includeArchived ? "/api/conversations?archived=1" : "/api/conversations",
     ),
+  /**
+   * A quick question on the side (/btw). Answered with the given chat's
+   * history as context and streamed under aside:<contextId>; nothing is
+   * recorded into that chat. `prior` carries this side thread's earlier
+   * exchanges so a follow-up keeps its context.
+   */
+  aside: (text: string, contextId?: string, prior?: { role: "user" | "assistant"; text: string }[]) =>
+    post<{ reply: string }>("/api/aside", {
+      text,
+      ...(contextId ? { contextId } : {}),
+      ...(prior?.length ? { prior } : {}),
+    }),
   orchestrator: (text: string, attachments?: Attachment[]) =>
     post<{ reply: string; conversationId: string }>("/api/orchestrator", {
       text,

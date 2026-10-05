@@ -506,6 +506,14 @@ export class Kernel {
       allow?: string[];
       /** Files the owner attached to this message. */
       attachments?: Attachment[];
+      /**
+       * An aside (/btw): answer with this conversation's history as context,
+       * but record nothing into it. Pair with noSession and a sessionId of
+       * the form aside:<id> so the live view streams under its own key.
+       */
+      contextFrom?: string;
+      /** Earlier asides in this side thread, so a follow-up keeps its context. */
+      priorTurns?: ModelMessage[];
     } = {},
   ): Promise<HandleResult> {
     if (this.killSwitch.halted) {
@@ -556,6 +564,9 @@ export class Kernel {
       maxIterations?: number;
       /** Which model class answers; the reasoning route unless a job says cheap. */
       task?: Task;
+      /** An aside: borrow this chat's history and identity, record nothing. */
+      contextFrom?: string;
+      priorTurns?: ModelMessage[];
     },
   ): Promise<HandleResult> {
     {
@@ -569,7 +580,11 @@ export class Kernel {
       let suspended = false;
       try {
         // A conversation may be a scoped agent: its own brief, its own reach.
-        const conversation = this.conversations.get(sessionId);
+        // An aside has no conversation of its own: it borrows the identity
+        // (brief, tool scope, project) of the chat it is asked about.
+        const conversation =
+          this.conversations.get(sessionId) ??
+          (opts.contextFrom ? this.conversations.get(opts.contextFrom) : undefined);
         /*
          * Told the first time a call in this turn suspends on the owner, so
          * the caller can be answered while the turn itself keeps waiting.
@@ -689,6 +704,15 @@ export class Kernel {
             sessionId,
             ...(opts.origin === "system" ? [] : [text]),
           );
+        } else if (opts.contextFrom) {
+          // An aside: the model sees the context chat's history and any
+          // earlier asides, but nothing is recorded anywhere. The main thread
+          // never learns the question was asked.
+          input = [
+            ...this.sessions.historyForPrompt(opts.contextFrom),
+            ...(opts.priorTurns ?? []),
+            { role: "user", content: sentContent },
+          ];
         } else if (sentContent.length > 1) {
           input = [{ role: "user", content: sentContent }];
         }
@@ -705,7 +729,15 @@ export class Kernel {
            * keeps retention, /compact and rewind meaning something here.
            */
           const sdkRun = runSdkChat({
-            prompt: priorForSdk(this.sessions.historyForPrompt(sessionId), text),
+            // An aside reads the context chat's history (plus its own earlier
+            // asides) rather than its empty session, same as the API path.
+            prompt: priorForSdk(
+              [
+                ...this.sessions.historyForPrompt(opts.contextFrom ?? sessionId),
+                ...(opts.priorTurns ?? []),
+              ],
+              text,
+            ),
             // The turn's own pictures, which a prompt string cannot carry.
             ...(opts.attachments?.length
               ? { attachments: opts.attachments }

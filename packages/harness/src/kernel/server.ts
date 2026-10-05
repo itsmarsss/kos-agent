@@ -907,6 +907,43 @@ export async function handleApiRequest(
     return ok({ halted: kernel.killSwitch.halted });
   }
 
+  // A quick question on the side (/btw): answered with the named chat's
+  // history as context, streamed under aside:<id>, and recorded nowhere, so
+  // the chat it is about is left exactly as it was.
+  if (method === "POST" && path === "/api/aside") {
+    const text = typeof body.text === "string" ? body.text : "";
+    if (text === "") return { status: 400, body: { error: "text required" } };
+    const contextId =
+      typeof body.contextId === "string" && body.contextId.length > 0
+        ? body.contextId
+        : undefined;
+    const prior = Array.isArray(body.prior)
+      ? (body.prior as { role: string; text: string }[])
+          .filter((t) => (t.role === "user" || t.role === "assistant") && typeof t.text === "string")
+          .map((t) => ({
+            role: t.role as "user" | "assistant",
+            content: [{ type: "text" as const, text: t.text }],
+          }))
+      : [];
+    try {
+      const res = await kernel.handleMessage(text, {
+        // Keyed so the client can subscribe to the live view: aside:<chat id>,
+        // or aside:global when no chat is open.
+        sessionId: `aside:${contextId ?? "global"}`,
+        noSession: true,
+        channel: "dashboard",
+        ...(contextId ? { contextFrom: contextId } : {}),
+        ...(prior.length ? { priorTurns: prior } : {}),
+      });
+      return ok({ reply: res.reply });
+    } catch (err) {
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
+  }
+
   if (method === "POST" && path === "/api/message") {
     const text = typeof body.text === "string" ? body.text : "";
     if (text === "") return { status: 400, body: { error: "text required" } };
