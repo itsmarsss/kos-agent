@@ -5854,11 +5854,39 @@ a.health {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 0.5rem;
   padding: 0.45rem 0.5rem 0.5rem;
   border-top: 1px solid var(--line);
 }
 .chats-welcome-kbd { color: var(--faint); font-size: var(--text-sm); }
+/* What Send does with what was typed: hand it to KOS, or force a chat or a
+   project. A segmented control, recessed track with a tinted active pill. */
+.chats-mode {
+  display: inline-flex;
+  gap: 0.1rem;
+  padding: 0.12rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.chats-mode-opt {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: 0.2rem 0.62rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.chats-mode-opt:hover { color: var(--text); }
+.chats-mode-opt.is-active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: 500;
+}
 .chats-undo {
   display: flex;
   align-items: center;

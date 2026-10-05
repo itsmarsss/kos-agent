@@ -204,17 +204,34 @@ export function ChatsPage({
   }, [undo]);
   /** What is typed on the landing, before there is a chat to put it in. */
   const [opening, setOpening] = useState("");
-  /** The New-project name box: null when closed, the typed name when open. */
-  const [newProject, setNewProject] = useState<string | null>(null);
-  const createProject = async (): Promise<void> => {
-    const name = (newProject ?? "").trim();
-    if (!name || creating) return;
+  /**
+   * What the landing's Send does with what was typed:
+   * - kos: hand it to KOS, which decides between a chat and a project.
+   * - chat: a plain conversation that does the work itself.
+   * - project: stand up a project and its orchestrator, with this as the goal.
+   */
+  const [mode, setMode] = useState<"kos" | "chat" | "project">("kos");
+  const startFromLanding = async (): Promise<void> => {
+    const text = opening.trim();
+    if (!text || creating) return;
     setCreating(true);
     try {
-      const r = await api.createProject(name);
-      setNewProject(null);
+      let id: string;
+      if (mode === "kos") {
+        id = (await api.orchestrator(text)).conversationId;
+      } else if (mode === "project") {
+        const name = text.split("\n")[0]!.slice(0, 48) || "New project";
+        const r = await api.createProject(name);
+        void api.message(text, r.conversationId).catch(() => undefined);
+        id = r.conversationId;
+      } else {
+        const c = await api.newConversation();
+        void api.message(text, c.id).catch(() => undefined);
+        id = c.id;
+      }
+      setOpening("");
       onChanged();
-      onOpen(r.conversationId);
+      onOpen(id);
     } finally {
       setCreating(false);
     }
@@ -985,24 +1002,17 @@ export function ChatsPage({
       )}
       <aside className="chats-list">
         <div className="chats-list-head">
-          {/* There was no way to start a chat at all: every conversation had
-              to come from the orchestrator deciding to make one. */}
+          {/* New chat opens the landing, where you choose a chat, a project,
+              or hand it to KOS, rather than dropping into an empty thread. */}
           <button
             type="button"
             className="btn btn--primary chats-new"
-            disabled={creating}
             onClick={() => {
-              setCreating(true);
-              void api
-                .newConversation()
-                .then((c) => {
-                  onChanged();
-                  onOpen(c.id);
-                })
-                .finally(() => setCreating(false));
+              if (narrow) setListOpen(false);
+              window.location.hash = hrefFor({ name: "chats" });
             }}
           >
-            {creating ? "Starting…" : "New chat"}
+            New chat
           </button>
           <input
             className="chats-search"
@@ -1035,43 +1045,13 @@ export function ChatsPage({
             )}
             <div className="chats-group-head">
               <span>Projects</span>
-              <button
-                type="button"
-                className="chats-group-add"
-                title="New project"
-                aria-label="New project"
-                onClick={() => setNewProject((v) => (v === null ? "" : null))}
-              >
-                +
-              </button>
             </div>
-            {newProject !== null && (
-              <form
-                className="chats-newproject"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void createProject();
-                }}
-              >
-                <input
-                  className="chats-search"
-                  autoFocus
-                  placeholder="Project name, e.g. Pantry"
-                  value={newProject}
-                  onChange={(e) => setNewProject(e.target.value)}
-                />
-                <button type="submit" className="btn btn--sm" disabled={!newProject.trim() || creating}>
-                  {creating ? "…" : "Create"}
-                </button>
-              </form>
+            {projectConvs.length === 0 && looseProjects.length === 0 && (
+              <p className="chats-group-empty">
+                None yet. Start one from New chat, or just ask KOS and it stands
+                one up when the work needs its own space.
+              </p>
             )}
-            {projectConvs.length === 0 &&
-              looseProjects.length === 0 &&
-              newProject === null && (
-                <p className="chats-group-empty">
-                  None yet. KOS stands one up when work needs its own space, or add one with +.
-                </p>
-              )}
             {projectConvs.length > 0 && (
               /* Each project is its own orchestrator; expand to its agents. */
               <div className="chats-projects">
@@ -1334,20 +1314,7 @@ export function ChatsPage({
                 variants={card}
                 onSubmit={(e) => {
                   e.preventDefault();
-                  const text = opening.trim();
-                  if (!text || creating) return;
-                  setCreating(true);
-                  void api
-                    .newConversation()
-                    .then((c) => {
-                      // Sent before the view opens, so the chat loads with
-                      // the message already in it and the turn under way.
-                      void api.message(text, c.id).catch(() => undefined);
-                      setOpening("");
-                      onChanged();
-                      onOpen(c.id);
-                    })
-                    .finally(() => setCreating(false));
+                  void startFromLanding();
                 }}
               >
                 <div className="chats-welcome-field">
@@ -1356,7 +1323,13 @@ export function ChatsPage({
                     rows={2}
                     autoFocus
                     value={opening}
-                    placeholder="Ask, or tell KOS what to build…"
+                    placeholder={
+                      mode === "project"
+                        ? "Describe the project to build…"
+                        : mode === "chat"
+                          ? "Start a chat…"
+                          : "Ask, or tell KOS what to build…"
+                    }
                     onChange={(e) => setOpening(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
@@ -1366,15 +1339,42 @@ export function ChatsPage({
                     }}
                   />
                   <div className="chats-welcome-actions">
-                    <span className="chats-welcome-kbd">
-                      Enter to send, Shift+Enter for a new line
-                    </span>
+                    <div
+                      className="chats-mode"
+                      role="radiogroup"
+                      aria-label="What to create"
+                    >
+                      {(
+                        [
+                          ["kos", "Ask KOS"],
+                          ["chat", "Chat"],
+                          ["project", "Project"],
+                        ] as const
+                      ).map(([m, label]) => (
+                        <button
+                          key={m}
+                          type="button"
+                          role="radio"
+                          aria-checked={mode === m}
+                          className={`chats-mode-opt ${mode === m ? "is-active" : ""}`}
+                          onClick={() => setMode(m)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
                     <button
                       type="submit"
                       className="btn btn--primary"
                       disabled={creating || !opening.trim()}
                     >
-                      {creating ? "Opening…" : "Send"}
+                      {creating
+                        ? "Opening…"
+                        : mode === "project"
+                          ? "Create"
+                          : mode === "chat"
+                            ? "Start"
+                            : "Ask KOS"}
                     </button>
                   </div>
                 </div>
@@ -1397,9 +1397,6 @@ export function ChatsPage({
                   </ul>
                 </m.div>
               )}
-              <m.p className="hint" variants={card}>
-                ⌘K finds anything: a chat, a file, a page, a setting.
-              </m.p>
             </m.div>
           </div>
         ) : (
