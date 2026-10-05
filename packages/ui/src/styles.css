@@ -5954,16 +5954,45 @@ a.health {
   border-radius: var(--radius);
   box-shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.4);
   overflow: hidden;
-  resize: both;
   animation: quickask-in 140ms ease-out;
 }
+/* Out the way it came in. The element stays mounted for the length of the
+   fade, then goes. */
+.quickask.is-closing {
+  animation: quickask-out 140ms ease-in forwards;
+  pointer-events: none;
+}
 @keyframes quickask-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes quickask-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(6px) scale(0.985); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .quickask { animation: none; }
+  .quickask,
+  .quickask.is-closing { animation: none; }
 }
+/* Resize handles on every edge and corner, inside the border so the
+   window's overflow does not clip them. */
+.quickask-edge { position: absolute; z-index: 3; touch-action: none; }
+.quickask-edge--n,
+.quickask-edge--s { left: 10px; right: 10px; height: 6px; cursor: ns-resize; }
+.quickask-edge--n { top: 0; }
+.quickask-edge--s { bottom: 0; }
+.quickask-edge--e,
+.quickask-edge--w { top: 10px; bottom: 10px; width: 6px; cursor: ew-resize; }
+.quickask-edge--e { right: 0; }
+.quickask-edge--w { left: 0; }
+.quickask-edge--ne,
+.quickask-edge--nw,
+.quickask-edge--se,
+.quickask-edge--sw { width: 12px; height: 12px; }
+.quickask-edge--ne { top: 0; right: 0; cursor: nesw-resize; }
+.quickask-edge--sw { bottom: 0; left: 0; cursor: nesw-resize; }
+.quickask-edge--nw { top: 0; left: 0; cursor: nwse-resize; }
+.quickask-edge--se { bottom: 0; right: 0; cursor: nwse-resize; }
 .quickask-head {
   display: flex;
   align-items: center;
@@ -6016,21 +6045,12 @@ a.health {
 .quickask-head-actions {
   display: flex;
   align-items: center;
-  gap: 0.7rem;
-  font-size: var(--text-sm);
+  gap: 0.25rem;
+  flex: none;
 }
-.quickask-close {
-  border: 0;
-  background: transparent;
-  color: var(--faint);
-  cursor: pointer;
-  font-size: 0.8rem;
-  line-height: 1;
-  padding: 0.2rem;
-}
-.quickask-close:hover {
-  color: var(--text);
-}
+.quickask-head .btn--ghost:hover { background: var(--panel-2); }
+.quickask-close { color: var(--faint); }
+.quickask-close:hover { color: var(--text); background: var(--panel-2); }
 .quickask-body {
   flex: 1;
   min-height: 6rem;
@@ -6060,10 +6080,13 @@ a.health {
   border-radius: 12px 12px 3px 12px;
 }
 .quickask-turn--kos {
-  align-self: flex-start;
-  max-width: 100%;
+  /* Full width. Shrink-wrapped, the live bubble's percentage max-width had
+     nothing to resolve against and "Thinking" came out as "Thi…". */
+  align-self: stretch;
+  min-width: 0;
   color: var(--text);
 }
+.quickask .live { max-width: 100%; }
 .quickask-turn p {
   margin: 0 0 0.3rem;
 }
@@ -6087,13 +6110,27 @@ a.health {
   color: var(--text);
   font: inherit;
   font-size: var(--text-md);
+  line-height: 1.35;
   padding: 0.4rem 0.55rem;
+  min-height: 2.2rem;
   max-height: 6rem;
 }
 .quickask-input:focus {
   outline: none;
   border-color: var(--accent);
 }
+/* The same box idle and busy, as tall as one line of the field. */
+.quickask-send {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3.6rem;
+  height: 2.2rem;
+  padding: 0 0.8rem;
+  font-size: var(--text-sm);
+}
+.quickask-send .live-dots i { background: var(--on-accent); }
 .chats-undo {
   display: flex;
   align-items: center;

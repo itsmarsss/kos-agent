@@ -21,12 +21,11 @@ import { Markdown } from "./Markdown.js";
  * per chat for the life of the page, so a follow-up keeps its context, and
  * Clear forgets it. With no chat open it is a plain question to KOS.
  *
- * It is a window, not a widget: drag it by its header, resize it by its
- * corner, and it opens where you left it. Opening is the app's business
- * (the sidebar entry or Cmd/Ctrl+Shift+K); this only renders while `open`.
- * The entrance is a CSS fade rather than a motion transform: a transform
- * fought the window's own geometry, which is set by left/top/width/height
- * and changed by the resize handle.
+ * It is a window, not a widget: drag it by its header, resize it by any
+ * edge or corner, and it opens where you left it. Opening is the app's
+ * business (the sidebar entry or Cmd/Ctrl+Shift+K); this fades in while
+ * `open` and fades out when it stops being. The geometry is left/top/width/
+ * height set here, so the fades are CSS and never touch the transform.
  */
 
 interface Aside {
@@ -43,10 +42,15 @@ interface Box {
   height: number;
 }
 
+type Edge = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+const EDGES: readonly Edge[] = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
+
 const BOX_KEY = "kos.quick.box";
 const EDGE = 8;
 const MIN_W = 280;
 const MIN_H = 224;
+/** How long the fade out runs; the window unmounts after it. */
+const FADE_MS = 140;
 
 function clamp(b: Box): Box {
   const width = Math.max(MIN_W, Math.min(b.width, window.innerWidth - EDGE * 2));
@@ -57,6 +61,24 @@ function clamp(b: Box): Box {
     left: Math.max(EDGE, Math.min(b.left, window.innerWidth - width - EDGE)),
     top: Math.max(EDGE, Math.min(b.top, window.innerHeight - height - EDGE)),
   };
+}
+
+/** The box after one of its edges moved by (dx, dy). The opposite edge stays put. */
+function resized(from: Box, edge: Edge, dx: number, dy: number): Box {
+  let { left, top, width, height } = from;
+  const right = from.left + from.width;
+  const bottom = from.top + from.height;
+  if (edge.includes("e")) width = Math.max(MIN_W, Math.min(from.width + dx, window.innerWidth - EDGE - from.left));
+  if (edge.includes("s")) height = Math.max(MIN_H, Math.min(from.height + dy, window.innerHeight - EDGE - from.top));
+  if (edge.includes("w")) {
+    left = Math.max(EDGE, Math.min(from.left + dx, right - MIN_W));
+    width = right - left;
+  }
+  if (edge.includes("n")) {
+    top = Math.max(EDGE, Math.min(from.top + dy, bottom - MIN_H));
+    height = bottom - top;
+  }
+  return { left, top, width, height };
 }
 
 /** The remembered box, or a first-time one tucked into the bottom right. */
@@ -111,10 +133,33 @@ export function QuickAsk({
   boxRef.current = box;
   const progress = useProgress();
   const live = progress[progressKey];
-  const panelRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+  const resize = useRef<{ edge: Edge; x: number; y: number; box: Box } | null>(null);
   const thread = threads[key] ?? [];
+
+  /*
+   * Shown lags open by one fade. Returning null the moment `open` went false
+   * skipped the way out entirely, so the window appeared gently and then
+   * simply stopped existing.
+   */
+  const [shown, setShown] = useState(open);
+  const [closing, setClosing] = useState(false);
+  useEffect(() => {
+    if (open) {
+      setShown(true);
+      setClosing(false);
+      return;
+    }
+    if (!shown) return;
+    setClosing(true);
+    const t = setTimeout(() => {
+      setShown(false);
+      setClosing(false);
+    }, FADE_MS);
+    return () => clearTimeout(t);
+    // Keyed on open alone: shown is this effect's own output.
+  }, [open]);
 
   // Stay on screen if the window shrinks underneath it.
   useEffect(() => {
@@ -123,29 +168,11 @@ export function QuickAsk({
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // The corner handle changes the element's size directly; follow it so the
-  // size is remembered and the box stays the single source of truth.
-  useEffect(() => {
-    const el = panelRef.current;
-    if (!open || !el) return;
-    const ro = new ResizeObserver(() => {
-      const width = el.offsetWidth;
-      const height = el.offsetHeight;
-      const b = boxRef.current;
-      if (Math.abs(width - b.width) < 1 && Math.abs(height - b.height) < 1) return;
-      const next = clamp({ ...b, width, height });
-      setBox(next);
-      saveBox(next);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [open]);
-
   // Keep the newest exchange in view.
   useEffect(() => {
     const el = bodyRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [thread, live?.text, live?.steps.length, open]);
+  }, [thread, live?.text, live?.steps.length, shown]);
 
   const onDragStart = (e: ReactPointerEvent<HTMLElement>): void => {
     // The header's buttons are buttons, not a grip.
@@ -167,10 +194,37 @@ export function QuickAsk({
     );
   };
   const onDragEnd = (e: ReactPointerEvent<HTMLElement>): void => {
-    if (!drag.current) return;
+    const d = drag.current;
+    if (!d) return;
     drag.current = null;
     e.currentTarget.releasePointerCapture(e.pointerId);
-    saveBox(boxRef.current);
+    // Worked out from the pointer, not read back from state: the last move
+    // may not have rendered yet when the button comes up.
+    const final = clamp({ ...boxRef.current, left: d.left + (e.clientX - d.x), top: d.top + (e.clientY - d.y) });
+    setBox(final);
+    saveBox(final);
+  };
+
+  const onResizeStart = (edge: Edge) => (e: ReactPointerEvent<HTMLElement>): void => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    resize.current = { edge, x: e.clientX, y: e.clientY, box: boxRef.current };
+  };
+  const onResizeMove = (e: ReactPointerEvent<HTMLElement>): void => {
+    const r = resize.current;
+    if (!r) return;
+    setBox(resized(r.box, r.edge, e.clientX - r.x, e.clientY - r.y));
+  };
+  const onResizeEnd = (e: ReactPointerEvent<HTMLElement>): void => {
+    const r = resize.current;
+    if (!r) return;
+    resize.current = null;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    const final = resized(r.box, r.edge, e.clientX - r.x, e.clientY - r.y);
+    setBox(final);
+    saveBox(final);
   };
 
   const setAnswer = (answer: string): void =>
@@ -205,12 +259,11 @@ export function QuickAsk({
     }
   };
 
-  if (!open) return null;
+  if (!shown) return null;
 
   return (
     <div
-      ref={panelRef}
-      className="quickask"
+      className={`quickask ${closing ? "is-closing" : ""}`}
       role="dialog"
       aria-label="Quick question"
       style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
@@ -238,7 +291,7 @@ export function QuickAsk({
           {thread.length > 0 && (
             <button
               type="button"
-              className="link"
+              className="btn btn--sm btn--ghost"
               onClick={() => setThreads((all) => ({ ...all, [key]: [] }))}
               title="Forget this side thread"
             >
@@ -248,7 +301,7 @@ export function QuickAsk({
           {contextId && (
             <button
               type="button"
-              className="link"
+              className="btn btn--sm btn--ghost"
               onClick={() => {
                 onOpen(contextId);
                 onClose();
@@ -259,11 +312,23 @@ export function QuickAsk({
           )}
           <button
             type="button"
-            className="quickask-close"
+            className="icon-btn quickask-close"
             onClick={onClose}
             aria-label="Close"
+            title="Close (Esc)"
           >
-            ✕
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
           </button>
         </div>
       </header>
@@ -318,14 +383,38 @@ export function QuickAsk({
             }
           }}
         />
+        {/* One size whether idle or busy: a label that changed width made
+            the button jump and shrink to a blob while an answer came. */}
         <button
           type="submit"
-          className="btn btn--primary btn--sm"
+          className="btn btn--primary quickask-send"
           disabled={asking || !text.trim()}
+          aria-label={asking ? "Asking" : "Ask"}
         >
-          {asking ? "…" : "Ask"}
+          {asking ? (
+            <span className="live-dots" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+          ) : (
+            "Ask"
+          )}
         </button>
       </form>
+      {/* Every edge and corner is a handle, not just the one the browser
+          offers; they sit just inside the border, over everything else. */}
+      {EDGES.map((edge) => (
+        <div
+          key={edge}
+          className={`quickask-edge quickask-edge--${edge}`}
+          aria-hidden="true"
+          onPointerDown={onResizeStart(edge)}
+          onPointerMove={onResizeMove}
+          onPointerUp={onResizeEnd}
+          onPointerCancel={onResizeEnd}
+        />
+      ))}
     </div>
   );
 }
