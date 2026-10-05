@@ -43,6 +43,11 @@ describe("summaries for the rest of the toolkit", () => {
     expect(summarizeAction("chats.dispatch", { id: "c1", message: "do it" })).toBe(
       "Hand work to conversation c1",
     );
+    expect(
+      summarizeAction("chats.congregate", {
+        targets: [{ id: "c1", message: "a" }, { title: "B", message: "b" }],
+      }),
+    ).toBe("Gather from 2 conversations");
   });
 
   it("summarises the memory tools", () => {

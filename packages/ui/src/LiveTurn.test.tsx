@@ -2,8 +2,8 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { LiveTurn } from "./LiveTurn.js";
-import type { Live } from "./progress.js";
+import { congregationHead, LiveTurn } from "./LiveTurn.js";
+import type { CongregationMember, Live } from "./progress.js";
 
 const base: Live = { steps: [], text: "", since: Date.now() };
 
@@ -189,5 +189,68 @@ describe("joining a turn already in progress", () => {
       />,
     );
     expect(container.querySelector(".toolcall")?.textContent).toContain("SELECT 1");
+  });
+});
+
+describe("a congregation", () => {
+  afterEach(cleanup);
+
+  const members: CongregationMember[] = [
+    { id: "a", title: "Cost Angle", status: "done" },
+    { id: "b", title: "Risk Angle", status: "working" },
+  ];
+
+  it("counts who is done and who is still working", () => {
+    expect(congregationHead(members)).toBe("Gathering from 2 agents, 1 done, 1 working");
+    expect(congregationHead([{ id: "a", title: "A", status: "done" }])).toBe(
+      "Gathered from 1 agent",
+    );
+    expect(
+      congregationHead([
+        { id: "a", title: "A", status: "done" },
+        { id: "b", title: "B", status: "failed" },
+      ]),
+    ).toBe("Gathered from 2 agents, 1 failed");
+    expect(
+      congregationHead([
+        { id: "a", title: "A", status: "working" },
+        { id: "b", title: "B", status: "failed" },
+      ]),
+    ).toBe("Gathering from 2 agents, 0 done, 1 working, 1 failed");
+  });
+
+  it("lists each member with a link to its chat, above the reply", () => {
+    const { container } = render(
+      <LiveTurn live={{ ...base, congregation: { members }, text: "Combined answer" }} />,
+    );
+    expect(screen.getByText("Gathering from 2 agents, 1 done, 1 working")).toBeTruthy();
+    const link = screen.getByText("Risk Angle").closest("a");
+    expect(link?.getAttribute("href")).toBe("#/chats/b");
+    expect(container.querySelector(".chats-flag--working")?.textContent).toBe("working");
+    expect(container.querySelector(".chats-badge")?.textContent).toBe("done");
+
+    // The roster sits above the streaming reply, not in place of it.
+    const roster = container.querySelector(".congregation")!;
+    const bubble = container.querySelector(".bubble--kos")!;
+    expect(bubble.textContent).toContain("Combined answer");
+    expect(roster.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("marks a member that failed without hiding the others", () => {
+    const { container } = render(
+      <LiveTurn
+        live={{
+          ...base,
+          congregation: {
+            members: [
+              { id: "a", title: "A", status: "done" },
+              { id: "b", title: "B", status: "failed" },
+            ],
+          },
+        }}
+      />,
+    );
+    expect(container.querySelector(".chats-flag--needs-you")?.textContent).toBe("failed");
+    expect(screen.getByText("Gathered from 2 agents, 1 failed")).toBeTruthy();
   });
 });

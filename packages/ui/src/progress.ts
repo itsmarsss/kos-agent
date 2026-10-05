@@ -30,7 +30,15 @@ export type ProgressEvent =
     }
   | { kind: "delta"; conversationId: string; of: "reasoning" | "text"; text: string }
   | { kind: "note"; conversationId: string; text: string }
+  | { kind: "congregation"; conversationId: string; members: CongregationMember[] }
   | { kind: "turn-end"; conversationId: string };
+
+/** One conversation a turn is waiting on, when it asked several at once. */
+export interface CongregationMember {
+  id: string;
+  title: string;
+  status: "working" | "done" | "failed";
+}
 
 /** One thing that happened during a turn, in the order it happened. */
 export type LiveStep =
@@ -71,6 +79,12 @@ export interface Live {
    * when the turn ends.
    */
   resumed?: boolean;
+  /**
+   * Who this turn is waiting on, when it asked several conversations at
+   * once. Replaced whole on each event, so it always says who is still
+   * working; it stays up while the combined reply streams in under it.
+   */
+  congregation?: { members: CongregationMember[] };
 }
 
 export type ProgressMap = Record<string, Live | undefined>;
@@ -118,6 +132,9 @@ function reduce(live: Live, event: ProgressEvent): Live {
       }
       return { ...live, steps };
     }
+
+    case "congregation":
+      return { ...live, congregation: { members: event.members } };
 
     default:
       return live;

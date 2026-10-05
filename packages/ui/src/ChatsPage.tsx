@@ -704,6 +704,7 @@ export function ChatsPage({
   const liveLabel = (l: Live | undefined): string => {
     if (!l) return "working";
     if (l.text) return "replying";
+    if (l.congregation?.members.some((m) => m.status === "working")) return "gathering";
     const tool = l.steps.find((s) => s.kind === "tool" && !s.done);
     return tool && tool.kind === "tool" ? tool.tool : "thinking";
   };

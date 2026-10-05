@@ -3,9 +3,10 @@ import { AnimatePresence, m } from "motion/react";
 
 import { Markdown } from "./Markdown.js";
 import { listItem } from "./motion.js";
+import { hrefFor } from "./routes.js";
 import { Thinking } from "./Thinking.js";
 import { ToolCall } from "./ToolCall.js";
-import type { Live, LiveStep } from "./progress.js";
+import type { CongregationMember, Live, LiveStep } from "./progress.js";
 
 /**
  * A turn while it is still happening.
@@ -33,6 +34,45 @@ function Elapsed({ since }: { since: number }): ReactElement {
     return () => clearInterval(t);
   }, []);
   return <span className="live-elapsed">{formatElapsed(now - since)}</span>;
+}
+
+/** The one-line account of a roster: who is done, who is still at it. */
+export function congregationHead(members: CongregationMember[]): string {
+  const done = members.filter((m) => m.status === "done").length;
+  const failed = members.filter((m) => m.status === "failed").length;
+  const working = members.length - done - failed;
+  const noun = members.length === 1 ? "agent" : "agents";
+  const tail = failed > 0 ? `, ${failed} failed` : "";
+  if (working === 0) return `Gathered from ${members.length} ${noun}${tail}`;
+  return `Gathering from ${members.length} ${noun}, ${done} done, ${working} working${tail}`;
+}
+
+/**
+ * Who this turn is waiting on. Each row links to the member's own chat, so
+ * the owner can watch any one of them rather than only the count.
+ */
+function Congregation({ members }: { members: CongregationMember[] }): ReactElement {
+  return (
+    <div className="congregation">
+      <div className="congregation-head">{congregationHead(members)}</div>
+      {members.map((member) => (
+        <div className="congregation-row" key={member.id}>
+          <a className="congregation-title" href={hrefFor({ name: "chats", id: member.id })}>
+            {member.title}
+          </a>
+          {member.status === "done" ? (
+            <span className="chats-badge">done</span>
+          ) : (
+            <span
+              className={`chats-flag ${member.status === "failed" ? "chats-flag--needs-you" : "chats-flag--working"}`}
+            >
+              {member.status}
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function LiveTurn({ live }: { live: Live }): ReactElement {
@@ -94,6 +134,10 @@ export function LiveTurn({ live }: { live: Live }): ReactElement {
           ),
         )}
       </AnimatePresence>
+
+      {/* Above the reply, and kept while it streams: the combined answer is
+          written from these, so the reader can see what it was made of. */}
+      {live.congregation && <Congregation members={live.congregation.members} />}
 
       {answering ? (
         // The reply as it is written, in the shape it will keep once it lands.
