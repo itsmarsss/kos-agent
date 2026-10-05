@@ -42,7 +42,7 @@ describe("the conversation tree", () => {
   });
 
   it("sums a project up in a line", () => {
-    expect(projectSummary([])).toBe("Runs this project's agents");
+    expect(projectSummary([])).toBe("No agents yet");
     expect(projectSummary([convo("a")])).toBe("1 agent");
     expect(projectSummary([convo("a"), convo("b", { activity: "needs-you" })])).toBe("2 agents · 1 working");
   });

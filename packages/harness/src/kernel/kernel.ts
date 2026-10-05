@@ -10,6 +10,8 @@ import type { McpModule } from "../tools/mcp.js";
 import { BUILTIN_FEATURES, isBuiltinFeature } from "../modules/builtins.js";
 import { MODULES_KEY, parseModuleSettings, withBuiltinEnabled } from "../modules/workspace.js";
 import { bootKernel } from "./boot.js";
+import { ORCHESTRATOR_BRIEF } from "./orchestration.js";
+export { ORCHESTRATOR_BRIEF } from "./orchestration.js";
 import { CronService, type CronFireResult } from "./cronservice.js";
 import { MemoryExtractor, type ExtractionReport } from "../memory/extractor.js";
 import { MEMORY_JOB } from "../memory/job.js";
@@ -159,6 +161,8 @@ const SURFACE_BRIEF = [
  * it. The chats.* tools are restricted and arrive separately as a grant.
  */
 const ORCHESTRATOR_SCOPE = ["memory"];
+
+
 
 /**
  * The assembled agent. The kernel wires the irreducible core (store, jail,
@@ -1093,7 +1097,7 @@ export class Kernel {
     text: string,
     opts: { channel?: string; attachments?: Attachment[] } = {},
   ): Promise<HandleResult & { conversationId: string }> {
-    const id = orchestratorId(this.profile.ownerId);
+    const id = this.ensureOrchestratorConversation().id;
     const res = await this.handleMessage(text, {
       sessionId: id,
       userId: this.profile.ownerId,
@@ -1140,10 +1144,42 @@ export class Kernel {
       projectSlug: slug,
       brief: [
         `You are the orchestrator for the project "${project.name}" (slug ${slug}).`,
-        "You see only this project's chats and may start agents for its work.",
+        "Build and run this project. Spawn an agent with chats.create for each distinct piece of",
+        "work that deserves its own thread, and hand it the task; keep yourself free to coordinate",
+        "and report. You see only this project's chats and may start agents for its work.",
         "You cannot reach other projects; KOS at the root does that.",
       ].join(" "),
     });
+  }
+
+  /** KOS's own conversation, made with its router brief so the hierarchy holds. */
+  ensureOrchestratorConversation(): Conversation {
+    const id = orchestratorId(this.profile.ownerId);
+    const existing = this.conversations.get(id);
+    if (existing) {
+      // KOS's brief is its identity, not user content: keep it current so a
+      // workspace made before the project level learns about it.
+      if (existing.brief !== ORCHESTRATOR_BRIEF) this.conversations.setBrief(id, ORCHESTRATOR_BRIEF);
+      return this.conversations.get(id)!;
+    }
+    return this.conversations.create({
+      id,
+      userId: this.profile.ownerId,
+      title: "KOS",
+      channel: "dashboard",
+      brief: ORCHESTRATOR_BRIEF,
+    });
+  }
+
+  /**
+   * Stand up a project and its orchestrator: the second level, created on
+   * demand by KOS or by the owner. The project goes in the manifest; the
+   * orchestrator conversation is made with a brief scoping it to that project.
+   */
+  standUpProject(input: { name: string; type: string }): { slug: string; conversationId: string; name: string } {
+    const project = this.manifest.createProject({ name: input.name, type: input.type });
+    const convo = this.ensureProjectConversation(project.slug);
+    return { slug: project.slug, conversationId: convo.id, name: project.name };
   }
 
   async handleProjectTurn(

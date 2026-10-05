@@ -24,6 +24,7 @@ export const CHAT_TOOLS = [
   "chats.list",
   "chats.search",
   "chats.read",
+  "chats.project",
   "chats.create",
   "chats.dispatch",
 ] as const;
@@ -77,6 +78,12 @@ export interface ChatToolDeps {
   ) => void;
   /** Which conversation is dispatching, for routing the answer back to it. */
   currentConversationId?: () => string | undefined;
+  /**
+   * Stand up a project and its orchestrator. The kernel owns the manifest and
+   * the conversation graph, so it does the work; this is how KOS at the root
+   * creates the second level.
+   */
+  standUpProject?: (input: { name: string; type: string }) => { slug: string; conversationId: string; name: string };
 }
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -268,6 +275,34 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
         started: true,
         reply: res.reply,
       });
+    },
+    { floor: "safe" },
+    { restricted: true },
+  );
+
+  ctx.registerTool(
+    {
+      name: "chats.project",
+      description:
+        "Stand up a project and hand its orchestrator the goal. Use this for a distinct, ongoing piece of work that deserves its own space, tables and pages: a tracker, an app, anything with more than one part. It creates the project and a project orchestrator conversation, then delegates the goal to that orchestrator, which builds it and runs its own agents. For a quick one-off, use chats.create instead; for work a project already covers, use chats.dispatch to its orchestrator. Only KOS at the root can start a project.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "the project's name, as it reads in a list: \"Pantry\", \"Reading Log\"" },
+          type: { type: "string", description: "a short kind: tracker, notes, budget, app" },
+          goal: { type: "string", description: "what the project is for and what to build first, written as an instruction to its orchestrator" },
+        },
+        required: ["name", "type", "goal"],
+      },
+    },
+    async (input) => {
+      if (deps.scope?.() !== undefined) {
+        throw new Error("only KOS at the root can start a project; a project orchestrator runs its own project with chats.create");
+      }
+      if (!deps.standUpProject) throw new Error("projects are not available here");
+      const { slug, conversationId, name } = deps.standUpProject({ name: str(input, "name"), type: str(input, "type") });
+      const res = await deps.dispatch(conversationId, str(input, "goal"));
+      return JSON.stringify({ project: slug, title: name, conversationId, started: true, reply: res.reply });
     },
     { floor: "safe" },
     { restricted: true },

@@ -83,6 +83,17 @@ describe("handleApiRequest", () => {
     expect(bad.status).toBe(400);
   });
 
+  it("stands up a project and its orchestrator from the dashboard", async () => {
+    const res = await handleApiRequest(kernel, { method: "POST", path: "/api/projects/create", body: { name: "Reading Log", type: "tracker" } });
+    expect(res.status).toBe(200);
+    const made = res.body as { slug: string; name: string; conversationId: string; conversation: { kind: string; projectSlug: string } };
+    expect(made).toMatchObject({ name: "Reading Log" });
+    expect(made.conversationId).toBe(`project:${made.slug}`);
+    expect(made.conversation).toMatchObject({ kind: "project", projectSlug: made.slug });
+    // It is in the manifest and openable.
+    expect(kernel.manifest.list().some((p) => p.slug === made.slug)).toBe(true);
+  });
+
   it("makes an instance of a blueprint module from the dashboard", async () => {
     mkdirSync(join(root, "modules", "budget"), { recursive: true });
     writeFileSync(

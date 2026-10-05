@@ -615,6 +615,8 @@ export const api = {
   setSkillEnabled: (name: string, enabled: boolean) =>
     post<{ name: string; enabled: boolean }>("/api/skills/enable", { name, enabled }),
   modules: () => get<{ modules: ModuleInfo[]; invalid: { name: string; reason: string }[]; builtins?: BuiltinInfo[] }>("/api/modules"),
+  createProject: (name: string, type = "project") =>
+    post<{ slug: string; name: string; conversationId: string }>("/api/projects/create", { name, type }),
   installModule: (source: string, name?: string) =>
     post<{ installed: string; dir: string; origin: string | null }>("/api/modules/install", { source, ...(name ? { name } : {}) }),
   updateModule: (name: string) => post<{ updated: string }>("/api/modules/update", { name }),

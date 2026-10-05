@@ -518,6 +518,21 @@ export async function handleApiRequest(
     return ok(call);
   }
 
+  /** Stand up a project and its orchestrator, and return the orchestrator conversation. */
+  if (method === "POST" && path === "/api/projects/create") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const type = typeof body.type === "string" && body.type.trim() ? body.type.trim() : "project";
+    if (!name) return { status: 400, body: { error: "name required" } };
+    try {
+      const made = kernel.standUpProject({ name, type });
+      const c = kernel.conversations.get(made.conversationId);
+      const conversation = c ? { ...c, kind: conversationKind(c, kernel.profile.ownerId) } : undefined;
+      return ok({ slug: made.slug, name: made.name, conversationId: made.conversationId, conversation });
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
   if (method === "POST" && path === "/api/projects/chat") {
     const slug = typeof body.slug === "string" ? body.slug.trim() : "";
     if (!slug) return { status: 400, body: { error: "slug required" } };
