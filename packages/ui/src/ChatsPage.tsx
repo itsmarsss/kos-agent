@@ -982,12 +982,8 @@ export function ChatsPage({
               <span className="chats-item-when">{relative(c.updatedAt)}</span>
             )}
           </span>
-          {c.brief && <span className="chats-item-brief">{c.brief}</span>}
-          {c.toolAllow !== null && (
-            <span className="chats-item-tools">
-              {c.toolAllow.length === 0 ? "no tools" : c.toolAllow.join(" · ")}
-            </span>
-          )}
+          {/* Title and state only. The brief and the tool list made every
+              row a paragraph; a chat's details are one click away. */}
           </a>
         </div>
       </li>
