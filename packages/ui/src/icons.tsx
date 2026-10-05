@@ -8,11 +8,19 @@ import type { ReactElement } from "react";
  * and one box so they read as a set.
  */
 
-function Icon({ children, title }: { children: React.ReactNode; title: string }): ReactElement {
+function Icon({
+  children,
+  title,
+  size = 15,
+}: {
+  children: React.ReactNode;
+  title: string;
+  size?: number;
+}): ReactElement {
   return (
     <svg
-      width="15"
-      height="15"
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -27,6 +35,29 @@ function Icon({ children, title }: { children: React.ReactNode; title: string })
     </svg>
   );
 }
+
+/**
+ * Chevrons for disclosure and collapse. Drawn as a stroke, not the guillemet
+ * and triangle glyphs that used to stand in for them, so they match the icon
+ * set and scale cleanly. Rotate with CSS where a control toggles open.
+ */
+export const ChevronRight = ({ size = 14 }: { size?: number } = {}): ReactElement => (
+  <Icon title="Expand" size={size}>
+    <path d="m9 6 6 6-6 6" />
+  </Icon>
+);
+
+export const ChevronDown = ({ size = 14 }: { size?: number } = {}): ReactElement => (
+  <Icon title="Collapse" size={size}>
+    <path d="m6 9 6 6 6-6" />
+  </Icon>
+);
+
+export const ChevronLeft = ({ size = 14 }: { size?: number } = {}): ReactElement => (
+  <Icon title="Collapse" size={size}>
+    <path d="m15 6-6 6 6 6" />
+  </Icon>
+);
 
 export const CopyIcon = (): ReactElement => (
   <Icon title="Copy">

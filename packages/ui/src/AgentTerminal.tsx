@@ -4,6 +4,7 @@ import { m } from "motion/react";
 import { ease, spring } from "./motion.js";
 
 import { api, type BuildRecord, type PendingAction } from "./api.js";
+import { ChevronDown, ChevronRight } from "./icons.js";
 import { Decision } from "./Decision.js";
 
 /**
@@ -76,7 +77,7 @@ function Line({
         {detailed ? (
           <button type="button" className="term-open" onClick={() => setOpen((v) => !v)}>
             <span className="term-text">{body}</span>
-            <span className="term-caret">{open ? "▾" : "▸"}</span>
+            <span className="term-caret">{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
           </button>
         ) : (
           <span className="term-text">{body}</span>

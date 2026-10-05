@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 
 import type { Status } from "./api.js";
 import { hrefFor, NAV, navActive, type Route } from "./routes.js";
-import { NavIcon } from "./icons.js";
+import { NavIcon, ChevronLeft, ChevronRight } from "./icons.js";
 import { useDismiss } from "./useDismiss.js";
 
 /**
@@ -110,7 +110,7 @@ export function Sidebar({
             title={railed ? "Expand" : "Collapse"}
             onClick={() => setRailed((v) => !v)}
           >
-            {railed ? "»" : "«"}
+            {railed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           </button>
         </div>
         <nav className="side-nav">

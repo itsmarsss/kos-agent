@@ -1,5 +1,7 @@
 import { useState, type ReactElement } from "react";
 
+import { ChevronDown, ChevronRight } from "./icons.js";
+
 /**
  * What the model worked out before answering, kept in the transcript.
  *
@@ -21,7 +23,7 @@ export function Thinking({ text }: { text: string }): ReactElement {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        <span className="thinking-caret">{open ? "▾" : "▸"}</span>
+        <span className="thinking-caret">{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
         <span className="thinking-label">Thought</span>
         {!open && <span className="thinking-peek">{first}</span>}
       </button>

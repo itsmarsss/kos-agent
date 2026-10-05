@@ -40,7 +40,15 @@ import {
 } from "./Autocomplete.js";
 import { Thinking } from "./Thinking.js";
 import { MessageActions, MessageEditor } from "./MessageActions.js";
-import { CopyIcon, EditIcon, ForkIcon, MoreIcon } from "./icons.js";
+import {
+  CopyIcon,
+  EditIcon,
+  ForkIcon,
+  MoreIcon,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+} from "./icons.js";
 import {
   clearProgress,
   settleProgress,
@@ -1094,7 +1102,7 @@ export function ChatsPage({
                             aria-expanded={open}
                             onClick={() => toggleProject(slug, !open)}
                           >
-                            ▾
+                            <ChevronDown size={13} />
                           </button>
                         )}
                       </div>
@@ -1179,7 +1187,7 @@ export function ChatsPage({
             onClick={() => setShowScheduled((v) => !v)}
           >
             <span className="chats-scheduled-mark" aria-hidden="true">
-              {showScheduled ? "▾" : "▸"}
+              {showScheduled ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             </span>
             Scheduled
             <span className="chats-scheduled-count">
@@ -1414,7 +1422,11 @@ export function ChatsPage({
                     aria-label={narrow ? "Show chats" : collapsed ? "Show chats" : "Hide chats"}
                     onClick={() => (narrow ? setListOpen(true) : setCollapsed((v) => !v))}
                   >
-                    {narrow ? "‹" : collapsed ? "›" : "‹"}
+                    {collapsed && !narrow ? (
+                      <ChevronRight size={16} />
+                    ) : (
+                      <ChevronLeft size={16} />
+                    )}
                   </button>
                   {active.title}
                   {active.kind === "project" && <span className="chats-role">orchestrator</span>}

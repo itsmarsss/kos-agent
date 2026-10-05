@@ -2638,8 +2638,8 @@ li:hover .chats-item-when { opacity: 0; }
 .chats-item {
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
-  padding: 0.4rem 0.55rem;
+  gap: 0.05rem;
+  padding: 0.3rem 0.5rem;
   border-radius: var(--r-sm);
   color: inherit;
   text-decoration: none;
@@ -2810,7 +2810,7 @@ li:hover .chats-item-when { opacity: 0; }
   cursor: pointer;
 }
 .thinking-head:hover { color: var(--muted); }
-.thinking-caret { flex-shrink: 0; }
+.thinking-caret { flex-shrink: 0; display: inline-flex; align-items: center; }
 .thinking-label { flex-shrink: 0; }
 .thinking-peek {
   flex: 1;
@@ -3236,7 +3236,7 @@ li:hover .chats-item-when { opacity: 0; }
   cursor: pointer;
 }
 .toolcall-head:hover { background: var(--panel-2); }
-.toolcall-caret { color: var(--faint); width: 0.8rem; }
+.toolcall-caret { color: var(--faint); width: 0.8rem; display: inline-flex; align-items: center; justify-content: center; }
 .toolcall-name { font-family: var(--mono); color: var(--accent); flex-shrink: 0; }
 .toolcall-summary {
   flex: 1;
@@ -4572,7 +4572,7 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
   cursor: pointer;
 }
 .term-open:hover .term-text { color: var(--accent); }
-.term-caret { color: var(--faint); font-size: var(--text-xs); }
+.term-caret { color: var(--faint); display: inline-flex; align-items: center; }
 .term-detail {
   margin: 0.25rem 0 0.35rem;
   padding: 0.4rem 0.6rem;
@@ -5311,7 +5311,7 @@ a.health {
 }
 .chats-scheduled:hover { color: var(--text); }
 .chats-scheduled.is-open { color: var(--text); }
-.chats-scheduled-mark { color: var(--faint); font-size: 0.7rem; }
+.chats-scheduled-mark { color: var(--faint); display: inline-flex; align-items: center; }
 .chats-scheduled-count {
   margin-left: auto;
   color: var(--faint);
@@ -5717,13 +5717,16 @@ a.health {
   border: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   transform: rotate(-90deg);
   transition: transform 160ms ease, color 0.12s ease;
 }
 .chats-disclose:hover { color: var(--text); }
 .chats-disclose.is-open { transform: none; }
+.chats-toggle { display: inline-flex; align-items: center; justify-content: center; }
 .chats-agents { list-style: none; margin: 0; padding: 0 0 0.2rem; }
 .chats-child .chats-item { padding-left: 1.5rem; }
 .chats-child .chats-item-title { font-size: var(--text-base); }
@@ -5892,7 +5895,18 @@ a.health {
 .chats-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 0.1rem; margin: 0 0 0.1rem; font-size: var(--text-sm); }
 .chats-crumbs .link { color: var(--muted); }
 .chats-crumbs .link:hover { color: var(--accent); }
-.chats-crumbs .link::after { content: "›"; margin: 0 0.35rem; color: var(--faint); }
+.chats-crumbs .link::after {
+  content: "";
+  display: inline-block;
+  width: 0.32em;
+  height: 0.32em;
+  margin: 0 0.45rem;
+  border: solid var(--faint);
+  border-width: 1.5px 1.5px 0 0;
+  transform: rotate(45deg);
+  position: relative;
+  top: -1px;
+}
 .chats-role {
   margin-left: 0.5rem;
   padding: 0.05rem 0.4rem;
@@ -5979,7 +5993,7 @@ a.health {
 .chats-projects { padding: 0 0.45rem; display: flex; flex-direction: column; gap: 0.05rem; }
 .chats-project-row { display: flex; align-items: stretch; border-radius: var(--r-sm); }
 .chats-project-row:hover { background: var(--panel-2); }
-.chats-project-row .chats-item { flex: 1; min-width: 0; padding: 0.5rem 0.55rem; }
+.chats-project-row .chats-item { flex: 1; min-width: 0; padding: 0.35rem 0.5rem; }
 .chats-project-row .chats-item:hover { background: transparent; }
 .chats-item--pinned .chats-item-title { font-weight: 600; font-size: var(--text-md); }
 .chats-badge {
@@ -6000,6 +6014,6 @@ a.health {
 .chats-child .chats-row::before { left: 1rem; top: -0.1rem; bottom: 0.1rem; }
 
 /* The direct-chat rows: a little air, a clearer active state. */
-.chats-flat .chats-item { padding: 0.5rem 0.6rem; }
+.chats-flat .chats-item { padding: 0.3rem 0.5rem; }
 .chats-item.is-active { background: var(--accent-dim); box-shadow: inset 2px 0 0 var(--accent); }
 .chats-item-title { font-size: var(--text-md); }

@@ -2,6 +2,7 @@ import { useState, type ReactElement } from "react";
 
 import type { ChatEvent } from "./api.js";
 import { Decision } from "./Decision.js";
+import { ChevronDown, ChevronRight } from "./icons.js";
 
 /**
  * A tool call in the transcript. Collapsed it is one line saying what the
@@ -52,7 +53,7 @@ export function ToolCall({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        <span className="toolcall-caret">{open ? "▾" : "▸"}</span>
+        <span className="toolcall-caret">{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
         <code className="toolcall-name">{event.name}</code>
         <span className="toolcall-summary">{event.summary}</span>
         <span className="toolcall-state">{state}</span>
