@@ -60,7 +60,12 @@ export interface Behaviour {
 
 export const BEHAVIOUR_DEFAULTS: Behaviour = {
   engine: "api",
-  autoFix: false,
+  // On by default: both are cheap and make a fresh workspace useful at once.
+  // Auto-fix repairs a failing job on its first failure; background extraction
+  // lets a cheap model learn from conversations, which is the point of a
+  // second brain. The heartbeat stays off: it is the one setting that spends
+  // on a timer with nobody asking, so it is always opt-in.
+  autoFix: true,
   maxSteps: 50,
   fixSteps: 24,
   selfPromptsPerHour: 10,
@@ -69,7 +74,7 @@ export const BEHAVIOUR_DEFAULTS: Behaviour = {
   stallMinutes: 3,
   approvalMinutes: 30,
   heartbeatMinutes: 0,
-  memoryExtraction: false,
+  memoryExtraction: true,
   extractEveryChars: 6000,
 };
 

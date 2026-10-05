@@ -789,7 +789,10 @@ describe("handleApiRequest", () => {
   it("reports what the extractor has not read, and reads it on request", async () => {
     await handleApiRequest(kernel, { method: "POST", path: "/api/message", body: { text: "my sister Nadia is a nurse in Halifax" } });
     const before = await handleApiRequest(kernel, { method: "GET", path: "/api/memory/extract" });
-    expect(before.body).toMatchObject({ enabled: false, running: false });
+    // Extraction is on by default now; the threshold is not met by one short
+    // message, so nothing has been read automatically and the manual read below
+    // is what clears the pending count.
+    expect(before.body).toMatchObject({ enabled: true, running: false });
     expect((before.body as { pending: { count: number } }).pending.count).toBeGreaterThan(0);
     // The stub model answers "hi", not JSON: a read that proposes nothing.
     const ran = await handleApiRequest(kernel, { method: "POST", path: "/api/memory/extract" });
