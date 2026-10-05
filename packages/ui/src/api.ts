@@ -519,6 +519,10 @@ export interface ProjectDetail {
   /** Recent tool calls that mention this project, newest first. */
   activity: AuditRecord[];
   folder: string;
+  /** Threads working under the project; its own orchestrator is not one. */
+  agents: Conversation[];
+  /** The top of the project's folder. */
+  files: DirEntry[];
 }
 
 export interface SiteInfo {
@@ -784,6 +788,21 @@ export const api = {
     post<{ written: string[]; cleared: string[] }>("/api/settings", { values }),
   projectDetail: (slug: string) =>
     get<ProjectDetail>(`/api/projects/${encodeURIComponent(slug)}/detail`),
+  /** Put a file in the project's folder. The name is kept to its last segment. */
+  uploadProjectFile: (slug: string, file: Attachment) =>
+    post<{ path: string; size: number }>(
+      `/api/projects/${encodeURIComponent(slug)}/files`,
+      file,
+    ),
+  /** Start an agent under the project; a task, when given, is asked at once. */
+  createProjectAgent: (
+    slug: string,
+    input: { title: string; brief?: string; task?: string },
+  ) =>
+    post<Conversation & { started: boolean }>(
+      `/api/projects/${encodeURIComponent(slug)}/agents`,
+      input,
+    ),
   sites: () =>
     get<{ base: string | null; sites: SiteInfo[] }>("/api/sites"),
   openWorkspace: () => post<{ opened: string }>("/api/workspace/open", {}),

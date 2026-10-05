@@ -33,7 +33,7 @@ import {
   parseModelSettings,
 } from "../models/settings.js";
 import { conversationEvents } from "./transcript.js";
-import { listDirectory, readFile, readImage } from "./files.js";
+import { listDirectory, readFile, readImage, type DirEntry } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
 import { readSkills } from "../skills/manifest.js";
@@ -46,7 +46,13 @@ import { instantiateBlueprint } from "../modules/blueprint.js";
 import { installModule, originOf, removeModule, updateModule } from "../modules/install.js";
 import { isBuiltinFeature } from "../modules/builtins.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillEnabled } from "../skills/settings.js";
-import { conversationKind } from "./conversations.js";
+import {
+  conversationKind,
+  projectConversationId,
+  type Conversation,
+  type ConversationKind,
+} from "./conversations.js";
+import { parseUpload, writeProjectFile } from "./uploads.js";
 import { proxyToDaemon } from "../daemons/proxy.js";
 import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId } from "./session.js";
 
@@ -141,6 +147,50 @@ const WRITE_CAPABLE = new Set(["list", "card", "form"]);
  */
 const HOOKS_PREFIX = "/api/hooks/";
 const CALLER_PREFIX = "/api/caller/";
+const PROJECTS_PREFIX = "/api/projects/";
+
+/** `/api/projects/<slug>/<action>`, the routes that act on one project. */
+function projectRoute(path: string): { slug: string; action: string } | undefined {
+  if (!path.startsWith(PROJECTS_PREFIX)) return undefined;
+  const parts = path.slice(PROJECTS_PREFIX.length).split("/");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return undefined;
+  return { slug: decodeURIComponent(parts[0]), action: parts[1] };
+}
+
+type Activity = "working" | "needs-you" | "idle";
+
+/**
+ * A conversation as the dashboard lists it: what it is, so the list can
+ * group it and refuse to rename what is not the owner's, and what it is
+ * doing. Without the second a thread mid-turn or sitting on an approval
+ * looks exactly like one with nothing happening, and the only way to find
+ * out was to open it.
+ */
+function conversationLabeller(
+  kernel: Kernel,
+): (c: Conversation) => Conversation & { kind: ConversationKind; activity: Activity } {
+  const busy = new Set(kernel.busyConversations());
+  const waiting = new Set(
+    kernel.approvals
+      .pending()
+      .map((a) => a.conversationId)
+      .filter((id): id is string => typeof id === "string"),
+  );
+  return (c) => ({
+    ...c,
+    kind: conversationKind(c, kernel.profile.ownerId),
+    activity: busy.has(c.id) ? "working" : waiting.has(c.id) ? "needs-you" : "idle",
+  });
+}
+
+/** The top of a project's folder. A project with no folder yet has no files, not an error. */
+function projectFiles(kernel: Kernel, slug: string): DirEntry[] {
+  try {
+    return listDirectory(kernel.workspace, `${PROJECTS_DIR}/${slug}`);
+  } catch {
+    return [];
+  }
+}
 
 /** Every module the workspace has, with whether it is on and whether its server came up. */
 function modulesReport(kernel: Kernel): {
@@ -1498,11 +1548,10 @@ export async function handleApiRequest(
     });
   }
 
-  if (method === "GET" && path.startsWith("/api/projects/") && path.endsWith("/detail")) {
-    const slug = decodeURIComponent(
-      path.slice("/api/projects/".length).replace(/\/detail$/, ""),
-    );
-    const project = kernel.manifest.list().find((p) => p.slug === slug);
+  const onProject = projectRoute(path);
+  if (onProject && method === "GET" && onProject.action === "detail") {
+    const { slug } = onProject;
+    const project = kernel.manifest.get(slug);
     if (!project) return { status: 404, body: { error: "project not found" } };
 
     // A project's tables are namespaced with its slug, so they can be found
@@ -1557,7 +1606,63 @@ export async function handleApiRequest(
       // question you open it to ask when a tracker looks wrong.
       activity: kernel.audit.touching(slug, 12),
       folder: `${PROJECTS_DIR}/${slug}`,
+      // Its agents: every thread stamped with its slug except its own
+      // orchestrator, which is the project's chat rather than work under it.
+      agents: kernel.conversations
+        .list(kernel.profile.ownerId)
+        .filter((c) => c.projectSlug === slug && c.id !== projectConversationId(slug))
+        .map(conversationLabeller(kernel)),
+      files: projectFiles(kernel, slug),
     });
+  }
+
+  /**
+   * A file the owner put in the project from its workspace page. The name
+   * is reduced to its last segment and the path goes through the jail, so
+   * the write lands in projects/<slug>/ or not at all.
+   */
+  if (onProject && method === "POST" && onProject.action === "files") {
+    const { slug } = onProject;
+    if (!kernel.manifest.get(slug)) return { status: 404, body: { error: "project not found" } };
+    try {
+      const written = writeProjectFile(kernel.workspace, slug, parseUpload(body));
+      kernel.manifest.touchProject(slug);
+      return ok(written);
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  /**
+   * An agent the owner started under a project by hand, where before only
+   * the project's orchestrator could. Same primitive as chats.create: a
+   * conversation carrying the slug, and its first task asked as the owner.
+   * The task is not awaited; the page opens the chat and watches it run.
+   */
+  if (onProject && method === "POST" && onProject.action === "agents") {
+    const { slug } = onProject;
+    if (!kernel.manifest.get(slug)) return { status: 404, body: { error: "project not found" } };
+    const title = typeof body.title === "string" ? body.title.trim() : "";
+    const brief = typeof body.brief === "string" ? body.brief.trim() : "";
+    const task = typeof body.task === "string" ? body.task.trim() : "";
+    if (!title) return { status: 400, body: { error: "title required" } };
+    if (task && kernel.killSwitch.halted) {
+      return { status: 409, body: { error: "KOS is halted" } };
+    }
+    const created = kernel.conversations.create({
+      userId: kernel.profile.ownerId,
+      channel: "dashboard",
+      projectSlug: slug,
+      title,
+      ...(brief ? { brief } : {}),
+    });
+    kernel.manifest.touchProject(slug);
+    if (task) {
+      void kernel.dispatchTo(created.id, task).catch((err: unknown) => {
+        console.error(`agent ${created.id}: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }
+    return ok({ ...conversationLabeller(kernel)(created), started: task !== "" });
   }
 
   if (method === "GET" && path === "/api/sites") {
@@ -1711,30 +1816,10 @@ export async function handleApiRequest(
     // rather than filtered out: the owner should be able to open the thread
     // that routes their work, and the one their phone talks in. The
     // agent-facing chats.list still hides them.
-    // Each row says what it is doing. Without this a thread that is mid-turn
-    // or sitting on an approval looks exactly like one with nothing happening,
-    // and the only way to find out was to open it.
-    const busy = new Set(kernel.busyConversations());
-    const waiting = new Set(
-      kernel.approvals
-        .pending()
-        .map((a) => a.conversationId)
-        .filter((id): id is string => typeof id === "string"),
-    );
     return ok(
       kernel.conversations
         .list(kernel.profile.ownerId, { includeArchived })
-        .map((c) => ({
-          ...c,
-          // What a thread is, so the list can group them and refuse to
-          // rename what is not the owner's to rename.
-          kind: conversationKind(c, kernel.profile.ownerId),
-          activity: busy.has(c.id)
-            ? "working"
-            : waiting.has(c.id)
-              ? "needs-you"
-              : "idle",
-        })),
+        .map(conversationLabeller(kernel)),
     );
   }
 

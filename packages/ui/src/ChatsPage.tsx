@@ -91,6 +91,8 @@ export interface ChatsPageProps {
   agents: BuildRecord[];
   onOpenAgent: (id: number) => void;
   onOpen: (id: string) => void;
+  /** A project row opens the project's workspace; its chat is one action from there. */
+  onOpenProject: (slug: string) => void;
   onChanged: () => void;
   onDecide: (pendingId: string, approved: boolean, remember?: boolean) => void;
   /**
@@ -119,6 +121,7 @@ export function ChatsPage({
   agents,
   onOpenAgent,
   onOpen,
+  onOpenProject,
   onChanged,
   onDecide,
   seed,
@@ -1062,10 +1065,10 @@ export function ChatsPage({
                       <div className="chats-project-row">
                         <a
                           className={`chats-item chats-item--pinned ${c.id === activeId ? "is-active" : ""}`}
-                          href={hrefFor({ name: "chats", id: c.id })}
+                          href={hrefFor({ name: "project", slug })}
                           onClick={(e) => {
                             e.preventDefault();
-                            onOpen(c.id);
+                            onOpenProject(slug);
                           }}
                         >
                           {c.id === activeId && (

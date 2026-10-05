@@ -131,6 +131,8 @@ function refHref(kind: string, id: string): string {
         name: "files",
         path: `projects/${id.replace("/", "/sites/")}`,
       });
+    case "project":
+      return hrefFor({ name: "project", slug: id });
     default:
       return hrefFor({ name: "projects" });
   }
