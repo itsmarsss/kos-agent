@@ -62,6 +62,9 @@ import { ObservationStore } from "../memory/observations.js";
 import { CallerStore } from "../memory/callers.js";
 import { PageLog } from "../memory/pages.js";
 import { ReviewQueue } from "../memory/review.js";
+import { SuggestionStore } from "../improve/store.js";
+import { ensureDefaultImproveCron } from "../improve/job.js";
+import { createImproveModule } from "../tools/improve.js";
 import { createCronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
 import { createNotifyModule, noticeText, type NotifyPayload } from "../tools/notify.js";
@@ -224,6 +227,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const conversations = new ConversationStore(workspace.db);
   const facts = new FactsStore(workspace.db);
   const review = new ReviewQueue(workspace.db);
+  const suggestions = new SuggestionStore(workspace.db);
   const observations = new ObservationStore(workspace.db);
   const callers = new CallerStore(workspace.db);
   const pageLog = new PageLog(workspace.db);
@@ -396,6 +400,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       // Read on every call, so a toggle in Settings takes effect at once.
       disabled: () => parseSkillSettings(settings.get(SKILLS_KEY)).disabled,
     }),
+    createImproveModule({ suggestions }),
     createMemoryModule({
       facts,
       events,
@@ -463,6 +468,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   ensureDefaultMemoryCron(crons);
   ensureDefaultDreamCron(crons);
   ensureDefaultObserveCron(crons);
+  ensureDefaultImproveCron(crons);
 
   // The pre-existing primary session becomes the first conversation, so an
   // upgraded workspace keeps its transcript instead of orphaning it.
@@ -589,6 +595,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     bus,
     mcp,
     review,
+    suggestions,
     callers,
     pageLog,
     permissions,

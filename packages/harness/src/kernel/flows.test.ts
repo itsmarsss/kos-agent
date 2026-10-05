@@ -777,8 +777,8 @@ describe("KOS end-to-end flows", () => {
 
   it("asks before running a job by hand, then runs it the way it will run", async () => {
     const model = scripted([
-      // Every workspace is seeded with the backup (1), memory (2), dream (3) and observe (4) jobs.
-      toolCall("c1", "cron.run", { id: 5 }),
+      // Every workspace is seeded with backup (1), memory (2), dream (3), observe (4), improve (5).
+      toolCall("c1", "cron.run", { id: 6 }),
       text("Ran it."),
     ]);
     kernel = await boot(model.inference);
@@ -790,7 +790,7 @@ describe("KOS end-to-end flows", () => {
       enabled: true,
     });
     // Asserted rather than assumed: the scripted call above names an id.
-    expect(job.id).toBe(5);
+    expect(job.id).toBe(6);
 
     /*
      * Firing a job runs whatever it holds -- a write, a message to a channel

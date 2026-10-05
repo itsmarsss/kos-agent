@@ -62,6 +62,7 @@ import { CHAT_TOOLS } from "../tools/chats.js";
 import { type NotifyPayload } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
 import type { EventBus } from "../modules/events.js";
+import type { SuggestionStore } from "../improve/store.js";
 import { AfterTurn } from "./afterturn.js";
 import { Caretaker } from "./caretaker.js";
 import { Decisions, type DecisionResult } from "./decisions.js";
@@ -219,6 +220,8 @@ export class Kernel {
   private readonly recalls = new Map<string, TurnRecall>();
   /** What the dream job left for the owner to decide. */
   readonly review: ReviewQueue;
+  /** Things KOS has suggested making reusable, waiting on the owner. */
+  readonly suggestions: SuggestionStore;
   /** Other programs that share memory, within a grant. */
   readonly callers: CallerStore;
   /** The pages as last written, so the owner's edits can be read back. */
@@ -303,6 +306,7 @@ export class Kernel {
     bus: EventBus;
     mcp: McpModule;
     review: ReviewQueue;
+    suggestions: SuggestionStore;
     callers: CallerStore;
     pageLog: PageLog;
     permissions: PermissionStore;
@@ -350,6 +354,7 @@ export class Kernel {
     this.events = args.events;
     this.mcp = args.mcp;
     this.review = args.review;
+    this.suggestions = args.suggestions;
     this.callers = args.callers;
     this.pageLog = args.pageLog;
     const configured = parseClassifierEndpoint(args.settings.get(CLASSIFIER_KEY));
@@ -1199,6 +1204,38 @@ export class Kernel {
      */
     const res = await this.queue.enqueue(turn, conversation.id);
     return { reply: res.reply, conversationId: conversation.id };
+  }
+
+  /**
+   * The owner said yes to a suggestion KOS raised.
+   *
+   * Opens a chat and asks KOS to carry it out. Nothing is created here: the
+   * work happens in that turn, and anything that changes something still
+   * asks at the point it does, so "yes, go ahead" and "yes, make this
+   * specific change" stay two separate consents. The suggestion is closed as
+   * accepted, pointing at the chat where it is being done.
+   */
+  actOnSuggestion(id: number): { conversationId: string; title: string } | undefined {
+    const suggestion = this.suggestions.get(id);
+    if (!suggestion || suggestion.resolvedAt !== null) return undefined;
+    const title = suggestion.title.slice(0, 60);
+    const conversation = this.conversations.create({ userId: this.profile.ownerId, title });
+    const prompt = [
+      "You suggested this yourself, and the owner has said to go ahead.",
+      "",
+      suggestion.action ?? suggestion.detail,
+      "",
+      "Carry it out now. Anything that creates or changes something still asks",
+      "the owner at the point it does, so do the work and let those prompts stand.",
+      "If on a closer look it is not worth doing, say so and stop.",
+    ].join("\n");
+    void this.handleMessage(prompt, {
+      sessionId: conversation.id,
+      userId: this.profile.ownerId,
+      origin: "system",
+    }).catch(() => undefined);
+    this.suggestions.resolve(id, `accepted; working in ${conversation.id}`);
+    return { conversationId: conversation.id, title };
   }
 
   clearSession(sessionId: string): void {
