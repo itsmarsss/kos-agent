@@ -2,6 +2,7 @@ import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { migrationEscalation } from "../risk/rules.js";
 import { parseChangeSpec } from "../systems/migrate.js";
+import { deleteProject } from "../systems/remove.js";
 import type { CreateProjectInput } from "../systems/manifest.js";
 
 /**
@@ -57,6 +58,27 @@ function defineSystemsTools(ctx: ModuleContext): void {
       return JSON.stringify(project);
     },
     { floor: "safe" },
+    { tags: ["systems"] },
+  );
+
+  ctx.registerTool(
+    {
+      name: "systems.project_delete",
+      description:
+        "Permanently delete a project: drop its tables, delete its pages and files, and remove it from the manifest. This destroys the project's data and cannot be undone. To set a project aside reversibly instead, leave it and change its status to archived. Owner approval is required.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          project: { type: "string", description: "project slug" },
+        },
+        required: ["project"],
+      },
+    },
+    (input) => {
+      const slug = str(input, "project");
+      return JSON.stringify(deleteProject({ manifest, migrator, pages }, slug));
+    },
+    { floor: "risky" },
     { tags: ["systems"] },
   );
 
@@ -209,6 +231,7 @@ export const systemsModule: KosModule = {
     version: "1.0.0",
     provides: [
       { kind: "tool", name: "systems.project_create", version: "1.0.0" },
+      { kind: "tool", name: "systems.project_delete", version: "1.0.0" },
       { kind: "tool", name: "systems.project_list", version: "1.0.0" },
       { kind: "tool", name: "systems.migrate", version: "1.0.0" },
       { kind: "tool", name: "pages.write", version: "1.0.0" },

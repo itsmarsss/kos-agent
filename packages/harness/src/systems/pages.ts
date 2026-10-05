@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import {
@@ -261,5 +261,19 @@ export class PageStore {
     if (existsSync(abs)) unlinkSync(abs);
     this.db.prepare(`DELETE FROM pages WHERE id = ?`).run(id);
     return true;
+  }
+
+  /**
+   * Delete every page a project owns, records and files, and remove the
+   * `projects/<slug>` folder so nothing is left on disk to re-discover.
+   * Returns the number of page records removed.
+   */
+  removeProject(projectSlug: string): number {
+    const info = this.db
+      .prepare(`DELETE FROM pages WHERE project_slug = ?`)
+      .run(projectSlug);
+    const abs = this.workspace.resolve(join("projects", projectSlug));
+    rmSync(abs, { recursive: true, force: true });
+    return info.changes;
   }
 }
