@@ -21,6 +21,7 @@ export {
   type MigrationRecord,
 } from "./migrate.js";
 export { PageStore, type PageRecord } from "./pages.js";
+export { deleteProject, type DeleteProjectResult } from "./remove.js";
 export {
   runDisplayQuery,
   type DisplayQueryOptions,

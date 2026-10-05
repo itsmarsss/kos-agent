@@ -167,6 +167,14 @@ export class ProjectManifest {
       .run(status, this.now(), slug);
   }
 
+  /**
+   * Remove a project's manifest row. The tables and pages it owns are the
+   * caller's to drop first; this only forgets the registration.
+   */
+  remove(slug: string): boolean {
+    return this.db.prepare(`DELETE FROM manifest WHERE slug = ?`).run(slug).changes > 0;
+  }
+
   /** Namespaced physical table name for one of this project's tables. */
   tableName(slug: string, table: string): string {
     return projectTable(slug, table);

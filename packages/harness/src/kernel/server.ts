@@ -794,6 +794,17 @@ export async function handleApiRequest(
     return ok(kernel.manifest.get(slug));
   }
 
+  if (method === "POST" && path === "/api/projects/delete") {
+    const slug = typeof body.slug === "string" ? body.slug : "";
+    if (!slug) {
+      return { status: 400, body: { error: "slug required" } };
+    }
+    if (!kernel.manifest.get(slug)) {
+      return { status: 404, body: { error: "project not found" } };
+    }
+    return ok(kernel.deleteProject(slug));
+  }
+
   if (method === "GET" && path === "/api/pages") {
     const project =
       typeof (body as { project?: unknown }).project === "string"

@@ -1,5 +1,6 @@
 import type { Db } from "../store/db.js";
 import { assertIdentifier, projectTable } from "./identifiers.js";
+import { describeProject } from "./schema.js";
 import type { ProjectManifest } from "./manifest.js";
 
 /**
@@ -425,5 +426,31 @@ export class Migrator {
       )
       .all(slug) as MigrationRow[];
     return rows.map(toRecord);
+  }
+
+  /**
+   * Drop every physical table a project owns and erase its migration ledger.
+   *
+   * Ownership is the slug prefix, and it is sibling-safe: a table under a
+   * longer slug (workout_tracker_2_sets beside workout_tracker) belongs to the
+   * longer project and is left alone. Returns the physical names dropped. The
+   * manifest row is the caller's to remove, and it is still present here so the
+   * sibling list is complete while the tables are chosen.
+   */
+  dropProject(slug: string): string[] {
+    const siblings = this.manifest.list().map((p) => p.slug);
+    const tables = describeProject(this.db, slug, 0, siblings).tables.map(
+      (t) => t.name,
+    );
+    const run = this.db.transaction(() => {
+      for (const name of tables) {
+        this.db.exec(`DROP TABLE IF EXISTS "${name.replace(/"/g, '""')}"`);
+      }
+      this.db
+        .prepare(`DELETE FROM schema_migrations WHERE project_slug = ?`)
+        .run(slug);
+    });
+    run();
+    return tables;
   }
 }

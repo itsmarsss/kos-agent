@@ -55,6 +55,10 @@ import { Workspace } from "../store/workspace.js";
 import { InstanceConfig } from "../systems/config.js";
 import { ProjectManifest } from "../systems/manifest.js";
 import { describeActive } from "../systems/schema.js";
+import {
+  deleteProject as cascadeDeleteProject,
+  type DeleteProjectResult,
+} from "../systems/remove.js";
 import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
 import { PermissionStore } from "../ops/permissions.js";
@@ -1150,6 +1154,17 @@ export class Kernel {
         "You cannot reach other projects; KOS at the root does that.",
       ].join(" "),
     });
+  }
+
+  /**
+   * Permanently delete a project and everything it owns (tables, pages, files,
+   * manifest row). Irreversible; archiving via setStatus is the reversible one.
+   */
+  deleteProject(slug: string): DeleteProjectResult {
+    return cascadeDeleteProject(
+      { manifest: this.manifest, migrator: this.migrator, pages: this.pages },
+      slug,
+    );
   }
 
   /** KOS's own conversation, made with its router brief so the hierarchy holds. */
