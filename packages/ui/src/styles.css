@@ -137,7 +137,7 @@ select {
 .ops {
   max-width: 1200px;
   margin: 0;
-  padding: 1.1rem 0.9rem 1.5rem;
+  padding: 1.25rem 1.5rem 2rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -1718,7 +1718,9 @@ select {
 .ops--full {
   height: 100vh;
   height: 100dvh;
-  padding-bottom: 0;
+  /* The full-bleed layout (chats) sets its own tight gutter rather than
+     inheriting the 1.5rem page padding, so the rail sits close to the nav. */
+  padding: 0.8rem 0.7rem 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
