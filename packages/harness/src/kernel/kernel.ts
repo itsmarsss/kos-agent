@@ -728,7 +728,12 @@ export class Kernel {
            * KOS's own transcript stays the source of truth, which is what
            * keeps retention, /compact and rewind meaning something here.
            */
+          // Register an abort controller so kernel.stop() can cancel this SDK
+          // turn. Without it the Stop button was a silent no-op on this engine:
+          // abortFor() was only ever called on the non-SDK path.
+          const controller = this.abortFor(sessionId);
           const sdkRun = runSdkChat({
+            signal: controller.signal,
             // An aside reads the context chat's history (plus its own earlier
             // asides) rather than its empty session, same as the API path.
             prompt: priorForSdk(
