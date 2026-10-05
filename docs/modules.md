@@ -86,3 +86,36 @@ A browser, mail, anything with an MCP server. Same floors, same jail, same
 `{{secret:NAME}}` injection. A browser runs its own profile inside the
 workspace, never your logged-in one, and KOS never enters a password or a
 payment detail.
+
+Three ways to add one, all of which write that file:
+
+```bash
+kos mcp add browser --command "npx @playwright/mcp@latest"
+kos mcp add mail --url https://mail.example/mcp --risk safe
+kos mcp add --json '{"mcpServers":{"browser":{"command":"npx","args":["@playwright/mcp@latest"]}}}'
+kos mcp list | enable <name> | disable <name> | remove <name>
+```
+
+The same from Settings, MCP servers: a name and a command line or URL, or
+a block pasted from a README in Claude Code's `mcpServers` shape. A server
+added while the host runs is brought up at once and the page says whether
+it answered. Tools are risky until floored safe by name or glob in the
+file's `tools` map; the Settings page shows the floors it has.
+
+## Installing skills
+
+A skill is a folder under `skills/` with a `skill.json`, or a Claude Code
+skill: a folder with a `SKILL.md` whose front matter names and describes
+it, which KOS reads as a prompt skill and gives a `skill.json`.
+
+```bash
+kos skill install https://github.com/you/pdf-tables.git   # or a folder path
+kos skill install ./my-skill --name receipts
+kos skill update pdf-tables
+kos skill remove pdf-tables
+kos skill list
+```
+
+The same from Settings, Skills. Installed is off: a script from outside and
+instructions from outside both wait for you to switch them on. A folder that
+is not a skill is removed again, and the reason is said.

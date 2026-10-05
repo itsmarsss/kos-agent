@@ -132,6 +132,48 @@ describe("handleApiRequest", () => {
     rmSync(src, { recursive: true, force: true });
   });
 
+  it("installs a skill from a folder, off until switched on, and removes it", async () => {
+    const src = mkdtempSync(join(tmpdir(), "kos-skillsrc-"));
+    writeFileSync(join(src, "SKILL.md"), "---\nname: receipts\ndescription: File receipts.\n---\nSteps.", "utf8");
+    const made = await handleApiRequest(kernel, { method: "POST", path: "/api/skills/install", body: { source: src } });
+    expect(made.body).toMatchObject({ installed: "receipts", kind: "prompt", origin: null });
+    const list = await handleApiRequest(kernel, { method: "GET", path: "/api/skills" });
+    expect((list.body as { skills: { name: string; enabled: boolean; origin: string | null }[] }).skills).toEqual([
+      expect.objectContaining({ name: "receipts", enabled: false, origin: null }),
+    ]);
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/skills/update", body: { name: "receipts" } })).status).toBe(400);
+    const gone = await handleApiRequest(kernel, { method: "POST", path: "/api/skills/remove", body: { name: "receipts" } });
+    expect(gone.body).toEqual({ removed: "receipts" });
+    expect((await handleApiRequest(kernel, { method: "GET", path: "/api/skills" })).body).toMatchObject({ skills: [] });
+    rmSync(src, { recursive: true, force: true });
+  });
+
+  it("adds MCP servers to mcp.json from a pasted block, switches and removes them", async () => {
+    // Off in the paste, so nothing is spawned for a server that is not there.
+    const pasted = JSON.stringify({ mcpServers: { browser: { command: "npx", args: ["@playwright/mcp"], enabled: false } } });
+    const added = await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/add", body: { json: pasted } });
+    expect(added.body).toMatchObject({ added: ["browser"] });
+    const one = await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/add", body: { name: "mail", server: { url: "http://localhost:9/mcp", enabled: false, risk: "safe" } } });
+    expect(one.body).toMatchObject({ added: ["mail"] });
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/add", body: { json: "{not json" } })).status).toBe(400);
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/add", body: { name: "x", server: { enabled: true } } })).status).toBe(400);
+
+    const list = await handleApiRequest(kernel, { method: "GET", path: "/api/mcp" });
+    const servers = (list.body as { servers: { name: string; transport: string; command: string; enabled: boolean; risk: string }[] }).servers;
+    expect(servers).toEqual([
+      expect.objectContaining({ name: "browser", transport: "stdio", command: "npx @playwright/mcp", enabled: false, risk: "risky" }),
+      expect.objectContaining({ name: "mail", transport: "http", command: "http://localhost:9/mcp", enabled: false, risk: "safe" }),
+    ]);
+    expect(JSON.parse(readFileSync(join(root, "mcp.json"), "utf8"))).toHaveProperty("servers.browser.args", ["@playwright/mcp"]);
+
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/enable", body: { name: "zzz", enabled: false } })).status).toBe(404);
+    const gone = await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/remove", body: { name: "browser" } });
+    expect(gone.body).toEqual({ removed: "browser" });
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/remove", body: { name: "browser" } })).status).toBe(404);
+    const left = (await handleApiRequest(kernel, { method: "GET", path: "/api/mcp" })).body as { servers: { name: string }[] };
+    expect(left.servers.map((s) => s.name)).toEqual(["mail"]);
+  });
+
   it("toggles the kill switch", async () => {
     await handleApiRequest(kernel, { method: "POST", path: "/api/kill", body: { halted: true } });
     expect(kernel.killSwitch.halted).toBe(true);

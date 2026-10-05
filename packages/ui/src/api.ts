@@ -70,6 +70,25 @@ export interface SkillInfo {
   file: string;
   projects?: string[];
   enabled: boolean;
+  /** The repository it was installed from, when it was. */
+  origin?: string | null;
+}
+
+/** A server in mcp.json as the owner sees it in Settings, with whether it is up. */
+export interface McpServerInfo {
+  name: string;
+  transport: "stdio" | "http";
+  /** The command line, or the URL. */
+  command: string;
+  enabled: boolean;
+  risk: "safe" | "risky";
+  /** Floors the owner set per tool, by name or glob. */
+  floors: Record<string, "safe" | "risky">;
+  projects: string[];
+  /** Set once the server was asked to come up. */
+  connected?: boolean;
+  tools?: string[];
+  error?: string;
 }
 
 /** A module in the workspace as the owner sees it in Settings. */
@@ -616,6 +635,21 @@ export const api = {
   setProjectStatus: (slug: string, status: string) =>
     post<Project>("/api/projects/status", { slug, status }),
   skills: () => get<{ skills: SkillInfo[]; invalid: { name: string; reason: string }[] }>("/api/skills"),
+  /** A skill from a git URL or a folder: KOS's own shape, or a Claude Code SKILL.md. Off until switched on. */
+  installSkill: (source: string, name?: string) =>
+    post<{ installed: string; dir: string; kind: "script" | "prompt"; origin: string | null }>("/api/skills/install", {
+      source,
+      ...(name ? { name } : {}),
+    }),
+  updateSkill: (name: string) => post<{ updated: string; origin: string | null }>("/api/skills/update", { name }),
+  removeSkill: (name: string) => post<{ removed: string }>("/api/skills/remove", { name }),
+  mcpServers: () => get<{ servers: McpServerInfo[] }>("/api/mcp"),
+  /** One server by name, or a pasted config in KOS's or Claude Code's shape. */
+  addMcpServer: (input: { name?: string; server?: Record<string, unknown>; json?: string }) =>
+    post<{ added: string[]; status: Record<string, { connected: boolean; tools: string[]; error?: string }> }>("/api/mcp/add", input),
+  removeMcpServer: (name: string) => post<{ removed: string }>("/api/mcp/remove", { name }),
+  setMcpServerEnabled: (name: string, enabled: boolean) =>
+    post<{ name: string; enabled: boolean; connected?: boolean; tools?: string[]; error?: string }>("/api/mcp/enable", { name, enabled }),
   setSkillEnabled: (name: string, enabled: boolean) =>
     post<{ name: string; enabled: boolean }>("/api/skills/enable", { name, enabled }),
   modules: () => get<{ modules: ModuleInfo[]; invalid: { name: string; reason: string }[]; builtins?: BuiltinInfo[] }>("/api/modules"),

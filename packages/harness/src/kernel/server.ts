@@ -53,6 +53,8 @@ import {
   type ConversationKind,
 } from "./conversations.js";
 import { parseUpload, writeProjectFile } from "./uploads.js";
+import { installSkill, removeSkill, updateSkill } from "../skills/install.js";
+import { readMcpConfig, removeMcpServer, serversFromJson, setMcpServerEnabled, upsertMcpServers } from "../tools/mcp.js";
 import { proxyToDaemon } from "../daemons/proxy.js";
 import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId } from "./session.js";
 
@@ -606,10 +608,116 @@ export async function handleApiRequest(
   if (method === "GET" && path === "/api/skills") {
     const { skills, invalid } = readSkills(kernel.workspace);
     const off = new Set(parseSkillSettings(kernel.settings.get(SKILLS_KEY)).disabled);
-    return ok({
-      skills: skills.map((s) => ({ ...s.manifest, file: s.file, enabled: !off.has(s.manifest.name) })),
-      invalid,
-    });
+    // Where each came from, for the ones that came from a repository.
+    const listed = await Promise.all(
+      skills.map(async (s) => ({
+        ...s.manifest,
+        file: s.file,
+        enabled: !off.has(s.manifest.name),
+        origin: await originOf(kernel.workspace.resolve(s.dir)),
+      })),
+    );
+    return ok({ skills: listed, invalid });
+  }
+
+  /** A skill from a git URL or a folder, switched off until the owner says. */
+  if (method === "POST" && path === "/api/skills/install") {
+    const source = typeof body.source === "string" ? body.source.trim() : "";
+    if (!source) return { status: 400, body: { error: "source required: a git URL or a folder" } };
+    try {
+      const made = await installSkill(kernel.workspace, source, typeof body.name === "string" && body.name.trim() ? { name: body.name.trim() } : {});
+      // Off on arrival, like a module: outside code and outside instructions
+      // alike wait for the owner to switch them on.
+      kernel.settings.set(SKILLS_KEY, withSkillEnabled(parseSkillSettings(kernel.settings.get(SKILLS_KEY)), made.name, false));
+      return ok({ installed: made.name, dir: made.dir, kind: made.manifest.kind, origin: made.origin });
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  if (method === "POST" && path === "/api/skills/update") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (!name) return { status: 400, body: { error: "name required" } };
+    try {
+      const made = await updateSkill(kernel.workspace, name);
+      return ok({ updated: made.name, origin: made.origin });
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  if (method === "POST" && path === "/api/skills/remove") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (!name) return { status: 400, body: { error: "name required" } };
+    try {
+      removeSkill(kernel.workspace, name);
+      // Its switch goes with it, so a later skill of the same name starts fresh.
+      kernel.settings.set(SKILLS_KEY, withSkillEnabled(parseSkillSettings(kernel.settings.get(SKILLS_KEY)), name, true));
+      return ok({ removed: name });
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  /*
+   * Servers in mcp.json, with whether each is up. The file is the owner's;
+   * these routes edit it the way the owner would, then bring the live set
+   * in line, so a server added here is answering before the reply is.
+   */
+  if (method === "GET" && path === "/api/mcp") {
+    const status = kernel.mcp.status();
+    const servers = Object.entries(readMcpConfig(kernel.workspace.root).servers).map(([name, s]) => ({
+      name,
+      transport: s.command ? "stdio" : "http",
+      command: s.command ? [s.command, ...(s.args ?? [])].join(" ") : (s.url ?? ""),
+      enabled: s.enabled !== false,
+      risk: s.risk ?? "risky",
+      floors: s.tools ?? {},
+      projects: s.projects ?? [],
+      ...(status[name] ?? {}),
+    }));
+    return ok({ servers });
+  }
+
+  /** One or more servers: a config in either shape, or one server's entry under `name`. */
+  if (method === "POST" && path === "/api/mcp/add") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    let raw: unknown = body.server;
+    if (typeof body.json === "string") {
+      try {
+        raw = JSON.parse(body.json);
+      } catch {
+        return { status: 400, body: { error: "that is not JSON" } };
+      }
+    }
+    const servers = serversFromJson(raw, name || undefined);
+    if (Object.keys(servers).length === 0) {
+      return { status: 400, body: { error: "no server in that: it needs a name and a command or a url" } };
+    }
+    const added = upsertMcpServers(kernel.workspace.root, servers);
+    const status = await kernel.mcp.reload();
+    return ok({ added, status: Object.fromEntries(added.map((n) => [n, status[n] ?? { connected: false, tools: [] }])) });
+  }
+
+  if (method === "POST" && path === "/api/mcp/remove") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (!name) return { status: 400, body: { error: "name required" } };
+    if (!removeMcpServer(kernel.workspace.root, name)) return { status: 404, body: { error: `no server named ${name} in mcp.json` } };
+    await kernel.mcp.reload();
+    return ok({ removed: name });
+  }
+
+  if (method === "POST" && path === "/api/mcp/enable") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const enabled = body.enabled === true;
+    if (!name) return { status: 400, body: { error: "name required" } };
+    if (!setMcpServerEnabled(kernel.workspace.root, name, enabled)) return { status: 404, body: { error: `no server named ${name} in mcp.json` } };
+    const status = await kernel.mcp.reload();
+    return ok({ name, enabled, ...(status[name] ?? {}) });
+  }
+
+  if (method === "POST" && path === "/api/mcp/reload") {
+    return ok({ status: await kernel.mcp.reload() });
   }
 
   if (method === "POST" && path === "/api/skills/enable") {

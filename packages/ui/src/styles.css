@@ -5863,8 +5863,13 @@ a.health {
 .set-instance-new .kos-input { width: 16rem; max-width: 60vw; }
 
 /* Settings > Modules: installing, and what an installed module can do. */
-.set-install { margin-bottom: 0.5rem; }
+.set-install { margin-bottom: 0.5rem; flex-wrap: wrap; }
 .set-install .kos-input { width: 24rem; max-width: 70vw; }
+.set-install .kos-input.set-install-name { width: 11rem; }
+.set-install .set-install-risk { width: auto; }
+/* A pasted config is a block, so its box is one. */
+.set-install-json { display: flex; flex-direction: column; align-items: flex-start; gap: 0.4rem; margin: 0.35rem 0 0.5rem; }
+.set-install-json .ops-textarea { width: min(40rem, 100%); font-size: var(--text-sm); }
 .set-module-actions { display: flex; gap: 0.75rem; align-items: baseline; margin-top: 0.35rem; font-size: var(--text-sm); }
 .set-module-actions .link.is-danger { color: var(--danger); }
 

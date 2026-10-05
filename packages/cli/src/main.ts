@@ -5,7 +5,40 @@ import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
-import { Kernel, SecretsRegistry, Workspace, createDefaultRouter, installModule, readWorkspaceModules, removeModule, updateModule, originOf, MODULES_DIR, primarySessionId, renderEvalReport, renderJobEvalReport, runDreamEval, runMemoryEval, runObserveEval } from "@kos/harness";
+import {
+  Kernel,
+  MCP_CONFIG_FILE,
+  MODULES_DIR,
+  SKILLS_DIR,
+  SKILLS_KEY,
+  SecretsRegistry,
+  SettingsStore,
+  Workspace,
+  createDefaultRouter,
+  installModule,
+  installSkill,
+  originOf,
+  parseSkillSettings,
+  primarySessionId,
+  readMcpConfig,
+  readSkills,
+  readWorkspaceModules,
+  removeMcpServer,
+  removeModule,
+  removeSkill,
+  renderEvalReport,
+  renderJobEvalReport,
+  runDreamEval,
+  runMemoryEval,
+  runObserveEval,
+  serversFromJson,
+  setMcpServerEnabled,
+  updateModule,
+  updateSkill,
+  upsertMcpServers,
+  withSkillEnabled,
+  type McpServerConfig,
+} from "@kos/harness";
 
 import { KosClient, probeDaemon } from "@kos/client";
 import { OFFLINE_COMMANDS, parseArgs, runCommand, statusLine } from "./commands.js";
@@ -402,6 +435,134 @@ async function cmdModule(rootDir: string, rest: string[], flags: Record<string, 
   }
 }
 
+/** `kos skill ...`: the same four verbs as a module, for a skill. */
+async function cmdSkill(rootDir: string, rest: string[], flags: Record<string, string | boolean>): Promise<void> {
+  const [sub, arg] = rest;
+  const ws = Workspace.open(rootDir);
+  try {
+    if (sub === "install" && arg) {
+      const made = await installSkill(ws, arg, typeof flags.name === "string" ? { name: flags.name } : {});
+      // Off on arrival, as from the dashboard: outside code and outside
+      // instructions wait for the owner.
+      const settings = new SettingsStore(ws.db);
+      settings.set(SKILLS_KEY, withSkillEnabled(parseSkillSettings(settings.get(SKILLS_KEY)), made.name, false));
+      console.log(
+        `installed ${made.name} (${made.manifest.kind}) at ${made.dir}${made.origin ? ` from ${made.origin}` : ""}; off until you switch it on in Settings > Skills`,
+      );
+      return;
+    }
+    if (sub === "update" && arg) {
+      const made = await updateSkill(ws, arg);
+      console.log(`updated ${made.name}${made.origin ? ` from ${made.origin}` : ""}`);
+      return;
+    }
+    if (sub === "remove" && arg) {
+      removeSkill(ws, arg);
+      console.log(`removed ${arg}`);
+      return;
+    }
+    if (sub === "list" || sub === undefined) {
+      const { skills, invalid } = readSkills(ws);
+      const off = new Set(parseSkillSettings(new SettingsStore(ws.db).get(SKILLS_KEY)).disabled);
+      if (skills.length === 0 && invalid.length === 0) console.log(`no skills under ${SKILLS_DIR}/`);
+      for (const s of skills) {
+        const origin = await originOf(ws.resolve(s.dir));
+        console.log(`${s.manifest.name}  ${s.manifest.kind}  ${off.has(s.manifest.name) ? "off" : "on"}  ${s.manifest.description}${origin ? `  (${origin})` : ""}`);
+      }
+      for (const bad of invalid) console.log(`${bad.name}  invalid: ${bad.reason}`);
+      return;
+    }
+    console.error("usage: kos skill install <git url | folder> [--name x] | update <name> | remove <name> | list");
+    process.exitCode = 1;
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exitCode = 1;
+  } finally {
+    ws.close();
+  }
+}
+
+/**
+ * `kos mcp ...`: edit mcp.json the way the owner would, then tell a running
+ * host to bring the live set in line. Without a host, the next start reads
+ * the file.
+ */
+async function cmdMcp(rootDir: string, rest: string[], flags: Record<string, string | boolean>): Promise<void> {
+  const [sub, arg] = rest;
+  const usage =
+    'usage: kos mcp add <name> (--command "<cmd args>" | --url <url>) [--risk safe] | add --json \'<config>\' | list | enable <name> | disable <name> | remove <name>';
+  const apply = async (): Promise<void> => {
+    const live = await resolveLiveClient(rootDir);
+    if (!live) {
+      console.log("no host running; the next kos start reads mcp.json");
+      return;
+    }
+    const { status } = await live.client.reloadMcp();
+    for (const [name, s] of Object.entries(status)) {
+      console.log(`${name}: ${s.connected ? `connected, ${s.tools.length} tool${s.tools.length === 1 ? "" : "s"}` : `not connected${s.error ? ` (${s.error})` : ""}`}`);
+    }
+  };
+  try {
+    if (sub === "add") {
+      let servers: Record<string, McpServerConfig>;
+      if (typeof flags.json === "string") {
+        servers = serversFromJson(JSON.parse(flags.json), arg);
+      } else {
+        if (!arg) throw new Error(usage);
+        const entry: Record<string, unknown> = {};
+        if (typeof flags.command === "string" && flags.command.trim()) {
+          const [command, ...args] = flags.command.trim().split(/\s+/);
+          entry["command"] = command;
+          entry["args"] = args;
+        }
+        if (typeof flags.url === "string") entry["url"] = flags.url;
+        if (flags.risk === "safe" || flags.risk === "risky") entry["risk"] = flags.risk;
+        servers = serversFromJson(entry, arg);
+      }
+      if (Object.keys(servers).length === 0) throw new Error("no server in that: it needs a name and a command or a url");
+      const added = upsertMcpServers(rootDir, servers);
+      console.log(`added ${added.join(", ")} to ${MCP_CONFIG_FILE}; tools are risky until floored safe in the file's "tools" map`);
+      await apply();
+      return;
+    }
+    if ((sub === "enable" || sub === "disable") && arg) {
+      if (!setMcpServerEnabled(rootDir, arg, sub === "enable")) throw new Error(`no server named ${arg} in ${MCP_CONFIG_FILE}`);
+      console.log(`${arg} ${sub}d`);
+      await apply();
+      return;
+    }
+    if (sub === "remove" && arg) {
+      if (!removeMcpServer(rootDir, arg)) throw new Error(`no server named ${arg} in ${MCP_CONFIG_FILE}`);
+      console.log(`removed ${arg}`);
+      await apply();
+      return;
+    }
+    if (sub === "list" || sub === undefined) {
+      const servers = readMcpConfig(rootDir).servers;
+      const names = Object.keys(servers);
+      if (names.length === 0) {
+        console.log(`no servers in ${MCP_CONFIG_FILE}`);
+        return;
+      }
+      const live = await resolveLiveClient(rootDir);
+      const status = live ? Object.fromEntries((await live.client.mcpServers()).servers.map((s) => [s.name, s])) : {};
+      for (const name of names) {
+        const s = servers[name]!;
+        const where = s.command ? [s.command, ...(s.args ?? [])].join(" ") : (s.url ?? "");
+        const up = status[name];
+        const state = s.enabled === false ? "off" : up?.connected ? `connected, ${up.tools?.length ?? 0} tools` : up?.error ? `not connected (${up.error})` : "on";
+        console.log(`${name}  ${s.risk ?? "risky"}  ${state}  ${where}`);
+      }
+      return;
+    }
+    console.error(usage);
+    process.exitCode = 1;
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exitCode = 1;
+  }
+}
+
 async function cmdStop(rootDir: string): Promise<void> {
   const state = readDaemonState(rootDir);
   if (!state) {
@@ -517,6 +678,16 @@ async function main(): Promise<void> {
 
   if (command === "module") {
     await cmdModule(rootDir, rest, flags);
+    return;
+  }
+
+  if (command === "skill") {
+    await cmdSkill(rootDir, rest, flags);
+    return;
+  }
+
+  if (command === "mcp") {
+    await cmdMcp(rootDir, rest, flags);
     return;
   }
 

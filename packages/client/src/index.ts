@@ -180,6 +180,18 @@ export class KosClient {
     return this.post("/api/modules/enable", { name, enabled });
   }
 
+  /** The servers in mcp.json, with whether each is up. */
+  mcpServers(): Promise<{
+    servers: Array<{ name: string; transport: string; command: string; enabled: boolean; risk: string; connected?: boolean; tools?: string[]; error?: string }>;
+  }> {
+    return this.get("/api/mcp");
+  }
+
+  /** Bring the live set of servers in line with mcp.json, after it was edited. */
+  reloadMcp(): Promise<{ status: Record<string, { connected: boolean; tools: string[]; error?: string }> }> {
+    return this.post("/api/mcp/reload");
+  }
+
   /**
    * Start a scheduled job by name through its inbound hook. The hook has its
    * own secret, not the dashboard token: a caller holding it can start that
