@@ -6,26 +6,27 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
 } from "react";
-import { AnimatePresence, m } from "motion/react";
 
 import { api } from "./api.js";
 import { useProgress } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
 import { Markdown } from "./Markdown.js";
-import { spring } from "./motion.js";
 
 /**
  * A quick question on the side, like Claude Code's /btw.
  *
  * It is asked about the chat you have open: KOS answers with that chat's
- * history as context, but nothing is recorded into it, so an aside never
- * derails the thread it is about. The side thread is kept per chat for the
- * life of the page, so a follow-up keeps its context too. With no chat open
- * it is a plain question to KOS.
+ * history as context, with no tools, and nothing is recorded into the chat,
+ * so an aside never derails the thread it is about. The side thread is kept
+ * per chat for the life of the page, so a follow-up keeps its context, and
+ * Clear forgets it. With no chat open it is a plain question to KOS.
  *
  * It is a window, not a widget: drag it by its header, resize it by its
  * corner, and it opens where you left it. Opening is the app's business
  * (the sidebar entry or Cmd/Ctrl+Shift+K); this only renders while `open`.
+ * The entrance is a CSS fade rather than a motion transform: a transform
+ * fought the window's own geometry, which is set by left/top/width/height
+ * and changed by the resize handle.
  */
 
 interface Aside {
@@ -97,7 +98,7 @@ export function QuickAsk({
   /** The chat currently open, whose history the aside is answered against. */
   contextId?: string;
   contextTitle?: string;
-}): ReactElement {
+}): ReactElement | null {
   const key = contextId ?? "global";
   // The server streams the aside's live view under this key, never under the
   // chat's own id, so the main transcript stays untouched.
@@ -204,137 +205,127 @@ export function QuickAsk({
     }
   };
 
+  if (!open) return null;
+
   return (
-    <AnimatePresence>
-      {open && (
-        <m.div
-          ref={panelRef}
-          className="quickask"
-          role="dialog"
-          aria-label="Quick question"
-          style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
-          // A fade only. A transform here fights the window's own geometry:
-          // the box is positioned and sized by left/top/width/height, the
-          // corner handle resizes the real element, and a lingering scale
-          // made the measured window smaller than its box.
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={spring}
-        >
-          <header
-            className="quickask-head"
-            onPointerDown={onDragStart}
-            onPointerMove={onDragMove}
-            onPointerUp={onDragEnd}
-            onPointerCancel={onDragEnd}
-          >
-            <div className="quickask-title-wrap">
-              <span className="quickask-title">Quick question</span>
-              <span className="quickask-context">
-                {contextId ? (
-                  <>
-                    about <b>{contextTitle ?? contextId}</b>, without adding to it
-                  </>
-                ) : (
-                  "no chat open, so a plain question to KOS"
-                )}
-              </span>
-            </div>
-            <div className="quickask-head-actions">
-              {thread.length > 0 && (
-                <button
-                  type="button"
-                  className="link"
-                  onClick={() => setThreads((all) => ({ ...all, [key]: [] }))}
-                  title="Forget this side thread"
-                >
-                  Clear
-                </button>
-              )}
-              {contextId && (
-                <button
-                  type="button"
-                  className="link"
-                  onClick={() => {
-                    onOpen(contextId);
-                    onClose();
-                  }}
-                >
-                  Go to chat
-                </button>
-              )}
-              <button
-                type="button"
-                className="quickask-close"
-                onClick={onClose}
-                aria-label="Close"
-              >
-                ✕
-              </button>
-            </div>
-          </header>
-          <div className="quickask-body" ref={bodyRef}>
-            {thread.length === 0 && (
-              <p className="quickask-empty">
-                {contextId
-                  ? "Ask a side question about this chat. KOS answers with its context, and the chat itself is left as it is."
-                  : "Open a chat to ask about it, or just ask KOS something."}
-              </p>
+    <div
+      ref={panelRef}
+      className="quickask"
+      role="dialog"
+      aria-label="Quick question"
+      style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
+    >
+      <header
+        className="quickask-head"
+        onPointerDown={onDragStart}
+        onPointerMove={onDragMove}
+        onPointerUp={onDragEnd}
+        onPointerCancel={onDragEnd}
+      >
+        <div className="quickask-title-wrap">
+          <span className="quickask-title">Quick question</span>
+          <span className="quickask-context">
+            {contextId ? (
+              <>
+                about <b>{contextTitle ?? contextId}</b>, without adding to it
+              </>
+            ) : (
+              "no chat open, so a plain question to KOS"
             )}
-            {thread.map((t, i) => {
-              const pending = i === thread.length - 1 && t.a === undefined;
-              return (
-                <Fragment key={i}>
-                  <div className="quickask-turn quickask-turn--you">
-                    <Markdown text={t.q} />
-                  </div>
-                  {t.a !== undefined ? (
-                    <div className="quickask-turn quickask-turn--kos">
-                      <Markdown text={t.a} />
-                    </div>
-                  ) : pending && live && !live.ended ? (
-                    <div className="quickask-turn quickask-turn--kos">
-                      <LiveTurn live={live} />
-                    </div>
-                  ) : pending ? (
-                    <div className="quickask-turn quickask-turn--kos quickask-wait">Thinking…</div>
-                  ) : null}
-                </Fragment>
-              );
-            })}
-          </div>
-          <form
-            className="quickask-composer"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void ask();
-            }}
-          >
-            <textarea
-              className="quickask-input"
-              rows={1}
-              autoFocus
-              value={text}
-              placeholder={contextId ? "Ask about this chat…" : "Ask KOS…"}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  e.currentTarget.form?.requestSubmit();
-                }
-              }}
-            />
+          </span>
+        </div>
+        <div className="quickask-head-actions">
+          {thread.length > 0 && (
             <button
-              type="submit"
-              className="btn btn--primary btn--sm"
-              disabled={asking || !text.trim()}
+              type="button"
+              className="link"
+              onClick={() => setThreads((all) => ({ ...all, [key]: [] }))}
+              title="Forget this side thread"
             >
-              {asking ? "…" : "Ask"}
+              Clear
             </button>
-          </form>
-        </m.div>
-      )}
-    </AnimatePresence>
+          )}
+          {contextId && (
+            <button
+              type="button"
+              className="link"
+              onClick={() => {
+                onOpen(contextId);
+                onClose();
+              }}
+            >
+              Go to chat
+            </button>
+          )}
+          <button
+            type="button"
+            className="quickask-close"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+      </header>
+      <div className="quickask-body" ref={bodyRef}>
+        {thread.length === 0 && (
+          <p className="quickask-empty">
+            {contextId
+              ? "Ask a side question about this chat. KOS answers from its context, with no tools, and the chat itself is left as it is."
+              : "Open a chat to ask about it, or just ask KOS something."}
+          </p>
+        )}
+        {thread.map((t, i) => {
+          const pending = i === thread.length - 1 && t.a === undefined;
+          return (
+            <Fragment key={i}>
+              <div className="quickask-turn quickask-turn--you">
+                <Markdown text={t.q} />
+              </div>
+              {t.a !== undefined ? (
+                <div className="quickask-turn quickask-turn--kos">
+                  <Markdown text={t.a} />
+                </div>
+              ) : pending && live && !live.ended ? (
+                <div className="quickask-turn quickask-turn--kos">
+                  <LiveTurn live={live} />
+                </div>
+              ) : pending ? (
+                <div className="quickask-turn quickask-turn--kos quickask-wait">Thinking…</div>
+              ) : null}
+            </Fragment>
+          );
+        })}
+      </div>
+      <form
+        className="quickask-composer"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void ask();
+        }}
+      >
+        <textarea
+          className="quickask-input"
+          rows={1}
+          autoFocus
+          value={text}
+          placeholder={contextId ? "Ask about this chat…" : "Ask KOS…"}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              e.currentTarget.form?.requestSubmit();
+            }
+          }}
+        />
+        <button
+          type="submit"
+          className="btn btn--primary btn--sm"
+          disabled={asking || !text.trim()}
+        >
+          {asking ? "…" : "Ask"}
+        </button>
+      </form>
+    </div>
   );
 }
