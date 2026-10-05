@@ -192,6 +192,21 @@ export function ChatsPage({
   }, [undo]);
   /** What is typed on the landing, before there is a chat to put it in. */
   const [opening, setOpening] = useState("");
+  /** The New-project name box: null when closed, the typed name when open. */
+  const [newProject, setNewProject] = useState<string | null>(null);
+  const createProject = async (): Promise<void> => {
+    const name = (newProject ?? "").trim();
+    if (!name || creating) return;
+    setCreating(true);
+    try {
+      const r = await api.createProject(name);
+      setNewProject(null);
+      onChanged();
+      onOpen(r.conversationId);
+    } finally {
+      setCreating(false);
+    }
+  };
   const [showScheduled, setShowScheduled] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   useEffect(() => {
@@ -974,27 +989,62 @@ export function ChatsPage({
           <div className="chats-pinned">
             {orchestrator && (
               <a
-                className={`chats-item chats-item--pinned ${
-                  orchestrator.id === activeId ? "is-active" : ""
-                }`}
+                className={`chats-root ${orchestrator.id === activeId ? "is-active" : ""}`}
                 href={hrefFor({ name: "chats", id: orchestrator.id })}
                 onClick={(e) => {
                   e.preventDefault();
                   onOpen(orchestrator.id);
                 }}
               >
-                <span className="chats-item-top">
-                  <span className="chats-item-title">{orchestrator.title}</span>
-                  <span className="chats-badge">⌘K</span>
-                </span>
-                <span className="chats-item-brief">
-                  Routes work across your chats
+                <span className="chats-root-glyph" aria-hidden="true">✦</span>
+                <span className="chats-root-text">
+                  <span className="chats-root-title">
+                    {orchestrator.title}
+                    <kbd>⌘K</kbd>
+                  </span>
+                  <span className="chats-root-sub">Routes your work to projects and agents</span>
                 </span>
               </a>
             )}
+            <div className="chats-group-head">
+              <span>Projects</span>
+              <button
+                type="button"
+                className="chats-group-add"
+                title="New project"
+                aria-label="New project"
+                onClick={() => setNewProject((v) => (v === null ? "" : null))}
+              >
+                +
+              </button>
+            </div>
+            {newProject !== null && (
+              <form
+                className="chats-newproject"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void createProject();
+                }}
+              >
+                <input
+                  className="chats-search"
+                  autoFocus
+                  placeholder="Project name, e.g. Pantry"
+                  value={newProject}
+                  onChange={(e) => setNewProject(e.target.value)}
+                />
+                <button type="submit" className="btn btn--sm" disabled={!newProject.trim() || creating}>
+                  {creating ? "…" : "Create"}
+                </button>
+              </form>
+            )}
+            {projects.length === 0 && newProject === null && (
+              <p className="chats-group-empty">
+                None yet. KOS stands one up when work needs its own space, or add one with +.
+              </p>
+            )}
             {projects.length > 0 && (
-              /* One row per project, beside KOS: each is that project's own
-                 orchestrator, the second level of the hierarchy. */
+              /* Each project is its own orchestrator; expand to its agents. */
               <div className="chats-projects">
                 {projects.map((c) => {
                   const slug = c.projectSlug ?? "";
@@ -1122,7 +1172,12 @@ export function ChatsPage({
           </ul>
         )}
 
-        <ul>
+        {!showArchived && (filtered.length > 0 || query.trim() !== "") && (
+          <div className="chats-group-head">
+            <span>Chats</span>
+          </div>
+        )}
+        <ul className="chats-flat">
           {(showArchived ? archived : filtered).map((c) => renderChat(c))}
           {(showArchived ? archived : filtered).length === 0 && (
             <li className="chats-empty">
@@ -1130,10 +1185,9 @@ export function ChatsPage({
                 ? "Nothing archived."
                 : query.trim()
                   ? "Nothing matches."
-                  : "No chats yet. Ask KOS to start one."}
+                  : "No direct chats. Type below, or let KOS route work to a project."}
             </li>
           )}
-
         </ul>
 
         {/* At the foot rather than under the search box: it is a place you go
@@ -1291,7 +1345,7 @@ export function ChatsPage({
                 </h1>
                 {active.kind === "project" && (
                   <p className="chats-lineage">
-                    {projectSummary(tree.byProject.get(active.projectSlug ?? "") ?? []).replace("Runs this project's agents", "No agents yet")}
+                    {projectSummary(tree.byProject.get(active.projectSlug ?? "") ?? [])}
                   </p>
                 )}
                 {active.brief && <p className="chats-brief">{active.brief}</p>}

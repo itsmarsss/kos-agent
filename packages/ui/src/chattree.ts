@@ -50,7 +50,7 @@ export function groupChats(conversations: Conversation[]): ChatTree {
 
 /** One line under a project row: how many agents, and whether any is busy. */
 export function projectSummary(agents: Conversation[]): string {
-  if (agents.length === 0) return "Runs this project's agents";
+  if (agents.length === 0) return "No agents yet";
   const busy = agents.filter(isBusy).length;
   const n = `${agents.length} ${agents.length === 1 ? "agent" : "agents"}`;
   return busy > 0 ? `${n} · ${busy} working` : n;
