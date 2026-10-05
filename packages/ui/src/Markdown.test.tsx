@@ -24,6 +24,15 @@ describe("Markdown", () => {
     expect(out).not.toContain("<strong>");
   });
 
+  it("keeps a code span inside bold, and the bold around it", () => {
+    // Code had precedence, so a code span in the middle of a bold run matched
+    // first and split the bold around it, leaving the asterisks on the page.
+    const out = html("**5. Files under `projects/x/` **");
+    expect(out).toContain("<strong>");
+    expect(out).toContain("<code>projects/x/</code>");
+    expect(out).not.toContain("**");
+  });
+
   it("renders fenced code blocks with their language", () => {
     const out = html("```sql\nSELECT 1\n```");
     expect(out).toContain("SELECT 1");
