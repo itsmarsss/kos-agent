@@ -55,6 +55,7 @@ import { Workspace } from "../store/workspace.js";
 import { InstanceConfig } from "../systems/config.js";
 import { ProjectManifest } from "../systems/manifest.js";
 import { describeActive } from "../systems/schema.js";
+import { caller } from "./caller.js";
 import {
   deleteProject as cascadeDeleteProject,
   type DeleteProjectResult,
@@ -265,6 +266,14 @@ export class Kernel {
    */
   /** The conversation currently running a turn, for memory attribution. */
   currentConversationId: string | undefined;
+  /**
+   * The conversation making the current tool call, else the current turn's.
+   * Inside a handler the toolbox has entered the caller store, so this holds
+   * under concurrent lanes; outside one it is the turn's own field, as before.
+   */
+  get callerConversationId(): string | undefined {
+    return caller.getStore() ?? this.currentConversationId;
+  }
 
   /**
    * Conversations with a turn in flight right now.
@@ -647,7 +656,14 @@ export class Kernel {
         // The scope goes last, after the brief: a brief tells the agent what
         // it is for, and the two conflict exactly when the owner asks for
         // something the brief covers and the scope does not.
-        const extra = [formatting, conversation?.brief, scopeNote]
+        // An aside has no tools, and the model should know that up front:
+        // without this the SDK engine narrated attempts at its built-ins and
+        // their refusals instead of just answering.
+        const asideNote =
+          opts.contextFrom !== undefined
+            ? "This is a quick side question about the conversation above, asked without adding to it. You have no tools this turn: answer from the conversation and what you know, briefly, and do not try to run, read or look anything up."
+            : null;
+        const extra = [formatting, conversation?.brief, scopeNote, asideNote]
           .filter((part): part is string => Boolean(part && part.trim()))
           .join("\n\n");
         const projects = this.manifest.list();

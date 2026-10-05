@@ -10,6 +10,7 @@ import { PermissionStore } from "../ops/permissions.js";
 import { RISKY } from "../risk/tiers.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
+import { caller } from "./caller.js";
 import { GuardedTools, type GuardedToolsDeps } from "./guarded.js";
 
 describe("GuardedTools", () => {
@@ -57,6 +58,37 @@ describe("GuardedTools", () => {
     expect(ran.content).toBe("done");
     expect(approvals.pending()).toHaveLength(1);
     expect(audit.recent(1)[0]).toMatchObject({ tool: "danger", riskTier: "risky" });
+  });
+
+  it("tells a handler which conversation is calling, per call, under concurrency", async () => {
+    /*
+     * Turns run one lane per conversation, so two toolboxes execute at once.
+     * A handler that asks who is calling must get its own conversation, not
+     * whichever turn happened to start last: an aside running beside an
+     * orchestrator turn once took credit for that turn's congregation roster.
+     */
+    registry.register(
+      { name: "whoami", description: "w", inputSchema: { type: "object" } },
+      async () => {
+        await new Promise((r) => setTimeout(r, 5));
+        return caller.getStore() ?? "nobody";
+      },
+      { floor: "safe" },
+    );
+    const a = guarded({ conversationId: "aside:primary" });
+    const b = guarded({ conversationId: "orchestrator:owner" });
+    const anon = guarded();
+
+    const [ra, rb, rn] = await Promise.all([
+      a.execute("whoami", {}),
+      b.execute("whoami", {}),
+      anon.execute("whoami", {}),
+    ]);
+    expect(ra.content).toBe("aside:primary");
+    expect(rb.content).toBe("orchestrator:owner");
+    expect(rn.content).toBe("nobody");
+    // Nothing leaks out of a call: outside any handler there is no caller.
+    expect(caller.getStore()).toBeUndefined();
   });
 
   it("runs a safe tool, injecting secrets and auditing", async () => {

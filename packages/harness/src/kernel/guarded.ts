@@ -4,6 +4,7 @@ import type { AuditLog } from "../ops/audit.js";
 import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import { injectSecrets } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
+import { caller } from "./caller.js";
 
 export interface GuardedToolsDeps {
   registry: ToolRegistry;
@@ -179,6 +180,11 @@ export class GuardedTools implements ToolBox {
     const { registry, secrets, audit, approvals, userId, conversationId } =
       this.deps;
 
+    // Every handler runs inside the caller store, so a tool that asks which
+    // conversation is calling gets this one, not whichever turn started last.
+    const run = (n: string, i: Record<string, unknown>): Promise<ToolExecution> =>
+      conversationId ? caller.run(conversationId, () => registry.execute(n, i)) : registry.execute(n, i);
+
     const repeated = this.repeatGuard(name, input);
     if (repeated) return { content: repeated, isError: true };
 
@@ -205,7 +211,7 @@ export class GuardedTools implements ToolBox {
        * shows it ran as risky.
        */
       if (this.deps.permissions?.allows(name, input, this.deps.projectSlug?.())) {
-        const allowedResult = await registry.execute(name, injectSecrets(input, secrets));
+        const allowedResult = await run(name, injectSecrets(input, secrets));
         audit.record({
           tool: name,
           args: input,
@@ -276,7 +282,7 @@ export class GuardedTools implements ToolBox {
       }
 
       const approvedInput = injectSecrets(input, secrets);
-      const approvedResult = await registry.execute(name, approvedInput);
+      const approvedResult = await run(name, approvedInput);
       audit.record({
         tool: name,
         args: input,
@@ -291,7 +297,7 @@ export class GuardedTools implements ToolBox {
 
     // Safe: inject secrets just before execution, then run and audit.
     const injected = injectSecrets(input, secrets);
-    const result = await registry.execute(name, injected);
+    const result = await run(name, injected);
     audit.record({
       tool: name,
       args: input, // pre-injection; AuditLog also redacts defensively
