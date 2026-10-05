@@ -257,6 +257,12 @@ export class ConversationStore {
     return (this.db.prepare(sql).all(userId) as Row[]).map(toConversation);
   }
 
+  /** Give a conversation (or replace) its standing brief. */
+  setBrief(id: string, brief: string): Conversation | undefined {
+    this.db.prepare(`UPDATE conversations SET brief = ?, updated_at = ? WHERE id = ?`).run(brief.trim() || null, this.now(), id);
+    return this.get(id);
+  }
+
   rename(id: string, title: string): Conversation | undefined {
     const clean = title.replace(/\s+/g, " ").trim().slice(0, MAX_TITLE);
     if (clean === "") return this.get(id);

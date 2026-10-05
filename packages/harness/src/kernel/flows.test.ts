@@ -1167,7 +1167,7 @@ describe("KOS end-to-end flows", () => {
     // thing it must never do.
     const system = model.systems.at(-1)!;
     expect(system).not.toContain("limited to these tools");
-    expect(system).toContain("You are the owner's router");
+    expect(system).toContain("root router");
   });
 
   it("says nothing about scope in an unrestricted conversation", async () => {
@@ -1362,6 +1362,48 @@ describe("KOS end-to-end flows", () => {
     await kernel.handleOrchestratorTurn("help me with the shoot");
     const wire = JSON.stringify(model.calls.at(-1)!.request.messages);
     expect(wire).toContain("Shoot plan");
+  });
+
+  it("KOS stands up a project orchestrator and delegates the goal to it", async () => {
+    // The real second level: KOS does not build the project itself. It calls
+    // chats.project, which creates the project and its orchestrator, and the
+    // goal is delegated to that orchestrator.
+    const model = scripted([
+      toolCall("c1", "chats.project", { name: "Pantry", type: "tracker", goal: "Build a pantry stock tracker with a stock page." }),
+      text("Standing up Pantry."),
+      // The project orchestrator's turn, reached by the dispatch, just acks.
+      text("On it."),
+    ]);
+    kernel = await boot(model.inference);
+    await kernel.handleOrchestratorTurn("make me a pantry tracker");
+
+    // The project is in the manifest, and its orchestrator conversation exists.
+    const project = kernel.manifest.list().find((p) => p.name === "Pantry");
+    expect(project).toBeTruthy();
+    const orch = kernel.conversations.get(`project:${project!.slug}`);
+    expect(orch?.id).toBe(`project:${project!.slug}`);
+    expect(orch?.projectSlug).toBe(project!.slug);
+    expect(orch?.brief).toContain("orchestrator for the project");
+    // The goal was delivered to the orchestrator as a message to act on.
+    expect(JSON.stringify(kernel.sessions.get(orch!.id))).toContain("pantry stock tracker");
+  });
+
+  it("a project orchestrator cannot start another project", async () => {
+    const model = scripted([toolCall("c1", "chats.project", { name: "Other", type: "tracker", goal: "x" }), text("tried")]);
+    kernel = await boot(model.inference);
+    const project = kernel.standUpProject({ name: "Pantry", type: "tracker" });
+    await kernel.handleProjectTurn(project.slug, "start a second project");
+    // No second project was created; the guard refused it.
+    expect(kernel.manifest.list().map((p) => p.name).sort()).toEqual(["Pantry"]);
+  });
+
+  it("KOS gets a router brief so the hierarchy is a behaviour", async () => {
+    const model = scripted([text("hi")]);
+    kernel = await boot(model.inference);
+    await kernel.handleOrchestratorTurn("hello");
+    const wire = JSON.stringify(model.calls.at(-1)!.request);
+    expect(wire).toContain("root router");
+    expect(wire).toContain("chats.project");
   });
 
   it("orchestrator creates a scoped agent and hands it back", async () => {

@@ -77,6 +77,7 @@ import { ensureProfile } from "./profile.js";
 import { RETENTION_KEY, SessionStore, primarySessionId, type Retention } from "./session.js";
 import { ConversationStore } from "./conversations.js";
 import { BUILD_SETTINGS_KEY, Kernel, orchestratorId, type KernelOptions } from "./kernel.js";
+import { ORCHESTRATOR_BRIEF } from "./orchestration.js";
 
 const DEFAULT_SYSTEM =
   "You are KOS, a personal assistant operating inside a sandboxed workspace. Use the available tools to help. Risky actions are queued for owner approval — tell the user the pending id, then wait; when approval results arrive (as a System message), continue the plan without repeating completed creates. Prefer short checklist-style replies when the user asks. For tasks: create_list once, then tasks.add/list/complete with the returned slug as instance.";
@@ -96,19 +97,6 @@ const SURFACE_THREADS_KEY = "surfaces.threaded";
  * had nowhere to go, and a page for one thing got written into whatever
  * project already existed. What it cannot reach, it has to delegate.
  */
-const ORCHESTRATOR_BRIEF = [
-  "You are the owner's router. You do not build things yourself. You find or create the conversation where a piece of work belongs, give it the task, and report back what it did.",
-  "You deliberately have no tools for files, data, pages or schedules. Anything that needs them goes to a conversation. This is not a limitation to apologise for or work around; it is the job.",
-  "Before starting anything, search existing conversations: the work often already has a home, and saying so is more useful than making another thread.",
-  "When something genuinely needs its own conversation, create it with a brief saying what it is for, and give it the task at the same time. It runs immediately and its answer comes back to you.",
-  "A task is an instruction to the agent, in the owner's voice: \"Create a directory called test-dir\". Never address the owner in it. A task that asks a question produces an agent that asks it back and does nothing.",
-  "If the request is too vague to state a concrete task, ask the owner for the missing detail yourself. Do not hand the ambiguity to a new agent.",
-  "Leave tools unrestricted. A new conversation gets the full toolkit unless the owner has asked you to limit it, because a guess about what it will need becomes a capability it silently lacks later.",
-  "Creating a conversation and stopping is not an outcome: say what the agent actually did.",
-  "Say it in a line or two of your own. Do not reproduce the agent\u2019s reply: the owner can open that conversation and read it there, and repeating it in full means they read the same thing twice.",
-  "Dispatch to an existing conversation when one already covers the work, rather than creating a near-duplicate.",
-  "Be brief. Say what you found, what you dispatched, and what it said.",
-].join("\n");
 
 const DEFAULT_BACKUP_CRON = "0 3 * * *";
 
@@ -455,6 +443,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
         }
         kernelRef?.caretaker.tell(summary);
       },
+      // KOS at the root stands up a project and its orchestrator with this.
+      standUpProject: (input) => kernelRef!.standUpProject(input),
       // It should not offer you its own thread as somewhere to put work.
       hide: [orchestratorId(profile.ownerId)],
     }),
@@ -492,6 +482,9 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       title: "KOS",
       brief: ORCHESTRATOR_BRIEF,
     });
+  } else if (existing.brief !== ORCHESTRATOR_BRIEF) {
+    // The brief is KOS's identity; keep it current across restarts.
+    conversations.setBrief(orchestrator, ORCHESTRATOR_BRIEF);
   }
 
   // Retention the owner set, applied before any turn reads history, so a
