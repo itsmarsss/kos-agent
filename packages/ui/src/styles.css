@@ -6167,19 +6167,53 @@ a.health {
 .side-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* The rail: icons only, labels and secondary text gone, each item a square.
-   Desktop only — on a phone the sidebar is a drawer, not a rail. */
+   Desktop only — on a phone the sidebar is a drawer, not a rail.
+
+   The column eases between its two widths and the words fade and fold as
+   it goes. They used to be display:none, which cannot animate, so the
+   sidebar snapped from one shape to the other with the page jumping after. */
 @media (min-width: 861px) {
+  .app { transition: grid-template-columns 220ms cubic-bezier(0.32, 0.72, 0, 1); }
+  .side { transition: padding 220ms cubic-bezier(0.32, 0.72, 0, 1), gap 220ms ease; }
+  .side-link { transition: background 0.12s ease, color 0.12s ease, gap 220ms ease, padding 220ms ease; }
+  .side-label,
+  .side-brand span,
+  .side-search kbd,
+  .side-health-text {
+    max-width: 12rem;
+    opacity: 1;
+    overflow: hidden;
+    transition: opacity 140ms ease, max-width 220ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  /* Inline text has no width to fold; the brand's tail is a box so it can. */
+  .side-brand span { display: inline-block; vertical-align: baseline; }
+  :root[data-sidebar="rail"] .side-search kbd { margin-left: 0; padding: 0; border-color: transparent; }
   :root[data-sidebar="rail"] .app { grid-template-columns: 3.4rem minmax(0, 1fr); }
   :root[data-sidebar="rail"] .side { padding: 1rem 0.4rem; gap: 0.2rem; }
   :root[data-sidebar="rail"] .side-label,
   :root[data-sidebar="rail"] .side-brand span,
   :root[data-sidebar="rail"] .side-search kbd,
-  :root[data-sidebar="rail"] .side-health-text { display: none; }
+  :root[data-sidebar="rail"] .side-health-text {
+    max-width: 0;
+    opacity: 0;
+    flex: none;
+    text-overflow: clip;
+    pointer-events: none;
+  }
   :root[data-sidebar="rail"] .side-brand-row { justify-content: center; padding: 0.2rem 0 0.6rem; }
   :root[data-sidebar="rail"] .side-brand { font-size: var(--text-lg); }
-  :root[data-sidebar="rail"] .side-link { justify-content: center; padding: 0.5rem 0; position: relative; }
-  :root[data-sidebar="rail"] .side-health { justify-content: center; }
+  :root[data-sidebar="rail"] .side-link { justify-content: center; gap: 0; padding: 0.5rem 0; position: relative; }
+  :root[data-sidebar="rail"] .side-health { justify-content: center; gap: 0; }
   :root[data-sidebar="rail"] .side-more .menu-body { left: calc(100% + 0.3rem); bottom: 0; }
+  @media (prefers-reduced-motion: reduce) {
+    .app,
+    .side,
+    .side-link,
+    .side-label,
+    .side-brand span,
+    .side-search kbd,
+    .side-health-text { transition: none; }
+  }
 }
 
 /* —— chat header breadcrumb —— */
