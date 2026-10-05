@@ -6034,15 +6034,17 @@ a.health {
 
 /* The direct-chat rows: a little air, a clearer active state. */
 .chats-flat .chats-item { padding: 0.3rem 0.5rem; }
-/* A straight, rounded accent bar, centred on the row, rather than an inset
-   shadow that followed the corner radius and bowed in at the ends. */
 .chats-item.is-active { background: var(--accent-dim); box-shadow: none; }
-.chats-item.is-active::before {
-  content: "";
+/* A straight, rounded accent bar. It is a real element with a shared
+   layoutId, so it glides from the old row to the new one when the active
+   chat changes, rather than blinking out and in. Centred via margin auto
+   (not a transform) so framer's layout transform stays clean. */
+.chats-active-bar {
   position: absolute;
   left: 0;
-  top: 50%;
-  transform: translateY(-50%);
+  top: 0;
+  bottom: 0;
+  margin: auto 0;
   width: 3px;
   height: 1.05rem;
   border-radius: 999px;

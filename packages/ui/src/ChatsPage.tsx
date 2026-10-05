@@ -937,8 +937,7 @@ export function ChatsPage({
             </m.div>
           )}
           </AnimatePresence>
-        </div>
-        <a
+          <a
           className={`chats-item ${c.id === activeId ? "is-active" : ""}`}
           href={hrefFor({ name: "chats", id: c.id })}
           onClick={(e) => {
@@ -946,6 +945,9 @@ export function ChatsPage({
             onOpen(c.id);
           }}
         >
+          {c.id === activeId && (
+            <m.span className="chats-active-bar" layoutId="chat-active" transition={spring} />
+          )}
           <span className="chats-item-top">
             <span className="chats-item-title">{c.title}</span>
             {/* A thread mid-turn or sitting on an approval looked
@@ -969,7 +971,8 @@ export function ChatsPage({
               {c.toolAllow.length === 0 ? "no tools" : c.toolAllow.join(" · ")}
             </span>
           )}
-        </a>
+          </a>
+        </div>
       </li>
   );
 
@@ -1088,6 +1091,9 @@ export function ChatsPage({
                             onOpen(c.id);
                           }}
                         >
+                          {c.id === activeId && (
+                            <m.span className="chats-active-bar" layoutId="chat-active" transition={spring} />
+                          )}
                           <span className="chats-item-top">
                             <span className="chats-item-title">{c.title}</span>
                             <span className="chats-badge">project</span>

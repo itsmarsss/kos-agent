@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { domAnimation, LazyMotion, MotionConfig } from "motion/react";
+import { domMax, LazyMotion, MotionConfig } from "motion/react";
 
 import { App } from "./App.js";
 import { applyDensity, applyTheme, readDensity, readTheme } from "./theme.js";
@@ -15,15 +15,16 @@ if (root) {
   createRoot(root).render(
     <StrictMode>
       {/*
-        LazyMotion + domAnimation loads only the DOM animation features, which
-        is roughly a third of the full bundle; `strict` makes an accidental
+        LazyMotion + domMax loads the DOM animation AND layout features, so
+        shared-layout moves (layoutId) animate: the active-chat bar glides from
+        one row to the next instead of snapping. `strict` makes an accidental
         `motion.*` import fail loudly instead of silently pulling the rest in.
 
         reducedMotion="user" honours the OS setting everywhere at once: motion
         keeps opacity changes and drops transforms, so nothing lurches for
         someone who asked for less movement.
       */}
-      <LazyMotion features={domAnimation} strict>
+      <LazyMotion features={domMax} strict>
         <MotionConfig reducedMotion="user">
           <App />
         </MotionConfig>
