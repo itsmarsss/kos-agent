@@ -37,7 +37,7 @@ export interface MentionSources {
   crons: { name: string; schedule: string }[];
   workspace: Workspace;
   /** Conversations, so the palette can jump straight to one. */
-  chats?: { id: string; title: string }[];
+  chats?: { id: string; title: string; projectSlug?: string | null }[];
   /** Built sites, addressed as project/name. */
   sites?: { project: string; name: string; path: string }[];
   /**
@@ -152,20 +152,29 @@ export function findMentions(
   limit = 12,
   /** Narrow to one kind, as when the owner has typed `@file:`. */
   kind?: MentionKind,
+  /**
+   * The project the owner is working in. Its own things come first: asked
+   * from inside a project, "@file:plan" means that project's plan before
+   * anyone else's.
+   */
+  project?: string,
 ): Mention[] {
   const q = query.trim().toLowerCase();
-  const all: Mention[] = [
+  // Each entry says whose it is, so the project asked for can be put first.
+  const all: (Mention & { of?: string })[] = [
     ...sources.projects.map((p) => ({
       kind: "project" as const,
       id: p.slug,
       label: p.name,
       hint: p.type,
+      of: p.slug,
     })),
     ...sources.pages.map((p) => ({
       kind: "page" as const,
       id: p.id,
       label: p.title,
       hint: p.projectSlug,
+      of: p.projectSlug,
     })),
     ...sources.crons.map((c) => ({
       kind: "schedule" as const,
@@ -177,6 +186,7 @@ export function findMentions(
       kind: "chat" as const,
       id: c.id,
       label: c.title,
+      ...(c.projectSlug ? { of: c.projectSlug } : {}),
     })),
     ...(sources.agents ?? []).map((a) => ({
       kind: "agent" as const,
@@ -189,21 +199,24 @@ export function findMentions(
       id: `${s.project}/${s.name}`,
       label: s.name,
       hint: s.project,
+      of: s.project,
     })),
     ...walkFiles(sources.workspace).map((path) => ({
       kind: "file" as const,
       id: path,
       label: path,
+      ...(path.startsWith("projects/") ? { of: path.split("/")[1] } : {}),
     })),
   ];
 
+  const own = (m: { of?: string }): number => (project !== undefined && m.of === project ? 1 : 0);
   return all
     .filter((m) => kind === undefined || m.kind === kind)
     .map((m) => ({ m, s: Math.max(score(m.label, q), score(m.id, q)) }))
     .filter((x) => x.s > 0)
-    .sort((a, b) => b.s - a.s || a.m.label.length - b.m.label.length)
+    .sort((a, b) => own(b.m) - own(a.m) || b.s - a.s || a.m.label.length - b.m.label.length)
     .slice(0, limit)
-    .map((x) => x.m);
+    .map(({ m: { of: _of, ...m } }) => m);
 }
 
 /** A reference as it appears in a message: `@project:budget_tracker`. */

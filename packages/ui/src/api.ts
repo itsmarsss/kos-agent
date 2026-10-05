@@ -824,14 +824,16 @@ export const api = {
   /** A project's own chat, made on first use so it can be opened before it is spoken to. */
   projectChat: (slug: string) => post<Conversation>("/api/projects/chat", { slug }),
   folders: () => get<{ folders: string[] }>("/api/folders"),
-  mentions: (q: string, kind?: string, limit?: number) =>
+  /** Things to point at. With `project`, that project's own come first. */
+  mentions: (q: string, kind?: string, limit?: number, project?: string) =>
     get<{
       mentions: { kind: string; id: string; label: string; hint?: string }[];
       commands: { name: string; args?: string; description: string }[];
     }>(
       `/api/mentions?q=${encodeURIComponent(q)}` +
         (kind ? `&kind=${encodeURIComponent(kind)}` : "") +
-        (limit ? `&limit=${limit}` : ""),
+        (limit ? `&limit=${limit}` : "") +
+        (project ? `&project=${encodeURIComponent(project)}` : ""),
     ),
   stopConversation: (sessionId: string) =>
     post<{ stopping: boolean }>("/api/conversations/stop", { sessionId }),

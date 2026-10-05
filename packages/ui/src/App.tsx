@@ -715,6 +715,7 @@ export function App(): React.ReactElement {
         onOpen={openConversation}
         onOpenProject={(slug) => go({ name: "project", slug })}
         onAside={askAside}
+        onNotice={(text) => flash("ok", text)}
         onChanged={() => void refresh()}
         onDecide={decideByPendingId}
         {...(seed ? { seed } : {})}
@@ -749,6 +750,7 @@ export function App(): React.ReactElement {
           onError: (text) => flash("err", text),
         }}
         onAside={askAside}
+        onNotice={(text) => flash("ok", text)}
         onChanged={() => void refresh()}
         onDecide={decideByPendingId}
         {...(seed ? { seed } : {})}

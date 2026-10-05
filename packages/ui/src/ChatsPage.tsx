@@ -115,6 +115,8 @@ export interface ChatsPageProps {
   project?: ProjectMode;
   /** `/btw <question>`: ask it beside this chat, in the quick-question window. */
   onAside: (question: string) => void;
+  /** A line of feedback shown briefly over the page: what a command just did. */
+  onNotice: (text: string) => void;
   onChanged: () => void;
   onDecide: (pendingId: string, approved: boolean, remember?: boolean) => void;
   /**
@@ -146,6 +148,7 @@ export function ChatsPage({
   onOpenProject,
   project,
   onAside,
+  onNotice,
   onChanged,
   onDecide,
   seed,
@@ -308,7 +311,22 @@ export function ChatsPage({
 
   const [trigger, setTrigger] = useState<Trigger | null>(null);
   const [acCursor, setAcCursor] = useState(0);
-  const suggestions = useSuggestions(trigger);
+  /*
+   * What the menu offers besides the index: inside a project its own files,
+   * pages and agents come first, and /approve can name what is waiting.
+   */
+  const suggestionOptions = useMemo(() => {
+    const slug = project?.slug ?? conversations.find((c) => c.id === activeId)?.projectSlug ?? undefined;
+    return {
+      ...(slug ? { project: slug } : {}),
+      approvals: approvals.map((a) => ({
+        id: a.id,
+        label: a.reason ?? summarizeAction(a.tool, a.args),
+        here: a.conversationId === activeId,
+      })),
+    };
+  }, [project?.slug, conversations, activeId, approvals]);
+  const suggestions = useSuggestions(trigger, suggestionOptions);
 
   const syncTrigger = (): void => {
     const el = inputRef.current;
@@ -610,9 +628,6 @@ export function ChatsPage({
     (c) => (progress[c.id] && !progress[c.id]!.ended) || c.activity === "working",
   ).length;
 
-  /** A note where a command's answer goes. */
-  const note = (text: string): void => setNotes((n) => [...n, { id: Date.now(), text }]);
-
   /** This chat as a markdown file, saved by the browser. */
   const exportTranscript = (): void => {
     if (!active) return;
@@ -631,7 +646,7 @@ export function ChatsPage({
     a.download = name;
     a.click();
     URL.revokeObjectURL(url);
-    note(`Saved ${name}.`);
+    onNotice(`Saved ${name}.`);
   };
 
   /**
@@ -645,11 +660,12 @@ export function ChatsPage({
     const arg = m[2]!.trim();
     if (verb === "btw" || verb === "aside") {
       if (arg) onAside(arg);
-      else note("`/btw <question>` asks it beside this chat, without adding to it.");
+      else onNotice("/btw needs a question: /btw what did we decide?");
     } else if (verb === "export" || verb === "download") {
       exportTranscript();
     } else if (project) {
       if (!panelOpen) togglePanel();
+      onNotice("The project's files are in the panel on the right.");
     } else if (active?.projectSlug) {
       onOpenProject(active.projectSlug);
     } else {
@@ -675,24 +691,29 @@ export function ChatsPage({
     // is empty. Waiting for the turn meant the files sat in the composer,
     // looking unsent, until the answer came back.
     const files = attachments.files;
-    setEvents((e) => [
-      ...e,
-      {
-        kind: "message",
-        role: "you",
-        text,
-        ...(files.length
-          ? {
-              attachments: files.map((f) => ({
-                name: f.name,
-                ...(f.mediaType.startsWith("image/")
-                  ? { src: `data:${f.mediaType};base64,${f.data}` }
-                  : {}),
-              })),
-            }
-          : {}),
-      },
-    ]);
+    // A command is not part of the conversation, so it gets no bubble: one
+    // appeared and was taken away again by the reload a moment later.
+    const looksLikeCommand = /^\/\S/.test(text) && files.length === 0;
+    if (!looksLikeCommand) {
+      setEvents((e) => [
+        ...e,
+        {
+          kind: "message",
+          role: "you",
+          text,
+          ...(files.length
+            ? {
+                attachments: files.map((f) => ({
+                  name: f.name,
+                  ...(f.mediaType.startsWith("image/")
+                    ? { src: `data:${f.mediaType};base64,${f.data}` }
+                    : {}),
+                })),
+              }
+            : {}),
+        },
+      ]);
+    }
     setDraft("");
     attachments.clear();
 
@@ -702,18 +723,25 @@ export function ChatsPage({
       // drop its reply on the floor. It is kept as a note instead: for /help
       // the reply is the entire output, and for /clear it is the only sign
       // anything happened.
-      if (res.isCommand && res.reply) {
-        setNotes((n) => [...n, { id: Date.now(), text: res.reply }]);
-      }
-      // A command may ask the surface to open something. The kernel has no UI,
-      // so it names the panel and the surface obliges.
-      if (res.opens === "tools") setEditing(true);
-      // A command that moved this surface (/new, /fork, /agent, /switch)
-      // moves the page with it; the reply went unheeded before.
-      if (res.switchedTo) {
-        onChanged();
-        onOpen(res.switchedTo);
-        return;
+      if (res.isCommand) {
+        // Feedback that fits the answer. A line saying what happened (a brief
+        // set, a turn stopped) is shown over the page and goes; a list or a
+        // report stays in the thread as a note. A move is told over the page
+        // too, since a note would be left behind on the thread being left.
+        if (res.reply) {
+          if (res.switchedTo || !res.reply.includes("\n")) onNotice(res.reply);
+          else setNotes((n) => [...n, { id: Date.now(), text: res.reply }]);
+        }
+        // A command may ask the surface to open something. The kernel has no
+        // UI, so it names the panel and the surface obliges.
+        if (res.opens === "tools") setEditing(true);
+        // A command that moved this surface (/new, /fork, /agent, /switch)
+        // moves the page with it; the reply went unheeded before.
+        if (res.switchedTo) {
+          onChanged();
+          onOpen(res.switchedTo);
+          return;
+        }
       }
       // Reload rather than appending the reply: the turn may have made tool
       // calls, and those belong in the transcript too. A turn suspended on an
@@ -1164,9 +1192,6 @@ export function ChatsPage({
                   onOpen(projectOrchestrator.id);
                 }}
               >
-                <span className="chats-root-glyph chats-root-glyph--letter" aria-hidden="true">
-                  {(projectRecord?.name ?? project.slug).charAt(0).toUpperCase()}
-                </span>
                 <span className="chats-root-text">
                   <span className="chats-root-title">
                     Orchestrator
@@ -1185,9 +1210,6 @@ export function ChatsPage({
               </a>
             ) : (
               <div className="chats-root is-pending" aria-busy="true">
-                <span className="chats-root-glyph chats-root-glyph--letter" aria-hidden="true">
-                  {(projectRecord?.name ?? project.slug).charAt(0).toUpperCase()}
-                </span>
                 <span className="chats-root-text">
                   <span className="chats-root-title">Orchestrator</span>
                   <span className="chats-root-sub">

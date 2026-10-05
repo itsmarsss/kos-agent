@@ -6352,7 +6352,6 @@ a.health {
   white-space: nowrap;
 }
 .chats-project-sub { color: var(--faint); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chats-root-glyph--letter { font-weight: 700; font-size: 0.85rem; letter-spacing: 0; }
 .chats-root.is-pending { opacity: 0.65; cursor: default; }
 .chats-root-title .chats-flag { font-weight: 500; }
 .chats-panel-toggle:hover { color: var(--text); background: var(--panel-2); }

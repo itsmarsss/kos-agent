@@ -1788,8 +1788,10 @@ export async function handleApiRequest(
     const kind = params.get("kind");
     const kinds = ["project", "page", "file", "schedule", "chat", "site", "agent"];
     // The palette and the @ menu ask the same question of the same index, so
-    // a thing reachable by one is reachable by the other.
+    // a thing reachable by one is reachable by the other. Asked from inside a
+    // project, that project's own things come first.
     const limit = clampLimit(params.get("limit"), 12);
+    const project = params.get("project") ?? undefined;
     return ok({
       mentions: findMentions(
         {
@@ -1799,7 +1801,7 @@ export async function handleApiRequest(
           workspace: kernel.workspace,
           chats: kernel.conversations
             .list(kernel.profile.ownerId)
-            .map((c) => ({ id: c.id, title: c.title })),
+            .map((c) => ({ id: c.id, title: c.title, projectSlug: c.projectSlug })),
           sites: listSites(kernel.workspace),
           agents: kernel.builds
             .list()
@@ -1808,6 +1810,7 @@ export async function handleApiRequest(
         q,
         limit,
         kind && kinds.includes(kind) ? (kind as MentionKind) : undefined,
+        project,
       ),
       commands: CHAT_COMMANDS,
     });
