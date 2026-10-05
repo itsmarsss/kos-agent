@@ -88,6 +88,8 @@ export function NavIcon({ name }: { name: string }): ReactElement {
     case "memory": return p("M5 6c0-1.7 3.1-3 7-3s7 1.3 7 3-3.1 3-7 3-7-1.3-7-3z|M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6|M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3");
     case "history": return p("M3 12a9 9 0 1 0 3-6.7L3 8|M3 4v4h4|M12 8v4l3 2");
     case "settings": return p("c12,12,3|M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1");
+    case "search": return p("c11,11,7|M21 21l-4.3-4.3");
+    case "more": return p("c5,12,1|c12,12,1|c19,12,1");
     default: return p("c12,12,9");
   }
 }
