@@ -12,7 +12,7 @@ import { summarizeAction } from "@kos/shared";
 
 import { Decision } from "./Decision.js";
 import { VoiceInput } from "./VoiceInput.js";
-import { ease, listItem, spring } from "./motion.js";
+import { ease, listItem, spring, stagger, card } from "./motion.js";
 import { useDismiss } from "./useDismiss.js";
 
 import { ContextMeter } from "./ContextMeter.js";
@@ -1306,18 +1306,26 @@ export function ChatsPage({
           <div className="chats-placeholder">
             {/* Opening KOS lands here. It used to say "pick a chat"; a front
                 door should offer the way in. */}
-            <div className="chats-welcome">
-              <span className="chats-welcome-glyph" aria-hidden="true">✦</span>
-              <div className="chats-welcome-head">
+            <m.div
+              className="chats-welcome"
+              variants={stagger}
+              initial="hidden"
+              animate="show"
+            >
+              <m.span className="chats-welcome-glyph" aria-hidden="true" variants={card}>
+                ✦
+              </m.span>
+              <m.div className="chats-welcome-head" variants={card}>
                 <p className="chats-welcome-title">What do you want done?</p>
                 <p className="chats-welcome-sub">
                   KOS routes it to the right project or agent, or stands a new one up.
                 </p>
-              </div>
+              </m.div>
               {/* The question has to be answerable here. A button that leads
                   to an empty chat is a detour; typing is the way in. */}
-              <form
+              <m.form
                 className="chats-welcome-form"
+                variants={card}
                 onSubmit={(e) => {
                   e.preventDefault();
                   const text = opening.trim();
@@ -1364,9 +1372,9 @@ export function ChatsPage({
                     </button>
                   </div>
                 </div>
-              </form>
+              </m.form>
               {tree.roots.length > 0 && (
-                <div className="chats-welcome-recent">
+                <m.div className="chats-welcome-recent" variants={card}>
                   <span className="chats-welcome-recent-label">Recent</span>
                   <ul>
                     {tree.roots.slice(0, 5).map((c) => (
@@ -1381,10 +1389,12 @@ export function ChatsPage({
                       </li>
                     ))}
                   </ul>
-                </div>
+                </m.div>
               )}
-              <p className="hint">⌘K finds anything: a chat, a file, a page, a setting.</p>
-            </div>
+              <m.p className="hint" variants={card}>
+                ⌘K finds anything: a chat, a file, a page, a setting.
+              </m.p>
+            </m.div>
           </div>
         ) : (
           <>
