@@ -1,4 +1,5 @@
 import type { Conversation } from "./api.js";
+import type { Route } from "./routes.js";
 
 /**
  * The shape of the conversation list.
@@ -46,6 +47,21 @@ export function groupChats(conversations: Conversation[]): ChatTree {
   }
   for (const list of byProject.values()) list.sort(byAttention);
   return { roots, byProject };
+}
+
+/**
+ * Where a conversation opens.
+ *
+ * A project's threads, its orchestrator and the agents under it, open inside
+ * the project, beside its files and the rest of its agents; everything else
+ * opens in Chats. An orchestrator just made is not in the list yet, but its
+ * id names its project, so that is enough to place it.
+ */
+export function placeOf(id: string, c?: Conversation): Route {
+  if (c?.kind === "project" && c.projectSlug) return { name: "project", slug: c.projectSlug };
+  if (c?.kind === "chat" && c.projectSlug) return { name: "project", slug: c.projectSlug, id };
+  if (!c && id.startsWith("project:")) return { name: "project", slug: id.slice("project:".length) };
+  return { name: "chats", id };
 }
 
 /** One line under a project row: how many agents, and whether any is busy. */

@@ -2270,6 +2270,16 @@ select {
   transition: grid-template-columns 220ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 .chats.is-collapsed { grid-template-columns: 0fr 1fr; }
+/* Project mode: a third column carries the project's files, pages and
+   tables beside the thread, so the work and what it produced sit together. */
+.chats.is-project { grid-template-columns: minmax(200px, 232px) minmax(0, 1fr) minmax(240px, 292px); }
+.chats.is-project.is-collapsed { grid-template-columns: 0fr minmax(0, 1fr) minmax(240px, 292px); }
+.chats.is-project.panel-hidden { grid-template-columns: minmax(200px, 232px) minmax(0, 1fr); }
+.chats.is-project.panel-hidden.is-collapsed { grid-template-columns: 0fr minmax(0, 1fr); }
+@media (max-width: 1100px) {
+  .chats.is-project { grid-template-columns: minmax(200px, 232px) minmax(0, 1fr); }
+  .chats.is-project .project-panel { display: none; }
+}
 .chats-list { min-width: 0; }
 .chats.is-collapsed .chats-list {
   opacity: 0;
@@ -6261,63 +6271,112 @@ a.health {
 }
 .chats-item-title { font-size: var(--text-md); }
 
-/* —— project workspace —— */
-/* One project as a place: agents and files on the left, pages and tables
-   beside them. Panels, stats and rows are the drawer's own, so the page
-   and the drawer read as two views of one thing. */
-.project-ws { display: flex; flex-direction: column; gap: 0.9rem; }
-.project-ws .ops-back { align-self: flex-start; }
-.project-ws .insp-stats { margin-bottom: 0; }
-.project-ws .list-head-tools .hint { font-size: var(--text-sm); }
-.project-ws-cols {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 18rem);
-  gap: 0.9rem;
-  align-items: start;
+/* —— project mode —— */
+/* The chats page scoped to one project. The rail is the project's: a way
+   out at the top, its name, its orchestrator, its agents. The third column
+   is what the project has made and holds. */
+.chats-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  align-self: flex-start;
+  margin-left: -0.2rem;
+  padding: 0.15rem 0.4rem 0.15rem 0.2rem;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
 }
-.project-ws-main,
-.project-ws-side { display: flex; flex-direction: column; gap: 0.9rem; min-width: 0; }
-.project-ws-panel { display: flex; flex-direction: column; gap: 0.6rem; padding: 0.8rem 0.9rem; }
-.project-ws-panel .hint { margin: 0; }
-.project-ws-panel .insp-rows { margin: 0; }
-/* A dragged file is aimed at the panel, so the panel says so. */
-.project-ws-drop.is-over { border-color: var(--accent); background: var(--accent-dim); }
-.project-ws-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.chats-back:hover { color: var(--text); background: var(--panel-2); }
+.chats-project-head { display: flex; flex-direction: column; gap: 0.05rem; min-width: 0; padding: 0 0.1rem 0.15rem; }
+.chats-project-name {
+  font-weight: 650;
+  font-size: var(--text-lg);
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chats-project-sub { color: var(--faint); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chats-root-glyph--letter { font-weight: 700; font-size: 0.85rem; letter-spacing: 0; }
+.chats-root.is-pending { opacity: 0.65; cursor: default; }
+.chats-root-title .chats-flag { font-weight: 500; }
+.chats-panel-toggle:hover { color: var(--text); background: var(--panel-2); }
+.chats-panel-toggle.is-on { color: var(--accent); }
 
-.project-ws-form {
+.agent-form {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
-  padding: 0.6rem;
+  gap: 0.4rem;
+  margin: 0.1rem 0 0.4rem;
+  padding: 0.5rem;
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
 }
-.project-ws-form-row { display: flex; justify-content: flex-end; gap: 0.4rem; }
+.agent-form-row { display: flex; justify-content: flex-end; gap: 0.4rem; }
 
-.project-ws-agents { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.project-ws-agent {
+.project-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+  min-height: 0;
+  /* Scrolls down only: the drop target's negative margin would otherwise
+     put a horizontal scrollbar under the column. */
+  overflow: hidden auto;
+  padding: 0 0 0.75rem 0.75rem;
+  border-left: 1px solid var(--line);
+}
+.project-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--line);
+}
+.project-panel-title { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.project-panel-title h2 {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-panel-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--faint);
+  font-size: var(--text-sm);
+}
+.project-panel-section { display: flex; flex-direction: column; gap: 0.45rem; }
+.project-panel-section .ops-section-head h2 {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.6rem;
-  width: 100%;
-  padding: 0.45rem 0.5rem;
-  border: 0;
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
+  gap: 0.35rem;
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
 }
-.project-ws-agent:hover { background: var(--panel-2); }
-.project-ws-agent-main { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
-.project-ws-agent-main > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-ws-agent-title { font-weight: 500; }
-.project-ws-agent > .chats-flag,
-.project-ws-agent > .insp-meta { flex: none; white-space: nowrap; }
-
-@media (max-width: 900px) {
-  .project-ws-cols { grid-template-columns: 1fr; }
+.project-panel-count {
+  font-family: var(--mono);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
+.project-panel-section .hint,
+.project-panel-section .insp-rows { margin: 0; }
+.project-panel-section .hint { font-size: var(--text-sm); }
+/* A dragged file is aimed at the section, so the section says so. */
+.project-panel-drop { margin: -0.3rem; padding: 0.3rem; border: 1px dashed transparent; border-radius: var(--r-sm); }
+.project-panel-drop.is-over { border-color: var(--accent); background: var(--accent-dim); }
+.project-panel-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.project-panel .files-grid { grid-template-columns: repeat(auto-fill, minmax(6.25rem, 1fr)); gap: 0.4rem; }
+.project-panel .files-tile { padding: 0.45rem 0.35rem 0.4rem; gap: 0.25rem; }
+.project-panel .files-thumb { height: 3.4rem; }

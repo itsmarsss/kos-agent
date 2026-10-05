@@ -48,6 +48,13 @@ describe("parseRoute", () => {
     expect(parseRoute("#/project/kitchen_redo")).toEqual({ name: "project", slug: "kitchen_redo" });
     expect(hrefFor({ name: "project", slug: "kitchen_redo" })).toBe("#/project/kitchen_redo");
     expect(parseRoute(hrefFor({ name: "project", slug: "a b/c" }))).toEqual({ name: "project", slug: "a b/c" });
+    // A thread inside the project: an agent's, or the orchestrator's by default.
+    expect(parseRoute("#/project/kitchen_redo/c9%3Aowner")).toEqual({
+      name: "project",
+      slug: "kitchen_redo",
+      id: "c9:owner",
+    });
+    expect(hrefFor({ name: "project", slug: "kitchen_redo", id: "c9:owner" })).toBe("#/project/kitchen_redo/c9%3Aowner");
     // The list and a workspace are different routes; a bare /project is neither.
     expect(parseRoute("#/project")).toEqual({ name: "home" });
   });

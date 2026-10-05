@@ -16,7 +16,9 @@ import { ease, listItem, spring, stagger, card } from "./motion.js";
 import { useDismiss } from "./useDismiss.js";
 
 import { ContextMeter } from "./ContextMeter.js";
-import { groupChats, isBusy, projectSummary } from "./chattree.js";
+import { groupChats, isBusy, placeOf, projectSummary } from "./chattree.js";
+import { NewAgentForm } from "./NewAgentForm.js";
+import { ProjectPanel } from "./ProjectPanel.js";
 import {
   api,
   type ChatEvent,
@@ -48,6 +50,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  PanelIcon,
 } from "./icons.js";
 import {
   clearProgress,
@@ -72,6 +75,16 @@ import { composerKeyDown, useAutoGrow, useStickToBottom } from "./composer.js";
  * chrome bolted onto the panel.
  */
 
+/** The page scoped to one project. See ChatsPageProps.project. */
+export interface ProjectMode {
+  slug: string;
+  /** Out of the project, back to the chats. */
+  onBack: () => void;
+  onOpenPage: (id: string) => void;
+  onOpenFile: (path: string) => void;
+  onError: (message: string) => void;
+}
+
 export interface ChatsPageProps {
   conversations: Conversation[];
   /** Manifest projects, so the rail shows a project even before it has an orchestrator conversation. */
@@ -93,6 +106,12 @@ export interface ChatsPageProps {
   onOpen: (id: string) => void;
   /** A project row opens the project's workspace; its chat is one action from there. */
   onOpenProject: (slug: string) => void;
+  /**
+   * Project mode: the page is scoped to one project. The rail lists its
+   * orchestrator and agents (nothing else), the view is whichever of those
+   * is open, and a third column holds the project's files, pages and tables.
+   */
+  project?: ProjectMode;
   onChanged: () => void;
   onDecide: (pendingId: string, approved: boolean, remember?: boolean) => void;
   /**
@@ -122,11 +141,14 @@ export function ChatsPage({
   onOpenAgent,
   onOpen,
   onOpenProject,
+  project,
   onChanged,
   onDecide,
   seed,
 }: ChatsPageProps): ReactElement {
   const [query, setQuery] = useState("");
+  /** A row's link: a project's thread links into the project, the rest into Chats. */
+  const hrefOf = (c: Conversation): string => hrefFor(placeOf(c.id, c));
   const [events, setEvents] = useState<ChatEvent[]>([]);
   /**
    * A message the server was given directly, shown until the transcript
@@ -521,6 +543,47 @@ export function ChatsPage({
     agents.some(isBusy) ||
     activeConversation?.projectSlug === slug ||
     (openProjects[slug] ?? false);
+
+  /*
+   * Project mode. The project comes from the manifest, its orchestrator is
+   * the project:<slug> thread, and its agents are the chats stamped with its
+   * slug. A project built inline has no orchestrator thread until something
+   * opens it, so opening the project is what stands it up.
+   */
+  const projectRecord = project ? projects.find((p) => p.slug === project.slug) : undefined;
+  const projectOrchestrator = project
+    ? conversations.find((c) => c.id === `project:${project.slug}`)
+    : undefined;
+  const projectAgents = project ? (tree.byProject.get(project.slug) ?? []) : [];
+  const shownAgents = q ? projectAgents.filter(matches) : projectAgents;
+  const [addingAgent, setAddingAgent] = useState(false);
+  useEffect(() => setAddingAgent(false), [project?.slug]);
+  const needsOrchestrator = Boolean(project && projectRecord && !projectOrchestrator);
+  useEffect(() => {
+    if (!project || !needsOrchestrator) return;
+    void api
+      .projectChat(project.slug)
+      .then(onChanged)
+      .catch((err: unknown) => project.onError(err instanceof Error ? err.message : String(err)));
+    // Once per project, and again only if its thread goes missing.
+  }, [project?.slug, needsOrchestrator]);
+  /** Whether the project's files, pages and tables are shown beside the thread. */
+  const [panelOpen, setPanelOpen] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("kos.project.panel") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const togglePanel = (): void => {
+    const next = !panelOpen;
+    setPanelOpen(next);
+    try {
+      localStorage.setItem("kos.project.panel", next ? "1" : "0");
+    } catch {
+      // Remembered for this visit only.
+    }
+  };
 
   /*
    * Threads a schedule runs in, kept apart from the ones the owner started.
@@ -960,7 +1023,7 @@ export function ChatsPage({
           </AnimatePresence>
           <a
           className={`chats-item ${c.id === activeId ? "is-active" : ""}`}
-          href={hrefFor({ name: "chats", id: c.id })}
+          href={hrefOf(c)}
           onClick={(e) => {
             e.preventDefault();
             onOpen(c.id);
@@ -995,278 +1058,385 @@ export function ChatsPage({
 
   return (
     <div
-      className={`chats ${collapsed && !narrow ? "is-collapsed" : ""} ${narrow ? "is-narrow" : ""} ${active ? "has-active" : ""} ${listOpen ? "is-list-open" : ""}`}
+      className={`chats ${collapsed && !narrow ? "is-collapsed" : ""} ${narrow ? "is-narrow" : ""} ${active ? "has-active" : ""} ${listOpen ? "is-list-open" : ""} ${project ? "is-project" : ""} ${project && !panelOpen ? "panel-hidden" : ""}`}
     >
       {narrow && listOpen && (
         <div className="chats-backdrop" aria-hidden="true" onClick={() => setListOpen(false)} />
       )}
-      <aside className="chats-list">
-        <div className="chats-list-head">
-          {/* New chat opens the landing, where you choose a chat, a project,
-              or hand it to KOS, rather than dropping into an empty thread. */}
-          <button
-            type="button"
-            className="btn btn--primary chats-new"
-            onClick={() => {
-              if (narrow) setListOpen(false);
-              window.location.hash = hrefFor({ name: "chats" });
-            }}
-          >
-            New chat
-          </button>
-          <input
-            className="chats-search"
-            value={query}
-            placeholder="Search chats…"
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </div>
-        {showArchived && <div className="chats-section">Archived chats</div>}
-        {!showArchived && (orchestrator || projectConvs.length > 0 || looseProjects.length > 0 || surfaces.length > 0) && (
+      {project ? (
+        /* The project's own rail: its orchestrator above, its agents below,
+           and nothing from outside it. Back is the way out. */
+        <aside className="chats-list chats-list--project">
+          <div className="chats-list-head">
+            <button type="button" className="chats-back" onClick={project.onBack}>
+              <ChevronLeft size={14} />
+              All chats
+            </button>
+            <div className="chats-project-head">
+              <span className="chats-project-name">{projectRecord?.name ?? project.slug}</span>
+              <span className="chats-project-sub">
+                {projectRecord
+                  ? projectRecord.description
+                    ? `${projectRecord.type} · ${projectRecord.description}`
+                    : projectRecord.type
+                  : "Not in the manifest"}
+              </span>
+            </div>
+            <input
+              className="chats-search"
+              value={query}
+              placeholder="Search agents…"
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
           <div className="chats-pinned">
-            {orchestrator && (
+            {projectOrchestrator ? (
               <a
-                className={`chats-root ${orchestrator.id === activeId ? "is-active" : ""}`}
-                href={hrefFor({ name: "chats", id: orchestrator.id })}
+                className={`chats-root ${projectOrchestrator.id === activeId ? "is-active" : ""}`}
+                href={hrefOf(projectOrchestrator)}
                 onClick={(e) => {
                   e.preventDefault();
-                  onOpen(orchestrator.id);
+                  onOpen(projectOrchestrator.id);
                 }}
               >
-                <span className="chats-root-glyph" aria-hidden="true">✦</span>
+                <span className="chats-root-glyph chats-root-glyph--letter" aria-hidden="true">
+                  {(projectRecord?.name ?? project.slug).charAt(0).toUpperCase()}
+                </span>
                 <span className="chats-root-text">
                   <span className="chats-root-title">
-                    {orchestrator.title}
-                    <kbd>⌘K</kbd>
+                    Orchestrator
+                    {progress[projectOrchestrator.id] && !progress[projectOrchestrator.id]!.ended ? (
+                      <span className="chats-flag chats-flag--working">
+                        {liveLabel(progress[projectOrchestrator.id])}
+                      </span>
+                    ) : projectOrchestrator.activity && projectOrchestrator.activity !== "idle" ? (
+                      <span className={`chats-flag chats-flag--${projectOrchestrator.activity}`}>
+                        {projectOrchestrator.activity === "working" ? "working" : "needs you"}
+                      </span>
+                    ) : null}
                   </span>
-                  <span className="chats-root-sub">Routes your work to projects and agents</span>
+                  <span className="chats-root-sub">Plans the work and runs the agents</span>
                 </span>
               </a>
+            ) : (
+              <div className="chats-root is-pending" aria-busy="true">
+                <span className="chats-root-glyph chats-root-glyph--letter" aria-hidden="true">
+                  {(projectRecord?.name ?? project.slug).charAt(0).toUpperCase()}
+                </span>
+                <span className="chats-root-text">
+                  <span className="chats-root-title">Orchestrator</span>
+                  <span className="chats-root-sub">
+                    {projectRecord ? "Starting…" : "No such project"}
+                  </span>
+                </span>
+              </div>
             )}
-            <div className="chats-group-head">
-              <span>Projects</span>
-            </div>
-            {projectConvs.length === 0 && looseProjects.length === 0 && (
-              <p className="chats-group-empty">
-                None yet. Start one from New chat, or just ask KOS and it stands
-                one up when the work needs its own space.
-              </p>
+          </div>
+          <div className="chats-group-head">
+            <span>Agents</span>
+            <button
+              type="button"
+              className="chats-group-add"
+              aria-label="New agent"
+              title="Start an agent by hand"
+              aria-expanded={addingAgent}
+              onClick={() => setAddingAgent((v) => !v)}
+            >
+              +
+            </button>
+          </div>
+          {addingAgent && (
+            <NewAgentForm
+              slug={project.slug}
+              onCancel={() => setAddingAgent(false)}
+              onError={project.onError}
+              onMade={(id) => {
+                setAddingAgent(false);
+                onChanged();
+                onOpen(id);
+              }}
+            />
+          )}
+          <ul className="chats-flat">
+            {shownAgents.map((c) => renderChat(c))}
+            {shownAgents.length === 0 && (
+              <li className="chats-empty">
+                {q
+                  ? "Nothing matches."
+                  : "No agents yet. The orchestrator starts them as work comes up, or start one with +."}
+              </li>
             )}
-            {projectConvs.length > 0 && (
-              /* Each project is its own orchestrator; expand to its agents. */
-              <div className="chats-projects">
-                {projectConvs.map((c) => {
-                  const slug = c.projectSlug ?? "";
-                  const agents = tree.byProject.get(slug) ?? [];
-                  const open = projectOpen(slug, agents);
-                  const shown = q ? agents.filter(matches) : agents;
-                  return (
-                    <div key={c.id} className="chats-project">
-                      <div className="chats-project-row">
-                        <a
-                          className={`chats-item chats-item--pinned ${c.id === activeId ? "is-active" : ""}`}
-                          href={hrefFor({ name: "project", slug })}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            onOpenProject(slug);
-                          }}
-                        >
-                          {c.id === activeId && (
-                            <m.span className="chats-active-bar" layoutId="chat-active" transition={spring} />
-                          )}
-                          <span className="chats-item-top">
-                            <span className="chats-item-title">{c.title}</span>
-                            <span className="chats-badge">project</span>
-                          </span>
-                          <span className="chats-item-brief">{projectSummary(agents)}</span>
-                        </a>
-                        {agents.length > 0 && (
-                          <button
-                            type="button"
-                            className={`chats-disclose${open ? " is-open" : ""}`}
-                            aria-label={open ? `Hide ${c.title}'s agents` : `Show ${c.title}'s agents`}
-                            aria-expanded={open}
-                            onClick={() => toggleProject(slug, !open)}
+          </ul>
+        </aside>
+      ) : (
+        <aside className="chats-list">
+          <div className="chats-list-head">
+            {/* New chat opens the landing, where you choose a chat, a project,
+                or hand it to KOS, rather than dropping into an empty thread. */}
+            <button
+              type="button"
+              className="btn btn--primary chats-new"
+              onClick={() => {
+                if (narrow) setListOpen(false);
+                window.location.hash = hrefFor({ name: "chats" });
+              }}
+            >
+              New chat
+            </button>
+            <input
+              className="chats-search"
+              value={query}
+              placeholder="Search chats…"
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          {showArchived && <div className="chats-section">Archived chats</div>}
+          {!showArchived && (orchestrator || projectConvs.length > 0 || looseProjects.length > 0 || surfaces.length > 0) && (
+            <div className="chats-pinned">
+              {orchestrator && (
+                <a
+                  className={`chats-root ${orchestrator.id === activeId ? "is-active" : ""}`}
+                  href={hrefFor({ name: "chats", id: orchestrator.id })}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onOpen(orchestrator.id);
+                  }}
+                >
+                  <span className="chats-root-glyph" aria-hidden="true">✦</span>
+                  <span className="chats-root-text">
+                    <span className="chats-root-title">
+                      {orchestrator.title}
+                      <kbd>⌘K</kbd>
+                    </span>
+                    <span className="chats-root-sub">Routes your work to projects and agents</span>
+                  </span>
+                </a>
+              )}
+              <div className="chats-group-head">
+                <span>Projects</span>
+              </div>
+              {projectConvs.length === 0 && looseProjects.length === 0 && (
+                <p className="chats-group-empty">
+                  None yet. Start one from New chat, or just ask KOS and it stands
+                  one up when the work needs its own space.
+                </p>
+              )}
+              {projectConvs.length > 0 && (
+                /* Each project is its own orchestrator; expand to its agents. */
+                <div className="chats-projects">
+                  {projectConvs.map((c) => {
+                    const slug = c.projectSlug ?? "";
+                    const agents = tree.byProject.get(slug) ?? [];
+                    const open = projectOpen(slug, agents);
+                    const shown = q ? agents.filter(matches) : agents;
+                    return (
+                      <div key={c.id} className="chats-project">
+                        <div className="chats-project-row">
+                          <a
+                            className={`chats-item chats-item--pinned ${c.id === activeId ? "is-active" : ""}`}
+                            href={hrefFor({ name: "project", slug })}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              onOpenProject(slug);
+                            }}
                           >
-                            <ChevronDown size={13} />
-                          </button>
+                            {c.id === activeId && (
+                              <m.span className="chats-active-bar" layoutId="chat-active" transition={spring} />
+                            )}
+                            <span className="chats-item-top">
+                              <span className="chats-item-title">{c.title}</span>
+                              <span className="chats-badge">project</span>
+                            </span>
+                            <span className="chats-item-brief">{projectSummary(agents)}</span>
+                          </a>
+                          {agents.length > 0 && (
+                            <button
+                              type="button"
+                              className={`chats-disclose${open ? " is-open" : ""}`}
+                              aria-label={open ? `Hide ${c.title}'s agents` : `Show ${c.title}'s agents`}
+                              aria-expanded={open}
+                              onClick={() => toggleProject(slug, !open)}
+                            >
+                              <ChevronDown size={13} />
+                            </button>
+                          )}
+                        </div>
+                        {open && shown.length > 0 && (
+                          <ul className="chats-agents">{shown.map((a) => renderChat(a, true))}</ul>
                         )}
                       </div>
-                      {open && shown.length > 0 && (
-                        <ul className="chats-agents">{shown.map((a) => renderChat(a, true))}</ul>
-                      )}
+                    );
+                  })}
+                </div>
+              )}
+              {looseProjects.length > 0 && (
+                /* Manifest projects without an orchestrator thread yet. Opening
+                   one stands its orchestrator up, after which it joins the list
+                   above with its own agents. */
+                <div className="chats-projects">
+                  {looseProjects.map((p) => (
+                    <div key={p.slug} className="chats-project">
+                      <div className="chats-project-row">
+                        <button
+                          type="button"
+                          className="chats-item chats-item--pinned"
+                          onClick={() => {
+                            void api
+                              .projectChat(p.slug)
+                              .then((c) => {
+                                onChanged();
+                                onOpen(c.id);
+                              })
+                              .catch(() => undefined);
+                          }}
+                        >
+                          <span className="chats-item-top">
+                            <span className="chats-item-title">{p.name}</span>
+                            <span className="chats-badge">{p.type}</span>
+                          </span>
+                          <span className="chats-item-brief">
+                            {p.description || "No orchestrator yet. Open to start one."}
+                          </span>
+                        </button>
+                      </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-            {looseProjects.length > 0 && (
-              /* Manifest projects without an orchestrator thread yet. Opening
-                 one stands its orchestrator up, after which it joins the list
-                 above with its own agents. */
-              <div className="chats-projects">
-                {looseProjects.map((p) => (
-                  <div key={p.slug} className="chats-project">
-                    <div className="chats-project-row">
-                      <button
-                        type="button"
-                        className="chats-item chats-item--pinned"
-                        onClick={() => {
-                          void api
-                            .projectChat(p.slug)
-                            .then((c) => {
-                              onChanged();
-                              onOpen(c.id);
-                            })
-                            .catch(() => undefined);
-                        }}
-                      >
-                        <span className="chats-item-top">
-                          <span className="chats-item-title">{p.name}</span>
-                          <span className="chats-badge">{p.type}</span>
-                        </span>
-                        <span className="chats-item-brief">
-                          {p.description || "No orchestrator yet. Open to start one."}
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            {surfaces.length > 0 && (
-              /* One line however many there are. A surface is a way in, not
-                 a thread the owner is working in, and given a row each they
-                 pushed the chats off the screen. */
-              <div className="chats-surfaces">
-                {surfaces.map((c) => (
+                  ))}
+                </div>
+              )}
+              {surfaces.length > 0 && (
+                /* One line however many there are. A surface is a way in, not
+                   a thread the owner is working in, and given a row each they
+                   pushed the chats off the screen. */
+                <div className="chats-surfaces">
+                  {surfaces.map((c) => (
+                    <a
+                      key={c.id}
+                      className={`chats-surface ${c.id === activeId ? "is-active" : ""}`}
+                      href={hrefFor({ name: "chats", id: c.id })}
+                      title={`Everything said on ${c.title} arrives here`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        onOpen(c.id);
+                      }}
+                    >
+                      {(progress[c.id] && !progress[c.id]!.ended) ||
+                      c.activity === "working" ? (
+                        <span className="chats-surface-dot" aria-hidden="true" />
+                      ) : null}
+                      {c.title}
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {!showArchived && scheduled.length > 0 && (
+            /* Above the chats rather than under them: a job's thread is
+               something you go and look at, and at the foot of a long list it
+               was a scroll away from everything. Shut by default, because it
+               is reference rather than what the owner is doing now. */
+            <button
+              type="button"
+              className={`chats-scheduled ${showScheduled ? "is-open" : ""}`}
+              onClick={() => setShowScheduled((v) => !v)}
+            >
+              <span className="chats-scheduled-mark" aria-hidden="true">
+                {showScheduled ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+              </span>
+              Scheduled
+              <span className="chats-scheduled-count">
+                {runningJobs > 0 ? `${runningJobs} running` : scheduled.length}
+              </span>
+            </button>
+          )}
+
+          {!showArchived && showScheduled && scheduled.length > 0 && (
+            /* Under their own heading, not at the foot of the chats. Rendered
+               into the list they were below every chat, so opening the section
+               meant scrolling past everything to reach what had just been
+               opened. */
+            <ul className="chats-jobs">
+              {scheduled.map((c) => (
+                <li key={c.id}>
                   <a
-                    key={c.id}
-                    className={`chats-surface ${c.id === activeId ? "is-active" : ""}`}
+                    className={`chats-item chats-item--job ${
+                      c.id === activeId ? "is-active" : ""
+                    }`}
                     href={hrefFor({ name: "chats", id: c.id })}
-                    title={`Everything said on ${c.title} arrives here`}
                     onClick={(e) => {
                       e.preventDefault();
                       onOpen(c.id);
                     }}
                   >
-                    {(progress[c.id] && !progress[c.id]!.ended) ||
-                    c.activity === "working" ? (
-                      <span className="chats-surface-dot" aria-hidden="true" />
-                    ) : null}
-                    {c.title}
+                    <span className="chats-item-top">
+                      <span className="chats-item-title">{c.title}</span>
+                      {progress[c.id] && !progress[c.id]!.ended ? (
+                        <span className="chats-flag chats-flag--working">
+                          {liveLabel(progress[c.id])}
+                        </span>
+                      ) : (
+                        <span className="chats-item-when">
+                          {relative(c.updatedAt)}
+                        </span>
+                      )}
+                    </span>
                   </a>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+                </li>
+              ))}
+            </ul>
+          )}
 
-        {!showArchived && scheduled.length > 0 && (
-          /* Above the chats rather than under them: a job's thread is
-             something you go and look at, and at the foot of a long list it
-             was a scroll away from everything. Shut by default, because it
-             is reference rather than what the owner is doing now. */
+          {!showArchived && (filtered.length > 0 || query.trim() !== "") && (
+            <div className="chats-group-head">
+              <span>Chats</span>
+            </div>
+          )}
+          <ul className="chats-flat">
+            {(showArchived ? archived : filtered).map((c) => renderChat(c))}
+            {(showArchived ? archived : filtered).length === 0 && (
+              <li className="chats-empty">
+                {showArchived
+                  ? "Nothing archived."
+                  : query.trim()
+                    ? "Nothing matches."
+                    : "No direct chats. Type below, or let KOS route work to a project."}
+              </li>
+            )}
+          </ul>
+
+          {/* At the foot rather than under the search box: it is a place you go
+              occasionally, not a filter on the list you are reading, and it
+              took a whole row of the header to say one faint word. */}
           <button
             type="button"
-            className={`chats-scheduled ${showScheduled ? "is-open" : ""}`}
-            onClick={() => setShowScheduled((v) => !v)}
+            className={`chats-archived ${showArchived ? "is-on" : ""}`}
+            onClick={() => setShowArchived((v) => !v)}
           >
-            <span className="chats-scheduled-mark" aria-hidden="true">
-              {showScheduled ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            </span>
-            Scheduled
-            <span className="chats-scheduled-count">
-              {runningJobs > 0 ? `${runningJobs} running` : scheduled.length}
-            </span>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              {showArchived ? (
+                <path d="M15 18l-6-6 6-6" />
+              ) : (
+                <>
+                  <path d="M3 7h18v3H3zM5 10v9h14v-9" />
+                  <path d="M10 14h4" />
+                </>
+              )}
+            </svg>
+            {showArchived ? "Back to chats" : "Archived"}
           </button>
-        )}
-
-        {!showArchived && showScheduled && scheduled.length > 0 && (
-          /* Under their own heading, not at the foot of the chats. Rendered
-             into the list they were below every chat, so opening the section
-             meant scrolling past everything to reach what had just been
-             opened. */
-          <ul className="chats-jobs">
-            {scheduled.map((c) => (
-              <li key={c.id}>
-                <a
-                  className={`chats-item chats-item--job ${
-                    c.id === activeId ? "is-active" : ""
-                  }`}
-                  href={hrefFor({ name: "chats", id: c.id })}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onOpen(c.id);
-                  }}
-                >
-                  <span className="chats-item-top">
-                    <span className="chats-item-title">{c.title}</span>
-                    {progress[c.id] && !progress[c.id]!.ended ? (
-                      <span className="chats-flag chats-flag--working">
-                        {liveLabel(progress[c.id])}
-                      </span>
-                    ) : (
-                      <span className="chats-item-when">
-                        {relative(c.updatedAt)}
-                      </span>
-                    )}
-                  </span>
-                </a>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {!showArchived && (filtered.length > 0 || query.trim() !== "") && (
-          <div className="chats-group-head">
-            <span>Chats</span>
-          </div>
-        )}
-        <ul className="chats-flat">
-          {(showArchived ? archived : filtered).map((c) => renderChat(c))}
-          {(showArchived ? archived : filtered).length === 0 && (
-            <li className="chats-empty">
-              {showArchived
-                ? "Nothing archived."
-                : query.trim()
-                  ? "Nothing matches."
-                  : "No direct chats. Type below, or let KOS route work to a project."}
-            </li>
-          )}
-        </ul>
-
-        {/* At the foot rather than under the search box: it is a place you go
-            occasionally, not a filter on the list you are reading, and it
-            took a whole row of the header to say one faint word. */}
-        <button
-          type="button"
-          className={`chats-archived ${showArchived ? "is-on" : ""}`}
-          onClick={() => setShowArchived((v) => !v)}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            {showArchived ? (
-              <path d="M15 18l-6-6 6-6" />
-            ) : (
-              <>
-                <path d="M3 7h18v3H3zM5 10v9h14v-9" />
-                <path d="M10 14h4" />
-              </>
-            )}
-          </svg>
-          {showArchived ? "Back to chats" : "Archived"}
-        </button>
-      </aside>
+        </aside>
+      )}
 
       <section className="chats-view">
         {undo && (
@@ -1288,7 +1458,20 @@ export function ChatsPage({
             </button>
           </div>
         )}
-        {!active ? (
+        {!active && project ? (
+          /* Inside a project there is no landing: the thread is the
+             orchestrator's by default, and it is being stood up if it is not
+             there yet. */
+          <div className="chats-placeholder">
+            <p className="ops-muted">
+              {!projectRecord
+                ? `No project called ${project.slug}.`
+                : needsOrchestrator
+                  ? "Starting the orchestrator…"
+                  : "No such thread in this project."}
+            </p>
+          </div>
+        ) : !active ? (
           <div className="chats-placeholder">
             {/* Opening KOS lands here. It used to say "pick a chat"; a front
                 door should offer the way in. */}
@@ -1464,6 +1647,20 @@ export function ChatsPage({
                 </div>
               </div>
               <div className="chats-view-actions">
+                {project && (
+                  /* An icon, not words: beside Configure and Archive a third
+                     label squeezed the title into two lines. */
+                  <button
+                    type="button"
+                    className={`icon-btn chats-panel-toggle ${panelOpen ? "is-on" : ""}`}
+                    aria-pressed={panelOpen}
+                    aria-label={panelOpen ? "Hide the workspace panel" : "Show the workspace panel"}
+                    title={panelOpen ? "Hide files, pages and tables" : "Show files, pages and tables"}
+                    onClick={togglePanel}
+                  >
+                    <PanelIcon />
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn btn--ghost"
@@ -1934,6 +2131,16 @@ export function ChatsPage({
           </>
         )}
       </section>
+
+      {project && panelOpen && (
+        <ProjectPanel
+          slug={project.slug}
+          onOpenPage={project.onOpenPage}
+          onOpenFile={project.onOpenFile}
+          onChanged={onChanged}
+          onError={project.onError}
+        />
+      )}
     </div>
   );
 }

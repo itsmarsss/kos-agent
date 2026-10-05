@@ -224,7 +224,7 @@ export function ProjectsPage({
                     <span>{p.module ? `${p.type} · from ${p.module}` : p.type}</span>
                     {/* The project's chat is where its work happens; the card
                         said nothing about it, so the way in was the chat list. */}
-                    <a className="link" href={hrefFor({ name: "chats", id: `project:${p.slug}` })}>
+                    <a className="link" href={hrefFor({ name: "project", slug: p.slug })}>
                       Chat
                     </a>
                     {agentsOf(p.slug) > 0 && (

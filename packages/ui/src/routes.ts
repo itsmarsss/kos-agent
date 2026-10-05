@@ -4,8 +4,12 @@ export type Route =
   | { name: "home" }
   | { name: "inbox" }
   | { name: "projects" }
-  /** One project's workspace: its agents, files, pages and tables. */
-  | { name: "project"; slug: string }
+  /**
+   * One project's workspace: its orchestrator and agent threads, with its
+   * files, pages and tables beside them. `id` is the thread open in it; none
+   * means the orchestrator.
+   */
+  | { name: "project"; slug: string; id?: string }
   | { name: "crons" }
   | { name: "memory" }
   | { name: "history" }
@@ -26,8 +30,11 @@ export function parseRoute(hash: string): Route {
   if (path === "/home" || path === "/overview") return { name: "home" };
   if (path === "/inbox") return { name: "inbox" };
   if (path === "/projects") return { name: "projects" };
-  const project = path.match(/^\/project\/([^/]+)$/);
-  if (project?.[1]) return { name: "project", slug: decodeURIComponent(project[1]) };
+  const project = path.match(/^\/project\/([^/]+)(?:\/([^/]+))?$/);
+  if (project?.[1]) {
+    const slug = decodeURIComponent(project[1]);
+    return project[2] ? { name: "project", slug, id: decodeURIComponent(project[2]) } : { name: "project", slug };
+  }
   if (path === "/chats") return { name: "chats" };
   if (path === "/files") return { name: "files" };
   if (path === "/settings") return { name: "settings" };
@@ -66,7 +73,9 @@ export function hrefFor(route: Route): string {
     case "page":
       return `#/page/${encodeURIComponent(route.id)}`;
     case "project":
-      return `#/project/${encodeURIComponent(route.slug)}`;
+      return route.id
+        ? `#/project/${encodeURIComponent(route.slug)}/${encodeURIComponent(route.id)}`
+        : `#/project/${encodeURIComponent(route.slug)}`;
     case "chats":
       return route.id ? `#/chats/${encodeURIComponent(route.id)}` : "#/chats";
     case "files":

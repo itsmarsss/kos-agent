@@ -32,7 +32,7 @@ import { FilesPage } from "./FilesPage.js";
 import { AgentsPage } from "./AgentsPage.js";
 import { SettingsPage } from "./SettingsPage.js";
 import { ProjectsPage } from "./ProjectsPage.js";
-import { ProjectWorkspacePage } from "./ProjectWorkspacePage.js";
+import { placeOf } from "./chattree.js";
 import { MemoryPage } from "./MemoryPage.js";
 import { InboxPage } from "./InboxPage.js";
 import { RunsTabs } from "./RunsTabs.js";
@@ -472,6 +472,17 @@ export function App(): React.ReactElement {
           ? `run-${inspect.data.id}`
           : `project-${inspect.data.slug}`;
 
+  /** A project's threads open inside the project; the rest open in Chats. */
+  const openConversation = (id: string): void =>
+    go(placeOf(id, conversations.find((c) => c.id === id)));
+  /** The thread the quick question is asked beside, if one is open. */
+  const askContext =
+    route.name === "chats"
+      ? route.id
+      : route.name === "project"
+        ? (route.id ?? `project:${route.slug}`)
+        : undefined;
+
   const shell = (body: React.ReactNode): React.ReactElement => (
     <ErrorBoundary label="dashboard">
       {/* The chat route owns the whole window: the shell's scroll padding is
@@ -496,7 +507,7 @@ export function App(): React.ReactElement {
         onCopyWorkspace={() => void copyWorkspace()}
         onToggleKill={() => void toggleKill()}
       />
-      <main className={`ops ${route.name === "chats" ? "ops--full" : ""}`}>
+      <main className={`ops ${route.name === "chats" || route.name === "project" ? "ops--full" : ""}`}>
         <AnimatePresence>
           {toast && (
             <m.div
@@ -525,15 +536,8 @@ export function App(): React.ReactElement {
             crons={crons}
             onFix={(detail) => void beginFix(detail)}
             onOpenProjectChat={(slug) => {
-              void api
-                .projectChat(slug)
-                .then((c) => {
-                  setInspect(null);
-                  go({ name: "chats", id: c.id });
-                })
-                .catch((err: unknown) =>
-                  flash("err", err instanceof Error ? err.message : String(err)),
-                );
+              setInspect(null);
+              go({ name: "project", slug });
             }}
             onOpenFolder={(path) => {
               setInspect(null);
@@ -626,11 +630,11 @@ export function App(): React.ReactElement {
       <QuickAsk
         open={askOpen}
         onClose={() => setAskOpen(false)}
-        onOpen={(id) => go({ name: "chats", id })}
-        {...(route.name === "chats" && route.id
+        onOpen={openConversation}
+        {...(askContext
           ? {
-              contextId: route.id,
-              contextTitle: conversations.find((c) => c.id === route.id)?.title ?? route.id,
+              contextId: askContext,
+              contextTitle: conversations.find((c) => c.id === askContext)?.title ?? askContext,
             }
           : {})}
       />
@@ -688,8 +692,41 @@ export function App(): React.ReactElement {
         deciding={deciding}
         agents={agents}
         onOpenAgent={(id) => go({ name: "agents", id })}
-        onOpen={(id) => go({ name: "chats", id })}
+        onOpen={openConversation}
         onOpenProject={(slug) => go({ name: "project", slug })}
+        onChanged={() => void refresh()}
+        onDecide={decideByPendingId}
+        {...(seed ? { seed } : {})}
+      />,
+    );
+  }
+
+  if (route.name === "project") {
+    /*
+     * A project is a chat page of its own: its orchestrator in the middle,
+     * its agents in the rail, and its files, pages and tables beside the
+     * thread. The orchestrator is the thread by default.
+     */
+    const slug = route.slug;
+    return shell(
+      <ChatsPage
+        conversations={conversations}
+        projects={projects}
+        activeId={route.id ?? `project:${slug}`}
+        pendingApprovals={pendingIds}
+        approvals={approvals}
+        deciding={deciding}
+        agents={agents}
+        onOpenAgent={(id) => go({ name: "agents", id })}
+        onOpen={openConversation}
+        onOpenProject={(s) => go({ name: "project", slug: s })}
+        project={{
+          slug,
+          onBack: () => go({ name: "chats" }),
+          onOpenPage: openPage,
+          onOpenFile: (path) => go({ name: "files", path }),
+          onError: (text) => flash("err", text),
+        }}
         onChanged={() => void refresh()}
         onDecide={decideByPendingId}
         {...(seed ? { seed } : {})}
@@ -737,19 +774,6 @@ export function App(): React.ReactElement {
         onInspect={(project, pages) =>
           setInspect({ kind: "project", data: project, pages })
         }
-      />,
-    );
-  }
-
-  if (route.name === "project") {
-    return shell(
-      <ProjectWorkspacePage
-        slug={route.slug}
-        onOpenChat={(id) => go({ name: "chats", id })}
-        onOpenPage={openPage}
-        onOpenFile={(path) => go({ name: "files", path })}
-        onChanged={() => void refresh()}
-        onError={(text) => flash("err", text)}
       />,
     );
   }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Conversation } from "./api.js";
-import { groupChats, projectSummary } from "./chattree.js";
+import { groupChats, placeOf, projectSummary } from "./chattree.js";
 
 function convo(id: string, over: Partial<Conversation> = {}): Conversation {
   return {
@@ -39,6 +39,23 @@ describe("the conversation tree", () => {
       convo("busy", { projectSlug: "p", updatedAt: 2, activity: "working" }),
     ]);
     expect(tree.byProject.get("p")?.map((c) => c.id)).toEqual(["busy", "new", "old"]);
+  });
+
+  it("opens a project's threads inside the project and the rest in Chats", () => {
+    expect(placeOf("project:pantry", convo("project:pantry", { kind: "project", projectSlug: "pantry" }))).toEqual({
+      name: "project",
+      slug: "pantry",
+    });
+    expect(placeOf("shelves", convo("shelves", { projectSlug: "pantry" }))).toEqual({
+      name: "project",
+      slug: "pantry",
+      id: "shelves",
+    });
+    // Just made, so not in the list yet: the id still says whose it is.
+    expect(placeOf("project:pantry")).toEqual({ name: "project", slug: "pantry" });
+    expect(placeOf("mine", convo("mine"))).toEqual({ name: "chats", id: "mine" });
+    expect(placeOf("kos", convo("kos", { kind: "orchestrator" }))).toEqual({ name: "chats", id: "kos" });
+    expect(placeOf("gone")).toEqual({ name: "chats", id: "gone" });
   });
 
   it("sums a project up in a line", () => {
