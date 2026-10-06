@@ -1,4 +1,4 @@
-import { GLOBAL_SCOPE, type Fact, type FactsStore } from "./facts.js";
+import { GLOBAL_SCOPE, type ClaimScope, type Fact, type FactsStore } from "./facts.js";
 import type { ReviewItem, ReviewQueue } from "./review.js";
 
 /**
@@ -30,6 +30,46 @@ export function splitQualified(qualified: string): { scope: string; key: string 
   const slash = qualified.lastIndexOf("/");
   if (slash <= 0) return undefined;
   return { scope: qualified.slice(0, slash), key: qualified.slice(slash + 1) };
+}
+
+/**
+ * One claim an item is about, as the owner needs to see it to decide: what
+ * it says, not just what it is called, and how much it is leaned on.
+ */
+export interface ReviewClaim {
+  /** As the item lists it: global/city. */
+  qualified: string;
+  scope: string;
+  key: string;
+  /** Absent when the claim is gone already: archived by a later dream, say. */
+  value?: string;
+  kind?: string;
+  trust?: string;
+  useCount?: number;
+  lastUsedAt?: number | null;
+  createdAt?: number;
+}
+
+/** The item with its claims looked up, for a surface that shows them. */
+export function describeReview(facts: FactsStore, ownerId: string, item: ReviewItem): ReviewItem & { claims: ReviewClaim[] } {
+  const claims = item.keys.map((qualified): ReviewClaim => {
+    const parts = splitQualified(qualified);
+    if (!parts) return { qualified, scope: "", key: qualified };
+    const claim = facts.get(ownerId, parts.key, parts.scope as ClaimScope);
+    return claim
+      ? {
+          qualified,
+          ...parts,
+          value: claim.value,
+          kind: claim.kind,
+          trust: claim.trust,
+          useCount: claim.useCount,
+          lastUsedAt: claim.lastUsedAt,
+          createdAt: claim.createdAt,
+        }
+      : { qualified, ...parts };
+  });
+  return { ...item, claims };
 }
 
 export function applyResolution(

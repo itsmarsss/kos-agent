@@ -115,6 +115,21 @@ export interface ModuleInfo {
 }
 
 /** Something the dream job left for the owner to decide. */
+/** One claim a review item is about: what it says, and how much it is leaned on. */
+export interface ReviewClaim {
+  /** As the item lists it: global/city. */
+  qualified: string;
+  scope: string;
+  key: string;
+  /** Absent when the claim is gone already. */
+  value?: string;
+  kind?: string;
+  trust?: string;
+  useCount?: number;
+  lastUsedAt?: number | null;
+  createdAt?: number;
+}
+
 export interface ReviewItem {
   id: number;
   kind: "contradiction" | "promotion" | "other";
@@ -123,6 +138,8 @@ export interface ReviewItem {
   createdAt: number;
   resolvedAt: number | null;
   resolution: string | null;
+  /** The claims looked up, in the order of `keys`. */
+  claims?: ReviewClaim[];
 }
 
 /** Another program that shares memory, within a grant. */

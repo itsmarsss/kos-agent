@@ -5463,7 +5463,32 @@ a.health {
 .mem-group { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: 0.75rem; }
 .mem-group-head h2 { margin: 0; font-size: var(--text-lg); }
 .mem-group-head .hint { margin: 0.25rem 0 0; }
-.mem-decision, .mem-row--split, .mem-job { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; padding: 0.6rem 0; border-top: 1px solid var(--line); }
+.mem-row--split, .mem-job { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; padding: 0.6rem 0; border-top: 1px solid var(--line); }
+/* A decision: the question, memory's reasoning, then each claim as a row
+   with what it says, and the keep button on the row it keeps. */
+.mem-decision { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.8rem 0; border-top: 1px solid var(--line); }
+.mem-decision-head { display: flex; align-items: center; gap: 0.4rem; font-size: var(--text-md); }
+.mem-decision-note { margin: 0; max-width: 72ch; color: var(--muted); font-size: var(--text-base); line-height: 1.5; }
+.mem-claims { list-style: none; margin: 0.1rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.mem-claim {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.mem-claim.is-gone { opacity: 0.65; }
+.mem-claim-main { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.mem-claim-key { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
+.mem-claim-key code { font-family: var(--mono); font-size: var(--text-sm); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mem-scope { flex: none; font-size: var(--text-xs); color: var(--faint); border: 1px solid var(--line); border-radius: 999px; padding: 0 0.4rem; }
+.mem-claim-value { font-size: var(--text-md); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mem-claim-value em { color: var(--faint); }
+.mem-claim-meta { color: var(--faint); font-size: var(--text-sm); }
+.mem-claim > .btn { flex: none; }
 .mem-row { padding: 0.35rem 0; border-top: 1px solid var(--line); font-size: var(--text-base); }
 .mem-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
 .mem-kind { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); background: var(--panel-2); border-radius: 999px; padding: 0.1rem 0.45rem; margin-right: 0.3rem; }

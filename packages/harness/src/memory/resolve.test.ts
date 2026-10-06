@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
 import { FactsStore } from "./facts.js";
-import { applyResolution, splitQualified } from "./resolve.js";
+import { applyResolution, describeReview, splitQualified } from "./resolve.js";
 import { ReviewQueue } from "./review.js";
 
 describe("carrying out a review decision", () => {
@@ -69,5 +69,33 @@ describe("carrying out a review decision", () => {
     expect(applyResolution(facts, queue, "owner", item.id, { action: "both" })!.item.resolution).toBe("both");
     expect(facts.get("owner", "a")?.value).toBe("1");
     expect(applyResolution(facts, queue, "owner", item.id, { action: "dismiss" })).toBeUndefined();
+  });
+});
+
+describe("describing an item for the owner", () => {
+  let root: string;
+  let ws: Workspace;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-describe-"));
+    ws = Workspace.open(root);
+  });
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("looks each key up and says what the claim says, and marks one that is gone", () => {
+    const facts = new FactsStore(ws.db);
+    const queue = new ReviewQueue(ws.db);
+    facts.upsert("owner", { key: "city", value: "Montreal", kind: "fact" });
+    const item = queue.add("contradiction", ["global/city", "project:trip/city", "nonsense"], "which?");
+    const described = describeReview(facts, "owner", item);
+    // In the item's own order, which the queue keeps sorted.
+    expect(described.claims).toEqual([
+      expect.objectContaining({ qualified: "global/city", scope: "global", key: "city", value: "Montreal", kind: "fact", trust: "owner" }),
+      { qualified: "nonsense", scope: "", key: "nonsense" },
+      { qualified: "project:trip/city", scope: "project:trip", key: "city" },
+    ]);
+    expect(described.keys).toEqual(item.keys);
   });
 });

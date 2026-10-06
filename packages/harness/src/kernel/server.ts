@@ -38,7 +38,8 @@ import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/se
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
 import { readSkills } from "../skills/manifest.js";
 import { importPage, listPages, readPage } from "../memory/pages.js";
-import { applyResolution } from "../memory/resolve.js";
+import { applyResolution, describeReview } from "../memory/resolve.js";
+import type { ReviewItem } from "../memory/review.js";
 import { mayRead } from "../memory/callers.js";
 import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
 import { MODULES_KEY, parseModuleSettings, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
@@ -1534,7 +1535,8 @@ export async function handleApiRequest(
   if (method === "GET" && path === "/api/inbox") {
     return ok({
       approvals: kernel.approvals.pending(),
-      decisions: kernel.review.pending(),
+      // With what each claim says: a key alone is not something to decide on.
+      decisions: kernel.review.pending().map((i) => describeReview(kernel.facts, kernel.profile.ownerId, i)),
       failures: kernel.health.report().failing,
       suggestions: kernel.suggestions.pending(),
     });
@@ -2147,7 +2149,13 @@ export async function handleApiRequest(
 
   /** What the dream job left for the owner: open items first, then the recent resolved ones. */
   if (method === "GET" && path === "/api/memory/review") {
-    return ok({ pending: kernel.review.pending(), recent: kernel.review.recent(20), pages: listPages(kernel.workspace), edited: kernel.pageLog.edited(kernel.workspace) });
+    const describe = (i: ReviewItem): ReviewItem => describeReview(kernel.facts, kernel.profile.ownerId, i);
+    return ok({
+      pending: kernel.review.pending().map(describe),
+      recent: kernel.review.recent(20).map(describe),
+      pages: listPages(kernel.workspace),
+      edited: kernel.pageLog.edited(kernel.workspace),
+    });
   }
 
   /** The owner's answer, carried out: keep archives the other side, promote writes global. */
