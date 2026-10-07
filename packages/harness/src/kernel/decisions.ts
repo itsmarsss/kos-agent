@@ -32,6 +32,8 @@ export interface DecisionsDeps {
     isAwaited: (id: number) => boolean;
     approve: (id: number, by: string) => unknown;
     deny: (id: number, by: string) => PendingAction | undefined;
+    /** Everything still waiting, so a decision can see its siblings. */
+    pending: () => PendingAction[];
   };
   permissions: {
     ruleFor: (tool: string, input: Record<string, unknown>, project: string | null) => { tool: string; scope: string | null; project: string | null } | undefined;
@@ -51,6 +53,42 @@ export interface DecisionsDeps {
 
 export class Decisions {
   constructor(private readonly deps: DecisionsDeps) {}
+
+  /*
+   * Outcomes of orphaned actions whose conversation still has others
+   * waiting. Each decision used to resume the chat on its own, so two
+   * approvals in a row were two whole turns, each told to "continue" and
+   * each answering, with the second not knowing about the first. Now the
+   * outcomes are held and the chat resumes once, when the last is decided,
+   * told everything that was decided.
+   */
+  private readonly held = new Map<string, string[]>();
+
+  /** The other pending actions of the same conversation, by id. */
+  private siblingsWaiting(conversationId: string | null, id: number): number[] {
+    return this.deps.approvals
+      .pending()
+      .filter((a) => a.conversationId === conversationId && a.id !== id)
+      .map((a) => a.id);
+  }
+
+  /** The resume, with every outcome held for this conversation and this one. */
+  private resumeText(sessionId: string, outcome: string): string {
+    const lines = [...(this.held.get(sessionId) ?? []), outcome];
+    this.held.delete(sessionId);
+    return [
+      `System: the owner decided on ${lines.length === 1 ? "the pending action" : "the pending actions"}:`,
+      ...lines.map((l) => `- ${l}`),
+      "Continue the owner's prior request now with these results. For a denied action, acknowledge it briefly and ask how to proceed without it.",
+      "Do not re-create resources that already exist (use slugs/ids from the results).",
+      "If this was tasks.create_list, use tasks.add / tasks.list with the returned slug as instance.",
+      "Prefer short checklist-style replies.",
+    ].join("\n");
+  }
+
+  private stillWaiting(ids: number[]): string {
+    return `#${ids.join(", #")} still waiting; the chat continues once ${ids.length === 1 ? "it is" : "they are"} decided.`;
+  }
 
   async approve(id: number, decidedBy?: string, options: { remember?: boolean } = {}): Promise<DecisionResult> {
     const d = this.deps;
@@ -86,19 +124,15 @@ export class Decisions {
     }, action.conversationId ?? SHARED_LANE);
 
     const sessionId = action.conversationId ?? primarySessionId(d.ownerId);
-    const resumePrompt = [
-      `System: the owner approved pending action #${id}.`,
-      `tool=${action.tool}`,
-      `outcome=${result.isError ? "FAILED" : "SUCCEEDED"}`,
-      `result=${result.content}`,
-      "Continue the owner's prior request now.",
-      "Do not re-create resources that already exist (use slugs/ids from result).",
-      "If this was tasks.create_list, use tasks.add / tasks.list with the returned slug as instance.",
-      "Prefer short checklist-style replies.",
-    ].join(" ");
+    const outcome = `#${id} ${action.tool}: approved and run, ${result.isError ? "FAILED" : "SUCCEEDED"}, result=${result.content}`;
+    const waiting = this.siblingsWaiting(action.conversationId, id);
+    if (waiting.length > 0) {
+      this.held.set(sessionId, [...(this.held.get(sessionId) ?? []), outcome]);
+      return { ok: true, message: `${result.content} ${this.stillWaiting(waiting)}`, isError: result.isError };
+    }
     let reply: string | undefined;
     try {
-      reply = (await d.handleMessage(resumePrompt, { sessionId, userId: by, origin: "system" })).reply;
+      reply = (await d.handleMessage(this.resumeText(sessionId, outcome), { sessionId, userId: by, origin: "system" })).reply;
     } catch (err) {
       reply = `Approved #${id} but resume failed: ${err instanceof Error ? err.message : String(err)}`;
     }
@@ -115,12 +149,15 @@ export class Decisions {
       return { ok: true, message: `Declined. The build was told it may not ${denied.tool.slice(BUILD_ACTION_PREFIX.length)}.` };
     }
     const sessionId = denied.conversationId ?? primarySessionId(d.ownerId);
+    const outcome = `#${id} ${denied.tool}: denied by the owner`;
+    const waiting = this.siblingsWaiting(denied.conversationId, id);
+    if (waiting.length > 0) {
+      this.held.set(sessionId, [...(this.held.get(sessionId) ?? []), outcome]);
+      return { ok: true, message: `Denied #${id}. ${this.stillWaiting(waiting)}` };
+    }
     let reply: string | undefined;
     try {
-      reply = (await d.handleMessage(
-        `System: the owner denied pending action #${id}. Acknowledge briefly and ask how to proceed without that action.`,
-        { sessionId, userId: decidedBy ?? d.ownerId, origin: "system" },
-      )).reply;
+      reply = (await d.handleMessage(this.resumeText(sessionId, outcome), { sessionId, userId: decidedBy ?? d.ownerId, origin: "system" })).reply;
     } catch {
       reply = `Denied #${id}.`;
     }

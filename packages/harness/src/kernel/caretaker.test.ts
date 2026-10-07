@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ModelMessage } from "../models/types.js";
-import { Caretaker, isTransient, type CaretakerDeps } from "./caretaker.js";
+import { Caretaker, adoptFixes, isTransient, type CaretakerDeps } from "./caretaker.js";
 
 function deps(over: Partial<CaretakerDeps> = {}) {
   const log: string[] = [];
@@ -119,5 +119,28 @@ describe("looking after failures", () => {
     const r2 = await new Caretaker(closing).startFix({ label: "l", error: "e", what: "run" });
     await new Promise((res) => setTimeout(res, 0));
     expect(closing.store.get(r2.conversationId)).toBeUndefined();
+  });
+});
+
+describe("the maintenance project", () => {
+  it("is made once, and the caretaker's old fix chats are moved under it, not the owner's", () => {
+    const made: string[] = [];
+    const moved: string[] = [];
+    const manifest = {
+      list: () => [],
+      get: (slug: string) => (made.includes(slug) ? { slug } : undefined),
+      createProject: ({ name }: { name: string }) => { made.push(name.toLowerCase()); return { slug: name.toLowerCase() }; },
+    };
+    const chats = [
+      { id: "a", title: "Fix: kos.observe", channel: null, projectSlug: null },
+      { id: "b", title: "Fix: the sink", channel: "dashboard", projectSlug: null },
+      { id: "c", title: "Fix: Nightly", channel: null, projectSlug: "maintenance" },
+      { id: "d", title: "Main", channel: null, projectSlug: null },
+    ];
+    const conversations = { list: () => chats, moveToProject: (id: string) => { moved.push(id); } };
+    expect(adoptFixes(manifest, conversations, "owner")).toEqual(["a"]);
+    expect(moved).toEqual(["a"]);
+    adoptFixes(manifest, conversations, "owner");
+    expect(made).toEqual(["maintenance"]);
   });
 });

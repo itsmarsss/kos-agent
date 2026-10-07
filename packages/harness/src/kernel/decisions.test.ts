@@ -12,7 +12,7 @@ function deps(action: PendingAction | undefined, awaited: boolean, over: Partial
   const log: string[] = [];
   const d: DecisionsDeps = {
     ownerId: "owner",
-    approvals: { get: () => action, isAwaited: () => awaited, approve: (id, by) => { log.push(`approve:${id}:${by}`); }, deny: (id, by) => { log.push(`deny:${id}:${by}`); return action; } },
+    approvals: { get: () => action, isAwaited: () => awaited, approve: (id, by) => { log.push(`approve:${id}:${by}`); }, deny: (id, by) => { log.push(`deny:${id}:${by}`); return action; }, pending: () => [] },
     permissions: { ruleFor: (tool, _i, project) => ({ tool, scope: "dir:projects/books", project }), add: (r) => { log.push(`rule:${r.tool}:${r.scope}:${r.project}`); } },
     conversations: { get: () => ({ projectSlug: "books" }) },
     audit: { record: (e) => { log.push(`audit:${e.tool}:${e.isError ? "err" : "ok"}`); } },
@@ -46,6 +46,49 @@ describe("approving", () => {
     const r = await new Decisions(d).approve(5);
     expect(log).toEqual(["approve:5:owner", "lane:c1", "in:c1", "run:files.rm", "audit:files.rm:ok", "ran:files.rm", "resume:c1:system:approved"]);
     expect(r).toMatchObject({ ok: true, message: "removed", isError: false, reply: "carried on" });
+  });
+
+  it("holds the chat while a sibling is still waiting, then resumes once with every outcome", async () => {
+    // Two orphaned actions in one chat, as a restart under a parallel turn leaves them.
+    const actions = new Map([[5, pending()], [6, pending({ id: 6, tool: "shell.run", args: JSON.stringify({ command: "ls" }) })]]);
+    const { d, log } = deps(undefined, false);
+    d.approvals = {
+      get: (id) => actions.get(id),
+      isAwaited: () => false,
+      approve: (id) => { actions.get(id)!.status = "approved"; log.push(`approve:${id}`); },
+      deny: (id) => { const a = actions.get(id)!; a.status = "denied"; log.push(`deny:${id}`); return a; },
+      pending: () => [...actions.values()].filter((a) => a.status === "pending"),
+    };
+    const decisions = new Decisions(d);
+    const first = await decisions.approve(5);
+    expect(first).toMatchObject({ ok: true, message: "removed #6 still waiting; the chat continues once it is decided." });
+    expect(first.reply).toBeUndefined();
+    expect(log.filter((l) => l.startsWith("resume:"))).toEqual([]);
+
+    const second = await decisions.deny(6);
+    expect(second.reply).toBe("carried on");
+    expect(log.filter((l) => l.startsWith("resume:"))).toHaveLength(1);
+    expect(d.handleMessage).toBeDefined();
+  });
+
+  it("tells the resume everything that was decided, in order", async () => {
+    const actions = new Map([[5, pending()], [6, pending({ id: 6, tool: "shell.run", args: JSON.stringify({ command: "ls" }) })]]);
+    const prompts: string[] = [];
+    const { d } = deps(undefined, false, { handleMessage: async (text) => { prompts.push(text); return { reply: "ok" }; } });
+    d.approvals = {
+      get: (id) => actions.get(id),
+      isAwaited: () => false,
+      approve: (id) => { actions.get(id)!.status = "approved"; },
+      deny: (id) => { const a = actions.get(id)!; a.status = "denied"; return a; },
+      pending: () => [...actions.values()].filter((a) => a.status === "pending"),
+    };
+    const decisions = new Decisions(d);
+    await decisions.approve(5);
+    await decisions.deny(6);
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]!).toContain("- #5 files.rm: approved and run, SUCCEEDED, result=removed");
+    expect(prompts[0]!).toContain("- #6 shell.run: denied by the owner");
+    expect(prompts[0]!.indexOf("#5")).toBeLessThan(prompts[0]!.indexOf("#6"));
   });
 
   it("says so when the resume fails rather than swallowing it", async () => {

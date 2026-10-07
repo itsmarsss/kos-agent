@@ -305,6 +305,14 @@ export class ConversationStore {
     return this.get(id);
   }
 
+  /** Put a conversation under a project, or take it out of one. */
+  moveToProject(id: string, projectSlug: string | null): Conversation | undefined {
+    this.db
+      .prepare(`UPDATE conversations SET project_slug = ?, updated_at = ? WHERE id = ?`)
+      .run(projectSlug, this.now(), id);
+    return this.get(id);
+  }
+
   setArchived(id: string, archived: boolean): Conversation | undefined {
     this.db
       .prepare(`UPDATE conversations SET archived = ?, updated_at = ? WHERE id = ?`)

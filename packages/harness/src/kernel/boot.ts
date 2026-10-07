@@ -42,6 +42,7 @@ import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
 import { createHttpModule } from "../tools/http.js";
 import { createMcpModule, readMcpConfig } from "../tools/mcp.js";
+import { adoptFixes } from "./caretaker.js";
 import { createModulesModule } from "../tools/modules.js";
 import { EventBus } from "../modules/events.js";
 import { MODULES_KEY, enabledServers, parseModuleSettings } from "../modules/workspace.js";
@@ -213,6 +214,9 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   });
   const sessions = new SessionStore(workspace.db);
   const conversations = new ConversationStore(workspace.db);
+  // Repairs have a project of their own; fix chats from before it have to
+  // be found there too, not among the owner's chats.
+  adoptFixes(manifest, conversations, profile.ownerId);
   const facts = new FactsStore(workspace.db);
   const review = new ReviewQueue(workspace.db);
   const suggestions = new SuggestionStore(workspace.db);

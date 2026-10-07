@@ -244,7 +244,9 @@ export function App(): React.ReactElement {
       const res = await (approved ? api.approve(id, remember) : api.deny(id));
       // The agent's continuation shows in the conversation it belongs to,
       // which Chats is already watching; there is no panel to echo it into.
-      flash("ok", res.reply ? res.reply.slice(0, 120) : approved ? (remember ? `Approved #${id}, and remembered` : `Approved #${id}`) : `Denied #${id}`);
+      // The server's own line when there is one: it says when the chat is
+      // held for another decision still waiting.
+      flash("ok", res.reply ? res.reply.slice(0, 120) : res.message ? res.message.slice(0, 160) : approved ? (remember ? `Approved #${id}, and remembered` : `Approved #${id}`) : `Denied #${id}`);
       await refresh();
     } catch (err) {
       flash("err", err instanceof Error ? err.message : String(err));

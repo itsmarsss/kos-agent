@@ -43,6 +43,12 @@ describe("ConversationStore", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  it("moves a conversation into a project and out again", () => {
+    const made = store.create({ userId: "owner", title: "Fix: Nightly" });
+    expect(store.moveToProject(made.id, "maintenance")?.projectSlug).toBe("maintenance");
+    expect(store.moveToProject(made.id, null)?.projectSlug).toBeNull();
+  });
+
   it("creates conversations with distinct ids", () => {
     const a = store.create({ userId: "owner" });
     const b = store.create({ userId: "owner" });

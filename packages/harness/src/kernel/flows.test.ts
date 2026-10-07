@@ -1393,8 +1393,9 @@ describe("KOS end-to-end flows", () => {
     kernel = await boot(model.inference);
     const project = kernel.standUpProject({ name: "Pantry", type: "tracker" });
     await kernel.handleProjectTurn(project.slug, "start a second project");
-    // No second project was created; the guard refused it.
-    expect(kernel.manifest.list().map((p) => p.name).sort()).toEqual(["Pantry"]);
+    // No second project was created; the guard refused it. Maintenance is
+    // the kernel's own, there from boot for the caretaker's fix chats.
+    expect(kernel.manifest.list().map((p) => p.name).sort()).toEqual(["Maintenance", "Pantry"]);
   });
 
   it("KOS gets a router brief so the hierarchy is a behaviour", async () => {

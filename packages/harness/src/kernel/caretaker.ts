@@ -68,6 +68,38 @@ export const MAINTENANCE = {
   description: "Where KOS looks into something of its own that failed: one agent per repair.",
 } as const;
 
+type ManifestLike = CaretakerDeps["manifest"];
+
+/** The maintenance project's slug, the project made if it is not there. */
+export function ensureMaintenance(manifest: ManifestLike): string {
+  const existing = manifest.get(MAINTENANCE.slug);
+  if (existing) return existing.slug;
+  return manifest.createProject({ name: MAINTENANCE.name, type: MAINTENANCE.type, description: MAINTENANCE.description }).slug;
+}
+
+/**
+ * At boot: the maintenance project exists, and fix chats made before it
+ * did are moved under it. A caretaker's chat has no channel and a "Fix: "
+ * title; one the owner started on a surface has a channel, and is left.
+ */
+export function adoptFixes(
+  manifest: ManifestLike,
+  conversations: {
+    list: (userId: string, options: { includeArchived?: boolean }) => { id: string; title: string; channel: string | null; projectSlug: string | null }[];
+    moveToProject: (id: string, projectSlug: string | null) => unknown;
+  },
+  ownerId: string,
+): string[] {
+  const slug = ensureMaintenance(manifest);
+  const moved: string[] = [];
+  for (const c of conversations.list(ownerId, { includeArchived: true })) {
+    if (c.projectSlug !== null || c.channel !== null || !c.title.startsWith("Fix: ")) continue;
+    conversations.moveToProject(c.id, slug);
+    moved.push(c.id);
+  }
+  return moved;
+}
+
 export class Caretaker {
   constructor(private readonly deps: CaretakerDeps) {}
 
@@ -86,11 +118,8 @@ export class Caretaker {
     }
   }
 
-  /** The maintenance project's slug, the project made if this is the first repair. */
   private maintenanceSlug(): string {
-    const existing = this.deps.manifest.get(MAINTENANCE.slug);
-    if (existing) return existing.slug;
-    return this.deps.manifest.createProject({ name: MAINTENANCE.name, type: MAINTENANCE.type, description: MAINTENANCE.description }).slug;
+    return ensureMaintenance(this.deps.manifest);
   }
 
   /** Tell the owner on the surface they use, or leave a note where they will look. */
