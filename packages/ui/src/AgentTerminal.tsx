@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { m } from "motion/react";
+import { summarizeAction } from "@kos/shared";
 
 import { ease, spring } from "./motion.js";
 
@@ -357,7 +358,10 @@ export function AgentTerminal({
           <div className="term-asks">
             {waiting.map((a) => (
               <div className="term-ask" key={a.id}>
-                <span className="term-ask-text">{a.reason ?? a.tool}</span>
+                <span className="term-ask-text">
+                  <code>{a.tool}</code> {summarizeAction(a.tool, a.args)}
+                  {a.reason && <span className="term-ask-why"> · {a.reason}</span>}
+                </span>
                 <Decision id={a.id} deciding={deciding} onDecide={onDecide} small />
               </div>
             ))}

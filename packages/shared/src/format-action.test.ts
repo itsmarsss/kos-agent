@@ -64,3 +64,20 @@ describe("summaries for the rest of the toolkit", () => {
     expect(summarizeAction("mystery.thing", { a: 1 })).toBe("mystery.thing: a=1");
   });
 });
+
+describe("the risky tools say what they would do", () => {
+  it("names the command, the job, the agent and the daemon", () => {
+    expect(summarizeAction("shell.run", { command: "git status", cwd: "projects/site" })).toBe("Run: git status (in projects/site)");
+    expect(summarizeAction("shell.run", JSON.stringify({ command: "rm -rf build" }))).toBe("Run: rm -rf build");
+    expect(summarizeAction("cron.run", { id: 11 })).toBe("Run scheduled job #11 now");
+    expect(summarizeAction("builds.run", { dir: "projects/site", task: "Add a footer" })).toBe("Start a coding agent in projects/site: Add a footer");
+    expect(summarizeAction("daemons.create", { name: "api", runtime: "node", entry: "server.mjs", args: ["--port", "3000"] })).toBe("Create daemon “api”: node server.mjs --port 3000");
+    expect(summarizeAction("systems.project_delete", { project: "old_tracker" })).toBe("Delete project old_tracker and everything in it");
+    expect(summarizeAction("chats.project", { name: "Kitchen", goal: "redo the kitchen" })).toBe("Stand up project “Kitchen”: redo the kitchen");
+  });
+
+  it("says whose a server's tool is", () => {
+    expect(summarizeAction("mcp.browser.navigate", { url: "https://example.com" })).toBe("navigate on browser: url=https://example.com");
+    expect(summarizeAction("mcp.browser.snapshot", {})).toBe("snapshot on browser");
+  });
+});

@@ -65,6 +65,9 @@ export function ToolCall({
             This needs your approval before it runs.
           </span>
           <Decision id={Number(event.pendingId)} deciding={deciding} onDecide={(id, ok, remember) => onDecide?.(String(id), ok, remember)} small />
+          {/* The arguments, in view while the decision is open: what a
+              command is, not that there is one, is what gets approved. */}
+          <pre className="toolcall-approve-args">{JSON.stringify(event.args, null, 2)}</pre>
         </div>
       )}
 

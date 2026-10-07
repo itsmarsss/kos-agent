@@ -128,6 +128,15 @@ export interface ChatsPageProps {
   seed?: { id: string; text: string };
 }
 
+/** A tool's arguments as the owner can read them: the JSON laid out, or the string as it came. */
+function prettyArgs(args: string): string {
+  try {
+    return JSON.stringify(JSON.parse(args), null, 2);
+  } catch {
+    return args;
+  }
+}
+
 function relative(ts: number): string {
   const mins = Math.max(1, Math.round((Date.now() - ts) / 60000));
   if (mins < 60) return `${mins}m`;
@@ -1851,8 +1860,16 @@ export function ChatsPage({
                   transition={spring}
                 >
                   <div className="loose-approval-main">
+                    {/* What it is about to do, first: "risky tool" was the
+                        whole card, and the command it wanted to run was
+                        nowhere. The reason is a tag, the arguments a fold. */}
                     <code>{a.tool}</code>
-                    <span>{a.reason ?? summarizeAction(a.tool, a.args)}</span>
+                    <span className="loose-approval-what">{summarizeAction(a.tool, a.args)}</span>
+                    {a.reason && <span className="loose-approval-why">{a.reason}</span>}
+                    <details className="loose-approval-details">
+                      <summary>Arguments</summary>
+                      <pre>{prettyArgs(a.args)}</pre>
+                    </details>
                   </div>
                   <div className="loose-approval-actions">
                     <Decision

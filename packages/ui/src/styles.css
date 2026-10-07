@@ -4502,11 +4502,31 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
   border: 1px solid var(--warn);
   border-radius: var(--r-lg);
 }
-.loose-approval-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+.loose-approval-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; padding-top: 0.1rem; }
 .loose-approval-main code { color: var(--warn); font-size: var(--text-xs); }
-.loose-approval-main span { font-size: var(--text-base); }
+.loose-approval-what { font-size: var(--text-md); line-height: 1.4; overflow-wrap: anywhere; }
+.loose-approval-why { color: var(--faint); font-size: var(--text-sm); }
+.loose-approval-details { margin-top: 0.2rem; font-size: var(--text-sm); }
+.loose-approval-details summary { cursor: pointer; color: var(--muted); }
+.loose-approval-details summary:hover { color: var(--text); }
+.loose-approval-details pre,
+.toolcall-approve-args {
+  margin: 0.3rem 0 0;
+  padding: 0.5rem 0.6rem;
+  max-height: 14rem;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.toolcall-approve-args { flex-basis: 100%; }
 .loose-approval-actions { display: flex; gap: 0.4rem; flex: none; }
-.loose-approval-main { padding-top: 0.1rem; }
+.term-ask-text code { color: var(--warn); font-size: var(--text-xs); margin-right: 0.25rem; }
+.term-ask-why { color: var(--faint); }
 
 /* A build read like a terminal. */
 .term-wrap {
