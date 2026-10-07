@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ModelMessage } from "../models/types.js";
-import { Caretaker, type CaretakerDeps } from "./caretaker.js";
+import { Caretaker, isTransient, type CaretakerDeps } from "./caretaker.js";
 
 function deps(over: Partial<CaretakerDeps> = {}) {
   const log: string[] = [];
@@ -46,6 +46,27 @@ describe("looking after failures", () => {
     }
   });
 
+  it("tells the owner about a connection blip but opens no fix chat for it", async () => {
+    for (const error of ["Connection error.", "fetch failed", "ECONNRESET", "429 rate limit exceeded", "Request timed out"]) {
+      const d = deps();
+      new Caretaker(d).report("cron:7", "Nightly", false, error);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(d.log).toEqual([`notify:failing: ${error} That reads as a connection blip; the next run will tell.`]);
+    }
+    expect(isTransient("TypeError: x is not a function")).toBe(false);
+    expect(isTransient("model down")).toBe(false);
+    expect(isTransient(null)).toBe(false);
+  });
+
+  it("says when the fix turn itself could not reach the model", async () => {
+    const d = deps({ handleMessage: async () => { throw new Error("Connection error."); } });
+    const r = await new Caretaker(d).startFix({ label: "Nightly", error: "boom", what: "scheduled job" });
+    await new Promise((res) => setTimeout(res, 0));
+    expect(d.store.get(r.conversationId)?.at(-1)?.content[0]).toMatchObject({
+      text: expect.stringMatching(/^I could not reach the model to look into this \(Connection error\.\)/),
+    });
+  });
+
   it("leaves a note in the primary chat when there is no surface, or the surface fails", async () => {
     const quiet = deps({ notify: undefined });
     new Caretaker(quiet).tell("hello");
@@ -77,6 +98,8 @@ describe("looking after failures", () => {
     const r = await new Caretaker(failing).startFix({ label: "l", error: "e", what: "run" });
     await new Promise((res) => setTimeout(res, 0));
     expect(failing.store.get(r.conversationId)?.at(-1)?.content[0]).toMatchObject({ text: "I could not finish looking into this: model down" });
+    // With the question it was asked, so the chat says what it was for.
+    expect(failing.store.get(r.conversationId)?.[0]).toMatchObject({ role: "user", content: [{ type: "text", text: expect.stringContaining("failed and I would like you to fix it") }] });
     const closing = deps({ handleMessage: async () => { throw new Error("x"); }, isClosed: () => true });
     const r2 = await new Caretaker(closing).startFix({ label: "l", error: "e", what: "run" });
     await new Promise((res) => setTimeout(res, 0));

@@ -40,15 +40,32 @@ export interface CaretakerDeps {
   handleMessage: (text: string, opts: { sessionId: string; userId: string; maxIterations: number }) => Promise<unknown>;
 }
 
+/**
+ * An error that says the network or the model was unreachable, not that
+ * anything of ours is wrong. There is nothing in the workspace to repair,
+ * and a fix turn would meet the same wall: it opened a "Fix: kos.observe"
+ * chat that could only say it had failed to connect too.
+ */
+const TRANSIENT = /connection error|econn(reset|refused)|etimedout|timed? ?out|fetch failed|socket hang up|network|rate limit|overloaded|\b(429|502|503|504)\b/i;
+
+export function isTransient(error: string | null): boolean {
+  return error !== null && TRANSIENT.test(error);
+}
+
 export class Caretaker {
   constructor(private readonly deps: CaretakerDeps) {}
 
-  /** A job ran. Say something only when the monitor says it is news. */
+  /**
+   * A job ran. Say something only when the monitor says it is news, and
+   * try a fix only when there is something to fix: a first failure that
+   * is not the connection dropping, which the next run settles by itself.
+   */
   report(key: string, label: string, ok: boolean, error: string | null): void {
     const notice = this.deps.health.observe(key, label, ok, error);
     if (!notice) return;
-    this.tell(notice.text);
-    if (notice.kind === "failing" && notice.streak === 1 && this.deps.behaviour().autoFix && !this.deps.isHalted()) {
+    const transient = notice.kind === "failing" && isTransient(error);
+    this.tell(transient && notice.streak === 1 ? `${notice.text} That reads as a connection blip; the next run will tell.` : notice.text);
+    if (notice.kind === "failing" && notice.streak === 1 && !transient && this.deps.behaviour().autoFix && !this.deps.isHalted()) {
       void this.startFix({ label, error: error ?? "no error given", what: "scheduled job", ref: key }).catch(() => undefined);
     }
   }
@@ -110,10 +127,19 @@ export class Caretaker {
         // nothing to write to.
         if (this.deps.isClosed()) return;
         const why = err instanceof Error ? err.message : String(err);
-        this.deps.sessions.record(conversation.id, [
-          ...this.deps.sessions.get(conversation.id),
-          { role: "assistant", content: [{ type: "text", text: `I could not finish looking into this: ${why}` }] },
-        ]);
+        // Say which it was: the model out of reach is not the same as the
+        // thing being unfixable, and the owner was left guessing.
+        const text = isTransient(why)
+          ? `I could not reach the model to look into this (${why}). Nothing was changed. If it keeps failing, this chat is where to ask.`
+          : `I could not finish looking into this: ${why}`;
+        // The question goes in with the apology. A turn that failed before
+        // it was recorded left a chat holding only "I could not finish",
+        // and asked what it was for, KOS could not say.
+        const history = this.deps.sessions.get(conversation.id);
+        const asked: ModelMessage[] = history.some((m) => m.role === "user")
+          ? history
+          : [...history, { role: "user", content: [{ type: "text", text: prompt }] }];
+        this.deps.sessions.record(conversation.id, [...asked, { role: "assistant", content: [{ type: "text", text }] }]);
         this.deps.conversations.touch(conversation.id);
       });
     return { conversationId: conversation.id, title, prompt };
