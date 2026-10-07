@@ -59,11 +59,11 @@ export const ChevronLeft = ({ size = 14 }: { size?: number } = {}): ReactElement
   </Icon>
 );
 
-/** A window with a column on its right: the side panel. */
-export const PanelIcon = ({ size = 16 }: { size?: number } = {}): ReactElement => (
+/** A window with a column on one side: a side panel, the chat list or the workspace. */
+export const PanelIcon = ({ size = 16, side = "right" }: { size?: number; side?: "left" | "right" } = {}): ReactElement => (
   <Icon title="Side panel" size={size}>
     <rect x="3" y="4" width="18" height="16" rx="2" />
-    <path d="M15 4v16" />
+    <path d={side === "right" ? "M15 4v16" : "M9 4v16"} />
   </Icon>
 );
 

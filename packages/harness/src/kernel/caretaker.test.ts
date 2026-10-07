@@ -6,6 +6,7 @@ import { Caretaker, isTransient, type CaretakerDeps } from "./caretaker.js";
 function deps(over: Partial<CaretakerDeps> = {}) {
   const log: string[] = [];
   const sessions = new Map<string, ModelMessage[]>();
+  const made = new Set<string>();
   let n = 0;
   const base: CaretakerDeps = {
     ownerId: "owner",
@@ -15,9 +16,14 @@ function deps(over: Partial<CaretakerDeps> = {}) {
     health: { observe: (_k, _l, ok, error) => (ok ? undefined : { kind: "failing", streak: 1, text: `failing: ${error}` } as never) },
     notify: async (p) => { log.push(`notify:${p.text}`); },
     sessions: { get: (id) => sessions.get(id) ?? [], record: (id, m) => { sessions.set(id, m); } },
-    conversations: { create: ({ title }) => { n += 1; log.push(`create:${title}`); return { id: `c${n}` }; }, touch: (id) => { log.push(`touch:${id}`); } },
+    conversations: { create: ({ title, projectSlug }) => { n += 1; log.push(`create:${title}@${projectSlug ?? "-"}`); return { id: `c${n}` }; }, touch: (id) => { log.push(`touch:${id}`); } },
     crons: { list: () => [{ id: 7, name: "Nightly" }], get: (id) => (id === 7 ? { id: 7, name: "Nightly" } : undefined) },
-    manifest: { list: () => [{ slug: "books" }, { slug: "book" }] },
+    // The maintenance project does not exist until the first fix makes it.
+    manifest: {
+      list: () => [{ slug: "books" }, { slug: "book" }],
+      get: (slug) => (made.has(slug) ? { slug } : undefined),
+      createProject: ({ name }) => { const slug = name.toLowerCase(); made.add(slug); log.push(`project:${name}`); return { slug }; },
+    },
     handleMessage: async (text, opts) => { log.push(`turn:${opts.sessionId}:${opts.maxIterations}:${text.includes("evidence") ? "prompt" : "?"}`); },
   };
   // The Map behind the sessions dep, exposed under its own name so it
@@ -30,7 +36,16 @@ describe("looking after failures", () => {
     const d = deps();
     new Caretaker(d).report("cron:7", "Nightly", false, "boom");
     await new Promise((r) => setTimeout(r, 0));
-    expect(d.log).toEqual(["notify:failing: boom", "create:Fix: Nightly", "turn:c1:24:prompt"]);
+    expect(d.log).toEqual(["notify:failing: boom", "project:Maintenance", "create:Fix: Nightly@maintenance", "turn:c1:24:prompt"]);
+  });
+
+  it("puts every fix in the maintenance project, which is made once", async () => {
+    const d = deps();
+    const c = new Caretaker(d);
+    await c.startFix({ label: "Nightly", error: "boom", what: "scheduled job" });
+    await c.startFix({ label: "Weekly", error: "bang", what: "scheduled job" });
+    expect(d.log.filter((l) => l.startsWith("project:"))).toEqual(["project:Maintenance"]);
+    expect(d.log.filter((l) => l.startsWith("create:"))).toEqual(["create:Fix: Nightly@maintenance", "create:Fix: Weekly@maintenance"]);
   });
 
   it("does not try to fix when auto-fix is off, or KOS is halted, or it is not the first failure", async () => {

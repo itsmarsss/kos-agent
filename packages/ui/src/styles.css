@@ -6215,8 +6215,10 @@ a.health {
     overflow: hidden;
     transition: opacity 140ms ease, max-width 220ms cubic-bezier(0.32, 0.72, 0, 1);
   }
-  /* Inline text has no width to fold; the brand's tail is a box so it can. */
-  .side-brand span { display: inline-block; vertical-align: baseline; }
+  /* Inline text has no width to fold; the brand's tail is a box so it can.
+     Aligned by its top: a clipped inline-block sits its bottom edge on the
+     baseline, which lifted "-OS" above the K. */
+  .side-brand span { display: inline-block; vertical-align: top; }
   :root[data-sidebar="rail"] .side-search kbd { margin-left: 0; padding: 0; border-color: transparent; }
   :root[data-sidebar="rail"] .app { grid-template-columns: 3.4rem minmax(0, 1fr); }
   :root[data-sidebar="rail"] .side { padding: 1rem 0.4rem; gap: 0.2rem; }
@@ -6247,7 +6249,11 @@ a.health {
 }
 
 /* —— chat header breadcrumb —— */
-.chats-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 0.1rem; margin: 0 0 0.25rem; font-size: var(--text-sm); }
+/* The row above the title: the list toggle, then where the chat sits. */
+.chats-view-path { display: flex; align-items: center; gap: 0.3rem; margin: 0 0 0.15rem -0.3rem; min-height: 1.75rem; }
+.chats-toggle.is-on { color: var(--accent); }
+.chats-toggle:hover { color: var(--text); background: var(--panel-2); }
+.chats-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 0.1rem; margin: 0; font-size: var(--text-sm); }
 .chats-crumbs .link { color: var(--muted); }
 .chats-crumbs .link:hover { color: var(--accent); }
 .chats-crumbs .link::after {
@@ -6455,10 +6461,13 @@ a.health {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
   color: var(--faint);
   font-size: var(--text-sm);
 }
+.project-panel-status { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--muted); }
+.project-panel-status i { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--faint); }
+.project-panel-status.is-active i { background: var(--ok); box-shadow: 0 0 0 2px var(--ok-dim); }
 .project-panel-section { display: flex; flex-direction: column; gap: 0.45rem; }
 .project-panel-section .ops-section-head h2 {
   display: flex;

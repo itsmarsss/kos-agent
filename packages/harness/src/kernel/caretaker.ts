@@ -31,11 +31,15 @@ export interface CaretakerDeps {
   notify?: (payload: NotifyPayload) => Promise<void>;
   sessions: { get: (id: string) => ModelMessage[]; record: (id: string, messages: ModelMessage[]) => unknown };
   conversations: {
-    create: (input: { userId: string; title: string }) => { id: string };
+    create: (input: { userId: string; title: string; projectSlug?: string }) => { id: string };
     touch: (id: string) => unknown;
   };
   crons: { list: () => { id: number; name: string }[]; get: (id: number) => { id: number; name: string } | undefined };
-  manifest: { list: () => { slug: string }[] };
+  manifest: {
+    list: () => { slug: string }[];
+    get: (slug: string) => { slug: string } | undefined;
+    createProject: (input: { name: string; type: string; description?: string }) => { slug: string };
+  };
   /** Start a turn and do not wait for it. */
   handleMessage: (text: string, opts: { sessionId: string; userId: string; maxIterations: number }) => Promise<unknown>;
 }
@@ -51,6 +55,18 @@ const TRANSIENT = /connection error|econn(reset|refused)|etimedout|timed? ?out|f
 export function isTransient(error: string | null): boolean {
   return error !== null && TRANSIENT.test(error);
 }
+
+/**
+ * Where a fix chat lives: a project of its own, so repairs sit together
+ * under one roof and never among the agents the owner started. Made on
+ * the first fix; its slug is the manifest's own for the name.
+ */
+export const MAINTENANCE = {
+  name: "Maintenance",
+  slug: "maintenance",
+  type: "system",
+  description: "Where KOS looks into something of its own that failed: one agent per repair.",
+} as const;
 
 export class Caretaker {
   constructor(private readonly deps: CaretakerDeps) {}
@@ -68,6 +84,13 @@ export class Caretaker {
     if (notice.kind === "failing" && notice.streak === 1 && !transient && this.deps.behaviour().autoFix && !this.deps.isHalted()) {
       void this.startFix({ label, error: error ?? "no error given", what: "scheduled job", ref: key }).catch(() => undefined);
     }
+  }
+
+  /** The maintenance project's slug, the project made if this is the first repair. */
+  private maintenanceSlug(): string {
+    const existing = this.deps.manifest.get(MAINTENANCE.slug);
+    if (existing) return existing.slug;
+    return this.deps.manifest.createProject({ name: MAINTENANCE.name, type: MAINTENANCE.type, description: MAINTENANCE.description }).slug;
   }
 
   /** Tell the owner on the surface they use, or leave a note where they will look. */
@@ -97,7 +120,7 @@ export class Caretaker {
    */
   async startFix(input: FixRequest): Promise<{ conversationId: string; title: string; prompt: string }> {
     const title = `Fix: ${input.label}`.slice(0, 60);
-    const conversation = this.deps.conversations.create({ userId: this.deps.ownerId, title });
+    const conversation = this.deps.conversations.create({ userId: this.deps.ownerId, title, projectSlug: this.maintenanceSlug() });
     const subject = this.subjectOf(input);
     const error = input.error.slice(0, 2000);
     const longest = Math.max(0, ...[...error.matchAll(/`+/g)].map((m) => m[0].length));

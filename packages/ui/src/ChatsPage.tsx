@@ -53,6 +53,7 @@ import {
   ChevronDown,
   PanelIcon,
 } from "./icons.js";
+
 import {
   clearProgress,
   settleProgress,
@@ -1615,44 +1616,43 @@ export function ChatsPage({
           <>
             <header className="chats-view-head">
               <div className="chats-view-title">
-                {/* The lineage, so every level of the tree is one click
-                    from any other: KOS routes, a project chat orchestrates,
-                    an agent does the work. */}
-                {(() => {
-                  const crumbs: { label: string; id: string }[] = [];
-                  if (orchestrator && active.id !== orchestrator.id) crumbs.push({ label: "KOS", id: orchestrator.id });
-                  if (active.projectSlug && active.kind !== "project") {
-                    crumbs.push({
-                      label: projectName(active.projectSlug),
-                      id: `project:${active.projectSlug}`,
-                    });
-                  }
-                  return crumbs.length > 0 ? (
-                    <nav className="chats-crumbs" aria-label="Where this chat sits">
-                      {crumbs.map((c) => (
-                        <button key={c.id} type="button" className="link" onClick={() => onOpen(c.id)}>
-                          {c.label}
-                        </button>
-                      ))}
-                    </nav>
-                  ) : null;
-                })()}
-                <h1>
-                  {/* In the header rather than floating: positioned against
-                      the grid it sat off the left edge of the window and was
-                      not the top element at its own centre. */}
+                {/* The list toggle and the lineage share a row above the
+                    title: the toggle is the same panel glyph as the
+                    workspace's, mirrored, and the title line keeps only the
+                    title. A chevron in it, next to the crumbs' own, read as
+                    two kinds of arrow for two different things. */}
+                <div className="chats-view-path">
                   <button
                     type="button"
-                    className="chats-toggle"
-                    aria-label={narrow ? "Show chats" : collapsed ? "Show chats" : "Hide chats"}
+                    className={`icon-btn chats-toggle ${collapsed && !narrow ? "" : "is-on"}`}
+                    aria-label={narrow ? "Show chats" : collapsed ? "Show the chat list" : "Hide the chat list"}
+                    aria-pressed={!(collapsed && !narrow)}
+                    title={narrow ? "Show chats" : collapsed ? "Show the chat list" : "Hide the chat list"}
                     onClick={() => (narrow ? setListOpen(true) : setCollapsed((v) => !v))}
                   >
-                    {collapsed && !narrow ? (
-                      <ChevronRight size={16} />
-                    ) : (
-                      <ChevronLeft size={16} />
-                    )}
+                    <PanelIcon side="left" />
                   </button>
+                  {(() => {
+                    const crumbs: { label: string; id: string }[] = [];
+                    if (orchestrator && active.id !== orchestrator.id) crumbs.push({ label: "KOS", id: orchestrator.id });
+                    if (active.projectSlug && active.kind !== "project") {
+                      crumbs.push({
+                        label: projectName(active.projectSlug),
+                        id: `project:${active.projectSlug}`,
+                      });
+                    }
+                    return crumbs.length > 0 ? (
+                      <nav className="chats-crumbs" aria-label="Where this chat sits">
+                        {crumbs.map((c) => (
+                          <button key={c.id} type="button" className="link" onClick={() => onOpen(c.id)}>
+                            {c.label}
+                          </button>
+                        ))}
+                      </nav>
+                    ) : null;
+                  })()}
+                </div>
+                <h1>
                   {active.title}
                   {active.kind === "project" && <span className="chats-role">orchestrator</span>}
                 </h1>

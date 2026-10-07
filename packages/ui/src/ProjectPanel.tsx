@@ -80,7 +80,12 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError,
         <div className="project-panel-title">
           <h2>{project.name}</h2>
           <div className="project-panel-meta">
-            <span className={`ops-status ops-status--${project.status}`}>{project.status}</span>
+            {/* A dot and a word, not a boxed capital ACTIVE: the status is
+                one fact among three here, not a badge. */}
+            <span className={`project-panel-status is-${project.status}`}>
+              <i aria-hidden="true" />
+              {project.status}
+            </span>
             <span>{project.type}</span>
             <span className="ops-mono">{project.slug}</span>
           </div>
