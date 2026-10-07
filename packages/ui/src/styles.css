@@ -6109,13 +6109,22 @@ a.health {
   color: var(--text);
   border-radius: 12px 12px 3px 12px;
 }
+/* An answer is a bubble, like the chat's: loose text under a bubble of a
+   question read as a note to it rather than a reply. */
 .quickask-turn--kos {
-  /* Full width. Shrink-wrapped, the live bubble's percentage max-width had
-     nothing to resolve against and "Thinking" came out as "Thi…". */
-  align-self: stretch;
+  align-self: flex-start;
+  max-width: 92%;
   min-width: 0;
+  padding: 0.4rem 0.65rem;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px 12px 12px 3px;
   color: var(--text);
 }
+/* The reply still coming: full width, so the live bubble's percentage
+   max-width has something to resolve against ("Thinking" came out as
+   "Thi…" when it was shrink-wrapped). */
+.quickask-turn--live { align-self: stretch; min-width: 0; }
 .quickask .live { max-width: 100%; }
 .quickask-turn p {
   margin: 0 0 0.3rem;

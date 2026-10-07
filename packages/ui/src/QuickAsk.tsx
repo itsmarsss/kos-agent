@@ -124,7 +124,14 @@ export function QuickAsk({
   /** A question handed in from outside (`/btw` in the chat), asked as it arrives. */
   seed?: { text: string; n: number };
 }): ReactElement | null {
-  const key = contextId ?? "global";
+  /*
+   * Detached, the question is a plain one to KOS with no chat behind it,
+   * even while a chat is open: for the question that has nothing to do
+   * with what is on screen. The choice sticks until it is changed.
+   */
+  const [detached, setDetached] = useState(false);
+  const attachedTo = contextId !== undefined && !detached ? contextId : undefined;
+  const key = attachedTo ?? "global";
   // The server streams the aside's live view under this key, never under the
   // chat's own id, so the main transcript stays untouched.
   const progressKey = `aside:${key}`;
@@ -252,7 +259,7 @@ export function QuickAsk({
     setText("");
     setAsking(true);
     try {
-      const res = await api.aside(q, contextId, prior);
+      const res = await api.aside(q, attachedTo, prior);
       setAnswer(res.reply);
     } catch (err) {
       setAnswer(`It failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -289,9 +296,13 @@ export function QuickAsk({
         <div className="quickask-title-wrap">
           <span className="quickask-title">Quick question</span>
           <span className="quickask-context">
-            {contextId ? (
+            {attachedTo ? (
               <>
                 about <b>{contextTitle ?? contextId}</b>, without adding to it
+              </>
+            ) : contextId ? (
+              <>
+                a plain question to KOS, not about <b>{contextTitle ?? contextId}</b>
               </>
             ) : (
               "no chat open, so a plain question to KOS"
@@ -299,6 +310,19 @@ export function QuickAsk({
           </span>
         </div>
         <div className="quickask-head-actions">
+          {contextId && (
+            /* Attached, the open chat is the context; detached, there is
+               none, for a question that has nothing to do with it. */
+            <button
+              type="button"
+              className="btn btn--sm btn--ghost"
+              aria-pressed={!detached}
+              title={detached ? `Ask about ${contextTitle ?? contextId} again` : "Ask without this chat's context"}
+              onClick={() => setDetached((v) => !v)}
+            >
+              {detached ? "Attach" : "Detach"}
+            </button>
+          )}
           {thread.length > 0 && (
             <button
               type="button"
@@ -346,9 +370,11 @@ export function QuickAsk({
       <div className="quickask-body" ref={bodyRef}>
         {thread.length === 0 && (
           <p className="quickask-empty">
-            {contextId
+            {attachedTo
               ? "Ask a side question about this chat. KOS answers from its context, with no tools, and the chat itself is left as it is."
-              : "Open a chat to ask about it, or just ask KOS something."}
+              : contextId
+                ? "Detached: a plain question to KOS, with nothing from this chat behind it. Attach to ask about the chat."
+                : "Open a chat to ask about it, or just ask KOS something."}
           </p>
         )}
         {thread.map((t, i) => {
@@ -363,7 +389,7 @@ export function QuickAsk({
                   <Markdown text={t.a} />
                 </div>
               ) : pending && live && !live.ended ? (
-                <div className="quickask-turn quickask-turn--kos">
+                <div className="quickask-turn quickask-turn--live">
                   <LiveTurn live={live} />
                 </div>
               ) : pending ? (
@@ -385,7 +411,7 @@ export function QuickAsk({
           rows={1}
           autoFocus
           value={text}
-          placeholder={contextId ? "Ask about this chat…" : "Ask KOS…"}
+          placeholder={attachedTo ? "Ask about this chat…" : "Ask KOS…"}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {

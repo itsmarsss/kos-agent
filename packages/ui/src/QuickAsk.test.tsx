@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { api } from "./api.js";
 import { QuickAsk } from "./QuickAsk.js";
 
 /**
@@ -55,6 +56,22 @@ describe("the quick question window", () => {
     for (const edge of ["n", "s", "e", "w", "ne", "nw", "se", "sw"]) {
       expect(document.querySelector(`.quickask-edge--${edge}`)).toBeTruthy();
     }
+  });
+
+  it("detaches from the open chat for a plain question, and attaches again", async () => {
+    const aside = vi.spyOn(api, "aside").mockResolvedValue({ reply: "ok" });
+    open();
+    const context = (): string => document.querySelector(".quickask-context")?.textContent ?? "";
+    expect(context()).toBe("about Main, without adding to it");
+    fireEvent.click(screen.getByRole("button", { name: "Detach" }));
+    expect(context()).toBe("a plain question to KOS, not about Main");
+
+    fireEvent.change(screen.getByPlaceholderText("Ask KOS…"), { target: { value: "what is 2+2" } });
+    fireEvent.submit(screen.getByPlaceholderText("Ask KOS…").closest("form")!);
+    await waitFor(() => expect(aside).toHaveBeenCalledWith("what is 2+2", undefined, []));
+
+    fireEvent.click(screen.getByRole("button", { name: "Attach" }));
+    expect(context()).toBe("about Main, without adding to it");
   });
 
   it("asks a plain question when no chat is open", () => {
