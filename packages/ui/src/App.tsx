@@ -27,10 +27,12 @@ import { ease, spring } from "./motion.js";
 import { HistoryPage, type HistoryRow } from "./HistoryPage.js";
 import { HomePage } from "./HomePage.js";
 import { ChatsPage } from "./ChatsPage.js";
+import { QuickAsk } from "./QuickAsk.js";
 import { FilesPage } from "./FilesPage.js";
 import { AgentsPage } from "./AgentsPage.js";
 import { SettingsPage } from "./SettingsPage.js";
 import { ProjectsPage } from "./ProjectsPage.js";
+import { placeOf } from "./chattree.js";
 import { MemoryPage } from "./MemoryPage.js";
 import { InboxPage } from "./InboxPage.js";
 import { RunsTabs } from "./RunsTabs.js";
@@ -67,6 +69,26 @@ export function App(): React.ReactElement {
   const [cronFilter, setCronFilter] = useState<"all" | "on" | "off">("all");
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  /** The quick-question window: the sidebar entry or Cmd/Ctrl+Shift+K. */
+  const [askOpen, setAskOpen] = useState(false);
+  /** A question typed as `/btw` in a chat, handed to the window to ask. */
+  const [askSeed, setAskSeed] = useState<{ text: string; n: number } | null>(null);
+  const askAside = (text: string): void => {
+    setAskSeed({ text, n: Date.now() });
+    setAskOpen(true);
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setAskOpen((v) => !v);
+      } else if (e.key === "Escape") {
+        setAskOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   /** Everything waiting on the owner, for the Inbox and its badge. */
   const [inbox, setInbox] = useState<InboxData | null>(null);
   // Where sites are served, so the palette can open one directly.
@@ -163,7 +185,8 @@ export function App(): React.ReactElement {
   // in the app was spent on a second way to do one thing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      // Shift+K is the quick question's; without this both opened at once.
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPaletteOpen((v) => !v);
       }
@@ -221,7 +244,9 @@ export function App(): React.ReactElement {
       const res = await (approved ? api.approve(id, remember) : api.deny(id));
       // The agent's continuation shows in the conversation it belongs to,
       // which Chats is already watching; there is no panel to echo it into.
-      flash("ok", res.reply ? res.reply.slice(0, 120) : approved ? (remember ? `Approved #${id}, and remembered` : `Approved #${id}`) : `Denied #${id}`);
+      // The server's own line when there is one: it says when the chat is
+      // held for another decision still waiting.
+      flash("ok", res.reply ? res.reply.slice(0, 120) : res.message ? res.message.slice(0, 160) : approved ? (remember ? `Approved #${id}, and remembered` : `Approved #${id}`) : `Denied #${id}`);
       await refresh();
     } catch (err) {
       flash("err", err instanceof Error ? err.message : String(err));
@@ -456,6 +481,29 @@ export function App(): React.ReactElement {
           ? `run-${inspect.data.id}`
           : `project-${inspect.data.slug}`;
 
+  /** A project's threads open inside the project; the rest open in Chats. */
+  const openConversation = (id: string): void => {
+    const known = conversations.find((c) => c.id === id);
+    if (known) {
+      go(placeOf(id, known));
+      return;
+    }
+    // Just made (the + in a project, /agent, /fork), so not in the list this
+    // render has: ask for the list rather than guess, or an agent opened in
+    // Chats instead of in its project.
+    void api
+      .conversations()
+      .then((list) => go(placeOf(id, list.find((c) => c.id === id))))
+      .catch(() => go(placeOf(id)));
+  };
+  /** The thread the quick question is asked beside, if one is open. */
+  const askContext =
+    route.name === "chats"
+      ? route.id
+      : route.name === "project"
+        ? (route.id ?? `project:${route.slug}`)
+        : undefined;
+
   const shell = (body: React.ReactNode): React.ReactElement => (
     <ErrorBoundary label="dashboard">
       {/* The chat route owns the whole window: the shell's scroll padding is
@@ -468,6 +516,7 @@ export function App(): React.ReactElement {
         inboxCount={inbox ? inbox.approvals.length + inbox.decisions.length + inbox.failures.length + inbox.suggestions.length : approvals.length}
         busy={busy}
         onSearch={() => setPaletteOpen(true)}
+        onAsk={() => setAskOpen((v) => !v)}
         onRefresh={() => void refresh()}
         onSnapshot={() => void doSnapshot()}
         onOpenWorkspace={() => {
@@ -479,7 +528,7 @@ export function App(): React.ReactElement {
         onCopyWorkspace={() => void copyWorkspace()}
         onToggleKill={() => void toggleKill()}
       />
-      <main className={`ops ${route.name === "chats" ? "ops--full" : ""}`}>
+      <main className={`ops ${route.name === "chats" || route.name === "project" ? "ops--full" : ""}`}>
         <AnimatePresence>
           {toast && (
             <m.div
@@ -508,15 +557,8 @@ export function App(): React.ReactElement {
             crons={crons}
             onFix={(detail) => void beginFix(detail)}
             onOpenProjectChat={(slug) => {
-              void api
-                .projectChat(slug)
-                .then((c) => {
-                  setInspect(null);
-                  go({ name: "chats", id: c.id });
-                })
-                .catch((err: unknown) =>
-                  flash("err", err instanceof Error ? err.message : String(err)),
-                );
+              setInspect(null);
+              go({ name: "project", slug });
             }}
             onOpenFolder={(path) => {
               setInspect(null);
@@ -606,6 +648,18 @@ export function App(): React.ReactElement {
           ctx={paletteContext}
         />
       </main>
+      <QuickAsk
+        open={askOpen}
+        onClose={() => setAskOpen(false)}
+        onOpen={openConversation}
+        {...(askSeed ? { seed: askSeed } : {})}
+        {...(askContext
+          ? {
+              contextId: askContext,
+              contextTitle: conversations.find((c) => c.id === askContext)?.title ?? askContext,
+            }
+          : {})}
+      />
       </div>
     </ErrorBoundary>
   );
@@ -653,13 +707,52 @@ export function App(): React.ReactElement {
     return shell(
       <ChatsPage
         conversations={conversations}
+        projects={projects}
         {...(route.id ? { activeId: route.id } : {})}
         pendingApprovals={pendingIds}
         approvals={approvals}
         deciding={deciding}
         agents={agents}
         onOpenAgent={(id) => go({ name: "agents", id })}
-        onOpen={(id) => go({ name: "chats", id })}
+        onOpen={openConversation}
+        onOpenProject={(slug) => go({ name: "project", slug })}
+        onAside={askAside}
+        onNotice={(text) => flash("ok", text)}
+        onChanged={() => void refresh()}
+        onDecide={decideByPendingId}
+        {...(seed ? { seed } : {})}
+      />,
+    );
+  }
+
+  if (route.name === "project") {
+    /*
+     * A project is a chat page of its own: its orchestrator in the middle,
+     * its agents in the rail, and its files, pages and tables beside the
+     * thread. The orchestrator is the thread by default.
+     */
+    const slug = route.slug;
+    return shell(
+      <ChatsPage
+        conversations={conversations}
+        projects={projects}
+        activeId={route.id ?? `project:${slug}`}
+        pendingApprovals={pendingIds}
+        approvals={approvals}
+        deciding={deciding}
+        agents={agents}
+        onOpenAgent={(id) => go({ name: "agents", id })}
+        onOpen={openConversation}
+        onOpenProject={(s) => go({ name: "project", slug: s })}
+        project={{
+          slug,
+          onBack: () => go({ name: "chats" }),
+          onOpenPage: openPage,
+          onOpenFile: (path) => go({ name: "files", path }),
+          onError: (text) => flash("err", text),
+        }}
+        onAside={askAside}
+        onNotice={(text) => flash("ok", text)}
         onChanged={() => void refresh()}
         onDecide={decideByPendingId}
         {...(seed ? { seed } : {})}
@@ -703,6 +796,7 @@ export function App(): React.ReactElement {
         projects={projects}
         pagesByProject={pagesByProject}
         conversations={conversations}
+        onOpen={(slug) => go({ name: "project", slug })}
         onInspect={(project, pages) =>
           setInspect({ kind: "project", data: project, pages })
         }

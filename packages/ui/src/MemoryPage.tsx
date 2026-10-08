@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 
-import { api, type CallerInfo, type CronJob, type FactRow, type ReviewItem, type Conversation } from "./api.js";
+import { api, type CallerInfo, type CronJob, type FactRow, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
 import { KnowledgePage } from "./KnowledgePage.js";
 
 /**
@@ -80,29 +80,111 @@ function when(ts: number): string {
   return new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-/** One open question from the dream job, with the choices that settle it. */
+/** How long ago, in a word or two. */
+function ago(ts: number): string {
+  const mins = Math.max(1, Math.round((Date.now() - ts) / 60000));
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return days < 30 ? `${days}d ago` : new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/** What the question is, in the owner's terms rather than memory's. */
+const HEADLINE: Record<ReviewItem["kind"], string> = {
+  contradiction: "These claims disagree",
+  promotion: "Is this true everywhere, not just in the project?",
+  other: "KOS could not settle this on its own",
+};
+
+/**
+ * One open question from the dream job, with the choices that settle it.
+ *
+ * It showed the keys and a paragraph, and a row of buttons that repeated
+ * the keys: nothing said what any claim actually said, which is the one
+ * thing a decision needs. Now each claim is a row, its value first, with
+ * how much it is leaned on, and Keep sits on the row it keeps.
+ */
 export function MemoryDecision({ item, onResolved }: { item: ReviewItem; onResolved: () => void }): ReactElement {
-  const choices =
-    item.kind === "promotion"
-      ? [{ label: "promote to global", action: "promote" as const }, { label: "keep as is", action: "dismiss" as const }]
-      : [...item.keys.map((k) => ({ label: `keep ${k}`, action: "keep" as const, key: k })), { label: "both are right", action: "both" as const }];
+  const [busy, setBusy] = useState(false);
+  const decide = (action: "keep" | "both" | "promote" | "dismiss", key?: string): void => {
+    setBusy(true);
+    void api
+      .resolveMemoryReview(item.id, action, key)
+      .then(onResolved, onResolved)
+      .finally(() => setBusy(false));
+  };
+  // Older items, or a payload without the lookup, still show their keys.
+  const claims: ReviewClaim[] =
+    item.claims ??
+    item.keys.map((qualified): ReviewClaim => {
+      const slash = qualified.lastIndexOf("/");
+      return slash > 0 ? { qualified, scope: qualified.slice(0, slash), key: qualified.slice(slash + 1) } : { qualified, scope: "", key: qualified };
+    });
   return (
     <div className="mem-decision">
-      <div>
-        <span className="mem-kind">{item.kind}</span> <span className="ops-mono">{item.keys.join(" vs ")}</span>
-        <div className="hint">{item.note}</div>
+      <div className="mem-decision-head">
+        <span className="mem-kind">{item.kind}</span>
+        <strong>{HEADLINE[item.kind]}</strong>
       </div>
+      <p className="mem-decision-note">{item.note}</p>
+      <ul className="mem-claims">
+        {claims.map((c) => (
+          <li key={c.qualified} className={`mem-claim ${c.value === undefined ? "is-gone" : ""}`}>
+            <div className="mem-claim-main">
+              <div className="mem-claim-key">
+                {c.scope && <span className="mem-scope">{c.scope}</span>}
+                <code>{c.key}</code>
+              </div>
+              <div className="mem-claim-value">{c.value === undefined ? <em>No longer in memory.</em> : c.value || <em>Empty.</em>}</div>
+              {c.value !== undefined && (
+                <div className="mem-claim-meta">
+                  {[
+                    c.kind,
+                    c.trust && c.trust !== "owner" ? `from ${c.trust === "agent" ? "an agent" : c.trust}` : null,
+                    c.useCount ? `used ${c.useCount}×${c.lastUsedAt ? `, last ${ago(c.lastUsedAt)}` : ""}` : "never used",
+                    c.createdAt ? `written ${ago(c.createdAt)}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </div>
+              )}
+            </div>
+            {item.kind !== "promotion" && c.value !== undefined && (
+              <button
+                type="button"
+                className="btn btn--sm"
+                disabled={busy}
+                title={`Keep ${c.key}; the other${claims.length > 2 ? "s are" : " is"} archived`}
+                onClick={() => decide("keep", c.qualified)}
+              >
+                Keep this
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
       <div className="mem-actions">
-        {choices.map((choice) => (
+        {item.kind === "promotion" ? (
+          <>
+            <button type="button" className="btn btn--sm btn--primary" disabled={busy} onClick={() => decide("promote")}>
+              Yes, make it global
+            </button>
+            <button type="button" className="btn btn--sm" disabled={busy} onClick={() => decide("dismiss")}>
+              No, keep it to the project
+            </button>
+          </>
+        ) : (
           <button
-            key={choice.label}
             type="button"
             className="btn btn--sm"
-            onClick={() => void api.resolveMemoryReview(item.id, choice.action, "key" in choice ? choice.key : undefined).then(onResolved, onResolved)}
+            disabled={busy}
+            title="Leave every claim as it is"
+            onClick={() => decide("both")}
           >
-            {choice.label}
+            {claims.length > 2 ? "All are right, leave them" : "Both are right, leave them"}
           </button>
-        ))}
+        )}
       </div>
     </div>
   );

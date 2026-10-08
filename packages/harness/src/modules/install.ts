@@ -23,7 +23,8 @@ const exec = promisify(execFile);
 
 export type Runner = (file: string, args: string[], cwd?: string) => Promise<{ stdout: string }>;
 
-const run: Runner = async (file, args, cwd) => {
+/** The real thing: a program run to completion. Skills install through it too. */
+export const run: Runner = async (file, args, cwd) => {
   const { stdout } = await exec(file, args, { ...(cwd ? { cwd } : {}), timeout: 120_000 });
   return { stdout };
 };

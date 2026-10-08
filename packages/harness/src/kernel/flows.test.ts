@@ -1393,8 +1393,9 @@ describe("KOS end-to-end flows", () => {
     kernel = await boot(model.inference);
     const project = kernel.standUpProject({ name: "Pantry", type: "tracker" });
     await kernel.handleProjectTurn(project.slug, "start a second project");
-    // No second project was created; the guard refused it.
-    expect(kernel.manifest.list().map((p) => p.name).sort()).toEqual(["Pantry"]);
+    // No second project was created; the guard refused it. Maintenance is
+    // the kernel's own, there from boot for the caretaker's fix chats.
+    expect(kernel.manifest.list().map((p) => p.name).sort()).toEqual(["Maintenance", "Pantry"]);
   });
 
   it("KOS gets a router brief so the hierarchy is a behaviour", async () => {
@@ -1647,6 +1648,66 @@ describe("KOS end-to-end flows", () => {
     release();
     await Promise.all([first, second]);
     expect(order).toEqual(["owner", "dispatch"]);
+  });
+
+  it("congregates several agents and hands every reply back for one answer", async () => {
+    /*
+     * The fan-out. KOS asks two new agents at once; each runs a plain turn in
+     * its own lane with no chats tools; both replies come back in one tool
+     * result, and the next model step writes the combined answer.
+     */
+    let costTools: string[] = [];
+    const inference: Inference = {
+      async generate(task, req) {
+        if (task === "cheap") return text('{"facts":[]}');
+        const last = JSON.stringify(req.messages.at(-1));
+        // The step after the fan-out: the members' replies are the last thing
+        // KOS was shown, so that is what tells the synthesis step apart.
+        if (last.includes("Cost: about forty.")) return text("Combined: forty, and mind the ladder.");
+        if (last.includes("count the cost")) {
+          costTools = (req.tools ?? []).map((t) => t.name);
+          return text("Cost: about forty.");
+        }
+        if (last.includes("list the risks")) return text("Risk: the ladder.");
+        return toolCall("c1", "chats.congregate", {
+          question: "should I do it",
+          targets: [
+            { title: "Cost Angle", brief: "You think about money.", message: "count the cost" },
+            { title: "Risk Angle", message: "list the risks" },
+          ],
+        });
+      },
+    };
+    kernel = await boot(inference);
+    const rosters: Array<{ conversationId: string; statuses: string[] }> = [];
+    kernel.progress.subscribe((e) => {
+      if (e.kind === "congregation") {
+        rosters.push({ conversationId: e.conversationId, statuses: e.members.map((m) => m.status) });
+      }
+    });
+
+    const res = await kernel.handleOrchestratorTurn("should I do it");
+    expect(res.reply).toContain("Combined: forty, and mind the ladder.");
+
+    // Both agents exist, carry what they were given, and answered in their
+    // own threads with no way to delegate further.
+    const cost = kernel.conversations.list("owner").find((c) => c.title === "Cost Angle")!;
+    const risk = kernel.conversations.list("owner").find((c) => c.title === "Risk Angle")!;
+    expect(cost.brief).toBe("You think about money.");
+    expect(JSON.stringify(kernel.sessions.get(cost.id))).toContain("Cost: about forty.");
+    expect(JSON.stringify(kernel.sessions.get(risk.id))).toContain("Risk: the ladder.");
+    expect(costTools.length).toBeGreaterThan(0);
+    expect(costTools.some((n) => n.startsWith("chats."))).toBe(false);
+
+    // The replies reached KOS as one result, in the order they were asked.
+    const wire = JSON.stringify(kernel.sessions.get("orchestrator:owner"));
+    expect(wire).toContain("Cost: about forty.");
+    expect(wire.indexOf("Cost: about forty.")).toBeLessThan(wire.indexOf("Risk: the ladder."));
+
+    // The roster went to KOS's own thread: everyone working, then each done.
+    expect(rosters[0]).toEqual({ conversationId: "orchestrator:owner", statuses: ["working", "working"] });
+    expect(rosters).toHaveLength(3);
+    expect(rosters.at(-1)?.statuses).toEqual(["done", "done"]);
   });
 
   it("tells modules what happens: a turn, its tool, a decision", async () => {

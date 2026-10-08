@@ -8,11 +8,19 @@ import type { ReactElement } from "react";
  * and one box so they read as a set.
  */
 
-function Icon({ children, title }: { children: React.ReactNode; title: string }): ReactElement {
+function Icon({
+  children,
+  title,
+  size = 15,
+}: {
+  children: React.ReactNode;
+  title: string;
+  size?: number;
+}): ReactElement {
   return (
     <svg
-      width="15"
-      height="15"
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -27,6 +35,56 @@ function Icon({ children, title }: { children: React.ReactNode; title: string })
     </svg>
   );
 }
+
+/**
+ * Chevrons for disclosure and collapse. Drawn as a stroke, not the guillemet
+ * and triangle glyphs that used to stand in for them, so they match the icon
+ * set and scale cleanly. Rotate with CSS where a control toggles open.
+ */
+export const ChevronRight = ({ size = 14 }: { size?: number } = {}): ReactElement => (
+  <Icon title="Expand" size={size}>
+    <path d="m9 6 6 6-6 6" />
+  </Icon>
+);
+
+export const ChevronDown = ({ size = 14 }: { size?: number } = {}): ReactElement => (
+  <Icon title="Collapse" size={size}>
+    <path d="m6 9 6 6 6-6" />
+  </Icon>
+);
+
+export const ChevronLeft = ({ size = 14 }: { size?: number } = {}): ReactElement => (
+  <Icon title="Collapse" size={size}>
+    <path d="m15 6-6 6 6 6" />
+  </Icon>
+);
+
+/**
+ * A window with a column on one side: a side panel, the chat list or the
+ * workspace. Open, the column is filled in; shut, it is an outline.
+ */
+export const PanelIcon = ({
+  size = 16,
+  side = "right",
+  on = false,
+}: { size?: number; side?: "left" | "right"; on?: boolean } = {}): ReactElement => (
+  <Icon title="Side panel" size={size}>
+    {on && (
+      <rect
+        x={side === "right" ? 15 : 3}
+        y="4"
+        width="6"
+        height="16"
+        rx="2"
+        fill="currentColor"
+        stroke="none"
+        opacity="0.45"
+      />
+    )}
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d={side === "right" ? "M15 4v16" : "M9 4v16"} />
+  </Icon>
+);
 
 export const CopyIcon = (): ReactElement => (
   <Icon title="Copy">
@@ -87,8 +145,10 @@ export function NavIcon({ name }: { name: string }): ReactElement {
     case "files": return p("M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6");
     case "memory": return p("M5 6c0-1.7 3.1-3 7-3s7 1.3 7 3-3.1 3-7 3-7-1.3-7-3z|M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6|M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3");
     case "history": return p("M3 12a9 9 0 1 0 3-6.7L3 8|M3 4v4h4|M12 8v4l3 2");
-    case "settings": return p("c12,12,3|M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1");
+    case "settings": return p("c12,12,3|M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z");
     case "search": return p("c11,11,7|M21 21l-4.3-4.3");
+    // A speech bubble with a question mark: a quick question on the side.
+    case "ask": return p("M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.6 8.6 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5 8.4 8.4 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z|M10.2 9.4a2.3 2.3 0 1 1 3.2 2.1c-.6.3-.9.8-.9 1.4|M12.5 16h.01");
     case "more": return p("c5,12,1|c12,12,1|c19,12,1");
     default: return p("c12,12,9");
   }

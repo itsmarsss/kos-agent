@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
 import { ConversationStore } from "./conversations.js";
-import { parseChatCommand, resolveConversation, runChatCommand } from "./chatcommands.js";
+import { needsKernel, parseChatCommand, resolveConversation, runChatCommand } from "./chatcommands.js";
 
 describe("parseChatCommand", () => {
   it("recognizes the verbs and their aliases", () => {
@@ -16,6 +16,37 @@ describe("parseChatCommand", () => {
     expect(parseChatCommand("/switch 2")).toEqual({ kind: "switch", target: "2" });
     expect(parseChatCommand("/rename Budget")).toEqual({ kind: "rename", title: "Budget" });
     expect(parseChatCommand("/archive")).toEqual({ kind: "archive" });
+    expect(parseChatCommand("/fork")).toEqual({ kind: "fork" });
+    expect(parseChatCommand("/copy Budget B")).toEqual({ kind: "fork", title: "Budget B" });
+    expect(parseChatCommand("/retry")).toEqual({ kind: "retry" });
+    expect(parseChatCommand("/stop")).toEqual({ kind: "stop" });
+    expect(parseChatCommand("/brief")).toEqual({ kind: "brief" });
+    expect(parseChatCommand("/brief Keep it short.")).toEqual({ kind: "brief", text: "Keep it short." });
+    expect(parseChatCommand("/agent")).toEqual({ kind: "agent" });
+    expect(parseChatCommand("/spawn Receipts")).toEqual({ kind: "agent", title: "Receipts" });
+    expect(parseChatCommand("/agents")).toEqual({ kind: "agents" });
+    expect(parseChatCommand("/dispatch Receipts: file the March ones")).toEqual({
+      kind: "dispatch",
+      target: "Receipts",
+      task: "file the March ones",
+    });
+    expect(parseChatCommand("/project Kitchen redo")).toEqual({ kind: "project", name: "Kitchen redo" });
+    expect(parseChatCommand("/approve")).toEqual({ kind: "approve" });
+    expect(parseChatCommand("/approve #12")).toEqual({ kind: "approve", id: 12 });
+    expect(parseChatCommand("/no 3")).toEqual({ kind: "deny", id: 3 });
+    expect(parseChatCommand("/status")).toEqual({ kind: "status" });
+    expect(parseChatCommand("/btw what was the total?")).toEqual({ kind: "btw", question: "what was the total?" });
+    expect(parseChatCommand("/export")).toEqual({ kind: "export" });
+    expect(parseChatCommand("/files")).toEqual({ kind: "files" });
+  });
+
+  it("knows which commands need the kernel rather than the store", () => {
+    for (const text of ["/fork", "/retry", "/stop", "/agents", "/dispatch a: b", "/project p", "/approve", "/deny", "/status", "/compact", "/clear"]) {
+      expect(needsKernel(parseChatCommand(text)!)).toBe(true);
+    }
+    for (const text of ["/new", "/chats", "/brief", "/agent", "/btw q", "/export", "/files", "/help"]) {
+      expect(needsKernel(parseChatCommand(text)!)).toBe(false);
+    }
   });
 
   it("is case-insensitive on the verb", () => {
@@ -33,6 +64,11 @@ describe("parseChatCommand", () => {
   it("asks for help when a required argument is missing", () => {
     expect(parseChatCommand("/switch")).toEqual({ kind: "help" });
     expect(parseChatCommand("/rename")).toEqual({ kind: "help" });
+    expect(parseChatCommand("/project")).toEqual({ kind: "help" });
+    expect(parseChatCommand("/btw")).toEqual({ kind: "help" });
+    // A dispatch needs both halves, either side of the colon.
+    expect(parseChatCommand("/dispatch Receipts")).toEqual({ kind: "help" });
+    expect(parseChatCommand("/dispatch : do it")).toEqual({ kind: "help" });
   });
 });
 
@@ -120,6 +156,37 @@ describe("runChatCommand", () => {
     const res = runChatCommand({ kind: "archive" }, ctx(a.id));
     expect(conversations.get(a.id)?.archived).toBe(true);
     expect(res.switchedTo).toBe(b.id);
+  });
+
+  it("shows, sets and clears a chat's brief", () => {
+    const a = conversations.create({ userId: "owner", title: "Main" });
+    expect(runChatCommand({ kind: "brief" }, ctx(a.id)).reply).toMatch(/no brief/);
+    runChatCommand({ kind: "brief", text: "Answer in French." }, ctx(a.id));
+    expect(conversations.get(a.id)?.brief).toBe("Answer in French.");
+    expect(runChatCommand({ kind: "brief" }, ctx(a.id)).reply).toContain("Answer in French.");
+    runChatCommand({ kind: "brief", text: "-" }, ctx(a.id));
+    expect(conversations.get(a.id)?.brief).toBeNull();
+  });
+
+  it("starts an agent in the current chat's project and moves to it", () => {
+    const orchestrator = conversations.create({ userId: "owner", title: "Kitchen", projectSlug: "kitchen" });
+    const res = runChatCommand({ kind: "agent", title: "Tiles" }, ctx(orchestrator.id));
+    expect(res.switchedTo).toBeTruthy();
+    const made = conversations.get(res.switchedTo!);
+    expect(made).toMatchObject({ title: "Tiles", projectSlug: "kitchen" });
+    // Untitled is named by its first message, like any chat.
+    const bare = runChatCommand({ kind: "agent" }, ctx(orchestrator.id));
+    expect(conversations.get(bare.switchedTo!)?.title).toBe("New conversation");
+
+    const loose = conversations.create({ userId: "owner", title: "Main" });
+    const refused = runChatCommand({ kind: "agent" }, ctx(loose.id));
+    expect(refused.switchedTo).toBeUndefined();
+    expect(refused.reply).toMatch(/not in a project/);
+  });
+
+  it("says a dashboard-only command is one, off the dashboard", () => {
+    const a = conversations.create({ userId: "owner", title: "Main" });
+    expect(runChatCommand({ kind: "export" }, ctx(a.id)).reply).toMatch(/dashboard/);
   });
 
   it("archiving the last conversation creates a fresh one", () => {

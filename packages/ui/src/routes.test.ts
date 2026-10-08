@@ -39,7 +39,24 @@ describe("parseRoute", () => {
     expect(navActive({ name: "history" }, { name: "crons" })).toBe(true);
     expect(navActive({ name: "history" }, { name: "agents", id: 3 })).toBe(true);
     expect(navActive({ name: "projects" }, { name: "page", id: "x" })).toBe(true);
+    // A project's workspace is a place inside Projects, like one of its pages.
+    expect(navActive({ name: "projects" }, { name: "project", slug: "x" })).toBe(true);
     expect(navActive({ name: "chats" }, { name: "inbox" })).toBe(false);
+  });
+
+  it("opens one project's workspace by slug", () => {
+    expect(parseRoute("#/project/kitchen_redo")).toEqual({ name: "project", slug: "kitchen_redo" });
+    expect(hrefFor({ name: "project", slug: "kitchen_redo" })).toBe("#/project/kitchen_redo");
+    expect(parseRoute(hrefFor({ name: "project", slug: "a b/c" }))).toEqual({ name: "project", slug: "a b/c" });
+    // A thread inside the project: an agent's, or the orchestrator's by default.
+    expect(parseRoute("#/project/kitchen_redo/c9%3Aowner")).toEqual({
+      name: "project",
+      slug: "kitchen_redo",
+      id: "c9:owner",
+    });
+    expect(hrefFor({ name: "project", slug: "kitchen_redo", id: "c9:owner" })).toBe("#/project/kitchen_redo/c9%3Aowner");
+    // The list and a workspace are different routes; a bare /project is neither.
+    expect(parseRoute("#/project")).toEqual({ name: "home" });
   });
 
   it("keeps ids and paths through a round trip", () => {

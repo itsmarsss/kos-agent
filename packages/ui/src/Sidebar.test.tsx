@@ -14,6 +14,7 @@ function show(route: Parameters<typeof Sidebar>[0]["route"], inboxCount = 0, hal
       inboxCount={inboxCount}
       busy={null}
       onSearch={vi.fn()}
+      onAsk={vi.fn()}
       onRefresh={vi.fn()}
       onSnapshot={vi.fn()}
       onOpenWorkspace={vi.fn()}

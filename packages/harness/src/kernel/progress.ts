@@ -10,6 +10,13 @@
  * work, not the prose, and the work is what a reader is waiting on.
  */
 
+/** One conversation a turn is waiting on, when it asked several at once. */
+export interface CongregationMember {
+  id: string;
+  title: string;
+  status: "working" | "done" | "failed";
+}
+
 export type ProgressEvent =
   | { kind: "turn-start"; conversationId: string }
   | {
@@ -44,6 +51,16 @@ export type ProgressEvent =
       kind: "note";
       conversationId: string;
       text: string;
+    }
+  | {
+      /**
+       * Who a turn is waiting on, when it asked several conversations at
+       * once. Sent as the fan-out starts and again each time a member
+       * settles, so the roster on screen always says who is still working.
+       */
+      kind: "congregation";
+      conversationId: string;
+      members: CongregationMember[];
     }
   | { kind: "turn-end"; conversationId: string };
 

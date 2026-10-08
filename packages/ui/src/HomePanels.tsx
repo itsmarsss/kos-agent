@@ -299,7 +299,7 @@ export function Panel({
                 <a
                   key={p.slug}
                   className="panel-chip"
-                  href={hrefFor({ name: "projects" })}
+                  href={hrefFor({ name: "project", slug: p.slug })}
                 >
                   {p.name}
                 </a>

@@ -101,3 +101,36 @@ describe("narrowing by kind", () => {
     expect(out.text).toBe("see @file:a.md ");
   });
 });
+
+describe("a command's argument", () => {
+  it("is offered after the verb and a space, for the commands that take a thing", () => {
+    expect(readTrigger("/switch bud", 11)).toEqual({ char: "arg", query: "bud", at: 8, command: "switch" });
+    expect(readTrigger("/goto ", 6)).toEqual({ char: "arg", query: "", at: 6, command: "switch" });
+    expect(readTrigger("/approve #1", 11)).toMatchObject({ char: "arg", query: "#1", command: "approve" });
+    expect(readTrigger("/no 3", 5)).toMatchObject({ command: "deny" });
+  });
+
+  it("names the agent of a dispatch, and stops at the colon where the task starts", () => {
+    expect(readTrigger("/dispatch Til", 13)).toMatchObject({ char: "arg", query: "Til", command: "dispatch" });
+    expect(readTrigger("/dispatch Tiles: pick", 21)).toBeNull();
+  });
+
+  it("is nothing for a command that takes prose, or none", () => {
+    expect(readTrigger("/rename Budget", 14)).toBeNull();
+    expect(readTrigger("/status ", 8)).toBeNull();
+    expect(readTrigger("/brief keep it short", 20)).toBeNull();
+  });
+
+  it("replaces only the argument when picked", () => {
+    const trigger = readTrigger("/switch bud", 11)!;
+    expect(applySuggestion("/switch bud", trigger, { insert: "Budget review", label: "Budget review", kind: "chat" })).toEqual({
+      text: "/switch Budget review ",
+      caret: 22,
+    });
+    const dispatch = readTrigger("/dispatch Ti", 12)!;
+    const out = applySuggestion("/dispatch Ti", dispatch, { insert: "Tiles: ", label: "Tiles", kind: "chat", partial: true });
+    expect(out.text).toBe("/dispatch Tiles: ");
+    // The caret sits where the task goes.
+    expect(out.caret).toBe(out.text.length);
+  });
+});

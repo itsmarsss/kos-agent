@@ -41,3 +41,13 @@ export type { Site } from "./sites/server.js";
 export { createDefaultRouter } from "./models/router.js";
 export { installModule, updateModule, removeModule, originOf, isGitSource, nameFromSource, type InstalledModule } from "./modules/install.js";
 export { readWorkspaceModules, MODULES_DIR } from "./modules/workspace.js";
+export {
+  MCP_CONFIG_FILE,
+  readMcpConfig,
+  removeMcpServer,
+  serversFromJson,
+  setMcpServerEnabled,
+  upsertMcpServers,
+  type McpServerConfig,
+} from "./tools/mcp.js";
+export { SettingsStore } from "./store/settings.js";

@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { m } from "motion/react";
+import { summarizeAction } from "@kos/shared";
 
 import { ease, spring } from "./motion.js";
 
 import { api, type BuildRecord, type PendingAction } from "./api.js";
+import { ChevronDown, ChevronRight } from "./icons.js";
 import { Decision } from "./Decision.js";
 
 /**
@@ -76,7 +78,7 @@ function Line({
         {detailed ? (
           <button type="button" className="term-open" onClick={() => setOpen((v) => !v)}>
             <span className="term-text">{body}</span>
-            <span className="term-caret">{open ? "▾" : "▸"}</span>
+            <span className="term-caret">{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
           </button>
         ) : (
           <span className="term-text">{body}</span>
@@ -356,7 +358,10 @@ export function AgentTerminal({
           <div className="term-asks">
             {waiting.map((a) => (
               <div className="term-ask" key={a.id}>
-                <span className="term-ask-text">{a.reason ?? a.tool}</span>
+                <span className="term-ask-text">
+                  <code>{a.tool}</code> {summarizeAction(a.tool, a.args)}
+                  {a.reason && <span className="term-ask-why"> · {a.reason}</span>}
+                </span>
                 <Decision id={a.id} deciding={deciding} onDecide={onDecide} small />
               </div>
             ))}

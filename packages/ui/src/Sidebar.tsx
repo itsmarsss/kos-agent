@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 
 import type { Status } from "./api.js";
 import { hrefFor, NAV, navActive, type Route } from "./routes.js";
-import { NavIcon } from "./icons.js";
+import { NavIcon, ChevronLeft, ChevronRight } from "./icons.js";
 import { useDismiss } from "./useDismiss.js";
 
 /**
@@ -24,6 +24,7 @@ export function Sidebar({
   inboxCount,
   busy,
   onSearch,
+  onAsk,
   onRefresh,
   onSnapshot,
   onOpenWorkspace,
@@ -37,6 +38,8 @@ export function Sidebar({
   /** What the shell is doing right now, if anything. */
   busy: string | null;
   onSearch: () => void;
+  /** Toggle the quick-question window (the floating aside about the open chat). */
+  onAsk: () => void;
   onRefresh: () => void;
   onSnapshot: () => void;
   onOpenWorkspace: () => void;
@@ -110,7 +113,7 @@ export function Sidebar({
             title={railed ? "Expand" : "Collapse"}
             onClick={() => setRailed((v) => !v)}
           >
-            {railed ? "»" : "«"}
+            {railed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           </button>
         </div>
         <nav className="side-nav">
@@ -135,6 +138,16 @@ export function Sidebar({
             <NavIcon name="search" />
             <span className="side-label">Search</span>
             <kbd>⌘K</kbd>
+          </button>
+          <button
+            type="button"
+            className="side-link side-search"
+            onClick={onAsk}
+            title="Quick question about the open chat"
+          >
+            <NavIcon name="ask" />
+            <span className="side-label">Quick question</span>
+            <kbd>⌘⇧K</kbd>
           </button>
           <a
             href={hrefFor({ name: "settings" })}

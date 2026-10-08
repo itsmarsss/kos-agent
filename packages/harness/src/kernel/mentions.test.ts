@@ -95,6 +95,38 @@ describe("findMentions", () => {
     );
   });
 
+  it("puts the project's own things first when asked from inside it", () => {
+    mkdirSync(join(root, "projects", "kitchen"), { recursive: true });
+    writeFileSync(join(root, "projects", "kitchen", "plan.md"), "x");
+    mkdirSync(join(root, "projects", "garden"), { recursive: true });
+    writeFileSync(join(root, "projects", "garden", "plan.md"), "x");
+    const src = {
+      ...sources(),
+      projects: [
+        { slug: "garden", name: "Garden", type: "tasks" },
+        { slug: "kitchen", name: "Kitchen", type: "tasks" },
+      ],
+      pages: [
+        { id: "garden-board", title: "Board", projectSlug: "garden" },
+        { id: "kitchen-board", title: "Board", projectSlug: "kitchen" },
+      ],
+      chats: [
+        { id: "c1", title: "Tiles", projectSlug: "garden" },
+        { id: "c2", title: "Tiles", projectSlug: "kitchen" },
+        { id: "c3", title: "Tiles", projectSlug: null },
+      ],
+    };
+    // Ties everywhere; the project asked for breaks every one of them.
+    expect(findMentions(src, "plan", 12, undefined, "kitchen")[0]?.id).toBe("projects/kitchen/plan.md");
+    expect(findMentions(src, "board", 12, "page", "kitchen")[0]?.id).toBe("kitchen-board");
+    expect(findMentions(src, "tiles", 12, "chat", "kitchen")[0]?.id).toBe("c2");
+    expect(findMentions(src, "", 12, "project", "kitchen")[0]?.id).toBe("kitchen");
+    // Without a project the order is the index's own.
+    expect(findMentions(src, "plan", 12)[0]?.id).toBe("projects/garden/plan.md");
+    // Whose it is stays internal.
+    expect(Object.keys(findMentions(src, "plan", 1, undefined, "kitchen")[0]!)).not.toContain("of");
+  });
+
   it("leaves machinery out of the picker", () => {
     // A Python venv or a node_modules alone is enough to bury everything the
     // owner might actually be reaching for.

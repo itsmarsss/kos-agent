@@ -55,6 +55,7 @@ import { Workspace } from "../store/workspace.js";
 import { InstanceConfig } from "../systems/config.js";
 import { ProjectManifest } from "../systems/manifest.js";
 import { describeActive } from "../systems/schema.js";
+import { caller } from "./caller.js";
 import {
   deleteProject as cascadeDeleteProject,
   type DeleteProjectResult,
@@ -84,9 +85,10 @@ import { type Profile } from "./profile.js";
 import { SessionStore, cronSessionId } from "./session.js";
 import { ConversationStore, type Conversation, projectConversationId } from "./conversations.js";
 import {
+  needsKernel,
   parseChatCommand,
+  resolveConversation,
   runChatCommand,
-  touchesHistory,
   type ChatCommand,
   type CommandResult,
 } from "./chatcommands.js";
@@ -265,6 +267,14 @@ export class Kernel {
    */
   /** The conversation currently running a turn, for memory attribution. */
   currentConversationId: string | undefined;
+  /**
+   * The conversation making the current tool call, else the current turn's.
+   * Inside a handler the toolbox has entered the caller store, so this holds
+   * under concurrent lanes; outside one it is the turn's own field, as before.
+   */
+  get callerConversationId(): string | undefined {
+    return caller.getStore() ?? this.currentConversationId;
+  }
 
   /**
    * Conversations with a turn in flight right now.
@@ -506,6 +516,14 @@ export class Kernel {
       allow?: string[];
       /** Files the owner attached to this message. */
       attachments?: Attachment[];
+      /**
+       * An aside (/btw): answer with this conversation's history as context,
+       * but record nothing into it. Pair with noSession and a sessionId of
+       * the form aside:<id> so the live view streams under its own key.
+       */
+      contextFrom?: string;
+      /** Earlier asides in this side thread, so a follow-up keeps its context. */
+      priorTurns?: ModelMessage[];
     } = {},
   ): Promise<HandleResult> {
     if (this.killSwitch.halted) {
@@ -556,6 +574,9 @@ export class Kernel {
       maxIterations?: number;
       /** Which model class answers; the reasoning route unless a job says cheap. */
       task?: Task;
+      /** An aside: borrow this chat's history and identity, record nothing. */
+      contextFrom?: string;
+      priorTurns?: ModelMessage[];
     },
   ): Promise<HandleResult> {
     {
@@ -569,7 +590,11 @@ export class Kernel {
       let suspended = false;
       try {
         // A conversation may be a scoped agent: its own brief, its own reach.
-        const conversation = this.conversations.get(sessionId);
+        // An aside has no conversation of its own: it borrows the identity
+        // (brief, tool scope, project) of the chat it is asked about.
+        const conversation =
+          this.conversations.get(sessionId) ??
+          (opts.contextFrom ? this.conversations.get(opts.contextFrom) : undefined);
         /*
          * Told the first time a call in this turn suspends on the owner, so
          * the caller can be answered while the turn itself keeps waiting.
@@ -632,7 +657,24 @@ export class Kernel {
         // The scope goes last, after the brief: a brief tells the agent what
         // it is for, and the two conflict exactly when the owner asks for
         // something the brief covers and the scope does not.
-        const extra = [formatting, conversation?.brief, scopeNote]
+        // An aside has no tools, and the model should know that up front:
+        // without this the SDK engine narrated attempts at its built-ins and
+        // their refusals instead of just answering.
+        // Any tool-less, unrecorded turn is an aside, with or without a chat
+        // behind it; the global one (no chat open) needs the note just as much.
+        const isAside = opts.noSession === true && opts.allow !== undefined && opts.allow.length === 0;
+        const asideNote = isAside
+          ? [
+              "This is a quick side question",
+              opts.contextFrom !== undefined
+                ? " about the conversation above, asked without adding to it."
+                : ".",
+              " You have no tools this turn, by design: answer from ",
+              opts.contextFrom !== undefined ? "the conversation and " : "",
+              "what you know, briefly. Do not try to run, read, query or look anything up, and do not describe tool attempts or ask for approvals; if something cannot be known without looking, say so in one line.",
+            ].join("")
+          : null;
+        const extra = [formatting, conversation?.brief, scopeNote, asideNote]
           .filter((part): part is string => Boolean(part && part.trim()))
           .join("\n\n");
         const projects = this.manifest.list();
@@ -689,6 +731,15 @@ export class Kernel {
             sessionId,
             ...(opts.origin === "system" ? [] : [text]),
           );
+        } else if (opts.contextFrom) {
+          // An aside: the model sees the context chat's history and any
+          // earlier asides, but nothing is recorded anywhere. The main thread
+          // never learns the question was asked.
+          input = [
+            ...this.sessions.historyForPrompt(opts.contextFrom),
+            ...(opts.priorTurns ?? []),
+            { role: "user", content: sentContent },
+          ];
         } else if (sentContent.length > 1) {
           input = [{ role: "user", content: sentContent }];
         }
@@ -710,7 +761,15 @@ export class Kernel {
           const controller = this.abortFor(sessionId);
           const sdkRun = runSdkChat({
             signal: controller.signal,
-            prompt: priorForSdk(this.sessions.historyForPrompt(sessionId), text),
+            // An aside reads the context chat's history (plus its own earlier
+            // asides) rather than its empty session, same as the API path.
+            prompt: priorForSdk(
+              [
+                ...this.sessions.historyForPrompt(opts.contextFrom ?? sessionId),
+                ...(opts.priorTurns ?? []),
+              ],
+              text,
+            ),
             // The turn's own pictures, which a prompt string cannot carry.
             ...(opts.attachments?.length
               ? { attachments: opts.attachments }
@@ -1353,44 +1412,186 @@ export class Kernel {
    * conversation behaviour without implementing any of it.
    */
   /**
-   * `/compact` and `/clear`: the two commands that act on a conversation's
-   * history rather than on the list of conversations.
+   * The commands that need the kernel: a chat's history (`/compact`,
+   * `/clear`, `/fork`, `/retry`), a running turn (`/stop`), the approval
+   * queue (`/approve`, `/deny`, `/status`), other threads (`/agents`,
+   * `/dispatch`) or the manifest (`/project`).
    *
    * They live here rather than in the command table because that table is pure
-   * bookkeeping over the conversation store, and compacting needs the session
-   * history and a model call.
+   * bookkeeping over the conversation store, and these reach what the kernel
+   * runs. Anything else is handed back to that table.
    */
-  async runHistoryCommand(
+  async runKernelCommand(
     command: ChatCommand,
     conversationId: string,
-  ): Promise<string> {
+    userId: string,
+    channel: string,
+  ): Promise<CommandResult> {
     const history = this.sessions.get(conversationId);
+    const current = this.conversations.get(conversationId);
 
-    if (command.kind === "clear") {
-      if (history.length === 0) return "Nothing to forget; this chat is empty.";
-      this.sessions.clear(conversationId);
-      // Careful about what this actually promises. Clearing drops the
-      // transcript, not anything saved to memory, and saved facts are recalled
-      // into later turns: the first version of this said "I no longer remember
-      // what was in it" and was then able to recite a fact from the cleared
-      // chat, which is a worse answer than saying nothing.
-      return [
-        `Forgotten ${history.length} message${history.length === 1 ? "" : "s"} of this chat's history.`,
-        "Anything saved to memory stays, and I will still recall it. Knowledge lists those.",
-      ].join(" ");
-    }
+    switch (command.kind) {
+      case "clear": {
+        if (history.length === 0) return { reply: "Nothing to forget; this chat is empty." };
+        this.sessions.clear(conversationId);
+        // Careful about what this actually promises. Clearing drops the
+        // transcript, not anything saved to memory, and saved facts are
+        // recalled into later turns: the first version of this said "I no
+        // longer remember what was in it" and was then able to recite a fact
+        // from the cleared chat, which is a worse answer than saying nothing.
+        return {
+          reply: [
+            `Forgotten ${history.length} message${history.length === 1 ? "" : "s"} of this chat's history.`,
+            "Anything saved to memory stays, and I will still recall it. Knowledge lists those.",
+          ].join(" "),
+        };
+      }
 
-    if (history.length === 0) return "Nothing to compact; this chat is empty.";
-    const result = await compactHistory(this.inference, history);
-    if (!result) {
-      return "Not enough here to be worth compacting yet.";
+      case "compact": {
+        if (history.length === 0) return { reply: "Nothing to compact; this chat is empty." };
+        const result = await compactHistory(this.inference, history);
+        if (!result) return { reply: "Not enough here to be worth compacting yet." };
+        this.sessions.set(conversationId, result.messages);
+        return {
+          reply: [
+            `Compacted ${result.compacted} messages into a summary. Here is what I kept:`,
+            "",
+            result.summary,
+          ].join("\n"),
+        };
+      }
+
+      case "fork": {
+        if (!current) return { reply: "Nothing to fork." };
+        const fork = this.forkOf(current, command.title ?? `${current.title} (fork)`, channel);
+        this.sessions.set(fork.id, history);
+        this.conversations.touch(fork.id);
+        this.conversations.setActive(channel, userId, fork.id);
+        return { reply: `Forked into “${fork.title}”, history and all. Now on it.`, switchedTo: fork.id };
+      }
+
+      case "retry": {
+        // The last thing the owner said, by its position among what they said.
+        const said = history.filter(
+          (m) => m.role === "user" && m.content.some((b) => b.type === "text" || b.type === "file" || b.type === "image"),
+        ).length;
+        if (said === 0) return { reply: "Nothing to retry; this chat is empty." };
+        if (this.busyConversations().includes(conversationId)) {
+          return { reply: "A turn is still running here. `/stop` it first, or wait." };
+        }
+        // Not awaited: a retry is a whole turn, and the surface watches it
+        // run the way it watches any other.
+        void this.rewind(conversationId, said - 1).catch((err: unknown) => {
+          console.error(`retry in ${conversationId}: ${err instanceof Error ? err.message : String(err)}`);
+        });
+        return { reply: "Asking it again." };
+      }
+
+      case "stop":
+        return { reply: this.stop(conversationId) ? "Stopping this turn." : "Nothing is running here." };
+
+      case "agents": {
+        const slug = current?.projectSlug ?? null;
+        const agents = this.conversations
+          .list(userId)
+          .filter((c) => c.projectSlug && !c.id.startsWith("project:") && (!slug || c.projectSlug === slug));
+        if (agents.length === 0) {
+          return { reply: slug ? "No agents in this project yet. `/agent` starts one." : "No agents in any project yet." };
+        }
+        const busy = new Set(this.busyConversations());
+        const waiting = new Set(this.approvals.pending().map((a) => a.conversationId));
+        const state = (c: Conversation): string =>
+          busy.has(c.id) ? "working" : waiting.has(c.id) ? "needs you" : "idle";
+        const name = (c: Conversation): string =>
+          slug ? c.title : `${c.title} (${this.manifest.get(c.projectSlug ?? "")?.name ?? c.projectSlug})`;
+        return {
+          reply: [
+            `${agents.length} agent${agents.length === 1 ? "" : "s"}${slug ? " in this project" : ""}:`,
+            ...agents.map((c, i) => `${i + 1}. ${name(c)} — ${state(c)}${c.id === conversationId ? " ← here" : ""}`),
+            "",
+            "`/switch <title>` opens one; `/dispatch <agent>: <task>` hands it work.",
+          ].join("\n"),
+        };
+      }
+
+      case "dispatch": {
+        // An agent of this project by position in /agents or by title; any
+        // chat of yours by title when not in a project.
+        const slug = current?.projectSlug ?? null;
+        const pool = this.conversations
+          .list(userId)
+          .filter((c) => (slug ? c.projectSlug === slug && !c.id.startsWith("project:") : true));
+        const found = resolveConversation(pool, command.target);
+        if (!found) return { reply: `No chat matches “${command.target}”. \`/agents\` lists them.` };
+        if (found.id === conversationId) return { reply: "That is this chat. Just say it." };
+        if (this.killSwitch.halted) return { reply: "KOS is halted; nothing is dispatched until it resumes." };
+        void this.dispatchTo(found.id, command.task).catch((err: unknown) => {
+          console.error(`dispatch to ${found.id}: ${err instanceof Error ? err.message : String(err)}`);
+        });
+        return { reply: `Handed to “${found.title}”: ${command.task}` };
+      }
+
+      case "project": {
+        const made = this.standUpProject({ name: command.name, type: "project" });
+        this.conversations.setActive(channel, userId, made.conversationId);
+        return {
+          reply: `Stood up “${made.name}” (${made.slug}) with its orchestrator. Now on it: say what the project is for.`,
+          switchedTo: made.conversationId,
+        };
+      }
+
+      case "approve":
+      case "deny": {
+        const pending = this.approvals.pending();
+        const action =
+          command.id !== undefined
+            ? pending.find((a) => a.id === command.id)
+            : pending.find((a) => a.conversationId === conversationId);
+        if (!action) {
+          return {
+            reply:
+              command.id !== undefined
+                ? `Nothing is waiting as #${command.id}.`
+                : "Nothing is waiting on you in this chat. `/status` lists what is.",
+          };
+        }
+        const result =
+          command.kind === "approve" ? await this.approve(action.id, userId) : await this.deny(action.id, userId);
+        const what = `#${action.id} ${summarizeAction(action.tool, action.args)}`;
+        return { reply: result.ok ? `${command.kind === "approve" ? "Approved" : "Denied"} ${what}.` : result.message };
+      }
+
+      case "status": {
+        const busy = this.busyConversations();
+        const titles = (ids: string[]): string[] =>
+          ids.map((id) => this.conversations.get(id)?.title ?? id);
+        const pending = this.approvals.pending();
+        const here = pending.filter((a) => a.conversationId === conversationId);
+        const lines = [
+          this.killSwitch.halted ? "KOS is halted: nothing runs until it resumes." : null,
+          busy.length === 0 ? "Nothing is running." : `Running: ${titles(busy).join(", ")}.`,
+          pending.length === 0
+            ? "Nothing is waiting on you."
+            : `Waiting on you: ${pending.length} action${pending.length === 1 ? "" : "s"}${here.length ? ` (${here.length} in this chat; \`/approve\` or \`/deny\`)` : ""}.`,
+        ];
+        return { reply: lines.filter((l): l is string => l !== null).join("\n") };
+      }
+
+      default:
+        return runChatCommand(command, { conversations: this.conversations, channel, userId, currentId: conversationId });
     }
-    this.sessions.set(conversationId, result.messages);
-    return [
-      `Compacted ${result.compacted} messages into a summary. Here is what I kept:`,
-      "",
-      result.summary,
-    ].join("\n");
+  }
+
+  /** A copy of a conversation's settings under a new title, in the same project. */
+  private forkOf(source: Conversation, title: string, channel?: string): Conversation {
+    return this.conversations.create({
+      userId: source.userId,
+      title,
+      ...(channel ? { channel } : {}),
+      ...(source.brief ? { brief: source.brief } : {}),
+      ...(source.toolAllow !== null ? { toolAllow: source.toolAllow } : {}),
+      ...(source.projectSlug ? { projectSlug: source.projectSlug } : {}),
+    });
   }
 
   /**
@@ -1415,17 +1616,14 @@ export class Kernel {
     const command = parseChatCommand(text);
     if (!command) return null;
 
-    if (touchesHistory(command)) {
-      const reply = await this.runHistoryCommand(command, conversationId);
-      return { reply, halted: false, isCommand: true };
-    }
-
-    const result = runChatCommand(command, {
-      conversations: this.conversations,
-      channel,
-      userId,
-      currentId: conversationId,
-    });
+    const result = needsKernel(command)
+      ? await this.runKernelCommand(command, conversationId, userId, channel)
+      : runChatCommand(command, {
+          conversations: this.conversations,
+          channel,
+          userId,
+          currentId: conversationId,
+        });
     return {
       reply: result.reply,
       halted: false,
@@ -1449,23 +1647,16 @@ export class Kernel {
     );
 
     const command = parseChatCommand(input.text);
-    if (command && touchesHistory(command)) {
-      const result = await this.runHistoryCommand(command, conversation.id);
-      return {
-        reply: result,
-        halted: false,
-        conversationId: conversation.id,
-        isCommand: true,
-      };
-    }
     if (command) {
       // Commands are bookkeeping: no model call, no queue, no transcript entry.
-      const result: CommandResult = runChatCommand(command, {
-        conversations: this.conversations,
-        channel: input.channel,
-        userId: input.userId,
-        currentId: conversation.id,
-      });
+      const result: CommandResult = needsKernel(command)
+        ? await this.runKernelCommand(command, conversation.id, input.userId, input.channel)
+        : runChatCommand(command, {
+            conversations: this.conversations,
+            channel: input.channel,
+            userId: input.userId,
+            currentId: conversation.id,
+          });
       return {
         reply: result.reply,
         halted: false,
@@ -2253,12 +2444,7 @@ export class Kernel {
     // it again costs a model call and can come back different, which is not
     // what "fork this conversation" means.
     if (opts.forkTitle !== undefined && opts.text === undefined) {
-      const fork = this.conversations.create({
-        userId: source.userId,
-        title: opts.forkTitle || `${source.title} (fork)`,
-        ...(source.brief ? { brief: source.brief } : {}),
-        ...(source.toolAllow !== null ? { toolAllow: source.toolAllow } : {}),
-      });
+      const fork = this.forkOf(source, opts.forkTitle || `${source.title} (fork)`);
       this.sessions.set(fork.id, history);
       this.conversations.touch(fork.id);
       return {
@@ -2271,13 +2457,7 @@ export class Kernel {
 
     let target = sessionId;
     if (opts.forkTitle !== undefined) {
-      const fork = this.conversations.create({
-        userId: source.userId,
-        title: opts.forkTitle || `${source.title} (fork)`,
-        ...(source.brief ? { brief: source.brief } : {}),
-        ...(source.toolAllow !== null ? { toolAllow: source.toolAllow } : {}),
-      });
-      target = fork.id;
+      target = this.forkOf(source, opts.forkTitle || `${source.title} (fork)`).id;
     }
     this.sessions.set(target, history.slice(0, at));
 

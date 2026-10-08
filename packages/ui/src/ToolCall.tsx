@@ -2,6 +2,7 @@ import { useState, type ReactElement } from "react";
 
 import type { ChatEvent } from "./api.js";
 import { Decision } from "./Decision.js";
+import { ChevronDown, ChevronRight } from "./icons.js";
 
 /**
  * A tool call in the transcript. Collapsed it is one line saying what the
@@ -52,7 +53,7 @@ export function ToolCall({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        <span className="toolcall-caret">{open ? "▾" : "▸"}</span>
+        <span className="toolcall-caret">{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
         <code className="toolcall-name">{event.name}</code>
         <span className="toolcall-summary">{event.summary}</span>
         <span className="toolcall-state">{state}</span>
@@ -64,6 +65,9 @@ export function ToolCall({
             This needs your approval before it runs.
           </span>
           <Decision id={Number(event.pendingId)} deciding={deciding} onDecide={(id, ok, remember) => onDecide?.(String(id), ok, remember)} small />
+          {/* The arguments, in view while the decision is open: what a
+              command is, not that there is one, is what gets approved. */}
+          <pre className="toolcall-approve-args">{JSON.stringify(event.args, null, 2)}</pre>
         </div>
       )}
 

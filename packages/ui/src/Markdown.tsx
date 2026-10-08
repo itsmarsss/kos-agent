@@ -131,6 +131,8 @@ function refHref(kind: string, id: string): string {
         name: "files",
         path: `projects/${id.replace("/", "/sites/")}`,
       });
+    case "project":
+      return hrefFor({ name: "project", slug: id });
     default:
       return hrefFor({ name: "projects" });
   }
@@ -189,20 +191,32 @@ const INLINE: Array<{
   },
 ];
 
-/** Apply inline rules left to right, recursing into what each one wraps. */
+/**
+ * Apply inline rules, recursing into what each one wraps.
+ *
+ * The earliest match in the text wins, not the first rule that matches
+ * anywhere. Taking the first rule broke a bold span that held a code span:
+ * code has precedence, so it matched the backticks in the middle and split
+ * the bold around them, and the `**` were left on the page. Position decides;
+ * precedence only breaks a tie, which keeps `**x**` inside backticks literal
+ * because the code span starts first.
+ */
 function inline(text: string, keySeed = 0): ReactNode[] {
+  let best: { rule: (typeof INLINE)[number]; match: RegExpExecArray } | null = null;
   for (const rule of INLINE) {
     const match = rule.re.exec(text);
     if (!match) continue;
-    const before = text.slice(0, match.index);
-    const after = text.slice(match.index + match[0].length);
-    return [
-      ...(before ? inline(before, keySeed + 1) : []),
-      rule.render(match, keySeed),
-      ...(after ? inline(after, keySeed + 2) : []),
-    ];
+    if (!best || match.index < best.match.index) best = { rule, match };
   }
-  return [text];
+  if (!best) return [text];
+  const { rule, match } = best;
+  const before = text.slice(0, match.index);
+  const after = text.slice(match.index + match[0].length);
+  return [
+    ...(before ? inline(before, keySeed + 1) : []),
+    rule.render(match, keySeed),
+    ...(after ? inline(after, keySeed + 2) : []),
+  ];
 }
 
 interface Block {

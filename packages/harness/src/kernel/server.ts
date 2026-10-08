@@ -33,12 +33,13 @@ import {
   parseModelSettings,
 } from "../models/settings.js";
 import { conversationEvents } from "./transcript.js";
-import { listDirectory, readFile, readImage } from "./files.js";
+import { listDirectory, readFile, readImage, type DirEntry } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
 import { readSkills } from "../skills/manifest.js";
 import { importPage, listPages, readPage } from "../memory/pages.js";
-import { applyResolution } from "../memory/resolve.js";
+import { applyResolution, describeReview } from "../memory/resolve.js";
+import type { ReviewItem } from "../memory/review.js";
 import { mayRead } from "../memory/callers.js";
 import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
 import { MODULES_KEY, parseModuleSettings, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
@@ -46,7 +47,15 @@ import { instantiateBlueprint } from "../modules/blueprint.js";
 import { installModule, originOf, removeModule, updateModule } from "../modules/install.js";
 import { isBuiltinFeature } from "../modules/builtins.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillEnabled } from "../skills/settings.js";
-import { conversationKind } from "./conversations.js";
+import {
+  conversationKind,
+  projectConversationId,
+  type Conversation,
+  type ConversationKind,
+} from "./conversations.js";
+import { parseUpload, writeProjectFile } from "./uploads.js";
+import { installSkill, removeSkill, updateSkill } from "../skills/install.js";
+import { readMcpConfig, removeMcpServer, serversFromJson, setMcpServerEnabled, upsertMcpServers } from "../tools/mcp.js";
 import { proxyToDaemon } from "../daemons/proxy.js";
 import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId } from "./session.js";
 
@@ -141,6 +150,50 @@ const WRITE_CAPABLE = new Set(["list", "card", "form"]);
  */
 const HOOKS_PREFIX = "/api/hooks/";
 const CALLER_PREFIX = "/api/caller/";
+const PROJECTS_PREFIX = "/api/projects/";
+
+/** `/api/projects/<slug>/<action>`, the routes that act on one project. */
+function projectRoute(path: string): { slug: string; action: string } | undefined {
+  if (!path.startsWith(PROJECTS_PREFIX)) return undefined;
+  const parts = path.slice(PROJECTS_PREFIX.length).split("/");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return undefined;
+  return { slug: decodeURIComponent(parts[0]), action: parts[1] };
+}
+
+type Activity = "working" | "needs-you" | "idle";
+
+/**
+ * A conversation as the dashboard lists it: what it is, so the list can
+ * group it and refuse to rename what is not the owner's, and what it is
+ * doing. Without the second a thread mid-turn or sitting on an approval
+ * looks exactly like one with nothing happening, and the only way to find
+ * out was to open it.
+ */
+function conversationLabeller(
+  kernel: Kernel,
+): (c: Conversation) => Conversation & { kind: ConversationKind; activity: Activity } {
+  const busy = new Set(kernel.busyConversations());
+  const waiting = new Set(
+    kernel.approvals
+      .pending()
+      .map((a) => a.conversationId)
+      .filter((id): id is string => typeof id === "string"),
+  );
+  return (c) => ({
+    ...c,
+    kind: conversationKind(c, kernel.profile.ownerId),
+    activity: busy.has(c.id) ? "working" : waiting.has(c.id) ? "needs-you" : "idle",
+  });
+}
+
+/** The top of a project's folder. A project with no folder yet has no files, not an error. */
+function projectFiles(kernel: Kernel, slug: string): DirEntry[] {
+  try {
+    return listDirectory(kernel.workspace, `${PROJECTS_DIR}/${slug}`);
+  } catch {
+    return [];
+  }
+}
 
 /** Every module the workspace has, with whether it is on and whether its server came up. */
 function modulesReport(kernel: Kernel): {
@@ -556,10 +609,116 @@ export async function handleApiRequest(
   if (method === "GET" && path === "/api/skills") {
     const { skills, invalid } = readSkills(kernel.workspace);
     const off = new Set(parseSkillSettings(kernel.settings.get(SKILLS_KEY)).disabled);
-    return ok({
-      skills: skills.map((s) => ({ ...s.manifest, file: s.file, enabled: !off.has(s.manifest.name) })),
-      invalid,
-    });
+    // Where each came from, for the ones that came from a repository.
+    const listed = await Promise.all(
+      skills.map(async (s) => ({
+        ...s.manifest,
+        file: s.file,
+        enabled: !off.has(s.manifest.name),
+        origin: await originOf(kernel.workspace.resolve(s.dir)),
+      })),
+    );
+    return ok({ skills: listed, invalid });
+  }
+
+  /** A skill from a git URL or a folder, switched off until the owner says. */
+  if (method === "POST" && path === "/api/skills/install") {
+    const source = typeof body.source === "string" ? body.source.trim() : "";
+    if (!source) return { status: 400, body: { error: "source required: a git URL or a folder" } };
+    try {
+      const made = await installSkill(kernel.workspace, source, typeof body.name === "string" && body.name.trim() ? { name: body.name.trim() } : {});
+      // Off on arrival, like a module: outside code and outside instructions
+      // alike wait for the owner to switch them on.
+      kernel.settings.set(SKILLS_KEY, withSkillEnabled(parseSkillSettings(kernel.settings.get(SKILLS_KEY)), made.name, false));
+      return ok({ installed: made.name, dir: made.dir, kind: made.manifest.kind, origin: made.origin });
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  if (method === "POST" && path === "/api/skills/update") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (!name) return { status: 400, body: { error: "name required" } };
+    try {
+      const made = await updateSkill(kernel.workspace, name);
+      return ok({ updated: made.name, origin: made.origin });
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  if (method === "POST" && path === "/api/skills/remove") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (!name) return { status: 400, body: { error: "name required" } };
+    try {
+      removeSkill(kernel.workspace, name);
+      // Its switch goes with it, so a later skill of the same name starts fresh.
+      kernel.settings.set(SKILLS_KEY, withSkillEnabled(parseSkillSettings(kernel.settings.get(SKILLS_KEY)), name, true));
+      return ok({ removed: name });
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  /*
+   * Servers in mcp.json, with whether each is up. The file is the owner's;
+   * these routes edit it the way the owner would, then bring the live set
+   * in line, so a server added here is answering before the reply is.
+   */
+  if (method === "GET" && path === "/api/mcp") {
+    const status = kernel.mcp.status();
+    const servers = Object.entries(readMcpConfig(kernel.workspace.root).servers).map(([name, s]) => ({
+      name,
+      transport: s.command ? "stdio" : "http",
+      command: s.command ? [s.command, ...(s.args ?? [])].join(" ") : (s.url ?? ""),
+      enabled: s.enabled !== false,
+      risk: s.risk ?? "risky",
+      floors: s.tools ?? {},
+      projects: s.projects ?? [],
+      ...(status[name] ?? {}),
+    }));
+    return ok({ servers });
+  }
+
+  /** One or more servers: a config in either shape, or one server's entry under `name`. */
+  if (method === "POST" && path === "/api/mcp/add") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    let raw: unknown = body.server;
+    if (typeof body.json === "string") {
+      try {
+        raw = JSON.parse(body.json);
+      } catch {
+        return { status: 400, body: { error: "that is not JSON" } };
+      }
+    }
+    const servers = serversFromJson(raw, name || undefined);
+    if (Object.keys(servers).length === 0) {
+      return { status: 400, body: { error: "no server in that: it needs a name and a command or a url" } };
+    }
+    const added = upsertMcpServers(kernel.workspace.root, servers);
+    const status = await kernel.mcp.reload();
+    return ok({ added, status: Object.fromEntries(added.map((n) => [n, status[n] ?? { connected: false, tools: [] }])) });
+  }
+
+  if (method === "POST" && path === "/api/mcp/remove") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (!name) return { status: 400, body: { error: "name required" } };
+    if (!removeMcpServer(kernel.workspace.root, name)) return { status: 404, body: { error: `no server named ${name} in mcp.json` } };
+    await kernel.mcp.reload();
+    return ok({ removed: name });
+  }
+
+  if (method === "POST" && path === "/api/mcp/enable") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const enabled = body.enabled === true;
+    if (!name) return { status: 400, body: { error: "name required" } };
+    if (!setMcpServerEnabled(kernel.workspace.root, name, enabled)) return { status: 404, body: { error: `no server named ${name} in mcp.json` } };
+    const status = await kernel.mcp.reload();
+    return ok({ name, enabled, ...(status[name] ?? {}) });
+  }
+
+  if (method === "POST" && path === "/api/mcp/reload") {
+    return ok({ status: await kernel.mcp.reload() });
   }
 
   if (method === "POST" && path === "/api/skills/enable") {
@@ -907,6 +1066,47 @@ export async function handleApiRequest(
     return ok({ halted: kernel.killSwitch.halted });
   }
 
+  // A quick question on the side (/btw): answered with the named chat's
+  // history as context, streamed under aside:<id>, and recorded nowhere, so
+  // the chat it is about is left exactly as it was.
+  if (method === "POST" && path === "/api/aside") {
+    const text = typeof body.text === "string" ? body.text : "";
+    if (text === "") return { status: 400, body: { error: "text required" } };
+    const contextId =
+      typeof body.contextId === "string" && body.contextId.length > 0
+        ? body.contextId
+        : undefined;
+    const prior = Array.isArray(body.prior)
+      ? (body.prior as { role: string; text: string }[])
+          .filter((t) => (t.role === "user" || t.role === "assistant") && typeof t.text === "string")
+          .map((t) => ({
+            role: t.role as "user" | "assistant",
+            content: [{ type: "text" as const, text: t.text }],
+          }))
+      : [];
+    try {
+      const res = await kernel.handleMessage(text, {
+        // Keyed so the client can subscribe to the live view: aside:<chat id>,
+        // or aside:global when no chat is open.
+        sessionId: `aside:${contextId ?? "global"}`,
+        noSession: true,
+        channel: "dashboard",
+        // Purely a question: no tools and no MCP. An empty allow-list permits
+        // nothing on either engine, so the model answers from the context it
+        // was handed and cannot act on the workspace from the side.
+        allow: [],
+        ...(contextId ? { contextFrom: contextId } : {}),
+        ...(prior.length ? { priorTurns: prior } : {}),
+      });
+      return ok({ reply: res.reply });
+    } catch (err) {
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
+  }
+
   if (method === "POST" && path === "/api/message") {
     const text = typeof body.text === "string" ? body.text : "";
     if (text === "") return { status: 400, body: { error: "text required" } };
@@ -924,6 +1124,12 @@ export async function handleApiRequest(
     // different toolkits behind them.
     const attachments = parseAttachments(body.attachments);
     try {
+      // A slash command is bookkeeping, not something to ask a model about.
+      // Checked before the thread is routed: in a project's or KOS's own
+      // thread the commands used to reach the model as prose, which
+      // improvised an answer to "/status".
+      const command = await kernel.runCommandIn(sessionId, userId, text);
+      if (command) return ok(command);
       if (sessionId.startsWith("project:")) {
         return ok(
           await kernel.handleProjectTurn(sessionId.slice("project:".length), text, {
@@ -940,9 +1146,6 @@ export async function handleApiRequest(
           }),
         );
       }
-      // A slash command is bookkeeping, not something to ask a model about.
-      const command = await kernel.runCommandIn(sessionId, userId, text);
-      if (command) return ok(command);
       return ok(
         await kernel.handleMessage(text, { sessionId, userId, attachments }),
       );
@@ -981,6 +1184,13 @@ export async function handleApiRequest(
     try {
       return ok({ path: target, entries: listDirectory(kernel.workspace, target) });
     } catch (err) {
+      // A project's folder is made by the first thing written into it. Until
+      // then the project has no files, which is not an error to show over
+      // its workspace panel; anything else missing is still a wrong path.
+      const project = /^projects\/([^/]+)\/?$/.exec(target);
+      if (project?.[1] && kernel.manifest.get(project[1]) && !existsSync(kernel.workspace.resolve(target))) {
+        return ok({ path: target, entries: [] });
+      }
       return {
         status: 400,
         body: { error: err instanceof Error ? err.message : String(err) },
@@ -1332,7 +1542,8 @@ export async function handleApiRequest(
   if (method === "GET" && path === "/api/inbox") {
     return ok({
       approvals: kernel.approvals.pending(),
-      decisions: kernel.review.pending(),
+      // With what each claim says: a key alone is not something to decide on.
+      decisions: kernel.review.pending().map((i) => describeReview(kernel.facts, kernel.profile.ownerId, i)),
       failures: kernel.health.report().failing,
       suggestions: kernel.suggestions.pending(),
     });
@@ -1457,11 +1668,10 @@ export async function handleApiRequest(
     });
   }
 
-  if (method === "GET" && path.startsWith("/api/projects/") && path.endsWith("/detail")) {
-    const slug = decodeURIComponent(
-      path.slice("/api/projects/".length).replace(/\/detail$/, ""),
-    );
-    const project = kernel.manifest.list().find((p) => p.slug === slug);
+  const onProject = projectRoute(path);
+  if (onProject && method === "GET" && onProject.action === "detail") {
+    const { slug } = onProject;
+    const project = kernel.manifest.get(slug);
     if (!project) return { status: 404, body: { error: "project not found" } };
 
     // A project's tables are namespaced with its slug, so they can be found
@@ -1516,7 +1726,63 @@ export async function handleApiRequest(
       // question you open it to ask when a tracker looks wrong.
       activity: kernel.audit.touching(slug, 12),
       folder: `${PROJECTS_DIR}/${slug}`,
+      // Its agents: every thread stamped with its slug except its own
+      // orchestrator, which is the project's chat rather than work under it.
+      agents: kernel.conversations
+        .list(kernel.profile.ownerId)
+        .filter((c) => c.projectSlug === slug && c.id !== projectConversationId(slug))
+        .map(conversationLabeller(kernel)),
+      files: projectFiles(kernel, slug),
     });
+  }
+
+  /**
+   * A file the owner put in the project from its workspace page. The name
+   * is reduced to its last segment and the path goes through the jail, so
+   * the write lands in projects/<slug>/ or not at all.
+   */
+  if (onProject && method === "POST" && onProject.action === "files") {
+    const { slug } = onProject;
+    if (!kernel.manifest.get(slug)) return { status: 404, body: { error: "project not found" } };
+    try {
+      const written = writeProjectFile(kernel.workspace, slug, parseUpload(body));
+      kernel.manifest.touchProject(slug);
+      return ok(written);
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  /**
+   * An agent the owner started under a project by hand, where before only
+   * the project's orchestrator could. Same primitive as chats.create: a
+   * conversation carrying the slug, and its first task asked as the owner.
+   * The task is not awaited; the page opens the chat and watches it run.
+   */
+  if (onProject && method === "POST" && onProject.action === "agents") {
+    const { slug } = onProject;
+    if (!kernel.manifest.get(slug)) return { status: 404, body: { error: "project not found" } };
+    const title = typeof body.title === "string" ? body.title.trim() : "";
+    const brief = typeof body.brief === "string" ? body.brief.trim() : "";
+    const task = typeof body.task === "string" ? body.task.trim() : "";
+    if (task && kernel.killSwitch.halted) {
+      return { status: 409, body: { error: "KOS is halted" } };
+    }
+    // Untitled is fine: like any chat, its first message names it.
+    const created = kernel.conversations.create({
+      userId: kernel.profile.ownerId,
+      channel: "dashboard",
+      projectSlug: slug,
+      ...(title ? { title } : {}),
+      ...(brief ? { brief } : {}),
+    });
+    kernel.manifest.touchProject(slug);
+    if (task) {
+      void kernel.dispatchTo(created.id, task).catch((err: unknown) => {
+        console.error(`agent ${created.id}: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }
+    return ok({ ...conversationLabeller(kernel)(created), started: task !== "" });
   }
 
   if (method === "GET" && path === "/api/sites") {
@@ -1639,8 +1905,10 @@ export async function handleApiRequest(
     const kind = params.get("kind");
     const kinds = ["project", "page", "file", "schedule", "chat", "site", "agent"];
     // The palette and the @ menu ask the same question of the same index, so
-    // a thing reachable by one is reachable by the other.
+    // a thing reachable by one is reachable by the other. Asked from inside a
+    // project, that project's own things come first.
     const limit = clampLimit(params.get("limit"), 12);
+    const project = params.get("project") ?? undefined;
     return ok({
       mentions: findMentions(
         {
@@ -1650,7 +1918,7 @@ export async function handleApiRequest(
           workspace: kernel.workspace,
           chats: kernel.conversations
             .list(kernel.profile.ownerId)
-            .map((c) => ({ id: c.id, title: c.title })),
+            .map((c) => ({ id: c.id, title: c.title, projectSlug: c.projectSlug })),
           sites: listSites(kernel.workspace),
           agents: kernel.builds
             .list()
@@ -1659,6 +1927,7 @@ export async function handleApiRequest(
         q,
         limit,
         kind && kinds.includes(kind) ? (kind as MentionKind) : undefined,
+        project,
       ),
       commands: CHAT_COMMANDS,
     });
@@ -1670,30 +1939,10 @@ export async function handleApiRequest(
     // rather than filtered out: the owner should be able to open the thread
     // that routes their work, and the one their phone talks in. The
     // agent-facing chats.list still hides them.
-    // Each row says what it is doing. Without this a thread that is mid-turn
-    // or sitting on an approval looks exactly like one with nothing happening,
-    // and the only way to find out was to open it.
-    const busy = new Set(kernel.busyConversations());
-    const waiting = new Set(
-      kernel.approvals
-        .pending()
-        .map((a) => a.conversationId)
-        .filter((id): id is string => typeof id === "string"),
-    );
     return ok(
       kernel.conversations
         .list(kernel.profile.ownerId, { includeArchived })
-        .map((c) => ({
-          ...c,
-          // What a thread is, so the list can group them and refuse to
-          // rename what is not the owner's to rename.
-          kind: conversationKind(c, kernel.profile.ownerId),
-          activity: busy.has(c.id)
-            ? "working"
-            : waiting.has(c.id)
-              ? "needs-you"
-              : "idle",
-        })),
+        .map(conversationLabeller(kernel)),
     );
   }
 
@@ -1907,7 +2156,13 @@ export async function handleApiRequest(
 
   /** What the dream job left for the owner: open items first, then the recent resolved ones. */
   if (method === "GET" && path === "/api/memory/review") {
-    return ok({ pending: kernel.review.pending(), recent: kernel.review.recent(20), pages: listPages(kernel.workspace), edited: kernel.pageLog.edited(kernel.workspace) });
+    const describe = (i: ReviewItem): ReviewItem => describeReview(kernel.facts, kernel.profile.ownerId, i);
+    return ok({
+      pending: kernel.review.pending().map(describe),
+      recent: kernel.review.recent(20).map(describe),
+      pages: listPages(kernel.workspace),
+      edited: kernel.pageLog.edited(kernel.workspace),
+    });
   }
 
   /** The owner's answer, carried out: keep archives the other side, promote writes global. */

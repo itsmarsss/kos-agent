@@ -1,5 +1,8 @@
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -11,7 +14,12 @@ import {
   floorFor,
   mcpToolName,
   parseMcpConfig,
+  readMcpConfig,
+  removeMcpServer,
   renderContent,
+  serversFromJson,
+  setMcpServerEnabled,
+  upsertMcpServers,
   type McpConfig,
 } from "./mcp.js";
 
@@ -89,6 +97,37 @@ describe("naming and reading config", () => {
       },
     });
     expect(Object.keys(config.servers).sort()).toEqual(["http", "stdio"]);
+  });
+
+  it("reads Claude Code's shape too, so a pasted block is a config", () => {
+    const config = parseMcpConfig({ mcpServers: { browser: { command: "npx", args: ["@playwright/mcp"] } } });
+    expect(Object.keys(config.servers)).toEqual(["browser"]);
+    // One server on its own, given its name; nothing without one.
+    expect(Object.keys(serversFromJson({ command: "npx", args: ["x"] }, "x"))).toEqual(["x"]);
+    expect(serversFromJson({ command: "npx" })).toEqual({});
+    expect(serversFromJson({ mcpServers: { a: { url: "http://a/mcp" }, b: { enabled: true } } })).toEqual({
+      a: { url: "http://a/mcp" },
+    });
+  });
+
+  it("writes, adds to, switches and removes from the file", () => {
+    const root = mkdtempSync(join(tmpdir(), "kos-mcp-"));
+    try {
+      expect(readMcpConfig(root).servers).toEqual({});
+      expect(upsertMcpServers(root, { a: { command: "node", args: ["a.js"] } })).toEqual(["a"]);
+      upsertMcpServers(root, { b: { url: "http://b/mcp", risk: "safe" } });
+      expect(Object.keys(readMcpConfig(root).servers).sort()).toEqual(["a", "b"]);
+      // Our shape on disk, whatever shape came in.
+      expect(JSON.parse(readFileSync(join(root, "mcp.json"), "utf8"))).toHaveProperty("servers.b.risk", "safe");
+      expect(setMcpServerEnabled(root, "a", false)).toBe(true);
+      expect(readMcpConfig(root).servers["a"]?.enabled).toBe(false);
+      expect(setMcpServerEnabled(root, "zzz", false)).toBe(false);
+      expect(removeMcpServer(root, "a")).toBe(true);
+      expect(removeMcpServer(root, "a")).toBe(false);
+      expect(Object.keys(readMcpConfig(root).servers)).toEqual(["b"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("renders what a call produced as text the model can read", () => {

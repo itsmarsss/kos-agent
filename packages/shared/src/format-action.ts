@@ -100,6 +100,8 @@ export function summarizeAction(
       return `Start conversation “${fmtVal(a.title)}”`;
     case "chats.dispatch":
       return `Hand work to conversation ${fmtVal(a.id)}`;
+    case "chats.congregate":
+      return `Gather from ${Array.isArray(a.targets) ? a.targets.length : "several"} conversations`;
     case "pages.get":
       return `Read page ${fmtVal(a.id)}`;
     case "pages.list":
@@ -120,13 +122,50 @@ export function summarizeAction(
       return `Delete scheduled job ${fmtVal(a.id)}`;
     case "skills.run":
       return `Run skill ${fmtVal(a.entry)} for real`;
+    // The risky ones most often waiting on an approval. Each says the
+    // thing it would do, so "risky tool" is never the whole card.
+    case "shell.run":
+      return `Run: ${fmtVal(a.command)}${a.cwd ? ` (in ${fmtVal(a.cwd)})` : ""}`;
+    case "cron.run":
+      return `Run scheduled job #${fmtVal(a.id)} now`;
+    case "builds.run":
+      return `Start a coding agent in ${fmtVal(a.dir)}: ${fmtVal(a.task)}`;
+    case "daemons.create":
+      return `Create daemon “${fmtVal(a.name)}”: ${fmtVal(a.runtime)} ${fmtVal(a.entry)}${Array.isArray(a.args) && a.args.length ? ` ${fmtVal(a.args.join(" "))}` : ""}`;
+    case "daemons.start":
+      return `Start daemon #${fmtVal(a.id)}`;
+    case "daemons.stop":
+      return `Stop daemon #${fmtVal(a.id)}`;
+    case "daemons.remove":
+      return `Remove daemon #${fmtVal(a.id)}`;
+    case "daemons.logs":
+      return `Read daemon #${fmtVal(a.id)}'s log`;
+    case "systems.project_delete":
+      return `Delete project ${fmtVal(a.project)} and everything in it`;
+    case "chats.project":
+      return `Stand up project “${fmtVal(a.name)}”${a.goal ? `: ${fmtVal(a.goal)}` : ""}`;
+    case "modules.create":
+      return `Scaffold module “${fmtVal(a.name)}”`;
+    case "modules.promote":
+      return `Promote project ${fmtVal(a.project)} to a blueprint`;
+    case "modules.instantiate":
+      return `New instance “${fmtVal(a.name)}” of ${fmtVal(a.module)}`;
+    case "skills.create":
+      return `Write ${fmtVal(a.kind)} skill “${fmtVal(a.name)}”`;
+    case "skills.use":
+      return `Load skill ${fmtVal(a.name)}`;
+    case "skills.commit":
+      return `Commit skill ${fmtVal(a.name)}`;
     default:
       break;
   }
   const keys = Object.keys(a).slice(0, 3);
-  if (keys.length === 0) return tool;
+  // A server's tool, named mcp.<server>.<tool>: say whose it is.
+  const mcp = /^mcp\.([^.]+)\.(.+)$/.exec(tool);
+  const head = mcp ? `${mcp[2]} on ${mcp[1]}` : tool;
+  if (keys.length === 0) return head;
   const bits = keys.map((k) => `${k}=${fmtVal(a[k])}`).join(", ");
-  return `${tool}: ${bits}`;
+  return `${head}: ${bits}`;
 }
 
 /** Multi-line detail block for embeds / cards (key: value). */

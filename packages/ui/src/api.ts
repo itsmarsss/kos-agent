@@ -70,6 +70,25 @@ export interface SkillInfo {
   file: string;
   projects?: string[];
   enabled: boolean;
+  /** The repository it was installed from, when it was. */
+  origin?: string | null;
+}
+
+/** A server in mcp.json as the owner sees it in Settings, with whether it is up. */
+export interface McpServerInfo {
+  name: string;
+  transport: "stdio" | "http";
+  /** The command line, or the URL. */
+  command: string;
+  enabled: boolean;
+  risk: "safe" | "risky";
+  /** Floors the owner set per tool, by name or glob. */
+  floors: Record<string, "safe" | "risky">;
+  projects: string[];
+  /** Set once the server was asked to come up. */
+  connected?: boolean;
+  tools?: string[];
+  error?: string;
 }
 
 /** A module in the workspace as the owner sees it in Settings. */
@@ -96,6 +115,21 @@ export interface ModuleInfo {
 }
 
 /** Something the dream job left for the owner to decide. */
+/** One claim a review item is about: what it says, and how much it is leaned on. */
+export interface ReviewClaim {
+  /** As the item lists it: global/city. */
+  qualified: string;
+  scope: string;
+  key: string;
+  /** Absent when the claim is gone already. */
+  value?: string;
+  kind?: string;
+  trust?: string;
+  useCount?: number;
+  lastUsedAt?: number | null;
+  createdAt?: number;
+}
+
 export interface ReviewItem {
   id: number;
   kind: "contradiction" | "promotion" | "other";
@@ -104,6 +138,8 @@ export interface ReviewItem {
   createdAt: number;
   resolvedAt: number | null;
   resolution: string | null;
+  /** The claims looked up, in the order of `keys`. */
+  claims?: ReviewClaim[];
 }
 
 /** Another program that shares memory, within a grant. */
@@ -519,6 +555,10 @@ export interface ProjectDetail {
   /** Recent tool calls that mention this project, newest first. */
   activity: AuditRecord[];
   folder: string;
+  /** Threads working under the project; its own orchestrator is not one. */
+  agents: Conversation[];
+  /** The top of the project's folder. */
+  files: DirEntry[];
 }
 
 export interface SiteInfo {
@@ -612,6 +652,21 @@ export const api = {
   setProjectStatus: (slug: string, status: string) =>
     post<Project>("/api/projects/status", { slug, status }),
   skills: () => get<{ skills: SkillInfo[]; invalid: { name: string; reason: string }[] }>("/api/skills"),
+  /** A skill from a git URL or a folder: KOS's own shape, or a Claude Code SKILL.md. Off until switched on. */
+  installSkill: (source: string, name?: string) =>
+    post<{ installed: string; dir: string; kind: "script" | "prompt"; origin: string | null }>("/api/skills/install", {
+      source,
+      ...(name ? { name } : {}),
+    }),
+  updateSkill: (name: string) => post<{ updated: string; origin: string | null }>("/api/skills/update", { name }),
+  removeSkill: (name: string) => post<{ removed: string }>("/api/skills/remove", { name }),
+  mcpServers: () => get<{ servers: McpServerInfo[] }>("/api/mcp"),
+  /** One server by name, or a pasted config in KOS's or Claude Code's shape. */
+  addMcpServer: (input: { name?: string; server?: Record<string, unknown>; json?: string }) =>
+    post<{ added: string[]; status: Record<string, { connected: boolean; tools: string[]; error?: string }> }>("/api/mcp/add", input),
+  removeMcpServer: (name: string) => post<{ removed: string }>("/api/mcp/remove", { name }),
+  setMcpServerEnabled: (name: string, enabled: boolean) =>
+    post<{ name: string; enabled: boolean; connected?: boolean; tools?: string[]; error?: string }>("/api/mcp/enable", { name, enabled }),
   setSkillEnabled: (name: string, enabled: boolean) =>
     post<{ name: string; enabled: boolean }>("/api/skills/enable", { name, enabled }),
   modules: () => get<{ modules: ModuleInfo[]; invalid: { name: string; reason: string }[]; builtins?: BuiltinInfo[] }>("/api/modules"),
@@ -674,6 +729,18 @@ export const api = {
     get<Conversation[]>(
       includeArchived ? "/api/conversations?archived=1" : "/api/conversations",
     ),
+  /**
+   * A quick question on the side (/btw). Answered with the given chat's
+   * history as context and streamed under aside:<contextId>; nothing is
+   * recorded into that chat. `prior` carries this side thread's earlier
+   * exchanges so a follow-up keeps its context.
+   */
+  aside: (text: string, contextId?: string, prior?: { role: "user" | "assistant"; text: string }[]) =>
+    post<{ reply: string }>("/api/aside", {
+      text,
+      ...(contextId ? { contextId } : {}),
+      ...(prior?.length ? { prior } : {}),
+    }),
   orchestrator: (text: string, attachments?: Attachment[]) =>
     post<{ reply: string; conversationId: string }>("/api/orchestrator", {
       text,
@@ -772,6 +839,27 @@ export const api = {
     post<{ written: string[]; cleared: string[] }>("/api/settings", { values }),
   projectDetail: (slug: string) =>
     get<ProjectDetail>(`/api/projects/${encodeURIComponent(slug)}/detail`),
+  /**
+   * Put a file in the project's folder, or a folder inside it. The name is
+   * kept to its last segment; the folder must stay inside the project.
+   */
+  uploadProjectFile: (slug: string, file: Attachment, dir = "") =>
+    post<{ path: string; size: number }>(
+      `/api/projects/${encodeURIComponent(slug)}/files`,
+      { ...file, dir },
+    ),
+  /**
+   * Start an agent under the project. Untitled, its first message names it;
+   * a task, when given, is asked at once.
+   */
+  createProjectAgent: (
+    slug: string,
+    input: { title?: string; brief?: string; task?: string } = {},
+  ) =>
+    post<Conversation & { started: boolean }>(
+      `/api/projects/${encodeURIComponent(slug)}/agents`,
+      input,
+    ),
   sites: () =>
     get<{ base: string | null; sites: SiteInfo[] }>("/api/sites"),
   openWorkspace: () => post<{ opened: string }>("/api/workspace/open", {}),
@@ -787,14 +875,16 @@ export const api = {
   /** A project's own chat, made on first use so it can be opened before it is spoken to. */
   projectChat: (slug: string) => post<Conversation>("/api/projects/chat", { slug }),
   folders: () => get<{ folders: string[] }>("/api/folders"),
-  mentions: (q: string, kind?: string, limit?: number) =>
+  /** Things to point at. With `project`, that project's own come first. */
+  mentions: (q: string, kind?: string, limit?: number, project?: string) =>
     get<{
       mentions: { kind: string; id: string; label: string; hint?: string }[];
       commands: { name: string; args?: string; description: string }[];
     }>(
       `/api/mentions?q=${encodeURIComponent(q)}` +
         (kind ? `&kind=${encodeURIComponent(kind)}` : "") +
-        (limit ? `&limit=${limit}` : ""),
+        (limit ? `&limit=${limit}` : "") +
+        (project ? `&project=${encodeURIComponent(project)}` : ""),
     ),
   stopConversation: (sessionId: string) =>
     post<{ stopping: boolean }>("/api/conversations/stop", { sessionId }),

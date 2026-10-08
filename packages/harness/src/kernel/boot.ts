@@ -42,6 +42,7 @@ import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
 import { createHttpModule } from "../tools/http.js";
 import { createMcpModule, readMcpConfig } from "../tools/mcp.js";
+import { adoptFixes } from "./caretaker.js";
 import { createModulesModule } from "../tools/modules.js";
 import { EventBus } from "../modules/events.js";
 import { MODULES_KEY, enabledServers, parseModuleSettings } from "../modules/workspace.js";
@@ -213,6 +214,9 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   });
   const sessions = new SessionStore(workspace.db);
   const conversations = new ConversationStore(workspace.db);
+  // Repairs have a project of their own; fix chats from before it have to
+  // be found there too, not among the owner's chats.
+  adoptFixes(manifest, conversations, profile.ownerId);
   const facts = new FactsStore(workspace.db);
   const review = new ReviewQueue(workspace.db);
   const suggestions = new SuggestionStore(workspace.db);
@@ -246,7 +250,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
        */
       const open =
         payload.target.kind === "owner" && !payload.target.surface
-          ? kernelRef?.replySurfaceFor(kernelRef.currentConversationId)
+          ? kernelRef?.replySurfaceFor(kernelRef.callerConversationId)
           : undefined;
       if (open) {
         await open({
@@ -291,7 +295,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
         presses.register({
           conversationId:
             replyTo ??
-            kernelRef?.currentConversationId ??
+            kernelRef?.callerConversationId ??
             primarySessionId(profile.ownerId),
           buttonId: button.id,
           label: button.label,
@@ -336,12 +340,12 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       approvals,
       registry: builds,
       userId: profile.ownerId,
-      currentConversationId: () => kernelRef?.currentConversationId,
+      currentConversationId: () => kernelRef?.callerConversationId,
       // A build runs for minutes inside one tool call. Its narration goes
       // out on the reasoning stream, which is already where a reader looks
       // to see what is happening rather than whether it has hung.
       onEvent: (event) => {
-        const conversationId = kernelRef?.currentConversationId;
+        const conversationId = kernelRef?.callerConversationId;
         if (!conversationId) return;
         kernelRef?.progress.emit({
           kind: "delta",
@@ -373,7 +377,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
         kernelRef?.caretaker.tell(summary);
       },
       frame: (phase) => {
-        const conversationId = kernelRef?.currentConversationId;
+        const conversationId = kernelRef?.callerConversationId;
         if (!conversationId) return;
         kernelRef?.progress.emit({
           kind: phase === "start" ? "turn-start" : "turn-end",
@@ -397,7 +401,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       // The project the writing conversation belongs to, so a claim made
       // inside a project chat lands in that project's scope by default.
       currentProject: () => {
-        const id = kernelRef?.currentConversationId;
+        const id = kernelRef?.callerConversationId;
         return id ? (conversations.get(id)?.projectSlug ?? undefined) : undefined;
       },
       review,
@@ -415,7 +419,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       },
       // Attributed to the conversation that wrote it, so the owner can see
       // which agent believed what.
-      currentSource: () => kernelRef?.currentConversationId ?? "agent",
+      currentSource: () => kernelRef?.callerConversationId ?? "agent",
     }),
     createChatsModule({
       conversations,
@@ -423,11 +427,11 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       ownerId: profile.ownerId,
       // Bound late: the kernel does not exist yet while modules are built.
       dispatch: (id, text) => kernelRef!.dispatchTo(id, text),
-      currentConversationId: () => kernelRef?.currentConversationId,
+      currentConversationId: () => kernelRef?.callerConversationId,
       // Which project the caller belongs to, so a project orchestrator sees
       // its own project and nothing else.
       scope: () => {
-        const id = kernelRef?.currentConversationId;
+        const id = kernelRef?.callerConversationId;
         return (id && conversations.get(id)?.projectSlug) || undefined;
       },
       // The answer lands as a note in the chat that delegated, and is told
@@ -443,6 +447,12 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
         }
         kernelRef?.caretaker.tell(summary);
       },
+      // The roster of a fan-out, shown in the chat that asked while it waits.
+      onCongregation: (from, members) => {
+        kernelRef?.progress.emit({ kind: "congregation", conversationId: from, members });
+      },
+      // A member is an agent's turn, so it gets the time an agent gets.
+      congregationTimeoutMs: () => (kernelRef?.behaviour().agentMinutes ?? 15) * 60_000,
       // KOS at the root stands up a project and its orchestrator with this.
       standUpProject: (input) => kernelRef!.standUpProject(input),
       // It should not offer you its own thread as somewhere to put work.
@@ -520,7 +530,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
    * rather than a message in it.
    */
   sessions.watch((dropped, kept) => {
-    const id = kernelRef?.currentConversationId;
+    const id = kernelRef?.callerConversationId;
     if (!id) return;
     kernelRef?.progress.emit({
       kind: "note",
@@ -545,7 +555,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   if (router) {
     router.onUsage = (event) => {
       spend.record({
-        conversationId: kernelRef?.currentConversationId ?? null,
+        conversationId: kernelRef?.callerConversationId ?? null,
         task: event.task,
         provider: event.provider,
         model: event.model,

@@ -1,7 +1,7 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Inference } from "../agent/loop.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
@@ -130,6 +130,58 @@ describe("handleApiRequest", () => {
     const gone = await handleApiRequest(kernel, { method: "POST", path: "/api/modules/remove", body: { name: "weather" } });
     expect(gone.body).toEqual({ removed: "weather" });
     rmSync(src, { recursive: true, force: true });
+  });
+
+  it("installs a skill from a folder, off until switched on, and removes it", async () => {
+    const src = mkdtempSync(join(tmpdir(), "kos-skillsrc-"));
+    writeFileSync(join(src, "SKILL.md"), "---\nname: receipts\ndescription: File receipts.\n---\nSteps.", "utf8");
+    const made = await handleApiRequest(kernel, { method: "POST", path: "/api/skills/install", body: { source: src } });
+    expect(made.body).toMatchObject({ installed: "receipts", kind: "prompt", origin: null });
+    const list = await handleApiRequest(kernel, { method: "GET", path: "/api/skills" });
+    expect((list.body as { skills: { name: string; enabled: boolean; origin: string | null }[] }).skills).toEqual([
+      expect.objectContaining({ name: "receipts", enabled: false, origin: null }),
+    ]);
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/skills/update", body: { name: "receipts" } })).status).toBe(400);
+    const gone = await handleApiRequest(kernel, { method: "POST", path: "/api/skills/remove", body: { name: "receipts" } });
+    expect(gone.body).toEqual({ removed: "receipts" });
+    expect((await handleApiRequest(kernel, { method: "GET", path: "/api/skills" })).body).toMatchObject({ skills: [] });
+    rmSync(src, { recursive: true, force: true });
+  });
+
+  it("adds MCP servers to mcp.json from a pasted block, switches and removes them", async () => {
+    // Off in the paste, so nothing is spawned for a server that is not there.
+    const pasted = JSON.stringify({ mcpServers: { browser: { command: "npx", args: ["@playwright/mcp"], enabled: false } } });
+    const added = await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/add", body: { json: pasted } });
+    expect(added.body).toMatchObject({ added: ["browser"] });
+    const one = await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/add", body: { name: "mail", server: { url: "http://localhost:9/mcp", enabled: false, risk: "safe" } } });
+    expect(one.body).toMatchObject({ added: ["mail"] });
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/add", body: { json: "{not json" } })).status).toBe(400);
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/add", body: { name: "x", server: { enabled: true } } })).status).toBe(400);
+
+    const list = await handleApiRequest(kernel, { method: "GET", path: "/api/mcp" });
+    const servers = (list.body as { servers: { name: string; transport: string; command: string; enabled: boolean; risk: string }[] }).servers;
+    expect(servers).toEqual([
+      expect.objectContaining({ name: "browser", transport: "stdio", command: "npx @playwright/mcp", enabled: false, risk: "risky" }),
+      expect.objectContaining({ name: "mail", transport: "http", command: "http://localhost:9/mcp", enabled: false, risk: "safe" }),
+    ]);
+    expect(JSON.parse(readFileSync(join(root, "mcp.json"), "utf8"))).toHaveProperty("servers.browser.args", ["@playwright/mcp"]);
+
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/enable", body: { name: "zzz", enabled: false } })).status).toBe(404);
+    const gone = await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/remove", body: { name: "browser" } });
+    expect(gone.body).toEqual({ removed: "browser" });
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/remove", body: { name: "browser" } })).status).toBe(404);
+    const left = (await handleApiRequest(kernel, { method: "GET", path: "/api/mcp" })).body as { servers: { name: string }[] };
+    expect(left.servers.map((s) => s.name)).toEqual(["mail"]);
+  });
+
+  it("lists a project with no folder yet as empty, and a wrong path as an error", async () => {
+    const project = kernel.manifest.createProject({ name: "Garden", type: "tasks" });
+    const list = (path: string) => handleApiRequest(kernel, { method: "GET", path: "/api/files", url: `/api/files?path=${encodeURIComponent(path)}` });
+    const empty = await list(`projects/${project.slug}`);
+    expect(empty.status).toBe(200);
+    expect(empty.body).toEqual({ path: `projects/${project.slug}`, entries: [] });
+    expect((await list("projects/nope")).status).toBe(400);
+    expect((await list("somewhere/else")).status).toBe(400);
   });
 
   it("toggles the kill switch", async () => {
@@ -349,6 +401,133 @@ describe("handleApiRequest", () => {
     const listed = await handleApiRequest(kernel, { method: "GET", path: "/api/conversations" });
     const row = (listed.body as { id: string; kind: string; projectSlug: string | null }[]).find((c) => c.id === `project:${project.slug}`);
     expect(row).toMatchObject({ kind: "project", projectSlug: project.slug });
+
+    // A slash command in the project's thread is a command there too, not a
+    // message for its orchestrator to improvise an answer to.
+    const help = await handleApiRequest(kernel, { method: "POST", path: "/api/message", body: { text: "/help", sessionId: `project:${project.slug}` } });
+    expect(help.body).toMatchObject({ isCommand: true });
+    expect((help.body as { reply: string }).reply).toContain("/agents");
+    const agent = await handleApiRequest(kernel, { method: "POST", path: "/api/message", body: { text: "/agent Tiles", sessionId: `project:${project.slug}` } });
+    const moved = agent.body as { isCommand: boolean; switchedTo?: string };
+    expect(moved.isCommand).toBe(true);
+    expect(kernel.conversations.get(moved.switchedTo!)).toMatchObject({ title: "Tiles", projectSlug: project.slug });
+  });
+
+  describe("a project's workspace", () => {
+    const b64 = (text: string): string => Buffer.from(text).toString("base64");
+
+    it("takes a file into projects/<slug>/ and nowhere else", async () => {
+      const project = kernel.manifest.createProject({ name: "Kitchen", type: "tasks" });
+      const res = await handleApiRequest(kernel, {
+        method: "POST",
+        path: `/api/projects/${project.slug}/files`,
+        body: { name: "plan.md", mediaType: "text/markdown", data: b64("# Plan") },
+      });
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ path: `projects/${project.slug}/plan.md`, size: 6 });
+      expect(readFileSync(join(root, "projects", project.slug, "plan.md"), "utf8")).toBe("# Plan");
+
+      // A name that is a path is reduced to its last segment: the write
+      // cannot be aimed above the folder or into a sibling.
+      const sly = await handleApiRequest(kernel, {
+        method: "POST",
+        path: `/api/projects/${project.slug}/files`,
+        body: { name: "../../sneaky/../out.txt", data: b64("x") },
+      });
+      expect(sly.body).toEqual({ path: `projects/${project.slug}/out.txt`, size: 1 });
+      expect(existsSync(join(root, "projects", project.slug, "out.txt"))).toBe(true);
+      expect(existsSync(join(root, "out.txt"))).toBe(false);
+      expect(existsSync(join(root, "sneaky"))).toBe(false);
+
+      const nested = await handleApiRequest(kernel, {
+        method: "POST",
+        path: `/api/projects/${project.slug}/files`,
+        body: { name: "photos/cat.png", data: b64("png") },
+      });
+      expect((nested.body as { path: string }).path).toBe(`projects/${project.slug}/cat.png`);
+    });
+
+    it("refuses an oversize file, a nameless one, and an unknown project", async () => {
+      const project = kernel.manifest.createProject({ name: "Kitchen", type: "tasks" });
+      const big = await handleApiRequest(kernel, {
+        method: "POST",
+        path: `/api/projects/${project.slug}/files`,
+        body: { name: "big.bin", data: "A".repeat(7 * 1024 * 1024) },
+      });
+      expect(big.status).toBe(400);
+      expect((big.body as { error: string }).error).toMatch(/limit is 5MB/);
+      expect(existsSync(join(root, "projects", project.slug, "big.bin"))).toBe(false);
+
+      const nameless = await handleApiRequest(kernel, {
+        method: "POST",
+        path: `/api/projects/${project.slug}/files`,
+        body: { name: "..", data: b64("x") },
+      });
+      expect(nameless.status).toBe(400);
+
+      const missing = await handleApiRequest(kernel, {
+        method: "POST",
+        path: "/api/projects/nope/files",
+        body: { name: "a.txt", data: b64("x") },
+      });
+      expect(missing.status).toBe(404);
+    });
+
+    it("starts an agent under the project and hands it its first task", async () => {
+      const project = kernel.manifest.createProject({ name: "Kitchen", type: "tasks" });
+      const filed = await handleApiRequest(kernel, {
+        method: "POST",
+        path: `/api/projects/${project.slug}/agents`,
+        body: { title: "Tiles", brief: "You pick tiles." },
+      });
+      expect(filed.status).toBe(200);
+      const agent = filed.body as { id: string; projectSlug: string; title: string; brief: string; kind: string; started: boolean };
+      expect(agent).toMatchObject({ projectSlug: project.slug, title: "Tiles", brief: "You pick tiles.", kind: "chat", started: false });
+      expect(kernel.conversations.get(agent.id)?.projectSlug).toBe(project.slug);
+
+      const tasked = await handleApiRequest(kernel, {
+        method: "POST",
+        path: `/api/projects/${project.slug}/agents`,
+        body: { title: "Paint", task: "Pick a colour." },
+      });
+      const worker = tasked.body as { id: string; started: boolean };
+      expect(worker.started).toBe(true);
+      // Asked as the owner, in the agent's own thread, after the reply went out.
+      await vi.waitFor(() => {
+        expect(kernel.sessions.get(worker.id).some((m) => m.role === "user")).toBe(true);
+      });
+
+      // Untitled, like a new chat: its first message names it.
+      const bare = await handleApiRequest(kernel, { method: "POST", path: `/api/projects/${project.slug}/agents`, body: {} });
+      expect(bare.status).toBe(200);
+      expect(bare.body).toMatchObject({ projectSlug: project.slug, title: "New conversation", started: false });
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/projects/nope/agents", body: { title: "x" } })).status).toBe(404);
+    });
+
+    it("lists the project's agents and files in its detail", async () => {
+      const project = kernel.manifest.createProject({ name: "Kitchen", type: "tasks" });
+      kernel.ensureProjectConversation(project.slug);
+      const agent = kernel.conversations.create({ userId: kernel.profile.ownerId, projectSlug: project.slug, title: "Tiles" });
+      kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Unrelated" });
+      await handleApiRequest(kernel, {
+        method: "POST",
+        path: `/api/projects/${project.slug}/files`,
+        body: { name: "plan.md", data: b64("# Plan") },
+      });
+
+      const res = await handleApiRequest(kernel, { method: "GET", path: `/api/projects/${project.slug}/detail` });
+      const detail = res.body as { agents: { id: string; activity: string }[]; files: { name: string; path: string; kind: string; size: number }[] };
+      // Its agents and not its orchestrator, which is the project's own chat.
+      expect(detail.agents.map((a) => a.id)).toEqual([agent.id]);
+      expect(detail.agents[0]?.activity).toBe("idle");
+      expect(detail.files).toEqual([
+        expect.objectContaining({ name: "plan.md", path: `projects/${project.slug}/plan.md`, kind: "file", size: 6 }),
+      ]);
+
+      const bare = kernel.manifest.createProject({ name: "Empty", type: "tasks" });
+      const none = await handleApiRequest(kernel, { method: "GET", path: `/api/projects/${bare.slug}/detail` });
+      expect((none.body as { agents: unknown[]; files: unknown[] })).toMatchObject({ agents: [], files: [] });
+    });
   });
 
   it("keeps a decision when asked to, and lists and revokes it", async () => {

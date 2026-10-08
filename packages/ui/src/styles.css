@@ -1718,7 +1718,14 @@ select {
 .ops--full {
   height: 100vh;
   height: 100dvh;
-  padding-bottom: 0;
+  /* The whole width. The page's 1200px cap is for reading; with the nav
+     folded to a rail it left a blank strip down the window's right edge. */
+  max-width: none;
+  /* The full-bleed layout (chats) sets its own tight gutter rather than
+     inheriting the 1.5rem page padding: nearly on the nav at the left,
+     where the nav's own border already divides, and the same at the
+     window's edge on the right. */
+  padding: 0.8rem 0.25rem 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2122,6 +2129,28 @@ select {
 }
 .live-text { font-size: var(--text-lg); }
 
+/* Who a turn is waiting on, when it asked several chats at once. The same
+   gutter a thought gets: it is context for the answer, not the answer. */
+.congregation {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-width: 88%;
+  font-size: var(--text-base);
+  color: var(--muted);
+  border-left: 2px solid var(--line);
+  padding-left: 0.6rem;
+}
+.congregation-row { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; }
+.congregation-title {
+  color: inherit;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.congregation-title:hover { text-decoration: underline; }
+
 /* An approval resume is plumbing, not something the owner said. It stays in
    the thread because the continuation would otherwise come from nowhere. */
 .bubble--system {
@@ -2228,11 +2257,15 @@ select {
 .chats {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(210px, 260px) 1fr;
+  /* Pixel tracks, set by the owner's drag handles, so the collapse is a
+     transition from one length to another rather than a jump. */
+  grid-template-columns: var(--rail-w, 240px) minmax(0, 1fr);
   /* An auto row is sized to its content, so the view grew past the container
      and the composer ended up below the fold. minmax(0, 1fr) pins it. */
   grid-template-rows: minmax(0, 1fr);
-  gap: 0.75rem;
+  /* Tight: the columns are divided by their own border lines, and a wide
+     gap on top of those read as dead space. */
+  gap: 0.5rem;
   align-items: stretch;
   height: calc(100vh - 7.5rem);
   min-height: 26rem;
@@ -2243,20 +2276,100 @@ select {
    rather than removed: with the list gone the view became the first grid
    item and was placed in the empty track. */
 .chats {
-  transition: grid-template-columns 220ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: grid-template-columns 280ms cubic-bezier(0.4, 0, 0.2, 1);
 }
-.chats.is-collapsed { grid-template-columns: 0fr 1fr; }
+.chats.is-collapsed { grid-template-columns: 0px minmax(0, 1fr); }
+/* Project mode: a third column carries the project's files, pages and
+   tables beside the thread, so the work and what it produced sit together.
+   Hidden, its track goes to zero the same way the list's does. */
+.chats.is-project { grid-template-columns: var(--rail-w, 240px) minmax(0, 1fr) var(--panel-w, 300px); }
+.chats.is-project.is-collapsed { grid-template-columns: 0px minmax(0, 1fr) var(--panel-w, 300px); }
+.chats.is-project.panel-hidden { grid-template-columns: var(--rail-w, 240px) minmax(0, 1fr) 0px; }
+.chats.is-project.panel-hidden.is-collapsed { grid-template-columns: 0px minmax(0, 1fr) 0px; }
+.chats.is-project.panel-hidden .project-panel {
+  opacity: 0;
+  border-left-color: transparent;
+  pointer-events: none;
+}
+/* Mid-drag the columns follow the pointer; easing would make them lag it. */
+.chats.is-resizing { transition: none; user-select: none; cursor: col-resize; }
+.chats.is-resizing .chats-list,
+.chats.is-resizing .project-panel { transition: none; }
+/* The handles straddle the column edges: invisible until hovered, and
+   then the column's own border line lights up, not a second line beside
+   it. Each is 9px wide with its 1px line on the pixel the border is on. */
+.chats-gutter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+  width: 9px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: col-resize;
+  touch-action: none;
+}
+.chats-gutter::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+  transition: background 120ms ease;
+}
+.chats-gutter:hover::after,
+.chats-gutter:focus-visible::after,
+.chats-gutter.is-active::after { background: var(--accent); }
+.chats-gutter:focus { outline: none; }
+/* The list's border-right is its last pixel, at --rail-w minus one; the
+   panel's border-left is its first, at --panel-w from the right. */
+.chats-gutter--rail { left: calc(var(--rail-w, 240px) - 5px); }
+.chats-gutter--panel { right: calc(var(--panel-w, 300px) - 5px); }
+/* Shut, the handle waits at the edge the column folded to, so it can be
+   dragged back out from there; where exactly is set with the folded
+   states below. (Hidden instead, it would also let go of a drag mid-fold:
+   a handle that vanishes loses the pointer.) */
+.chats.is-collapsed .chats-gutter--rail::after,
+.chats.panel-hidden .chats-gutter--panel::after { background: var(--line); }
+.chats.is-collapsed .chats-gutter--rail:hover::after,
+.chats.panel-hidden .chats-gutter--panel:hover::after,
+.chats.is-collapsed .chats-gutter--rail.is-active::after,
+.chats.panel-hidden .chats-gutter--panel.is-active::after { background: var(--accent); }
+@media (max-width: 1100px) {
+  .chats.is-project { grid-template-columns: var(--rail-w, 240px) minmax(0, 1fr); }
+  .chats.is-project .project-panel,
+  .chats.is-project .chats-gutter--panel { display: none; }
+}
 .chats-list { min-width: 0; }
 .chats.is-collapsed .chats-list {
   opacity: 0;
   border-right-color: transparent;
+  /* No padding at all: in a 0px track, padding is what the list still
+     took up, 8px of nothing between the nav and the view. */
   padding-right: 0;
+  padding-left: 0;
   pointer-events: none;
 }
+/* Shut, the view sits against the nav: a 4px gap, and the edge handle
+   tucked into it, its line on the nav's own border so nothing shows until
+   it is hovered. */
+.chats.is-collapsed { column-gap: 0.25rem; }
+.chats.is-collapsed .chats-gutter--rail { left: -0.3rem; width: 2px; }
+.chats.is-collapsed .chats-gutter--rail::after { left: 0; width: 2px; }
+/* The same on the right: the panel shut, the view runs to the window's
+   edge, and its handle is a strip in the page's own margin. */
+.chats.panel-hidden { column-gap: 0.25rem; }
+.chats.panel-hidden .project-panel { padding-left: 0; }
+.chats.panel-hidden .chats-gutter--panel { right: -0.3rem; width: 2px; }
+.chats.panel-hidden .chats-gutter--panel::after { left: 0; width: 2px; }
 .chats-list {
   transition:
-    opacity 140ms ease,
-    padding-right 220ms cubic-bezier(0.32, 0.72, 0, 1);
+    opacity 200ms ease,
+    padding-left 280ms cubic-bezier(0.4, 0, 0.2, 1),
+    padding-right 280ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 @media (prefers-reduced-motion: reduce) {
   .chats,
@@ -2349,8 +2462,11 @@ select {
 .chats-row { position: relative; }
 .chats-more {
   position: absolute;
-  top: 0.4rem;
-  right: 0.3rem;
+  top: 50%;
+  right: 0.35rem;
+  transform: translateY(-50%);
+  width: 1.5rem;
+  height: 1.5rem;
   z-index: 2;
   opacity: 0;
   transition: opacity 0.12s;
@@ -2596,7 +2712,7 @@ li:hover .chats-item-when { opacity: 0; }
 .chats-toggle {
   width: 1.5rem;
   height: 1.5rem;
-  margin-right: 0.35rem;
+  margin-left: -0.15rem;
   border-radius: var(--r-sm);
   background: none;
   border: 0;
@@ -2617,10 +2733,13 @@ li:hover .chats-item-when { opacity: 0; }
   border-right: 1px solid var(--line);
   border-radius: 0;
   overflow: hidden;
-  padding-right: 0.6rem;
+  /* One uniform gutter. Every block inside aligns its box to this edge, so
+     the New chat button, the KOS card, the cards and the rows share one left
+     and right line instead of each picking its own inset. */
+  padding: 0 0.5rem;
 }
 .chats-list { display: flex; flex-direction: column; min-height: 0; }
-.chats-list ul { list-style: none; margin: 0; padding: 0.35rem; flex: 1; overflow-y: auto; }
+.chats-list ul { list-style: none; margin: 0; padding: 0.2rem 0; flex: 1; overflow-y: auto; }
 .chats-list-head { padding: 0.6rem; border-bottom: 1px solid var(--line); }
 
 .chats-search {
@@ -2636,10 +2755,11 @@ li:hover .chats-item-when { opacity: 0; }
 .chats-search:focus { outline: none; border-color: var(--accent); }
 
 .chats-item {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
-  padding: 0.55rem 0.6rem;
+  gap: 0.05rem;
+  padding: 0.3rem 0.5rem;
   border-radius: var(--r-sm);
   color: inherit;
   text-decoration: none;
@@ -2650,7 +2770,7 @@ li:hover .chats-item-when { opacity: 0; }
 .chats-item-top { display: flex; gap: 0.5rem; align-items: baseline; }
 .chats-item-title {
   flex: 1;
-  font-size: var(--text-lg);
+  font-size: var(--text-md);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2709,7 +2829,14 @@ li:hover .chats-item-when { opacity: 0; }
   padding: 0 0 0.75rem;
   border-bottom: 1px solid var(--line);
 }
-.chats-view-head h1 { margin: 0; font-size: var(--text-xl); }
+.chats-view-head h1 {
+  margin: 0;
+  font-size: var(--text-xl);
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
 /* A brief can be a paragraph; the header is not where you read it. */
 .chats-brief {
   margin: 0.2rem 0 0;
@@ -2810,7 +2937,7 @@ li:hover .chats-item-when { opacity: 0; }
   cursor: pointer;
 }
 .thinking-head:hover { color: var(--muted); }
-.thinking-caret { flex-shrink: 0; }
+.thinking-caret { flex-shrink: 0; display: inline-flex; align-items: center; }
 .thinking-label { flex-shrink: 0; }
 .thinking-peek {
   flex: 1;
@@ -2846,7 +2973,7 @@ li:hover .chats-item-when { opacity: 0; }
   font: inherit;
   font-size: var(--text-sm);
   text-align: left;
-  padding: 0.55rem 0.7rem;
+  padding: 0.55rem 0.5rem;
   cursor: pointer;
 }
 .chats-archived:hover { color: var(--text); background: var(--panel-2); }
@@ -2906,6 +3033,9 @@ li:hover .chats-item-when { opacity: 0; }
 .acts-btn svg,
 .chats-more svg,
 .icon-btn svg { display: block; }
+/* The row kebab is smaller than a standalone icon button so it sits inside a
+   tight chat row without overflowing it. */
+.chats-more { width: 1.5rem; height: 1.5rem; }
 
 .edit { align-self: stretch; display: flex; flex-direction: column; gap: 0.4rem; }
 .edit-area {
@@ -3153,6 +3283,10 @@ li:hover .chats-item-when { opacity: 0; }
 .chats-composer {
   padding-inline: max(1rem, calc((100% - 56rem) / 2));
 }
+/* The head is not centred with the thread: its toggle has to stay at the
+   list's edge however wide the window, so it takes a small, even inset on
+   both sides instead. */
+.chats-view-head { padding-inline: 0.9rem; }
 
 .chats-composer textarea {
   width: 100%;
@@ -3236,7 +3370,7 @@ li:hover .chats-item-when { opacity: 0; }
   cursor: pointer;
 }
 .toolcall-head:hover { background: var(--panel-2); }
-.toolcall-caret { color: var(--faint); width: 0.8rem; }
+.toolcall-caret { color: var(--faint); width: 0.8rem; display: inline-flex; align-items: center; justify-content: center; }
 .toolcall-name { font-family: var(--mono); color: var(--accent); flex-shrink: 0; }
 .toolcall-summary {
   flex: 1;
@@ -3625,7 +3759,7 @@ li:hover .chats-item-when { opacity: 0; }
 
 /* The orchestrator sits above the chat list, not inside it. */
 .chats-pinned {
-  padding: 0.35rem;
+  padding: 0.35rem 0;
   border-bottom: 1px solid var(--line);
 }
 .chats-item--pinned .chats-item-title { font-weight: 600; }
@@ -4406,11 +4540,31 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
   border: 1px solid var(--warn);
   border-radius: var(--r-lg);
 }
-.loose-approval-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+.loose-approval-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; padding-top: 0.1rem; }
 .loose-approval-main code { color: var(--warn); font-size: var(--text-xs); }
-.loose-approval-main span { font-size: var(--text-base); }
+.loose-approval-what { font-size: var(--text-md); line-height: 1.4; overflow-wrap: anywhere; }
+.loose-approval-why { color: var(--faint); font-size: var(--text-sm); }
+.loose-approval-details { margin-top: 0.2rem; font-size: var(--text-sm); }
+.loose-approval-details summary { cursor: pointer; color: var(--muted); }
+.loose-approval-details summary:hover { color: var(--text); }
+.loose-approval-details pre,
+.toolcall-approve-args {
+  margin: 0.3rem 0 0;
+  padding: 0.5rem 0.6rem;
+  max-height: 14rem;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.toolcall-approve-args { flex-basis: 100%; }
 .loose-approval-actions { display: flex; gap: 0.4rem; flex: none; }
-.loose-approval-main { padding-top: 0.1rem; }
+.term-ask-text code { color: var(--warn); font-size: var(--text-xs); margin-right: 0.25rem; }
+.term-ask-why { color: var(--faint); }
 
 /* A build read like a terminal. */
 .term-wrap {
@@ -4572,7 +4726,7 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
   cursor: pointer;
 }
 .term-open:hover .term-text { color: var(--accent); }
-.term-caret { color: var(--faint); font-size: var(--text-xs); }
+.term-caret { color: var(--faint); display: inline-flex; align-items: center; }
 .term-detail {
   margin: 0.25rem 0 0.35rem;
   padding: 0.4rem 0.6rem;
@@ -5266,7 +5420,7 @@ a.health {
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem;
-  padding: 0.45rem 0.15rem 0.1rem;
+  padding: 0.45rem 0 0.1rem;
 }
 .chats-surface {
   display: inline-flex;
@@ -5306,12 +5460,12 @@ a.health {
   font: inherit;
   font-size: var(--text-sm);
   text-align: left;
-  padding: 0.5rem 0.7rem;
+  padding: 0.5rem 0.5rem;
   cursor: pointer;
 }
 .chats-scheduled:hover { color: var(--text); }
 .chats-scheduled.is-open { color: var(--text); }
-.chats-scheduled-mark { color: var(--faint); font-size: 0.7rem; }
+.chats-scheduled-mark { color: var(--faint); display: inline-flex; align-items: center; }
 .chats-scheduled-count {
   margin-left: auto;
   color: var(--faint);
@@ -5321,7 +5475,7 @@ a.health {
 
 /* A heading inside the chat list, for threads that are not chats you began. */
 .chats-section {
-  padding: 0.7rem 0.55rem 0.25rem;
+  padding: 0.7rem 0.5rem 0.25rem;
   font-size: var(--text-sm);
   color: var(--faint);
   letter-spacing: 0.02em;
@@ -5367,7 +5521,32 @@ a.health {
 .mem-group { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: 0.75rem; }
 .mem-group-head h2 { margin: 0; font-size: var(--text-lg); }
 .mem-group-head .hint { margin: 0.25rem 0 0; }
-.mem-decision, .mem-row--split, .mem-job { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; padding: 0.6rem 0; border-top: 1px solid var(--line); }
+.mem-row--split, .mem-job { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; padding: 0.6rem 0; border-top: 1px solid var(--line); }
+/* A decision: the question, memory's reasoning, then each claim as a row
+   with what it says, and the keep button on the row it keeps. */
+.mem-decision { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.8rem 0; border-top: 1px solid var(--line); }
+.mem-decision-head { display: flex; align-items: center; gap: 0.4rem; font-size: var(--text-md); }
+.mem-decision-note { margin: 0; max-width: 72ch; color: var(--muted); font-size: var(--text-base); line-height: 1.5; }
+.mem-claims { list-style: none; margin: 0.1rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.mem-claim {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.mem-claim.is-gone { opacity: 0.65; }
+.mem-claim-main { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.mem-claim-key { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
+.mem-claim-key code { font-family: var(--mono); font-size: var(--text-sm); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mem-scope { flex: none; font-size: var(--text-xs); color: var(--faint); border: 1px solid var(--line); border-radius: 999px; padding: 0 0.4rem; }
+.mem-claim-value { font-size: var(--text-md); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mem-claim-value em { color: var(--faint); }
+.mem-claim-meta { color: var(--faint); font-size: var(--text-sm); }
+.mem-claim > .btn { flex: none; }
 .mem-row { padding: 0.35rem 0; border-top: 1px solid var(--line); font-size: var(--text-base); }
 .mem-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
 .mem-kind { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); background: var(--panel-2); border-radius: 999px; padding: 0.1rem 0.45rem; margin-right: 0.3rem; }
@@ -5434,7 +5613,7 @@ a.health {
 /* —— the shell: a sidebar and the page —— */
 .app {
   display: grid;
-  grid-template-columns: 13.5rem minmax(0, 1fr);
+  grid-template-columns: 11.5rem minmax(0, 1fr);
   min-height: 100vh;
 }
 .side {
@@ -5445,7 +5624,7 @@ a.health {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  padding: 1rem 0.65rem;
+  padding: 0.85rem 0.5rem;
   background: var(--panel);
   border-right: 1px solid var(--line);
 }
@@ -5590,7 +5769,9 @@ a.health {
 }
 
 /* —— inbox —— */
-.inbox { display: flex; flex-direction: column; gap: 1.25rem; max-width: 60rem; }
+/* The page's width, like the rest: capped at 60rem the "All clear" box
+   stopped short of the heading above it. */
+.inbox { display: flex; flex-direction: column; gap: 1.25rem; }
 .inbox-clear {
   padding: 2.5rem 1rem;
   text-align: center;
@@ -5636,50 +5817,81 @@ a.health {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.9rem;
-  max-width: 24rem;
+  gap: 1.1rem;
+  width: min(32rem, 100%);
   text-align: center;
 }
-.chats-welcome-title { margin: 0; color: var(--text); font-size: var(--text-2xl); font-weight: 600; }
-.chats-welcome-recent {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.chats-welcome-glyph {
+  width: 2.75rem;
+  height: 2.75rem;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 1.35rem;
+  box-shadow: 0 8px 24px -10px var(--accent);
+}
+.chats-welcome-head {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
 }
-.chats-welcome .hint { margin: 0; }
-
-/* —— the chat list as a tree —— */
-.chats-project-row { display: flex; align-items: stretch; }
-.chats-project-row .chats-item { flex: 1; min-width: 0; }
-.chats-disclose {
-  flex: none;
-  width: 1.6rem;
-  border: 0;
-  background: transparent;
+.chats-welcome-title { margin: 0; color: var(--text); font-size: var(--text-2xl); font-weight: 650; }
+.chats-welcome-sub {
+  margin: 0;
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: var(--text-md);
+  line-height: 1.5;
+}
+.chats-welcome-recent {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+.chats-welcome-recent-label {
+  color: var(--faint);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.chats-welcome-recent ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem;
+}
+.chats-welcome-chip {
+  max-width: 15rem;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
   cursor: pointer;
-  transform: rotate(-90deg);
-  transition: transform 160ms ease, color 0.12s ease;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
-.chats-disclose:hover { color: var(--text); }
-.chats-disclose.is-open { transform: none; }
-.chats-agents { list-style: none; margin: 0; padding: 0 0 0.2rem; }
-.chats-child .chats-item { padding-left: 1.5rem; }
-.chats-child .chats-item-title { font-size: var(--text-base); }
-.chats-child .chats-row { position: relative; }
-.chats-child .chats-row::before {
-  content: "";
-  position: absolute;
-  left: 0.85rem;
-  top: 0;
-  bottom: 0;
-  border-left: 1px solid var(--line);
+.chats-welcome-chip:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
+  background: var(--panel-2);
 }
-.chats-lineage { margin: 0.1rem 0 0; color: var(--muted); font-size: var(--text-sm); }
+.chats-welcome .hint { margin: 0; color: var(--faint); }
+
+/* —— the chat header's lineage —— */
+.chats-toggle { display: inline-flex; align-items: center; justify-content: center; }
+.chats-lineage { margin: 0.25rem 0 0; color: var(--muted); font-size: var(--text-sm); }
 .chats-lineage a { color: var(--accent); text-decoration: none; }
 .chats-lineage a:hover { text-decoration: underline; }
 
@@ -5736,28 +5948,288 @@ a.health {
 .set-instance-new .kos-input { width: 16rem; max-width: 60vw; }
 
 /* Settings > Modules: installing, and what an installed module can do. */
-.set-install { margin-bottom: 0.5rem; }
+.set-install { margin-bottom: 0.5rem; flex-wrap: wrap; }
 .set-install .kos-input { width: 24rem; max-width: 70vw; }
+.set-install .kos-input.set-install-name { width: 11rem; }
+.set-install .set-install-risk { width: auto; }
+/* A pasted config is a block, so its box is one. */
+.set-install-json { display: flex; flex-direction: column; align-items: flex-start; gap: 0.4rem; margin: 0.35rem 0 0.5rem; }
+.set-install-json .ops-textarea { width: min(40rem, 100%); font-size: var(--text-sm); }
 .set-module-actions { display: flex; gap: 0.75rem; align-items: baseline; margin-top: 0.35rem; font-size: var(--text-sm); }
 .set-module-actions .link.is-danger { color: var(--danger); }
 
 /* Chats: the landing composer, and the moment after an archive. */
-.chats-welcome-form { display: flex; flex-direction: column; gap: 0.5rem; width: min(34rem, 100%); }
-.chats-welcome-input {
-  width: 100%;
-  min-height: 4.5rem;
-  padding: 0.7rem 0.85rem;
+.chats-welcome-form { width: 100%; }
+.chats-welcome-field {
+  display: flex;
+  flex-direction: column;
   background: var(--panel);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
+  overflow: hidden;
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+.chats-welcome-field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+.chats-welcome-input {
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.8rem 0.9rem;
+  background: transparent;
+  border: 0;
   color: var(--text);
   font: inherit;
   font-size: var(--text-md);
-  resize: vertical;
+  resize: none;
+  text-align: left;
 }
-.chats-welcome-input:focus { outline: none; border-color: var(--accent); }
-.chats-welcome-form .btn { align-self: flex-end; }
-.chats-welcome { max-width: 34rem; }
+.chats-welcome-input:focus { outline: none; }
+.chats-welcome-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.45rem 0.5rem 0.5rem;
+  border-top: 1px solid var(--line);
+}
+.chats-welcome-kbd { color: var(--faint); font-size: var(--text-sm); }
+/* What Send does with what was typed: hand it to KOS, or force a chat or a
+   project. A segmented control, recessed track with a tinted active pill. */
+.chats-mode {
+  display: inline-flex;
+  gap: 0.1rem;
+  padding: 0.12rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.chats-mode-opt {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: 0.2rem 0.62rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.chats-mode-opt:hover { color: var(--text); }
+.chats-mode-opt.is-active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* —— Quick question: a floating, draggable, resizable thread over any page.
+   Position and size are the owner's (set in JS, remembered); the header
+   drags it and the corner handle resizes it. No launcher button: it opens
+   from the sidebar entry or Cmd/Ctrl+Shift+K. —— */
+.quickask {
+  position: fixed;
+  z-index: 80;
+  min-width: 17.5rem;
+  min-height: 14rem;
+  max-width: calc(100vw - 1rem);
+  max-height: calc(100vh - 1rem);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  animation: quickask-in 140ms ease-out;
+}
+/* Out the way it came in. The element stays mounted for the length of the
+   fade, then goes. */
+.quickask.is-closing {
+  animation: quickask-out 140ms ease-in forwards;
+  pointer-events: none;
+}
+@keyframes quickask-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes quickask-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(6px) scale(0.985); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .quickask,
+  .quickask.is-closing { animation: none; }
+}
+/* Resize handles on every edge and corner, inside the border so the
+   window's overflow does not clip them. */
+.quickask-edge { position: absolute; z-index: 3; touch-action: none; }
+.quickask-edge--n,
+.quickask-edge--s { left: 10px; right: 10px; height: 6px; cursor: ns-resize; }
+.quickask-edge--n { top: 0; }
+.quickask-edge--s { bottom: 0; }
+.quickask-edge--e,
+.quickask-edge--w { top: 10px; bottom: 10px; width: 6px; cursor: ew-resize; }
+.quickask-edge--e { right: 0; }
+.quickask-edge--w { left: 0; }
+.quickask-edge--ne,
+.quickask-edge--nw,
+.quickask-edge--se,
+.quickask-edge--sw { width: 12px; height: 12px; }
+.quickask-edge--ne { top: 0; right: 0; cursor: nesw-resize; }
+.quickask-edge--sw { bottom: 0; left: 0; cursor: nesw-resize; }
+.quickask-edge--nw { top: 0; left: 0; cursor: nwse-resize; }
+.quickask-edge--se { bottom: 0; right: 0; cursor: nwse-resize; }
+.quickask-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--line);
+  cursor: move;
+  user-select: none;
+  touch-action: none;
+}
+.quickask-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+.quickask-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 600;
+  font-size: var(--text-md);
+}
+.quickask-context {
+  color: var(--faint);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quickask-context b {
+  color: var(--muted);
+  font-weight: 500;
+}
+.quickask-wait {
+  color: var(--faint);
+  font-size: var(--text-sm);
+}
+.quickask-glyph {
+  width: 1.4rem;
+  height: 1.4rem;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 0.8rem;
+}
+.quickask-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: none;
+}
+.quickask-head .btn--ghost:hover { background: var(--panel-2); }
+.quickask-close { color: var(--faint); }
+.quickask-close:hover { color: var(--text); background: var(--panel-2); }
+.quickask-body {
+  flex: 1;
+  min-height: 6rem;
+  overflow-y: auto;
+  padding: 0.6rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.quickask-empty {
+  margin: auto 0;
+  color: var(--faint);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  text-align: center;
+}
+.quickask-turn {
+  font-size: var(--text-md);
+  line-height: 1.5;
+}
+.quickask-turn--you {
+  align-self: flex-end;
+  max-width: 85%;
+  padding: 0.35rem 0.6rem;
+  background: var(--accent-dim);
+  color: var(--text);
+  border-radius: 12px 12px 3px 12px;
+}
+/* An answer is a bubble, like the chat's: loose text under a bubble of a
+   question read as a note to it rather than a reply. */
+.quickask-turn--kos {
+  align-self: flex-start;
+  max-width: 92%;
+  min-width: 0;
+  padding: 0.4rem 0.65rem;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px 12px 12px 3px;
+  color: var(--text);
+}
+/* The reply still coming: full width, so the live bubble's percentage
+   max-width has something to resolve against ("Thinking" came out as
+   "Thi…" when it was shrink-wrapped). */
+.quickask-turn--live { align-self: stretch; min-width: 0; }
+.quickask .live { max-width: 100%; }
+.quickask-turn p {
+  margin: 0 0 0.3rem;
+}
+.quickask-turn p:last-child {
+  margin-bottom: 0;
+}
+.quickask-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  border-top: 1px solid var(--line);
+}
+.quickask-input {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-md);
+  line-height: 1.35;
+  padding: 0.4rem 0.55rem;
+  min-height: 2.2rem;
+  max-height: 6rem;
+}
+.quickask-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+/* The same box idle and busy, as tall as one line of the field. */
+.quickask-send {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3.6rem;
+  height: 2.2rem;
+  padding: 0 0.8rem;
+  font-size: var(--text-sm);
+}
+.quickask-send .live-dots i { background: var(--on-accent); }
 .chats-undo {
   display: flex;
   align-items: center;
@@ -5794,26 +6266,89 @@ a.health {
 .side-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* The rail: icons only, labels and secondary text gone, each item a square.
-   Desktop only — on a phone the sidebar is a drawer, not a rail. */
+   Desktop only — on a phone the sidebar is a drawer, not a rail.
+
+   The column eases between its two widths and the words fade and fold as
+   it goes. They used to be display:none, which cannot animate, so the
+   sidebar snapped from one shape to the other with the page jumping after. */
 @media (min-width: 861px) {
+  .app { transition: grid-template-columns 280ms cubic-bezier(0.4, 0, 0.2, 1); }
+  .side { transition: padding 280ms cubic-bezier(0.4, 0, 0.2, 1), gap 280ms ease; }
+  .side-link { transition: background 0.12s ease, color 0.12s ease, gap 220ms ease, padding 220ms ease; }
+  .side-label,
+  .side-brand span,
+  .side-search kbd,
+  .side-health-text {
+    max-width: 12rem;
+    opacity: 1;
+    overflow: hidden;
+    transition: opacity 200ms ease, max-width 280ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  /* Inline text has no width to fold; the brand's tail is a box so it can.
+     Aligned by its top: a clipped inline-block sits its bottom edge on the
+     baseline, which lifted "-OS" above the K. */
+  .side-brand span { display: inline-block; vertical-align: top; }
+  :root[data-sidebar="rail"] .side-search kbd { margin-left: 0; padding: 0; border-color: transparent; }
   :root[data-sidebar="rail"] .app { grid-template-columns: 3.4rem minmax(0, 1fr); }
   :root[data-sidebar="rail"] .side { padding: 1rem 0.4rem; gap: 0.2rem; }
   :root[data-sidebar="rail"] .side-label,
   :root[data-sidebar="rail"] .side-brand span,
   :root[data-sidebar="rail"] .side-search kbd,
-  :root[data-sidebar="rail"] .side-health-text { display: none; }
-  :root[data-sidebar="rail"] .side-brand-row { justify-content: center; padding: 0.2rem 0 0.6rem; }
+  :root[data-sidebar="rail"] .side-health-text {
+    max-width: 0;
+    opacity: 0;
+    flex: none;
+    text-overflow: clip;
+    pointer-events: none;
+  }
+  /* Stacked: the K over the handle, both centred. Side by side in 3.4rem
+     they pushed to opposite edges, the K up and left, the arrow down and
+     right. */
+  :root[data-sidebar="rail"] .side-brand-row { flex-direction: column; align-items: center; justify-content: center; gap: 0.1rem; padding: 0.2rem 0 0.5rem; }
   :root[data-sidebar="rail"] .side-brand { font-size: var(--text-lg); }
-  :root[data-sidebar="rail"] .side-link { justify-content: center; padding: 0.5rem 0; position: relative; }
-  :root[data-sidebar="rail"] .side-health { justify-content: center; }
+  :root[data-sidebar="rail"] .side-link { justify-content: center; gap: 0; padding: 0.5rem 0; position: relative; }
+  :root[data-sidebar="rail"] .side-health { justify-content: center; gap: 0; }
   :root[data-sidebar="rail"] .side-more .menu-body { left: calc(100% + 0.3rem); bottom: 0; }
+  @media (prefers-reduced-motion: reduce) {
+    .app,
+    .side,
+    .side-link,
+    .side-label,
+    .side-brand span,
+    .side-search kbd,
+    .side-health-text { transition: none; }
+  }
 }
 
 /* —— chat header breadcrumb —— */
-.chats-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 0.1rem; margin: 0 0 0.1rem; font-size: var(--text-sm); }
+/* The row above the title: the list toggle, then where the chat sits. */
+.chats-view-path { display: flex; align-items: center; gap: 0.3rem; margin: 0 0 0.15rem -0.35rem; min-height: 1.75rem; }
+/* On the landing the row stands alone, outside a head: it takes the head's
+   inset itself so the toggle sits where it does over a thread. */
+.chats-view > .chats-view-path { margin: 0.15rem 0 0; padding-inline: 0.9rem; }
+/* The two panel toggles: quiet outlines, the open one with its column
+   filled and in the text colour, rather than a blue glyph among grey words. */
+.chats-toggle,
+.chats-panel-toggle { color: var(--muted); }
+.chats-toggle.is-on,
+.chats-panel-toggle.is-on { color: var(--text); }
+.chats-toggle:hover,
+.chats-panel-toggle:hover { color: var(--text); background: var(--panel-2); }
+.chats-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 0.1rem; margin: 0; font-size: var(--text-sm); }
 .chats-crumbs .link { color: var(--muted); }
 .chats-crumbs .link:hover { color: var(--accent); }
-.chats-crumbs .link::after { content: "›"; margin: 0 0.35rem; color: var(--faint); }
+.chats-crumbs .link::after {
+  content: "";
+  display: inline-block;
+  width: 0.32em;
+  height: 0.32em;
+  margin: 0 0.45rem;
+  border: solid var(--faint);
+  border-width: 1.5px 1.5px 0 0;
+  transform: rotate(45deg);
+  position: relative;
+  top: -1px;
+}
 .chats-role {
   margin-left: 0.5rem;
   padding: 0.05rem 0.4rem;
@@ -5826,16 +6361,16 @@ a.health {
 }
 
 /* ===== Chats: the conversation hierarchy, redesigned ===== */
-.chats-list-head { padding: 0.7rem 0.6rem; display: flex; flex-direction: column; gap: 0.5rem; }
-.chats-list ul.chats-flat { padding: 0.15rem 0.45rem 0.5rem; }
+.chats-list-head { padding: 0.5rem 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.chats-list ul.chats-flat { padding: 0.15rem 0 0.5rem; }
 
 /* KOS — the root of the tree, visibly the brain rather than one more row. */
 .chats-root {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  margin: 0.4rem 0.45rem 0.3rem;
-  padding: 0.6rem;
+  gap: 0.55rem;
+  margin: 0.25rem 0 0.2rem;
+  padding: 0.5rem;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   text-decoration: none;
@@ -5872,7 +6407,7 @@ a.health {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 0.8rem 0.35rem;
+  padding: 0.5rem 0.5rem 0.25rem;
   color: var(--faint);
   font-size: var(--text-xs);
   font-weight: 600;
@@ -5891,17 +6426,21 @@ a.health {
   line-height: 1;
 }
 .chats-group-add:hover { background: var(--panel-2); color: var(--text); }
-.chats-group-empty { margin: 0; padding: 0 0.8rem 0.5rem; color: var(--faint); font-size: var(--text-sm); line-height: 1.45; }
-.chats-newproject { display: flex; gap: 0.35rem; padding: 0.1rem 0.6rem 0.55rem; }
+.chats-group-empty { margin: 0; padding: 0 0.5rem 0.5rem; color: var(--faint); font-size: var(--text-sm); line-height: 1.45; }
+.chats-newproject { display: flex; gap: 0.35rem; padding: 0.1rem 0 0.55rem; }
 .chats-newproject .chats-search { flex: 1; min-width: 0; }
 .chats-newproject .btn { flex: none; }
 
-/* Projects: each a branch; the second level of the tree. */
-.chats-projects { padding: 0 0.45rem; display: flex; flex-direction: column; gap: 0.05rem; }
-.chats-project-row { display: flex; align-items: stretch; border-radius: var(--r-sm); }
-.chats-project-row:hover { background: var(--panel-2); }
-.chats-project-row .chats-item { flex: 1; min-width: 0; padding: 0.5rem 0.55rem; }
-.chats-project-row .chats-item:hover { background: transparent; }
+/* Projects: one row each, opening the project's own page. */
+.chats-list ul.chats-projects {
+  flex: none;
+  overflow: visible;
+  padding: 0 0 0.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+.chats-projects .chats-item { padding: 0.35rem 0.5rem; }
 .chats-item--pinned .chats-item-title { font-weight: 600; font-size: var(--text-md); }
 .chats-badge {
   flex: none;
@@ -5914,13 +6453,218 @@ a.health {
   letter-spacing: 0.02em;
 }
 
-/* Nested agents: the third level, under a project, with a connector. */
-.chats-agents { list-style: none; margin: 0 0 0.3rem; padding: 0; }
-.chats-child .chats-item { padding: 0.4rem 0.55rem 0.4rem 1.85rem; }
-.chats-child .chats-item-title { font-size: var(--text-base); }
-.chats-child .chats-row::before { left: 1rem; top: -0.1rem; bottom: 0.1rem; }
-
 /* The direct-chat rows: a little air, a clearer active state. */
-.chats-flat .chats-item { padding: 0.5rem 0.6rem; }
-.chats-item.is-active { background: var(--accent-dim); box-shadow: inset 2px 0 0 var(--accent); }
+.chats-flat .chats-item { padding: 0.3rem 0.5rem; }
+.chats-item.is-active { background: var(--accent-dim); box-shadow: none; }
+/* A straight, rounded accent bar. It is a real element with a shared
+   layoutId, so it glides from the old row to the new one when the active
+   chat changes, rather than blinking out and in. Centred via margin auto
+   (not a transform) so framer's layout transform stays clean. */
+.chats-active-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  margin: auto 0;
+  width: 3px;
+  height: 1.05rem;
+  border-radius: 999px;
+  background: var(--accent);
+}
 .chats-item-title { font-size: var(--text-md); }
+
+/* —— project mode —— */
+/* The chats page scoped to one project. The rail is the project's: a way
+   out at the top, its name, its orchestrator, its agents. The third column
+   is what the project has made and holds. */
+.chats-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  align-self: flex-start;
+  margin-left: -0.2rem;
+  padding: 0.15rem 0.4rem 0.15rem 0.2rem;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.chats-back:hover { color: var(--text); background: var(--panel-2); }
+.chats-project-head { display: flex; flex-direction: column; gap: 0.05rem; min-width: 0; padding: 0 0.1rem 0.15rem; }
+.chats-project-name {
+  font-weight: 650;
+  font-size: var(--text-lg);
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chats-project-sub { color: var(--faint); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chats-root.is-pending { opacity: 0.65; cursor: default; }
+.chats-root-title .chats-flag { font-weight: 500; }
+
+.project-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+  min-height: 0;
+  /* Scrolls down only: the drop target's negative margin would otherwise
+     put a horizontal scrollbar under the column. */
+  overflow: hidden auto;
+  padding: 0 0 0.75rem 0.75rem;
+  border-left: 1px solid var(--line);
+  transition: opacity 200ms ease, border-color 200ms ease;
+}
+.project-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--line);
+}
+.project-panel-title { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.project-panel-title h2 {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-panel-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--faint);
+  font-size: var(--text-sm);
+}
+.project-panel-status { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--muted); }
+.project-panel-status i { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--faint); }
+.project-panel-status.is-active i { background: var(--ok); box-shadow: 0 0 0 2px var(--ok-dim); }
+.project-panel-section { display: flex; flex-direction: column; gap: 0.45rem; }
+.project-panel-section .ops-section-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+}
+.project-panel-count {
+  font-family: var(--mono);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.project-panel-section .hint,
+.project-panel-section .insp-rows { margin: 0; }
+.project-panel-section .hint { font-size: var(--text-sm); }
+/* A dragged file is aimed at the section, so the section says so. */
+.project-panel-drop { margin: -0.3rem; padding: 0.3rem; border: 1px dashed transparent; border-radius: var(--r-sm); }
+.project-panel-drop.is-over { border-color: var(--accent); background: var(--accent-dim); }
+.project-panel-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+
+/* The project's folder, browsed in place: a trail, rows, and the open file. */
+.explorer-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.05rem;
+  min-width: 0;
+  color: var(--faint);
+}
+.explorer-crumbs button {
+  padding: 0.05rem 0.3rem;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.explorer-crumbs button:hover { color: var(--text); background: var(--panel-2); }
+.explorer-crumbs button.is-here { color: var(--text); cursor: default; }
+.explorer-crumb { display: inline-flex; align-items: center; gap: 0.05rem; }
+.explorer-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.explorer-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.3rem 0.4rem;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.explorer-row:hover { background: var(--panel-2); }
+.explorer-row .files-thumb { flex: none; width: 1.7rem; height: 1.7rem; border-radius: 5px; }
+.explorer-row .fi { flex: none; }
+.explorer-row > .fi:last-child { color: var(--faint); }
+.explorer-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-base);
+}
+.explorer-row--dir .explorer-name { font-weight: 500; }
+.explorer-meta {
+  flex: none;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+.explorer-file { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+.explorer-file-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.explorer-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 0;
+  padding: 0.15rem 0.4rem 0.15rem 0.2rem;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.explorer-back:hover { color: var(--text); background: var(--panel-2); }
+.explorer-file-name { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.4rem; min-width: 0; }
+.explorer-file-name strong {
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: var(--text-base);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.explorer-file .files-image { max-height: 50vh; border-radius: var(--r-sm); }
+.explorer-pre,
+.explorer-md {
+  margin: 0;
+  max-height: 50vh;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.explorer-pre { padding: 0.6rem; font-family: var(--mono); font-size: var(--text-sm); white-space: pre; }
+.explorer-md { padding: 0.5rem 0.65rem; font-size: var(--text-base); }

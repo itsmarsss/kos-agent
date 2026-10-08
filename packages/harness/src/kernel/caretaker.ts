@@ -31,26 +31,95 @@ export interface CaretakerDeps {
   notify?: (payload: NotifyPayload) => Promise<void>;
   sessions: { get: (id: string) => ModelMessage[]; record: (id: string, messages: ModelMessage[]) => unknown };
   conversations: {
-    create: (input: { userId: string; title: string }) => { id: string };
+    create: (input: { userId: string; title: string; projectSlug?: string }) => { id: string };
     touch: (id: string) => unknown;
   };
   crons: { list: () => { id: number; name: string }[]; get: (id: number) => { id: number; name: string } | undefined };
-  manifest: { list: () => { slug: string }[] };
+  manifest: {
+    list: () => { slug: string }[];
+    get: (slug: string) => { slug: string } | undefined;
+    createProject: (input: { name: string; type: string; description?: string }) => { slug: string };
+  };
   /** Start a turn and do not wait for it. */
   handleMessage: (text: string, opts: { sessionId: string; userId: string; maxIterations: number }) => Promise<unknown>;
+}
+
+/**
+ * An error that says the network or the model was unreachable, not that
+ * anything of ours is wrong. There is nothing in the workspace to repair,
+ * and a fix turn would meet the same wall: it opened a "Fix: kos.observe"
+ * chat that could only say it had failed to connect too.
+ */
+const TRANSIENT = /connection error|econn(reset|refused)|etimedout|timed? ?out|fetch failed|socket hang up|network|rate limit|overloaded|\b(429|502|503|504)\b/i;
+
+export function isTransient(error: string | null): boolean {
+  return error !== null && TRANSIENT.test(error);
+}
+
+/**
+ * Where a fix chat lives: a project of its own, so repairs sit together
+ * under one roof and never among the agents the owner started. Made on
+ * the first fix; its slug is the manifest's own for the name.
+ */
+export const MAINTENANCE = {
+  name: "Maintenance",
+  slug: "maintenance",
+  type: "system",
+  description: "Where KOS looks into something of its own that failed: one agent per repair.",
+} as const;
+
+type ManifestLike = CaretakerDeps["manifest"];
+
+/** The maintenance project's slug, the project made if it is not there. */
+export function ensureMaintenance(manifest: ManifestLike): string {
+  const existing = manifest.get(MAINTENANCE.slug);
+  if (existing) return existing.slug;
+  return manifest.createProject({ name: MAINTENANCE.name, type: MAINTENANCE.type, description: MAINTENANCE.description }).slug;
+}
+
+/**
+ * At boot: the maintenance project exists, and fix chats made before it
+ * did are moved under it. A caretaker's chat has no channel and a "Fix: "
+ * title; one the owner started on a surface has a channel, and is left.
+ */
+export function adoptFixes(
+  manifest: ManifestLike,
+  conversations: {
+    list: (userId: string, options: { includeArchived?: boolean }) => { id: string; title: string; channel: string | null; projectSlug: string | null }[];
+    moveToProject: (id: string, projectSlug: string | null) => unknown;
+  },
+  ownerId: string,
+): string[] {
+  const slug = ensureMaintenance(manifest);
+  const moved: string[] = [];
+  for (const c of conversations.list(ownerId, { includeArchived: true })) {
+    if (c.projectSlug !== null || c.channel !== null || !c.title.startsWith("Fix: ")) continue;
+    conversations.moveToProject(c.id, slug);
+    moved.push(c.id);
+  }
+  return moved;
 }
 
 export class Caretaker {
   constructor(private readonly deps: CaretakerDeps) {}
 
-  /** A job ran. Say something only when the monitor says it is news. */
+  /**
+   * A job ran. Say something only when the monitor says it is news, and
+   * try a fix only when there is something to fix: a first failure that
+   * is not the connection dropping, which the next run settles by itself.
+   */
   report(key: string, label: string, ok: boolean, error: string | null): void {
     const notice = this.deps.health.observe(key, label, ok, error);
     if (!notice) return;
-    this.tell(notice.text);
-    if (notice.kind === "failing" && notice.streak === 1 && this.deps.behaviour().autoFix && !this.deps.isHalted()) {
+    const transient = notice.kind === "failing" && isTransient(error);
+    this.tell(transient && notice.streak === 1 ? `${notice.text} That reads as a connection blip; the next run will tell.` : notice.text);
+    if (notice.kind === "failing" && notice.streak === 1 && !transient && this.deps.behaviour().autoFix && !this.deps.isHalted()) {
       void this.startFix({ label, error: error ?? "no error given", what: "scheduled job", ref: key }).catch(() => undefined);
     }
+  }
+
+  private maintenanceSlug(): string {
+    return ensureMaintenance(this.deps.manifest);
   }
 
   /** Tell the owner on the surface they use, or leave a note where they will look. */
@@ -80,7 +149,7 @@ export class Caretaker {
    */
   async startFix(input: FixRequest): Promise<{ conversationId: string; title: string; prompt: string }> {
     const title = `Fix: ${input.label}`.slice(0, 60);
-    const conversation = this.deps.conversations.create({ userId: this.deps.ownerId, title });
+    const conversation = this.deps.conversations.create({ userId: this.deps.ownerId, title, projectSlug: this.maintenanceSlug() });
     const subject = this.subjectOf(input);
     const error = input.error.slice(0, 2000);
     const longest = Math.max(0, ...[...error.matchAll(/`+/g)].map((m) => m[0].length));
@@ -110,10 +179,19 @@ export class Caretaker {
         // nothing to write to.
         if (this.deps.isClosed()) return;
         const why = err instanceof Error ? err.message : String(err);
-        this.deps.sessions.record(conversation.id, [
-          ...this.deps.sessions.get(conversation.id),
-          { role: "assistant", content: [{ type: "text", text: `I could not finish looking into this: ${why}` }] },
-        ]);
+        // Say which it was: the model out of reach is not the same as the
+        // thing being unfixable, and the owner was left guessing.
+        const text = isTransient(why)
+          ? `I could not reach the model to look into this (${why}). Nothing was changed. If it keeps failing, this chat is where to ask.`
+          : `I could not finish looking into this: ${why}`;
+        // The question goes in with the apology. A turn that failed before
+        // it was recorded left a chat holding only "I could not finish",
+        // and asked what it was for, KOS could not say.
+        const history = this.deps.sessions.get(conversation.id);
+        const asked: ModelMessage[] = history.some((m) => m.role === "user")
+          ? history
+          : [...history, { role: "user", content: [{ type: "text", text: prompt }] }];
+        this.deps.sessions.record(conversation.id, [...asked, { role: "assistant", content: [{ type: "text", text }] }]);
         this.deps.conversations.touch(conversation.id);
       });
     return { conversationId: conversation.id, title, prompt };

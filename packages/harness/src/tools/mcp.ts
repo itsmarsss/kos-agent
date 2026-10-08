@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -80,7 +80,10 @@ export function readMcpConfig(workspaceRoot: string): McpConfig {
 
 export function parseMcpConfig(raw: unknown): McpConfig {
   if (typeof raw !== "object" || raw === null) return { servers: {} };
-  const servers = (raw as { servers?: unknown }).servers;
+  // Ours is `servers`; Claude Code's is `mcpServers`, and a block copied
+  // from a README is in that shape, so both are read.
+  const shaped = raw as { servers?: unknown; mcpServers?: unknown };
+  const servers = shaped.servers ?? shaped.mcpServers;
   if (typeof servers !== "object" || servers === null) return { servers: {} };
   const out: Record<string, McpServerConfig> = {};
   for (const [name, value] of Object.entries(servers as Record<string, unknown>)) {
@@ -106,6 +109,51 @@ export function parseMcpConfig(raw: unknown): McpConfig {
     out[name] = entry;
   }
   return { servers: out };
+}
+
+/**
+ * Servers from pasted JSON: a whole config in either shape, or, given a
+ * name, one server's entry on its own. What comes back is only what parsed
+ * as a server, so a paste with no transport in it is an empty answer.
+ */
+export function serversFromJson(raw: unknown, name?: string): Record<string, McpServerConfig> {
+  if (typeof raw !== "object" || raw === null) return {};
+  const shaped = raw as { servers?: unknown; mcpServers?: unknown };
+  if (shaped.servers !== undefined || shaped.mcpServers !== undefined) return parseMcpConfig(raw).servers;
+  if (!name) return {};
+  return parseMcpConfig({ servers: { [name]: raw } }).servers;
+}
+
+/** The file, written whole and readable, in our shape. */
+export function writeMcpConfig(workspaceRoot: string, config: McpConfig): void {
+  writeFileSync(resolvePath(workspaceRoot, MCP_CONFIG_FILE), `${JSON.stringify({ servers: config.servers }, null, 2)}\n`, "utf8");
+}
+
+/** Add or replace servers by name. Returns the names written. */
+export function upsertMcpServers(workspaceRoot: string, servers: Record<string, McpServerConfig>): string[] {
+  const names = Object.keys(servers);
+  if (names.length === 0) return [];
+  const config = readMcpConfig(workspaceRoot);
+  writeMcpConfig(workspaceRoot, { servers: { ...config.servers, ...servers } });
+  return names;
+}
+
+/** Take a server out of the file. False when it was not there. */
+export function removeMcpServer(workspaceRoot: string, name: string): boolean {
+  const config = readMcpConfig(workspaceRoot);
+  if (!(name in config.servers)) return false;
+  const { [name]: _gone, ...rest } = config.servers;
+  writeMcpConfig(workspaceRoot, { servers: rest });
+  return true;
+}
+
+/** Switch a server on or off in the file, keeping its entry. False when it was not there. */
+export function setMcpServerEnabled(workspaceRoot: string, name: string, enabled: boolean): boolean {
+  const config = readMcpConfig(workspaceRoot);
+  const server = config.servers[name];
+  if (!server) return false;
+  writeMcpConfig(workspaceRoot, { servers: { ...config.servers, [name]: { ...server, enabled } } });
+  return true;
 }
 
 function isStringMap(value: unknown): value is Record<string, string> {

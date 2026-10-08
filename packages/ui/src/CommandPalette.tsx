@@ -300,7 +300,7 @@ export function CommandPalette({
         else if (m.kind === "page") ctx.go({ name: "page", id: m.id });
         else if (m.kind === "file") ctx.go({ name: "files", path: m.id });
         else if (m.kind === "schedule") ctx.go({ name: "crons" });
-        else if (m.kind === "project") ctx.go({ name: "projects" });
+        else if (m.kind === "project") ctx.go({ name: "project", slug: m.id });
         else if (m.kind === "agent") ctx.openAgent(Number(m.id));
         else if (m.kind === "site" && ctx.sitesBase) {
           // Its own origin, so a new tab rather than in place.
