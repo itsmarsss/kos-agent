@@ -1665,7 +1665,9 @@ export async function handleApiRequest(
       crons: kernel.crons.list(),
       upcoming: upcomingRuns(kernel, now),
       spend: {
-        models: kernel.spend.byModel(week),
+        // Costed the same way the Spend page costs them, so the card and
+        // the page agree; it used to show tokens with no figure under them.
+        models: kernel.spend.byModel(week).map((m) => ({ ...m, cost: costOf(m, parseRates(kernel.settings.get(RATES_KEY))) })),
         byDay: kernel.spend.byDay(week),
       },
       memory: memoryReport(kernel),

@@ -479,14 +479,30 @@ export function Panel({
       const cost = models.reduce((n, m) => n + (m.cost ?? 0), 0);
       const priced = models.some((m) => m.cost !== undefined);
       const days = padDays(data.spend.byDay, 7);
+      const unpriced = models.filter((m) => m.cost === undefined).length;
       return (
         <div className="panel">
-          <Head title={title ?? "Spend, last 7 days"} onMore={() => onGo("settings")} />
+          <Head title={title ?? "Spend, last 7 days"} onMore={() => onGo("settings", "spend")} />
           {models.length === 0 ? (
             <Empty>Nothing spent this week.</Empty>
           ) : (
             <>
+              {/* The figure first: cost is the number this card is opened
+                  for, and it used to show tokens with nothing under them. */}
               <div className="panel-stats">
+                {priced ? (
+                  <div>
+                    <span className="panel-stat panel-stat--lead">${cost < 0.01 && cost > 0 ? "<0.01" : cost.toFixed(2)}</span>
+                    <span className="panel-stat-label">{unpriced ? `${unpriced} model${unpriced === 1 ? "" : "s"} unpriced` : "this week"}</span>
+                  </div>
+                ) : (
+                  <div>
+                    <button type="button" className="panel-stat panel-stat--link" onClick={() => onGo("settings", "spend")}>
+                      Set rates
+                    </button>
+                    <span className="panel-stat-label">to see the cost</span>
+                  </div>
+                )}
                 <div>
                   <span className="panel-stat">{fmt(input)}</span>
                   <span className="panel-stat-label">in</span>
@@ -495,12 +511,6 @@ export function Panel({
                   <span className="panel-stat">{fmt(output)}</span>
                   <span className="panel-stat-label">out</span>
                 </div>
-                {priced && (
-                  <div>
-                    <span className="panel-stat">${cost.toFixed(2)}</span>
-                    <span className="panel-stat-label">at your rates</span>
-                  </div>
-                )}
               </div>
               {/* One bar per day of everything sent and received. Input is
                   a hundred times output, so stacking the two drew one. */}

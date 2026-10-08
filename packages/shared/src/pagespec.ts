@@ -178,15 +178,16 @@ const SPANS: WidgetSpan[] = ["quarter", "third", "half", "full"];
 export const DEFAULT_HOME: HomeLayout = {
   panels: [
     { id: "approvals", kind: "approvals", span: "full" },
-    { id: "pulse", kind: "pulse", span: "half" },
     { id: "failures", kind: "failures", span: "half", limit: 5 },
-    { id: "agents", kind: "agents", span: "half" },
+    { id: "pulse", kind: "pulse", span: "half" },
     { id: "spend", kind: "spend", span: "half" },
+    { id: "schedule", kind: "schedule", span: "half", limit: 6 },
     { id: "map", kind: "map", span: "full" },
+    { id: "chats", kind: "chats", span: "half", limit: 6 },
+    { id: "agents", kind: "agents", span: "half" },
     { id: "memory", kind: "memory", span: "half" },
     { id: "modules", kind: "modules", span: "half" },
-    { id: "activity", kind: "activity", span: "half", limit: 8 },
-    { id: "chats", kind: "chats", span: "half", limit: 6 },
+    { id: "activity", kind: "activity", span: "full", limit: 8 },
   ],
 };
 
