@@ -2288,8 +2288,9 @@ select {
 .chats.is-resizing { transition: none; user-select: none; cursor: col-resize; }
 .chats.is-resizing .chats-list,
 .chats.is-resizing .project-panel { transition: none; }
-/* The handles sit in the gaps between columns: invisible until hovered,
-   a line while held. */
+/* The handles straddle the column edges: invisible until hovered, and
+   then the column's own border line lights up, not a second line beside
+   it. Each is 9px wide with its 1px line on the pixel the border is on. */
 .chats-gutter {
   position: absolute;
   top: 0;
@@ -2316,8 +2317,10 @@ select {
 .chats-gutter:focus-visible::after,
 .chats-gutter.is-active::after { background: var(--accent); }
 .chats-gutter:focus { outline: none; }
-.chats-gutter--rail { left: calc(var(--rail-w, 240px) + 0.375rem - 4.5px); }
-.chats-gutter--panel { right: calc(var(--panel-w, 300px) + 0.375rem - 4.5px); }
+/* The list's border-right is its last pixel, at --rail-w minus one; the
+   panel's border-left is its first, at --panel-w from the right. */
+.chats-gutter--rail { left: calc(var(--rail-w, 240px) - 5px); }
+.chats-gutter--panel { right: calc(var(--panel-w, 300px) - 5px); }
 .chats.is-collapsed .chats-gutter--rail,
 .chats.panel-hidden .chats-gutter--panel { display: none; }
 @media (max-width: 1100px) {

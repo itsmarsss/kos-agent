@@ -23,12 +23,20 @@ export interface GutterProps {
   onChange: (width: number) => void;
   /** Once, when the drag ends or a key or double-click settles it. */
   onDone: (width: number) => void;
+  /**
+   * Dragged well past the narrowest the column goes: the owner is pushing
+   * it away, so it folds shut rather than sticking at its minimum. The
+   * drag ends there; the width it had is kept for when it comes back.
+   */
+  onCollapse?: () => void;
   className?: string;
 }
 
 const STEP = 16;
+/** How far past the minimum the pointer goes before the column folds. */
+const SNAP = 48;
 
-export function Gutter({ label, value, min, max, fallback, grows, onChange, onDone, className }: GutterProps): ReactElement {
+export function Gutter({ label, value, min, max, fallback, grows, onChange, onDone, onCollapse, className }: GutterProps): ReactElement {
   const [active, setActive] = useState(false);
   const start = useRef<{ x: number; width: number } | null>(null);
   const clamp = (w: number): number => Math.min(max, Math.max(min, Math.round(w)));
@@ -54,7 +62,16 @@ export function Gutter({ label, value, min, max, fallback, grows, onChange, onDo
       }}
       onPointerMove={(e) => {
         if (!start.current) return;
-        onChange(clamp(start.current.width + sign * (e.clientX - start.current.x)));
+        const raw = start.current.width + sign * (e.clientX - start.current.x);
+        if (onCollapse && raw < min - SNAP) {
+          start.current = null;
+          setActive(false);
+          e.currentTarget.releasePointerCapture(e.pointerId);
+          onChange(value);
+          onCollapse();
+          return;
+        }
+        onChange(clamp(raw));
       }}
       onPointerUp={(e) => {
         if (!start.current) return;
