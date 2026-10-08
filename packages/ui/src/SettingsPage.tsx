@@ -98,11 +98,14 @@ function Field({
   children,
   badge,
   row,
+  meta,
 }: {
   label: string;
   hint?: string;
   children: ReactNode;
   badge?: ReactNode;
+  /** A line under the hint, in the words column: where it came from, say. */
+  meta?: ReactNode;
   /**
    * The control beside the words rather than under them. For a list of
    * things with a switch each: stacked, every item was a name, then a
@@ -120,6 +123,7 @@ function Field({
             {badge}
           </div>
           {hint && <p className="set-hint">{hint}</p>}
+          {meta}
         </div>
         <div className="set-field-control">{children}</div>
       </div>
@@ -133,6 +137,7 @@ function Field({
       </div>
       {children}
       {hint && <p className="set-hint">{hint}</p>}
+      {meta}
     </div>
   );
 }
@@ -1261,6 +1266,7 @@ export function SettingsPage({
                 label={`${sk.name} (${sk.kind})${sk.projects ? ` · ${sk.projects.join(", ")}` : ""}`}
                 hint={sk.description}
                 row
+                {...(sk.origin ? { meta: <span className="set-origin ops-mono">{sk.origin}</span> } : {})}
               >
                 <label className="set-toggle">
                   <input
@@ -1302,7 +1308,6 @@ export function SettingsPage({
                   >
                     Remove
                   </button>
-                  {sk.origin && <span className="hint ops-mono">{sk.origin}</span>}
                 </span>
               </Field>
             ))}

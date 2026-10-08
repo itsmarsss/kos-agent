@@ -4552,7 +4552,12 @@ li:hover .chats-item-when { opacity: 0; }
   align-items: flex-end;
   gap: 0.25rem;
 }
-.set-field-control .set-module-actions { margin-top: 0; justify-content: flex-end; }
+.set-field-control .set-module-actions { margin-top: 0; justify-content: flex-end; flex-wrap: wrap; }
+/* The words keep most of the row: a long command or URL on the right used
+   to push the description down to one word per line. */
+.set-field--row .set-field-control { max-width: 45%; }
+.set-field--row .set-field-control .hint { white-space: normal; overflow-wrap: anywhere; text-align: right; }
+.set-origin { display: block; margin-top: 0.2rem; color: var(--faint); font-size: var(--text-xs); overflow-wrap: anywhere; }
 
 /* Finding skills and servers inside Settings: a short list of ready picks,
    then a list of what a repository or the registry holds, each with one
