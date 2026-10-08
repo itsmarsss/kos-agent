@@ -1390,6 +1390,12 @@ export function SettingsPage({
                 key={s.name}
                 label={`${s.name} (${s.transport})${s.projects.length ? ` · ${s.projects.join(", ")}` : ""}`}
                 row
+                meta={
+                  <span className="set-origin">
+                    {s.risk === "safe" ? "all tools safe" : "risky: each call asks"}
+                    {Object.keys(s.floors).length > 0 && ` · floors: ${Object.entries(s.floors).map(([t, f]) => `${t} ${f}`).join(", ")}`}
+                  </span>
+                }
                 hint={
                   !s.enabled
                     ? `${s.command} · off`
@@ -1414,10 +1420,6 @@ export function SettingsPage({
                   <span>{mcpBusy === s.name ? "…" : s.enabled ? "On" : "Off"}</span>
                 </label>
                 <span className="set-module-actions">
-                  <span className="hint">
-                    {s.risk === "safe" ? "all tools safe" : "risky"}
-                    {Object.keys(s.floors).length > 0 && ` · floors: ${Object.entries(s.floors).map(([t, f]) => `${t} ${f}`).join(", ")}`}
-                  </span>
                   <button
                     type="button"
                     className="link is-danger"

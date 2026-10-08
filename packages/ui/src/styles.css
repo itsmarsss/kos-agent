@@ -4546,17 +4546,35 @@ li:hover .chats-item-when { opacity: 0; }
 .set-rows > .set-field--row:last-child { padding-bottom: 0; }
 .set-field--row .set-hint { margin: 0.15rem 0 0; }
 .set-field-text { min-width: 0; }
+/* One strip on the title line: the switch, then the actions as small
+   buttons. Stacked, it was a checkbox with two coloured words under it,
+   floating halfway down a paragraph. */
+.set-field--row { align-items: start; }
 .set-field-control {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.25rem;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.1rem;
 }
-.set-field-control .set-module-actions { margin-top: 0; justify-content: flex-end; flex-wrap: wrap; }
-/* The words keep most of the row: a long command or URL on the right used
-   to push the description down to one word per line. */
-.set-field--row .set-field-control { max-width: 45%; }
-.set-field--row .set-field-control .hint { white-space: normal; overflow-wrap: anywhere; text-align: right; }
+.set-field-control .set-module-actions { margin-top: 0; gap: 0.25rem; align-items: center; }
+.set-field-control .set-module-actions .link {
+  padding: 0.2rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  text-decoration: none;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+.set-field-control .set-module-actions .link:hover { color: var(--text); background: var(--panel-2); border-color: var(--line); }
+.set-field-control .set-module-actions .link.is-danger { color: var(--danger); }
+.set-field-control .set-module-actions .link.is-danger:hover { background: var(--danger-dim); border-color: var(--danger); }
+/* The words keep the row: anything long (an origin URL, a server's risk and
+   floors) lives under them, so the strip on the right is only the controls. */
 .set-origin { display: block; margin-top: 0.2rem; color: var(--faint); font-size: var(--text-xs); overflow-wrap: anywhere; }
 
 /* Finding skills and servers inside Settings: a short list of ready picks,
