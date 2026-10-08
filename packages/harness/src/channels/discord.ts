@@ -16,10 +16,7 @@ import {
   type Message,
   type ModalSubmitInteraction,
 } from "discord.js";
-import {
-  formatApprovalPrompt,
-  summarizeAction,
-} from "@kos/shared";
+import { detailLines, summarizeAction } from "@kos/shared";
 
 import { isImage, isTextual, type Attachment } from "../kernel/attachments.js";
 import { COMMANDS, completions, runCommand, type SlashContext } from "./commands.js";
@@ -55,9 +52,37 @@ const MODAL_WAIT_MS = 5 * 60 * 1000;
 const REACT_WORKING = "⏳";
 const REACT_DONE = "✅";
 const REACT_FAIL = "❌";
-const COLOR_WORKING = 0x6366f1;
-const COLOR_FAIL = 0xef4444;
-const COLOR_APPROVE = 0xf59e0b;
+/** Subtext lines may not be longer than this and still read as a glance. */
+const DETAIL_MAX = 160;
+
+/**
+ * The text of an approval prompt: what, then the small print.
+ *
+ * Two lines and the buttons. The embed this replaced had a title, a
+ * description, three labelled fields, a footer and a plain-text copy of
+ * the same above it; the owner read it as a form. The first line is the
+ * action as summarizeAction says it; the subtext carries the tool, the id,
+ * the arguments that matter and the reason, and renders small and grey.
+ */
+export function approvalText(req: ApprovalRequest): string {
+  if (req.tool === undefined) {
+    return [`**Needs your OK** · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n");
+  }
+  const args = req.args ?? {};
+  const details = detailLines(req.tool, args)
+    .slice(1)
+    .filter((l) => !l.startsWith("…"))
+    .slice(0, 3)
+    .map((l) => (l.length > DETAIL_MAX ? `${l.slice(0, DETAIL_MAX - 1)}…` : l));
+  const small = [`${req.tool} · #${req.id}`, ...details, ...(req.reason ? [req.reason] : [])].join(" · ");
+  return [`**Needs your OK** · ${summarizeAction(req.tool, args)}`, `-# ${small}`].join("\n");
+}
+
+/** What a settled prompt becomes: one small line saying how it went. */
+export function settledText(outcome: "approved" | "denied", summary: string | undefined, id: string): string {
+  const mark = outcome === "approved" ? "✅ Approved" : "❌ Denied";
+  return `-# ${mark} · ${summary ?? `#${id}`}`;
+}
 
 /** Encode the approve/deny button ids for a pending action. */
 export function approvalCustomIds(pendingId: string): {
@@ -323,7 +348,7 @@ export class DiscordAdapter implements ChannelAdapter {
    * costs a stale prompt rather than a wrong decision -- pressing it answers
    * that the action does not exist, which is true.
    */
-  private readonly prompts = new Map<string, Message>();
+  private readonly prompts = new Map<string, { message: Message; summary: string }>();
   private commands?: SlashContext;
   private readonly ownerId?: string;
   private isAuthorized: SenderAuthorizer = () => true;
@@ -544,16 +569,11 @@ export class DiscordAdapter implements ChannelAdapter {
     }
 
     try {
+      // The prompt settles into one small line; the resumed turn's answer is
+      // its own message, which is the one the owner is waiting for.
       await interaction.update({
-        content: decision.approved ? "Working on that…" : "Denied.",
-        embeds: decision.approved
-          ? [
-              new EmbedBuilder()
-                .setColor(COLOR_WORKING)
-                .setTitle("Approved")
-                .setDescription(`Running pending \`#${decision.id}\`…`),
-            ]
-          : [],
+        content: settledText(decision.approved ? "approved" : "denied", this.prompts.get(decision.id)?.summary, decision.id),
+        embeds: [],
         components: [],
       });
     } catch {
@@ -774,8 +794,13 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   /**
-   * React ⏳ on the user message, post a status embed, then edit it to the
-   * final reply (and swap reaction to ✅ / ❌).
+   * The ⏳ reaction is the whole presence; the answer is a message of its own.
+   *
+   * This used to post a "Working on it…" embed and edit it into the reply.
+   * The owner's phone buzzed for the placeholder, the reply itself (an edit)
+   * never notified, and a titled box with a footer sat under every question.
+   * A reaction says the same thing in no space at all, and the reply then
+   * arrives as the notification, carrying its own content.
    */
   async acknowledge(msg: InboundMessage): Promise<TurnPresence | undefined> {
     const inbound = msg.native;
@@ -786,22 +811,6 @@ export class DiscordAdapter implements ChannelAdapter {
       await message.react(REACT_WORKING);
     } catch {
       // reactions may fail in some DM configs
-    }
-
-    let statusMsg: Message;
-    try {
-      statusMsg = await message.reply({
-        embeds: [
-          new EmbedBuilder()
-            .setColor(COLOR_WORKING)
-            .setTitle("KOS")
-            .setDescription("Working on it…")
-            .setFooter({ text: "you can keep talking; turns run one at a time" }),
-        ],
-      });
-    } catch {
-      // fall back to plain send path
-      return undefined;
     }
 
     const swapReact = async (from: string, to: string): Promise<void> => {
@@ -817,66 +826,32 @@ export class DiscordAdapter implements ChannelAdapter {
       }
     };
 
+    // Into the same DM the question came from, without quoting it: a
+    // reply reference adds a "replying to" line to every answer.
+    const channel = message.channel as { send?: (payload: unknown) => Promise<unknown> } | undefined;
+    const post = async (payload: unknown): Promise<void> => {
+      if (!channel?.send) throw new Error("no channel to answer in");
+      await channel.send(payload);
+    };
+
     return {
-      update: async (status: string) => {
-        try {
-          await statusMsg.edit({
-            embeds: [
-              new EmbedBuilder()
-                .setColor(COLOR_WORKING)
-                .setTitle("KOS")
-                .setDescription(status.slice(0, 4000)),
-            ],
-          });
-        } catch {
-          // ignore edit races
-        }
-      },
+      // Nothing to edit: the reaction says the turn is running.
+      update: async () => undefined,
       complete: async (reply: OutboundMessage) => {
         await swapReact(REACT_WORKING, REACT_DONE);
-        // The reply lands as ordinary message content, not an embed, so the
-        // model owns the presentation: headings, lists, code blocks and the
-        // rest render as written instead of being flattened into one
-        // description field under a fixed title. A turn that chose a card
-        // gets it under the text, on the last chunk, where a reader arrives
-        // at it having read the answer.
-        const chunks = reply.text ? chunkText(reply.text) : [];
-        const embeds = reply.card ? [buildCard(reply.card)] : [];
-        const components = buildButtons(reply.buttons ?? []);
-        const last = Math.max(chunks.length, 1) - 1;
         try {
-          await statusMsg.edit({
-            content: chunks[0] ?? "",
-            embeds: last === 0 ? embeds : [],
-            components: last === 0 ? components : [],
-          });
-          for (let i = 1; i < chunks.length; i++) {
-            await this.send(msg.senderId, {
-              text: chunks[i]!,
-              ...(i === last && reply.card ? { card: reply.card } : {}),
-              ...(i === last && reply.buttons ? { buttons: reply.buttons } : {}),
-            });
-          }
+          await this.deliver(post, reply);
         } catch {
           await this.send(msg.senderId, reply);
         }
       },
       fail: async (err: string) => {
         await swapReact(REACT_WORKING, REACT_FAIL);
+        const text = `❌ ${err.slice(0, 1900)}`;
         try {
-          // Failures keep the embed: that is the harness speaking about a
-          // broken turn, not the agent presenting work.
-          await statusMsg.edit({
-            content: "",
-            embeds: [
-              new EmbedBuilder()
-                .setColor(COLOR_FAIL)
-                .setTitle("KOS")
-                .setDescription(err.slice(0, 4000)),
-            ],
-          });
+          await post({ content: text });
         } catch {
-          await this.send(msg.senderId, { text: err });
+          await this.send(msg.senderId, { text });
         }
       },
     };
@@ -902,36 +877,13 @@ export class DiscordAdapter implements ChannelAdapter {
         .setStyle(ButtonStyle.Danger),
     );
 
-    const tool = req.tool ?? "action";
-    const args = req.args ?? {};
-    const summary = summarizeAction(tool, args);
-    const body =
-      req.tool !== undefined
-        ? formatApprovalPrompt(req.id, tool, args, req.reason)
-        : req.text;
-
-    const embed = new EmbedBuilder()
-      .setColor(COLOR_APPROVE)
-      .setTitle("Approval needed")
-      .setDescription(summary)
-      .addFields(
-        { name: "Tool", value: `\`${tool}\``, inline: true },
-        { name: "Pending", value: `\`#${req.id}\``, inline: true },
-      )
-      .setFooter({ text: "KOS · risk gate" });
-
-    if (req.reason) {
-      embed.addFields({ name: "Reason", value: req.reason.slice(0, 200) });
-    }
-
-    // Keep a short plain-text fallback for clients that hide embeds.
+    const summary = req.tool !== undefined ? summarizeAction(req.tool, req.args ?? {}) : req.text;
     const user = await this.client.users.fetch(recipientId);
     const sent = await user.send({
-      content: body.split("\n")[0],
-      embeds: [embed],
+      content: approvalText(req),
       components: [row],
     });
-    this.prompts.set(req.id, sent);
+    this.prompts.set(req.id, { message: sent, summary });
   }
 
   /**
@@ -945,17 +897,9 @@ export class DiscordAdapter implements ChannelAdapter {
     if (!prompt) return;
     this.prompts.delete(id);
     try {
-      await prompt.edit({
-        content: outcome === "approved" ? "Working on that…" : "Denied.",
-        embeds:
-          outcome === "approved"
-            ? [
-                new EmbedBuilder()
-                  .setColor(COLOR_WORKING)
-                  .setTitle("Approved")
-                  .setDescription(`Running pending \`#${id}\`…`),
-              ]
-            : [],
+      await prompt.message.edit({
+        content: settledText(outcome, prompt.summary, id),
+        embeds: [],
         components: [],
       });
     } catch {

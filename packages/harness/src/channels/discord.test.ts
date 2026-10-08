@@ -14,6 +14,7 @@ import {
   DiscordAdapter,
   PRESS_PREFIX,
   approvalCustomIds,
+  approvalText,
   buildButtons,
   buildCard,
   buildModal,
@@ -146,27 +147,53 @@ describe("the answer a turn shaped", () => {
     adapter: DiscordAdapter;
     edits: Record<string, unknown>[];
     message: Message;
+    reactions: string[];
   } {
+    // "edits" by history: these are the messages posted into the DM, since
+    // the answer is a message of its own rather than an edited placeholder.
     const edits: Record<string, unknown>[] = [];
-    const statusMsg = {
-      edit: async (payload: Record<string, unknown>) => {
-        edits.push(payload);
-        return statusMsg;
-      },
-    };
+    const reactions: string[] = [];
     const message = {
       author: { id: "owner-id", bot: false },
       guild: null,
       content: "hi",
-      react: async () => undefined,
+      react: async (emoji: string) => {
+        reactions.push(emoji);
+      },
       reactions: { cache: { get: () => undefined } },
-      reply: async () => statusMsg,
+      channel: {
+        send: async (payload: Record<string, unknown>) => {
+          edits.push(payload);
+        },
+      },
     } as unknown as Message;
     const adapter = new DiscordAdapter({ token: "t" });
     // react() reaches for the bot's own user when swapping reactions.
     (adapter as unknown as { client: { user: unknown } }).client.user = { id: "bot" };
-    return { adapter, edits, message };
+    return { adapter, edits, message, reactions };
   }
+
+  it("posts nothing until the answer: the reaction is the whole presence", async () => {
+    // A "Working on it…" embed used to be posted and edited into the reply.
+    // The owner's phone buzzed for the placeholder and never for the answer,
+    // which arrived as an edit, and every reply sat under a titled box.
+    const { adapter, edits, message, reactions } = presenceFor();
+    const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "hi", native: message });
+    expect(edits).toEqual([]);
+    expect(reactions).toEqual(["⏳"]);
+    await presence!.complete({ text: "done" });
+    expect(reactions).toEqual(["⏳", "✅"]);
+    expect(edits).toHaveLength(1);
+    expect(edits[0]).toEqual({ content: "done" });
+  });
+
+  it("says a failure in one plain line, marked", async () => {
+    const { adapter, edits, message, reactions } = presenceFor();
+    const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "hi", native: message });
+    await presence!.fail("Something went wrong handling that.");
+    expect(reactions.at(-1)).toBe("❌");
+    expect(edits).toEqual([{ content: "❌ Something went wrong handling that." }]);
+  });
 
   it("puts the card under the words, in the same message", async () => {
     const { adapter, edits, message } = presenceFor();
@@ -205,8 +232,8 @@ describe("the answer a turn shaped", () => {
 
     const final = edits.at(-1)!;
     expect(final.content).toBe("just words");
-    expect(final.embeds).toEqual([]);
-    expect(final.components).toEqual([]);
+    expect(final.embeds).toBeUndefined();
+    expect(final.components).toBeUndefined();
   });
 });
 
@@ -341,6 +368,43 @@ describe("forms", () => {
   });
 });
 
+describe("the approval prompt", () => {
+  /*
+   * Two lines and the buttons. The embed this replaced had a title, a
+   * description, three fields, a footer and a plain copy above it.
+   */
+  it("says the action, then the small print as subtext", () => {
+    const text = approvalText({
+      id: "12",
+      text: "x",
+      tool: "shell.run",
+      args: { command: "rm -rf build", cwd: "/w" },
+      reason: "deletes files",
+    });
+    const [first, second, ...rest] = text.split("\n");
+    expect(first).toBe("**Needs your OK** · Run: rm -rf build (in /w)");
+    expect(second).toMatch(/^-# shell\.run · #12 · command: rm -rf build · cwd: \/w · deletes files$/);
+    expect(rest).toEqual([]);
+  });
+
+  it("keeps a text-only request as it was given", () => {
+    expect(approvalText({ id: "3", text: "Post to #general?" })).toBe("**Needs your OK** · Post to #general?\n-# #3");
+  });
+
+  it("sends no embed, only the two lines and the buttons", async () => {
+    const payloads: Record<string, unknown>[] = [];
+    const adapter = new DiscordAdapter({ token: "t" });
+    (adapter as unknown as { client: { users: unknown } }).client = {
+      users: { fetch: async () => ({ send: async (p: Record<string, unknown>) => { payloads.push(p); return { edit: async () => undefined }; } }) },
+    };
+    await adapter.requestApproval("owner-id", { id: "7", text: "x", tool: "files.rm", args: { path: "a.txt" } });
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0]?.embeds).toBeUndefined();
+    expect(String(payloads[0]?.content).split("\n")).toHaveLength(2);
+    expect((payloads[0]?.components as unknown[])).toHaveLength(1);
+  });
+});
+
 describe("a prompt decided somewhere else", () => {
   function adapterWithPrompt(): {
     adapter: DiscordAdapter;
@@ -372,14 +436,15 @@ describe("a prompt decided somewhere else", () => {
 
     expect(edits).toHaveLength(1);
     expect(edits[0]?.components).toEqual([]);
-    expect(String(edits[0]?.content)).toContain("Working on that");
+    // One small line, with what it was: the buttons and the prompt are gone.
+    expect(edits[0]?.content).toBe("-# ✅ Approved · Approve sql?");
   });
 
   it("says denied when it was denied", async () => {
     const { adapter, edits } = adapterWithPrompt();
     await adapter.requestApproval("owner-id", { id: "8", text: "Approve sql?" });
     await adapter.settleApproval("8", "denied");
-    expect(String(edits[0]?.content)).toBe("Denied.");
+    expect(edits[0]?.content).toBe("-# ❌ Denied · Approve sql?");
     expect(edits[0]?.embeds).toEqual([]);
   });
 
@@ -557,8 +622,8 @@ describe("settling a prompt decided somewhere else", () => {
   /** Reach the prompt registry without sending a real Discord message. */
   function seed(adapter: DiscordAdapter, id: string, edit: () => Promise<void>) {
     (
-      adapter as unknown as { prompts: Map<string, { edit: () => Promise<void> }> }
-    ).prompts.set(id, { edit });
+      adapter as unknown as { prompts: Map<string, { message: { edit: () => Promise<void> }; summary: string }> }
+    ).prompts.set(id, { message: { edit }, summary: "x" });
   }
 
   it("edits the prompt once, then leaves it alone", async () => {
