@@ -3278,14 +3278,15 @@ li:hover .chats-item-when { opacity: 0; }
   margin-bottom: 0.4rem;
 }
 /* Full width is not a readable measure. Capped with padding rather than a cap
-   on the children, so a right-aligned bubble stays right-aligned. The head
-   takes the same inset, so the title sits over the thread rather than
-   against the list's edge with the bubbles indented beneath it. */
+   on the children, so a right-aligned bubble stays right-aligned. */
 .chats-thread,
-.chats-composer,
-.chats-view-head {
+.chats-composer {
   padding-inline: max(1rem, calc((100% - 56rem) / 2));
 }
+/* The head is not centred with the thread: its toggle has to stay at the
+   list's edge however wide the window, so it takes a small, even inset on
+   both sides instead. */
+.chats-view-head { padding-inline: 0.9rem; }
 
 .chats-composer textarea {
   width: 100%;
@@ -6324,7 +6325,7 @@ a.health {
 .chats-view-path { display: flex; align-items: center; gap: 0.3rem; margin: 0 0 0.15rem -0.35rem; min-height: 1.75rem; }
 /* On the landing the row stands alone, outside a head: it takes the head's
    inset itself so the toggle sits where it does over a thread. */
-.chats-view > .chats-view-path { margin: 0.15rem 0 0; padding-inline: calc(max(1rem, (100% - 56rem) / 2) - 0.35rem); }
+.chats-view > .chats-view-path { margin: 0.15rem 0 0; padding-inline: 0.9rem; }
 /* The two panel toggles: quiet outlines, the open one with its column
    filled and in the text colour, rather than a blue glyph among grey words. */
 .chats-toggle,
