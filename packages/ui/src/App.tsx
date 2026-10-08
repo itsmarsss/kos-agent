@@ -535,12 +535,23 @@ export function App(): React.ReactElement {
               key={toast.text}
               className={`ops-toast ops-toast--${toast.kind}`}
               role="status"
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
+              initial={{ opacity: 0, y: -10, x: "-50%", scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, x: "-50%", scale: 1 }}
+              exit={{ opacity: 0, y: -6, x: "-50%", scale: 0.98 }}
               transition={spring}
             >
-              {toast.text}
+              <span className="ops-toast-icon" aria-hidden="true">
+                {toast.kind === "ok" ? (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m5 13 4 4L19 7" />
+                  </svg>
+                ) : (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
+                    <path d="M12 6v7M12 17.5v.01" />
+                  </svg>
+                )}
+              </span>
+              <span className="ops-toast-text">{toast.text}</span>
             </m.div>
           )}
         </AnimatePresence>
@@ -820,11 +831,17 @@ export function App(): React.ReactElement {
   }
 
   if (route.name === "crons") {
-    const rows = crons.filter((c) => {
-      if (cronFilter === "on") return c.enabled;
-      if (cronFilter === "off") return !c.enabled;
-      return true;
-    });
+    // Yours first, then KOS's own (kos.backup, kos.memory and the rest):
+    // the two were interleaved by id, so the owner's three sat among six
+    // of the system's and read as one list of nine.
+    const system = (c: CronJob): boolean => c.name.startsWith("kos.");
+    const rows = crons
+      .filter((c) => {
+        if (cronFilter === "on") return c.enabled;
+        if (cronFilter === "off") return !c.enabled;
+        return true;
+      })
+      .sort((a, b) => Number(system(a)) - Number(system(b)));
     return shell(
       <RunsTabs current="crons">
       <ListPage
@@ -833,6 +850,7 @@ export function App(): React.ReactElement {
         rows={rows}
         rowKey={(c) => c.id}
         empty="No crons match"
+        groupBy={(c) => (system(c) ? "KOS's own" : "Yours")}
         onRowClick={(c) => setEditingCron({ job: c })}
         toolbar={
           /* Writing one by hand: everything here could be asked for in a

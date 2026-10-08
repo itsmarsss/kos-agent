@@ -57,6 +57,23 @@ describe("AuditLog", () => {
     expect(rec?.isError).toBe(true);
     expect(rec?.riskTier).toBe("risky");
   });
+
+  it("counts calls and errors by the hour, oldest first", () => {
+    const hour = 3_600_000;
+    let now = 10 * hour + 5;
+    const log = new AuditLog(ws.db, undefined, () => now);
+    log.record({ tool: "a", args: {}, result: "ok", isError: false });
+    now = 10 * hour + 900_000;
+    log.record({ tool: "b", args: {}, result: "no", isError: true });
+    now = 12 * hour;
+    log.record({ tool: "c", args: {}, result: "ok", isError: false });
+    expect(log.byHour(0)).toEqual([
+      { hour: 10 * hour, calls: 2, errors: 1 },
+      { hour: 12 * hour, calls: 1, errors: 0 },
+    ]);
+    // Since a moment: the earlier hour is left out, not truncated.
+    expect(log.byHour(11 * hour)).toEqual([{ hour: 12 * hour, calls: 1, errors: 0 }]);
+  });
 });
 
 /**
