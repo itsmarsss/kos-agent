@@ -2276,7 +2276,7 @@ select {
    rather than removed: with the list gone the view became the first grid
    item and was placed in the empty track. */
 .chats {
-  transition: grid-template-columns 220ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: grid-template-columns 280ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 .chats.is-collapsed { grid-template-columns: 0px minmax(0, 1fr); }
 /* Project mode: a third column carries the project's files, pages and
@@ -2367,9 +2367,9 @@ select {
 .chats.panel-hidden .chats-gutter--panel::after { left: 0; width: 2px; }
 .chats-list {
   transition:
-    opacity 140ms ease,
-    padding-left 220ms cubic-bezier(0.32, 0.72, 0, 1),
-    padding-right 220ms cubic-bezier(0.32, 0.72, 0, 1);
+    opacity 200ms ease,
+    padding-left 280ms cubic-bezier(0.4, 0, 0.2, 1),
+    padding-right 280ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 @media (prefers-reduced-motion: reduce) {
   .chats,
@@ -6266,8 +6266,8 @@ a.health {
    it goes. They used to be display:none, which cannot animate, so the
    sidebar snapped from one shape to the other with the page jumping after. */
 @media (min-width: 861px) {
-  .app { transition: grid-template-columns 220ms cubic-bezier(0.32, 0.72, 0, 1); }
-  .side { transition: padding 220ms cubic-bezier(0.32, 0.72, 0, 1), gap 220ms ease; }
+  .app { transition: grid-template-columns 280ms cubic-bezier(0.4, 0, 0.2, 1); }
+  .side { transition: padding 280ms cubic-bezier(0.4, 0, 0.2, 1), gap 280ms ease; }
   .side-link { transition: background 0.12s ease, color 0.12s ease, gap 220ms ease, padding 220ms ease; }
   .side-label,
   .side-brand span,
@@ -6276,7 +6276,7 @@ a.health {
     max-width: 12rem;
     opacity: 1;
     overflow: hidden;
-    transition: opacity 140ms ease, max-width 220ms cubic-bezier(0.32, 0.72, 0, 1);
+    transition: opacity 200ms ease, max-width 280ms cubic-bezier(0.4, 0, 0.2, 1);
   }
   /* Inline text has no width to fold; the brand's tail is a box so it can.
      Aligned by its top: a clipped inline-block sits its bottom edge on the
@@ -6504,7 +6504,7 @@ a.health {
   overflow: hidden auto;
   padding: 0 0 0.75rem 0.75rem;
   border-left: 1px solid var(--line);
-  transition: opacity 140ms ease, border-color 140ms ease;
+  transition: opacity 200ms ease, border-color 200ms ease;
 }
 .project-panel-head {
   display: flex;
