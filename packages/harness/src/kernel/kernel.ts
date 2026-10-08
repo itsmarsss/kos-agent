@@ -2499,6 +2499,11 @@ export class Kernel {
     return this.cron.scheduledCount();
   }
 
+  /** When a scheduled job fires next, soonest first. */
+  cronNextRuns(id: number, count = 1): number[] {
+    return this.cron.nextRuns(id, count);
+  }
+
   stopCron(): void {
     this.cron.stop();
   }
