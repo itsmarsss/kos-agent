@@ -207,7 +207,12 @@ export class ConversationStore {
     if (!has("project_slug")) {
       this.db.exec(`ALTER TABLE conversations ADD COLUMN project_slug TEXT`);
     }
-    if (!has("read_at")) this.db.exec(`ALTER TABLE conversations ADD COLUMN read_at INTEGER`);
+    if (!has("read_at")) {
+      // Backfilled as read: what was there before the column counts as
+      // seen, so the upgrade does not light every thread green at once.
+      this.db.exec(`ALTER TABLE conversations ADD COLUMN read_at INTEGER`);
+      this.db.exec(`UPDATE conversations SET read_at = updated_at WHERE read_at IS NULL`);
+    }
   }
 
   /** Ids are readable and sortable; uniqueness is enforced by the primary key. */
