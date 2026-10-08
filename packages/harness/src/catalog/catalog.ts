@@ -199,9 +199,12 @@ export async function searchRegistry(query: string, fetchFn: Fetch, limit = 30):
   const seen = new Set<string>();
   const out: McpListing[] = [];
   for (const row of rows) {
-    const meta = (row as { _meta?: Record<string, { isLatest?: boolean }> })._meta?.["io.modelcontextprotocol.registry/official"];
+    // Each row is { server, _meta }: the server as published, and what the
+    // registry knows about it. Older responses put the fields at the top.
+    const wrapped = row as { server?: unknown; _meta?: Record<string, { isLatest?: boolean }> };
+    const meta = wrapped._meta?.["io.modelcontextprotocol.registry/official"];
     if (meta && meta.isLatest === false) continue;
-    const listing = listingFromRegistry(row);
+    const listing = listingFromRegistry(wrapped.server ?? row);
     if (!listing || seen.has(listing.name)) continue;
     if (listing.packages.length === 0 && listing.remotes.length === 0) continue;
     seen.add(listing.name);

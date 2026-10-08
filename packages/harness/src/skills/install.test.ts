@@ -13,6 +13,13 @@ describe("a manifest from a SKILL.md", () => {
     expect(m).toEqual({ name: "pdf-tables", description: "Pull tables out of PDFs", kind: "prompt", instructions: "SKILL.md" });
   });
 
+  it("reads a description written as a YAML block, folded or literal", () => {
+    const folded = manifestFromSkillMd("---\nname: guide\ndescription: >\n  Guides users through\n  a workflow.\nlicense: MIT\n---\n", "x");
+    expect(folded.description).toBe("Guides users through a workflow.");
+    const literal = manifestFromSkillMd("---\nname: api\ndescription: |-\n  Call the API.\n  Carefully.\n---\n", "x");
+    expect(literal.description).toBe("Call the API. Carefully.");
+  });
+
   it("falls back to the folder's name and the first line of prose", () => {
     const m = manifestFromSkillMd("# Receipts\n\nFile receipts by month.\n", "receipts");
     expect(m).toMatchObject({ name: "receipts", description: "File receipts by month." });

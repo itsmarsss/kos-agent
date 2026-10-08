@@ -40,8 +40,22 @@ export function manifestFromSkillMd(text: string, fallbackName: string): SkillMa
   const front = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
   const field = (key: string): string | undefined => {
     if (!front) return undefined;
-    const m = new RegExp(`^${key}:[ \\t]*(.+)$`, "m").exec(front[1]!);
-    return m?.[1]?.trim().replace(/^(["'])(.*)\1$/, "$2") || undefined;
+    const m = new RegExp(`^${key}:[ \\t]*(.*)$`, "m").exec(front[1]!);
+    if (!m) return undefined;
+    const value = (m[1] ?? "").trim();
+    // A block scalar (`>` folded, `|` literal) runs on over the indented
+    // lines beneath. Read as one line either way: a description is prose.
+    if (/^[>|][+-]?$/.test(value)) {
+      const rest = front[1]!.slice((m.index ?? 0) + m[0].length).split(/\r?\n/);
+      const lines: string[] = [];
+      for (const line of rest) {
+        if (line.trim() === "") continue;
+        if (!/^[ \t]/.test(line)) break;
+        lines.push(line.trim());
+      }
+      return lines.join(" ") || undefined;
+    }
+    return value.replace(/^(["'])(.*)\1$/, "$2") || undefined;
   };
   const body = front ? text.slice(front[0].length) : text;
   const prose = body

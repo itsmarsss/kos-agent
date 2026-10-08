@@ -203,7 +203,7 @@ describe("handleApiRequest", () => {
       "https://api.github.com/repos/anthropics/skills": { default_branch: "main" },
       "https://raw.githubusercontent.com/anthropics/skills/main/skills/pdf/SKILL.md": "---\nname: pdf\ndescription: Read PDFs.\n---\n",
       "https://registry.modelcontextprotocol.io/v0/servers?limit=30&search=weather": {
-        servers: [{ name: "io.github.acme/weather", description: "Weather.", version: "1.0.0", packages: [{ registryType: "npm", identifier: "@acme/weather-mcp", environmentVariables: [{ name: "KEY", isRequired: true, isSecret: true }] }] }],
+        servers: [{ server: { name: "io.github.acme/weather", description: "Weather.", version: "1.0.0", packages: [{ registryType: "npm", identifier: "@acme/weather-mcp", environmentVariables: [{ name: "KEY", isRequired: true, isSecret: true }] }] }, _meta: { "io.modelcontextprotocol.registry/official": { isLatest: true } } }],
       },
     };
     const fetchFn = async (url: string) => {

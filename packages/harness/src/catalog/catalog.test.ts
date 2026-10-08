@@ -101,9 +101,12 @@ describe("the MCP registry", () => {
   });
 
   it("keeps the latest version of each server and drops one with nothing to install", async () => {
-    const old = { ...entry, version: "1.0.0", _meta: { "io.modelcontextprotocol.registry/official": { isLatest: false } } };
-    const bare = { name: "x/bare", description: "", version: "1", packages: [], remotes: [] };
-    const fetchFn = fetchOf({ "https://registry.modelcontextprotocol.io/v0/servers?limit=30&search=weather": { servers: [old, entry, bare, entry] } });
+    // The registry wraps each server with what it knows about it.
+    const { _meta, ...server } = entry;
+    const latest = { server, _meta };
+    const old = { server: { ...server, version: "1.0.0" }, _meta: { "io.modelcontextprotocol.registry/official": { isLatest: false } } };
+    const bare = { server: { name: "x/bare", description: "", version: "1", packages: [], remotes: [] }, _meta };
+    const fetchFn = fetchOf({ "https://registry.modelcontextprotocol.io/v0/servers?limit=30&search=weather": { servers: [old, latest, bare, latest, entry] } });
     const results = await searchRegistry("weather", fetchFn);
     expect(results.map((r) => `${r.name}@${r.version}`)).toEqual(["io.github.acme/weather@1.2.0"]);
   });
