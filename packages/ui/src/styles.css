@@ -1719,8 +1719,9 @@ select {
   height: 100vh;
   height: 100dvh;
   /* The full-bleed layout (chats) sets its own tight gutter rather than
-     inheriting the 1.5rem page padding, so the rail sits close to the nav. */
-  padding: 0.8rem 0.7rem 0;
+     inheriting the 1.5rem page padding, so the rail sits close to the nav:
+     nearly on it at the left, where the nav's own border already divides. */
+  padding: 0.8rem 0.7rem 0 0.25rem;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2258,9 +2259,9 @@ select {
   /* An auto row is sized to its content, so the view grew past the container
      and the composer ended up below the fold. minmax(0, 1fr) pins it. */
   grid-template-rows: minmax(0, 1fr);
-  /* Tight: the columns are divided by their own border lines, and any gap
-     on top of those read as dead space. */
-  gap: 0.25rem;
+  /* Tight: the columns are divided by their own border lines, and a wide
+     gap on top of those read as dead space. */
+  gap: 0.5rem;
   align-items: stretch;
   height: calc(100vh - 7.5rem);
   min-height: 26rem;
@@ -6482,7 +6483,7 @@ a.health {
   /* Scrolls down only: the drop target's negative margin would otherwise
      put a horizontal scrollbar under the column. */
   overflow: hidden auto;
-  padding: 0 0 0.75rem 0.6rem;
+  padding: 0 0 0.75rem 0.75rem;
   border-left: 1px solid var(--line);
   transition: opacity 140ms ease, border-color 140ms ease;
 }
