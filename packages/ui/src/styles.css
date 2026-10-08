@@ -5768,7 +5768,9 @@ a.health {
 }
 
 /* —— inbox —— */
-.inbox { display: flex; flex-direction: column; gap: 1.25rem; max-width: 60rem; }
+/* The page's width, like the rest: capped at 60rem the "All clear" box
+   stopped short of the heading above it. */
+.inbox { display: flex; flex-direction: column; gap: 1.25rem; }
 .inbox-clear {
   padding: 2.5rem 1rem;
   text-align: center;

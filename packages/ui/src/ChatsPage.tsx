@@ -1158,6 +1158,20 @@ export function ChatsPage({
       </li>
   );
 
+  /** The list's show/hide, wherever the view is: a thread's head, or the landing. */
+  const listToggle = (
+    <button
+      type="button"
+      className={`icon-btn chats-toggle ${collapsed && !narrow ? "" : "is-on"}`}
+      aria-label={narrow ? "Show chats" : collapsed ? "Show the chat list" : "Hide the chat list"}
+      aria-pressed={!(collapsed && !narrow)}
+      title={narrow ? "Show chats" : collapsed ? "Show the chat list" : "Hide the chat list"}
+      onClick={() => (narrow ? setListOpen(true) : setCollapsed((v) => !v))}
+    >
+      <PanelIcon side="left" on={!(collapsed && !narrow)} />
+    </button>
+  );
+
   return (
     <div
       className={`chats ${collapsed && !narrow ? "is-collapsed" : ""} ${narrow ? "is-narrow" : ""} ${active ? "has-active" : ""} ${listOpen ? "is-list-open" : ""} ${project ? "is-project" : ""} ${project && !panelOpen ? "panel-hidden" : ""} ${resizing ? "is-resizing" : ""}`}
@@ -1501,16 +1515,23 @@ export function ChatsPage({
           /* Inside a project there is no landing: the thread is the
              orchestrator's by default, and it is being stood up if it is not
              there yet. */
-          <div className="chats-placeholder">
-            <p className="ops-muted">
-              {!projectRecord
-                ? `No project called ${project.slug}.`
-                : needsOrchestrator
-                  ? "Starting the orchestrator…"
-                  : "No such thread in this project."}
-            </p>
-          </div>
+          <>
+            <div className="chats-view-path">{listToggle}</div>
+            <div className="chats-placeholder">
+              <p className="ops-muted">
+                {!projectRecord
+                  ? `No project called ${project.slug}.`
+                  : needsOrchestrator
+                    ? "Starting the orchestrator…"
+                    : "No such thread in this project."}
+              </p>
+            </div>
+          </>
         ) : !active ? (
+          <>
+          {/* The toggle is here too: with the list folded and no chat open
+              there was no button to bring it back. */}
+          <div className="chats-view-path">{listToggle}</div>
           <div className="chats-placeholder">
             {/* Opening KOS lands here. It used to say "pick a chat"; a front
                 door should offer the way in. */}
@@ -1621,6 +1642,7 @@ export function ChatsPage({
               )}
             </m.div>
           </div>
+          </>
         ) : (
           <>
             <header className="chats-view-head">
@@ -1631,16 +1653,7 @@ export function ChatsPage({
                     title. A chevron in it, next to the crumbs' own, read as
                     two kinds of arrow for two different things. */}
                 <div className="chats-view-path">
-                  <button
-                    type="button"
-                    className={`icon-btn chats-toggle ${collapsed && !narrow ? "" : "is-on"}`}
-                    aria-label={narrow ? "Show chats" : collapsed ? "Show the chat list" : "Hide the chat list"}
-                    aria-pressed={!(collapsed && !narrow)}
-                    title={narrow ? "Show chats" : collapsed ? "Show the chat list" : "Hide the chat list"}
-                    onClick={() => (narrow ? setListOpen(true) : setCollapsed((v) => !v))}
-                  >
-                    <PanelIcon side="left" on={!(collapsed && !narrow)} />
-                  </button>
+                  {listToggle}
                   {(() => {
                     const crumbs: { label: string; id: string }[] = [];
                     if (orchestrator && active.id !== orchestrator.id) crumbs.push({ label: "KOS", id: orchestrator.id });
