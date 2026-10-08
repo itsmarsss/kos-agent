@@ -381,19 +381,29 @@ export function QuickAsk({
           const pending = i === thread.length - 1 && t.a === undefined;
           return (
             <Fragment key={i}>
-              <div className="quickask-turn quickask-turn--you">
-                <Markdown text={t.q} />
+              {/* The chat's own bubbles, smaller. A shape of its own here
+                  meant the answer changed face the moment it finished
+                  streaming, since the live view was already drawn in the
+                  chat's. */}
+              <div className="quickask-turn turn turn--you">
+                <div className="bubble bubble--you">
+                  <Markdown text={t.q} />
+                </div>
               </div>
               {t.a !== undefined ? (
-                <div className="quickask-turn quickask-turn--kos">
-                  <Markdown text={t.a} />
+                <div className="quickask-turn turn turn--kos">
+                  <div className="bubble bubble--kos">
+                    <Markdown text={t.a} />
+                  </div>
                 </div>
               ) : pending && live && !live.ended ? (
-                <div className="quickask-turn quickask-turn--live">
+                <div className="quickask-turn turn turn--kos quickask-turn--live">
                   <LiveTurn live={live} />
                 </div>
               ) : pending ? (
-                <div className="quickask-turn quickask-turn--kos quickask-wait">Thinking…</div>
+                <div className="quickask-turn turn turn--kos">
+                  <div className="bubble bubble--kos is-thinking">Thinking…</div>
+                </div>
               ) : null}
             </Fragment>
           );
