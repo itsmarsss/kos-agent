@@ -284,6 +284,8 @@ export class Kernel {
    * a thread can say it is thinking instead of looking idle for ten seconds.
    */
   private readonly working = new Set<string>();
+  /** Conversations whose last turn threw, with the error, until the next turn. */
+  private readonly failed = new Map<string, string>();
 
   /** Conversations the owner has asked to stop, cleared when the turn ends. */
   private readonly stopping = new Set<string>();
@@ -584,6 +586,7 @@ export class Kernel {
       const previousConversation = this.currentConversationId;
       this.currentConversationId = sessionId;
       this.working.add(sessionId);
+      this.failed.delete(sessionId);
       this.progress.emit({ kind: "turn-start", conversationId: sessionId });
       this.bus.emit({ kind: "turn:start", conversationId: sessionId, projectSlug: this.projectOf(sessionId) });
       /** Set when the turn hands its ending over to a deferred settle. */
@@ -918,11 +921,10 @@ export class Kernel {
         suspended = outcome.suspended;
         return { reply: outcome.reply, halted: false, sessionId };
       } catch (err) {
-        this.runs.finish(
-          runId,
-          "error",
-          err instanceof Error ? err.message : String(err),
-        );
+        const why = err instanceof Error ? err.message : String(err);
+        this.runs.finish(runId, "error", why);
+        // A turn the owner stopped did not fail; it was told to.
+        if (!this.stopping.has(sessionId)) this.failed.set(sessionId, why);
         throw err;
       } finally {
         // Restored rather than cleared: a dispatched turn runs inside another,
@@ -978,7 +980,9 @@ export class Kernel {
         })
         .catch((err: unknown) => {
           if (this.closed) return;
-          this.runs.finish(ctx.runId, "error", err instanceof Error ? err.message : String(err));
+          const why = err instanceof Error ? err.message : String(err);
+          this.runs.finish(ctx.runId, "error", why);
+          if (!this.stopping.has(ctx.sessionId)) this.failed.set(ctx.sessionId, why);
         })
         .finally(() => this.endTurn(ctx.sessionId));
       return {
@@ -2333,6 +2337,16 @@ export class Kernel {
   /** Conversation ids with a turn in flight, for the chat list. */
   busyConversations(): string[] {
     return [...this.working];
+  }
+
+  /** Conversations whose last turn threw, and what it said, for the chat list. */
+  failedConversations(): Map<string, string> {
+    return new Map(this.failed);
+  }
+
+  /** The chat KOS opened to look into a failure with this label, if one is open. */
+  fixFor(label: string): string | undefined {
+    return this.caretaker.fixFor(label);
   }
 
   /**

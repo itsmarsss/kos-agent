@@ -36,6 +36,7 @@ import { conversationEvents } from "./transcript.js";
 import { listDirectory, readFile, readImage, type DirEntry } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
+import type { FailingJob } from "../ops/health.js";
 import { readSkills } from "../skills/manifest.js";
 import { importPage, listPages, readPage } from "../memory/pages.js";
 import { applyResolution, describeReview } from "../memory/resolve.js";
@@ -160,7 +161,7 @@ function projectRoute(path: string): { slug: string; action: string } | undefine
   return { slug: decodeURIComponent(parts[0]), action: parts[1] };
 }
 
-type Activity = "working" | "needs-you" | "idle";
+type Activity = "working" | "needs-you" | "error" | "idle";
 
 /**
  * A conversation as the dashboard lists it: what it is, so the list can
@@ -171,7 +172,7 @@ type Activity = "working" | "needs-you" | "idle";
  */
 function conversationLabeller(
   kernel: Kernel,
-): (c: Conversation) => Conversation & { kind: ConversationKind; activity: Activity } {
+): (c: Conversation) => Conversation & { kind: ConversationKind; activity: Activity; lastError?: string } {
   const busy = new Set(kernel.busyConversations());
   const waiting = new Set(
     kernel.approvals
@@ -179,10 +180,40 @@ function conversationLabeller(
       .map((a) => a.conversationId)
       .filter((id): id is string => typeof id === "string"),
   );
-  return (c) => ({
-    ...c,
-    kind: conversationKind(c, kernel.profile.ownerId),
-    activity: busy.has(c.id) ? "working" : waiting.has(c.id) ? "needs-you" : "idle",
+  const failed = kernel.failedConversations();
+  return (c) => {
+    // A thread whose last turn threw is red until something happens in it:
+    // the owner would otherwise find a half-answer with nothing to say why.
+    const activity: Activity = busy.has(c.id)
+      ? "working"
+      : waiting.has(c.id)
+        ? "needs-you"
+        : failed.has(c.id)
+          ? "error"
+          : "idle";
+    return {
+      ...c,
+      kind: conversationKind(c, kernel.profile.ownerId),
+      activity,
+      ...(activity === "error" ? { lastError: failed.get(c.id) } : {}),
+    };
+  };
+}
+
+/**
+ * Each failure with the chat where KOS is looking into it, when there is
+ * one, so the inbox can say "KOS is on it" rather than offer to start a
+ * second look at the same thing.
+ */
+function withFixes(
+  kernel: Kernel,
+  failing: FailingJob[],
+): (FailingJob & { fixing?: { conversationId: string; activity: Activity } })[] {
+  const label = conversationLabeller(kernel);
+  return failing.map((f) => {
+    const id = kernel.fixFor(f.label);
+    const chat = id ? kernel.conversations.get(id) : undefined;
+    return chat ? { ...f, fixing: { conversationId: chat.id, activity: label(chat).activity } } : f;
   });
 }
 
@@ -1584,7 +1615,7 @@ export async function handleApiRequest(
       approvals: kernel.approvals.pending(),
       // With what each claim says: a key alone is not something to decide on.
       decisions: kernel.review.pending().map((i) => describeReview(kernel.facts, kernel.profile.ownerId, i)),
-      failures: kernel.health.report().failing,
+      failures: withFixes(kernel, kernel.health.report().failing),
       suggestions: kernel.suggestions.pending(),
     });
   }
@@ -1609,6 +1640,7 @@ export async function handleApiRequest(
     const now = Date.now();
     const week = now - 7 * DAY_MS;
     const threads = kernel.conversations.list(kernel.profile.ownerId).map(conversationLabeller(kernel));
+    const health = kernel.health.report();
     return ok({
       layout: parseHomeLayout(kernel.settings.get(HOME_LAYOUT_KEY)),
       // Everything the panels draw from, in one round trip: home is the first
@@ -1619,7 +1651,7 @@ export async function handleApiRequest(
       // The last runs in order, so a strip can show the shape of recent
       // reliability rather than only the failures in it.
       runs: kernel.runs.recent(40),
-      health: kernel.health.report(),
+      health: { ...health, failing: withFixes(kernel, health.failing) },
       activity: kernel.audit.recent(20),
       // Calls by the hour, so the day has a shape and not just a last page.
       pulse: kernel.audit.byHour(now - DAY_MS),

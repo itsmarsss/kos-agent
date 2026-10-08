@@ -54,6 +54,34 @@ describe("handleApiRequest", () => {
     expect(body.modules.builtins.map((b) => b.name)).toContain("tasks");
   });
 
+  it("marks a chat whose turn threw as errored, until its next turn", async () => {
+    let down = true;
+    const flaky: Inference = {
+      async generate(...args) {
+        if (down) throw new Error("model unreachable");
+        return stub.generate(...args);
+      },
+    };
+    const root2 = mkdtempSync(join(tmpdir(), "kos-api-err-"));
+    const k = await Kernel.boot({ rootDir: root2, secrets: new SecretsRegistry(), inference: flaky });
+    try {
+      const chat = k.conversations.create({ userId: k.profile.ownerId, title: "Flaky" });
+      await expect(k.handleMessage("hi", { sessionId: chat.id, userId: k.profile.ownerId })).rejects.toThrow("model unreachable");
+      const list = async (): Promise<{ id: string; activity: string; lastError?: string }[]> =>
+        (await handleApiRequest(k, { method: "GET", path: "/api/conversations" })).body as never;
+      expect((await list()).find((c) => c.id === chat.id)).toMatchObject({ activity: "error", lastError: "model unreachable" });
+
+      down = false;
+      await k.handleMessage("again", { sessionId: chat.id, userId: k.profile.ownerId });
+      const after = (await list()).find((c) => c.id === chat.id);
+      expect(after?.activity).toBe("idle");
+      expect(after?.lastError).toBeUndefined();
+    } finally {
+      k.close();
+      rmSync(root2, { recursive: true, force: true });
+    }
+  });
+
   it("gives the home page the shapes its charts draw: runs, hours, a project map and the week by day", async () => {
     kernel.audit.record({ tool: "notify", args: {}, result: "ok", isError: false });
     const garden = kernel.manifest.createProject({ name: "Garden", type: "tracker" });
@@ -748,6 +776,20 @@ describe("handleApiRequest", () => {
         expect((await hook("other", "hook")).status).toBe(404);
         expect((await hook("poke", "hook", "GET")).status).toBe(405);
       });
+    });
+
+    it("says which chat KOS is in when it is already on a failure", async () => {
+      kernel.health.observe("cron:1", "check", false, "boom");
+      const bare = await handleApiRequest(kernel, { method: "GET", path: "/api/inbox" });
+      expect((bare.body as { failures: { fixing?: unknown }[] }).failures[0]?.fixing).toBeUndefined();
+
+      const fix = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Fix: check", projectSlug: "maintenance" });
+      const res = await handleApiRequest(kernel, { method: "GET", path: "/api/inbox" });
+      const failures = (res.body as { failures: { fixing?: { conversationId: string; activity: string } }[] }).failures;
+      expect(failures[0]?.fixing).toEqual({ conversationId: fix.id, activity: "idle" });
+      // The home page's What broke panel is told the same.
+      const home = await handleApiRequest(kernel, { method: "GET", path: "/api/home" });
+      expect((home.body as { health: { failing: { fixing?: { conversationId: string } }[] } }).health.failing[0]?.fixing?.conversationId).toBe(fix.id);
     });
 
     it("forgets a failure the owner has dealt with", async () => {
