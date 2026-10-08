@@ -82,7 +82,7 @@ export class Decisions {
       "Continue the owner's prior request now with these results. For a denied action, acknowledge it briefly and ask how to proceed without it.",
       "Do not re-create resources that already exist (use slugs/ids from the results).",
       "If this was tasks.create_list, use tasks.add / tasks.list with the returned slug as instance.",
-      "Prefer short checklist-style replies.",
+      "Reply in one or two lines: what was done and the result. Do not restate the request, the approval, or what you were about to do.",
     ].join("\n");
   }
 
