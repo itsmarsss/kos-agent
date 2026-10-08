@@ -7,6 +7,7 @@ import { clockLabel, dayLabel, hourLabel, padDays, padHours } from "./chartdata.
 import { Bars, DayLine, ProjectMap, Share, Ticks, type Tick, type Tone } from "./charts.js";
 import { Decision } from "./Decision.js";
 import { hrefFor } from "./routes.js";
+import { ActivityDot, fixLabel } from "./StatusDot.js";
 
 /**
  * The panels a home page can be built from.
@@ -239,14 +240,28 @@ export function Panel({
                           owner has already handled is to wait for the job to
                           succeed, which for a nightly job means a red header
                           until tomorrow. */}
-                      <button
-                        type="button"
-                        className="btn btn--sm"
-                        title="Open a chat where KOS looks into this"
-                        onClick={() => onFixFailure(f)}
-                      >
-                        Fix
-                      </button>
+                      {f.fixing ? (
+                        /* KOS already has a chat open on this: go there,
+                           rather than start a second look at the same thing. */
+                        <button
+                          type="button"
+                          className="btn btn--sm btn--onit"
+                          title={fixLabel(f.fixing.activity)}
+                          onClick={() => onOpenChat(f.fixing!.conversationId)}
+                        >
+                          <ActivityDot activity={f.fixing.activity} />
+                          Open
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn--sm"
+                          title="Open a chat where KOS looks into this"
+                          onClick={() => onFixFailure(f)}
+                        >
+                          Fix
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="icon-btn icon-btn--bare"
@@ -406,11 +421,14 @@ export function Panel({
                   >
                     <span className="panel-row-main">{c.title}</span>
                     <span className="panel-row-side">
-                      {c.activity && c.activity !== "idle"
-                        ? c.activity === "working"
-                          ? "working"
-                          : "needs you"
-                        : ago(c.updatedAt)}
+                      <ActivityDot activity={c.activity} error={c.lastError} />
+                      {c.activity === "working"
+                        ? "working"
+                        : c.activity === "needs-you"
+                          ? "needs you"
+                          : c.activity === "error"
+                            ? "failed"
+                            : ago(c.updatedAt)}
                     </span>
                   </button>
                 </li>

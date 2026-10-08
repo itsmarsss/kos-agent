@@ -267,7 +267,9 @@ export interface Conversation {
   /** What sort of thread this is, for grouping in the list. */
   kind?: "orchestrator" | "project" | "surface" | "schedule" | "chat";
   /** What the thread is doing, so the list can say rather than look idle. */
-  activity?: "working" | "needs-you" | "idle";
+  activity?: "working" | "needs-you" | "error" | "idle";
+  /** Why the last turn failed, while the thread is in that state. */
+  lastError?: string;
 }
 
 export interface ChatTurn {
@@ -408,6 +410,8 @@ export interface FailingJob {
   error: string | null;
   since: number;
   lastAt: number;
+  /** The chat where KOS is, or was, looking into this. */
+  fixing?: { conversationId: string; activity: NonNullable<Conversation["activity"]> };
 }
 
 export interface HealthReport {
