@@ -2327,7 +2327,6 @@ select {
 /* Shut, the handle waits at the edge the column folded to, so it can be
    dragged back out from there. (Hidden instead, it would also let go of a
    drag mid-fold: a handle that vanishes loses the pointer.) */
-.chats.is-collapsed .chats-gutter--rail { left: 0; }
 .chats.panel-hidden .chats-gutter--panel { right: 0; }
 .chats.is-collapsed .chats-gutter--rail::after,
 .chats.panel-hidden .chats-gutter--panel::after { background: var(--line); }
@@ -2344,12 +2343,23 @@ select {
 .chats.is-collapsed .chats-list {
   opacity: 0;
   border-right-color: transparent;
+  /* No padding at all: in a 0px track, padding is what the list still
+     took up, 8px of nothing between the nav and the view. */
   padding-right: 0;
+  padding-left: 0;
   pointer-events: none;
 }
+/* Shut, the view sits against the nav: a 4px gap, and the edge handle
+   tucked into it, its line on the nav's own border so nothing shows until
+   it is hovered. */
+.chats.is-collapsed { column-gap: 0.25rem; }
+.chats.is-collapsed .chats-gutter--rail { left: -0.3rem; width: 2px; }
+.chats.is-collapsed .chats-gutter--rail::after { left: 0; width: 2px; }
+.chats.panel-hidden .project-panel { padding-left: 0; }
 .chats-list {
   transition:
     opacity 140ms ease,
+    padding-left 220ms cubic-bezier(0.32, 0.72, 0, 1),
     padding-right 220ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 @media (prefers-reduced-motion: reduce) {
