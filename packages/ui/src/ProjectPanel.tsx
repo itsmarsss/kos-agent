@@ -43,9 +43,15 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError,
     }
   }, [slug]);
 
+  // Another project is another panel; a slid-shut one keeps what it shows,
+  // so sliding it open again is the same content coming back, not
+  // "Loading…" and then a pop.
   useEffect(() => {
     setDetail(null);
     setError(null);
+  }, [slug]);
+
+  useEffect(() => {
     if (hidden) return;
     void load();
     // Nothing is fetched for a tab nobody is looking at.

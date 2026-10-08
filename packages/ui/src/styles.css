@@ -1718,6 +1718,9 @@ select {
 .ops--full {
   height: 100vh;
   height: 100dvh;
+  /* The whole width. The page's 1200px cap is for reading; with the nav
+     folded to a rail it left a blank strip down the window's right edge. */
+  max-width: none;
   /* The full-bleed layout (chats) sets its own tight gutter rather than
      inheriting the 1.5rem page padding: nearly on the nav at the left,
      where the nav's own border already divides, and the same at the

@@ -130,9 +130,13 @@ export function ProjectExplorer({ slug, root, onOpenInFiles, onChanged, onError,
     setFilePath(null);
   }, [root]);
 
+  // A different folder starts blank; a paused one keeps its listing.
   useEffect(() => {
     setEntries(null);
     setListError(null);
+  }, [here]);
+
+  useEffect(() => {
     if (paused) return;
     void list();
     const t = setInterval(() => {
@@ -143,11 +147,13 @@ export function ProjectExplorer({ slug, root, onOpenInFiles, onChanged, onError,
 
   // The open file, re-read on the same beat so an agent's rewrite shows.
   useEffect(() => {
-    if (!filePath || paused) {
+    if (!filePath) {
       setFile(null);
       setFileError(null);
       return;
     }
+    // Paused, the open file stays on screen; it is just not re-read.
+    if (paused) return;
     let cancelled = false;
     const read = (): void => {
       void api
