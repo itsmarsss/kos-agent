@@ -2323,6 +2323,9 @@ select {
 .chats-gutter--panel { right: calc(var(--panel-w, 300px) - 5px); }
 .chats.is-collapsed .chats-gutter--rail,
 .chats.panel-hidden .chats-gutter--panel { display: none; }
+/* Not while a drag is folding or unfolding it: the handle holds the
+   pointer, and a handle that vanishes mid-drag lets go of it. */
+.chats.is-resizing .chats-gutter { display: block; }
 @media (max-width: 1100px) {
   .chats.is-project { grid-template-columns: var(--rail-w, 240px) minmax(0, 1fr); }
   .chats.is-project .project-panel,

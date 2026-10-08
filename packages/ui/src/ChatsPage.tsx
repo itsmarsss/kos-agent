@@ -2211,12 +2211,9 @@ export function ChatsPage({
             setResizing(false);
             saveWidth(RAIL_W, w);
           }}
-          onCollapse={() => {
-            // Pushed past its narrowest: shut, at the width it had.
-            setRailW(readWidth(RAIL_W));
-            setResizing(false);
-            setCollapsed(true);
-          }}
+          // Pushed past its narrowest: shut; dragged back out: open again.
+          onCollapse={() => setCollapsed(true)}
+          onExpand={() => setCollapsed(false)}
         />
       )}
       {project && !narrow && (
@@ -2237,9 +2234,10 @@ export function ChatsPage({
             saveWidth(PANEL_W, w);
           }}
           onCollapse={() => {
-            setPanelW(readWidth(PANEL_W));
-            setResizing(false);
             if (panelOpen) togglePanel();
+          }}
+          onExpand={() => {
+            if (!panelOpen) togglePanel();
           }}
         />
       )}

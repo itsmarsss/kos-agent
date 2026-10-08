@@ -24,21 +24,27 @@ export interface GutterProps {
   /** Once, when the drag ends or a key or double-click settles it. */
   onDone: (width: number) => void;
   /**
-   * Dragged well past the narrowest the column goes: the owner is pushing
-   * it away, so it folds shut rather than sticking at its minimum. The
-   * drag ends there; the width it had is kept for when it comes back.
+   * Dragged a little past the narrowest the column goes: the owner is
+   * pushing it away, so it folds shut rather than sticking at its minimum.
+   * The drag goes on, so dragging back out unfolds it again; released
+   * folded, the width it had is kept for when it comes back.
    */
   onCollapse?: () => void;
+  onExpand?: () => void;
   className?: string;
 }
 
 const STEP = 16;
 /** How far past the minimum the pointer goes before the column folds. */
-const SNAP = 48;
+const SNAP = 24;
+/** And how far back before it unfolds, so a hand resting on the line does not flap it. */
+const UNSNAP = 12;
 
-export function Gutter({ label, value, min, max, fallback, grows, onChange, onDone, onCollapse, className }: GutterProps): ReactElement {
+export function Gutter({ label, value, min, max, fallback, grows, onChange, onDone, onCollapse, onExpand, className }: GutterProps): ReactElement {
   const [active, setActive] = useState(false);
   const start = useRef<{ x: number; width: number } | null>(null);
+  /** Folded by this drag, and not yet dragged back out. */
+  const folded = useRef(false);
   const clamp = (w: number): number => Math.min(max, Math.max(min, Math.round(w)));
   const sign = grows === "right" ? 1 : -1;
 
@@ -63,28 +69,37 @@ export function Gutter({ label, value, min, max, fallback, grows, onChange, onDo
       onPointerMove={(e) => {
         if (!start.current) return;
         const raw = start.current.width + sign * (e.clientX - start.current.x);
-        if (onCollapse && raw < min - SNAP) {
-          start.current = null;
-          setActive(false);
-          e.currentTarget.releasePointerCapture(e.pointerId);
-          onChange(value);
-          onCollapse();
-          return;
+        if (onCollapse && onExpand) {
+          if (!folded.current && raw < min - SNAP) {
+            folded.current = true;
+            onCollapse();
+            return;
+          }
+          if (folded.current) {
+            if (raw < min - UNSNAP) return;
+            folded.current = false;
+            onExpand();
+          }
         }
         onChange(clamp(raw));
       }}
       onPointerUp={(e) => {
         if (!start.current) return;
-        const width = clamp(start.current.width + sign * (e.clientX - start.current.x));
+        // Released folded, the column keeps the width it was dragged from.
+        const width = folded.current ? start.current.width : clamp(start.current.width + sign * (e.clientX - start.current.x));
         start.current = null;
+        folded.current = false;
         setActive(false);
         onChange(width);
         onDone(width);
       }}
       onPointerCancel={() => {
+        const width = folded.current && start.current ? start.current.width : value;
         start.current = null;
+        folded.current = false;
         setActive(false);
-        onDone(value);
+        onChange(width);
+        onDone(width);
       }}
       onDoubleClick={() => {
         onChange(fallback);
