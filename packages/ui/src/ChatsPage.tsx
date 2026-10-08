@@ -1639,7 +1639,7 @@ export function ChatsPage({
                     title={narrow ? "Show chats" : collapsed ? "Show the chat list" : "Hide the chat list"}
                     onClick={() => (narrow ? setListOpen(true) : setCollapsed((v) => !v))}
                   >
-                    <PanelIcon side="left" />
+                    <PanelIcon side="left" on={!(collapsed && !narrow)} />
                   </button>
                   {(() => {
                     const crumbs: { label: string; id: string }[] = [];
@@ -1698,7 +1698,7 @@ export function ChatsPage({
                     title={panelOpen ? "Hide files, pages and tables" : "Show files, pages and tables"}
                     onClick={togglePanel}
                   >
-                    <PanelIcon />
+                    <PanelIcon on={panelOpen} />
                   </button>
                 )}
                 <button

@@ -3278,9 +3278,12 @@ li:hover .chats-item-when { opacity: 0; }
   margin-bottom: 0.4rem;
 }
 /* Full width is not a readable measure. Capped with padding rather than a cap
-   on the children, so a right-aligned bubble stays right-aligned. */
+   on the children, so a right-aligned bubble stays right-aligned. The head
+   takes the same inset, so the title sits over the thread rather than
+   against the list's edge with the bubbles indented beneath it. */
 .chats-thread,
-.chats-composer {
+.chats-composer,
+.chats-view-head {
   padding-inline: max(1rem, calc((100% - 56rem) / 2));
 }
 
@@ -6316,9 +6319,15 @@ a.health {
 
 /* —— chat header breadcrumb —— */
 /* The row above the title: the list toggle, then where the chat sits. */
-.chats-view-path { display: flex; align-items: center; gap: 0.3rem; margin: 0 0 0.15rem -0.3rem; min-height: 1.75rem; }
-.chats-toggle.is-on { color: var(--accent); }
-.chats-toggle:hover { color: var(--text); background: var(--panel-2); }
+.chats-view-path { display: flex; align-items: center; gap: 0.3rem; margin: 0 0 0.15rem -0.35rem; min-height: 1.75rem; }
+/* The two panel toggles: quiet outlines, the open one with its column
+   filled and in the text colour, rather than a blue glyph among grey words. */
+.chats-toggle,
+.chats-panel-toggle { color: var(--muted); }
+.chats-toggle.is-on,
+.chats-panel-toggle.is-on { color: var(--text); }
+.chats-toggle:hover,
+.chats-panel-toggle:hover { color: var(--text); background: var(--panel-2); }
 .chats-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 0.1rem; margin: 0; font-size: var(--text-sm); }
 .chats-crumbs .link { color: var(--muted); }
 .chats-crumbs .link:hover { color: var(--accent); }
@@ -6490,8 +6499,6 @@ a.health {
 .chats-project-sub { color: var(--faint); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chats-root.is-pending { opacity: 0.65; cursor: default; }
 .chats-root-title .chats-flag { font-weight: 500; }
-.chats-panel-toggle:hover { color: var(--text); background: var(--panel-2); }
-.chats-panel-toggle.is-on { color: var(--accent); }
 
 .project-panel {
   display: flex;

@@ -59,9 +59,28 @@ export const ChevronLeft = ({ size = 14 }: { size?: number } = {}): ReactElement
   </Icon>
 );
 
-/** A window with a column on one side: a side panel, the chat list or the workspace. */
-export const PanelIcon = ({ size = 16, side = "right" }: { size?: number; side?: "left" | "right" } = {}): ReactElement => (
+/**
+ * A window with a column on one side: a side panel, the chat list or the
+ * workspace. Open, the column is filled in; shut, it is an outline.
+ */
+export const PanelIcon = ({
+  size = 16,
+  side = "right",
+  on = false,
+}: { size?: number; side?: "left" | "right"; on?: boolean } = {}): ReactElement => (
   <Icon title="Side panel" size={size}>
+    {on && (
+      <rect
+        x={side === "right" ? 15 : 3}
+        y="4"
+        width="6"
+        height="16"
+        rx="2"
+        fill="currentColor"
+        stroke="none"
+        opacity="0.45"
+      />
+    )}
     <rect x="3" y="4" width="18" height="16" rx="2" />
     <path d={side === "right" ? "M15 4v16" : "M9 4v16"} />
   </Icon>
