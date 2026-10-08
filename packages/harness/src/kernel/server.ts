@@ -186,6 +186,46 @@ function conversationLabeller(
   });
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Each project as a node on the home page's map: how many threads it has,
+ * how many are working or waiting on the owner, and how many jobs run for
+ * it. Counted here because the browser only gets ten chats.
+ */
+function projectMap(
+  kernel: Kernel,
+  threads: (Conversation & { activity: Activity })[],
+): { slug: string; threads: number; working: number; needsYou: number; jobs: number }[] {
+  const jobs = new Map<string, number>();
+  for (const job of kernel.crons.list()) {
+    if (job.enabled && job.projectSlug) jobs.set(job.projectSlug, (jobs.get(job.projectSlug) ?? 0) + 1);
+  }
+  return kernel.manifest.list().map((p) => {
+    const mine = threads.filter((c) => c.projectSlug === p.slug);
+    return {
+      slug: p.slug,
+      threads: mine.length,
+      working: mine.filter((c) => c.activity === "working").length,
+      needsYou: mine.filter((c) => c.activity === "needs-you").length,
+      jobs: jobs.get(p.slug) ?? 0,
+    };
+  });
+}
+
+/** Runs due in the next day, soonest first, for a timeline of what is coming. */
+function upcomingRuns(kernel: Kernel, now: number): { id: number; name: string; at: number }[] {
+  const out: { id: number; name: string; at: number }[] = [];
+  for (const job of kernel.crons.list()) {
+    if (!job.enabled) continue;
+    for (const at of kernel.cronNextRuns(job.id, 24)) {
+      if (at > now + DAY_MS) break;
+      out.push({ id: job.id, name: job.name, at });
+    }
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
+
 /** The top of a project's folder. A project with no folder yet has no files, not an error. */
 function projectFiles(kernel: Kernel, slug: string): DirEntry[] {
   try {
@@ -1566,6 +1606,9 @@ export async function handleApiRequest(
   }
 
   if (method === "GET" && path === "/api/home") {
+    const now = Date.now();
+    const week = now - 7 * DAY_MS;
+    const threads = kernel.conversations.list(kernel.profile.ownerId).map(conversationLabeller(kernel));
     return ok({
       layout: parseHomeLayout(kernel.settings.get(HOME_LAYOUT_KEY)),
       // Everything the panels draw from, in one round trip: home is the first
@@ -1573,19 +1616,23 @@ export async function handleApiRequest(
       // to see it assemble itself.
       approvals: kernel.approvals.pending(),
       agents: kernel.builds.list().slice(0, 8),
-      failures: kernel.runs.failures(10),
+      // The last runs in order, so a strip can show the shape of recent
+      // reliability rather than only the failures in it.
+      runs: kernel.runs.recent(40),
       health: kernel.health.report(),
       activity: kernel.audit.recent(20),
+      // Calls by the hour, so the day has a shape and not just a last page.
+      pulse: kernel.audit.byHour(now - DAY_MS),
       projects: kernel.manifest.list(),
+      map: projectMap(kernel, threads),
       // Chats you began. A job's thread or the router is not something you
       // would open from a panel called Chats.
-      chats: kernel.conversations
-        .list(kernel.profile.ownerId)
-        .filter((c) => conversationKind(c, kernel.profile.ownerId) === "chat")
-        .slice(0, 10),
+      chats: threads.filter((c) => c.kind === "chat").slice(0, 10),
       crons: kernel.crons.list(),
+      upcoming: upcomingRuns(kernel, now),
       spend: {
-        models: kernel.spend.byModel(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        models: kernel.spend.byModel(week),
+        byDay: kernel.spend.byDay(week),
       },
       memory: memoryReport(kernel),
       modules: modulesReport(kernel),
