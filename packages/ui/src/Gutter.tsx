@@ -31,6 +31,12 @@ export interface GutterProps {
    */
   onCollapse?: () => void;
   onExpand?: () => void;
+  /**
+   * The column is shut. The handle then sits at the edge it folded to, and
+   * a drag from there grows the column from nothing: once it is pulled out
+   * past the minimum it opens, at the width under the pointer.
+   */
+  collapsed?: boolean;
   className?: string;
 }
 
@@ -40,10 +46,11 @@ const SNAP = 24;
 /** And how far back before it unfolds, so a hand resting on the line does not flap it. */
 const UNSNAP = 12;
 
-export function Gutter({ label, value, min, max, fallback, grows, onChange, onDone, onCollapse, onExpand, className }: GutterProps): ReactElement {
+export function Gutter({ label, value, min, max, fallback, grows, onChange, onDone, onCollapse, onExpand, collapsed = false, className }: GutterProps): ReactElement {
   const [active, setActive] = useState(false);
-  const start = useRef<{ x: number; width: number } | null>(null);
-  /** Folded by this drag, and not yet dragged back out. */
+  /** Where the drag began: the pointer, the width it moves from, and the width to keep if it ends folded. */
+  const start = useRef<{ x: number; width: number; keep: number } | null>(null);
+  /** Folded right now, by this drag or from before it. */
   const folded = useRef(false);
   const clamp = (w: number): number => Math.min(max, Math.max(min, Math.round(w)));
   const sign = grows === "right" ? 1 : -1;
@@ -63,7 +70,10 @@ export function Gutter({ label, value, min, max, fallback, grows, onChange, onDo
         if (e.button !== 0) return;
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
-        start.current = { x: e.clientX, width: value };
+        // Shut, the column grows from nothing; the remembered width is what
+        // it keeps if the drag lets go before it is open.
+        start.current = { x: e.clientX, width: collapsed ? 0 : value, keep: value };
+        folded.current = collapsed;
         setActive(true);
       }}
       onPointerMove={(e) => {
@@ -85,8 +95,8 @@ export function Gutter({ label, value, min, max, fallback, grows, onChange, onDo
       }}
       onPointerUp={(e) => {
         if (!start.current) return;
-        // Released folded, the column keeps the width it was dragged from.
-        const width = folded.current ? start.current.width : clamp(start.current.width + sign * (e.clientX - start.current.x));
+        // Released folded, the column keeps the width it had for when it opens.
+        const width = folded.current ? start.current.keep : clamp(start.current.width + sign * (e.clientX - start.current.x));
         start.current = null;
         folded.current = false;
         setActive(false);
@@ -94,7 +104,7 @@ export function Gutter({ label, value, min, max, fallback, grows, onChange, onDo
         onDone(width);
       }}
       onPointerCancel={() => {
-        const width = folded.current && start.current ? start.current.width : value;
+        const width = start.current?.keep ?? value;
         start.current = null;
         folded.current = false;
         setActive(false);

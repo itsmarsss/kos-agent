@@ -2212,6 +2212,7 @@ export function ChatsPage({
             saveWidth(RAIL_W, w);
           }}
           // Pushed past its narrowest: shut; dragged back out: open again.
+          collapsed={collapsed}
           onCollapse={() => setCollapsed(true)}
           onExpand={() => setCollapsed(false)}
         />
@@ -2233,6 +2234,7 @@ export function ChatsPage({
             setResizing(false);
             saveWidth(PANEL_W, w);
           }}
+          collapsed={!panelOpen}
           onCollapse={() => {
             if (panelOpen) togglePanel();
           }}
