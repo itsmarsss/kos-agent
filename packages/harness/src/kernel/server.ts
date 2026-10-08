@@ -64,6 +64,7 @@ import {
   mcpNameFor,
   parseSourceShorthand,
   pickConfig,
+  searchGithubSkillRepos,
   searchRegistry,
   type Fetch,
   type McpListing,
@@ -744,6 +745,17 @@ export async function handleApiRequest(
       source: chosen,
       skills: skills.map((sk) => ({ ...sk, installed: installed.has(sk.name) })),
     });
+  }
+
+  if (method === "GET" && path === "/api/catalog/skills/search") {
+    const fetchFn = options.fetch ?? (globalThis.fetch as unknown as Fetch);
+    const q = queryParams(req.url).get("q")?.trim() ?? "";
+    if (!q) return ok({ repos: [] });
+    try {
+      return ok({ repos: await searchGithubSkillRepos(q, fetchFn) });
+    } catch (err) {
+      return { status: 502, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
   }
 
   if (method === "GET" && path === "/api/catalog/mcp") {

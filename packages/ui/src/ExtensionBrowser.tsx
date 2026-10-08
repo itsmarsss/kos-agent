@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
 
-import { api, type CatalogMcp, type CatalogMcpListing, type CatalogSkills } from "./api.js";
+import { api, type CatalogMcp, type CatalogMcpListing, type CatalogSkills, type RepoHit } from "./api.js";
 
 /**
  * Finding skills and MCP servers without leaving Settings.
@@ -24,10 +24,17 @@ export function SkillBrowser({ onInstalled }: { onInstalled: () => void }): Reac
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Narrows the list on screen; nothing is fetched for it. */
+  const [filter, setFilter] = useState("");
+  /** A search of GitHub for more collections, and what it found. */
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<RepoHit[] | null>(null);
+  const [searching, setSearching] = useState(false);
 
   const load = (from: string): void => {
     setLoading(true);
     setError(null);
+    setFilter("");
     void api
       .catalogSkills(from || undefined)
       .then((r) => {
@@ -37,6 +44,22 @@ export function SkillBrowser({ onInstalled }: { onInstalled: () => void }): Reac
       .catch((err: unknown) => setError(errorText(err)))
       .finally(() => setLoading(false));
   };
+
+  const search = (q: string): void => {
+    setSearching(true);
+    setError(null);
+    void api
+      .catalogSkillSearch(q)
+      .then((r) => setHits(r.repos))
+      .catch((err: unknown) => setError(errorText(err)))
+      .finally(() => setSearching(false));
+  };
+
+  const needle = filter.trim().toLowerCase();
+  const shown = (data?.skills ?? []).filter(
+    (s) => !needle || s.name.toLowerCase().includes(needle) || s.description.toLowerCase().includes(needle),
+  );
+  const current = source || (data ? `${data.source.repo}/${data.source.path}` : "");
 
   useEffect(() => load(""), []);
 
@@ -64,9 +87,9 @@ export function SkillBrowser({ onInstalled }: { onInstalled: () => void }): Reac
           <button
             key={s.repo}
             type="button"
-            className={`ext-source${source === "" || source === `${s.repo}/${s.path}` ? " is-on" : ""}`}
+            className={`ext-source${current === `${s.repo}/${s.path}` ? " is-on" : ""}`}
             title={s.blurb}
-            onClick={() => load("")}
+            onClick={() => load(`${s.repo}/${s.path}`)}
           >
             {s.label}
           </button>
@@ -89,12 +112,69 @@ export function SkillBrowser({ onInstalled }: { onInstalled: () => void }): Reac
           </button>
         </form>
       </div>
+      <form
+        className="ext-search"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (query.trim()) search(query.trim());
+        }}
+      >
+        <input
+          className="kos-input"
+          placeholder="Search GitHub for more collections: marketing, science, writing…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <button type="submit" className="btn btn--sm" disabled={searching || !query.trim()}>
+          {searching ? "Searching…" : "Search"}
+        </button>
+      </form>
+      {hits && hits.length === 0 && <p className="hint">GitHub found nothing for that.</p>}
+      {hits && hits.length > 0 && (
+        <ul className="ext-list ext-hits">
+          {hits.map((h) => (
+            <li key={h.repo} className="ext-item">
+              <div className="ext-item-text">
+                <span className="ext-item-name">
+                  {h.repo}
+                  <span className="ext-item-version"> {h.stars.toLocaleString()} stars</span>
+                </span>
+                <span className="ext-item-blurb">{h.description || "No description."}</span>
+                <a className="ext-item-link" href={h.url} target="_blank" rel="noreferrer">
+                  on GitHub
+                </a>
+              </div>
+              <button
+                type="button"
+                className="btn btn--sm"
+                disabled={loading}
+                onClick={() => {
+                  setHits(null);
+                  load(h.repo);
+                }}
+              >
+                Browse
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {error && <p className="ops-alert ops-alert--err">{error}</p>}
       {loading && <p className="hint">Reading the repository…</p>}
       {data && !loading && data.skills.length === 0 && <p className="hint">No skills found there.</p>}
       {data && !loading && data.skills.length > 0 && (
+        <>
+          <div className="ext-filter">
+            <input
+              className="kos-input"
+              placeholder={`Filter ${data.skills.length} skills in ${data.source.repo}`}
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+            {needle && <span className="hint">{shown.length} of {data.skills.length}</span>}
+          </div>
         <ul className="ext-list">
-          {data.skills.map((s) => (
+          {shown.map((s) => (
             <li key={s.source} className="ext-item">
               <div className="ext-item-text">
                 <span className="ext-item-name">{s.name}</span>
@@ -114,6 +194,7 @@ export function SkillBrowser({ onInstalled }: { onInstalled: () => void }): Reac
             </li>
           ))}
         </ul>
+        </>
       )}
     </div>
   );

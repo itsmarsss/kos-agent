@@ -4601,6 +4601,9 @@ li:hover .chats-item-when { opacity: 0; }
 .ext-item-link:hover { color: var(--accent); text-decoration: underline; }
 .ext-picks { margin-bottom: 1rem; }
 .ext-search { display: flex; gap: 0.4rem; align-items: center; margin: 0.4rem 0 0.6rem; }
+.ext-filter { display: flex; gap: 0.6rem; align-items: center; margin: 0.2rem 0 0.4rem; }
+.ext-filter .kos-input { max-width: 22rem; }
+.ext-hits { margin-bottom: 0.8rem; padding-bottom: 0.4rem; border-bottom: 1px dashed var(--line); }
 .ext-search .kos-input { flex: 1; min-width: 0; max-width: 28rem; }
 .ext-add { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; padding: 0.7rem 0.8rem; background: var(--panel-2); border-radius: var(--r-md); }
 .ext-add .kos-input { max-width: 24rem; }
@@ -6266,7 +6269,21 @@ a.health {
 /* Settings > Modules: a blueprint's instances, and the box for one more. */
 .set-instances { display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; }
 .set-instance-list { display: flex; flex-wrap: wrap; gap: 0.3rem; }
-.set-instance-new { display: flex; gap: 0.4rem; align-items: center; }
+/* A button beside an input is as tall as the input. It used to be the small
+   size, a head shorter than the box it sat next to, all through Settings. */
+.set-instance-new { display: flex; gap: 0.4rem; align-items: stretch; }
+.set-instance-new > .btn,
+.set-install > .btn,
+.ext-source-form > .btn,
+.ext-search > .btn {
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.85rem;
+  font-size: var(--text-md);
+}
+.ext-source-form, .ext-search { align-items: stretch; }
+.set-install-json > .btn { padding: 0.4rem 0.85rem; font-size: var(--text-md); }
 .set-instance-new .kos-input { width: 16rem; max-width: 60vw; }
 
 /* Settings > Modules: installing, and what an installed module can do. */

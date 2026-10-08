@@ -28,12 +28,41 @@ export interface SkillSource {
   blurb: string;
 }
 
+/**
+ * Collections checked by hand on 2026-10-08 to hold one folder per skill
+ * with a SKILL.md in each. Anything else is reached by search or by typing
+ * its owner/repo/path.
+ */
 export const SKILL_SOURCES: SkillSource[] = [
   {
     repo: "anthropics/skills",
     path: "skills",
     label: "Anthropic",
     blurb: "Anthropic's own Agent Skills: documents, spreadsheets, PDFs, slides, design, testing, and a skill for writing skills.",
+  },
+  {
+    repo: "obra/superpowers",
+    path: "skills",
+    label: "Superpowers",
+    blurb: "How to work: brainstorming, writing plans, test-driven development, systematic debugging, code review, git worktrees.",
+  },
+  {
+    repo: "addyosmani/agent-skills",
+    path: "skills",
+    label: "Engineering",
+    blurb: "Addy Osmani's engineering practice: API design, debugging, performance, security, documentation, shipping.",
+  },
+  {
+    repo: "coreyhaines31/marketingskills",
+    path: "skills",
+    label: "Marketing",
+    blurb: "Copywriting, SEO, CRO, pricing, launches, cold email, analytics: fifty-odd marketing skills.",
+  },
+  {
+    repo: "K-Dense-AI/scientific-agent-skills",
+    path: "skills",
+    label: "Science",
+    blurb: "Scientific work: data analysis, literature, bioinformatics, chemistry, and the tooling around them.",
   },
 ];
 
@@ -62,12 +91,32 @@ export async function listGithubSkills(repo: string, path: string, fetchFn: Fetc
   const meta = await fetchFn(`https://api.github.com/repos/${repo}`, { headers: GITHUB_HEADERS });
   if (!meta.ok) throw new Error(`GitHub says ${meta.status} for ${repo}`);
   const branch = String(((await meta.json()) as { default_branch?: string }).default_branch ?? "main");
+  const found = await skillsUnder(repo, branch, path, fetchFn);
+  // Nothing at the root: most collections keep their skills under skills/.
+  if (found.length === 0 && !path) return skillsUnder(repo, branch, "skills", fetchFn, true);
+  return found;
+}
+
+async function skillsUnder(repo: string, branch: string, path: string, fetchFn: Fetch, quiet = false): Promise<SkillListing[]> {
   const dir = path ? `/${path}` : "";
   const listing = await fetchFn(`https://api.github.com/repos/${repo}/contents${dir}`, { headers: GITHUB_HEADERS });
-  if (!listing.ok) throw new Error(`GitHub says ${listing.status} for ${repo}${dir}`);
+  if (!listing.ok) {
+    if (quiet) return [];
+    throw new Error(`GitHub says ${listing.status} for ${repo}${dir}`);
+  }
   const entries = (await listing.json()) as { name?: string; type?: string }[];
-  const folders = (Array.isArray(entries) ? entries : []).filter((e) => e.type === "dir" && typeof e.name === "string");
+  const rows = Array.isArray(entries) ? entries : [];
   const out: SkillListing[] = [];
+  // A repository that is one skill: a SKILL.md at the level asked for. The
+  // installer takes the whole repository for that.
+  if (!path && rows.some((e) => e.type === "file" && e.name === "SKILL.md")) {
+    const file = await fetchFn(`https://raw.githubusercontent.com/${repo}/${branch}/SKILL.md`, { headers: { "User-Agent": "kos" } });
+    if (file.ok) {
+      const manifest = manifestFromSkillMd(await file.text(), repo.split("/")[1] ?? repo);
+      out.push({ name: manifest.name, description: manifest.description, source: `https://github.com/${repo}`, repo });
+    }
+  }
+  const folders = rows.filter((e) => e.type === "dir" && typeof e.name === "string" && !e.name!.startsWith("."));
   // A few at a time: twenty folders is twenty files to read, and all at once
   // is how an unauthenticated client gets rate limited.
   for (let i = 0; i < folders.length; i += 6) {
@@ -91,6 +140,45 @@ export async function listGithubSkills(repo: string, path: string, fetchFn: Fetc
     out.push(...batch.filter((s): s is SkillListing => s !== undefined));
   }
   return out;
+}
+
+/** A repository GitHub returned for a search, as something to browse. */
+export interface RepoHit {
+  repo: string;
+  description: string;
+  stars: number;
+  url: string;
+}
+
+/**
+ * Repositories that look like they hold skills, by what the owner typed.
+ *
+ * GitHub's repository search cannot see inside a repository, so the words
+ * are joined with what a skills repository says about itself; the listing
+ * above decides whether any given hit actually has skills in it.
+ */
+export async function searchGithubSkillRepos(query: string, fetchFn: Fetch, limit = 12): Promise<RepoHit[]> {
+  const q = `${query.trim()} claude skills SKILL.md in:name,description,readme`;
+  const res = await fetchFn(
+    `https://api.github.com/search/repositories?q=${encodeURIComponent(q)}&sort=stars&order=desc&per_page=${limit}`,
+    { headers: GITHUB_HEADERS },
+  );
+  if (!res.ok) throw new Error(`GitHub says ${res.status} for the search`);
+  const body = (await res.json()) as { items?: unknown };
+  const items = Array.isArray(body.items) ? body.items : [];
+  return items.flatMap((it) => {
+    if (typeof it !== "object" || it === null) return [];
+    const r = it as Record<string, unknown>;
+    if (typeof r["full_name"] !== "string") return [];
+    return [
+      {
+        repo: r["full_name"],
+        description: typeof r["description"] === "string" ? r["description"] : "",
+        stars: typeof r["stargazers_count"] === "number" ? r["stargazers_count"] : 0,
+        url: typeof r["html_url"] === "string" ? r["html_url"] : `https://github.com/${r["full_name"]}`,
+      } satisfies RepoHit,
+    ];
+  });
 }
 
 /** What the registry says about a server, trimmed to what installing needs. */

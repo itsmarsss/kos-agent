@@ -9,6 +9,7 @@ import {
   parseGithubTree,
   parseSourceShorthand,
   pickConfig,
+  searchGithubSkillRepos,
   searchRegistry,
   type Fetch,
 } from "./catalog.js";
@@ -60,6 +61,33 @@ describe("listing a repository's skills", () => {
     expect(skills).toEqual([
       { name: "pdf", description: "Read PDFs.", source: "https://github.com/o/r/tree/trunk/skills/pdf", repo: "o/r" },
     ]);
+  });
+
+  it("reads a repository that is one skill, and falls back to skills/ when the root has none", async () => {
+    const one = fetchOf({
+      "https://api.github.com/repos/o/single/contents": [{ name: "SKILL.md", type: "file" }, { name: "scripts", type: "dir" }],
+      "https://api.github.com/repos/o/single": { default_branch: "main" },
+      "https://raw.githubusercontent.com/o/single/main/SKILL.md": "---\nname: tidy\ndescription: Tidies.\n---\n",
+    });
+    expect(await listGithubSkills("o/single", "", one)).toEqual([
+      { name: "tidy", description: "Tidies.", source: "https://github.com/o/single", repo: "o/single" },
+    ]);
+    const nested = fetchOf({
+      "https://api.github.com/repos/o/coll/contents/skills": [{ name: "pdf", type: "dir" }],
+      "https://api.github.com/repos/o/coll/contents": [{ name: "README.md", type: "file" }, { name: ".github", type: "dir" }],
+      "https://api.github.com/repos/o/coll": { default_branch: "main" },
+      "https://raw.githubusercontent.com/o/coll/main/skills/pdf/SKILL.md": "---\nname: pdf\ndescription: Read PDFs.\n---\n",
+    });
+    expect((await listGithubSkills("o/coll", "", nested)).map((s) => s.source)).toEqual(["https://github.com/o/coll/tree/main/skills/pdf"]);
+  });
+
+  it("finds repositories of skills by what was typed", async () => {
+    const fetchFn = fetchOf({
+      "https://api.github.com/search/repositories?q=": {
+        items: [{ full_name: "o/r", description: "Skills.", stargazers_count: 12, html_url: "https://github.com/o/r" }, { nope: true }],
+      },
+    });
+    expect(await searchGithubSkillRepos("marketing", fetchFn)).toEqual([{ repo: "o/r", description: "Skills.", stars: 12, url: "https://github.com/o/r" }]);
   });
 
   it("says when GitHub refuses", async () => {

@@ -84,6 +84,14 @@ export interface CatalogSkill {
   installed: boolean;
 }
 
+/** A repository GitHub returned for a search, as something to browse. */
+export interface RepoHit {
+  repo: string;
+  description: string;
+  stars: number;
+  url: string;
+}
+
 export interface CatalogSkills {
   sources: { repo: string; path: string; label: string; blurb: string }[];
   source: { repo: string; path: string };
@@ -750,6 +758,8 @@ export const api = {
   /** Skills in a repository folder, Anthropic's unless a source is given. */
   catalogSkills: (source?: string) =>
     get<CatalogSkills>(`/api/catalog/skills${source ? `?source=${encodeURIComponent(source)}` : ""}`),
+  /** Repositories on GitHub that look like they hold skills. */
+  catalogSkillSearch: (q: string) => get<{ repos: RepoHit[] }>(`/api/catalog/skills/search?q=${encodeURIComponent(q)}`),
   /** The reference servers, and the registry's answer to a search. */
   catalogMcp: (q: string) => get<CatalogMcp>(`/api/catalog/mcp${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   addMcpPick: (name: string) => post<{ added: string[] }>("/api/mcp/pick", { name }),
