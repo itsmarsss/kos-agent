@@ -6322,6 +6322,9 @@ a.health {
 /* —— chat header breadcrumb —— */
 /* The row above the title: the list toggle, then where the chat sits. */
 .chats-view-path { display: flex; align-items: center; gap: 0.3rem; margin: 0 0 0.15rem -0.35rem; min-height: 1.75rem; }
+/* On the landing the row stands alone, outside a head: it takes the head's
+   inset itself so the toggle sits where it does over a thread. */
+.chats-view > .chats-view-path { margin: 0.15rem 0 0; padding-inline: calc(max(1rem, (100% - 56rem) / 2) - 0.35rem); }
 /* The two panel toggles: quiet outlines, the open one with its column
    filled and in the text colour, rather than a blue glyph among grey words. */
 .chats-toggle,
