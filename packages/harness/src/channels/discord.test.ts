@@ -187,6 +187,16 @@ describe("the answer a turn shaped", () => {
     expect(edits[0]).toEqual({ content: "done" });
   });
 
+  it("links a reference in the reply to the dashboard, since Discord cannot draw the chip", async () => {
+    const { adapter, edits, message } = presenceFor();
+    (adapter as unknown as { dashboardUrl: string }).dashboardUrl = "https://kos.example";
+    const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "hi", native: message });
+    await presence!.complete({ text: "Done: @page:book_crm_home and @schedule:[Email Amy Reminder]" });
+    expect(edits[0]?.content).toBe(
+      "Done: [book_crm_home](https://kos.example/#/page/book_crm_home) and [Email Amy Reminder](https://kos.example/#/schedule)",
+    );
+  });
+
   it("says a failure in one plain line, marked", async () => {
     const { adapter, edits, message, reactions } = presenceFor();
     const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "hi", native: message });

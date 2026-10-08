@@ -32,7 +32,9 @@ One number, yours. Outbound through Twilio's API; inbound as Twilio's
 webhook to `POST /api/sms/inbound`, verified by Twilio's request signature.
 The host must be reachable from the internet for the webhook: a tunnel or a
 forwarded port. If a proxy hides the public URL from the request, set
-`KOS_PUBLIC_URL`.
+`KOS_PUBLIC_URL`. The same variable is where a reference in a Discord reply
+(`@page:…`, `@schedule:[…]`) links to; without it the links point at the
+host's own address, which works on the machine KOS runs on.
 
 ```
 KOS_TWILIO_SID=

@@ -20,6 +20,7 @@ import { detailLines, summarizeAction } from "@kos/shared";
 
 import { isImage, isTextual, type Attachment } from "../kernel/attachments.js";
 import { COMMANDS, completions, runCommand, type SlashContext } from "./commands.js";
+import { linkMentions } from "./mentions.js";
 import { MESSAGE_LIMITS } from "./types.js";
 import type {
   ApprovalHandler,
@@ -171,6 +172,11 @@ export interface DiscordAdapterOptions {
    * go without the caller knowing who that is.
    */
   ownerId?: string;
+  /**
+   * Where the dashboard is, for a reference in a reply (`@page:…`) to link
+   * to. Without it a reference is tidied to its name and links nowhere.
+   */
+  dashboardUrl?: string;
 }
 
 /**
@@ -351,6 +357,7 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly prompts = new Map<string, { message: Message; summary: string }>();
   private commands?: SlashContext;
   private readonly ownerId?: string;
+  private readonly dashboardUrl?: string;
   private isAuthorized: SenderAuthorizer = () => true;
 
   setAuthorizer(isAuthorized: SenderAuthorizer): void {
@@ -360,6 +367,7 @@ export class DiscordAdapter implements ChannelAdapter {
   constructor(options: DiscordAdapterOptions) {
     this.token = options.token;
     if (options.ownerId) this.ownerId = options.ownerId;
+    if (options.dashboardUrl) this.dashboardUrl = options.dashboardUrl;
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
@@ -617,7 +625,7 @@ export class DiscordAdapter implements ChannelAdapter {
       embeds?: EmbedBuilder[];
       components?: ActionRowBuilder<ButtonBuilder>[];
     } => ({
-      ...(msg.text ? { content: msg.text.slice(0, 2000) } : {}),
+      ...(msg.text ? { content: linkMentions(msg.text, this.dashboardUrl).slice(0, 2000) } : {}),
       ...(msg.card ? { embeds: [buildCard(msg.card)] } : {}),
       ...(msg.buttons?.length ? { components: buildButtons(msg.buttons) } : {}),
     });
@@ -777,7 +785,8 @@ export class DiscordAdapter implements ChannelAdapter {
     }) => Promise<unknown>,
     msg: OutboundMessage,
   ): Promise<void> {
-    const chunks = msg.text ? chunkText(msg.text) : [];
+    // References become links first, so the split sees the longer text.
+    const chunks = msg.text ? chunkText(linkMentions(msg.text, this.dashboardUrl)) : [];
     const embeds = msg.card ? [buildCard(msg.card)] : [];
     const components = buildButtons(msg.buttons ?? []);
     if (chunks.length === 0 && embeds.length === 0) {
