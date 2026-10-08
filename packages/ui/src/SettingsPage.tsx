@@ -9,7 +9,7 @@ import {
   type SettingsPayload, type ModuleInfo, type SkillInfo, type McpServerInfo, type PermissionRule } from "./api.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { Select } from "./Select.js";
-import { McpBrowser, SkillBrowser } from "./ExtensionBrowser.js";
+import { McpAdd, SkillsAdd } from "./ExtensionBrowser.js";
 import { isDensity, isTheme, readDensity, readTheme, setDensity, setTheme, type Density, type Theme } from "./theme.js";
 import { SpendPanel } from "./SpendPanel.js";
 
@@ -391,15 +391,10 @@ export function SettingsPage({
   const [moduleBusy, setModuleBusy] = useState<string | null>(null);
   const [newInstance, setNewInstance] = useState<Record<string, string>>({});
   const [installSource, setInstallSource] = useState("");
-  /** A skill on its way in: where from, and what to call it. */
-  const [skillSource, setSkillSource] = useState("");
-  const [skillName, setSkillName] = useState("");
   const [skillBusy, setSkillBusy] = useState<string | null>(null);
   /** The servers in mcp.json, with whether each is up. */
   const [mcp, setMcp] = useState<McpServerInfo[]>([]);
   const [mcpBusy, setMcpBusy] = useState<string | null>(null);
-  const [mcpDraft, setMcpDraft] = useState({ name: "", where: "", risk: "risky" as "risky" | "safe" });
-  const [mcpJson, setMcpJson] = useState("");
   const loadMcp = useCallback(() => {
     void api
       .mcpServers()
@@ -410,55 +405,6 @@ export function SettingsPage({
     if (active === "mcp") loadMcp();
   }, [active, loadMcp]);
   /** A server from the name and the command line or URL typed for it. */
-  const addMcpFromDraft = (): void => {
-    const name = mcpDraft.name.trim();
-    const where = mcpDraft.where.trim();
-    if (!name || !where) return;
-    const server: Record<string, unknown> = /^https?:\/\//.test(where)
-      ? { url: where }
-      : (() => {
-          const [command, ...args] = where.split(/\s+/);
-          return { command, args };
-        })();
-    if (mcpDraft.risk === "safe") server["risk"] = "safe";
-    setMcpBusy("add");
-    void api
-      .addMcpServer({ name, server })
-      .then(() => {
-        setMcpDraft({ name: "", where: "", risk: "risky" });
-        loadMcp();
-      })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
-      .finally(() => setMcpBusy(null));
-  };
-  const addMcpFromJson = (): void => {
-    const json = mcpJson.trim();
-    if (!json) return;
-    setMcpBusy("json");
-    void api
-      .addMcpServer({ json })
-      .then(() => {
-        setMcpJson("");
-        loadMcp();
-      })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
-      .finally(() => setMcpBusy(null));
-  };
-  /** A skill from a git URL or a folder; it arrives off. */
-  const installSkillFromDraft = (): void => {
-    const source = skillSource.trim();
-    if (!source) return;
-    setSkillBusy("install");
-    void api
-      .installSkill(source, skillName.trim() || undefined)
-      .then(() => {
-        setSkillSource("");
-        setSkillName("");
-        loadSkills();
-      })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
-      .finally(() => setSkillBusy(null));
-  };
   const loadModules = useCallback(() => {
     void api
       .modules()
@@ -1230,35 +1176,10 @@ export function SettingsPage({
         )}
 
         {active === "skills" && (
-          <Section title="Skills" blurb="Each one is a folder under skills/ with a skill.json, or a Claude Code skill with a SKILL.md. One KOS wrote is on; one installed is off until you say.">
+          <Section title="Skills" blurb="What KOS knows how to do. One it wrote is on; one you install is off until you switch it on.">
             {skills.skills.length === 0 && skills.invalid.length === 0 && (
-              <p className="hint">No skills yet. Ask KOS to make one with skills.create, install one below, or add a folder under skills/.</p>
+              <p className="hint">Nothing installed yet. Add one below, or ask KOS to make one.</p>
             )}
-            {/* The same two rungs as a module: a folder, or a repository that
-                can be pulled later. A Claude Code skill installs as it is. */}
-            <form
-              className="set-instance-new set-install"
-              onSubmit={(e) => {
-                e.preventDefault();
-                installSkillFromDraft();
-              }}
-            >
-              <input
-                className="kos-input"
-                placeholder="Install: a git URL, or a folder path"
-                value={skillSource}
-                onChange={(e) => setSkillSource(e.target.value)}
-              />
-              <input
-                className="kos-input set-install-name"
-                placeholder="Name (optional)"
-                value={skillName}
-                onChange={(e) => setSkillName(e.target.value)}
-              />
-              <button type="submit" className="btn btn--sm" disabled={skillBusy !== null || !skillSource.trim()}>
-                {skillBusy === "install" ? "Installing…" : "Install"}
-              </button>
-            </form>
             <div className="set-rows">
             {skills.skills.map((sk) => (
               <Field
@@ -1322,68 +1243,12 @@ export function SettingsPage({
                 ))}
               </div>
             )}
-            <SkillBrowser onInstalled={loadSkills} />
+            <SkillsAdd onInstalled={loadSkills} />
           </Section>
         )}
         {active === "mcp" && (
-          <Section title="MCP servers" blurb="Servers in mcp.json at the workspace root, the way Claude Code declares them. Each tool a server offers is risky until you floor it safe by name or glob in the file; KOS never guesses.">
-            {/* Two doors: a name and a command line or URL, or a block pasted
-                from a README in Claude Code's shape. Both write the file and
-                bring the server up at once. */}
-            <div className="set-group">
-              <h3>Add a server</h3>
-              <form
-                className="set-instance-new set-install"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  addMcpFromDraft();
-                }}
-              >
-                <input
-                  className="kos-input set-install-name"
-                  placeholder="Name, e.g. browser"
-                  value={mcpDraft.name}
-                  onChange={(e) => setMcpDraft((d) => ({ ...d, name: e.target.value }))}
-                />
-                <input
-                  className="kos-input"
-                  placeholder="Command line (npx @playwright/mcp@latest) or URL (https://…/mcp)"
-                  value={mcpDraft.where}
-                  onChange={(e) => setMcpDraft((d) => ({ ...d, where: e.target.value }))}
-                />
-                <select
-                  className="kos-input set-install-risk"
-                  aria-label="Risk floor"
-                  value={mcpDraft.risk}
-                  onChange={(e) => setMcpDraft((d) => ({ ...d, risk: e.target.value === "safe" ? "safe" : "risky" }))}
-                >
-                  <option value="risky">risky: each call asks</option>
-                  <option value="safe">safe: every tool runs</option>
-                </select>
-                <button type="submit" className="btn btn--sm" disabled={mcpBusy !== null || !mcpDraft.name.trim() || !mcpDraft.where.trim()}>
-                  {mcpBusy === "add" ? "Adding…" : "Add"}
-                </button>
-              </form>
-              <form
-                className="set-install-json"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  addMcpFromJson();
-                }}
-              >
-                <textarea
-                  className="ops-textarea"
-                  rows={4}
-                  placeholder={'Or paste a config: {"mcpServers": {"browser": {"command": "npx", "args": ["@playwright/mcp@latest"]}}}'}
-                  value={mcpJson}
-                  onChange={(e) => setMcpJson(e.target.value)}
-                />
-                <button type="submit" className="btn btn--sm" disabled={mcpBusy !== null || !mcpJson.trim()}>
-                  {mcpBusy === "json" ? "Adding…" : "Add from JSON"}
-                </button>
-              </form>
-            </div>
-            {mcp.length === 0 && <p className="hint">No servers in mcp.json yet.</p>}
+          <Section title="MCP servers" blurb="Outside tools, declared in mcp.json the way Claude Code does. A server's tools are risky until you floor them safe.">
+            {mcp.length === 0 && <p className="hint">Nothing connected yet. Add one below.</p>}
             <div className="set-rows">
             {mcp.map((s) => (
               <Field
@@ -1435,7 +1300,7 @@ export function SettingsPage({
               </Field>
             ))}
             </div>
-            <McpBrowser onAdded={loadMcp} />
+            <McpAdd onAdded={loadMcp} />
           </Section>
         )}
         {active === "modules" && (
