@@ -4458,6 +4458,173 @@ li:hover .chats-item-when { opacity: 0; }
 .home-add-item:disabled { opacity: 0.4; cursor: default; }
 .home-add-name { font-size: var(--text-md); }
 .home-add-blurb { color: var(--faint); font-size: var(--text-sm); }
+.home-bar-hint { margin-left: auto; margin-right: 0.75rem; color: var(--faint); font-size: var(--text-sm); }
+
+/* Arranging by hand. A lifted panel is a ghost under the pointer; its cell
+   stays in the grid as a hole and moves with the layout, so the hole is
+   always where the panel will land. */
+.home-grid { position: relative; }
+.home-cell { position: relative; }
+.home-cell .panel-head { cursor: grab; user-select: none; }
+.home-grid.is-editing .home-cell { cursor: grab; touch-action: none; }
+.home-grid.is-editing .home-cell > .panel { border-style: dashed; border-color: var(--line-strong); }
+.home-cell.is-lifted > .panel { visibility: hidden; }
+.home-cell.is-lifted::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px dashed var(--accent);
+  border-radius: var(--r-lg);
+  background: var(--accent-dim);
+  pointer-events: none;
+}
+body.is-arranging, body.is-arranging .home-cell, body.is-arranging .home-cell .panel-head { cursor: grabbing; }
+body.is-arranging { user-select: none; }
+.home-ghost {
+  position: fixed;
+  z-index: 80;
+  pointer-events: none;
+  border-radius: var(--r-lg);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  will-change: transform;
+}
+.home-ghost > .panel { background: var(--panel-2); border-color: var(--line-strong); }
+.home-remove {
+  position: absolute;
+  top: -0.45rem;
+  right: -0.45rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  padding: 0;
+  line-height: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+.home-remove:hover { color: var(--danger); border-color: var(--danger); }
+/* The edge you pull: a pill on the right border, lit when it can be taken. */
+.home-grip {
+  position: absolute;
+  top: 50%;
+  right: -0.4rem;
+  width: 0.8rem;
+  height: 2.6rem;
+  transform: translateY(-50%);
+  cursor: ew-resize;
+  touch-action: none;
+}
+.home-grip::before {
+  content: "";
+  position: absolute;
+  inset: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--line-strong);
+  transition: background 150ms ease;
+}
+.home-grip:hover::before, .home-grip:focus-visible::before { background: var(--accent); }
+.home-grip:focus-visible { outline: none; }
+
+/* Small charts inside panels. Boxes in a flex row, scaled to the tallest. */
+.chart { margin-top: 0.6rem; }
+.chart-bars { display: flex; align-items: flex-end; gap: 2px; }
+.chart-col {
+  flex: 1 1 0;
+  min-width: 2px;
+  height: 100%;
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-start;
+  gap: 1px;
+  border-radius: 2px 2px 0 0;
+  overflow: hidden;
+}
+.chart-col.is-empty { box-shadow: inset 0 -2px 0 var(--line); }
+.chart-col:hover .chart-part { filter: brightness(1.25); }
+.chart-part { width: 100%; min-height: 1px; }
+.chart-part--accent { background: var(--accent); }
+.chart-part--ok { background: var(--ok); }
+.chart-part--warn { background: var(--warn); }
+.chart-part--danger { background: var(--danger); }
+.chart-part--muted { background: var(--line-strong); }
+.chart-labels { display: flex; gap: 2px; margin-top: 0.3rem; }
+.chart-label {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--faint);
+  white-space: nowrap;
+}
+.chart-ticks { display: flex; gap: 2px; margin-top: 0.7rem; }
+.chart-tick { flex: 1 1 0; max-width: 10px; height: 14px; border-radius: 2px; background: var(--line-strong); }
+.chart-tick--ok { background: var(--ok); opacity: 0.7; }
+.chart-tick--danger { background: var(--danger); }
+.chart-tick--warn { background: var(--warn); }
+.chart-tick--accent { background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+.chart-tick:hover { opacity: 1; filter: brightness(1.25); }
+.chart-share { margin-top: 0.8rem; }
+.chart-share-bar { display: flex; gap: 2px; height: 8px; border-radius: 999px; overflow: hidden; }
+.chart-share-bar > span { display: block; min-width: 3px; }
+.chart-legend {
+  list-style: none;
+  margin: 0.45rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1rem;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.chart-legend li { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
+.chart-legend-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 12rem; }
+.chart-legend-value { color: var(--faint); font-family: var(--mono); font-size: var(--text-xs); }
+.chart-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+/* The next day as a line, a dot wherever something is due. */
+.chart-dayline { margin: 0.4rem 0 0.9rem; }
+.chart-dayline-track { position: relative; height: 18px; border-bottom: 1px solid var(--line-strong); }
+.chart-dayline-mark { position: absolute; bottom: -1px; width: 1px; height: 6px; background: var(--line-strong); }
+.chart-dayline-run {
+  position: absolute;
+  bottom: 4px;
+  width: 9px;
+  height: 9px;
+  margin-left: -4px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--panel);
+}
+.chart-dayline-labels { position: relative; height: 1rem; margin-top: 0.25rem; font-size: var(--text-xs); color: var(--faint); }
+.chart-dayline-labels span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.chart-dayline-labels span:first-child { transform: none; }
+.chart-dayline-labels span:last-child { transform: translateX(-100%); }
+.panel-foot--chart { margin-top: 0.5rem; padding: 0.45rem 0 0; }
+
+/* The map: KOS between what it is made of and what it keeps. */
+.map { display: block; margin: 0.25rem auto 0; font-family: inherit; }
+.map-link { fill: none; stroke: var(--line-strong); stroke-width: 1.2; }
+.map-link--accent { stroke: var(--accent); }
+.map-link--warn { stroke: var(--warn); }
+.map-link--danger { stroke: var(--danger); }
+.map-link--ok { stroke: color-mix(in srgb, var(--ok) 55%, var(--line-strong)); }
+.map-hub circle { fill: var(--accent-dim); stroke: var(--accent); stroke-width: 1.4; }
+.map-hub-label { fill: var(--text); font-size: 14px; font-weight: 600; letter-spacing: 0.04em; }
+.map-node { cursor: pointer; text-decoration: none; }
+.map-node rect { fill: var(--panel-2); stroke: var(--line); stroke-width: 1; transition: stroke 150ms ease; }
+.map-node:hover rect, .map-node:focus-visible rect { stroke: var(--accent); }
+.map-node:focus-visible { outline: none; }
+.map-node--more rect, .map-node--empty rect { fill: transparent; stroke-dasharray: 3 3; }
+.map-name { fill: var(--text); font-size: 12.5px; }
+.map-sub { fill: var(--faint); font-size: 10.5px; }
+.map-dot { fill: var(--faint); }
+.map-dot--accent { fill: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+.map-dot--ok { fill: var(--ok); }
+.map-dot--warn { fill: var(--warn); }
+.map-dot--danger { fill: var(--danger); }
+.map-dot--muted { fill: var(--faint); }
 
 /* A panel: one question, and an answer even when the answer is nothing. */
 .panel {
