@@ -11,7 +11,7 @@ afterEach(cleanup);
  * the tooltip, so a reader who hovers still gets it.
  */
 describe("the activity dot", () => {
-  it("is blue working, yellow waiting on you, red broken, and nothing idle", () => {
+  it("is blue working, yellow waiting on you, red broken, green unread and grey read", () => {
     render(<ActivityDot activity="working" />);
     expect(screen.getByRole("img", { name: "working" }).className).toContain("status-dot--working");
     cleanup();
@@ -21,8 +21,19 @@ describe("the activity dot", () => {
     render(<ActivityDot activity="error" error="model unreachable" />);
     expect(screen.getByRole("img", { name: "failed: model unreachable" }).className).toContain("status-dot--error");
     cleanup();
-    const { container } = render(<ActivityDot activity="idle" />);
+    render(<ActivityDot activity="idle" unread />);
+    expect(screen.getByRole("img", { name: "unread" }).className).toContain("status-dot--unread");
+    cleanup();
+    render(<ActivityDot activity="idle" />);
+    expect(screen.getByRole("img", { name: "read" }).className).toContain("status-dot--read");
+  });
+
+  it("stays out of the way where only attention states are wanted", () => {
+    const { container } = render(<ActivityDot activity="idle" unread quiet />);
     expect(container.querySelector(".status-dot")).toBeNull();
+    cleanup();
+    render(<ActivityDot activity="working" quiet />);
+    expect(screen.getByRole("img", { name: "working" })).toBeTruthy();
   });
 
   it("says where KOS is with a failure it has a chat open for", () => {

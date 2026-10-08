@@ -421,7 +421,7 @@ export function Panel({
                   >
                     <span className="panel-row-main">{c.title}</span>
                     <span className="panel-row-side">
-                      <ActivityDot activity={c.activity} error={c.lastError} />
+                      <ActivityDot activity={c.activity} error={c.lastError} quiet />
                       {c.activity === "working"
                         ? "working"
                         : c.activity === "needs-you"

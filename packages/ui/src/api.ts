@@ -270,6 +270,10 @@ export interface Conversation {
   activity?: "working" | "needs-you" | "error" | "idle";
   /** Why the last turn failed, while the thread is in that state. */
   lastError?: string;
+  /** When the owner last looked at it, on any surface. */
+  readAt?: number | null;
+  /** Newer activity than the owner has seen. */
+  unread?: boolean;
 }
 
 export interface ChatTurn {

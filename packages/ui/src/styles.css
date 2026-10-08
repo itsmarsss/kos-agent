@@ -2823,6 +2823,8 @@ li:hover .chats-item-when { opacity: 0; }
 .status-dot--working { background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
 .status-dot--needs-you { background: var(--warn); }
 .status-dot--error { background: var(--danger); }
+.status-dot--unread { background: var(--ok); }
+.status-dot--read { background: var(--line-strong); }
 .chats-item-top .status-dot { margin-right: -0.1rem; }
 /* A button that opens the chat KOS is already in for something. */
 .btn--onit { display: inline-flex; align-items: center; gap: 0.4rem; }

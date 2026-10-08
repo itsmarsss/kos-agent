@@ -172,7 +172,7 @@ type Activity = "working" | "needs-you" | "error" | "idle";
  */
 function conversationLabeller(
   kernel: Kernel,
-): (c: Conversation) => Conversation & { kind: ConversationKind; activity: Activity; lastError?: string } {
+): (c: Conversation) => Conversation & { kind: ConversationKind; activity: Activity; unread: boolean; lastError?: string } {
   const busy = new Set(kernel.busyConversations());
   const waiting = new Set(
     kernel.approvals
@@ -195,6 +195,8 @@ function conversationLabeller(
       ...c,
       kind: conversationKind(c, kernel.profile.ownerId),
       activity,
+      // Touched since the owner last opened it, on any surface.
+      unread: c.updatedAt > (c.readAt ?? 0),
       ...(activity === "error" ? { lastError: failed.get(c.id) } : {}),
     };
   };
@@ -2034,6 +2036,8 @@ export async function handleApiRequest(
     if (!kernel.conversations.get(id)) {
       return { status: 404, body: { error: "conversation not found" } };
     }
+    // Opening a thread is reading it: the list's unread dot goes grey.
+    kernel.conversations.markRead(id);
     // Events, not just spoken turns: a chat view that hides the tool calls
     // shows conclusions with no visible working.
     return ok({

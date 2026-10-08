@@ -159,9 +159,9 @@ function liveLabel(l: Live | undefined): string {
  * A thread's state as a dot: what the live view knows first, because it is
  * ahead of the list's poll, then what the server said about the thread.
  */
-function ThreadDot({ live, chat }: { live: Live | undefined; chat: Pick<Conversation, "activity" | "lastError"> }): ReactElement | null {
+function ThreadDot({ live, chat }: { live: Live | undefined; chat: Pick<Conversation, "activity" | "lastError" | "unread"> }): ReactElement | null {
   if (live && !live.ended) return <StatusDot state="working" label={liveLabel(live)} />;
-  return <ActivityDot activity={chat.activity} error={chat.lastError} />;
+  return <ActivityDot activity={chat.activity} error={chat.lastError} unread={chat.unread} />;
 }
 
 export function ChatsPage({
@@ -1128,7 +1128,7 @@ export function ChatsPage({
                   void api.deleteConversation(c.id).then(onChanged);
                 }}
               >
-                {confirmDelete === c.id ? "Really delete" : "Delete"}
+                {confirmDelete === c.id ? "Confirm delete" : "Delete"}
               </button>
             </m.div>
           )}

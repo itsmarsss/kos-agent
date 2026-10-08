@@ -54,6 +54,20 @@ describe("handleApiRequest", () => {
     expect(body.modules.builtins.map((b) => b.name)).toContain("tasks");
   });
 
+  it("lists a thread as unread until it is opened, and again once it moves", async () => {
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Beds" });
+    const list = async (): Promise<{ id: string; unread: boolean }[]> =>
+      (await handleApiRequest(kernel, { method: "GET", path: "/api/conversations" })).body as never;
+    expect((await list()).find((c) => c.id === chat.id)?.unread).toBe(true);
+
+    await handleApiRequest(kernel, { method: "GET", path: `/api/conversations/${encodeURIComponent(chat.id)}/messages` });
+    expect((await list()).find((c) => c.id === chat.id)?.unread).toBe(false);
+
+    await new Promise((r) => setTimeout(r, 2));
+    kernel.conversations.touch(chat.id);
+    expect((await list()).find((c) => c.id === chat.id)?.unread).toBe(true);
+  });
+
   it("marks a chat whose turn threw as errored, until its next turn", async () => {
     let down = true;
     const flaky: Inference = {
