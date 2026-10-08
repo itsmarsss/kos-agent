@@ -63,6 +63,8 @@ import {
   type Live,
 } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
+import { ActivityDot, StatusDot } from "./StatusDot.js";
+import { ArchiveIcon, GearIcon } from "./icons.js";
 import { ToolCall } from "./ToolCall.js";
 import { ChatConfig } from "./ChatConfig.js";
 import { Markdown, MentionNames } from "./Markdown.js";
@@ -143,6 +145,24 @@ function relative(ts: number): string {
   const hours = Math.round(mins / 60);
   if (hours < 24) return `${hours}h`;
   return `${Math.round(hours / 24)}d`;
+}
+
+/** What a running conversation is doing, for the list. */
+function liveLabel(l: Live | undefined): string {
+  if (!l) return "working";
+  if (l.text) return "replying";
+  if (l.congregation?.members.some((m) => m.status === "working")) return "gathering";
+  const tool = l.steps.find((s) => s.kind === "tool" && !s.done);
+  return tool && tool.kind === "tool" ? tool.tool : "thinking";
+}
+
+/**
+ * A thread's state as a dot: what the live view knows first, because it is
+ * ahead of the list's poll, then what the server said about the thread.
+ */
+function ThreadDot({ live, chat }: { live: Live | undefined; chat: Pick<Conversation, "activity" | "lastError" | "unread"> }): ReactElement | null {
+  if (live && !live.ended) return <StatusDot state="working" label={liveLabel(live)} />;
+  return <ActivityDot activity={chat.activity} error={chat.lastError} unread={chat.unread} />;
 }
 
 export function ChatsPage({
@@ -868,15 +888,6 @@ export function ChatsPage({
     [agents, activeId],
   );
 
-  /** What a running conversation is doing, for the list. */
-  const liveLabel = (l: Live | undefined): string => {
-    if (!l) return "working";
-    if (l.text) return "replying";
-    if (l.congregation?.members.some((m) => m.status === "working")) return "gathering";
-    const tool = l.steps.find((s) => s.kind === "tool" && !s.done);
-    return tool && tool.kind === "tool" ? tool.tool : "thinking";
-  };
-
   const [stopping, setStopping] = useState(false);
 
   /**
@@ -1118,7 +1129,7 @@ export function ChatsPage({
                   void api.deleteConversation(c.id).then(onChanged);
                 }}
               >
-                {confirmDelete === c.id ? "Really delete" : "Delete"}
+                {confirmDelete === c.id ? "Confirm delete" : "Delete"}
               </button>
             </m.div>
           )}
@@ -1135,21 +1146,12 @@ export function ChatsPage({
             <m.span className="chats-active-bar" layoutId="chat-active" transition={spring} />
           )}
           <span className="chats-item-top">
+            {/* A thread mid-turn, sitting on an approval or broken looked
+                exactly like an idle one, and the only way to find out was
+                to open it. A dot says which, and leaves the time alone. */}
+            <ThreadDot live={progress[c.id]} chat={c} />
             <span className="chats-item-title">{c.title}</span>
-            {/* A thread mid-turn or sitting on an approval looked
-                exactly like an idle one, and the only way to find out
-                was to open it. */}
-            {progress[c.id] && !progress[c.id]!.ended ? (
-              <span className="chats-flag chats-flag--working">
-                {liveLabel(progress[c.id])}
-              </span>
-            ) : c.activity && c.activity !== "idle" ? (
-              <span className={`chats-flag chats-flag--${c.activity}`}>
-                {c.activity === "working" ? "working" : "needs you"}
-              </span>
-            ) : (
-              <span className="chats-item-when">{relative(c.updatedAt)}</span>
-            )}
+            <span className="chats-item-when">{relative(c.updatedAt)}</span>
           </span>
           {/* Title and state only. The brief and the tool list made every
               row a paragraph; a chat's details are one click away. */}
@@ -1219,15 +1221,7 @@ export function ChatsPage({
                 <span className="chats-root-text">
                   <span className="chats-root-title">
                     Orchestrator
-                    {progress[projectOrchestrator.id] && !progress[projectOrchestrator.id]!.ended ? (
-                      <span className="chats-flag chats-flag--working">
-                        {liveLabel(progress[projectOrchestrator.id])}
-                      </span>
-                    ) : projectOrchestrator.activity && projectOrchestrator.activity !== "idle" ? (
-                      <span className={`chats-flag chats-flag--${projectOrchestrator.activity}`}>
-                        {projectOrchestrator.activity === "working" ? "working" : "needs you"}
-                      </span>
-                    ) : null}
+                    <ThreadDot live={progress[projectOrchestrator.id]} chat={projectOrchestrator} />
                   </span>
                   <span className="chats-root-sub">Plans the work and runs the agents</span>
                 </span>
@@ -1345,11 +1339,8 @@ export function ChatsPage({
                         )}
                         <span className="chats-item-top">
                           <span className="chats-item-title">{p.name}</span>
-                          {p.busy ? (
-                            <span className="chats-flag chats-flag--working">working</span>
-                          ) : (
-                            <span className="chats-badge">{p.badge}</span>
-                          )}
+                          {p.busy && <StatusDot state="working" label="working" />}
+                          <span className="chats-badge">{p.badge}</span>
                         </span>
                       </a>
                     </li>
@@ -1423,16 +1414,11 @@ export function ChatsPage({
                     }}
                   >
                     <span className="chats-item-top">
+                      <ThreadDot live={progress[c.id]} chat={c} />
                       <span className="chats-item-title">{c.title}</span>
-                      {progress[c.id] && !progress[c.id]!.ended ? (
-                        <span className="chats-flag chats-flag--working">
-                          {liveLabel(progress[c.id])}
-                        </span>
-                      ) : (
-                        <span className="chats-item-when">
-                          {relative(c.updatedAt)}
-                        </span>
-                      )}
+                      <span className="chats-item-when">
+                        {relative(c.updatedAt)}
+                      </span>
                     </span>
                   </a>
                 </li>
@@ -1716,15 +1702,16 @@ export function ChatsPage({
                 )}
                 <button
                   type="button"
-                  className="btn btn--ghost"
+                  className="head-act"
                   onClick={() => setEditing((v) => !v)}
                 >
+                  <GearIcon />
                   {editing ? "Close" : "Configure"}
                 </button>
                 {active.kind !== "orchestrator" && (
                   <button
                     type="button"
-                    className="btn btn--ghost"
+                    className="head-act"
                     onClick={() => {
                       const was = { id: active.id, title: active.title };
                       void api.archiveConversation(active.id).then(() => {
@@ -1734,6 +1721,7 @@ export function ChatsPage({
                       });
                     }}
                   >
+                    <ArchiveIcon />
                     Archive
                   </button>
                 )}

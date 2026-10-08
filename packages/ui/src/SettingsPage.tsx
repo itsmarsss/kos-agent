@@ -96,12 +96,34 @@ function Field({
   hint,
   children,
   badge,
+  row,
 }: {
   label: string;
   hint?: string;
   children: ReactNode;
   badge?: ReactNode;
+  /**
+   * The control beside the words rather than under them. For a list of
+   * things with a switch each: stacked, every item was a name, then a
+   * checkbox on a line of its own, then its description, and four of them
+   * read as twelve lines.
+   */
+  row?: boolean;
 }): ReactElement {
+  if (row) {
+    return (
+      <div className="set-field set-field--row">
+        <div className="set-field-text">
+          <div className="set-label">
+            <span>{label}</span>
+            {badge}
+          </div>
+          {hint && <p className="set-hint">{hint}</p>}
+        </div>
+        <div className="set-field-control">{children}</div>
+      </div>
+    );
+  }
   return (
     <div className="set-field">
       <div className="set-label">
@@ -1231,11 +1253,13 @@ export function SettingsPage({
                 {skillBusy === "install" ? "Installing…" : "Install"}
               </button>
             </form>
+            <div className="set-rows">
             {skills.skills.map((sk) => (
               <Field
                 key={sk.name}
                 label={`${sk.name} (${sk.kind})${sk.projects ? ` · ${sk.projects.join(", ")}` : ""}`}
                 hint={sk.description}
+                row
               >
                 <label className="set-toggle">
                   <input
@@ -1281,6 +1305,7 @@ export function SettingsPage({
                 </span>
               </Field>
             ))}
+            </div>
             {skills.invalid.length > 0 && (
               <div className="set-group">
                 <h3>Could not be read</h3>
@@ -1352,10 +1377,12 @@ export function SettingsPage({
               </form>
             </div>
             {mcp.length === 0 && <p className="hint">No servers in mcp.json yet.</p>}
+            <div className="set-rows">
             {mcp.map((s) => (
               <Field
                 key={s.name}
                 label={`${s.name} (${s.transport})${s.projects.length ? ` · ${s.projects.join(", ")}` : ""}`}
+                row
                 hint={
                   !s.enabled
                     ? `${s.command} · off`
@@ -1398,6 +1425,7 @@ export function SettingsPage({
                 </span>
               </Field>
             ))}
+            </div>
           </Section>
         )}
         {active === "modules" && (
@@ -1406,8 +1434,9 @@ export function SettingsPage({
               <div className="set-group">
                 <h3>Built in</h3>
                 <p className="hint">Features the kernel ships but does not insist on. Off takes their tools away at once; on brings them back.</p>
+                <div className="set-rows">
                 {(modules.builtins ?? []).map((b) => (
-                  <Field key={b.name} label={b.name} hint={b.description}>
+                  <Field key={b.name} label={b.name} hint={b.description} row>
                     <label className="set-toggle">
                       <input
                         type="checkbox"
@@ -1421,6 +1450,7 @@ export function SettingsPage({
                     </label>
                   </Field>
                 ))}
+                </div>
               </div>
             )}
             {modules.modules.length === 0 && modules.invalid.length === 0 && (

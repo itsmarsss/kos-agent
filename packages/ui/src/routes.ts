@@ -101,9 +101,11 @@ export function hrefFor(route: Route): string {
  * had read the source.
  */
 export const NAV: Array<{ route: Route; label: string }> = [
+  // Overview first: it is the page that says what needs you before you
+  // pick a chat. Chats stays the default route, since that is what KOS is for.
+  { route: { name: "home" }, label: "Overview" },
   { route: { name: "chats" }, label: "Chats" },
   { route: { name: "inbox" }, label: "Inbox" },
-  { route: { name: "home" }, label: "Overview" },
   { route: { name: "projects" }, label: "Projects" },
   { route: { name: "files" }, label: "Files" },
   { route: { name: "memory" }, label: "Memory" },
