@@ -4545,7 +4545,24 @@ li:hover .chats-item-when { opacity: 0; }
 .set-rows > .set-field--row:first-child { border-top: 0; padding-top: 0; }
 .set-rows > .set-field--row:last-child { padding-bottom: 0; }
 .set-field--row .set-hint { margin: 0.15rem 0 0; }
-.set-field-text { min-width: 0; }
+.set-field-text {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.set-field-text:hover .set-label { color: var(--accent); }
+.set-field--row .set-hint {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.set-field--row.is-open .set-hint { display: block; -webkit-line-clamp: unset; }
 /* One strip on the title line: the switch, then the actions as small
    buttons. Stacked, it was a checkbox with two coloured words under it,
    floating halfway down a paragraph. */

@@ -114,17 +114,20 @@ function Field({
    */
   row?: boolean;
 }): ReactElement {
+  // A row's words open on click: a skill's description can run to a
+  // paragraph of triggers, and fourteen of those is a wall.
+  const [open, setOpen] = useState(false);
   if (row) {
     return (
-      <div className="set-field set-field--row">
-        <div className="set-field-text">
+      <div className={`set-field set-field--row${open ? " is-open" : ""}`}>
+        <button type="button" className="set-field-text" onClick={() => setOpen((v) => !v)} title={open ? "Less" : "More"}>
           <div className="set-label">
             <span>{label}</span>
             {badge}
           </div>
           {hint && <p className="set-hint">{hint}</p>}
-          {meta}
-        </div>
+          {open && meta}
+        </button>
         <div className="set-field-control">{children}</div>
       </div>
     );
