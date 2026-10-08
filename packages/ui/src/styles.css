@@ -6261,7 +6261,10 @@ a.health {
     text-overflow: clip;
     pointer-events: none;
   }
-  :root[data-sidebar="rail"] .side-brand-row { justify-content: center; padding: 0.2rem 0 0.6rem; }
+  /* Stacked: the K over the handle, both centred. Side by side in 3.4rem
+     they pushed to opposite edges, the K up and left, the arrow down and
+     right. */
+  :root[data-sidebar="rail"] .side-brand-row { flex-direction: column; align-items: center; justify-content: center; gap: 0.1rem; padding: 0.2rem 0 0.5rem; }
   :root[data-sidebar="rail"] .side-brand { font-size: var(--text-lg); }
   :root[data-sidebar="rail"] .side-link { justify-content: center; gap: 0; padding: 0.5rem 0; position: relative; }
   :root[data-sidebar="rail"] .side-health { justify-content: center; gap: 0; }
