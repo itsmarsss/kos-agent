@@ -2254,8 +2254,8 @@ interface ColumnSpec {
   max: number;
   fallback: number;
 }
-const RAIL_W: ColumnSpec = { key: "kos.chats.rail", min: 180, max: 420, fallback: 240 };
-const PANEL_W: ColumnSpec = { key: "kos.project.panel.w", min: 220, max: 640, fallback: 300 };
+const RAIL_W: ColumnSpec = { key: "kos.chats.rail", min: 150, max: 420, fallback: 240 };
+const PANEL_W: ColumnSpec = { key: "kos.project.panel.w", min: 200, max: 640, fallback: 300 };
 
 function readWidth(spec: ColumnSpec): number {
   try {

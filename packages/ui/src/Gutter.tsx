@@ -41,8 +41,12 @@ export interface GutterProps {
 }
 
 const STEP = 16;
-/** How far past the minimum the pointer goes before the column folds. */
-const SNAP = 24;
+/**
+ * How far past the minimum the pointer goes before the column folds. Well
+ * past it: the column stops shrinking at its minimum, and the fold comes
+ * only when the hand is clearly pushing it into the wall.
+ */
+const SNAP = 60;
 /** And how far back before it unfolds, so a hand resting on the line does not flap it. */
 const UNSNAP = 12;
 
