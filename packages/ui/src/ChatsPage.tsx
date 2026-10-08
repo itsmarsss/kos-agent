@@ -64,6 +64,7 @@ import {
 } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
 import { ActivityDot, StatusDot } from "./StatusDot.js";
+import { ArchiveIcon, GearIcon } from "./icons.js";
 import { ToolCall } from "./ToolCall.js";
 import { ChatConfig } from "./ChatConfig.js";
 import { Markdown, MentionNames } from "./Markdown.js";
@@ -1701,15 +1702,16 @@ export function ChatsPage({
                 )}
                 <button
                   type="button"
-                  className="btn btn--ghost"
+                  className="head-act"
                   onClick={() => setEditing((v) => !v)}
                 >
+                  <GearIcon />
                   {editing ? "Close" : "Configure"}
                 </button>
                 {active.kind !== "orchestrator" && (
                   <button
                     type="button"
-                    className="btn btn--ghost"
+                    className="head-act"
                     onClick={() => {
                       const was = { id: active.id, title: active.title };
                       void api.archiveConversation(active.id).then(() => {
@@ -1719,6 +1721,7 @@ export function ChatsPage({
                       });
                     }}
                   >
+                    <ArchiveIcon />
                     Archive
                   </button>
                 )}

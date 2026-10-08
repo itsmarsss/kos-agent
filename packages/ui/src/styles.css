@@ -4490,6 +4490,69 @@ li:hover .chats-item-when { opacity: 0; }
 .home-add-name { font-size: var(--text-md); }
 .home-add-blurb { color: var(--faint); font-size: var(--text-sm); }
 .home-bar-hint { margin-left: auto; margin-right: 0.75rem; color: var(--faint); font-size: var(--text-sm); }
+.panel-stat--lead { color: var(--accent); }
+.panel-stat--link {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: var(--text-xl);
+  cursor: pointer;
+  text-align: left;
+}
+.panel-stat--link:hover { text-decoration: underline; }
+
+/* A head's actions: small, quiet, each with a glyph, the same height as the
+   icon buttons beside them. Bare words at the end of a header bar read as
+   stray text; a box appears under the pointer. */
+.head-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 1.75rem;
+  padding: 0 0.6rem;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+.head-act svg { width: 14px; height: 14px; flex: none; }
+.head-act:hover { color: var(--text); background: var(--panel-2); border-color: var(--line); }
+.head-act[aria-pressed="true"] { color: var(--text); }
+.chats-view-actions, .quickask-head-actions { gap: 0.2rem; }
+
+/* A settings row: the words on the left, the switch and its actions on the
+   right, so a list of switches is a list and not a stack. */
+.set-rows { display: flex; flex-direction: column; }
+.set-rows:empty { display: none; }
+.set-field--row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 1rem;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--line);
+}
+.set-rows > .set-field--row:first-child { border-top: 0; padding-top: 0; }
+.set-rows > .set-field--row:last-child { padding-bottom: 0; }
+.set-field--row .set-hint { margin: 0.15rem 0 0; }
+.set-field-text { min-width: 0; }
+.set-field-control {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+}
+.set-field-control .set-module-actions { margin-top: 0; justify-content: flex-end; }
 
 /* Arranging by hand. A lifted panel is a ghost under the pointer; its cell
    stays in the grid as a hole and moves with the layout, so the hole is

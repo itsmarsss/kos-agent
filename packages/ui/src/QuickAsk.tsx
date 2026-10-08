@@ -11,6 +11,7 @@ import { api } from "./api.js";
 import { useProgress } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
 import { Markdown } from "./Markdown.js";
+import { OpenIcon, PinIcon, UnpinIcon } from "./icons.js";
 
 /**
  * A quick question on the side, like Claude Code's /btw.
@@ -315,18 +316,19 @@ export function QuickAsk({
                none, for a question that has nothing to do with it. */
             <button
               type="button"
-              className="btn btn--sm btn--ghost"
+              className="head-act"
               aria-pressed={!detached}
               title={detached ? `Ask about ${contextTitle ?? contextId} again` : "Ask without this chat's context"}
               onClick={() => setDetached((v) => !v)}
             >
+              {detached ? <UnpinIcon /> : <PinIcon />}
               {detached ? "Attach" : "Detach"}
             </button>
           )}
           {thread.length > 0 && (
             <button
               type="button"
-              className="btn btn--sm btn--ghost"
+              className="head-act"
               onClick={() => setThreads((all) => ({ ...all, [key]: [] }))}
               title="Forget this side thread"
             >
@@ -336,12 +338,13 @@ export function QuickAsk({
           {contextId && (
             <button
               type="button"
-              className="btn btn--sm btn--ghost"
+              className="head-act"
               onClick={() => {
                 onOpen(contextId);
                 onClose();
               }}
             >
+              <OpenIcon />
               Go to chat
             </button>
           )}
