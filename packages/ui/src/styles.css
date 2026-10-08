@@ -4616,6 +4616,7 @@ li:hover .chats-item-when { opacity: 0; }
 .ext-row-form > .btn { align-self: stretch; display: inline-flex; align-items: center; padding: 0 0.85rem; font-size: var(--text-md); }
 .ext-filter { display: flex; gap: 0.6rem; align-items: center; margin: 0 0 0.3rem; }
 .ext-filter .kos-input { max-width: 18rem; }
+.ext-install-all { margin-left: auto; }
 .ext-list, .ext-picks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .ext-item {
   display: grid;

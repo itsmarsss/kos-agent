@@ -105,6 +105,8 @@ export function SkillsAdd({ onInstalled }: { onInstalled: () => void }): ReactEl
   const [searching, setSearching] = useState(false);
   const [url, setUrl] = useState("");
   const [urlName, setUrlName] = useState("");
+  /** "3 of 12" while Install all runs, so a long run shows it is moving. */
+  const [batch, setBatch] = useState<{ done: number; total: number } | null>(null);
 
   const load = (from: string): void => {
     setLoading(true);
@@ -136,6 +138,29 @@ export function SkillsAdd({ onInstalled }: { onInstalled: () => void }): ReactEl
       })
       .catch((err: unknown) => setError(errorText(err)))
       .finally(() => setBusy(null));
+  };
+
+  /** Every uninstalled skill on screen, one after another: the installer clones per skill. */
+  const installAll = async (): Promise<void> => {
+    const todo = all.filter((s) => !s.installed);
+    if (todo.length === 0) return;
+    setBatch({ done: 0, total: todo.length });
+    setError(null);
+    const failed: string[] = [];
+    for (const [i, s] of todo.entries()) {
+      setBusy(s.name);
+      try {
+        await api.installSkill(s.source, s.name);
+        setData((cur) => (cur ? { ...cur, skills: cur.skills.map((x) => (x.name === s.name ? { ...x, installed: true } : x)) } : cur));
+      } catch (err) {
+        failed.push(`${s.name}: ${errorText(err)}`);
+      }
+      setBatch({ done: i + 1, total: todo.length });
+    }
+    setBusy(null);
+    setBatch(null);
+    onInstalled();
+    if (failed.length) setError(`Could not install ${failed.join("; ")}`);
   };
 
   const search = (q: string): void => {
@@ -235,6 +260,11 @@ export function SkillsAdd({ onInstalled }: { onInstalled: () => void }): ReactEl
                 <span className="hint">
                   {needle ? `${all.length} of ${data.skills.length}` : `${data.skills.length} in ${data.source.repo}`}
                 </span>
+                {all.some((s) => !s.installed) && (
+                  <button type="button" className="btn btn--sm ext-install-all" disabled={busy !== null} onClick={() => void installAll()}>
+                    {batch ? `Installing ${batch.done} of ${batch.total}…` : `Install all ${all.filter((s) => !s.installed).length}`}
+                  </button>
+                )}
               </div>
               <ul className="ext-list">
                 {shown.map((s) => (

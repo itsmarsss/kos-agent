@@ -831,11 +831,17 @@ export function App(): React.ReactElement {
   }
 
   if (route.name === "crons") {
-    const rows = crons.filter((c) => {
-      if (cronFilter === "on") return c.enabled;
-      if (cronFilter === "off") return !c.enabled;
-      return true;
-    });
+    // Yours first, then KOS's own (kos.backup, kos.memory and the rest):
+    // the two were interleaved by id, so the owner's three sat among six
+    // of the system's and read as one list of nine.
+    const system = (c: CronJob): boolean => c.name.startsWith("kos.");
+    const rows = crons
+      .filter((c) => {
+        if (cronFilter === "on") return c.enabled;
+        if (cronFilter === "off") return !c.enabled;
+        return true;
+      })
+      .sort((a, b) => Number(system(a)) - Number(system(b)));
     return shell(
       <RunsTabs current="crons">
       <ListPage
@@ -844,6 +850,7 @@ export function App(): React.ReactElement {
         rows={rows}
         rowKey={(c) => c.id}
         empty="No crons match"
+        groupBy={(c) => (system(c) ? "KOS's own" : "Yours")}
         onRowClick={(c) => setEditingCron({ job: c })}
         toolbar={
           /* Writing one by hand: everything here could be asked for in a
