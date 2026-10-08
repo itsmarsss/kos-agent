@@ -535,12 +535,23 @@ export function App(): React.ReactElement {
               key={toast.text}
               className={`ops-toast ops-toast--${toast.kind}`}
               role="status"
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
+              initial={{ opacity: 0, y: -10, x: "-50%", scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, x: "-50%", scale: 1 }}
+              exit={{ opacity: 0, y: -6, x: "-50%", scale: 0.98 }}
               transition={spring}
             >
-              {toast.text}
+              <span className="ops-toast-icon" aria-hidden="true">
+                {toast.kind === "ok" ? (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m5 13 4 4L19 7" />
+                  </svg>
+                ) : (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
+                    <path d="M12 6v7M12 17.5v.01" />
+                  </svg>
+                )}
+              </span>
+              <span className="ops-toast-text">{toast.text}</span>
             </m.div>
           )}
         </AnimatePresence>
