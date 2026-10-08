@@ -183,4 +183,20 @@ describe("channelGuidance", () => {
     expect(channelGuidance("cli")).toBeUndefined();
     expect(channelGuidance(undefined)).toBeUndefined();
   });
+
+  it("asks for the fewest lines, subtext for the small print, and one line after an approval", () => {
+    const g = channelGuidance("discord")!;
+    expect(g).toContain("-# ");
+    expect(g).toContain("Lead with the answer");
+    expect(g).toContain("After an approval");
+    expect(g).toContain("<t:UNIX:R>");
+  });
+
+  it("lets the owner's own style stand in for the house one", () => {
+    // A prompt skill named discord-style is the owner's words, in full.
+    const g = channelGuidance("discord", "Always answer in haiku.\n")!;
+    expect(g).toBe("## Replying on Discord\nAlways answer in haiku.");
+    expect(channelGuidance("discord", "   ")).toContain("Lead with the answer");
+    expect(channelGuidance("cli", "Always answer in haiku.")).toBeUndefined();
+  });
 });

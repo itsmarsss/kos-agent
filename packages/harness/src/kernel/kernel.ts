@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { runAgent, type Inference } from "../agent/loop.js";
 import { PressRoutes } from "../channels/presses.js";
 import type { MessageButton, MessageCard } from "../channels/types.js";
@@ -284,6 +285,8 @@ export class Kernel {
    * a thread can say it is thinking instead of looking idle for ten seconds.
    */
   private readonly working = new Set<string>();
+  /** Conversations whose last turn threw, with the error, until the next turn. */
+  private readonly failed = new Map<string, string>();
 
   /** Conversations the owner has asked to stop, cleared when the turn ends. */
   private readonly stopping = new Set<string>();
@@ -584,6 +587,7 @@ export class Kernel {
       const previousConversation = this.currentConversationId;
       this.currentConversationId = sessionId;
       this.working.add(sessionId);
+      this.failed.delete(sessionId);
       this.progress.emit({ kind: "turn-start", conversationId: sessionId });
       this.bus.emit({ kind: "turn:start", conversationId: sessionId, projectSlug: this.projectOf(sessionId) });
       /** Set when the turn hands its ending over to a deferred settle. */
@@ -641,7 +645,7 @@ export class Kernel {
         // rather than a string it has to go and look up, and so a name that
         // no longer exists says so instead of being silently ignored.
         const mentioned = this.resolveMentions(text);
-        const formatting = channelGuidance(opts.channel);
+        const formatting = channelGuidance(opts.channel, this.surfaceStyle(opts.channel, conversation?.projectSlug ?? undefined));
         // Say when the toolkit has been narrowed. Withheld tools are simply
         // absent, so a scoped agent asked for something outside its reach does
         // not know the capability exists: it cannot say "not here", and works
@@ -918,11 +922,10 @@ export class Kernel {
         suspended = outcome.suspended;
         return { reply: outcome.reply, halted: false, sessionId };
       } catch (err) {
-        this.runs.finish(
-          runId,
-          "error",
-          err instanceof Error ? err.message : String(err),
-        );
+        const why = err instanceof Error ? err.message : String(err);
+        this.runs.finish(runId, "error", why);
+        // A turn the owner stopped did not fail; it was told to.
+        if (!this.stopping.has(sessionId)) this.failed.set(sessionId, why);
         throw err;
       } finally {
         // Restored rather than cleared: a dispatched turn runs inside another,
@@ -978,7 +981,9 @@ export class Kernel {
         })
         .catch((err: unknown) => {
           if (this.closed) return;
-          this.runs.finish(ctx.runId, "error", err instanceof Error ? err.message : String(err));
+          const why = err instanceof Error ? err.message : String(err);
+          this.runs.finish(ctx.runId, "error", why);
+          if (!this.stopping.has(ctx.sessionId)) this.failed.set(ctx.sessionId, why);
         })
         .finally(() => this.endTurn(ctx.sessionId));
       return {
@@ -1691,6 +1696,26 @@ export class Kernel {
    * memory a chat turn gets. Unattended jobs previously ran with no system
    * prompt at all, so the agent woke with no identity and no project context.
    */
+  /**
+   * The owner's own house style for a surface, if they keep one.
+   *
+   * A prompt skill named `<channel>-style` (discord-style) replaces the
+   * built-in guidance for that surface, in full. Read each turn rather than
+   * cached, so an edit to the file is the next reply's style.
+   */
+  private surfaceStyle(channel: string | undefined, projectSlug?: string): string | undefined {
+    if (!channel) return undefined;
+    const skill = this.skillsOffered(projectSlug).find(
+      (s) => s.manifest.kind === "prompt" && s.manifest.name === `${channel}-style`,
+    );
+    if (!skill) return undefined;
+    try {
+      return readFileSync(this.workspace.resolve(skill.file), "utf8");
+    } catch {
+      return undefined;
+    }
+  }
+
   /** Skills the model may reach from here: on, valid, and for this project if they say. */
   private skillsOffered(projectSlug?: string): ReturnType<typeof offeredSkills> {
     return offeredSkills(
@@ -2335,6 +2360,16 @@ export class Kernel {
     return [...this.working];
   }
 
+  /** Conversations whose last turn threw, and what it said, for the chat list. */
+  failedConversations(): Map<string, string> {
+    return new Map(this.failed);
+  }
+
+  /** The chat KOS opened to look into a failure with this label, if one is open. */
+  fixFor(label: string): string | undefined {
+    return this.caretaker.fixFor(label);
+  }
+
   /**
    * What the last turn of a conversation was given from memory.
    *
@@ -2497,6 +2532,11 @@ export class Kernel {
   /** Jobs the running scheduler actually holds, as opposed to rows in the table. */
   scheduledCronCount(): number {
     return this.cron.scheduledCount();
+  }
+
+  /** When a scheduled job fires next, soonest first. */
+  cronNextRuns(id: number, count = 1): number[] {
+    return this.cron.nextRuns(id, count);
   }
 
   stopCron(): void {
