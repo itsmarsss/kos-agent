@@ -1,4 +1,6 @@
-import { delimiter } from "node:path";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { delimiter, join } from "node:path";
 
 /**
  * The environment a spawned skill is given.
@@ -43,11 +45,30 @@ export interface ChildEnvOptions {
   tmp?: string;
 }
 
+/**
+ * Where user-installed tools live, when they do. uv puts uvx in ~/.local/bin,
+ * cargo in ~/.cargo/bin, Homebrew in /opt/homebrew/bin. A login shell has
+ * them on PATH; the host under launchd does not, so a server declared as
+ * `uvx mcp-server-git` failed with ENOENT while uvx sat right there.
+ */
+export function userBinDirs(home = homedir()): string[] {
+  return [join(home, ".local", "bin"), join(home, ".cargo", "bin"), "/opt/homebrew/bin", "/usr/local/bin"].filter((d) =>
+    existsSync(d),
+  );
+}
+
+/** A PATH with the given directories on the end of it, once each. */
+export function withBins(path: string, bins: string[]): string {
+  const have = new Set(path.split(delimiter).filter(Boolean));
+  return [...have, ...bins.filter((b) => !have.has(b))].join(delimiter);
+}
+
 /** Build the environment for a child process: an allow-list, plus what it is told. */
 export function childEnv(
   options: ChildEnvOptions,
   extra: Record<string, string> = {},
   source: NodeJS.ProcessEnv = process.env,
+  bins: string[] = userBinDirs(),
 ): Record<string, string> {
   const env: Record<string, string> = {};
   for (const key of PASS_THROUGH) {
@@ -56,7 +77,7 @@ export function childEnv(
   }
   // A PATH is not optional; without one, spawning anything that is not an
   // absolute path fails in a way that reads as the skill being broken.
-  if (!env.PATH) env.PATH = ["/usr/local/bin", "/usr/bin", "/bin"].join(delimiter);
+  env.PATH = withBins(env.PATH ?? ["/usr/local/bin", "/usr/bin", "/bin"].join(delimiter), bins);
 
   env.HOME = options.home;
   env.USERPROFILE = options.home;
