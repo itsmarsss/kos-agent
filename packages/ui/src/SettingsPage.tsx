@@ -9,6 +9,7 @@ import {
   type SettingsPayload, type ModuleInfo, type SkillInfo, type McpServerInfo, type PermissionRule } from "./api.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { Select } from "./Select.js";
+import { McpBrowser, SkillBrowser } from "./ExtensionBrowser.js";
 import { isDensity, isTheme, readDensity, readTheme, setDensity, setTheme, type Density, type Theme } from "./theme.js";
 import { SpendPanel } from "./SpendPanel.js";
 
@@ -1316,6 +1317,7 @@ export function SettingsPage({
                 ))}
               </div>
             )}
+            <SkillBrowser onInstalled={loadSkills} />
           </Section>
         )}
         {active === "mcp" && (
@@ -1426,6 +1428,7 @@ export function SettingsPage({
               </Field>
             ))}
             </div>
+            <McpBrowser onAdded={loadMcp} />
           </Section>
         )}
         {active === "modules" && (

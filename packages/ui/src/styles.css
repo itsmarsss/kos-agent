@@ -4554,6 +4554,53 @@ li:hover .chats-item-when { opacity: 0; }
 }
 .set-field-control .set-module-actions { margin-top: 0; justify-content: flex-end; }
 
+/* Finding skills and servers inside Settings: a short list of ready picks,
+   then a list of what a repository or the registry holds, each with one
+   button. The forms above stay for anything typed by hand. */
+.ext-browser { margin-top: 0.5rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.ext-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0.6rem 0 0.8rem; }
+.ext-source {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.ext-source.is-on { color: var(--text); border-color: var(--accent); background: var(--accent-dim); }
+.ext-source-form { display: flex; gap: 0.4rem; align-items: center; margin-left: auto; }
+.ext-source-form .kos-input { width: 14rem; }
+.ext-list, .ext-picks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ext-item, .ext-pick {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 1rem;
+  padding: 0.65rem 0;
+  border-top: 1px solid var(--line);
+}
+.ext-list > :first-child, .ext-picks > :first-child { border-top: 0; }
+.ext-item-text { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.ext-item-name { font-size: var(--text-md); color: var(--text); }
+.ext-item-version, .ext-item-needs { color: var(--faint); font-size: var(--text-xs); font-family: var(--mono); }
+.ext-item-blurb { color: var(--muted); font-size: var(--text-sm); line-height: 1.45; }
+.ext-item-meta { display: flex; gap: 0.6rem; align-items: baseline; font-size: var(--text-xs); color: var(--faint); }
+.ext-item-meta code, .ext-item-cmd { font-family: var(--mono); font-size: var(--text-xs); color: var(--faint); }
+.ext-item-link { color: var(--faint); font-size: var(--text-xs); text-decoration: none; }
+.ext-item-link:hover { color: var(--accent); text-decoration: underline; }
+.ext-picks { margin-bottom: 1rem; }
+.ext-search { display: flex; gap: 0.4rem; align-items: center; margin: 0.4rem 0 0.6rem; }
+.ext-search .kos-input { flex: 1; min-width: 0; max-width: 28rem; }
+.ext-add { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; padding: 0.7rem 0.8rem; background: var(--panel-2); border-radius: var(--r-md); }
+.ext-add .kos-input { max-width: 24rem; }
+.ext-asks { display: flex; flex-direction: column; gap: 0.45rem; }
+.ext-ask { display: flex; flex-direction: column; gap: 0.2rem; }
+.ext-ask-name { font-family: var(--mono); font-size: var(--text-xs); color: var(--muted); }
+.ext-ask-req { color: var(--warn); font-family: inherit; }
+.ext-add-actions { display: flex; align-items: center; gap: 0.5rem; }
+
 /* Arranging by hand. A lifted panel is a ghost under the pointer; its cell
    stays in the grid as a hole and moves with the layout, so the hole is
    always where the panel will land. */

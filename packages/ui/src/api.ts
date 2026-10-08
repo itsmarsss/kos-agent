@@ -74,6 +74,47 @@ export interface SkillInfo {
   origin?: string | null;
 }
 
+/** A skill offered by the catalogue: a folder in a repository, ready to install. */
+export interface CatalogSkill {
+  name: string;
+  description: string;
+  /** The GitHub tree URL the installer takes. */
+  source: string;
+  repo: string;
+  installed: boolean;
+}
+
+export interface CatalogSkills {
+  sources: { repo: string; path: string; label: string; blurb: string }[];
+  source: { repo: string; path: string };
+  skills: CatalogSkill[];
+}
+
+export interface CatalogEnvVar {
+  name: string;
+  description: string;
+  required: boolean;
+  secret: boolean;
+}
+
+/** A server as the MCP registry lists it, trimmed to what adding it needs. */
+export interface CatalogMcpListing {
+  name: string;
+  title: string;
+  description: string;
+  version: string;
+  repository?: string;
+  packages: { registry: string; identifier: string; version?: string; runtime?: string; env: CatalogEnvVar[] }[];
+  remotes: { type: string; url: string; headers: CatalogEnvVar[] }[];
+  suggestedName: string;
+  installed: boolean;
+}
+
+export interface CatalogMcp {
+  picks: { name: string; blurb: string; needs: "node" | "uv" | "docker"; command: string; installed: boolean }[];
+  results: CatalogMcpListing[];
+}
+
 /** A server in mcp.json as the owner sees it in Settings, with whether it is up. */
 export interface McpServerInfo {
   name: string;
@@ -706,6 +747,14 @@ export const api = {
   updateSkill: (name: string) => post<{ updated: string; origin: string | null }>("/api/skills/update", { name }),
   removeSkill: (name: string) => post<{ removed: string }>("/api/skills/remove", { name }),
   mcpServers: () => get<{ servers: McpServerInfo[] }>("/api/mcp"),
+  /** Skills in a repository folder, Anthropic's unless a source is given. */
+  catalogSkills: (source?: string) =>
+    get<CatalogSkills>(`/api/catalog/skills${source ? `?source=${encodeURIComponent(source)}` : ""}`),
+  /** The reference servers, and the registry's answer to a search. */
+  catalogMcp: (q: string) => get<CatalogMcp>(`/api/catalog/mcp${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  addMcpPick: (name: string) => post<{ added: string[] }>("/api/mcp/pick", { name }),
+  addMcpFromCatalog: (input: { listing: CatalogMcpListing; name?: string; choice: { package?: number; remote?: number }; values: Record<string, string>; risk?: "safe" | "risky" }) =>
+    post<{ added: string[] }>("/api/mcp/catalog", input),
   /** One server by name, or a pasted config in KOS's or Claude Code's shape. */
   addMcpServer: (input: { name?: string; server?: Record<string, unknown>; json?: string }) =>
     post<{ added: string[]; status: Record<string, { connected: boolean; tools: string[]; error?: string }> }>("/api/mcp/add", input),
