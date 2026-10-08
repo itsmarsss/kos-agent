@@ -174,6 +174,16 @@ describe("handleApiRequest", () => {
     expect(left.servers.map((s) => s.name)).toEqual(["mail"]);
   });
 
+  it("lists a project with no folder yet as empty, and a wrong path as an error", async () => {
+    const project = kernel.manifest.createProject({ name: "Garden", type: "tasks" });
+    const list = (path: string) => handleApiRequest(kernel, { method: "GET", path: "/api/files", url: `/api/files?path=${encodeURIComponent(path)}` });
+    const empty = await list(`projects/${project.slug}`);
+    expect(empty.status).toBe(200);
+    expect(empty.body).toEqual({ path: `projects/${project.slug}`, entries: [] });
+    expect((await list("projects/nope")).status).toBe(400);
+    expect((await list("somewhere/else")).status).toBe(400);
+  });
+
   it("toggles the kill switch", async () => {
     await handleApiRequest(kernel, { method: "POST", path: "/api/kill", body: { halted: true } });
     expect(kernel.killSwitch.halted).toBe(true);

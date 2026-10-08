@@ -1184,6 +1184,13 @@ export async function handleApiRequest(
     try {
       return ok({ path: target, entries: listDirectory(kernel.workspace, target) });
     } catch (err) {
+      // A project's folder is made by the first thing written into it. Until
+      // then the project has no files, which is not an error to show over
+      // its workspace panel; anything else missing is still a wrong path.
+      const project = /^projects\/([^/]+)\/?$/.exec(target);
+      if (project?.[1] && kernel.manifest.get(project[1]) && !existsSync(kernel.workspace.resolve(target))) {
+        return ok({ path: target, entries: [] });
+      }
       return {
         status: 400,
         body: { error: err instanceof Error ? err.message : String(err) },
