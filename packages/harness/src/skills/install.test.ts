@@ -90,6 +90,38 @@ describe("installing a skill", () => {
     expect(() => removeSkill(ws, "../etc")).toThrow(/not a skill name/);
   });
 
+  it("lifts one folder out of a repository of skills, and refetches it to update", async () => {
+    /*
+     * A collection like anthropics/skills is one repository with a folder
+     * per skill. The folder has no .git of its own, so where it came from
+     * is written beside it, and an update is a fresh copy.
+     */
+    const clones: string[][] = [];
+    const run = async (file: string, args: string[]): Promise<{ stdout: string }> => {
+      if (args[0] === "clone") {
+        clones.push([file, ...args]);
+        const dest = args[args.length - 1]!;
+        mkdirSync(join(dest, "skills", "pdf"), { recursive: true });
+        writeFileSync(join(dest, "skills", "pdf", "SKILL.md"), "---\nname: pdf\ndescription: Read PDFs.\n---\n", "utf8");
+        mkdirSync(join(dest, ".git"));
+      }
+      return { stdout: "" };
+    };
+    const source = "https://github.com/anthropics/skills/tree/main/skills/pdf";
+    const made = await installSkill(ws, source, { run });
+    expect(made).toMatchObject({ name: "pdf", dir: "skills/pdf", origin: source });
+    expect(clones[0]).toEqual(["git", "clone", "--depth", "1", "--quiet", "--branch", "main", "--", "https://github.com/anthropics/skills.git", expect.any(String)]);
+    expect(existsSync(join(root, "skills", "pdf", ".git"))).toBe(false);
+    expect(readFileSync(join(root, "skills", "pdf", ".kos-origin"), "utf8").trim()).toBe(source);
+    // Nothing of the checkout is left behind.
+    expect(existsSync(join(root, "skills", "skills"))).toBe(false);
+
+    const again = await updateSkill(ws, "pdf", { run });
+    expect(again.origin).toBe(source);
+    expect(clones).toHaveLength(2);
+    await expect(installSkill(ws, "https://github.com/anthropics/skills/tree/main/skills/nope", { run })).rejects.toThrow(/not a folder/);
+  });
+
   it("clones a repository through git, then updates it with a pull", async () => {
     const calls: string[][] = [];
     const run = async (file: string, args: string[], cwd?: string): Promise<{ stdout: string }> => {

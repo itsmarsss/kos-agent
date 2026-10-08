@@ -197,6 +197,48 @@ describe("handleApiRequest", () => {
     rmSync(src, { recursive: true, force: true });
   });
 
+  it("lists skills from a repository folder and servers from the registry, through an injected fetch", async () => {
+    const table: Record<string, unknown> = {
+      "https://api.github.com/repos/anthropics/skills/contents/skills": [{ name: "pdf", type: "dir" }],
+      "https://api.github.com/repos/anthropics/skills": { default_branch: "main" },
+      "https://raw.githubusercontent.com/anthropics/skills/main/skills/pdf/SKILL.md": "---\nname: pdf\ndescription: Read PDFs.\n---\n",
+      "https://registry.modelcontextprotocol.io/v0/servers?limit=30&search=weather": {
+        servers: [{ name: "io.github.acme/weather", description: "Weather.", version: "1.0.0", packages: [{ registryType: "npm", identifier: "@acme/weather-mcp", environmentVariables: [{ name: "KEY", isRequired: true, isSecret: true }] }] }],
+      },
+    };
+    const fetchFn = async (url: string) => {
+      const hit = Object.entries(table).find(([k]) => url.startsWith(k))?.[1];
+      return { ok: hit !== undefined, status: hit === undefined ? 404 : 200, json: async () => hit, text: async () => String(hit) };
+    };
+    const skills = await handleApiRequest(kernel, { method: "GET", path: "/api/catalog/skills" }, { fetch: fetchFn });
+    expect(skills.body).toMatchObject({
+      source: { repo: "anthropics/skills", path: "skills" },
+      skills: [{ name: "pdf", description: "Read PDFs.", source: "https://github.com/anthropics/skills/tree/main/skills/pdf", installed: false }],
+    });
+    expect((await handleApiRequest(kernel, { method: "GET", path: "/api/catalog/skills", url: "/api/catalog/skills?source=nonsense" }, { fetch: fetchFn })).status).toBe(400);
+
+    const picks = await handleApiRequest(kernel, { method: "GET", path: "/api/catalog/mcp" }, { fetch: fetchFn });
+    expect((picks.body as { picks: { name: string; installed: boolean }[]; results: unknown[] }).picks.map((p) => p.name)).toContain("filesystem");
+    expect((picks.body as { results: unknown[] }).results).toEqual([]);
+    const found = await handleApiRequest(kernel, { method: "GET", path: "/api/catalog/mcp", url: "/api/catalog/mcp?q=weather" }, { fetch: fetchFn });
+    const results = (found.body as { results: { suggestedName: string; installed: boolean; packages: unknown[] }[] }).results;
+    expect(results[0]).toMatchObject({ suggestedName: "weather", installed: false });
+
+    // A pick lands in mcp.json with the workspace filled in; a listing with the answers it asked for.
+    const picked = await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/pick", body: { name: "filesystem", enabled: false } });
+    expect(picked.body).toMatchObject({ added: ["filesystem"] });
+    const listed = await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/catalog", body: { listing: results[0], choice: { package: 0 }, values: { KEY: "k" }, enabled: false } });
+    expect(listed.body).toMatchObject({ added: ["weather"] });
+    const file = JSON.parse(readFileSync(join(root, "mcp.json"), "utf8")) as { servers: Record<string, { args?: string[]; env?: Record<string, string>; enabled?: boolean }> };
+    // The workspace's own root, which is the realpath of the temp dir.
+    expect(file.servers["filesystem"]?.args).toEqual(["-y", "@modelcontextprotocol/server-filesystem", kernel.workspace.root]);
+    expect(file.servers["weather"]).toMatchObject({ args: ["-y", "@acme/weather-mcp"], env: { KEY: "k" }, enabled: false });
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/pick", body: { name: "nope" } })).status).toBe(404);
+    // Once added, the listing says so.
+    const again = await handleApiRequest(kernel, { method: "GET", path: "/api/catalog/mcp" }, { fetch: fetchFn });
+    expect((again.body as { picks: { name: string; installed: boolean }[] }).picks.find((p) => p.name === "filesystem")?.installed).toBe(true);
+  });
+
   it("installs a skill from a folder, off until switched on, and removes it", async () => {
     const src = mkdtempSync(join(tmpdir(), "kos-skillsrc-"));
     writeFileSync(join(src, "SKILL.md"), "---\nname: receipts\ndescription: File receipts.\n---\nSteps.", "utf8");

@@ -45,7 +45,7 @@ import { mayRead } from "../memory/callers.js";
 import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
 import { MODULES_KEY, parseModuleSettings, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
 import { instantiateBlueprint } from "../modules/blueprint.js";
-import { installModule, originOf, removeModule, updateModule } from "../modules/install.js";
+import { installModule, originOf, removeModule, run, updateModule } from "../modules/install.js";
 import { isBuiltinFeature } from "../modules/builtins.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillEnabled } from "../skills/settings.js";
 import {
@@ -55,7 +55,20 @@ import {
   type ConversationKind,
 } from "./conversations.js";
 import { parseUpload, writeProjectFile } from "./uploads.js";
-import { installSkill, removeSkill, updateSkill } from "../skills/install.js";
+import { installSkill, removeSkill, skillOrigin, updateSkill } from "../skills/install.js";
+import {
+  MCP_PICKS,
+  SKILL_SOURCES,
+  listGithubSkills,
+  mcpConfigFor,
+  mcpNameFor,
+  parseSourceShorthand,
+  pickConfig,
+  searchRegistry,
+  type Fetch,
+  type McpListing,
+  type SkillListing,
+} from "../catalog/catalog.js";
 import { readMcpConfig, removeMcpServer, serversFromJson, setMcpServerEnabled, upsertMcpServers } from "../tools/mcp.js";
 import { proxyToDaemon } from "../daemons/proxy.js";
 import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId } from "./session.js";
@@ -103,6 +116,8 @@ export interface DaemonMeta {
 export interface DashboardServerOptions {
   /** Directory of built UI assets (vite dist). When set, non-/api paths are served. */
   staticDir?: string;
+  /** How the catalogue reaches GitHub and the MCP registry. The platform's fetch unless a test says otherwise. */
+  fetch?: Fetch;
   /**
    * Optional bearer/token for every API route, reads included. When set,
    * requests must send `Authorization: Bearer <token>` or `x-kos-token: <token>`.
@@ -220,6 +235,10 @@ function withFixes(
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Skill listings, kept an hour: a folder of skills changes rarely and GitHub counts every read. */
+const CATALOG_TTL_MS = 60 * 60 * 1000;
+const catalogCache = new Map<string, { at: number; skills: SkillListing[] }>();
 
 /**
  * Each project as a node on the home page's map: how many threads it has,
@@ -688,13 +707,91 @@ export async function handleApiRequest(
         ...s.manifest,
         file: s.file,
         enabled: !off.has(s.manifest.name),
-        origin: await originOf(kernel.workspace.resolve(s.dir)),
+        origin: await skillOrigin(kernel.workspace.resolve(s.dir), run),
       })),
     );
     return ok({ skills: listed, invalid });
   }
 
   /** A skill from a git URL or a folder, switched off until the owner says. */
+  /*
+   * The catalogue: skills from repositories in Claude Code's shape and MCP
+   * servers from the official registry, so neither has to be found by hand.
+   * Listings are read through the host rather than the browser, which keeps
+   * GitHub's rate limit and the registry's shape in one place.
+   */
+  if (method === "GET" && path === "/api/catalog/skills") {
+    const fetchFn = options.fetch ?? (globalThis.fetch as unknown as Fetch);
+    const typed = queryParams(req.url).get("source")?.trim() ?? "";
+    const chosen = typed ? parseSourceShorthand(typed) : { repo: SKILL_SOURCES[0]!.repo, path: SKILL_SOURCES[0]!.path };
+    if (!chosen) return { status: 400, body: { error: "a source is owner/repo or owner/repo/path" } };
+    const key = `${chosen.repo}/${chosen.path}`;
+    const cached = catalogCache.get(key);
+    let skills: SkillListing[];
+    if (cached && Date.now() - cached.at < CATALOG_TTL_MS) {
+      skills = cached.skills;
+    } else {
+      try {
+        skills = await listGithubSkills(chosen.repo, chosen.path, fetchFn);
+      } catch (err) {
+        return { status: 502, body: { error: err instanceof Error ? err.message : String(err) } };
+      }
+      catalogCache.set(key, { at: Date.now(), skills });
+    }
+    const installed = new Set(readSkills(kernel.workspace).skills.map((sk) => sk.manifest.name));
+    return ok({
+      sources: SKILL_SOURCES,
+      source: chosen,
+      skills: skills.map((sk) => ({ ...sk, installed: installed.has(sk.name) })),
+    });
+  }
+
+  if (method === "GET" && path === "/api/catalog/mcp") {
+    const fetchFn = options.fetch ?? (globalThis.fetch as unknown as Fetch);
+    const q = queryParams(req.url).get("q")?.trim() ?? "";
+    const have = new Set(Object.keys(readMcpConfig(kernel.workspace.root).servers));
+    const picks = MCP_PICKS.map((p) => ({ name: p.name, blurb: p.blurb, needs: p.needs, command: [p.server.command, ...(p.server.args ?? [])].join(" "), installed: have.has(p.name) }));
+    if (!q) return ok({ picks, results: [] as McpListing[] });
+    try {
+      const results = await searchRegistry(q, fetchFn);
+      return ok({ picks, results: results.map((r) => ({ ...r, suggestedName: mcpNameFor(r.name), installed: have.has(mcpNameFor(r.name)) })) });
+    } catch (err) {
+      return { status: 502, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  /** One of the reference servers, added as its project documents it. */
+  if (method === "POST" && path === "/api/mcp/pick") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const pick = MCP_PICKS.find((p) => p.name === name);
+    if (!pick) return { status: 404, body: { error: `no pick named ${name}` } };
+    // Off on request: a test, or an owner who wants it in the file first.
+    const server = { ...pickConfig(pick, kernel.workspace.root), ...(body.enabled === false ? { enabled: false } : {}) };
+    const added = upsertMcpServers(kernel.workspace.root, { [pick.name]: server });
+    const status = await kernel.mcp.reload();
+    return ok({ added, status: Object.fromEntries(added.map((n) => [n, status[n] ?? { connected: false, tools: [] }])) });
+  }
+
+  /** A registry listing, written to mcp.json with the owner's answers for what it asks. */
+  if (method === "POST" && path === "/api/mcp/catalog") {
+    const listing = typeof body.listing === "object" && body.listing !== null ? (body.listing as McpListing) : undefined;
+    if (!listing || typeof listing.name !== "string") return { status: 400, body: { error: "listing required" } };
+    const name = (typeof body.name === "string" && body.name.trim()) || mcpNameFor(listing.name);
+    const choice = typeof body.choice === "object" && body.choice !== null ? (body.choice as { package?: number; remote?: number }) : {};
+    const values = typeof body.values === "object" && body.values !== null ? (body.values as Record<string, string>) : {};
+    let server;
+    try {
+      server = mcpConfigFor(listing, choice, values);
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+    if (body.risk === "safe") server.risk = "safe";
+    if (body.enabled === false) server.enabled = false;
+    const added = upsertMcpServers(kernel.workspace.root, { [name]: server });
+    const status = await kernel.mcp.reload();
+    return ok({ added, status: Object.fromEntries(added.map((n) => [n, status[n] ?? { connected: false, tools: [] }])) });
+  }
+
   if (method === "POST" && path === "/api/skills/install") {
     const source = typeof body.source === "string" ? body.source.trim() : "";
     if (!source) return { status: 400, body: { error: "source required: a git URL or a folder" } };
