@@ -54,6 +54,71 @@ describe("handleApiRequest", () => {
     expect(body.modules.builtins.map((b) => b.name)).toContain("tasks");
   });
 
+  it("lists a thread as unread until it is opened, and again once it moves", async () => {
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Beds" });
+    const list = async (): Promise<{ id: string; unread: boolean }[]> =>
+      (await handleApiRequest(kernel, { method: "GET", path: "/api/conversations" })).body as never;
+    expect((await list()).find((c) => c.id === chat.id)?.unread).toBe(true);
+
+    await handleApiRequest(kernel, { method: "GET", path: `/api/conversations/${encodeURIComponent(chat.id)}/messages` });
+    expect((await list()).find((c) => c.id === chat.id)?.unread).toBe(false);
+
+    await new Promise((r) => setTimeout(r, 2));
+    kernel.conversations.touch(chat.id);
+    expect((await list()).find((c) => c.id === chat.id)?.unread).toBe(true);
+  });
+
+  it("marks a chat whose turn threw as errored, until its next turn", async () => {
+    let down = true;
+    const flaky: Inference = {
+      async generate(...args) {
+        if (down) throw new Error("model unreachable");
+        return stub.generate(...args);
+      },
+    };
+    const root2 = mkdtempSync(join(tmpdir(), "kos-api-err-"));
+    const k = await Kernel.boot({ rootDir: root2, secrets: new SecretsRegistry(), inference: flaky });
+    try {
+      const chat = k.conversations.create({ userId: k.profile.ownerId, title: "Flaky" });
+      await expect(k.handleMessage("hi", { sessionId: chat.id, userId: k.profile.ownerId })).rejects.toThrow("model unreachable");
+      const list = async (): Promise<{ id: string; activity: string; lastError?: string }[]> =>
+        (await handleApiRequest(k, { method: "GET", path: "/api/conversations" })).body as never;
+      expect((await list()).find((c) => c.id === chat.id)).toMatchObject({ activity: "error", lastError: "model unreachable" });
+
+      down = false;
+      await k.handleMessage("again", { sessionId: chat.id, userId: k.profile.ownerId });
+      const after = (await list()).find((c) => c.id === chat.id);
+      expect(after?.activity).toBe("idle");
+      expect(after?.lastError).toBeUndefined();
+    } finally {
+      k.close();
+      rmSync(root2, { recursive: true, force: true });
+    }
+  });
+
+  it("gives the home page the shapes its charts draw: runs, hours, a project map and the week by day", async () => {
+    kernel.audit.record({ tool: "notify", args: {}, result: "ok", isError: false });
+    const garden = kernel.manifest.createProject({ name: "Garden", type: "tracker" });
+    kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Beds", projectSlug: garden.slug });
+    const res = await handleApiRequest(kernel, { method: "GET", path: "/api/home" });
+    const body = res.body as {
+      runs: unknown[];
+      pulse: { hour: number; calls: number; errors: number }[];
+      map: { slug: string; threads: number; working: number; needsYou: number; jobs: number }[];
+      upcoming: unknown[];
+      spend: { models: unknown[]; byDay: unknown[] };
+      chats: { activity: string }[];
+    };
+    expect(body.runs).toEqual([]);
+    expect(body.pulse).toHaveLength(1);
+    expect(body.pulse[0]).toMatchObject({ calls: 1, errors: 0 });
+    expect(body.map.find((p) => p.slug === garden.slug)).toEqual({ slug: garden.slug, threads: 1, working: 0, needsYou: 0, jobs: 0 });
+    expect(body.upcoming).toEqual([]);
+    expect(body.spend.byDay).toEqual([]);
+    // A chat on the home page says whether it is busy, like the list does.
+    expect(body.chats[0]?.activity).toBe("idle");
+  });
+
   it("lists everything waiting on the owner in one inbox", async () => {
     kernel.approvals.enqueue({ tool: "files.read", args: { path: "x" }, riskTier: "risky" });
     const res = await handleApiRequest(kernel, { method: "GET", path: "/api/inbox" });
@@ -130,6 +195,48 @@ describe("handleApiRequest", () => {
     const gone = await handleApiRequest(kernel, { method: "POST", path: "/api/modules/remove", body: { name: "weather" } });
     expect(gone.body).toEqual({ removed: "weather" });
     rmSync(src, { recursive: true, force: true });
+  });
+
+  it("lists skills from a repository folder and servers from the registry, through an injected fetch", async () => {
+    const table: Record<string, unknown> = {
+      "https://api.github.com/repos/anthropics/skills/contents/skills": [{ name: "pdf", type: "dir" }],
+      "https://api.github.com/repos/anthropics/skills": { default_branch: "main" },
+      "https://raw.githubusercontent.com/anthropics/skills/main/skills/pdf/SKILL.md": "---\nname: pdf\ndescription: Read PDFs.\n---\n",
+      "https://registry.modelcontextprotocol.io/v0/servers?limit=30&search=weather": {
+        servers: [{ server: { name: "io.github.acme/weather", description: "Weather.", version: "1.0.0", packages: [{ registryType: "npm", identifier: "@acme/weather-mcp", environmentVariables: [{ name: "KEY", isRequired: true, isSecret: true }] }] }, _meta: { "io.modelcontextprotocol.registry/official": { isLatest: true } } }],
+      },
+    };
+    const fetchFn = async (url: string) => {
+      const hit = Object.entries(table).find(([k]) => url.startsWith(k))?.[1];
+      return { ok: hit !== undefined, status: hit === undefined ? 404 : 200, json: async () => hit, text: async () => String(hit) };
+    };
+    const skills = await handleApiRequest(kernel, { method: "GET", path: "/api/catalog/skills" }, { fetch: fetchFn });
+    expect(skills.body).toMatchObject({
+      source: { repo: "anthropics/skills", path: "skills" },
+      skills: [{ name: "pdf", description: "Read PDFs.", source: "https://github.com/anthropics/skills/tree/main/skills/pdf", installed: false }],
+    });
+    expect((await handleApiRequest(kernel, { method: "GET", path: "/api/catalog/skills", url: "/api/catalog/skills?source=nonsense" }, { fetch: fetchFn })).status).toBe(400);
+
+    const picks = await handleApiRequest(kernel, { method: "GET", path: "/api/catalog/mcp" }, { fetch: fetchFn });
+    expect((picks.body as { picks: { name: string; installed: boolean }[]; results: unknown[] }).picks.map((p) => p.name)).toContain("filesystem");
+    expect((picks.body as { results: unknown[] }).results).toEqual([]);
+    const found = await handleApiRequest(kernel, { method: "GET", path: "/api/catalog/mcp", url: "/api/catalog/mcp?q=weather" }, { fetch: fetchFn });
+    const results = (found.body as { results: { suggestedName: string; installed: boolean; packages: unknown[] }[] }).results;
+    expect(results[0]).toMatchObject({ suggestedName: "weather", installed: false });
+
+    // A pick lands in mcp.json with the workspace filled in; a listing with the answers it asked for.
+    const picked = await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/pick", body: { name: "filesystem", enabled: false } });
+    expect(picked.body).toMatchObject({ added: ["filesystem"] });
+    const listed = await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/catalog", body: { listing: results[0], choice: { package: 0 }, values: { KEY: "k" }, enabled: false } });
+    expect(listed.body).toMatchObject({ added: ["weather"] });
+    const file = JSON.parse(readFileSync(join(root, "mcp.json"), "utf8")) as { servers: Record<string, { args?: string[]; env?: Record<string, string>; enabled?: boolean }> };
+    // The workspace's own root, which is the realpath of the temp dir.
+    expect(file.servers["filesystem"]?.args).toEqual(["-y", "@modelcontextprotocol/server-filesystem", kernel.workspace.root]);
+    expect(file.servers["weather"]).toMatchObject({ args: ["-y", "@acme/weather-mcp"], env: { KEY: "k" }, enabled: false });
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/pick", body: { name: "nope" } })).status).toBe(404);
+    // Once added, the listing says so.
+    const again = await handleApiRequest(kernel, { method: "GET", path: "/api/catalog/mcp" }, { fetch: fetchFn });
+    expect((again.body as { picks: { name: string; installed: boolean }[] }).picks.find((p) => p.name === "filesystem")?.installed).toBe(true);
   });
 
   it("installs a skill from a folder, off until switched on, and removes it", async () => {
@@ -725,6 +832,20 @@ describe("handleApiRequest", () => {
         expect((await hook("other", "hook")).status).toBe(404);
         expect((await hook("poke", "hook", "GET")).status).toBe(405);
       });
+    });
+
+    it("says which chat KOS is in when it is already on a failure", async () => {
+      kernel.health.observe("cron:1", "check", false, "boom");
+      const bare = await handleApiRequest(kernel, { method: "GET", path: "/api/inbox" });
+      expect((bare.body as { failures: { fixing?: unknown }[] }).failures[0]?.fixing).toBeUndefined();
+
+      const fix = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Fix: check", projectSlug: "maintenance" });
+      const res = await handleApiRequest(kernel, { method: "GET", path: "/api/inbox" });
+      const failures = (res.body as { failures: { fixing?: { conversationId: string; activity: string } }[] }).failures;
+      expect(failures[0]?.fixing).toEqual({ conversationId: fix.id, activity: "idle" });
+      // The home page's What broke panel is told the same.
+      const home = await handleApiRequest(kernel, { method: "GET", path: "/api/home" });
+      expect((home.body as { health: { failing: { fixing?: { conversationId: string } }[] } }).health.failing[0]?.fixing?.conversationId).toBe(fix.id);
     });
 
     it("forgets a failure the owner has dealt with", async () => {

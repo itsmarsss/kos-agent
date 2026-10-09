@@ -2,9 +2,12 @@ import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
 import { summarizeAction } from "@kos/shared";
 
-import type { FailingJob, HomeData } from "./api.js";
+import type { FailingJob, HomeData, ModelSpend, RunRecord } from "./api.js";
+import { clockLabel, dayLabel, hourLabel, padDays, padHours } from "./chartdata.js";
+import { Bars, DayLine, ProjectMap, Share, Ticks, type Tick, type Tone } from "./charts.js";
 import { Decision } from "./Decision.js";
 import { hrefFor } from "./routes.js";
+import { ActivityDot, fixLabel } from "./StatusDot.js";
 
 /**
  * The panels a home page can be built from.
@@ -50,6 +53,32 @@ function Head({
 
 function Empty({ children }: { children: string }): ReactElement {
   return <p className="panel-empty">{children}</p>;
+}
+
+function fmt(n: number): string {
+  return n < 1000 ? String(n) : n < 1_000_000 ? `${(n / 1000).toFixed(1)}k` : `${(n / 1_000_000).toFixed(2)}M`;
+}
+
+const RUN_TONE: Record<string, Tone> = { ok: "ok", error: "danger", running: "accent", skipped: "muted" };
+
+/** One run as a tick: its colour is its outcome, its title the rest. */
+function runTick(r: RunRecord): Tick {
+  const what = r.ref ? `${r.kind} ${r.ref}` : r.kind;
+  const how = r.error ? `${r.status}: ${r.error}` : r.status;
+  return { tone: RUN_TONE[r.status] ?? "muted", title: `${what} · ${how} · ${ago(r.startedAt)} ago` };
+}
+
+const SHARE_TONES: Tone[] = ["accent", "ok", "warn", "muted"];
+
+/** The models by share of tokens, the long tail folded into "other". */
+function modelShares(models: ModelSpend[]): { label: string; value: number; tone: Tone }[] {
+  const sorted = [...models].sort((a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens));
+  const top = sorted.slice(0, SHARE_TONES.length - (sorted.length > SHARE_TONES.length ? 1 : 0));
+  const rest = sorted.slice(top.length).reduce((n, m) => n + m.inputTokens + m.outputTokens, 0);
+  return [
+    ...top.map((m, i) => ({ label: m.model, value: m.inputTokens + m.outputTokens, tone: SHARE_TONES[i]! })),
+    ...(rest > 0 ? [{ label: "other", value: rest, tone: "muted" as Tone }] : []),
+  ];
 }
 
 export function Panel({
@@ -211,14 +240,28 @@ export function Panel({
                           owner has already handled is to wait for the job to
                           succeed, which for a nightly job means a red header
                           until tomorrow. */}
-                      <button
-                        type="button"
-                        className="btn btn--sm"
-                        title="Open a chat where KOS looks into this"
-                        onClick={() => onFixFailure(f)}
-                      >
-                        Fix
-                      </button>
+                      {f.fixing ? (
+                        /* KOS already has a chat open on this: go there,
+                           rather than start a second look at the same thing. */
+                        <button
+                          type="button"
+                          className="btn btn--sm btn--onit"
+                          title={fixLabel(f.fixing.activity)}
+                          onClick={() => onOpenChat(f.fixing!.conversationId)}
+                        >
+                          <ActivityDot activity={f.fixing.activity} />
+                          Open
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn--sm"
+                          title="Open a chat where KOS looks into this"
+                          onClick={() => onFixFailure(f)}
+                        >
+                          Fix
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="icon-btn icon-btn--bare"
@@ -244,11 +287,16 @@ export function Panel({
               ))}
             </ul>
           )}
+          {data.runs.length > 0 && (
+            /* The last runs in order, oldest on the left, so a bad patch
+               reads as a bad patch and a lone red tick as a lone one. */
+            <Ticks items={[...data.runs].reverse().map(runTick)} />
+          )}
           {report.recent.total > 0 && (
             // Labelled, because the count in the header is jobs broken right
             // now and this is runs over time: "What broke 1" above "5 of the
             // last 100 failed" read as a contradiction.
-            <p className="panel-foot">
+            <p className="panel-foot panel-foot--chart">
               Failure rate: {report.recent.errors} of the last{" "}
               {report.recent.total} runs ({Math.round(rate * 100)}%)
             </p>
@@ -256,6 +304,51 @@ export function Panel({
         </div>
       );
     }
+
+    case "pulse": {
+      const hours = padHours(data.pulse, 24);
+      const calls = hours.reduce((n, h) => n + h.calls, 0);
+      const errors = hours.reduce((n, h) => n + h.errors, 0);
+      return (
+        <div className="panel">
+          <Head title={title ?? "Last 24 hours"} onMore={() => onGo("history")} />
+          {calls === 0 ? (
+            <Empty>Nothing ran in the last day.</Empty>
+          ) : (
+            <>
+              <Bars
+                labelEvery={6}
+                bars={hours.map((h) => ({
+                  label: hourLabel(h.hour),
+                  title: `${hourLabel(h.hour)}: ${h.calls} ${h.calls === 1 ? "call" : "calls"}${h.errors ? `, ${h.errors} failed` : ""}`,
+                  parts: [
+                    { value: h.calls - h.errors, tone: "accent" },
+                    { value: h.errors, tone: "danger" },
+                  ],
+                }))}
+              />
+              <p className="panel-foot panel-foot--chart">
+                {calls} tool {calls === 1 ? "call" : "calls"}
+                {errors ? `, ${errors} failed` : ", none failed"}
+              </p>
+            </>
+          )}
+        </div>
+      );
+    }
+
+    case "map":
+      return (
+        <div className="panel">
+          <Head title={title ?? "Map"} onMore={() => onGo("projects")} />
+          <ProjectMap
+            projects={data.projects.filter((p) => p.status === "active")}
+            nodes={data.map}
+            modules={data.modules.modules}
+            onModules={() => onGo("settings", "modules")}
+          />
+        </div>
+      );
 
     case "activity": {
       const rows = data.activity.slice(0, limit);
@@ -328,11 +421,14 @@ export function Panel({
                   >
                     <span className="panel-row-main">{c.title}</span>
                     <span className="panel-row-side">
-                      {c.activity && c.activity !== "idle"
-                        ? c.activity === "working"
-                          ? "working"
-                          : "needs you"
-                        : ago(c.updatedAt)}
+                      <ActivityDot activity={c.activity} error={c.lastError} quiet />
+                      {c.activity === "working"
+                        ? "working"
+                        : c.activity === "needs-you"
+                          ? "needs you"
+                          : c.activity === "error"
+                            ? "failed"
+                            : ago(c.updatedAt)}
                     </span>
                   </button>
                 </li>
@@ -345,22 +441,37 @@ export function Panel({
 
     case "schedule": {
       const rows = data.crons.filter((c) => c.enabled).slice(0, limit);
+      // Soonest first, so the side of each row is its next run.
+      const next = new Map<number, number>();
+      for (const r of data.upcoming) if (!next.has(r.id)) next.set(r.id, r.at);
       return (
         <div className="panel">
           <Head title={title ?? "Schedule"} onMore={() => onGo("crons")} />
           {rows.length === 0 ? (
             <Empty>Nothing runs on its own yet.</Empty>
           ) : (
-            <ul className="panel-list">
-              {rows.map((c) => (
-                <li key={c.id}>
-                  <span className="panel-row">
-                    <span className="panel-row-main">{c.name}</span>
-                    <code className="panel-row-side">{c.schedule}</code>
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <>
+              <DayLine runs={data.upcoming} />
+              <ul className="panel-list">
+                {rows.map((c) => (
+                  <li key={c.id}>
+                    <span className="panel-row">
+                      <span className="panel-row-main">
+                        {c.name}
+                        {c.projectSlug && (
+                          <span className="panel-row-project"> {data.projects.find((p) => p.slug === c.projectSlug)?.name ?? c.projectSlug}</span>
+                        )}
+                      </span>
+                      {next.has(c.id) ? (
+                        <span className="panel-row-side">{clockLabel(next.get(c.id)!)}</span>
+                      ) : (
+                        <code className="panel-row-side">{c.schedule}</code>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </div>
       );
@@ -372,30 +483,52 @@ export function Panel({
       const output = models.reduce((n, m) => n + m.outputTokens, 0);
       const cost = models.reduce((n, m) => n + (m.cost ?? 0), 0);
       const priced = models.some((m) => m.cost !== undefined);
-      const fmt = (n: number): string =>
-        n < 1000 ? String(n) : n < 1_000_000 ? `${(n / 1000).toFixed(1)}k` : `${(n / 1_000_000).toFixed(2)}M`;
+      const days = padDays(data.spend.byDay, 7);
+      const unpriced = models.filter((m) => m.cost === undefined).length;
       return (
         <div className="panel">
-          <Head title={title ?? "Spend, last 7 days"} onMore={() => onGo("settings")} />
+          <Head title={title ?? "Spend, last 7 days"} onMore={() => onGo("settings", "spend")} />
           {models.length === 0 ? (
             <Empty>Nothing spent this week.</Empty>
           ) : (
-            <div className="panel-stats">
-              <div>
-                <span className="panel-stat">{fmt(input)}</span>
-                <span className="panel-stat-label">in</span>
-              </div>
-              <div>
-                <span className="panel-stat">{fmt(output)}</span>
-                <span className="panel-stat-label">out</span>
-              </div>
-              {priced && (
+            <>
+              {/* The figure first: cost is the number this card is opened
+                  for, and it used to show tokens with nothing under them. */}
+              <div className="panel-stats">
+                {priced ? (
+                  <div>
+                    <span className="panel-stat panel-stat--lead">${cost < 0.01 && cost > 0 ? "<0.01" : cost.toFixed(2)}</span>
+                    <span className="panel-stat-label">{unpriced ? `${unpriced} model${unpriced === 1 ? "" : "s"} unpriced` : "this week"}</span>
+                  </div>
+                ) : (
+                  <div>
+                    <button type="button" className="panel-stat panel-stat--link" onClick={() => onGo("settings", "spend")}>
+                      Set rates
+                    </button>
+                    <span className="panel-stat-label">to see the cost</span>
+                  </div>
+                )}
                 <div>
-                  <span className="panel-stat">${cost.toFixed(2)}</span>
-                  <span className="panel-stat-label">at your rates</span>
+                  <span className="panel-stat">{fmt(input)}</span>
+                  <span className="panel-stat-label">in</span>
                 </div>
-              )}
-            </div>
+                <div>
+                  <span className="panel-stat">{fmt(output)}</span>
+                  <span className="panel-stat-label">out</span>
+                </div>
+              </div>
+              {/* One bar per day of everything sent and received. Input is
+                  a hundred times output, so stacking the two drew one. */}
+              <Bars
+                height={44}
+                bars={days.map((d) => ({
+                  label: dayLabel(d.day),
+                  title: `${d.day}: ${fmt(d.inputTokens)} in, ${fmt(d.outputTokens)} out`,
+                  parts: [{ value: d.inputTokens + d.outputTokens, tone: "accent" }],
+                }))}
+              />
+              <Share parts={modelShares(models)} />
+            </>
           )}
         </div>
       );

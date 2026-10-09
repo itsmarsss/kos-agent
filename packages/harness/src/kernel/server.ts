@@ -36,6 +36,7 @@ import { conversationEvents } from "./transcript.js";
 import { listDirectory, readFile, readImage, type DirEntry } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
+import type { FailingJob } from "../ops/health.js";
 import { readSkills } from "../skills/manifest.js";
 import { importPage, listPages, readPage } from "../memory/pages.js";
 import { applyResolution, describeReview } from "../memory/resolve.js";
@@ -44,7 +45,7 @@ import { mayRead } from "../memory/callers.js";
 import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
 import { MODULES_KEY, parseModuleSettings, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
 import { instantiateBlueprint } from "../modules/blueprint.js";
-import { installModule, originOf, removeModule, updateModule } from "../modules/install.js";
+import { installModule, originOf, removeModule, run, updateModule } from "../modules/install.js";
 import { isBuiltinFeature } from "../modules/builtins.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillEnabled } from "../skills/settings.js";
 import {
@@ -54,7 +55,21 @@ import {
   type ConversationKind,
 } from "./conversations.js";
 import { parseUpload, writeProjectFile } from "./uploads.js";
-import { installSkill, removeSkill, updateSkill } from "../skills/install.js";
+import { installSkill, removeSkill, skillOrigin, updateSkill } from "../skills/install.js";
+import {
+  MCP_PICKS,
+  SKILL_SOURCES,
+  listGithubSkills,
+  mcpConfigFor,
+  mcpNameFor,
+  parseSourceShorthand,
+  pickConfig,
+  searchGithubSkillRepos,
+  searchRegistry,
+  type Fetch,
+  type McpListing,
+  type SkillListing,
+} from "../catalog/catalog.js";
 import { readMcpConfig, removeMcpServer, serversFromJson, setMcpServerEnabled, upsertMcpServers } from "../tools/mcp.js";
 import { proxyToDaemon } from "../daemons/proxy.js";
 import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId } from "./session.js";
@@ -102,6 +117,8 @@ export interface DaemonMeta {
 export interface DashboardServerOptions {
   /** Directory of built UI assets (vite dist). When set, non-/api paths are served. */
   staticDir?: string;
+  /** How the catalogue reaches GitHub and the MCP registry. The platform's fetch unless a test says otherwise. */
+  fetch?: Fetch;
   /**
    * Optional bearer/token for every API route, reads included. When set,
    * requests must send `Authorization: Bearer <token>` or `x-kos-token: <token>`.
@@ -160,7 +177,7 @@ function projectRoute(path: string): { slug: string; action: string } | undefine
   return { slug: decodeURIComponent(parts[0]), action: parts[1] };
 }
 
-type Activity = "working" | "needs-you" | "idle";
+type Activity = "working" | "needs-you" | "error" | "idle";
 
 /**
  * A conversation as the dashboard lists it: what it is, so the list can
@@ -171,7 +188,7 @@ type Activity = "working" | "needs-you" | "idle";
  */
 function conversationLabeller(
   kernel: Kernel,
-): (c: Conversation) => Conversation & { kind: ConversationKind; activity: Activity } {
+): (c: Conversation) => Conversation & { kind: ConversationKind; activity: Activity; unread: boolean; lastError?: string } {
   const busy = new Set(kernel.busyConversations());
   const waiting = new Set(
     kernel.approvals
@@ -179,11 +196,87 @@ function conversationLabeller(
       .map((a) => a.conversationId)
       .filter((id): id is string => typeof id === "string"),
   );
-  return (c) => ({
-    ...c,
-    kind: conversationKind(c, kernel.profile.ownerId),
-    activity: busy.has(c.id) ? "working" : waiting.has(c.id) ? "needs-you" : "idle",
+  const failed = kernel.failedConversations();
+  return (c) => {
+    // A thread whose last turn threw is red until something happens in it:
+    // the owner would otherwise find a half-answer with nothing to say why.
+    const activity: Activity = busy.has(c.id)
+      ? "working"
+      : waiting.has(c.id)
+        ? "needs-you"
+        : failed.has(c.id)
+          ? "error"
+          : "idle";
+    return {
+      ...c,
+      kind: conversationKind(c, kernel.profile.ownerId),
+      activity,
+      // Touched since the owner last opened it, on any surface.
+      unread: c.updatedAt > (c.readAt ?? 0),
+      ...(activity === "error" ? { lastError: failed.get(c.id) } : {}),
+    };
+  };
+}
+
+/**
+ * Each failure with the chat where KOS is looking into it, when there is
+ * one, so the inbox can say "KOS is on it" rather than offer to start a
+ * second look at the same thing.
+ */
+function withFixes(
+  kernel: Kernel,
+  failing: FailingJob[],
+): (FailingJob & { fixing?: { conversationId: string; activity: Activity } })[] {
+  const label = conversationLabeller(kernel);
+  return failing.map((f) => {
+    const id = kernel.fixFor(f.label);
+    const chat = id ? kernel.conversations.get(id) : undefined;
+    return chat ? { ...f, fixing: { conversationId: chat.id, activity: label(chat).activity } } : f;
   });
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Skill listings, kept an hour: a folder of skills changes rarely and GitHub counts every read. */
+const CATALOG_TTL_MS = 60 * 60 * 1000;
+const catalogCache = new Map<string, { at: number; skills: SkillListing[] }>();
+
+/**
+ * Each project as a node on the home page's map: how many threads it has,
+ * how many are working or waiting on the owner, and how many jobs run for
+ * it. Counted here because the browser only gets ten chats.
+ */
+function projectMap(
+  kernel: Kernel,
+  threads: (Conversation & { activity: Activity })[],
+): { slug: string; threads: number; working: number; needsYou: number; jobs: number }[] {
+  const jobs = new Map<string, number>();
+  for (const job of kernel.crons.list()) {
+    if (job.enabled && job.projectSlug) jobs.set(job.projectSlug, (jobs.get(job.projectSlug) ?? 0) + 1);
+  }
+  return kernel.manifest.list().map((p) => {
+    const mine = threads.filter((c) => c.projectSlug === p.slug);
+    return {
+      slug: p.slug,
+      threads: mine.length,
+      working: mine.filter((c) => c.activity === "working").length,
+      needsYou: mine.filter((c) => c.activity === "needs-you").length,
+      jobs: jobs.get(p.slug) ?? 0,
+    };
+  });
+}
+
+/** Runs due in the next day, soonest first, for a timeline of what is coming. */
+function upcomingRuns(kernel: Kernel, now: number): { id: number; name: string; at: number }[] {
+  const out: { id: number; name: string; at: number }[] = [];
+  for (const job of kernel.crons.list()) {
+    if (!job.enabled) continue;
+    for (const at of kernel.cronNextRuns(job.id, 24)) {
+      if (at > now + DAY_MS) break;
+      out.push({ id: job.id, name: job.name, at });
+    }
+  }
+  return out.sort((a, b) => a.at - b.at);
 }
 
 /** The top of a project's folder. A project with no folder yet has no files, not an error. */
@@ -615,13 +708,102 @@ export async function handleApiRequest(
         ...s.manifest,
         file: s.file,
         enabled: !off.has(s.manifest.name),
-        origin: await originOf(kernel.workspace.resolve(s.dir)),
+        origin: await skillOrigin(kernel.workspace.resolve(s.dir), run),
       })),
     );
     return ok({ skills: listed, invalid });
   }
 
   /** A skill from a git URL or a folder, switched off until the owner says. */
+  /*
+   * The catalogue: skills from repositories in Claude Code's shape and MCP
+   * servers from the official registry, so neither has to be found by hand.
+   * Listings are read through the host rather than the browser, which keeps
+   * GitHub's rate limit and the registry's shape in one place.
+   */
+  if (method === "GET" && path === "/api/catalog/skills") {
+    const fetchFn = options.fetch ?? (globalThis.fetch as unknown as Fetch);
+    const typed = queryParams(req.url).get("source")?.trim() ?? "";
+    const chosen = typed ? parseSourceShorthand(typed) : { repo: SKILL_SOURCES[0]!.repo, path: SKILL_SOURCES[0]!.path };
+    if (!chosen) return { status: 400, body: { error: "a source is owner/repo or owner/repo/path" } };
+    const key = `${chosen.repo}/${chosen.path}`;
+    const cached = catalogCache.get(key);
+    let skills: SkillListing[];
+    if (cached && Date.now() - cached.at < CATALOG_TTL_MS) {
+      skills = cached.skills;
+    } else {
+      try {
+        skills = await listGithubSkills(chosen.repo, chosen.path, fetchFn);
+      } catch (err) {
+        return { status: 502, body: { error: err instanceof Error ? err.message : String(err) } };
+      }
+      catalogCache.set(key, { at: Date.now(), skills });
+    }
+    const installed = new Set(readSkills(kernel.workspace).skills.map((sk) => sk.manifest.name));
+    return ok({
+      sources: SKILL_SOURCES,
+      source: chosen,
+      skills: skills.map((sk) => ({ ...sk, installed: installed.has(sk.name) })),
+    });
+  }
+
+  if (method === "GET" && path === "/api/catalog/skills/search") {
+    const fetchFn = options.fetch ?? (globalThis.fetch as unknown as Fetch);
+    const q = queryParams(req.url).get("q")?.trim() ?? "";
+    if (!q) return ok({ repos: [] });
+    try {
+      return ok({ repos: await searchGithubSkillRepos(q, fetchFn) });
+    } catch (err) {
+      return { status: 502, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  if (method === "GET" && path === "/api/catalog/mcp") {
+    const fetchFn = options.fetch ?? (globalThis.fetch as unknown as Fetch);
+    const q = queryParams(req.url).get("q")?.trim() ?? "";
+    const have = new Set(Object.keys(readMcpConfig(kernel.workspace.root).servers));
+    const picks = MCP_PICKS.map((p) => ({ name: p.name, blurb: p.blurb, needs: p.needs, command: [p.server.command, ...(p.server.args ?? [])].join(" "), installed: have.has(p.name) }));
+    if (!q) return ok({ picks, results: [] as McpListing[] });
+    try {
+      const results = await searchRegistry(q, fetchFn);
+      return ok({ picks, results: results.map((r) => ({ ...r, suggestedName: mcpNameFor(r.name), installed: have.has(mcpNameFor(r.name)) })) });
+    } catch (err) {
+      return { status: 502, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  /** One of the reference servers, added as its project documents it. */
+  if (method === "POST" && path === "/api/mcp/pick") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const pick = MCP_PICKS.find((p) => p.name === name);
+    if (!pick) return { status: 404, body: { error: `no pick named ${name}` } };
+    // Off on request: a test, or an owner who wants it in the file first.
+    const server = { ...pickConfig(pick, kernel.workspace.root), ...(body.enabled === false ? { enabled: false } : {}) };
+    const added = upsertMcpServers(kernel.workspace.root, { [pick.name]: server });
+    const status = await kernel.mcp.reload();
+    return ok({ added, status: Object.fromEntries(added.map((n) => [n, status[n] ?? { connected: false, tools: [] }])) });
+  }
+
+  /** A registry listing, written to mcp.json with the owner's answers for what it asks. */
+  if (method === "POST" && path === "/api/mcp/catalog") {
+    const listing = typeof body.listing === "object" && body.listing !== null ? (body.listing as McpListing) : undefined;
+    if (!listing || typeof listing.name !== "string") return { status: 400, body: { error: "listing required" } };
+    const name = (typeof body.name === "string" && body.name.trim()) || mcpNameFor(listing.name);
+    const choice = typeof body.choice === "object" && body.choice !== null ? (body.choice as { package?: number; remote?: number }) : {};
+    const values = typeof body.values === "object" && body.values !== null ? (body.values as Record<string, string>) : {};
+    let server;
+    try {
+      server = mcpConfigFor(listing, choice, values);
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+    if (body.risk === "safe") server.risk = "safe";
+    if (body.enabled === false) server.enabled = false;
+    const added = upsertMcpServers(kernel.workspace.root, { [name]: server });
+    const status = await kernel.mcp.reload();
+    return ok({ added, status: Object.fromEntries(added.map((n) => [n, status[n] ?? { connected: false, tools: [] }])) });
+  }
+
   if (method === "POST" && path === "/api/skills/install") {
     const source = typeof body.source === "string" ? body.source.trim() : "";
     if (!source) return { status: 400, body: { error: "source required: a git URL or a folder" } };
@@ -844,11 +1026,14 @@ export async function handleApiRequest(
          * is touched and does not exist at all for a job that has no thread.
          * The nightly backup had run since July and reported "never".
          */
+        // When it fires next, from the scheduler that will fire it.
+        const [nextRunAt] = job.enabled ? kernel.cronNextRuns(job.id, 1) : [];
         return {
           ...job,
           ...(thread
             ? { conversationId: thread.id, running: busyNow.has(thread.id) }
             : {}),
+          ...(nextRunAt !== undefined ? { nextRunAt } : {}),
         };
       }),
     );
@@ -1544,7 +1729,7 @@ export async function handleApiRequest(
       approvals: kernel.approvals.pending(),
       // With what each claim says: a key alone is not something to decide on.
       decisions: kernel.review.pending().map((i) => describeReview(kernel.facts, kernel.profile.ownerId, i)),
-      failures: kernel.health.report().failing,
+      failures: withFixes(kernel, kernel.health.report().failing),
       suggestions: kernel.suggestions.pending(),
     });
   }
@@ -1566,6 +1751,10 @@ export async function handleApiRequest(
   }
 
   if (method === "GET" && path === "/api/home") {
+    const now = Date.now();
+    const week = now - 7 * DAY_MS;
+    const threads = kernel.conversations.list(kernel.profile.ownerId).map(conversationLabeller(kernel));
+    const health = kernel.health.report();
     return ok({
       layout: parseHomeLayout(kernel.settings.get(HOME_LAYOUT_KEY)),
       // Everything the panels draw from, in one round trip: home is the first
@@ -1573,19 +1762,25 @@ export async function handleApiRequest(
       // to see it assemble itself.
       approvals: kernel.approvals.pending(),
       agents: kernel.builds.list().slice(0, 8),
-      failures: kernel.runs.failures(10),
-      health: kernel.health.report(),
+      // The last runs in order, so a strip can show the shape of recent
+      // reliability rather than only the failures in it.
+      runs: kernel.runs.recent(40),
+      health: { ...health, failing: withFixes(kernel, health.failing) },
       activity: kernel.audit.recent(20),
+      // Calls by the hour, so the day has a shape and not just a last page.
+      pulse: kernel.audit.byHour(now - DAY_MS),
       projects: kernel.manifest.list(),
+      map: projectMap(kernel, threads),
       // Chats you began. A job's thread or the router is not something you
       // would open from a panel called Chats.
-      chats: kernel.conversations
-        .list(kernel.profile.ownerId)
-        .filter((c) => conversationKind(c, kernel.profile.ownerId) === "chat")
-        .slice(0, 10),
+      chats: threads.filter((c) => c.kind === "chat").slice(0, 10),
       crons: kernel.crons.list(),
+      upcoming: upcomingRuns(kernel, now),
       spend: {
-        models: kernel.spend.byModel(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        // Costed the same way the Spend page costs them, so the card and
+        // the page agree; it used to show tokens with no figure under them.
+        models: kernel.spend.byModel(week).map((m) => ({ ...m, cost: costOf(m, parseRates(kernel.settings.get(RATES_KEY))) })),
+        byDay: kernel.spend.byDay(week),
       },
       memory: memoryReport(kernel),
       modules: modulesReport(kernel),
@@ -1955,6 +2150,8 @@ export async function handleApiRequest(
     if (!kernel.conversations.get(id)) {
       return { status: 404, body: { error: "conversation not found" } };
     }
+    // Opening a thread is reading it: the list's unread dot goes grey.
+    kernel.conversations.markRead(id);
     // Events, not just spoken turns: a chat view that hides the tool calls
     // shows conclusions with no visible working.
     return ok({

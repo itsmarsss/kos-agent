@@ -11,6 +11,7 @@ import { api } from "./api.js";
 import { useProgress } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
 import { Markdown } from "./Markdown.js";
+import { OpenIcon, PinIcon, UnpinIcon } from "./icons.js";
 
 /**
  * A quick question on the side, like Claude Code's /btw.
@@ -315,18 +316,19 @@ export function QuickAsk({
                none, for a question that has nothing to do with it. */
             <button
               type="button"
-              className="btn btn--sm btn--ghost"
+              className="head-act"
               aria-pressed={!detached}
               title={detached ? `Ask about ${contextTitle ?? contextId} again` : "Ask without this chat's context"}
               onClick={() => setDetached((v) => !v)}
             >
+              {detached ? <UnpinIcon /> : <PinIcon />}
               {detached ? "Attach" : "Detach"}
             </button>
           )}
           {thread.length > 0 && (
             <button
               type="button"
-              className="btn btn--sm btn--ghost"
+              className="head-act"
               onClick={() => setThreads((all) => ({ ...all, [key]: [] }))}
               title="Forget this side thread"
             >
@@ -336,12 +338,13 @@ export function QuickAsk({
           {contextId && (
             <button
               type="button"
-              className="btn btn--sm btn--ghost"
+              className="head-act"
               onClick={() => {
                 onOpen(contextId);
                 onClose();
               }}
             >
+              <OpenIcon />
               Go to chat
             </button>
           )}
@@ -381,19 +384,29 @@ export function QuickAsk({
           const pending = i === thread.length - 1 && t.a === undefined;
           return (
             <Fragment key={i}>
-              <div className="quickask-turn quickask-turn--you">
-                <Markdown text={t.q} />
+              {/* The chat's own bubbles, smaller. A shape of its own here
+                  meant the answer changed face the moment it finished
+                  streaming, since the live view was already drawn in the
+                  chat's. */}
+              <div className="quickask-turn turn turn--you">
+                <div className="bubble bubble--you">
+                  <Markdown text={t.q} />
+                </div>
               </div>
               {t.a !== undefined ? (
-                <div className="quickask-turn quickask-turn--kos">
-                  <Markdown text={t.a} />
+                <div className="quickask-turn turn turn--kos">
+                  <div className="bubble bubble--kos">
+                    <Markdown text={t.a} />
+                  </div>
                 </div>
               ) : pending && live && !live.ended ? (
-                <div className="quickask-turn quickask-turn--live">
+                <div className="quickask-turn turn turn--kos quickask-turn--live">
                   <LiveTurn live={live} />
                 </div>
               ) : pending ? (
-                <div className="quickask-turn quickask-turn--kos quickask-wait">Thinking…</div>
+                <div className="quickask-turn turn turn--kos">
+                  <div className="bubble bubble--kos is-thinking">Thinking…</div>
+                </div>
               ) : null}
             </Fragment>
           );

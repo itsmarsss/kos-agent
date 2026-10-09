@@ -74,6 +74,55 @@ export interface SkillInfo {
   origin?: string | null;
 }
 
+/** A skill offered by the catalogue: a folder in a repository, ready to install. */
+export interface CatalogSkill {
+  name: string;
+  description: string;
+  /** The GitHub tree URL the installer takes. */
+  source: string;
+  repo: string;
+  installed: boolean;
+}
+
+/** A repository GitHub returned for a search, as something to browse. */
+export interface RepoHit {
+  repo: string;
+  description: string;
+  stars: number;
+  url: string;
+}
+
+export interface CatalogSkills {
+  sources: { repo: string; path: string; label: string; blurb: string }[];
+  source: { repo: string; path: string };
+  skills: CatalogSkill[];
+}
+
+export interface CatalogEnvVar {
+  name: string;
+  description: string;
+  required: boolean;
+  secret: boolean;
+}
+
+/** A server as the MCP registry lists it, trimmed to what adding it needs. */
+export interface CatalogMcpListing {
+  name: string;
+  title: string;
+  description: string;
+  version: string;
+  repository?: string;
+  packages: { registry: string; identifier: string; version?: string; runtime?: string; env: CatalogEnvVar[] }[];
+  remotes: { type: string; url: string; headers: CatalogEnvVar[] }[];
+  suggestedName: string;
+  installed: boolean;
+}
+
+export interface CatalogMcp {
+  picks: { name: string; blurb: string; needs: "node" | "uv" | "docker"; command: string; installed: boolean }[];
+  results: CatalogMcpListing[];
+}
+
 /** A server in mcp.json as the owner sees it in Settings, with whether it is up. */
 export interface McpServerInfo {
   name: string;
@@ -180,6 +229,8 @@ export interface CronJob {
   running?: boolean;
   /** When the last run touched the thread. */
   lastRunAt?: number;
+  /** When it fires next, while it is on and the scheduler holds it. */
+  nextRunAt?: number;
   /** Which model class answers a self_prompt. */
   task?: "reasoning" | "cheap";
 }
@@ -267,7 +318,13 @@ export interface Conversation {
   /** What sort of thread this is, for grouping in the list. */
   kind?: "orchestrator" | "project" | "surface" | "schedule" | "chat";
   /** What the thread is doing, so the list can say rather than look idle. */
-  activity?: "working" | "needs-you" | "idle";
+  activity?: "working" | "needs-you" | "error" | "idle";
+  /** Why the last turn failed, while the thread is in that state. */
+  lastError?: string;
+  /** When the owner last looked at it, on any surface. */
+  readAt?: number | null;
+  /** Newer activity than the owner has seen. */
+  unread?: boolean;
 }
 
 export interface ChatTurn {
@@ -408,6 +465,8 @@ export interface FailingJob {
   error: string | null;
   since: number;
   lastAt: number;
+  /** The chat where KOS is, or was, looking into this. */
+  fixing?: { conversationId: string; activity: NonNullable<Conversation["activity"]> };
 }
 
 export interface HealthReport {
@@ -416,17 +475,54 @@ export interface HealthReport {
   recent: { total: number; errors: number; rate: number };
 }
 
+/** Tool calls in one hour, for the shape of the day. */
+export interface HourCount {
+  /** Start of the hour, epoch ms. */
+  hour: number;
+  calls: number;
+  errors: number;
+}
+
+/** Tokens on one day, local time. */
+export interface DayTotal {
+  day: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/** A project as a node on the map: what hangs off it and what it is doing. */
+export interface ProjectNode {
+  slug: string;
+  threads: number;
+  working: number;
+  needsYou: number;
+  jobs: number;
+}
+
+/** A scheduled run due soon. */
+export interface UpcomingRun {
+  id: number;
+  name: string;
+  at: number;
+}
+
 export interface HomeData {
   layout: import("@kos/shared").HomeLayout;
   approvals: PendingAction[];
   agents: BuildRecord[];
-  failures: RunRecord[];
+  /** The last runs, newest first. */
+  runs: RunRecord[];
   health: HealthReport;
   activity: AuditRecord[];
+  /** Calls by the hour over the last day; quiet hours are left out. */
+  pulse: HourCount[];
   projects: Project[];
+  map: ProjectNode[];
   chats: Conversation[];
   crons: CronJob[];
-  spend: { models: ModelSpend[] };
+  /** Runs due in the next day, soonest first. */
+  upcoming: UpcomingRun[];
+  spend: { models: ModelSpend[]; byDay: DayTotal[] };
   memory: HomeMemory;
   modules: { modules: ModuleInfo[]; builtins: BuiltinInfo[] };
 }
@@ -661,6 +757,16 @@ export const api = {
   updateSkill: (name: string) => post<{ updated: string; origin: string | null }>("/api/skills/update", { name }),
   removeSkill: (name: string) => post<{ removed: string }>("/api/skills/remove", { name }),
   mcpServers: () => get<{ servers: McpServerInfo[] }>("/api/mcp"),
+  /** Skills in a repository folder, Anthropic's unless a source is given. */
+  catalogSkills: (source?: string) =>
+    get<CatalogSkills>(`/api/catalog/skills${source ? `?source=${encodeURIComponent(source)}` : ""}`),
+  /** Repositories on GitHub that look like they hold skills. */
+  catalogSkillSearch: (q: string) => get<{ repos: RepoHit[] }>(`/api/catalog/skills/search?q=${encodeURIComponent(q)}`),
+  /** The reference servers, and the registry's answer to a search. */
+  catalogMcp: (q: string) => get<CatalogMcp>(`/api/catalog/mcp${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  addMcpPick: (name: string) => post<{ added: string[] }>("/api/mcp/pick", { name }),
+  addMcpFromCatalog: (input: { listing: CatalogMcpListing; name?: string; choice: { package?: number; remote?: number }; values: Record<string, string>; risk?: "safe" | "risky" }) =>
+    post<{ added: string[] }>("/api/mcp/catalog", input),
   /** One server by name, or a pasted config in KOS's or Claude Code's shape. */
   addMcpServer: (input: { name?: string; server?: Record<string, unknown>; json?: string }) =>
     post<{ added: string[]; status: Record<string, { connected: boolean; tools: string[]; error?: string }> }>("/api/mcp/add", input),

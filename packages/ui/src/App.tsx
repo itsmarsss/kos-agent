@@ -22,7 +22,8 @@ import { AnimatePresence, m } from "motion/react";
 
 import { hrefFor, parseRoute, type Route } from "./routes.js";
 import { Drawer } from "./Drawer.js";
-import { CronEditor } from "./CronEditor.js";
+import { CronEditor, describeCron } from "./CronEditor.js";
+import { StatusDot } from "./StatusDot.js";
 import { ease, spring } from "./motion.js";
 import { HistoryPage, type HistoryRow } from "./HistoryPage.js";
 import { HomePage } from "./HomePage.js";
@@ -42,6 +43,30 @@ import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
 import { PageRenderer } from "./widgets/PageRenderer.js";
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
+
+/** "in 25m", "in 3h", "tomorrow 9:00am": when a job fires next, at a glance. */
+function whenNext(at: number): string {
+  const diff = at - Date.now();
+  const d = new Date(at);
+  const hm = `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")}${d.getHours() < 12 ? "am" : "pm"}`;
+  if (diff < 60_000) return "any moment";
+  if (diff < 3_600_000) return `in ${Math.round(diff / 60_000)}m`;
+  if (diff < 12 * 3_600_000) return `in ${Math.round(diff / 3_600_000)}h, ${hm}`;
+  if (d.toDateString() === new Date().toDateString()) return `today ${hm}`;
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  if (d.toDateString() === tomorrow.toDateString()) return `tomorrow ${hm}`;
+  return `${d.toLocaleDateString(undefined, { weekday: "short" })} ${hm}`;
+}
+
+/** "12m ago", "3h ago", "4d ago". */
+function whenAgo(ts: number): string {
+  const mins = Math.max(1, Math.round((Date.now() - ts) / 60_000));
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
 
 export function App(): React.ReactElement {
   const [route, setRoute] = useState<Route>(() =>
@@ -94,7 +119,7 @@ export function App(): React.ReactElement {
   // Where sites are served, so the palette can open one directly.
   const [sitesBase, setSitesBase] = useState<string | null>(null);
   const [agents, setAgents] = useState<BuildRecord[]>([]);
-  const [editingCron, setEditingCron] = useState<{ job?: CronJob } | null>(null);
+  const [editingCron, setEditingCron] = useState<{ job?: CronJob; projectSlug?: string } | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
 
   const flash = (kind: "ok" | "err", text: string): void => {
@@ -535,12 +560,23 @@ export function App(): React.ReactElement {
               key={toast.text}
               className={`ops-toast ops-toast--${toast.kind}`}
               role="status"
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
+              initial={{ opacity: 0, y: -10, x: "-50%", scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, x: "-50%", scale: 1 }}
+              exit={{ opacity: 0, y: -6, x: "-50%", scale: 0.98 }}
               transition={spring}
             >
-              {toast.text}
+              <span className="ops-toast-icon" aria-hidden="true">
+                {toast.kind === "ok" ? (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m5 13 4 4L19 7" />
+                  </svg>
+                ) : (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
+                    <path d="M12 6v7M12 17.5v.01" />
+                  </svg>
+                )}
+              </span>
+              <span className="ops-toast-text">{toast.text}</span>
             </m.div>
           )}
         </AnimatePresence>
@@ -605,6 +641,8 @@ export function App(): React.ReactElement {
         >
           {editingCron && (
             <CronEditor
+              projects={projects.filter((p) => p.status === "active").map((p) => ({ slug: p.slug, name: p.name }))}
+              {...(editingCron.projectSlug ? { defaultProject: editingCron.projectSlug } : {})}
               {...(editingCron.job ? { job: editingCron.job } : {})}
               hooks={status?.hooks === true}
               onDone={() => {
@@ -716,6 +754,8 @@ export function App(): React.ReactElement {
         onOpenAgent={(id) => go({ name: "agents", id })}
         onOpen={openConversation}
         onOpenProject={(slug) => go({ name: "project", slug })}
+        crons={crons}
+        onEditCron={(job, projectSlug) => setEditingCron(job ? { job } : { ...(projectSlug ? { projectSlug } : {}) })}
         onAside={askAside}
         onNotice={(text) => flash("ok", text)}
         onChanged={() => void refresh()}
@@ -751,6 +791,8 @@ export function App(): React.ReactElement {
           onOpenFile: (path) => go({ name: "files", path }),
           onError: (text) => flash("err", text),
         }}
+        crons={crons}
+        onEditCron={(job, projectSlug) => setEditingCron(job ? { job } : { ...(projectSlug ? { projectSlug } : {}) })}
         onAside={askAside}
         onNotice={(text) => flash("ok", text)}
         onChanged={() => void refresh()}
@@ -820,11 +862,26 @@ export function App(): React.ReactElement {
   }
 
   if (route.name === "crons") {
-    const rows = crons.filter((c) => {
-      if (cronFilter === "on") return c.enabled;
-      if (cronFilter === "off") return !c.enabled;
-      return true;
-    });
+    // Yours first, then KOS's own (kos.backup, kos.memory and the rest):
+    // the two were interleaved by id, so the owner's three sat among six
+    // of the system's and read as one list of nine.
+    const system = (c: CronJob): boolean => c.name.startsWith("kos.");
+    // A job whose project is gone keeps running under its slug; said so,
+    // rather than shown as a project that cannot be opened.
+    const projectName = (slug: string | null | undefined): string | undefined =>
+      slug ? (projects.find((p) => p.slug === slug)?.name ?? `${slug} (no such project)`) : undefined;
+    // Yours at the root, then each project's, then KOS's own. Digits, not
+    // punctuation: "~" sorted before "0" under the locale and put the
+    // system's first.
+    const groupOf = (c: CronJob): string => (system(c) ? "KOS's own" : (projectName(c.projectSlug) ?? "Yours"));
+    const rank = (c: CronJob): string => (system(c) ? "2" : c.projectSlug ? `1 ${groupOf(c)}` : "0");
+    const rows = crons
+      .filter((c) => {
+        if (cronFilter === "on") return c.enabled;
+        if (cronFilter === "off") return !c.enabled;
+        return true;
+      })
+      .sort((a, b) => rank(a).localeCompare(rank(b)));
     return shell(
       <RunsTabs current="crons">
       <ListPage
@@ -833,6 +890,7 @@ export function App(): React.ReactElement {
         rows={rows}
         rowKey={(c) => c.id}
         empty="No crons match"
+        groupBy={groupOf}
         onRowClick={(c) => setEditingCron({ job: c })}
         toolbar={
           /* Writing one by hand: everything here could be asked for in a
@@ -864,89 +922,108 @@ export function App(): React.ReactElement {
         columns={[
           {
             key: "name",
-            header: "Name",
-            searchText: (c) => c.name,
-            render: (c) => c.name,
-          },
-          {
-            key: "schedule",
-            header: "Schedule",
-            searchText: (c) => c.schedule,
-            render: (c) => <span className="ops-mono">{c.schedule}</span>,
-          },
-          {
-            key: "type",
-            header: "Type",
-            searchText: (c) => c.type,
-            render: (c) => c.type,
-          },
-          {
-            key: "enabled",
-            header: "Enabled",
-            searchText: (c) => (c.enabled ? "on" : "off"),
+            header: "Job",
+            searchText: (c) => `${c.name} ${c.schedule} ${c.type}`,
             render: (c) => (
-              <>
-                {/* Whether a schedule is armed and whether it is busy are two
-                    facts, and showing "running" instead of "on" lost the
-                    first: a job could be running while switched off, and the
-                    row said only that it was running. */}
-                {c.enabled ? (
-                  <span className="ops-tag ops-tag--ok">on</span>
-                ) : (
-                  <span className="ops-tag ops-tag--danger">off</span>
-                )}
-                {c.running && <span className="ops-tag ops-tag--run">running</span>}
-              </>
+              <span className="sched-name">
+                <span className="sched-title">{c.name}</span>
+                <span className="sched-sub">
+                  <span>{describeCron(c.schedule) ?? "custom"}</span>
+                  <code title="cron expression">{c.schedule}</code>
+                  <span>{c.type === "self_prompt" ? "asks KOS" : "tool calls"}</span>
+                </span>
+              </span>
             ),
           },
           {
+            key: "state",
+            header: "State",
+            width: "7rem",
+            searchText: (c) => (c.running ? "running" : c.enabled ? "on" : "off"),
+            render: (c) => (
+              <span className="sched-state">
+                <StatusDot
+                  state={c.running ? "working" : c.enabled ? "on" : "off"}
+                  label={c.running ? "running" : c.enabled ? "on" : "off"}
+                />
+                {c.running ? "running" : c.enabled ? "on" : "off"}
+              </span>
+            ),
+          },
+          {
+            key: "next",
+            header: "Next",
+            width: "9rem",
+            searchText: () => "",
+            render: (c) =>
+              c.enabled && c.nextRunAt ? (
+                <span className={`sched-when${c.nextRunAt - Date.now() < 3_600_000 ? " sched-when--soon" : ""}`} title={new Date(c.nextRunAt).toLocaleString()}>
+                  {whenNext(c.nextRunAt)}
+                </span>
+              ) : (
+                <span className="ops-muted">{c.enabled ? "—" : "paused"}</span>
+              ),
+          },
+          {
+            key: "last",
+            header: "Last run",
+            width: "10rem",
+            searchText: () => "",
             /* Where the job's runs live. Each one is a turn in a thread of
                its own, so this opens what it is doing now and what it did
                last week, and the owner can ask it there. */
-            key: "runs",
-            header: "Runs",
-            searchText: () => "",
             render: (c) =>
               c.conversationId ? (
                 <button
                   type="button"
                   className="link"
+                  title="Open the thread its runs are written into"
                   onClick={(e) => {
                     e.stopPropagation();
                     go({ name: "chats", id: c.conversationId! });
                   }}
                 >
-                  {c.running ? "Watch" : "Open"}
+                  {c.running ? "Watch" : c.lastRunAt ? whenAgo(c.lastRunAt) : "Open"}
                 </button>
               ) : (
-                <span className="ops-muted">not yet run</span>
+                <span className="ops-muted">never</span>
               ),
           },
           {
             key: "project",
             header: "Project",
-            searchText: (c) => c.projectSlug ?? "",
-            render: (c) => (
-              <span className="ops-mono ops-muted">{c.projectSlug ?? "—"}</span>
-            ),
+            width: "10rem",
+            searchText: (c) => projectName(c.projectSlug) ?? "",
+            render: (c) =>
+              c.projectSlug ? (
+                <span className="sched-project" title={c.projectSlug}>
+                  {projectName(c.projectSlug)}
+                </span>
+              ) : (
+                <span className="ops-muted">—</span>
+              ),
           },
           {
             // Whether a job works was otherwise answerable only by waiting for
             // its schedule, which for a nightly job is a day per attempt.
             key: "run",
             header: "",
+            width: "6rem",
             render: (c) => (
-              <button
-                type="button"
-                className="btn btn--sm"
-                disabled={firing === c.id}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void runCronNow(c.id, c.name);
-                }}
-              >
-                {firing === c.id ? "Running…" : "Run now"}
-              </button>
+              <span className="sched-acts">
+                <button
+                  type="button"
+                  className="btn btn--sm btn--ghost"
+                  disabled={firing === c.id}
+                  title="Fire it now, the way the schedule would"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void runCronNow(c.id, c.name);
+                  }}
+                >
+                  {firing === c.id ? "Running…" : "Run now"}
+                </button>
+              </span>
             ),
           },
         ]}

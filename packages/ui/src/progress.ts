@@ -223,6 +223,9 @@ class ProgressStore {
         // transcript, and clears it then.
         const live = this.map[id];
         if (live) this.map = { ...this.map, [id]: { ...live, ended: true } };
+        // Told to whoever keeps a list: a reply landing in another thread is
+        // what turns its dot green, and the next poll was up to five seconds off.
+        for (const listener of endListeners) listener(id);
       } else if (event.kind === "turn-start") {
         this.map = { ...this.map, [id]: { steps: [], text: "", since: Date.now() } };
       } else {
@@ -250,6 +253,13 @@ const store = new ProgressStore();
 /** Tell the store about work the server says is in flight. */
 /** Told when something finishes on its own, after the turn that started it. */
 const noteListeners = new Set<(conversationId: string, text: string) => void>();
+const endListeners = new Set<(conversationId: string) => void>();
+
+/** Called when any turn ends, with the conversation it was in. */
+export function onTurnEnd(listener: (conversationId: string) => void): () => void {
+  endListeners.add(listener);
+  return () => endListeners.delete(listener);
+}
 
 export function onNote(
   listener: (conversationId: string, text: string) => void,

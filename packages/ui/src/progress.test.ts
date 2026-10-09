@@ -3,7 +3,7 @@ import { cleanup, renderHook } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { clearProgress, seedProgress, settleProgress, useProgress } from "./progress.js";
+import { clearProgress, onTurnEnd, seedProgress, settleProgress, useProgress } from "./progress.js";
 
 /**
  * The store is a module singleton behind one EventSource, so these drive it
@@ -103,5 +103,35 @@ describe("progress handover", () => {
     const { result } = renderHook(() => useProgress());
     act(() => seedProgress(["c1"]));
     expect(result.current.c1?.resumed).toBe(true);
+  });
+});
+
+describe("hearing a turn end", () => {
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("EventSource", function EventSourceStub(this: FakeSource) {
+      source = new FakeSource();
+      return source;
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    clearProgress("c1");
+    vi.unstubAllGlobals();
+  });
+
+  it("tells a listener which conversation's turn ended, until it stops listening", () => {
+    // The chat list refreshes on this, so a reply landing in another thread
+    // turns its dot green at once rather than on the next poll.
+    renderHook(() => useProgress());
+    const ended: string[] = [];
+    const stop = onTurnEnd((id) => ended.push(id));
+    deliver({ kind: "turn-start", conversationId: "c1" });
+    deliver({ kind: "turn-end", conversationId: "c1" });
+    expect(ended).toEqual(["c1"]);
+    stop();
+    deliver({ kind: "turn-end", conversationId: "c1" });
+    expect(ended).toEqual(["c1"]);
   });
 });

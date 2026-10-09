@@ -42,6 +42,12 @@ export interface Conversation {
    * permissions. Null is the root: KOS itself and plain chats.
    */
   projectSlug: string | null;
+  /**
+   * When the owner last looked at this thread, on any surface. Null until
+   * they have. Newer activity than this is unread, which is what the chat
+   * list's green dot means.
+   */
+  readAt: number | null;
 }
 
 const SCHEMA = `
@@ -78,6 +84,7 @@ interface Row {
   brief: string | null;
   tool_allow: string | null;
   project_slug?: string | null;
+  read_at?: number | null;
 }
 
 function toConversation(row: Row): Conversation {
@@ -92,6 +99,7 @@ function toConversation(row: Row): Conversation {
     brief: row.brief ?? null,
     toolAllow: parseAllow(row.tool_allow),
     projectSlug: row.project_slug ?? null,
+    readAt: row.read_at ?? null,
   };
 }
 
@@ -199,6 +207,12 @@ export class ConversationStore {
     if (!has("project_slug")) {
       this.db.exec(`ALTER TABLE conversations ADD COLUMN project_slug TEXT`);
     }
+    if (!has("read_at")) {
+      // Backfilled as read: what was there before the column counts as
+      // seen, so the upgrade does not light every thread green at once.
+      this.db.exec(`ALTER TABLE conversations ADD COLUMN read_at INTEGER`);
+      this.db.exec(`UPDATE conversations SET read_at = updated_at WHERE read_at IS NULL`);
+    }
   }
 
   /** Ids are readable and sortable; uniqueness is enforced by the primary key. */
@@ -224,7 +238,9 @@ export class ConversationStore {
       brief: input.brief?.trim() || null,
       toolAllow: input.toolAllow ?? null,
       projectSlug: input.projectSlug ?? null,
+      readAt: null,
     };
+    const { readAt: _unread, ...columns } = row;
     this.db
       .prepare(
         `INSERT INTO conversations (id, user_id, title, channel, created_at, updated_at, archived, brief, tool_allow, project_slug)
@@ -232,7 +248,7 @@ export class ConversationStore {
          ON CONFLICT(id) DO NOTHING`,
       )
       .run({
-        ...row,
+        ...columns,
         toolAllow: row.toolAllow === null ? null : JSON.stringify(row.toolAllow),
       });
     return this.get(id) ?? row;
@@ -273,6 +289,11 @@ export class ConversationStore {
   }
 
   /** Bump ordering, and adopt a title if the conversation is still unnamed. */
+  /** The owner has seen this thread as it is now. */
+  markRead(id: string): void {
+    this.db.prepare(`UPDATE conversations SET read_at = ? WHERE id = ?`).run(this.now(), id);
+  }
+
   touch(id: string, firstText?: string): void {
     const current = this.get(id);
     if (!current) return;
