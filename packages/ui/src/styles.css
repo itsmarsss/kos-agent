@@ -2841,6 +2841,49 @@ li:hover .chats-item-when { opacity: 0; }
 .sched-when--soon { color: var(--text); }
 .sched-project { display: inline-block; padding: 0.1rem 0.5rem; border: 1px solid var(--line); border-radius: 999px; font-size: var(--text-xs); color: var(--muted); white-space: nowrap; }
 .sched-acts { display: inline-flex; gap: 0.35rem; align-items: center; white-space: nowrap; }
+
+/* Managing files by hand: a ⋯ on each row that appears under the pointer,
+   a row that can be dragged onto a folder, and small dialogs for the
+   questions (a new name, a destination, are you sure). */
+.file-menu-wrap { position: relative; flex: none; }
+.file-more { width: 1.5rem; height: 1.5rem; opacity: 0; transition: opacity 120ms ease; }
+.files-row:hover .file-more, .explorer-row-wrap:hover .file-more, .files-tile:hover .file-more,
+.file-more:focus-visible, .file-more[aria-expanded="true"] { opacity: 1; }
+.file-menu { position: fixed; top: auto; right: auto; z-index: 60; min-width: 9.5rem; }
+.file-menu .is-danger { color: var(--danger); }
+.files-row.is-drop, .explorer-row-wrap.is-drop, .files-crumbs a.is-drop, .explorer-crumbs button.is-drop {
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+  background: var(--accent-dim);
+}
+.files-row[draggable="true"], .explorer-row-wrap[draggable="true"] { cursor: grab; }
+.files-tile .file-menu-wrap { position: absolute; top: 0.3rem; right: 0.3rem; }
+.files-tile { position: relative; }
+.explorer-row-wrap { position: relative; display: flex; align-items: center; }
+.explorer-row-wrap > .explorer-row { flex: 1; min-width: 0; }
+.explorer-row-wrap .file-menu-wrap { margin-left: -0.2rem; }
+.file-head-acts { display: inline-flex; gap: 0.25rem; align-items: center; flex: none; }
+.file-dialog { display: flex; flex-direction: column; gap: 0.75rem; min-width: min(26rem, 80vw); }
+.file-dialog p { margin: 0; }
+.file-dialog-label { display: flex; flex-direction: column; gap: 0.3rem; font-size: var(--text-sm); color: var(--muted); }
+.file-dialog-folders { display: flex; flex-wrap: wrap; gap: 0.35rem; max-height: 10rem; overflow: auto; }
+.file-dialog-folder {
+  font: inherit;
+  font-size: var(--text-sm);
+  font-family: var(--mono);
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+.file-dialog-folder:hover { color: var(--text); border-color: var(--line-strong); }
+.files-file-head .file-head-acts { align-self: center; }
+.files-file-head .file-more { opacity: 1; }
+.explorer-file-head .file-more { opacity: 1; }
+.file-dialog-actions { display: flex; gap: 0.5rem; align-items: center; }
+.files-newfolder { margin-left: 0.25rem; }
 .chats-item-top .status-dot { margin-right: -0.1rem; }
 /* A button that opens the chat KOS is already in for something. */
 .btn--onit { display: inline-flex; align-items: center; gap: 0.4rem; }
@@ -7048,24 +7091,94 @@ a.health {
   cursor: pointer;
 }
 .explorer-row:hover { background: var(--panel-2); }
-.explorer-row .files-thumb { flex: none; width: 1.7rem; height: 1.7rem; border-radius: 5px; }
-.explorer-row .fi { flex: none; }
-.explorer-row > .fi:last-child { color: var(--faint); }
+/* Every row leads with the same 2rem square: a picture's own thumbnail, or
+   a tinted box with the kind's glyph, so the names line up and a folder of
+   mixed things scans as a column rather than a ragged list. */
+.explorer-row .files-thumb { flex: none; width: 2rem; height: 2rem; border-radius: 6px; }
+.explorer-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.explorer-glyph--dir { background: var(--accent-dim); border-color: transparent; }
+.explorer-row:hover .explorer-glyph { border-color: var(--line-strong); }
+.explorer-row > .fi:last-child { flex: none; color: var(--faint); }
+.explorer-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
 .explorer-name {
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--text-base);
+  line-height: 1.25;
 }
 .explorer-row--dir .explorer-name { font-weight: 500; }
+.explorer-sub {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.explorer-dot { color: var(--line-strong); }
 .explorer-meta {
   flex: none;
   color: var(--faint);
   font-family: var(--mono);
   font-size: var(--text-sm);
   white-space: nowrap;
+}
+/* A file in a window over the page: the folder stays put behind it. */
+.preview-backdrop { position: fixed; inset: 0; z-index: 70; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(2px); }
+.preview-wrap { position: fixed; inset: 0; z-index: 71; display: flex; align-items: center; justify-content: center; padding: 1.25rem; pointer-events: none; }
+.preview {
+  pointer-events: auto;
+  width: min(72rem, 100%);
+  max-height: calc(100vh - 2.5rem);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--elev-2);
+  overflow: hidden;
+}
+.preview-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.7rem 0.55rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+}
+.preview-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: var(--text-md); font-weight: 600; }
+.preview-meta { flex: none; color: var(--faint); font-size: var(--text-sm); white-space: nowrap; }
+.preview-acts { margin-left: auto; display: inline-flex; align-items: center; gap: 0.3rem; flex: none; }
+.preview-step { display: inline-flex; align-items: center; gap: 0.1rem; margin-right: 0.3rem; color: var(--faint); }
+.preview-count { font-family: var(--mono); font-size: var(--text-xs); padding: 0 0.2rem; }
+.preview-close { margin-left: 0.2rem; }
+.preview-head .file-more { opacity: 1; }
+.preview-step .icon-btn:disabled { opacity: 0.35; cursor: default; }
+.preview-body { flex: 1; min-height: 12rem; overflow: auto; display: flex; align-items: flex-start; justify-content: center; }
+.preview-body--image { align-items: center; background: var(--bg); }
+.preview-body .files-image { max-width: 100%; max-height: calc(100vh - 8rem); object-fit: contain; border-radius: 0; }
+.preview-hint { margin: 2rem; }
+.preview-pre { margin: 0; padding: 0.9rem 1rem; width: 100%; font-family: var(--mono); font-size: var(--text-base); white-space: pre; }
+.preview-md { width: 100%; max-width: 48rem; padding: 1rem 1.25rem; }
+@media (max-width: 700px) {
+  .preview-wrap { padding: 0; }
+  .preview { max-height: 100vh; border-radius: 0; }
+  .preview-meta { display: none; }
 }
 .explorer-file { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
 .explorer-file-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }

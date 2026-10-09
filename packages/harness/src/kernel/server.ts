@@ -33,7 +33,7 @@ import {
   parseModelSettings,
 } from "../models/settings.js";
 import { conversationEvents } from "./transcript.js";
-import { listDirectory, readFile, readImage, type DirEntry } from "./files.js";
+import { copyEntry, deleteEntry, listDirectory, makeDir, readFile, readImage, readBytes, renameEntry, type DirEntry } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
 import type { FailingJob } from "../ops/health.js";
@@ -1393,6 +1393,42 @@ export async function handleApiRequest(
         status: 400,
         body: { error: err instanceof Error ? err.message : String(err) },
       };
+    }
+  }
+
+  /*
+   * The owner managing their files by hand: rename, move, copy, delete,
+   * new folder, download. Theirs, so no approval; jailed, so no escape;
+   * and the workspace's own files refused by name.
+   */
+  if (method === "POST" && (path === "/api/files/rename" || path === "/api/files/copy" || path === "/api/files/delete" || path === "/api/files/mkdir")) {
+    try {
+      if (path === "/api/files/rename") return ok(renameEntry(kernel.workspace, body.from, body.to));
+      if (path === "/api/files/copy") return ok(copyEntry(kernel.workspace, body.from, typeof body.to === "string" ? body.to : undefined));
+      if (path === "/api/files/delete") return ok(deleteEntry(kernel.workspace, body.path));
+      return ok(makeDir(kernel.workspace, body.path));
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  if (method === "GET" && path === "/api/file/download") {
+    const target = queryParams(req.url).get("path") ?? "";
+    if (!target) return { status: 400, body: { error: "path required" } };
+    try {
+      const raw = readBytes(kernel.workspace, target);
+      return {
+        status: 200,
+        body: raw.bytes,
+        headers: {
+          "content-type": raw.contentType,
+          "content-length": String(raw.bytes.byteLength),
+          "content-disposition": `attachment; filename="${raw.name.replace(/[^\x20-\x7e]|["\\]/g, "_")}"`,
+          "x-content-type-options": "nosniff",
+        },
+      };
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
     }
   }
 

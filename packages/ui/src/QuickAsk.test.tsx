@@ -50,7 +50,8 @@ describe("the quick question window", () => {
   it("has real buttons in its header and a handle on every edge", () => {
     open();
     const goTo = screen.getByRole("button", { name: "Go to chat" });
-    expect(goTo.className).toContain("btn");
+    expect(goTo.tagName).toBe("BUTTON");
+    expect(goTo.className).toContain("head-act");
     expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
     expect(document.querySelectorAll(".quickask-edge").length).toBe(8);
     for (const edge of ["n", "s", "e", "w", "ne", "nw", "se", "sw"]) {

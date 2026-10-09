@@ -880,6 +880,24 @@ export const api = {
     if (!res.ok) throw new Error(await readError(res, url));
     return URL.createObjectURL(await res.blob());
   },
+  /** Managing files by hand: each returns where the thing now is. */
+  renameFile: (from: string, to: string) => post<{ path: string }>("/api/files/rename", { from, to }),
+  copyFile: (from: string, to?: string) => post<{ path: string }>("/api/files/copy", to ? { from, to } : { from }),
+  deleteFile: (path: string) => post<{ path: string }>("/api/files/delete", { path }),
+  makeDir: (path: string) => post<{ path: string }>("/api/files/mkdir", { path }),
+  /** Save a file through the browser's own download, under its own name. */
+  downloadFile: async (path: string): Promise<void> => {
+    const url = `/api/file/download?path=${encodeURIComponent(path)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(await readError(res, url));
+    const href = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = path.split("/").pop() ?? "file";
+    a.click();
+    // The browser has the bytes once the click is handled; a beat later is safe.
+    setTimeout(() => URL.revokeObjectURL(href), 10_000);
+  },
   spend: (days = 30) =>
     get<{
       days: number;

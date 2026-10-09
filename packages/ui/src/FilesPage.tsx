@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 
 import { m } from "motion/react";
 import { highlights, tokenize } from "./highlight.js";
 import { ease } from "./motion.js";
 import { api, type DirEntry, type FileContent } from "./api.js";
+import { EntryMenu, dragProps, dropProps, useFileOps, type FileChange } from "./FileActions.js";
 import { FileIcon, previewable } from "./FileIcon.js";
 import { ImageView, Thumb } from "./FileThumb.js";
 import { Markdown } from "./Markdown.js";
@@ -11,12 +12,15 @@ import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";
 
 /**
- * Read-only browsing of the workspace.
+ * The workspace, browsed and kept in order.
  *
  * KOS's whole premise is that everything is one folder you own, so being able
  * to see that folder is not a convenience. Reveal-in-Finder covers the desktop
  * case; this covers looking at what the agent wrote without leaving the page,
  * and works when the dashboard is not on the machine holding the workspace.
+ * Since it is yours, you can also tidy it here: rename, move (by dragging a
+ * row onto a folder or a crumb, or by asking), duplicate, download, delete,
+ * and make folders. The agent's own edits still go through its guarded tools.
  *
  * Two ways to look at the same folder, because they answer different
  * questions. The list is for finding a known thing and reading its facts. The
@@ -107,28 +111,44 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
   const [sort, setSort] = useState<SortKey>(() =>
     readStored<SortKey>(SORT_KEY, ["name", "size", "modified"], "name"),
   );
+  /** Bumped to re-read the same place after something in it changed. */
+  const [tick, setTick] = useState(0);
+  const lastPath = useRef<string | null>(null);
+  /** The folder a dragged row is over, for the highlight. */
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setFile(null);
-    setEntries(null);
-    // A filter that survived the move would hide a folder's contents for no
-    // visible reason.
-    setFilter("");
+    // Moving somewhere else starts blank. Re-reading the same place keeps
+    // what is on screen until the new listing lands, so a rename does not
+    // flash the folder empty.
+    const moved = lastPath.current !== path;
+    lastPath.current = path;
+    if (moved) {
+      setLoading(true);
+      setError(null);
+      setFile(null);
+      setEntries(null);
+      // A filter that survived the move would hide a folder's contents for no
+      // visible reason.
+      setFilter("");
+    }
 
     // Try it as a directory; a path that is a file fails and is read instead.
     void api
       .files(path)
       .then((res) => {
-        if (!cancelled) setEntries(res.entries);
+        if (cancelled) return;
+        setEntries(res.entries);
+        setFile(null);
       })
       .catch(() =>
         api
           .file(path)
           .then((f) => {
-            if (!cancelled) setFile(f);
+            if (cancelled) return;
+            setFile(f);
+            setEntries(null);
           })
           .catch((err: unknown) => {
             if (!cancelled) {
@@ -143,7 +163,7 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
     return () => {
       cancelled = true;
     };
-  }, [path]);
+  }, [path, tick]);
 
   const choose = (next: ViewMode): void => {
     setView(next);
@@ -174,6 +194,30 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
 
   const trail = crumbs(path);
   const parent = trail.length > 1 ? trail[trail.length - 2] : null;
+  /** The folder being looked at, "" for the root; a file's is its parent. */
+  const here = file ? (parent?.path ?? "") : path;
+  const dirOf = (p: string): string => (p === "." ? "" : p);
+
+  const ops = useFileOps({
+    onOpen: (e) => onOpen(e.path),
+    onChanged: (c: FileChange) => {
+      // A file being looked at follows its rename and is left when deleted;
+      // anything else is a change to the listing, which is re-read in place.
+      if (file && c.from === file.path) {
+        if (c.op === "delete") onOpen(parent?.path ?? ".");
+        else if (c.op === "rename" && c.path) onOpen(c.path);
+        return;
+      }
+      setTick((t) => t + 1);
+    },
+    onError: setError,
+    folders: [
+      ...trail.map((c) => dirOf(c.path)).filter((p) => p !== dirOf(here) || !file),
+      ...(entries ?? []).filter((e) => e.kind === "dir").map((e) => e.path),
+    ],
+  });
+  const overHandlers = (target: string) => (over: boolean): void =>
+    setDropTarget((cur) => (over ? target : cur === target ? null : cur));
 
   return (
     <div className="files">
@@ -184,10 +228,12 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
               {i > 0 && <span className="files-sep">/</span>}
               <a
                 href={hrefFor({ name: "files", path: c.path })}
+                className={dropTarget === `crumb:${c.path}` ? "is-drop" : ""}
                 onClick={(e) => {
                   e.preventDefault();
                   onOpen(c.path);
                 }}
+                {...dropProps(dirOf(c.path), ops, overHandlers(`crumb:${c.path}`))}
               >
                 {c.label}
               </a>
@@ -215,6 +261,9 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
               ]}
               onChange={(v) => reorder(v as SortKey)}
             />
+            <button type="button" className="btn btn--sm files-newfolder" onClick={() => ops.newFolder(dirOf(path))}>
+              New folder
+            </button>
             <div className="files-view" role="group" aria-label="View as">
               <button
                 type="button"
@@ -273,12 +322,14 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
               {shown.map((e) => (
                 <a
                   key={e.path}
-                  className="files-row"
+                  className={`files-row${dropTarget === e.path ? " is-drop" : ""}`}
                   href={hrefFor({ name: "files", path: e.path })}
                   onClick={(ev) => {
                     ev.preventDefault();
                     onOpen(e.path);
                   }}
+                  {...dragProps(e)}
+                  {...(e.kind === "dir" ? dropProps(e.path, ops, overHandlers(e.path)) : {})}
                 >
                   <FileIcon name={e.name} kind={e.kind} />
                   <span className="files-name">{e.name}</span>
@@ -286,6 +337,7 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
                   <span className="files-size">
                     {e.kind === "file" ? bytes(e.size) : ""}
                   </span>
+                  <EntryMenu entry={e} ops={ops} />
                 </a>
               ))}
             </m.div>
@@ -296,14 +348,17 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
               {shown.map((e) => (
                 <a
                   key={e.path}
-                  className="files-tile"
+                  className={`files-tile${dropTarget === e.path ? " is-drop" : ""}`}
                   href={hrefFor({ name: "files", path: e.path })}
                   title={e.name}
                   onClick={(ev) => {
                     ev.preventDefault();
                     onOpen(e.path);
                   }}
+                  {...dragProps(e)}
+                  {...(e.kind === "dir" ? dropProps(e.path, ops, overHandlers(e.path)) : {})}
                 >
+                  <EntryMenu entry={e} ops={ops} />
                   {e.kind === "file" && previewable(e.name) ? (
                     <Thumb path={e.path} name={e.name} />
                   ) : (
@@ -332,18 +387,24 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
               {file.language ? ` · ${file.language}` : ""}
               {file.modifiedAt ? ` · ${when(file.modifiedAt)}` : ""}
             </span>
-            {parent && (
-              <a
-                className="btn files-up"
-                href={hrefFor({ name: "files", path: parent.path })}
-                onClick={(e) => {
-                  e.preventDefault();
-                  onOpen(parent.path);
-                }}
-              >
-                Back to {parent.label}
-              </a>
-            )}
+            <div className="file-head-acts">
+              {parent && (
+                <a
+                  className="btn btn--sm files-up"
+                  href={hrefFor({ name: "files", path: parent.path })}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onOpen(parent.path);
+                  }}
+                >
+                  Back to {parent.label}
+                </a>
+              )}
+              <button type="button" className="btn btn--sm" onClick={() => ops.download({ path: file.path, name: file.path.split("/").pop() ?? file.path, kind: "file" })}>
+                Download
+              </button>
+              <EntryMenu entry={{ path: file.path, name: file.path.split("/").pop() ?? file.path, kind: "file" }} ops={ops} inView />
+            </div>
           </header>
           {file.omitted === "binary" &&
             (previewable(file.path) ? (
@@ -383,6 +444,8 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
             ))}
         </div>
       )}
+
+      {ops.dialogs}
     </div>
   );
 }
