@@ -7091,24 +7091,94 @@ a.health {
   cursor: pointer;
 }
 .explorer-row:hover { background: var(--panel-2); }
-.explorer-row .files-thumb { flex: none; width: 1.7rem; height: 1.7rem; border-radius: 5px; }
-.explorer-row .fi { flex: none; }
-.explorer-row > .fi:last-child { color: var(--faint); }
+/* Every row leads with the same 2rem square: a picture's own thumbnail, or
+   a tinted box with the kind's glyph, so the names line up and a folder of
+   mixed things scans as a column rather than a ragged list. */
+.explorer-row .files-thumb { flex: none; width: 2rem; height: 2rem; border-radius: 6px; }
+.explorer-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.explorer-glyph--dir { background: var(--accent-dim); border-color: transparent; }
+.explorer-row:hover .explorer-glyph { border-color: var(--line-strong); }
+.explorer-row > .fi:last-child { flex: none; color: var(--faint); }
+.explorer-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
 .explorer-name {
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--text-base);
+  line-height: 1.25;
 }
 .explorer-row--dir .explorer-name { font-weight: 500; }
+.explorer-sub {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.explorer-dot { color: var(--line-strong); }
 .explorer-meta {
   flex: none;
   color: var(--faint);
   font-family: var(--mono);
   font-size: var(--text-sm);
   white-space: nowrap;
+}
+/* A file in a window over the page: the folder stays put behind it. */
+.preview-backdrop { position: fixed; inset: 0; z-index: 70; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(2px); }
+.preview-wrap { position: fixed; inset: 0; z-index: 71; display: flex; align-items: center; justify-content: center; padding: 1.25rem; pointer-events: none; }
+.preview {
+  pointer-events: auto;
+  width: min(72rem, 100%);
+  max-height: calc(100vh - 2.5rem);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--elev-2);
+  overflow: hidden;
+}
+.preview-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.7rem 0.55rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+}
+.preview-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: var(--text-md); font-weight: 600; }
+.preview-meta { flex: none; color: var(--faint); font-size: var(--text-sm); white-space: nowrap; }
+.preview-acts { margin-left: auto; display: inline-flex; align-items: center; gap: 0.3rem; flex: none; }
+.preview-step { display: inline-flex; align-items: center; gap: 0.1rem; margin-right: 0.3rem; color: var(--faint); }
+.preview-count { font-family: var(--mono); font-size: var(--text-xs); padding: 0 0.2rem; }
+.preview-close { margin-left: 0.2rem; }
+.preview-head .file-more { opacity: 1; }
+.preview-step .icon-btn:disabled { opacity: 0.35; cursor: default; }
+.preview-body { flex: 1; min-height: 12rem; overflow: auto; display: flex; align-items: flex-start; justify-content: center; }
+.preview-body--image { align-items: center; background: var(--bg); }
+.preview-body .files-image { max-width: 100%; max-height: calc(100vh - 8rem); object-fit: contain; border-radius: 0; }
+.preview-hint { margin: 2rem; }
+.preview-pre { margin: 0; padding: 0.9rem 1rem; width: 100%; font-family: var(--mono); font-size: var(--text-base); white-space: pre; }
+.preview-md { width: 100%; max-width: 48rem; padding: 1rem 1.25rem; }
+@media (max-width: 700px) {
+  .preview-wrap { padding: 0; }
+  .preview { max-height: 100vh; border-radius: 0; }
+  .preview-meta { display: none; }
 }
 .explorer-file { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
 .explorer-file-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
