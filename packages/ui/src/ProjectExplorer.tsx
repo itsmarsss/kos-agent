@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 
 import { api, type DirEntry, type FileContent } from "./api.js";
 import { readFile, useDropZone } from "./Attachments.js";
+import { EntryMenu, dragProps, dropProps, useFileOps } from "./FileActions.js";
 import { FileIcon, previewable } from "./FileIcon.js";
 import { ImageView, Thumb } from "./FileThumb.js";
 import { highlights, tokenize } from "./highlight.js";
@@ -16,7 +17,8 @@ import { PanelSection } from "./PanelSection.js";
  * rendered, code is coloured, and the Files page is one button away for
  * anyone who wants the whole workspace. Before this every click left the
  * chat for the Files tab, which is a page change to look at one file.
- * Uploads and drops land in the folder being looked at.
+ * Uploads and drops land in the folder being looked at, and what is here
+ * can be renamed, moved, duplicated, downloaded and deleted in place.
  */
 
 export interface ProjectExplorerProps {
@@ -199,11 +201,31 @@ export function ProjectExplorer({ slug, root, onOpenInFiles, onChanged, onError,
   const drop = useDropZone((picked) => void upload(picked));
 
   /** The folder's path relative to the project, from an entry inside it. */
-  const relative = (e: DirEntry): string => (e.path.startsWith(`${root}/`) ? e.path.slice(root.length + 1) : e.name);
+  const relative = (e: { path: string; name: string }): string => (e.path.startsWith(`${root}/`) ? e.path.slice(root.length + 1) : e.name);
 
   const shown = useMemo(() => (entries ? sorted(entries) : []), [entries]);
   const segments = dir ? dir.split("/") : [];
   const fileName = filePath ? (filePath.split("/").pop() ?? filePath) : "";
+  /** The folder a dragged row is over, for the highlight. */
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const overHandlers = (target: string) => (over: boolean): void =>
+    setDropTarget((cur) => (over ? target : cur === target ? null : cur));
+
+  const ops = useFileOps({
+    onOpen: (e) => (e.kind === "dir" ? setDir(relative(e)) : setFilePath(e.path)),
+    onChanged: (c) => {
+      // The open file follows its rename while it stays in the project, and
+      // is left when it is deleted or moved out.
+      if (filePath && c.from === filePath) {
+        if (c.op === "delete") setFilePath(null);
+        else if (c.op === "rename") setFilePath(c.path && c.path.startsWith(`${root}/`) ? c.path : null);
+      }
+      void list();
+      onChanged();
+    },
+    onError,
+    folders: [root, ...segments.map((_, i) => `${root}/${segments.slice(0, i + 1).join("/")}`), ...shown.filter((e) => e.kind === "dir").map((e) => e.path)],
+  });
 
   return (
     <PanelSection
@@ -213,6 +235,11 @@ export function ProjectExplorer({ slug, root, onOpenInFiles, onChanged, onError,
       {...drop.handlers}
       action={
         <>
+          {!filePath && (
+            <button type="button" className="btn btn--sm" title={dir ? `New folder in ${dir}` : "New folder in the project"} onClick={() => ops.newFolder(here)}>
+              New folder
+            </button>
+          )}
           <button
             type="button"
             className="btn btn--sm"
@@ -244,9 +271,15 @@ export function ProjectExplorer({ slug, root, onOpenInFiles, onChanged, onError,
               <ChevronLeft size={13} />
               {segments.length > 0 ? segments[segments.length - 1] : slug}
             </button>
-            <button type="button" className="btn btn--sm" onClick={() => onOpenInFiles(filePath)}>
-              Open in Files
-            </button>
+            <div className="file-head-acts">
+              <button type="button" className="btn btn--sm" onClick={() => onOpenInFiles(filePath)}>
+                Open in Files
+              </button>
+              <button type="button" className="btn btn--sm" onClick={() => ops.download({ path: filePath, name: fileName, kind: "file" })}>
+                Download
+              </button>
+              <EntryMenu entry={{ path: filePath, name: fileName, kind: "file" }} ops={ops} inView />
+            </div>
           </div>
           <div className="explorer-file-name">
             <FileIcon name={fileName} kind="file" />
@@ -270,21 +303,31 @@ export function ProjectExplorer({ slug, root, onOpenInFiles, onChanged, onError,
       ) : (
         <>
           <nav className="explorer-crumbs" aria-label="Folder">
-            <button type="button" className={segments.length === 0 ? "is-here" : ""} onClick={() => setDir("")}>
+            <button
+              type="button"
+              className={`${segments.length === 0 ? "is-here" : ""}${dropTarget === root ? " is-drop" : ""}`}
+              onClick={() => setDir("")}
+              {...dropProps(root, ops, overHandlers(root))}
+            >
               {slug}
             </button>
-            {segments.map((seg, i) => (
-              <span key={segments.slice(0, i + 1).join("/")} className="explorer-crumb">
-                <ChevronRight size={11} />
-                <button
-                  type="button"
-                  className={i === segments.length - 1 ? "is-here" : ""}
-                  onClick={() => setDir(segments.slice(0, i + 1).join("/"))}
-                >
-                  {seg}
-                </button>
-              </span>
-            ))}
+            {segments.map((seg, i) => {
+              const sub = segments.slice(0, i + 1).join("/");
+              const target = `${root}/${sub}`;
+              return (
+                <span key={sub} className="explorer-crumb">
+                  <ChevronRight size={11} />
+                  <button
+                    type="button"
+                    className={`${i === segments.length - 1 ? "is-here" : ""}${dropTarget === target ? " is-drop" : ""}`}
+                    onClick={() => setDir(sub)}
+                    {...dropProps(target, ops, overHandlers(target))}
+                  >
+                    {seg}
+                  </button>
+                </span>
+              );
+            })}
           </nav>
           {listError && (
             <p className="ops-alert ops-alert--err" role="alert">
@@ -298,7 +341,12 @@ export function ProjectExplorer({ slug, root, onOpenInFiles, onChanged, onError,
           {shown.length > 0 && (
             <ul className="explorer-list">
               {shown.map((e) => (
-                <li key={e.path}>
+                <li
+                  key={e.path}
+                  className={`explorer-row-wrap${dropTarget === e.path ? " is-drop" : ""}`}
+                  {...dragProps(e)}
+                  {...(e.kind === "dir" ? dropProps(e.path, ops, overHandlers(e.path)) : {})}
+                >
                   <button
                     type="button"
                     className={`explorer-row explorer-row--${e.kind}`}
@@ -314,12 +362,14 @@ export function ProjectExplorer({ slug, root, onOpenInFiles, onChanged, onError,
                     <span className="explorer-meta">{e.kind === "file" ? bytes(e.size) : ago(e.modifiedAt)}</span>
                     {e.kind === "dir" && <ChevronRight size={12} />}
                   </button>
+                  <EntryMenu entry={e} ops={ops} />
                 </li>
               ))}
             </ul>
           )}
         </>
       )}
+      {ops.dialogs}
     </PanelSection>
   );
 }

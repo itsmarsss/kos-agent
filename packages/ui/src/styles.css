@@ -2841,6 +2841,49 @@ li:hover .chats-item-when { opacity: 0; }
 .sched-when--soon { color: var(--text); }
 .sched-project { display: inline-block; padding: 0.1rem 0.5rem; border: 1px solid var(--line); border-radius: 999px; font-size: var(--text-xs); color: var(--muted); white-space: nowrap; }
 .sched-acts { display: inline-flex; gap: 0.35rem; align-items: center; white-space: nowrap; }
+
+/* Managing files by hand: a ⋯ on each row that appears under the pointer,
+   a row that can be dragged onto a folder, and small dialogs for the
+   questions (a new name, a destination, are you sure). */
+.file-menu-wrap { position: relative; flex: none; }
+.file-more { width: 1.5rem; height: 1.5rem; opacity: 0; transition: opacity 120ms ease; }
+.files-row:hover .file-more, .explorer-row-wrap:hover .file-more, .files-tile:hover .file-more,
+.file-more:focus-visible, .file-more[aria-expanded="true"] { opacity: 1; }
+.file-menu { position: fixed; top: auto; right: auto; z-index: 60; min-width: 9.5rem; }
+.file-menu .is-danger { color: var(--danger); }
+.files-row.is-drop, .explorer-row-wrap.is-drop, .files-crumbs a.is-drop, .explorer-crumbs button.is-drop {
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+  background: var(--accent-dim);
+}
+.files-row[draggable="true"], .explorer-row-wrap[draggable="true"] { cursor: grab; }
+.files-tile .file-menu-wrap { position: absolute; top: 0.3rem; right: 0.3rem; }
+.files-tile { position: relative; }
+.explorer-row-wrap { position: relative; display: flex; align-items: center; }
+.explorer-row-wrap > .explorer-row { flex: 1; min-width: 0; }
+.explorer-row-wrap .file-menu-wrap { margin-left: -0.2rem; }
+.file-head-acts { display: inline-flex; gap: 0.25rem; align-items: center; flex: none; }
+.file-dialog { display: flex; flex-direction: column; gap: 0.75rem; min-width: min(26rem, 80vw); }
+.file-dialog p { margin: 0; }
+.file-dialog-label { display: flex; flex-direction: column; gap: 0.3rem; font-size: var(--text-sm); color: var(--muted); }
+.file-dialog-folders { display: flex; flex-wrap: wrap; gap: 0.35rem; max-height: 10rem; overflow: auto; }
+.file-dialog-folder {
+  font: inherit;
+  font-size: var(--text-sm);
+  font-family: var(--mono);
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+.file-dialog-folder:hover { color: var(--text); border-color: var(--line-strong); }
+.files-file-head .file-head-acts { align-self: center; }
+.files-file-head .file-more { opacity: 1; }
+.explorer-file-head .file-more { opacity: 1; }
+.file-dialog-actions { display: flex; gap: 0.5rem; align-items: center; }
+.files-newfolder { margin-left: 0.25rem; }
 .chats-item-top .status-dot { margin-right: -0.1rem; }
 /* A button that opens the chat KOS is already in for something. */
 .btn--onit { display: inline-flex; align-items: center; gap: 0.4rem; }

@@ -291,6 +291,32 @@ describe("handleApiRequest", () => {
     expect((await list("somewhere/else")).status).toBe(400);
   });
 
+  it("renames, copies, deletes, makes folders and downloads, inside the jail", async () => {
+    const project = kernel.manifest.createProject({ name: "Garden", type: "tasks" });
+    const dir = `projects/${project.slug}`;
+    mkdirSync(join(root, dir), { recursive: true });
+    writeFileSync(join(root, dir, "a.txt"), "hello");
+    const call = (path: string, body: Record<string, unknown>) => handleApiRequest(kernel, { method: "POST", path, body });
+
+    expect((await call("/api/files/mkdir", { path: `${dir}/out` })).body).toEqual({ path: `${dir}/out` });
+    expect((await call("/api/files/rename", { from: `${dir}/a.txt`, to: `${dir}/out/b.txt` })).body).toEqual({ path: `${dir}/out/b.txt` });
+    expect((await call("/api/files/copy", { from: `${dir}/out/b.txt` })).body).toEqual({ path: `${dir}/out/b copy.txt` });
+    expect((await call("/api/files/copy", { from: `${dir}/out`, to: `${dir}/out-2` })).body).toEqual({ path: `${dir}/out-2` });
+    expect((await call("/api/files/delete", { path: `${dir}/out-2` })).body).toEqual({ path: `${dir}/out-2` });
+    expect(existsSync(join(root, dir, "out-2"))).toBe(false);
+
+    const refused = await call("/api/files/delete", { path: "mcp.json" });
+    expect(refused.status).toBe(400);
+    expect((await call("/api/files/rename", { from: `${dir}/out/b.txt`, to: "../escape.txt" })).status).toBe(400);
+    expect((await call("/api/files/mkdir", { path: `${dir}/out` })).status).toBe(400);
+
+    const dl = await handleApiRequest(kernel, { method: "GET", path: "/api/file/download", url: `/api/file/download?path=${encodeURIComponent(`${dir}/out/b.txt`)}` });
+    expect(dl.status).toBe(200);
+    expect(dl.headers?.["content-disposition"]).toBe('attachment; filename="b.txt"');
+    expect(Buffer.isBuffer(dl.body) && dl.body.toString("utf8")).toBe("hello");
+    expect((await handleApiRequest(kernel, { method: "GET", path: "/api/file/download", url: `/api/file/download?path=${encodeURIComponent(dir)}` })).status).toBe(400);
+  });
+
   it("toggles the kill switch", async () => {
     await handleApiRequest(kernel, { method: "POST", path: "/api/kill", body: { halted: true } });
     expect(kernel.killSwitch.halted).toBe(true);
