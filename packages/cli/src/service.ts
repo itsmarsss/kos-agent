@@ -70,7 +70,18 @@ export function launchdPlist(spec: ServiceSpec): string {
     String(spec.port),
     ...(spec.discord ? [] : ["--no-discord"]),
   ];
-  const path = [dirname(spec.node), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"].join(":");
+  // The user's own bin directories too (uv's uvx, cargo), which a login
+  // shell has and launchd does not: an MCP server declared as `uvx …`
+  // failed with ENOENT under the service while running fine by hand.
+  const path = [
+    dirname(spec.node),
+    join(homedir(), ".local", "bin"),
+    join(homedir(), ".cargo", "bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+  ].join(":");
   const env: Record<string, string> = { PATH: path, ...(spec.env ?? {}) };
   const log = logPath(spec.workspace);
   const lines = [

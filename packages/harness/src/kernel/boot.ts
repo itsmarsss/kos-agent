@@ -312,6 +312,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
         const result = await kernelRef!.fireCron(id);
         return { ok: result.ok, ...(result.error ? { error: result.error } : {}) };
       },
+      projectOf: (conversationId) => kernelRef!.conversations.get(conversationId)?.projectSlug ?? null,
     }),
     createHttpModule({
       // Passed through as given: the host supplies a function that reads

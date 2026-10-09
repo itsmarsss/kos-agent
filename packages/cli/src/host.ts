@@ -313,7 +313,13 @@ export async function runHost(options: HostOptions): Promise<void> {
   else console.log("ui: not built (pnpm -C packages/ui build); API only");
 
   if (wantDiscord && creds) {
-    adapter = new DiscordAdapter({ token: creds.token, ownerId: creds.ownerId });
+    adapter = new DiscordAdapter({
+      token: creds.token,
+      ownerId: creds.ownerId,
+      // Where a reference in a reply links to. The public URL when there is
+      // one; otherwise this host, which is right on the machine it runs on.
+      dashboardUrl: process.env.KOS_PUBLIC_URL?.trim() || `http://${options.host === "0.0.0.0" ? "localhost" : options.host}:${options.port}`,
+    });
     /*
      * A button KOS sent comes back as a message.
      *

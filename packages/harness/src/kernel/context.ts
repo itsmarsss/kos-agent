@@ -150,44 +150,72 @@ export function assembleSystemPrompt(parts: ContextParts): AssembledPrompt {
 }
 
 /**
- * How to present a reply on a given channel. The agent loop is channel
- * agnostic, so the surface's capabilities have to be described to the model
- * rather than assumed: it decides the shape of its own answer, and can only do
- * that well if it knows what the destination renders.
+ * How to present a reply on a given channel.
+ *
+ * The agent loop is channel agnostic, so the surface's capabilities have to
+ * be described to the model rather than assumed: it decides the shape of its
+ * own answer, and can only do that well if it knows what the destination
+ * renders and what the reader is holding. On Discord that is a phone as
+ * often as not, so the house style is the fewest lines that carry everything
+ * that matters, laid out so the eye finds the figure before the sentence.
+ *
+ * `custom` replaces the house style: the owner can keep a prompt skill named
+ * `<channel>-style` and have their own words here instead.
  */
-export function channelGuidance(channel?: string): string | undefined {
+export function channelGuidance(channel?: string, custom?: string): string | undefined {
   if (channel !== "discord") return undefined;
-  return [
-    "## Replying on Discord",
-    "Your reply is sent as an ordinary Discord message, so you choose the presentation.",
-    "Available: # ## ### headings, -# subtext, **bold**, *italic*, __underline__,",
-    "~~strikethrough~~, ||spoiler||, `inline code`, ```lang fenced code blocks```,",
-    "- bullet and 1. numbered lists (indent to nest), > quote and >>> block quote.",
-    "Discord has no table syntax. For anything column-shaped use a fenced code block",
-    "and pad the columns, or use a list. Prefer raw URLs; masked links are unreliable here.",
-    "Match the format to the answer: a one-line question gets one line, not a heading.",
-    "Reach for structure when it earns its place, such as steps, comparisons, or query output.",
-    "Messages over 2000 characters are split, so keep replies tight and put bulk in a file via export.query.",
-    "",
-    "### Answering with a card or buttons",
-    "You are a bot here, so you can send more than prose. notify sends a message: give it a",
-    "`card` for a titled block with labelled fields, or `buttons` for something to press",
-    "instead of asking the reader to type back. It is its own message, so keep your reply",
-    "short or skip it when the message says everything.",
-    "A card suits a handful of named values, a status, or one thing with a few facts about it.",
-    "Prose suits everything else: a card around a paragraph is a box around a paragraph.",
-    "A button needs a label that says what pressing it does, because the press comes back to",
-    "you as a message naming that label. Offer them when the next step is one of a few known",
-    "choices, not as decoration on an answer that needed none. Your answer to a press goes",
-    "back to whoever pressed it, so write it as a reply to them.",
-    "For an answer that is not one of a fixed few -- a note, an amount, a name -- give the",
-    "button a `modal`: a form of up to five boxes, whose contents arrive with the press.",
-    "Set `ephemeral` on a button when its answer is for the presser alone.",
-    "When you are answering a press, the message you send with notify is the answer, whole.",
-    "Do not also write a reply about having sent it: it goes nowhere, and the reader wanted",
-    "the thing, not a note saying the thing was sent.",
-  ].join("\n");
+  if (custom?.trim()) return ["## Replying on Discord", custom.trim()].join("\n");
+  return DISCORD_STYLE;
 }
+
+const DISCORD_STYLE = [
+  "## Replying on Discord",
+  "Your reply is sent as an ordinary Discord message, so you choose the presentation.",
+  "The reader is often on a phone. Say everything that matters in the fewest lines that carry it,",
+  "laid out so the eye finds the figure, the name or the decision before it reads the sentence.",
+  "",
+  "### Shape",
+  "- Lead with the answer or the outcome, in one line. No preamble, no restating the question, no sign-off.",
+  "- A one-line question gets one line, not a heading. Use ### headings only when a message has three or more",
+  "  distinct parts; never on a short reply. # and ## are too loud for a chat.",
+  "- Bold the one phrase the reader must not miss (a figure, a name, a decision), never whole sentences.",
+  "- Lists: at most five bullets, one line each. Two things belong in a sentence, not a list. Numbered",
+  "  lists only for steps in order. Nest one level at most.",
+  "- Secondary detail goes in subtext: a line starting with `-# ` renders small and grey. Use it for ids,",
+  "  sources, caveats, timings and \"say X for more\". The main lines are for what matters.",
+  "- `inline code` for ids, paths, commands and exact values. Discord has no table syntax: anything",
+  "  column-shaped goes in fenced code blocks with padded columns, or becomes a list.",
+  "- Status at a glance: start a line with ✅ ❌ ⚠️ or ⏳ when the line reports how something went.",
+  "  No other emoji, and no emoji as decoration.",
+  "- Write times as <t:UNIX:R> (relative) or <t:UNIX:f>, so they show in the reader's own timezone.",
+  "- A reference such as @page:book_crm_home or @schedule:[Email Amy Reminder] becomes a link to the",
+  "  dashboard on its way out. Write them plainly in prose, never inside code, and do not explain",
+  "  that they are references: the reader sees a link with the name on it.",
+  "- Prefer raw URLs for links of your own. > quotes only for quoting something.",
+  "- Keep it under about 1200 characters. Past that, give the two-line version, put the rest in a file",
+  "  via export.query, and say so in subtext. Messages over 2000 characters are split.",
+  "",
+  "### Cards and buttons",
+  "You are a bot here, so you can send more than prose. notify sends a message: give it a `card` for a",
+  "titled block with labelled fields, or `buttons` for something to press instead of asking the reader",
+  "to type back. It is its own message, so keep your reply short or skip it when the message says everything.",
+  "A card suits a handful of named values, a status, or one thing with a few facts about it: three to six",
+  "short fields, inline, a title of a few words, a footer for the source or the time.",
+  "Prose suits everything else: a card around a paragraph is a box around a paragraph. Never send a card and",
+  "prose that say the same thing.",
+  "A button needs a label that says what pressing it does, because the press comes back to you as a message",
+  "naming that label. Offer buttons when the next step is one of a few known choices, not as decoration.",
+  "Your answer to a press goes back to whoever pressed it, so write it as a reply to them.",
+  "For an answer that is not one of a fixed few (a note, an amount, a name) give the button a `modal`: a form",
+  "of up to five boxes, whose contents arrive with the press. Set `ephemeral` on a button when its answer is",
+  "for the presser alone.",
+  "When you are answering a press, the message you send with notify is the answer, whole. Do not also write",
+  "a reply about having sent it: it goes nowhere, and the reader wanted the thing, not a note saying it was sent.",
+  "",
+  "### After an approval",
+  "When you continue after the owner approved or denied an action, reply in one line: what happened and the",
+  "result. Do not recap the request, the approval, or what you were about to do.",
+].join("\n");
 
 
 /**

@@ -94,7 +94,7 @@ export function App(): React.ReactElement {
   // Where sites are served, so the palette can open one directly.
   const [sitesBase, setSitesBase] = useState<string | null>(null);
   const [agents, setAgents] = useState<BuildRecord[]>([]);
-  const [editingCron, setEditingCron] = useState<{ job?: CronJob } | null>(null);
+  const [editingCron, setEditingCron] = useState<{ job?: CronJob; projectSlug?: string } | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
 
   const flash = (kind: "ok" | "err", text: string): void => {
@@ -535,12 +535,23 @@ export function App(): React.ReactElement {
               key={toast.text}
               className={`ops-toast ops-toast--${toast.kind}`}
               role="status"
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
+              initial={{ opacity: 0, y: -10, x: "-50%", scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, x: "-50%", scale: 1 }}
+              exit={{ opacity: 0, y: -6, x: "-50%", scale: 0.98 }}
               transition={spring}
             >
-              {toast.text}
+              <span className="ops-toast-icon" aria-hidden="true">
+                {toast.kind === "ok" ? (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m5 13 4 4L19 7" />
+                  </svg>
+                ) : (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
+                    <path d="M12 6v7M12 17.5v.01" />
+                  </svg>
+                )}
+              </span>
+              <span className="ops-toast-text">{toast.text}</span>
             </m.div>
           )}
         </AnimatePresence>
@@ -605,6 +616,8 @@ export function App(): React.ReactElement {
         >
           {editingCron && (
             <CronEditor
+              projects={projects.filter((p) => p.status === "active").map((p) => ({ slug: p.slug, name: p.name }))}
+              {...(editingCron.projectSlug ? { defaultProject: editingCron.projectSlug } : {})}
               {...(editingCron.job ? { job: editingCron.job } : {})}
               hooks={status?.hooks === true}
               onDone={() => {
@@ -716,6 +729,8 @@ export function App(): React.ReactElement {
         onOpenAgent={(id) => go({ name: "agents", id })}
         onOpen={openConversation}
         onOpenProject={(slug) => go({ name: "project", slug })}
+        crons={crons}
+        onEditCron={(job, projectSlug) => setEditingCron(job ? { job } : { ...(projectSlug ? { projectSlug } : {}) })}
         onAside={askAside}
         onNotice={(text) => flash("ok", text)}
         onChanged={() => void refresh()}
@@ -751,6 +766,8 @@ export function App(): React.ReactElement {
           onOpenFile: (path) => go({ name: "files", path }),
           onError: (text) => flash("err", text),
         }}
+        crons={crons}
+        onEditCron={(job, projectSlug) => setEditingCron(job ? { job } : { ...(projectSlug ? { projectSlug } : {}) })}
         onAside={askAside}
         onNotice={(text) => flash("ok", text)}
         onChanged={() => void refresh()}
@@ -820,11 +837,26 @@ export function App(): React.ReactElement {
   }
 
   if (route.name === "crons") {
-    const rows = crons.filter((c) => {
-      if (cronFilter === "on") return c.enabled;
-      if (cronFilter === "off") return !c.enabled;
-      return true;
-    });
+    // Yours first, then KOS's own (kos.backup, kos.memory and the rest):
+    // the two were interleaved by id, so the owner's three sat among six
+    // of the system's and read as one list of nine.
+    const system = (c: CronJob): boolean => c.name.startsWith("kos.");
+    // A job whose project is gone keeps running under its slug; said so,
+    // rather than shown as a project that cannot be opened.
+    const projectName = (slug: string | null | undefined): string | undefined =>
+      slug ? (projects.find((p) => p.slug === slug)?.name ?? `${slug} (no such project)`) : undefined;
+    // Yours at the root, then each project's, then KOS's own. Digits, not
+    // punctuation: "~" sorted before "0" under the locale and put the
+    // system's first.
+    const groupOf = (c: CronJob): string => (system(c) ? "KOS's own" : (projectName(c.projectSlug) ?? "Yours"));
+    const rank = (c: CronJob): string => (system(c) ? "2" : c.projectSlug ? `1 ${groupOf(c)}` : "0");
+    const rows = crons
+      .filter((c) => {
+        if (cronFilter === "on") return c.enabled;
+        if (cronFilter === "off") return !c.enabled;
+        return true;
+      })
+      .sort((a, b) => rank(a).localeCompare(rank(b)));
     return shell(
       <RunsTabs current="crons">
       <ListPage
@@ -833,6 +865,7 @@ export function App(): React.ReactElement {
         rows={rows}
         rowKey={(c) => c.id}
         empty="No crons match"
+        groupBy={groupOf}
         onRowClick={(c) => setEditingCron({ job: c })}
         toolbar={
           /* Writing one by hand: everything here could be asked for in a
