@@ -51,7 +51,8 @@ function whenNext(at: number): string {
   const hm = `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, "0")}${d.getHours() < 12 ? "am" : "pm"}`;
   if (diff < 60_000) return "any moment";
   if (diff < 3_600_000) return `in ${Math.round(diff / 60_000)}m`;
-  if (diff < 24 * 3_600_000) return `in ${Math.round(diff / 3_600_000)}h, ${hm}`;
+  if (diff < 12 * 3_600_000) return `in ${Math.round(diff / 3_600_000)}h, ${hm}`;
+  if (d.toDateString() === new Date().toDateString()) return `today ${hm}`;
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   if (d.toDateString() === tomorrow.toDateString()) return `tomorrow ${hm}`;
