@@ -841,11 +841,15 @@ export function App(): React.ReactElement {
     // the two were interleaved by id, so the owner's three sat among six
     // of the system's and read as one list of nine.
     const system = (c: CronJob): boolean => c.name.startsWith("kos.");
+    // A job whose project is gone keeps running under its slug; said so,
+    // rather than shown as a project that cannot be opened.
     const projectName = (slug: string | null | undefined): string | undefined =>
-      slug ? (projects.find((p) => p.slug === slug)?.name ?? slug) : undefined;
-    // Yours at the root, then each project's, then KOS's own.
+      slug ? (projects.find((p) => p.slug === slug)?.name ?? `${slug} (no such project)`) : undefined;
+    // Yours at the root, then each project's, then KOS's own. Digits, not
+    // punctuation: "~" sorted before "0" under the locale and put the
+    // system's first.
     const groupOf = (c: CronJob): string => (system(c) ? "KOS's own" : (projectName(c.projectSlug) ?? "Yours"));
-    const rank = (c: CronJob): string => (system(c) ? "~" : c.projectSlug ? `1${groupOf(c)}` : "0");
+    const rank = (c: CronJob): string => (system(c) ? "2" : c.projectSlug ? `1 ${groupOf(c)}` : "0");
     const rows = crons
       .filter((c) => {
         if (cronFilter === "on") return c.enabled;
