@@ -94,7 +94,7 @@ export function App(): React.ReactElement {
   // Where sites are served, so the palette can open one directly.
   const [sitesBase, setSitesBase] = useState<string | null>(null);
   const [agents, setAgents] = useState<BuildRecord[]>([]);
-  const [editingCron, setEditingCron] = useState<{ job?: CronJob } | null>(null);
+  const [editingCron, setEditingCron] = useState<{ job?: CronJob; projectSlug?: string } | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
 
   const flash = (kind: "ok" | "err", text: string): void => {
@@ -616,6 +616,8 @@ export function App(): React.ReactElement {
         >
           {editingCron && (
             <CronEditor
+              projects={projects.filter((p) => p.status === "active").map((p) => ({ slug: p.slug, name: p.name }))}
+              {...(editingCron.projectSlug ? { defaultProject: editingCron.projectSlug } : {})}
               {...(editingCron.job ? { job: editingCron.job } : {})}
               hooks={status?.hooks === true}
               onDone={() => {
@@ -727,6 +729,8 @@ export function App(): React.ReactElement {
         onOpenAgent={(id) => go({ name: "agents", id })}
         onOpen={openConversation}
         onOpenProject={(slug) => go({ name: "project", slug })}
+        crons={crons}
+        onEditCron={(job, projectSlug) => setEditingCron(job ? { job } : { ...(projectSlug ? { projectSlug } : {}) })}
         onAside={askAside}
         onNotice={(text) => flash("ok", text)}
         onChanged={() => void refresh()}
@@ -762,6 +766,8 @@ export function App(): React.ReactElement {
           onOpenFile: (path) => go({ name: "files", path }),
           onError: (text) => flash("err", text),
         }}
+        crons={crons}
+        onEditCron={(job, projectSlug) => setEditingCron(job ? { job } : { ...(projectSlug ? { projectSlug } : {}) })}
         onAside={askAside}
         onNotice={(text) => flash("ok", text)}
         onChanged={() => void refresh()}
@@ -835,13 +841,18 @@ export function App(): React.ReactElement {
     // the two were interleaved by id, so the owner's three sat among six
     // of the system's and read as one list of nine.
     const system = (c: CronJob): boolean => c.name.startsWith("kos.");
+    const projectName = (slug: string | null | undefined): string | undefined =>
+      slug ? (projects.find((p) => p.slug === slug)?.name ?? slug) : undefined;
+    // Yours at the root, then each project's, then KOS's own.
+    const groupOf = (c: CronJob): string => (system(c) ? "KOS's own" : (projectName(c.projectSlug) ?? "Yours"));
+    const rank = (c: CronJob): string => (system(c) ? "~" : c.projectSlug ? `1${groupOf(c)}` : "0");
     const rows = crons
       .filter((c) => {
         if (cronFilter === "on") return c.enabled;
         if (cronFilter === "off") return !c.enabled;
         return true;
       })
-      .sort((a, b) => Number(system(a)) - Number(system(b)));
+      .sort((a, b) => rank(a).localeCompare(rank(b)));
     return shell(
       <RunsTabs current="crons">
       <ListPage
@@ -850,7 +861,7 @@ export function App(): React.ReactElement {
         rows={rows}
         rowKey={(c) => c.id}
         empty="No crons match"
-        groupBy={(c) => (system(c) ? "KOS's own" : "Yours")}
+        groupBy={groupOf}
         onRowClick={(c) => setEditingCron({ job: c })}
         toolbar={
           /* Writing one by hand: everything here could be asked for in a

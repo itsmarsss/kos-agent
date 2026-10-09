@@ -22,6 +22,7 @@ import { Gutter } from "./Gutter.js";
 import { ProjectPanel } from "./ProjectPanel.js";
 import {
   api,
+  type CronJob,
   type ChatEvent,
   type Conversation,
   type BuildRecord,
@@ -108,6 +109,10 @@ export interface ChatsPageProps {
   /** Coding sub-agents, so a chat that started one can link to it. */
   agents: BuildRecord[];
   onOpenAgent: (id: number) => void;
+  /** Every job, so a project's rail can show its own. */
+  crons: CronJob[];
+  /** Open the editor on a job, or on a new one for a project. */
+  onEditCron: (job?: CronJob, projectSlug?: string) => void;
   onOpen: (id: string) => void;
   /** A project row opens the project's workspace; its chat is one action from there. */
   onOpenProject: (slug: string) => void;
@@ -189,6 +194,8 @@ export function ChatsPage({
   deciding,
   agents,
   onOpenAgent,
+  crons,
+  onEditCron,
   onOpen,
   onOpenProject,
   project,
@@ -1284,6 +1291,39 @@ export function ChatsPage({
                   ? "Nothing matches."
                   : "No agents yet. The orchestrator starts them as work comes up, or start one with +."}
               </li>
+            )}
+          </ul>
+          {/* The project's schedule, under its agents: a job that works this
+              project belongs with it, as its agents do, rather than in one
+              list of everything KOS runs. */}
+          <div className="chats-group-head">
+            <span>Schedule</span>
+            <button
+              type="button"
+              className="chats-group-add"
+              aria-label="New schedule"
+              title="Schedule a job for this project"
+              onClick={() => onEditCron(undefined, project.slug)}
+            >
+              +
+            </button>
+          </div>
+          <ul className="chats-flat">
+            {crons
+              .filter((c) => c.projectSlug === project.slug)
+              .map((c) => (
+                <li key={c.id}>
+                  <button type="button" className="chats-item chats-job" onClick={() => onEditCron(c)} title="Edit this schedule">
+                    <span className="chats-item-top">
+                      <StatusDot state={c.running ? "working" : c.enabled ? "read" : "error"} label={c.running ? "running" : c.enabled ? "on" : "off"} />
+                      <span className="chats-item-title">{c.name}</span>
+                      <span className="chats-item-when ops-mono">{c.schedule}</span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            {crons.every((c) => c.projectSlug !== project.slug) && (
+              <li className="chats-empty">Nothing scheduled for this project. Add one with +, or ask the orchestrator.</li>
             )}
           </ul>
         </aside>

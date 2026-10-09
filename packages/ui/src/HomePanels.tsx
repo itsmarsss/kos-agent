@@ -456,7 +456,12 @@ export function Panel({
                 {rows.map((c) => (
                   <li key={c.id}>
                     <span className="panel-row">
-                      <span className="panel-row-main">{c.name}</span>
+                      <span className="panel-row-main">
+                        {c.name}
+                        {c.projectSlug && (
+                          <span className="panel-row-project"> {data.projects.find((p) => p.slug === c.projectSlug)?.name ?? c.projectSlug}</span>
+                        )}
+                      </span>
                       {next.has(c.id) ? (
                         <span className="panel-row-side">{clockLabel(next.get(c.id)!)}</span>
                       ) : (

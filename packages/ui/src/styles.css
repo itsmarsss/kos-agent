@@ -4854,6 +4854,10 @@ body.is-arranging { user-select: none; }
 .chart-dayline-labels span:first-child { transform: none; }
 .chart-dayline-labels span:last-child { transform: translateX(-100%); }
 .panel-foot--chart { margin-top: 0.5rem; padding: 0.45rem 0 0; }
+.panel-row-project { color: var(--faint); font-size: var(--text-xs); }
+/* A project's jobs in its rail: a row like a thread's, the schedule where the time would be. */
+.chats-job { width: 100%; border: 0; background: none; font: inherit; text-align: left; cursor: pointer; }
+.chats-job .chats-item-when { font-size: var(--text-xs); }
 
 /* The map: KOS between what it is made of and what it keeps. */
 .map { display: block; margin: 0.25rem auto 0; font-family: inherit; }
