@@ -1026,11 +1026,14 @@ export async function handleApiRequest(
          * is touched and does not exist at all for a job that has no thread.
          * The nightly backup had run since July and reported "never".
          */
+        // When it fires next, from the scheduler that will fire it.
+        const [nextRunAt] = job.enabled ? kernel.cronNextRuns(job.id, 1) : [];
         return {
           ...job,
           ...(thread
             ? { conversationId: thread.id, running: busyNow.has(thread.id) }
             : {}),
+          ...(nextRunAt !== undefined ? { nextRunAt } : {}),
         };
       }),
     );

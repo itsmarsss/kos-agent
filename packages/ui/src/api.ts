@@ -229,6 +229,8 @@ export interface CronJob {
   running?: boolean;
   /** When the last run touched the thread. */
   lastRunAt?: number;
+  /** When it fires next, while it is on and the scheduler holds it. */
+  nextRunAt?: number;
   /** Which model class answers a self_prompt. */
   task?: "reasoning" | "cheap";
 }

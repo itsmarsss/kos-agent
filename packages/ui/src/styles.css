@@ -2825,6 +2825,22 @@ li:hover .chats-item-when { opacity: 0; }
 .status-dot--error { background: var(--danger); }
 .status-dot--unread { background: var(--ok); }
 .status-dot--read { background: var(--line-strong); }
+.status-dot--on { background: var(--ok); }
+.status-dot--off { background: var(--line-strong); }
+
+/* The schedule as a table you can read: the name over what it means, a dot
+   for on, off or running, when it fires next, when it last did. The cron
+   expression and the job's kind sit under the name rather than in columns
+   of their own, which made every row a line of codes. */
+.sched-name { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.sched-title { color: var(--text); }
+.sched-sub { display: flex; gap: 0.5rem; align-items: baseline; color: var(--faint); font-size: var(--text-xs); white-space: nowrap; }
+.sched-sub code { font-family: var(--mono); font-size: var(--text-xs); color: var(--faint); }
+.sched-state { display: inline-flex; align-items: center; gap: 0.45rem; white-space: nowrap; }
+.sched-when { white-space: nowrap; color: var(--muted); }
+.sched-when--soon { color: var(--text); }
+.sched-project { display: inline-block; padding: 0.1rem 0.5rem; border: 1px solid var(--line); border-radius: 999px; font-size: var(--text-xs); color: var(--muted); white-space: nowrap; }
+.sched-acts { display: inline-flex; gap: 0.35rem; align-items: center; white-space: nowrap; }
 .chats-item-top .status-dot { margin-right: -0.1rem; }
 /* A button that opens the chat KOS is already in for something. */
 .btn--onit { display: inline-flex; align-items: center; gap: 0.4rem; }

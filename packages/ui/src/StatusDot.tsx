@@ -10,9 +10,10 @@ import type { Conversation } from "./api.js";
  * said the same thing in more room than the title had, and in a list of
  * twenty rows the colour is what the eye reads anyway; the word is in the
  * tooltip for when it matters. Every row has one, so the titles line up.
+ * A schedule uses the same dot: green on, grey off, blue while it runs.
  */
 
-export type DotState = "working" | "needs-you" | "error" | "unread" | "read";
+export type DotState = "working" | "needs-you" | "error" | "unread" | "read" | "on" | "off";
 
 export function StatusDot({ state, label }: { state: DotState; label: string }): ReactElement {
   return <span className={`status-dot status-dot--${state}`} role="img" aria-label={label} title={label} />;
