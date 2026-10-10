@@ -102,6 +102,17 @@ added while the host runs is brought up at once and the page says whether
 it answered. Tools are risky until floored safe by name or glob in the
 file's `tools` map; the Settings page shows the floors it has.
 
+### The browser engine
+
+The `browser` pick is agent-browser, run as an MCP server. Its environment
+carries `AGENT_BROWSER_STREAM_PORT`, and that is how KOS knows which server
+is the browser: the kernel attaches to the stream on that port to show the
+live view and to pass your input through. Any engine that speaks the same
+stream protocol could take its place by setting the same variable. Stream
+quality and size are `AGENT_BROWSER_STREAM_QUALITY` and
+`AGENT_BROWSER_STREAM_MAX_WIDTH`; `AGENT_BROWSER_HEADED=1` shows the
+browser window on the machine as well.
+
 ## Installing skills
 
 A skill is a folder under `skills/` with a `skill.json`, or a Claude Code

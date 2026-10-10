@@ -317,6 +317,16 @@ describe("handleApiRequest", () => {
     expect((await handleApiRequest(kernel, { method: "GET", path: "/api/file/download", url: `/api/file/download?path=${encodeURIComponent(dir)}` })).status).toBe(400);
   });
 
+  it("reports the browser view and refuses input while nothing is attached", async () => {
+    const status = await handleApiRequest(kernel, { method: "GET", path: "/api/browser/status" });
+    expect(status.body).toMatchObject({ configured: false, attached: false, connected: false });
+    const refused = await handleApiRequest(kernel, { method: "POST", path: "/api/browser/input", body: { type: "input_mouse", eventType: "mousePressed", x: 1, y: 1 } });
+    expect(refused.status).toBe(400);
+    expect((refused.body as { error: string }).error).toMatch(/not attached/);
+    const junk = await handleApiRequest(kernel, { method: "POST", path: "/api/browser/input", body: { type: "config", maxFps: 1 } });
+    expect(junk.status).toBe(400);
+  });
+
   it("toggles the kill switch", async () => {
     await handleApiRequest(kernel, { method: "POST", path: "/api/kill", body: { halted: true } });
     expect(kernel.killSwitch.halted).toBe(true);
