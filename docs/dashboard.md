@@ -37,6 +37,30 @@ In a chat:
 - A tool call that needs a yes shows Approve, Always and Deny in place.
   Always remembers the decision for that shape in that project.
 
+## Browser
+
+KOS browses the web through a real Chrome, and you can watch. The sidebar's
+**Browser** opens a window that shows the page as KOS sees it, live: the
+frames stream from the browser as it moves, the title line says what KOS is
+doing with it, and the window opens on its own the first time a turn uses
+the browser (close it, and it stays shut for that turn). Drag the header to
+move it, pull an edge to resize it; it remembers where it was. Maximize
+fills the page (double-click the bar does the same), Full screen takes the
+whole screen, and when the browser has several tabs a strip under the bar
+says which one you are looking at. The page is rendered at 1600 by 1000 and
+drawn at your screen's own pixel density, so it reads at any size.
+
+**Take over** gives you the page: your clicks, scrolling and typing go to
+the browser instead of to the dashboard, with the window's border lit to say
+whose hand is on it. **Let go** hands it back. KOS does not stop while you
+drive; it reads the page again on its next step.
+
+The engine is an MCP server (`agent-browser`, under Settings › MCP servers,
+one click from the picks). Looking is safe by default: opening a page,
+reading it, scrolling, switching tabs. Acting asks you first: clicks,
+typing, form fields, running script. Change the floors per tool there if
+you want it to act on its own.
+
 ## Inbox
 
 Everything waiting on you: tool approvals (with a link to the chat that
