@@ -65,24 +65,62 @@ const DETAIL_MAX = 160;
  * action as summarizeAction says it; the subtext carries the tool, the id,
  * the arguments that matter and the reason, and renders small and grey.
  */
+/** The longest a code block's line may run before it is cut. */
+const CODE_MAX = 600;
+
+/** Discord's formatting characters, made literal. */
+function escapeMarkdown(text: string): string {
+  return text.replace(/([*_~`|\\])/g, "\\$1");
+}
+
+/**
+ * "Run: rm -rf build (in /w)" is a verb and a thing. The verb reads as a
+ * sentence; the thing is a command, a path or a query, and goes in a code
+ * block, where Discord leaves it alone. A summary with no such split is all
+ * sentence.
+ */
+export function splitSummary(summary: string): { head: string; body?: string } {
+  const i = summary.indexOf(": ");
+  if (i > 0 && i <= 24) return { head: summary.slice(0, i), body: summary.slice(i + 2) };
+  return { head: summary };
+}
+
+function cut(line: string, max: number): string {
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+}
+
+const CODE_FENCE = "```";
+
 export function approvalText(req: ApprovalRequest): string {
   if (req.tool === undefined) {
     return [`**Needs your OK** · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n");
   }
   const args = req.args ?? {};
-  const details = detailLines(req.tool, args)
-    .slice(1)
-    .filter((l) => !l.startsWith("…"))
-    .slice(0, 3)
-    .map((l) => (l.length > DETAIL_MAX ? `${l.slice(0, DETAIL_MAX - 1)}…` : l));
-  const small = [`${req.tool} · #${req.id}`, ...details, ...(req.reason ? [req.reason] : [])].join(" · ");
-  return [`**Needs your OK** · ${summarizeAction(req.tool, args)}`, `-# ${small}`].join("\n");
+  const { head, body } = splitSummary(summarizeAction(req.tool, args));
+  // The command itself, or failing that the arguments, in a code block: a
+  // `--include=*.ts` that turned italic was a command you could not read
+  // back, and an approval you cannot read is not one you can give.
+  const code = body
+    ? [cut(body, CODE_MAX)]
+    : detailLines(req.tool, args)
+        .slice(1)
+        .filter((l) => !l.startsWith("…"))
+        .slice(0, 3)
+        .map((l) => cut(l, DETAIL_MAX));
+  const small = [`${req.tool} · #${req.id}`, ...(req.reason ? [req.reason] : [])].join(" · ");
+  return [
+    `**Needs your OK** · ${escapeMarkdown(head)}`,
+    ...(code.length ? [CODE_FENCE, ...code.map((l) => l.split(CODE_FENCE).join("'''")), CODE_FENCE] : []),
+    `-# ${small}`,
+  ].join("\n");
 }
 
 /** What a settled prompt becomes: one small line saying how it went. */
 export function settledText(outcome: "approved" | "denied", summary: string | undefined, id: string): string {
   const mark = outcome === "approved" ? "✅ Approved" : "❌ Denied";
-  return `-# ${mark} · ${summary ?? `#${id}`}`;
+  if (!summary) return `-# ${mark} · #${id}`;
+  const { head, body } = splitSummary(summary);
+  return `-# ${mark} · ${escapeMarkdown(head)}${body ? ` \`${cut(body.replace(/`/g, "'"), 80)}\`` : ""}`;
 }
 
 /** Encode the approve/deny button ids for a pending action. */
