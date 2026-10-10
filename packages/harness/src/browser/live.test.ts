@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { BrowserLive, parseInput, type BrowserEvent, type StreamSocket } from "./live.js";
+import { BrowserLive, browserEngine, parseInput, type BrowserEvent, type StreamSocket } from "./live.js";
 
 /**
  * KOS's end of the browser stream: attaches while someone watches, keeps the
@@ -33,10 +33,11 @@ class FakeSocket implements StreamSocket {
   }
 }
 
-function setup(port: number | null = 4319) {
+function setup(port: number | null = 4319, onBrowserUp?: () => void) {
   const sockets: FakeSocket[] = [];
   const live = new BrowserLive({
     portFor: () => port ?? undefined,
+    ...(onBrowserUp ? { onBrowserUp } : {}),
     connect: (url) => {
       const s = new FakeSocket(url);
       sockets.push(s);
@@ -72,8 +73,12 @@ describe("the browser live view", () => {
     const s = sockets[0]!;
     s.open();
     s.push({ type: "status", connected: true, screencasting: true, viewportWidth: 1280, viewportHeight: 720 });
-    s.push({ type: "tabs", tabs: [{ active: false, url: "https://other.example/" }, { active: true, url: "https://example.com/start" }] });
+    s.push({ type: "tabs", tabs: [{ tabId: "t1", active: false, title: "Other", url: "https://other.example/" }, { tabId: "t2", active: true, title: "Start", url: "https://example.com/start" }] });
     expect(live.status().url).toBe("https://example.com/start");
+    expect(live.status().tabs).toEqual([
+      { id: "t1", title: "Other", url: "https://other.example/", active: false },
+      { id: "t2", title: "Start", url: "https://example.com/start", active: true },
+    ]);
     s.push({ type: "url", url: "https://example.com/" });
     s.push({ type: "frame", seq: 7, data: "AAAA", metadata: { deviceWidth: 1280, deviceHeight: 720, timestamp: 123 } });
     s.push({ type: "frame", seq: 8, data: "BBBB", metadata: { deviceWidth: 1280, deviceHeight: 720, timestamp: 124 } });
@@ -83,9 +88,25 @@ describe("the browser live view", () => {
 
     const late: BrowserEvent[] = [];
     live.subscribe((e) => late.push(e));
-    expect(late.map((e) => e.type)).toEqual(["status", "url", "frame"]);
-    expect(late[2]).toMatchObject({ type: "frame", frame: { seq: 8 } });
+    expect(late.map((e) => e.type)).toEqual(["status", "tabs", "url", "frame"]);
+    expect(late[3]).toMatchObject({ type: "frame", frame: { seq: 8 } });
     expect(sockets).toHaveLength(1);
+  });
+
+  it("says when the browser comes up, once per coming up", () => {
+    const up = vi.fn();
+    const { live, sockets } = setup(4319, up);
+    live.subscribe(() => {});
+    const s = sockets[0]!;
+    s.open();
+    s.push({ type: "status", connected: false, screencasting: false });
+    expect(up).not.toHaveBeenCalled();
+    s.push({ type: "status", connected: true, screencasting: false });
+    s.push({ type: "status", connected: true, screencasting: true });
+    expect(up).toHaveBeenCalledTimes(1);
+    s.push({ type: "status", connected: false, screencasting: false });
+    s.push({ type: "status", connected: true, screencasting: false });
+    expect(up).toHaveBeenCalledTimes(2);
   });
 
   it("passes only well-formed input through", () => {
@@ -165,5 +186,16 @@ describe("the browser live view", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("finding the engine in the MCP config", () => {
+  it("is the enabled server with a stream port, and carries the viewport KOS asks for", () => {
+    expect(browserEngine({ servers: {} })).toBeUndefined();
+    expect(browserEngine({ servers: { git: { env: {} }, browser: { env: { AGENT_BROWSER_STREAM_PORT: "4319" } } } })).toEqual({ server: "browser", port: 4319 });
+    expect(browserEngine({ servers: { browser: { env: { AGENT_BROWSER_STREAM_PORT: "4319", KOS_BROWSER_VIEWPORT: "1600x1000" } } } })).toEqual({ server: "browser", port: 4319, viewport: { width: 1600, height: 1000 } });
+    expect(browserEngine({ servers: { browser: { env: { AGENT_BROWSER_STREAM_PORT: "4319", KOS_BROWSER_VIEWPORT: "huge" } } } })).toEqual({ server: "browser", port: 4319 });
+    expect(browserEngine({ servers: { browser: { enabled: false, env: { AGENT_BROWSER_STREAM_PORT: "4319" } } } })).toBeUndefined();
+    expect(browserEngine({ servers: { browser: { env: { AGENT_BROWSER_STREAM_PORT: "nope" } } } })).toBeUndefined();
   });
 });

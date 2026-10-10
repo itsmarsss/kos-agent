@@ -22,6 +22,13 @@ export interface BrowserFrame {
   at: number;
 }
 
+export interface BrowserTab {
+  id: string;
+  title: string;
+  url: string;
+  active: boolean;
+}
+
 export interface BrowserStatus {
   /** A stream port is known: the browser engine is configured. */
   configured: boolean;
@@ -37,12 +44,15 @@ export interface BrowserStatus {
   screencasting: boolean;
   url?: string;
   viewport?: { width: number; height: number };
+  /** The browser's tabs; the active one is what the frames show. */
+  tabs: BrowserTab[];
 }
 
 export type BrowserEvent =
   | { type: "frame"; frame: BrowserFrame }
   | { type: "status"; status: BrowserStatus }
-  | { type: "url"; url: string };
+  | { type: "url"; url: string }
+  | { type: "tabs"; tabs: BrowserTab[] };
 
 export type BrowserListener = (event: BrowserEvent) => void;
 
@@ -71,6 +81,8 @@ export interface BrowserLiveOptions {
   /** Frames per second asked of the stream. Plenty for watching; cheap on the CPU. */
   maxFps?: number;
   now?: () => number;
+  /** The daemon's browser came up (or came back): the moment to set it up. */
+  onBrowserUp?: () => void;
 }
 
 /** How long a socket may take to open, and then to say anything at all. */
@@ -140,18 +152,29 @@ export function parseInput(raw: unknown): BrowserInput {
 
 /** The stream port an MCP server was told to use, if it is the browser engine. */
 export const STREAM_PORT_ENV = "AGENT_BROWSER_STREAM_PORT";
+/** KOS's own key in the engine's environment: the page size to ask for, as WxH. */
+export const VIEWPORT_ENV = "KOS_BROWSER_VIEWPORT";
+
+export interface BrowserEngine {
+  server: string;
+  port: number;
+  /** The viewport KOS sets when the browser comes up, if the config names one. */
+  viewport?: { width: number; height: number };
+}
 
 /**
  * The browser engine among the configured MCP servers: the one whose
  * environment names a stream port. KOS reads it from the same config the
  * tools come from, so swapping engines is a config change.
  */
-export function browserEngine(config: { servers: Record<string, { env?: Record<string, string>; enabled?: boolean }> }): { server: string; port: number } | undefined {
+export function browserEngine(config: { servers: Record<string, { env?: Record<string, string>; enabled?: boolean }> }): BrowserEngine | undefined {
   for (const [server, entry] of Object.entries(config.servers)) {
     if (entry.enabled === false) continue;
     const raw = entry.env?.[STREAM_PORT_ENV];
     const port = raw ? Number(raw) : NaN;
-    if (Number.isInteger(port) && port > 0 && port < 65536) return { server, port };
+    if (!Number.isInteger(port) || port <= 0 || port >= 65536) continue;
+    const size = /^(\d{3,5})x(\d{3,5})$/.exec(entry.env?.[VIEWPORT_ENV] ?? "");
+    return { server, port, ...(size ? { viewport: { width: Number(size[1]), height: Number(size[2]) } } : {}) };
   }
   return undefined;
 }
@@ -161,6 +184,7 @@ export class BrowserLive {
   private socket: StreamSocket | null = null;
   private latest: BrowserFrame | null = null;
   private url: string | undefined;
+  private tabs: BrowserTab[] = [];
   private daemon: { connected: boolean; screencasting: boolean; viewport?: { width: number; height: number } } = { connected: false, screencasting: false };
   private port: number | undefined;
   /** When the last reason to stay attached went away; nothing while there is one. */
@@ -196,6 +220,7 @@ export class BrowserLive {
       screencasting: this.daemon.screencasting,
       ...(this.url ? { url: this.url } : {}),
       ...(this.daemon.viewport ? { viewport: this.daemon.viewport } : {}),
+      tabs: this.tabs,
     };
   }
 
@@ -210,6 +235,7 @@ export class BrowserLive {
     this.clearLinger();
     this.attach();
     listener({ type: "status", status: this.status() });
+    if (this.tabs.length) listener({ type: "tabs", tabs: this.tabs });
     if (this.url) listener({ type: "url", url: this.url });
     if (this.latest) listener({ type: "frame", frame: this.latest });
     return () => {
@@ -281,6 +307,7 @@ export class BrowserLive {
       if (this.socket !== socket) return;
       this.socket = null;
       this.daemon = { connected: false, screencasting: false };
+      this.tabs = [];
       this.emit({ type: "status", status: this.status() });
       // Gone while someone still wants it: the daemon restarts between
       // tasks, so try again rather than report a dead browser.
@@ -369,22 +396,33 @@ export class BrowserLive {
     } else if (type === "status") {
       const width = message["viewportWidth"];
       const height = message["viewportHeight"];
+      const was = this.daemon.connected;
       this.daemon = {
         connected: message["connected"] === true,
         screencasting: message["screencasting"] === true,
         ...(typeof width === "number" && typeof height === "number" ? { viewport: { width, height } } : {}),
       };
       this.emit({ type: "status", status: this.status() });
+      if (!was && this.daemon.connected) this.options.onBrowserUp?.();
     } else if (type === "url" && typeof message["url"] === "string") {
       this.url = message["url"];
       this.emit({ type: "url", url: this.url });
     } else if (type === "tabs" && Array.isArray(message["tabs"])) {
-      // Sent on attach and on tab changes; the active tab's url is the one
+      // Sent on attach and on tab changes. The active tab's url is the one
       // being looked at, which the url message only says after the next
-      // navigation.
-      const active = (message["tabs"] as Record<string, unknown>[]).find((t) => t["active"] === true) ?? (message["tabs"] as Record<string, unknown>[])[0];
-      if (active && typeof active["url"] === "string" && active["url"] !== this.url) {
-        this.url = active["url"];
+      // navigation; the rest is for the tab strip.
+      this.tabs = (message["tabs"] as Record<string, unknown>[])
+        .filter((t) => t["type"] === undefined || t["type"] === "page")
+        .map((t, i) => ({
+          id: typeof t["tabId"] === "string" ? t["tabId"] : typeof t["targetId"] === "string" ? t["targetId"] : `t${i + 1}`,
+          title: typeof t["title"] === "string" ? t["title"] : "",
+          url: typeof t["url"] === "string" ? t["url"] : "",
+          active: t["active"] === true,
+        }));
+      this.emit({ type: "tabs", tabs: this.tabs });
+      const active = this.tabs.find((t) => t.active) ?? this.tabs[0];
+      if (active && active.url && active.url !== this.url) {
+        this.url = active.url;
         this.emit({ type: "url", url: this.url });
       }
     }

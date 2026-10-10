@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 
 import { api } from "./api.js";
 import { keyMessages, mouseMessage, toViewport, wheelMessage, type BrowserInputMessage } from "./browserinput.js";
-import { EDGES, clampBox, cornerBox, readBox, resizedBox, saveBox, type Box, type Edge, type MinSize } from "./floatbox.js";
+import { EDGE, EDGES, clampBox, cornerBox, readBox, resizedBox, saveBox, type Box, type Edge, type MinSize } from "./floatbox.js";
 import { StatusDot } from "./StatusDot.js";
 
 /**
@@ -23,6 +23,13 @@ export interface BrowserFrame {
   at: number;
 }
 
+export interface BrowserTab {
+  id: string;
+  title: string;
+  url: string;
+  active: boolean;
+}
+
 export interface BrowserStatus {
   configured: boolean;
   attached: boolean;
@@ -32,19 +39,25 @@ export interface BrowserStatus {
   screencasting: boolean;
   url?: string;
   viewport?: { width: number; height: number };
+  tabs?: BrowserTab[];
 }
 
-type LiveEvent = { type: "frame"; frame: BrowserFrame } | { type: "status"; status: BrowserStatus } | { type: "url"; url: string };
+type LiveEvent =
+  | { type: "frame"; frame: BrowserFrame }
+  | { type: "status"; status: BrowserStatus }
+  | { type: "url"; url: string }
+  | { type: "tabs"; tabs: BrowserTab[] };
 
 export interface BrowserLiveState {
   status: BrowserStatus | null;
   frame: BrowserFrame | null;
   url: string;
+  tabs: BrowserTab[];
   /** The stream itself is down (not the browser): nothing can be shown. */
   lost: boolean;
 }
 
-const IDLE: BrowserLiveState = { status: null, frame: null, url: "", lost: false };
+const IDLE: BrowserLiveState = { status: null, frame: null, url: "", tabs: [], lost: false };
 
 /** The live view's feed, open only while `on`. */
 export function useBrowserLive(on: boolean): BrowserLiveState {
@@ -64,7 +77,8 @@ export function useBrowserLive(on: boolean): BrowserLiveState {
       }
       setState((cur) => {
         if (event.type === "frame") return { ...cur, frame: event.frame, lost: false };
-        if (event.type === "status") return { ...cur, status: event.status, url: event.status.url ?? cur.url, lost: false };
+        if (event.type === "status") return { ...cur, status: event.status, url: event.status.url ?? cur.url, tabs: event.status.tabs ?? cur.tabs, lost: false };
+        if (event.type === "tabs") return { ...cur, tabs: event.tabs };
         return { ...cur, url: event.url };
       });
     };
@@ -96,6 +110,10 @@ export function BrowserWindow({ open, onClose, doing }: BrowserWindowProps): Rea
   const boxRef = useRef(box);
   boxRef.current = box;
   const [driving, setDriving] = useState(false);
+  /** Filling the page (the box is kept for Restore), and the screen. */
+  const [maximized, setMaximized] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const shell = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
   const resize = useRef<{ edge: Edge; x: number; y: number; box: Box } | null>(null);
@@ -107,6 +125,25 @@ export function BrowserWindow({ open, onClose, doing }: BrowserWindowProps): Rea
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  // The screen's own fullscreen, left by Escape or by the button.
+  useEffect(() => {
+    const onChange = (): void => setFullscreen(document.fullscreenElement === shell.current && shell.current !== null);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  const toggleFullscreen = (): void => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    else void shell.current?.requestFullscreen().catch(() => {});
+  };
+  // Maximized follows the viewport; a window resize is a re-render.
+  const [, bump] = useState(0);
+  useEffect(() => {
+    if (!maximized) return;
+    const onResize = (): void => bump((n) => n + 1);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [maximized]);
+
   // Each frame is drawn to fit, centred, on a canvas the size of the body.
   useEffect(() => {
     const el = canvas.current;
@@ -117,14 +154,21 @@ export function BrowserWindow({ open, onClose, doing }: BrowserWindowProps): Rea
     img.onload = () => {
       if (cancelled) return;
       frameSize.current = { width: frame.width || img.naturalWidth, height: frame.height || img.naturalHeight };
+      // Drawn at the screen's own pixel density: a canvas sized in CSS
+      // pixels on a Retina screen is painted at half resolution and reads
+      // as a blur, whatever the frame carried.
+      const dpr = window.devicePixelRatio || 1;
       const w = el.clientWidth;
       const h = el.clientHeight;
-      if (el.width !== w || el.height !== h) {
-        el.width = w;
-        el.height = h;
+      if (el.width !== Math.round(w * dpr) || el.height !== Math.round(h * dpr)) {
+        el.width = Math.round(w * dpr);
+        el.height = Math.round(h * dpr);
       }
       const ctx = el.getContext("2d");
       if (!ctx) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
       const scale = Math.min(w / img.naturalWidth, h / img.naturalHeight);
       const dw = img.naturalWidth * scale;
       const dh = img.naturalHeight * scale;
@@ -135,7 +179,7 @@ export function BrowserWindow({ open, onClose, doing }: BrowserWindowProps): Rea
     return () => {
       cancelled = true;
     };
-  }, [live.frame, box.width, box.height]);
+  }, [live.frame, box.width, box.height, maximized, fullscreen]);
 
   const place = useCallback((e: { clientX: number; clientY: number }): { x: number; y: number } => {
     const el = canvas.current;
@@ -201,10 +245,28 @@ export function BrowserWindow({ open, onClose, doing }: BrowserWindowProps): Rea
               ? "browser open, nothing moving"
               : "no browser open";
   const url = live.url || status?.url || "";
+  const tabs = live.tabs.length ? live.tabs : (status?.tabs ?? []);
+  const placed: Box = maximized ? { left: EDGE, top: EDGE, width: window.innerWidth - EDGE * 2, height: window.innerHeight - EDGE * 2 } : box;
+  const frameNote = live.frame ? `${live.frame.width}×${live.frame.height}` : "";
 
   return (
-    <div className={`browserwin${driving ? " is-driving" : ""}`} role="dialog" aria-label="Browser" style={{ left: box.left, top: box.top, width: box.width, height: box.height }}>
-      <div className="browserwin-head" onPointerDown={onDragStart} onPointerMove={onDragMove} onPointerUp={onDragEnd} onPointerCancel={onDragEnd}>
+    <div
+      ref={shell}
+      className={`browserwin${driving ? " is-driving" : ""}${maximized ? " is-max" : ""}${fullscreen ? " is-fullscreen" : ""}`}
+      role="dialog"
+      aria-label="Browser"
+      style={fullscreen ? undefined : { left: placed.left, top: placed.top, width: placed.width, height: placed.height }}
+    >
+      <div
+        className="browserwin-head"
+        onPointerDown={maximized || fullscreen ? undefined : onDragStart}
+        onPointerMove={onDragMove}
+        onPointerUp={onDragEnd}
+        onPointerCancel={onDragEnd}
+        onDoubleClick={(e) => {
+          if (!(e.target as HTMLElement).closest("button")) setMaximized((v) => !v);
+        }}
+      >
         <StatusDot state={state} label={label} />
         <span className="browserwin-title">
           <span className="browserwin-url" title={url}>
@@ -214,8 +276,19 @@ export function BrowserWindow({ open, onClose, doing }: BrowserWindowProps): Rea
           {driving && <span className="browserwin-doing browserwin-doing--you">you have the wheel</span>}
         </span>
         <span className="browserwin-acts">
+          {frameNote && <span className="browserwin-size" title="Frame size, in the browser's pixels">{frameNote}</span>}
           <button type="button" className={`btn btn--sm${driving ? " btn--primary" : ""}`} aria-pressed={driving} onClick={() => setDriving((v) => !v)} title={driving ? "Give the page back to KOS" : "Click and type in the page yourself"}>
             {driving ? "Let go" : "Take over"}
+          </button>
+          <button type="button" className="icon-btn" aria-label={maximized ? "Restore size" : "Maximize"} aria-pressed={maximized} title={maximized ? "Back to the window's own size" : "Fill the page (double-click the bar does too)"} onClick={() => setMaximized((v) => !v)}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              {maximized ? <path d="M9 3H3v6M15 21h6v-6M3 3l7 7M21 21l-7-7" /> : <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />}
+            </svg>
+          </button>
+          <button type="button" className="icon-btn" aria-label={fullscreen ? "Leave full screen" : "Full screen"} aria-pressed={fullscreen} title={fullscreen ? "Leave full screen (Esc)" : "The whole screen"} onClick={toggleFullscreen}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
+            </svg>
           </button>
           <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
@@ -224,6 +297,15 @@ export function BrowserWindow({ open, onClose, doing }: BrowserWindowProps): Rea
           </button>
         </span>
       </div>
+      {tabs.length > 1 && (
+        <div className="browserwin-tabs" role="tablist" aria-label="Browser tabs">
+          {tabs.map((t) => (
+            <span key={t.id} role="tab" aria-selected={t.active} className={`browserwin-tab${t.active ? " is-active" : ""}`} title={t.url}>
+              {t.title || t.url || t.id}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="browserwin-body">
         <canvas
           ref={canvas}
@@ -271,7 +353,7 @@ export function BrowserWindow({ open, onClose, doing }: BrowserWindowProps): Rea
           </p>
         )}
       </div>
-      {EDGES.map((edge) => (
+      {!maximized && !fullscreen && EDGES.map((edge) => (
         <div key={edge} className={`browserwin-edge browserwin-edge--${edge}`} onPointerDown={onResizeStart(edge)} onPointerMove={onResizeMove} onPointerUp={onResizeEnd} onPointerCancel={onResizeEnd} />
       ))}
     </div>

@@ -406,9 +406,21 @@ export const MCP_PICKS: McpPick[] = [
     needs: "node",
     server: {
       command: "npx",
-      args: ["-y", "agent-browser@latest", "mcp"],
-      env: { AGENT_BROWSER_STREAM_PORT: "4319", AGENT_BROWSER_STREAM_MAX_WIDTH: "1280", AGENT_BROWSER_STREAM_QUALITY: "60" },
+      // The mobile profile is where the viewport tool lives; KOS sets the
+      // viewport itself when the browser comes up (KOS_BROWSER_VIEWPORT).
+      args: ["-y", "agent-browser@latest", "mcp", "--tools", "core,mobile"],
+      env: {
+        AGENT_BROWSER_STREAM_PORT: "4319",
+        AGENT_BROWSER_STREAM_MAX_WIDTH: "1920",
+        AGENT_BROWSER_STREAM_MAX_HEIGHT: "1200",
+        AGENT_BROWSER_STREAM_QUALITY: "75",
+        KOS_BROWSER_VIEWPORT: "1600x1000",
+      },
       tools: {
+        agent_browser_set_viewport: "safe",
+        agent_browser_set_media: "safe",
+        agent_browser_set_geo: "safe",
+        agent_browser_device: "safe",
         agent_browser_open: "safe",
         agent_browser_read: "safe",
         agent_browser_snapshot: "safe",

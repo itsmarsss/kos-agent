@@ -295,7 +295,10 @@ export class Kernel {
   /** Turn progress, for readers watching a conversation as it runs. */
   readonly progress = new ProgressBus();
   /** The browser KOS drives, watched from the dashboard. */
-  readonly browser: BrowserLive = new BrowserLive({ portFor: () => browserEngine(readMcpConfig(this.workspace.root))?.port });
+  readonly browser: BrowserLive = new BrowserLive({
+    portFor: () => browserEngine(readMcpConfig(this.workspace.root))?.port,
+    onBrowserUp: () => void this.sizeBrowser(),
+  });
 
   /** Called by bootKernel, which assembles the args; not meant for anyone else. */
   constructor(args: {
@@ -1952,6 +1955,22 @@ export class Kernel {
   private afterToolRan(tool: string): void {
     if (tool.startsWith("cron.")) this.reloadCron();
     if (this.isBrowserTool(tool)) this.browser.wake();
+  }
+
+  /**
+   * A fresh browser opens at the engine's own small default. The page size
+   * is the frame size, so a bigger one is what makes the live view sharp
+   * on a large window; set each time the browser comes up, through the
+   * engine's own tool, outside any turn.
+   */
+  private async sizeBrowser(): Promise<void> {
+    const engine = browserEngine(readMcpConfig(this.workspace.root));
+    if (!engine?.viewport) return;
+    try {
+      await this.mcp.call(engine.server, "agent_browser_set_viewport", { width: engine.viewport.width, height: engine.viewport.height });
+    } catch (err) {
+      console.error(`[browser] viewport not set: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /** A call to the browser engine's server, by the name its tools carry. */

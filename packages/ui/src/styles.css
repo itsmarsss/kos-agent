@@ -6619,6 +6619,25 @@ a.health {
 .browserwin-canvas { display: block; width: 100%; height: 100%; outline: none; }
 .is-driving .browserwin-canvas { cursor: crosshair; }
 .browserwin-empty { position: absolute; inset: 0; margin: 0; display: flex; align-items: center; justify-content: center; padding: 1.5rem; text-align: center; color: var(--muted); font-size: var(--text-md); }
+.browserwin.is-max { animation: none; }
+.browserwin.is-max .browserwin-head { cursor: default; }
+.browserwin.is-fullscreen { left: 0; top: 0; width: 100vw; height: 100vh; border: 0; border-radius: 0; animation: none; }
+.browserwin.is-fullscreen .browserwin-body { border-radius: 0; }
+.browserwin-size { font-family: var(--mono); font-size: var(--text-xs); color: var(--faint); margin-right: 0.2rem; }
+.browserwin-tabs { display: flex; gap: 0.25rem; padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+.browserwin-tab {
+  flex: none;
+  max-width: 14rem;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.browserwin-tab.is-active { color: var(--text); background: var(--panel-2); border-color: var(--line-strong); }
 .browserwin-edge { position: absolute; z-index: 3; touch-action: none; }
 .browserwin-edge--n,
 .browserwin-edge--s { left: 12px; right: 12px; height: 12px; cursor: ns-resize; }

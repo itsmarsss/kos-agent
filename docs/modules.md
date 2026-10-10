@@ -111,7 +111,12 @@ live view and to pass your input through. Any engine that speaks the same
 stream protocol could take its place by setting the same variable. Stream
 quality and size are `AGENT_BROWSER_STREAM_QUALITY` and
 `AGENT_BROWSER_STREAM_MAX_WIDTH`; `AGENT_BROWSER_HEADED=1` shows the
-browser window on the machine as well.
+browser window on the machine as well. `KOS_BROWSER_VIEWPORT` (KOS's own
+key, `1600x1000` by default) is the page size KOS asks the engine for each
+time the browser comes up, through the engine's own viewport tool, which is
+why the pick runs the server with `--tools core,mobile`. A change to a
+server's entry (command, args, env, floors) takes effect on the next reload
+from Settings; the server is brought up again with the new one.
 
 ## Installing skills
 
