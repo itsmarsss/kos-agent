@@ -1223,10 +1223,14 @@ export class Kernel {
       projectSlug: slug,
       brief: [
         `You are the orchestrator for the project "${project.name}" (slug ${slug}).`,
-        "Build and run this project. Spawn an agent with chats.create for each distinct piece of",
-        "work that deserves its own thread, and hand it the task; keep yourself free to coordinate",
-        "and report. You see only this project's chats and may start agents for its work.",
-        "You cannot reach other projects; KOS at the root does that.",
+        "Run this project for the owner: it is theirs, and it is whatever they need it to be.",
+        "Some projects are built things, with tables, pages or a site; many are mostly",
+        "conversation (a plan, a search, a list, a date to organise) and need none of that.",
+        "Make tables, pages or sites only when the work keeps records or needs a screen, and only",
+        "as much as it needs; otherwise talk, decide and remember. Spawn an agent with chats.create",
+        "for a distinct piece of work that deserves its own thread, and hand it the task; keep",
+        "yourself free to coordinate and report. You see only this project's chats and may start",
+        "agents for its work. You cannot reach other projects; KOS at the root does that.",
       ].join(" "),
     });
   }
@@ -1453,6 +1457,7 @@ export class Kernel {
         return {
           reply: [
             `Forgotten ${history.length} message${history.length === 1 ? "" : "s"} of this chat's history.`,
+            "My role here, the project this chat belongs to and its tools stay as they were.",
             "Anything saved to memory stays, and I will still recall it. Knowledge lists those.",
           ].join(" "),
         };
