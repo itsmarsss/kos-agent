@@ -115,7 +115,11 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     expect(r.truncated).toBe(true);
   });
 
-  it("is risky by floor", () => {
-    expect(registry.classify("shell.run", { command: "ls" }).tier).toBe("risky");
+  it("is risky by floor, and safe for a line that only reads", () => {
+    expect(registry.classify("shell.run", { command: "rm -rf x" }).tier).toBe("risky");
+    expect(registry.classify("shell.run", { command: "ls && rm -rf x" }).tier).toBe("risky");
+    expect(registry.classify("shell.run", { command: "ls" }).tier).toBe("safe");
+    expect(registry.classify("shell.run", { command: "git status && git log -3 | head" }).tier).toBe("safe");
+    expect(registry.classify("shell.run", {}).tier).toBe("risky");
   });
 });

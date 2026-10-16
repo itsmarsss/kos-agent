@@ -119,7 +119,7 @@ from it. [docs/modules.md](docs/modules.md).
 | --- | --- |
 | **Path jail** | One `resolvePath()` gate. Rejects `..`, NUL bytes, absolute escapes, and all symlinks |
 | **Container** | The container is the jail for unattended work. On macOS a sandbox profile confines shell commands to the workspace |
-| **Risk tiers** | A static floor per tool, escalated deterministically by arguments. The model is never asked whether something is safe |
+| **Risk tiers** | A static floor per tool, escalated deterministically by arguments, and relaxed the same way: a shell line that provably only reads (ls, cat, grep, git status) runs without asking, by allow-list. The model is never asked whether something is safe |
 | **Approvals** | Interactive turns suspend and resume on your decision. Scheduled runs queue the action and finish. A decision remembered with Always covers that shape, in that project, and nothing wider |
 | **Schema changes** | A guarded `migrate` primitive: versioned, git-snapshotted, restorable |
 | **Audit** | Every call logged with arguments, result, risk tier, caller |
