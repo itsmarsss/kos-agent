@@ -189,6 +189,16 @@ describe("the live view of the one Chrome", () => {
     expect(chrome.calls("Page.startScreencast")).toHaveLength(1);
   });
 
+  it("tells a watcher of a tab that is not there, without starting anything", async () => {
+    const { live, chrome } = setup();
+    await live.bind("kos-c1", "c1");
+    const seen: BrowserEvent[] = [];
+    live.subscribe((e) => seen.push(e), "T-from-before");
+    await flush();
+    expect(seen.some((e) => e.type === "gone" && e.tab === "T-from-before")).toBe(true);
+    expect(chrome.calls("Target.attachToTarget")).toHaveLength(0);
+  });
+
   it("says when the watched tab closes", async () => {
     const { live, chrome } = setup();
     await live.bind("kos-c1", "c1");

@@ -469,6 +469,12 @@ export class BrowserLive {
 
   /** A listener's hold on a tab's screencast; the cast runs while any hold does. */
   private watch(tab: string, listener: BrowserListener): () => void {
+    // A tab from before a restart, or one that closed a moment ago: the
+    // watcher is told it is gone and picks another; nothing to start.
+    if (this.cdp.open && !this.targets.has(tab)) {
+      listener({ type: "gone", tab });
+      return () => undefined;
+    }
     let watch = this.watches.get(tab);
     if (!watch) {
       watch = { listeners: new Set(), seq: 0 };
