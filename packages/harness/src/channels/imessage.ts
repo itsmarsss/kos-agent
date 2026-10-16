@@ -150,6 +150,27 @@ export function parseDecision(
   };
 }
 
+/**
+ * Why iMessage could not start, in words that say what to do.
+ *
+ * The database is Messages' own, and macOS refuses it to any process
+ * without Full Disk Access: sqlite reports that as a file it cannot open,
+ * which reads like a missing file and sent the owner looking for one. The
+ * permission is the owner's to give, so the message names the binary that
+ * needs it, which under launchd is node rather than a terminal.
+ */
+export function describeStartFailure(err: unknown, execPath: string): string {
+  const detail = err instanceof Error ? err.message : String(err);
+  if (/unable to open database file|SQLITE_CANTOPEN|authorization denied|SQLITE_AUTH|EPERM|operation not permitted/i.test(detail)) {
+    return (
+      `Full Disk Access is not granted to ${execPath}. System Settings > Privacy & Security > Full Disk Access, ` +
+      "add it, then restart KOS."
+    );
+  }
+  if (/database is locked|SQLITE_BUSY/i.test(detail)) return "Messages has its database locked; KOS tries again when it next starts.";
+  return detail;
+}
+
 export class IMessageAdapter implements ChannelAdapter {
   readonly name = "imessage";
 

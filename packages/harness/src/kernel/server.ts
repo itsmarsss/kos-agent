@@ -106,6 +106,12 @@ export interface ApiResponse {
   headers?: Record<string, string>;
 }
 
+/** How a surface the owner configured came up, and why not when it did not. */
+export interface SurfaceState {
+  state: "watching" | "skipped" | "failed";
+  detail?: string;
+}
+
 export interface DaemonMeta {
   /** Process id of the multi-modal host (kos start). */
   pid?: number;
@@ -114,6 +120,8 @@ export interface DaemonMeta {
   /** Cron scheduler is running. */
   cron?: boolean;
   workspace?: string;
+  /** iMessage, when the owner named a thread: watching, or why not. */
+  imessage?: SurfaceState;
 }
 
 export interface DashboardServerOptions {
@@ -503,6 +511,9 @@ export async function handleApiRequest(
       // owner may have missed.
       unhealthy: kernel.health.failing().length,
       restart: kernel.restartStatus(),
+      // A surface that could not start says why here, where Settings can
+      // show it, rather than only in a log line at boot.
+      ...(options.meta?.imessage ? { imessage: options.meta.imessage } : {}),
     });
   }
 

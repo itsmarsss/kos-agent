@@ -20,7 +20,10 @@ KOS_OWNER_DISCORD=    your user id, and the inbound gate
 Your note-to-self thread, read from Messages' database and written through
 Messages.app. The reader binds every query to that one thread in the SQL
 itself. Needs Full Disk Access and Automation permission for Messages; under
-launchd, the `node` binary itself needs Full Disk Access.
+launchd, the `node` binary itself needs Full Disk Access. When the host
+cannot read the database it says so at start and on Settings > Providers,
+naming the permission and the binary that needs it, and runs on without
+iMessage.
 
 ```
 KOS_OWNER_IMESSAGE=   your own handle

@@ -6,7 +6,7 @@ import {
   api,
   type Behaviour,
   type ModelRate,
-  type SettingsPayload, type ModuleInfo, type SkillInfo, type McpServerInfo, type PermissionRule, type BrowserSettings, type RestartState } from "./api.js";
+  type SettingsPayload, type ModuleInfo, type SkillInfo, type McpServerInfo, type PermissionRule, type BrowserSettings, type RestartState, type Status } from "./api.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { useOpenTab } from "./opentab.js";
 import { Select } from "./Select.js";
@@ -442,6 +442,15 @@ export function SettingsPage({
     if (active === "mcp") loadMcp();
   }, [active, loadMcp]);
   /** How the browser runs, as the server has it, and the draft being edited. */
+  /** How iMessage came up, for the Providers tab: a permission it lacks is news the owner can act on. */
+  const [imessage, setImessage] = useState<Status["imessage"] | null>(null);
+  useEffect(() => {
+    if (active !== "providers") return;
+    void api
+      .status()
+      .then((s) => setImessage(s.imessage ?? null))
+      .catch(() => undefined);
+  }, [active]);
   /** A restart wanted from this page, and what it is waiting on; polled while the tab is open. */
   const [restart, setRestart] = useState<RestartState | null>(null);
   useEffect(() => {
@@ -780,6 +789,12 @@ export function SettingsPage({
               saveEnv("providers", keys, () => setKeys({})),
             )}
           >
+            {imessage?.state === "failed" && (
+              <p className="ops-alert ops-alert--err" role="alert">
+                iMessage is not running. {imessage.detail}
+              </p>
+            )}
+            {imessage?.state === "skipped" && <p className="hint">iMessage was skipped: {imessage.detail}.</p>}
             {Object.entries(data.secrets).map(([key, meta]) => (
               <Field
                 key={key}
