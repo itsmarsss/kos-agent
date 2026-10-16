@@ -189,6 +189,33 @@ describe("the live view of the one Chrome", () => {
     expect(chrome.calls("Page.startScreencast")).toHaveLength(1);
   });
 
+  it("starts the cast again after a navigation, and pictures the page once it has loaded", async () => {
+    const { live, chrome } = setup();
+    chrome.still = true;
+    await live.bind("kos-c1", "c1");
+    const frames: BrowserEvent[] = [];
+    live.subscribe((e) => {
+      if (e.type === "frame") frames.push(e);
+    }, "T1");
+    await flush();
+    await flush();
+    expect(chrome.calls("Page.startScreencast")).toHaveLength(1);
+    expect(frames).toHaveLength(1);
+    chrome.event("Page.frameNavigated", { frame: { id: "F1", url: "https://example.com/" } }, "S-T1");
+    await flush();
+    await flush();
+    expect(chrome.calls("Page.startScreencast")).toHaveLength(2);
+    chrome.event("Page.loadEventFired", { timestamp: 1 }, "S-T1");
+    await flush();
+    await flush();
+    expect(frames.length).toBeGreaterThanOrEqual(3);
+    expect(frames.at(-1)).toMatchObject({ frame: { data: "STILL", width: 1600 } });
+    // A child frame's navigation is not the page's.
+    chrome.event("Page.frameNavigated", { frame: { id: "F2", parentId: "F1", url: "https://ads.example/" } }, "S-T1");
+    await flush();
+    expect(chrome.calls("Page.startScreencast")).toHaveLength(2);
+  });
+
   it("tells a watcher of a tab that is not there, without starting anything", async () => {
     const { live, chrome } = setup();
     await live.bind("kos-c1", "c1");

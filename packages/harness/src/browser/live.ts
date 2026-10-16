@@ -440,6 +440,22 @@ export class BrowserLive {
         for (const [tab, s] of this.sessions) if (s === sessionId) this.sessions.delete(tab);
         return;
       }
+      case "Page.frameNavigated": {
+        // A cross-site navigation swaps the renderer under the cast, and the
+        // cast dies quietly with it. Started again for the new page.
+        const frame = event.params["frame"] as Record<string, unknown> | undefined;
+        if (!event.sessionId || !frame || frame["parentId"]) return;
+        const navigated = [...this.watches].find(([, w]) => w.sessionId === event.sessionId);
+        if (navigated) void this.recast(navigated[0], navigated[1]);
+        return;
+      }
+      case "Page.loadEventFired": {
+        // The loaded page, pictured, since a still one casts nothing more.
+        if (!event.sessionId) return;
+        const loaded = [...this.watches].find(([, w]) => w.sessionId === event.sessionId);
+        if (loaded) void this.picture(loaded[0], loaded[1]);
+        return;
+      }
       case "Page.screencastFrame": {
         if (!event.sessionId) return;
         const entry = [...this.watches].find(([, w]) => w.sessionId === event.sessionId);
@@ -502,26 +518,43 @@ export class BrowserLive {
       if (this.watches.get(tab) !== watch) return;
       watch.sessionId = sessionId;
       await this.cdp.send("Page.enable", {}, sessionId).catch(() => undefined);
-      await this.cdp.send(
-        "Page.startScreencast",
-        { format: "jpeg", quality: 75, maxWidth: 1920, maxHeight: 1200, everyNthFrame: Math.max(1, Math.round(60 / this.maxFps)) },
-        sessionId,
-      );
-      // A still page casts nothing until something on it moves, so the
-      // first picture is taken rather than waited for.
-      const shot: Record<string, unknown> = await this.cdp.send("Page.captureScreenshot", { format: "jpeg", quality: 75 }, sessionId).catch(() => ({}));
-      const data = typeof shot["data"] === "string" ? shot["data"] : "";
-      if (data && this.watches.get(tab) === watch && !watch.last) {
-        const metrics: Record<string, unknown> = await this.cdp.send("Page.getLayoutMetrics", {}, sessionId).catch(() => ({}));
-        const size = (metrics["cssVisualViewport"] ?? metrics["layoutViewport"] ?? {}) as Record<string, unknown>;
-        const width = typeof size["clientWidth"] === "number" ? size["clientWidth"] : 0;
-        const height = typeof size["clientHeight"] === "number" ? size["clientHeight"] : 0;
-        this.deliver(tab, watch, { seq: ++watch.seq, data, width, height, at: this.now() });
-      }
+      await this.recast(tab, watch);
     })().finally(() => {
       watch.starting = undefined;
     });
     return watch.starting;
+  }
+
+  /** Start (or start again) a tab's cast, and picture it once. */
+  private async recast(tab: string, watch: Watch): Promise<void> {
+    const sessionId = watch.sessionId;
+    if (!sessionId || this.watches.get(tab) !== watch) return;
+    await this.cdp
+      .send(
+        "Page.startScreencast",
+        { format: "jpeg", quality: 75, maxWidth: 1920, maxHeight: 1200, everyNthFrame: Math.max(1, Math.round(60 / this.maxFps)) },
+        sessionId,
+      )
+      .catch((err: unknown) => this.report(`cast of ${tab}: ${err instanceof Error ? err.message : String(err)}`));
+    await this.picture(tab, watch);
+  }
+
+  /**
+   * One picture of the tab as it is, delivered as a frame. A still page
+   * casts nothing until something on it moves, so the first look, and the
+   * look after a load, are taken rather than waited for.
+   */
+  private async picture(tab: string, watch: Watch): Promise<void> {
+    const sessionId = watch.sessionId;
+    if (!sessionId || this.watches.get(tab) !== watch) return;
+    const shot: Record<string, unknown> = await this.cdp.send("Page.captureScreenshot", { format: "jpeg", quality: 75 }, sessionId).catch(() => ({}));
+    const data = typeof shot["data"] === "string" ? shot["data"] : "";
+    if (!data || this.watches.get(tab) !== watch) return;
+    const metrics: Record<string, unknown> = await this.cdp.send("Page.getLayoutMetrics", {}, sessionId).catch(() => ({}));
+    const size = (metrics["cssVisualViewport"] ?? metrics["layoutViewport"] ?? {}) as Record<string, unknown>;
+    const width = typeof size["clientWidth"] === "number" ? size["clientWidth"] : 0;
+    const height = typeof size["clientHeight"] === "number" ? size["clientHeight"] : 0;
+    this.deliver(tab, watch, { seq: ++watch.seq, data, width, height, at: this.now() });
   }
 
   /** The CDP session for a tab, attached on first use. */
