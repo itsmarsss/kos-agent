@@ -9,6 +9,9 @@ import { type CronActionResult, runCronJob, type CronExecResult } from "../cron/
 import { CronStore } from "../cron/store.js";
 import { mcpToolName, readMcpConfig, type McpModule } from "../tools/mcp.js";
 import type { PermissionContext } from "../ops/permissions.js";
+
+/** KOS's own browser tools: they act on the caller's tab and share its site trust. */
+const BROWSER_MEMBERS = ["browser.visit", "browser.act"];
 import { ChromeHost } from "../browser/chrome.js";
 import { BrowserLive, browserEngine, sessionFor } from "../browser/live.js";
 import { BUILTIN_FEATURES, isBuiltinFeature } from "../modules/builtins.js";
@@ -1979,13 +1982,25 @@ export class Kernel {
    * the site the caller's tab is on, and the tools never trusted by site.
    */
   private browserContext(tool: string, conversationId?: string): PermissionContext | undefined {
-    if (!tool.startsWith("mcp.")) return undefined;
+    if (!tool.startsWith("mcp.") && !BROWSER_MEMBERS.includes(tool)) return undefined;
     const engine = browserEngine(readMcpConfig(this.workspace.root));
     if (!engine) return undefined;
     const prefix = mcpToolName(engine.server, "");
-    if (!tool.startsWith(prefix)) return undefined;
+    if (!tool.startsWith(prefix) && !BROWSER_MEMBERS.includes(tool)) return undefined;
     const site = conversationId ? this.browser.siteOf(conversationId) : undefined;
-    return { browser: { prefix, ...(site ? { site } : {}), strict: [`${prefix}agent_browser_eval`] } };
+    return { browser: { prefix, ...(site ? { site } : {}), strict: [`${prefix}agent_browser_eval`], members: BROWSER_MEMBERS } };
+  }
+
+  /**
+   * One of the engine's tools, called for the current caller on its own
+   * tab: what KOS's own browser tools are made of. The caller's session is
+   * bound and filled in exactly as it is for a call the model makes itself.
+   */
+  async callBrowser(tool: string, args: Record<string, unknown>): Promise<string> {
+    const engine = browserEngine(readMcpConfig(this.workspace.root));
+    if (!engine) throw new Error("no browser engine is configured; add the browser under Settings > MCP servers");
+    const prepared = await this.prepareBrowserCall(engine.server, tool, args);
+    return this.mcp.call(engine.server, tool, prepared);
   }
 
   /** The page a browser action is aimed at, pictured for the approval. */

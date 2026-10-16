@@ -104,6 +104,14 @@ file's `tools` map; the Settings page shows the floors it has.
 
 ### The browser engine
 
+KOS's own `browser.visit` (open a page and get what is on it, in one call)
+and `browser.act` (a run of clicks, fills and keys, then the page after)
+are made of the engine's tools and run on the caller's tab; they share its
+site trust, and `browser.act` asks like any other action until the site is
+trusted. The engine hands pages to the model capped
+(`AGENT_BROWSER_MAX_OUTPUT`) and wrapped in content boundaries, so page
+text is marked as the page's.
+
 KOS runs one Chrome of its own, headless, on the DevTools port named by
 `AGENT_BROWSER_CDP` in the `browser` pick's environment (9225). The engine
 (agent-browser) attaches to that Chrome over CDP, one session per

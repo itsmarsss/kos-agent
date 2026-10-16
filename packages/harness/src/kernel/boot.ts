@@ -72,6 +72,7 @@ import { createNotifyModule, noticeText, type NotifyPayload } from "../tools/not
 import { sqlModule } from "../tools/sql.js";
 import { createBuildsModule } from "../tools/builds.js";
 import { sitesModule } from "../tools/sites.js";
+import { createBrowserModule } from "../tools/browser.js";
 import { systemsModule } from "../tools/systems.js";
 import { tasksModule } from "../tools/tasks.js";
 import { ensureProfile } from "./profile.js";
@@ -339,6 +340,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     }),
     systemsModule,
     sitesModule,
+    // A visit, or a run of gestures, in one call: made of the engine's tools.
+    createBrowserModule({ call: (tool, args) => (kernelRef ? kernelRef.callBrowser(tool, args) : Promise.reject(new Error("not booted"))) }),
     createBuildsModule({
       approvals,
       registry: builds,

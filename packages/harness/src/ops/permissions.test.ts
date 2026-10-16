@@ -120,5 +120,10 @@ describe("trusting a site for the browser", () => {
     expect(store.allows("mcp.browser.agent_browser_eval", { script: "x" }, undefined, context)).toBe(false);
     expect(store.allows("mcp.browser.agent_browser_click", { selector: "@e5" }, undefined, { browser: { ...context.browser, site: "other.example" } })).toBe(false);
     expect(store.allows("mcp.browser.agent_browser_click", { selector: "@e5" }, undefined, { browser: { prefix: "mcp.browser." } })).toBe(false);
+    // KOS's own composite acts on the same tab: same trust.
+    const withMembers = { browser: { ...context.browser, members: ["browser.act"] } };
+    expect(familyOf("browser.act", withMembers)).toBe("mcp.browser.*");
+    expect(store.allows("browser.act", { steps: [] }, undefined, withMembers)).toBe(true);
+    expect(store.allows("browser.act", { steps: [] }, undefined, context)).toBe(false);
   });
 });

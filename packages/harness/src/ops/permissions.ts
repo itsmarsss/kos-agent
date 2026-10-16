@@ -67,11 +67,15 @@ export interface PermissionContext {
     site?: string;
     /** Tools of the family that are never remembered. */
     strict?: string[];
+    /** KOS's own browser tools, which act on the same tab and belong to the same trust. */
+    members?: string[];
   };
 }
 
 function browserTool(tool: string, context?: PermissionContext): boolean {
-  return !!context?.browser && tool.startsWith(context.browser.prefix);
+  const browser = context?.browser;
+  if (!browser) return false;
+  return tool.startsWith(browser.prefix) || (browser.members?.includes(tool) ?? false);
 }
 
 /** The name a rule is kept under: a browser action's whole family, else the tool itself. */
