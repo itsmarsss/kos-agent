@@ -882,11 +882,15 @@ export const api = {
   },
   /** The browser KOS drives: whether there is one, and what it is showing. */
   browserStatus: () =>
-    get<{ configured: boolean; attached: boolean; connected: boolean; screencasting: boolean; url?: string; viewport?: { width: number; height: number }; prefix?: string }>(
-      "/api/browser/status",
-    ),
-  /** A watcher's click or key, passed to the page. */
-  browserInput: (message: Record<string, unknown>) => post<{ sent: boolean }>("/api/browser/input", message),
+    get<{
+      configured: boolean;
+      chrome: "stopped" | "starting" | "running";
+      attached: boolean;
+      tabs: { id: string; title: string; url: string; owner?: string }[];
+      prefix?: string;
+    }>("/api/browser/status"),
+  /** A watcher's click or key, passed to one tab. */
+  browserInput: (tab: string, message: Record<string, unknown>) => post<{ sent: boolean }>("/api/browser/input", { tab, ...message }),
   /** Managing files by hand: each returns where the thing now is. */
   renameFile: (from: string, to: string) => post<{ path: string }>("/api/files/rename", { from, to }),
   copyFile: (from: string, to?: string) => post<{ path: string }>("/api/files/copy", to ? { from, to } : { from }),

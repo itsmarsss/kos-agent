@@ -406,14 +406,14 @@ export const MCP_PICKS: McpPick[] = [
     needs: "node",
     server: {
       command: "npx",
-      // The mobile profile is where the viewport tool lives; KOS sets the
-      // viewport itself when the browser comes up (KOS_BROWSER_VIEWPORT).
+      // The mobile profile is where the viewport tool lives; KOS sizes each
+      // tab itself when it makes it (KOS_BROWSER_VIEWPORT).
       args: ["-y", "agent-browser@latest", "mcp", "--tools", "core,mobile"],
+      // KOS runs the one Chrome on this port; the engine attaches to it,
+      // one session per conversation, each pinned to the tab KOS made.
       env: {
-        AGENT_BROWSER_STREAM_PORT: "4319",
-        AGENT_BROWSER_STREAM_MAX_WIDTH: "1920",
-        AGENT_BROWSER_STREAM_MAX_HEIGHT: "1200",
-        AGENT_BROWSER_STREAM_QUALITY: "75",
+        AGENT_BROWSER_CDP: "9225",
+        AGENT_BROWSER_PIN_TAB: "1",
         KOS_BROWSER_VIEWPORT: "1600x1000",
       },
       tools: {

@@ -319,11 +319,14 @@ describe("handleApiRequest", () => {
 
   it("reports the browser view and refuses input while nothing is attached", async () => {
     const status = await handleApiRequest(kernel, { method: "GET", path: "/api/browser/status" });
-    expect(status.body).toMatchObject({ configured: false, attached: false, connected: false });
-    const refused = await handleApiRequest(kernel, { method: "POST", path: "/api/browser/input", body: { type: "input_mouse", eventType: "mousePressed", x: 1, y: 1 } });
+    expect(status.body).toMatchObject({ configured: false, chrome: "stopped", attached: false, tabs: [] });
+    const noTab = await handleApiRequest(kernel, { method: "POST", path: "/api/browser/input", body: { type: "input_mouse", eventType: "mousePressed", x: 1, y: 1 } });
+    expect(noTab.status).toBe(400);
+    expect((noTab.body as { error: string }).error).toMatch(/tab required/);
+    const refused = await handleApiRequest(kernel, { method: "POST", path: "/api/browser/input", body: { tab: "T1", type: "input_mouse", eventType: "mousePressed", x: 1, y: 1 } });
     expect(refused.status).toBe(400);
-    expect((refused.body as { error: string }).error).toMatch(/not attached/);
-    const junk = await handleApiRequest(kernel, { method: "POST", path: "/api/browser/input", body: { type: "config", maxFps: 1 } });
+    expect((refused.body as { error: string }).error).toMatch(/no such tab/);
+    const junk = await handleApiRequest(kernel, { method: "POST", path: "/api/browser/input", body: { tab: "T1", type: "config", maxFps: 1 } });
     expect(junk.status).toBe(400);
   });
 

@@ -113,13 +113,14 @@ export function App(): React.ReactElement {
       .then((b) => setBrowserPrefix(b.prefix ?? null))
       .catch(() => setBrowserPrefix(null));
   }, []);
-  const browsing = useMemo(() => {
+  /** Who is browsing right now, and what they are doing, if anyone is. */
+  const browsing = useMemo((): { id: string; doing?: string } | null => {
     if (!browserPrefix) return null;
-    for (const turn of Object.values(live)) {
+    for (const [id, turn] of Object.entries(live)) {
       if (!turn || turn.ended) continue;
       for (let i = turn.steps.length - 1; i >= 0; i--) {
         const step = turn.steps[i]!;
-        if (step.kind === "tool" && step.tool.startsWith(browserPrefix)) return step.done ? "browsing" : step.summary;
+        if (step.kind === "tool" && step.tool.startsWith(browserPrefix)) return step.done ? { id } : { id, doing: step.summary };
       }
     }
     return null;
@@ -729,7 +730,9 @@ export function App(): React.ReactElement {
           browserDismissed.current = true;
           setBrowserOpen(false);
         }}
-        {...(browsing && browsing !== "browsing" ? { doing: browsing } : {})}
+        {...(browsing?.doing ? { doing: browsing.doing } : {})}
+        {...(browsing ? { prefer: browsing.id } : {})}
+        titleFor={(id) => conversations.find((c) => c.id === id)?.title}
       />
       <QuickAsk
         open={askOpen}

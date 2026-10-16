@@ -1421,8 +1421,11 @@ export async function handleApiRequest(
   }
 
   if (method === "POST" && path === "/api/browser/input") {
+    const tab = typeof body.tab === "string" ? body.tab : "";
+    if (!tab) return { status: 400, body: { error: "tab required" } };
     try {
-      kernel.browser.input(body);
+      const { tab: _tab, ...message } = body;
+      await kernel.browser.input(tab, message);
       return ok({ sent: true });
     } catch (err) {
       return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
@@ -2644,9 +2647,9 @@ function streamBuilds(
 }
 
 /**
- * The browser KOS is driving, as it happens: the newest frame first, then
- * every frame, status change and url after it. One watcher is one stream;
- * the kernel's end stays attached while any are open.
+ * The browser KOS is driving, as it happens: the tabs and whose they are,
+ * and the frames of the one tab this watcher asked for. One watcher is one
+ * stream; a tab's screencast runs while anyone watches it.
  */
 function streamBrowser(
   kernel: Kernel,
@@ -2661,9 +2664,11 @@ function streamBrowser(
     ...corsHeaders(req, options),
   });
   res.write(": connected\n\n");
+  // Frames only for the tab asked for; the tab list and status for everyone.
+  const tab = queryParams(req.url).get("tab") ?? undefined;
   const unsubscribe = kernel.browser.subscribe((event) => {
     res.write(`data: ${JSON.stringify(event)}\n\n`);
-  });
+  }, tab);
   const beat = setInterval(() => res.write(": beat\n\n"), 25_000);
   const close = (): void => {
     clearInterval(beat);

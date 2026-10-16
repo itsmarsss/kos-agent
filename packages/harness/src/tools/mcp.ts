@@ -226,6 +226,12 @@ export interface McpModuleOptions {
   transportFor?: (name: string, server: McpServerConfig) => Transport | undefined;
   /** Where a failed server is reported. Defaults to the console. */
   report?: (message: string) => void;
+  /**
+   * A say before every call to a server's tool: what goes in may be
+   * amended (a session name filled in from the caller, a browser made sure
+   * of). Runs inside the call, so an error here fails the call.
+   */
+  before?: (server: string, tool: string, input: Record<string, unknown>) => Promise<Record<string, unknown>>;
 }
 
 interface Connected {
@@ -315,7 +321,8 @@ export function createMcpModule(options: McpModuleOptions): McpModule {
           def,
           async (input) => {
             const live = connected.get(name) ?? (await reconnect(name, server));
-            const result = await live.client.callTool({ name: tool.name, arguments: input });
+            const args = options.before ? await options.before(name, tool.name, input) : input;
+            const result = await live.client.callTool({ name: tool.name, arguments: args });
             const text = renderContent(result.content);
             if (result.isError) throw new Error(text || `${tool.name} reported an error`);
             return text;

@@ -8,11 +8,13 @@ import { StatusDot } from "./StatusDot.js";
 /**
  * KOS's browser, in a window over the page.
  *
- * Frames arrive as KOS browses, so you see what it sees as it sees it: for
- * the fun of it, to catch it doing something it should not, and to know what
- * a reply was looking at. Take over, and your mouse and keys go to the page
- * instead; let go, and KOS carries on. The window floats and remembers its
- * place like the quick-question one.
+ * One Chrome, a tab per agent. The strip under the bar lists the tabs and
+ * whose each is; the one you pick is streamed as it changes, so you see
+ * what that agent sees as it sees it: for the fun of it, to catch it doing
+ * something it should not, and to know what a reply was looking at. Take
+ * over, and your mouse and keys go to that tab instead; let go, and the
+ * agent carries on. The window floats and remembers its place like the
+ * quick-question one.
  */
 
 export interface BrowserFrame {
@@ -27,47 +29,45 @@ export interface BrowserTab {
   id: string;
   title: string;
   url: string;
-  active: boolean;
+  owner?: string;
 }
 
 export interface BrowserStatus {
   configured: boolean;
+  chrome: "stopped" | "starting" | "running";
   attached: boolean;
-  socket?: "none" | "connecting" | "open";
-  received?: number;
-  connected: boolean;
-  screencasting: boolean;
-  url?: string;
-  viewport?: { width: number; height: number };
-  tabs?: BrowserTab[];
+  tabs: BrowserTab[];
 }
 
 type LiveEvent =
-  | { type: "frame"; frame: BrowserFrame }
   | { type: "status"; status: BrowserStatus }
-  | { type: "url"; url: string }
-  | { type: "tabs"; tabs: BrowserTab[] };
+  | { type: "tabs"; tabs: BrowserTab[] }
+  | { type: "frame"; tab: string; frame: BrowserFrame }
+  | { type: "gone"; tab: string };
 
 export interface BrowserLiveState {
   status: BrowserStatus | null;
-  frame: BrowserFrame | null;
-  url: string;
   tabs: BrowserTab[];
+  /** The newest frame of the watched tab. */
+  frame: BrowserFrame | null;
+  /** The watched tab closed. */
+  gone: boolean;
   /** The stream itself is down (not the browser): nothing can be shown. */
   lost: boolean;
 }
 
-const IDLE: BrowserLiveState = { status: null, frame: null, url: "", tabs: [], lost: false };
+const IDLE: BrowserLiveState = { status: null, tabs: [], frame: null, gone: false, lost: false };
 
-/** The live view's feed, open only while `on`. */
-export function useBrowserLive(on: boolean): BrowserLiveState {
+/** The live feed, open while `on`; frames for `tab` when one is named. */
+export function useBrowserLive(on: boolean, tab: string | null): BrowserLiveState {
   const [state, setState] = useState<BrowserLiveState>(IDLE);
   useEffect(() => {
     if (!on) {
       setState(IDLE);
       return;
     }
-    const source = new EventSource("/api/browser/live");
+    setState((cur) => ({ ...cur, frame: null, gone: false }));
+    const source = new EventSource(`/api/browser/live${tab ? `?tab=${encodeURIComponent(tab)}` : ""}`);
     source.onmessage = (message) => {
       let event: LiveEvent;
       try {
@@ -76,25 +76,39 @@ export function useBrowserLive(on: boolean): BrowserLiveState {
         return;
       }
       setState((cur) => {
-        if (event.type === "frame") return { ...cur, frame: event.frame, lost: false };
-        if (event.type === "status") return { ...cur, status: event.status, url: event.status.url ?? cur.url, tabs: event.status.tabs ?? cur.tabs, lost: false };
+        if (event.type === "frame") return event.tab === tab ? { ...cur, frame: event.frame, lost: false } : cur;
+        if (event.type === "status") return { ...cur, status: event.status, tabs: event.status.tabs, lost: false };
         if (event.type === "tabs") return { ...cur, tabs: event.tabs };
-        return { ...cur, url: event.url };
+        return event.tab === tab ? { ...cur, gone: true } : cur;
       });
     };
     source.onerror = () => setState((cur) => ({ ...cur, lost: true }));
     return () => source.close();
-  }, [on]);
+  }, [on, tab]);
   return state;
 }
 
 const BOX_KEY = "kos.browser.box";
 const MIN: MinSize = { width: 360, height: 260 };
 
-function sendInput(message: BrowserInputMessage): void {
-  void api.browserInput({ ...message }).catch(() => {
-    /* the stream told the status; a lost click is not worth a toast */
+function sendInput(tab: string, message: BrowserInputMessage): void {
+  void api.browserInput(tab, { ...message }).catch(() => {
+    /* the stream tells the status; a lost click is not worth a toast */
   });
+}
+
+/** A tab's name in the strip: whose it is, then what it shows. */
+function tabLabel(t: BrowserTab, titleFor: (conversationId: string) => string | undefined): { who: string; what: string } {
+  const who = t.owner ? (titleFor(t.owner) ?? t.owner) : "";
+  let what = t.title;
+  if (!what) {
+    try {
+      what = t.url && t.url !== "about:blank" ? new URL(t.url).host : "blank";
+    } catch {
+      what = t.url || "blank";
+    }
+  }
+  return { who, what };
 }
 
 export interface BrowserWindowProps {
@@ -102,15 +116,21 @@ export interface BrowserWindowProps {
   onClose: () => void;
   /** What KOS is doing with it right now, if anything, for the title line. */
   doing?: string;
+  /** The conversation working right now: its tab is the one to show first. */
+  prefer?: string;
+  /** A conversation's title, for the strip. */
+  titleFor?: (conversationId: string) => string | undefined;
 }
 
-export function BrowserWindow({ open, onClose, doing }: BrowserWindowProps): ReactElement | null {
-  const live = useBrowserLive(open);
+export function BrowserWindow({ open, onClose, doing, prefer, titleFor = () => undefined }: BrowserWindowProps): ReactElement | null {
+  const [chosen, setChosen] = useState<string | null>(null);
+  /** The tab shown: the chosen one while it exists, else the working agent's, else the first that is someone's. */
+  const [tab, setTab] = useState<string | null>(null);
+  const live = useBrowserLive(open, tab);
   const [box, setBox] = useState<Box>(() => readBox(BOX_KEY, MIN, () => cornerBox(720, 520)));
   const boxRef = useRef(box);
   boxRef.current = box;
   const [driving, setDriving] = useState(false);
-  /** Filling the page (the box is kept for Restore), and the screen. */
   const [maximized, setMaximized] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const shell = useRef<HTMLDivElement>(null);
@@ -119,13 +139,21 @@ export function BrowserWindow({ open, onClose, doing }: BrowserWindowProps): Rea
   const resize = useRef<{ edge: Edge; x: number; y: number; box: Box } | null>(null);
   const frameSize = useRef({ width: 0, height: 0 });
 
+  // Which tab to show, settled whenever the tabs or the working agent change.
+  useEffect(() => {
+    const tabs = live.tabs;
+    const has = (id: string | null): boolean => !!id && tabs.some((t) => t.id === id);
+    const preferred = prefer ? (tabs.find((t) => t.owner === prefer)?.id ?? null) : null;
+    const next = has(chosen) ? chosen : (preferred ?? tabs.find((t) => t.owner)?.id ?? tabs[0]?.id ?? null);
+    if (next !== tab) setTab(next);
+  }, [live.tabs, prefer, chosen, tab]);
+
   useEffect(() => {
     const onResize = (): void => setBox((b) => clampBox(b, MIN));
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // The screen's own fullscreen, left by Escape or by the button.
   useEffect(() => {
     const onChange = (): void => setFullscreen(document.fullscreenElement === shell.current && shell.current !== null);
     document.addEventListener("fullscreenchange", onChange);
@@ -135,7 +163,6 @@ export function BrowserWindow({ open, onClose, doing }: BrowserWindowProps): Rea
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
     else void shell.current?.requestFullscreen().catch(() => {});
   };
-  // Maximized follows the viewport; a window resize is a re-render.
   const [, bump] = useState(0);
   useEffect(() => {
     if (!maximized) return;
@@ -144,7 +171,7 @@ export function BrowserWindow({ open, onClose, doing }: BrowserWindowProps): Rea
     return () => window.removeEventListener("resize", onResize);
   }, [maximized]);
 
-  // Each frame is drawn to fit, centred, on a canvas the size of the body.
+  // Each frame is drawn to fit, centred, at the screen's own pixel density.
   useEffect(() => {
     const el = canvas.current;
     const frame = live.frame;
@@ -154,9 +181,6 @@ export function BrowserWindow({ open, onClose, doing }: BrowserWindowProps): Rea
     img.onload = () => {
       if (cancelled) return;
       frameSize.current = { width: frame.width || img.naturalWidth, height: frame.height || img.naturalHeight };
-      // Drawn at the screen's own pixel density: a canvas sized in CSS
-      // pixels on a Retina screen is painted at half resolution and reads
-      // as a blur, whatever the frame carried.
       const dpr = window.devicePixelRatio || 1;
       const w = el.clientWidth;
       const h = el.clientHeight;
@@ -180,6 +204,13 @@ export function BrowserWindow({ open, onClose, doing }: BrowserWindowProps): Rea
       cancelled = true;
     };
   }, [live.frame, box.width, box.height, maximized, fullscreen]);
+
+  // A new tab starts blank until its first frame.
+  useEffect(() => {
+    const el = canvas.current;
+    if (!el || live.frame) return;
+    el.getContext("2d")?.clearRect(0, 0, el.width, el.height);
+  }, [tab, live.frame]);
 
   const place = useCallback((e: { clientX: number; clientY: number }): { x: number; y: number } => {
     const el = canvas.current;
@@ -230,22 +261,25 @@ export function BrowserWindow({ open, onClose, doing }: BrowserWindowProps): Rea
   if (!open) return null;
 
   const status = live.status;
-  const state = live.lost || !status || !status.configured ? "off" : status.screencasting ? "working" : status.connected ? "on" : "off";
+  const current = live.tabs.find((t) => t.id === tab) ?? null;
+  const state = live.lost || !status || !status.configured ? "off" : live.frame && !live.gone ? "working" : status.attached ? "on" : "off";
   const label = live.lost
     ? "stream lost"
     : !status
       ? "connecting"
       : !status.configured
         ? "no browser engine configured"
-        : status.socket === "connecting"
-          ? "connecting to the browser"
-          : status.screencasting
-            ? "live"
-            : status.connected
-              ? "browser open, nothing moving"
-              : "no browser open";
-  const url = live.url || status?.url || "";
-  const tabs = live.tabs.length ? live.tabs : (status?.tabs ?? []);
+        : status.chrome !== "running"
+          ? "browser not started"
+          : live.gone
+            ? "that tab closed"
+            : live.frame
+              ? "live"
+              : current
+                ? "waiting for the first frame"
+                : "no tab open";
+  const url = current?.url && current.url !== "about:blank" ? current.url : "";
+  const owner = current?.owner ? (titleFor(current.owner) ?? current.owner) : "";
   const placed: Box = maximized ? { left: EDGE, top: EDGE, width: window.innerWidth - EDGE * 2, height: window.innerHeight - EDGE * 2 } : box;
   const frameNote = live.frame ? `${live.frame.width}×${live.frame.height}` : "";
 
@@ -270,14 +304,30 @@ export function BrowserWindow({ open, onClose, doing }: BrowserWindowProps): Rea
         <StatusDot state={state} label={label} />
         <span className="browserwin-title">
           <span className="browserwin-url" title={url}>
-            {url || "Browser"}
+            {url || (current ? "Blank page" : "Browser")}
           </span>
-          {doing && !driving && <span className="browserwin-doing">{doing}</span>}
-          {driving && <span className="browserwin-doing browserwin-doing--you">you have the wheel</span>}
+          {driving ? (
+            <span className="browserwin-doing browserwin-doing--you">you have the wheel{owner ? ` on ${owner}'s tab` : ""}</span>
+          ) : doing ? (
+            <span className="browserwin-doing">{doing}</span>
+          ) : owner ? (
+            <span className="browserwin-doing">{owner}</span>
+          ) : null}
         </span>
         <span className="browserwin-acts">
-          {frameNote && <span className="browserwin-size" title="Frame size, in the browser's pixels">{frameNote}</span>}
-          <button type="button" className={`btn btn--sm${driving ? " btn--primary" : ""}`} aria-pressed={driving} onClick={() => setDriving((v) => !v)} title={driving ? "Give the page back to KOS" : "Click and type in the page yourself"}>
+          {frameNote && (
+            <span className="browserwin-size" title="Frame size, in the browser's pixels">
+              {frameNote}
+            </span>
+          )}
+          <button
+            type="button"
+            className={`btn btn--sm${driving ? " btn--primary" : ""}`}
+            aria-pressed={driving}
+            disabled={!current}
+            onClick={() => setDriving((v) => !v)}
+            title={driving ? "Give the tab back to the agent" : "Click and type in this tab yourself"}
+          >
             {driving ? "Let go" : "Take over"}
           </button>
           <button type="button" className="icon-btn" aria-label={maximized ? "Restore size" : "Maximize"} aria-pressed={maximized} title={maximized ? "Back to the window's own size" : "Fill the page (double-click the bar does too)"} onClick={() => setMaximized((v) => !v)}>
@@ -297,13 +347,28 @@ export function BrowserWindow({ open, onClose, doing }: BrowserWindowProps): Rea
           </button>
         </span>
       </div>
-      {tabs.length > 1 && (
+      {live.tabs.length > 0 && (
         <div className="browserwin-tabs" role="tablist" aria-label="Browser tabs">
-          {tabs.map((t) => (
-            <span key={t.id} role="tab" aria-selected={t.active} className={`browserwin-tab${t.active ? " is-active" : ""}`} title={t.url}>
-              {t.title || t.url || t.id}
-            </span>
-          ))}
+          {live.tabs.map((t) => {
+            const { who, what } = tabLabel(t, titleFor);
+            return (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={t.id === tab}
+                className={`browserwin-tab${t.id === tab ? " is-active" : ""}${t.owner ? "" : " browserwin-tab--stray"}`}
+                title={t.url}
+                onClick={() => {
+                  setChosen(t.id);
+                  setTab(t.id);
+                }}
+              >
+                {who && <span className="browserwin-tab-who">{who}</span>}
+                <span className="browserwin-tab-what">{what}</span>
+              </button>
+            );
+          })}
         </div>
       )}
       <div className="browserwin-body">
@@ -312,30 +377,30 @@ export function BrowserWindow({ open, onClose, doing }: BrowserWindowProps): Rea
           className="browserwin-canvas"
           tabIndex={driving ? 0 : -1}
           onPointerDown={(e) => {
-            if (!driving) return;
+            if (!driving || !tab) return;
             e.currentTarget.focus();
-            sendInput(mouseMessage("mousePressed", place(e), e));
+            sendInput(tab, mouseMessage("mousePressed", place(e), e));
           }}
           onPointerUp={(e) => {
-            if (driving) sendInput(mouseMessage("mouseReleased", place(e), e));
+            if (driving && tab) sendInput(tab, mouseMessage("mouseReleased", place(e), e));
           }}
           onPointerMove={(e) => {
-            if (driving) sendInput(mouseMessage("mouseMoved", place(e), e));
+            if (driving && tab) sendInput(tab, mouseMessage("mouseMoved", place(e), e));
           }}
           onWheel={(e) => {
-            if (!driving) return;
+            if (!driving || !tab) return;
             e.preventDefault();
-            sendInput(wheelMessage(place(e), e));
+            sendInput(tab, wheelMessage(place(e), e));
           }}
           onKeyDown={(e) => {
-            if (!driving) return;
+            if (!driving || !tab) return;
             e.preventDefault();
-            for (const m of keyMessages("keyDown", e)) sendInput(m);
+            for (const m of keyMessages("keyDown", e)) sendInput(tab, m);
           }}
           onKeyUp={(e) => {
-            if (!driving) return;
+            if (!driving || !tab) return;
             e.preventDefault();
-            for (const m of keyMessages("keyUp", e)) sendInput(m);
+            for (const m of keyMessages("keyUp", e)) sendInput(tab, m);
           }}
           onContextMenu={(e) => {
             if (driving) e.preventDefault();
@@ -346,10 +411,12 @@ export function BrowserWindow({ open, onClose, doing }: BrowserWindowProps): Rea
             {live.lost
               ? "The live stream dropped. It comes back on its own when the browser does."
               : status && !status.configured
-                ? "No browser engine is set up. Add agent-browser under Settings › MCP servers."
-                : status && !status.connected
-                  ? "Nothing open yet. The page appears here the moment KOS opens one."
-                  : "Waiting for the first frame…"}
+                ? "No browser engine is set up. Add the browser under Settings › MCP servers."
+                : live.gone
+                  ? "That tab closed. Pick another above."
+                  : !current
+                    ? "No tab open yet. One appears here the moment an agent opens a page."
+                    : "Waiting for the first frame…"}
           </p>
         )}
       </div>

@@ -6675,17 +6675,26 @@ a.health {
 .browserwin-tabs { display: flex; gap: 0.25rem; padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
 .browserwin-tab {
   flex: none;
-  max-width: 14rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 16rem;
   padding: 0.15rem 0.55rem;
   border: 1px solid var(--line);
   border-radius: 999px;
+  background: none;
   color: var(--muted);
+  font: inherit;
   font-size: var(--text-xs);
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  cursor: pointer;
 }
-.browserwin-tab.is-active { color: var(--text); background: var(--panel-2); border-color: var(--line-strong); }
+.browserwin-tab:hover { color: var(--text); border-color: var(--line-strong); }
+.browserwin-tab.is-active { color: var(--text); background: var(--panel-2); border-color: var(--accent); }
+.browserwin-tab--stray { opacity: 0.6; }
+.browserwin-tab-who { font-weight: 600; color: var(--text); }
+.browserwin-tab-what { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .browserwin-edge { position: absolute; z-index: 3; touch-action: none; }
 .browserwin-edge--n,
 .browserwin-edge--s { left: 12px; right: 12px; height: 12px; cursor: ns-resize; }
