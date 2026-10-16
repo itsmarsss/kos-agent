@@ -7443,3 +7443,6 @@ a.health {
 
 /* Settings > Browser: a list of folders, and the note on which Chromes read it. */
 .set-browser-found { font-family: var(--mono); font-size: var(--text-xs); color: var(--muted); word-break: break-all; }
+
+/* What a pick needs the owner to do once, under its blurb. */
+.ext-item-setup { font-size: var(--text-xs); color: var(--faint); line-height: 1.45; word-break: break-word; }

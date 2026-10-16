@@ -618,6 +618,7 @@ export function McpAdd({ onAdded }: { onAdded: () => void }): ReactElement {
                       <span className="ext-item-needs"> {p.needs}</span>
                     </span>
                     <span className="ext-item-blurb">{p.blurb}</span>
+                    {p.setup && <span className="ext-item-setup">{p.setup}</span>}
                   </span>
                   <button type="button" className="btn btn--sm" disabled={p.installed || busy !== null} onClick={() => addPick(p.name)}>
                     {p.installed ? "Added" : busy === p.name ? "Adding…" : "Add"}

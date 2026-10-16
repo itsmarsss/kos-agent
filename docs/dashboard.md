@@ -161,6 +161,12 @@ Six tabs. See [memory.md](memory.md) for what each holds.
 - **Schedule**: the jobs. A row opens the editor: name, when (with presets),
   what it does (Ask KOS with a prompt and a model class, or fixed tool
   calls), Run now, Pause, Delete. The built-in backup has no actions to edit.
+  A new job can start from a template: **Morning brief** (weekdays at
+  7:30: today's calendar, mail that needs an answer, what KOS has planned,
+  sent to you with notify) or **Weekly review** (Mondays at 8). The brief
+  reads your calendar and mail once those servers are added under Settings
+  > MCP servers (the Google Calendar and Gmail picks, each with a one-time
+  sign-in step it spells out), and until then says what it could not read.
 - **Agents**: coding sub-agents, each confined to one folder. New agent asks
   for the folder and the task.
 

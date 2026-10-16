@@ -139,7 +139,7 @@ export interface CatalogMcpListing {
 }
 
 export interface CatalogMcp {
-  picks: { name: string; blurb: string; needs: "node" | "uv" | "docker"; command: string; installed: boolean }[];
+  picks: { name: string; blurb: string; needs: "node" | "uv" | "docker"; command: string; installed: boolean; setup?: string }[];
   results: CatalogMcpListing[];
 }
 
