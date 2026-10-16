@@ -163,7 +163,9 @@ Six tabs. See [memory.md](memory.md) for what each holds.
   calls), Run now, Pause, Delete. The built-in backup has no actions to edit.
   A new job can start from a template: **Morning brief** (weekdays at
   7:30: today's calendar, mail that needs an answer, what KOS has planned,
-  sent to you with notify) or **Weekly review** (Mondays at 8). The brief
+  sent to you with notify), **Weekly review** (Mondays at 8), or **Watch a
+  page** (every six hours: the browser reads the page, keeps what it said,
+  and tells you which lines changed, with no model turn). The brief
   reads your calendar and mail once those servers are added under Settings
   > MCP servers (the Google Calendar and Gmail picks, each with a one-time
   sign-in step it spells out), and until then says what it could not read.

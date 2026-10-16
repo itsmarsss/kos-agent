@@ -347,6 +347,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       tabs: () => kernelRef?.browserTabs() ?? [],
       useTab: (tab) => (kernelRef ? kernelRef.useBrowserTab(tab) : Promise.reject(new Error("not booted"))),
       newTab: (url) => (kernelRef ? kernelRef.newBrowserTab(url) : Promise.reject(new Error("not booted"))),
+      watch: (input) => (kernelRef ? kernelRef.watchPage(input) : Promise.reject(new Error("not booted"))),
     }),
     createBuildsModule({
       approvals,

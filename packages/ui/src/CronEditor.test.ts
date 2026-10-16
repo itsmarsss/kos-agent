@@ -4,13 +4,16 @@ import { TEMPLATES, describeCron } from "./CronEditor.js";
 
 describe("the jobs offered to start from", () => {
   it("each has a schedule that reads back, and a prompt that reaches the owner", () => {
-    expect(TEMPLATES.map((t) => t.id)).toEqual(["brief", "review"]);
+    expect(TEMPLATES.map((t) => t.id)).toEqual(["brief", "review", "watch"]);
     for (const t of TEMPLATES) {
       expect(describeCron(t.schedule)).not.toBeNull();
-      expect(t.prompt).toContain("notify");
       expect(t.name.length).toBeGreaterThan(0);
+      // A prompt reaches the owner through notify; a fixed watch tells them itself.
+      if (t.actions) expect(t.actions[0]).toMatchObject({ tool: "browser.watch", args: { tell: true } });
+      else expect(t.prompt).toContain("notify");
     }
     expect(describeCron(TEMPLATES[0]!.schedule)).toBe("Weekdays at 07:30");
+    expect(describeCron(TEMPLATES[2]!.schedule)).toBe("Every 6 hours, at 00 past");
   });
 });
 

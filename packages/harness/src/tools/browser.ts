@@ -1,4 +1,5 @@
 import type { KosModule, ModuleContext } from "../modules/loader.js";
+import type { WatchLook } from "../ops/watches.js";
 import { RISKY, SAFE } from "../risk/tiers.js";
 
 /**
@@ -55,6 +56,8 @@ export interface BrowserToolsDeps {
   useTab?: (tab: string) => Promise<void>;
   /** A new tab of the caller's own, which it is then on. Returns its id. */
   newTab?: (url?: string) => Promise<string>;
+  /** Read a page in the caller's tab and compare it with the last reading under the same name. */
+  watch?: (input: { url: string; name?: string; selector?: string }) => Promise<WatchLook>;
 }
 
 type Step =
@@ -165,6 +168,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         { kind: "tool", name: "browser.tabs", version: "1.0.0" },
         { kind: "tool", name: "browser.use_tab", version: "1.0.0" },
         { kind: "tool", name: "browser.new_tab", version: "1.0.0" },
+        { kind: "tool", name: "browser.watch", version: "1.0.0" },
       ],
     },
     async activate(ctx: ModuleContext) {
@@ -350,6 +354,48 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           if (url) await deps.call(ENGINE_TOOL.waitForLoad, {}).catch(() => undefined);
           const page = url ? await pageAfter(deps, thenOf(input, "snapshot")) : "";
           return `Opened tab ${id}${url ? ` at ${url}` : ""}.\n${page}`.trim();
+        },
+        SAFE,
+      );
+
+      /*
+       * A page watched for change. Read now and compared with last time
+       * under its name; the difference is the answer. With `tell`, a change
+       * goes to the owner from here, so a scheduled watch is a plain actions
+       * job with no model turn in it.
+       */
+      ctx.registerTool(
+        {
+          name: "browser.watch",
+          description:
+            "Watch a page for change: open the url in your tab, read it, and compare with what was read last time under the same " +
+            "name (the url when no name is given). Says it is the first look, that nothing changed since when, or which lines went " +
+            "and came. `selector` limits the reading to one part of the page. With `tell: true` a change is sent to the owner, so " +
+            "a scheduled job can be the single action {tool: \"browser.watch\", args: {url, tell: true}} and need no model.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              url: { type: "string" },
+              name: { type: "string", description: "what to call this watch; the url by default" },
+              selector: { type: "string", description: "CSS selector for the part of the page to read" },
+              tell: { type: "boolean", description: "send a change to the owner" },
+            },
+            required: ["url"],
+          },
+        },
+        async (input) => {
+          const url = typeof input["url"] === "string" ? input["url"].trim() : "";
+          if (!url) throw new Error("url required");
+          if (!deps.watch) throw new Error("no browser to watch with");
+          const name = typeof input["name"] === "string" && input["name"].trim() ? input["name"].trim() : undefined;
+          const selector = typeof input["selector"] === "string" && input["selector"].trim() ? input["selector"].trim() : undefined;
+          const look = await deps.watch({ url, ...(name ? { name } : {}), ...(selector ? { selector } : {}) });
+          const when = new Date(look.changedAt).toISOString();
+          if (look.first) return `First look at ${look.key}: kept for next time.`;
+          if (!look.changed) return `No change at ${look.key} since ${when}.`;
+          const said = `Changed: ${look.key}\n${look.url}\n${look.diff ?? ""}`.trim();
+          if (input["tell"] === true) await ctx.services?.notify?.({ text: said, target: { kind: "owner" } });
+          return said;
         },
         SAFE,
       );
