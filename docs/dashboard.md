@@ -57,6 +57,32 @@ again. Each browser step in a thread keeps a small picture of the page as
 the agent left it, under its card; click it to see it large. That is the
 record of what a reply was looking at.
 
+**Your own tabs.** The strip ends in a **+**: a tab of your own, nobody's
+until you send an agent to it. Under the strip is an address bar with
+back, forward and reload beside it: type an address and it goes there,
+type words and they are searched (DuckDuckGo unless Settings > Browser
+says otherwise), press Enter with no tab open and one is made. Every tab
+has an **x**; closing an agent's gives it a fresh one on its next step.
+Your tabs are dashed in the strip and are never closed for being idle.
+
+**Pointing an agent at a page.** Type `@tab:` in any chat and the picker
+lists the open tabs by their page, with whose each is. The agent is told
+what the tab shows and takes it over with `browser.use_tab`, so "look at
+@tab:… and tell me what it says" works on a page you opened yourself, or
+on another agent's. The chip in the thread opens the window on that tab.
+Agents can list tabs (`browser.tabs`) and open a second one of their own
+(`browser.new_tab`); an agent's tabs all close together when it idles out.
+
+**Settings > Browser** runs the Chrome: show its window on this machine
+(headless otherwise), which binary to run, unpacked extension folders,
+and the address bar's search. Extensions live in KOS's own profile and
+stay. The sure way to install one is to show the window, open
+`chrome://extensions` (there is a button for it), and use the Web Store
+or Load unpacked; the folders list uses Chrome's `--load-extension` flag,
+which Google Chrome 137 and later ignores while Chromium and Chrome for
+Testing honour it. **Restart the browser** applies a change; every tab
+goes with it.
+
 A file an agent downloads lands in its project, under `downloads`, with the
 name the site gave it (or in a `downloads` folder at the workspace root for
 a chat with no project), and the thread says so with a file card. Tabs

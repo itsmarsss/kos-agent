@@ -19,7 +19,8 @@ export type MentionKind =
   | "schedule"
   | "chat"
   | "site"
-  | "agent";
+  | "agent"
+  | "tab";
 
 export interface Mention {
   kind: MentionKind;
@@ -45,6 +46,23 @@ export interface MentionSources {
    * two builds in the same folder are different agents.
    */
   agents?: { id: number; dir: string; status: string }[];
+  /**
+   * The browser's open tabs, so the owner can point an agent at a page
+   * they or another agent have open. Named by the page; `owner` is whose
+   * it is, already in words.
+   */
+  tabs?: { id: string; title: string; url: string; owner?: string }[];
+}
+
+/** A tab's name in a list: its title, else its host, else blank. */
+export function tabLabel(tab: { title: string; url: string }): string {
+  if (tab.title.trim()) return tab.title.trim();
+  if (!tab.url || tab.url === "about:blank") return "blank tab";
+  try {
+    return new URL(tab.url).host || tab.url;
+  } catch {
+    return tab.url;
+  }
 }
 
 /**
@@ -201,6 +219,12 @@ export function findMentions(
       hint: s.project,
       of: s.project,
     })),
+    ...(sources.tabs ?? []).map((t) => ({
+      kind: "tab" as const,
+      id: t.id,
+      label: tabLabel(t),
+      hint: [t.owner, t.url !== "about:blank" ? t.url : ""].filter(Boolean).join(" · "),
+    })),
     ...walkFiles(sources.workspace).map((path) => ({
       kind: "file" as const,
       id: path,
@@ -243,7 +267,7 @@ const PLAIN_ID = /^[A-Za-z0-9._/-]*[A-Za-z0-9_/-]$/;
  * sentence eats the full stop: "@schedule:kos.backup." resolved as the job
  * "kos.backup." and was reported as not existing.
  */
-const KINDS = "project|page|file|schedule|chat|site|agent";
+const KINDS = "project|page|file|schedule|chat|site|agent|tab";
 
 /**
  * Either bracketed, which may hold anything but a bracket, or plain. The

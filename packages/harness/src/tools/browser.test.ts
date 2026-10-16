@@ -96,6 +96,55 @@ describe("browser.handoff", () => {
   });
 });
 
+describe("tabs", () => {
+  it("lists the tabs with whose each is, moves to one, and opens one of its own", async () => {
+    const h = harness({ [ENGINE_TOOL.title]: "Example", [ENGINE_TOOL.snapshot]: "- link @e1" });
+    const used: string[] = [];
+    const opened: (string | undefined)[] = [];
+    const module = createBrowserModule({
+      call: async (tool, args) => {
+        h.calls.push({ tool, args });
+        return tool === ENGINE_TOOL.title ? "Example" : tool === ENGINE_TOOL.snapshot ? "- link @e1" : "";
+      },
+      tabs: () => [
+        { id: "T1", title: "Mine", url: "https://a", mine: true, current: true },
+        { id: "T2", title: "", url: "https://b", owner: "Research" },
+        { id: "T3", title: "Owner's", url: "https://c" },
+      ],
+      useTab: async (tab) => {
+        used.push(tab);
+      },
+      newTab: async (url) => {
+        opened.push(url);
+        return "T9";
+      },
+    });
+    await module.activate({ registerTool: (d, f, r, m) => h.registry.register(d, f, r, m) });
+    for (const name of ["browser.tabs", "browser.use_tab", "browser.new_tab"]) expect(h.registry.classify(name, {}).tier).toBe("safe");
+
+    expect((await h.registry.execute("browser.tabs", {})).content).toBe(
+      "T1 (yours, current): Mine — https://a\nT2 (Research's): untitled — https://b\nT3 (the owner's): Owner's — https://c",
+    );
+
+    const moved = await h.registry.execute("browser.use_tab", { tab: "T3" });
+    expect(used).toEqual(["T3"]);
+    expect(moved.content).toBe("Now on tab T3.\nTitle: Example\n- link @e1");
+    expect((await h.registry.execute("browser.use_tab", {})).isError).toBe(true);
+
+    const fresh = await h.registry.execute("browser.new_tab", { url: "https://d", then: "none" });
+    expect(opened).toEqual(["https://d"]);
+    expect(fresh.content).toBe("Opened tab T9 at https://d.");
+    expect(h.calls.map((c) => c.tool)).toContain(ENGINE_TOOL.waitForLoad);
+    expect((await h.registry.execute("browser.new_tab", {})).content).toBe("Opened tab T9.");
+  });
+
+  it("says when there is nothing to list", async () => {
+    const h = harness();
+    await h.module.activate({ registerTool: (d, f, r, m) => h.registry.register(d, f, r, m) });
+    expect((await h.registry.execute("browser.tabs", {})).content).toBe("No tabs are open.");
+  });
+});
+
 describe("browser.look", () => {
   it("hands back the tab as a picture, or says there is none", async () => {
     const h = harness();

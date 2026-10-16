@@ -4,6 +4,7 @@ import {
   type FailingJob,
   api,
   type AuditRecord,
+  type BrowserTabInfo,
   type BuildRecord,
   type CronJob,
   type FactRow,
@@ -29,6 +30,7 @@ import { HistoryPage, type HistoryRow } from "./HistoryPage.js";
 import { HomePage } from "./HomePage.js";
 import { ChatsPage } from "./ChatsPage.js";
 import { BrowserWindow } from "./BrowserWindow.js";
+import { OpenTab } from "./opentab.js";
 import { QuickAsk } from "./QuickAsk.js";
 import { useProgress } from "./progress.js";
 import { FilesPage } from "./FilesPage.js";
@@ -105,13 +107,16 @@ export function App(): React.ReactElement {
    */
   const [browserOpen, setBrowserOpen] = useState(false);
   const [browserPrefix, setBrowserPrefix] = useState<string | null>(null);
+  /** The browser's tabs as of the last poll, so a chip in a chat can name one. */
+  const [browserTabs, setBrowserTabs] = useState<BrowserTabInfo[]>([]);
+  /** A tab asked for from a chip or a button: the window opens on it. */
+  const [browserPick, setBrowserPick] = useState<{ tab: string; n: number } | undefined>(undefined);
   const browserDismissed = useRef(false);
   const live = useProgress();
-  useEffect(() => {
-    void api
-      .browserStatus()
-      .then((b) => setBrowserPrefix(b.prefix ?? null))
-      .catch(() => setBrowserPrefix(null));
+  const openTab = useCallback((tab: string): void => {
+    browserDismissed.current = false;
+    setBrowserPick({ tab, n: Date.now() });
+    setBrowserOpen(true);
   }, []);
   /** Who is browsing right now, and what they are doing, if anyone is. */
   const browsing = useMemo((): { id: string; doing?: string } | null => {
@@ -198,7 +203,7 @@ export function App(): React.ReactElement {
     };
     // One fewer request than this used to make: the failures-only view was a
     // separate fetch, and History filters the rows it already has.
-    const [s, a, p, c, pg, act, mem, r, convos, ag, ib] = await Promise.allSettled([
+    const [s, a, p, c, pg, act, mem, r, convos, ag, ib, br] = await Promise.allSettled([
       api.status(),
       api.approvals(),
       api.projects(),
@@ -210,9 +215,14 @@ export function App(): React.ReactElement {
       api.conversations(),
       api.agents(),
       api.inbox(),
+      api.browserStatus(),
     ]);
     apply(s, setStatus);
     apply(ib, setInbox);
+    apply(br, (v) => {
+      setBrowserPrefix(v.prefix ?? null);
+      setBrowserTabs(v.tabs);
+    });
     apply(a, setApprovals);
     apply(ag, (v) => setAgents(v.builds));
     apply(p, setProjects);
@@ -593,6 +603,7 @@ export function App(): React.ReactElement {
       {/* The chat route owns the whole window: the shell's scroll padding is
           for pages that scroll, and with it the document ran past the viewport
           so the page moved behind the chat, top bar and all. */}
+      <OpenTab.Provider value={openTab}>
       <div className="app">
       <Sidebar
         route={route}
@@ -758,6 +769,7 @@ export function App(): React.ReactElement {
         }}
         {...(browsing?.doing ? { doing: browsing.doing } : {})}
         {...(handoffs[0]?.conversationId ? { prefer: handoffs[0].conversationId } : browsing ? { prefer: browsing.id } : {})}
+        {...(browserPick ? { pick: browserPick } : {})}
         titleFor={(id) => conversations.find((c) => c.id === id)?.title}
         handoffs={handoffs}
         onDecide={(id, approved) => void decide(id, approved)}
@@ -775,6 +787,7 @@ export function App(): React.ReactElement {
           : {})}
       />
       </div>
+      </OpenTab.Provider>
     </ErrorBoundary>
   );
 
@@ -827,6 +840,7 @@ export function App(): React.ReactElement {
         approvals={approvals}
         deciding={deciding}
         agents={agents}
+        tabs={browserTabs}
         onOpenAgent={(id) => go({ name: "agents", id })}
         onOpen={openConversation}
         onOpenProject={(slug) => go({ name: "project", slug })}
@@ -857,6 +871,7 @@ export function App(): React.ReactElement {
         approvals={approvals}
         deciding={deciding}
         agents={agents}
+        tabs={browserTabs}
         onOpenAgent={(id) => go({ name: "agents", id })}
         onOpen={openConversation}
         onOpenProject={(s) => go({ name: "project", slug: s })}

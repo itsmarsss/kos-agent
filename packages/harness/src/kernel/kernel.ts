@@ -13,14 +13,15 @@ import { FrameStore } from "../ops/frames.js";
 import { toolUse } from "./caller.js";
 
 /** KOS's own browser tools: they act on the caller's tab and share its site trust. */
-const BROWSER_MEMBERS = ["browser.visit", "browser.act", "browser.look"];
+const BROWSER_MEMBERS = ["browser.visit", "browser.act", "browser.look", "browser.tabs", "browser.use_tab", "browser.new_tab"];
 /** The ask for the owner's hands: on the tab too, pictured too, never trusted. */
 const BROWSER_HANDOFF = "browser.handoff";
 /** A tab nobody has used this long is closed; checked this often. */
 const IDLE_TAB_MS = 20 * 60_000;
 const IDLE_SWEEP_MS = 5 * 60_000;
 import { ChromeHost } from "../browser/chrome.js";
-import { BrowserLive, browserEngine, sessionFor, type BrowserDownload } from "../browser/live.js";
+import { BrowserLive, browserEngine, launchFor, sessionFor, type BrowserDownload, type BrowserEngine, type BrowserStatus } from "../browser/live.js";
+import type { TabInfo } from "../tools/browser.js";
 import { settleDownload } from "../browser/downloads.js";
 import { BUILTIN_FEATURES, isBuiltinFeature } from "../modules/builtins.js";
 import { MODULES_KEY, parseModuleSettings, withBuiltinEnabled } from "../modules/workspace.js";
@@ -369,16 +370,17 @@ export class Kernel {
       this.frames = new FrameStore(this.workspace.db);
       const downloadsDir = this.workspace.resolve(".kos/browser-downloads");
       mkdirSync(downloadsDir, { recursive: true });
+      const engineFor = (): BrowserEngine | undefined => browserEngine(readMcpConfig(this.workspace.root));
       this.browser = new BrowserLive({
-        engineFor: () => browserEngine(readMcpConfig(this.workspace.root)),
+        engineFor,
         downloadsDir,
         onDownload: (download) => this.placeDownload(download),
         chrome: new ChromeHost({
           port: engine?.port ?? 9225,
           profileDir: this.workspace.resolve(".kos/browser-profile"),
-          ...(engine?.chrome ? { binary: engine.chrome } : {}),
-          headed: engine?.headed ?? false,
-          ...(engine?.viewport ? { windowSize: { width: engine.viewport.width, height: engine.viewport.height + 90 } } : {}),
+          // Read at each launch, so what Settings > Browser says applies
+          // the next time Chrome starts, including a restart asked for there.
+          launch: () => launchFor(engineFor()),
         }),
       });
       this.idleSweep = setInterval(() => this.sweepIdleTabs(), IDLE_SWEEP_MS);
@@ -685,7 +687,7 @@ export class Kernel {
         // here so the agent gets the file's contents or the page's spec
         // rather than a string it has to go and look up, and so a name that
         // no longer exists says so instead of being silently ignored.
-        const mentioned = this.resolveMentions(text);
+        const mentioned = this.resolveMentions(text, conversation?.id);
         const formatting = channelGuidance(opts.channel, this.surfaceStyle(opts.channel, conversation?.projectSlug ?? undefined));
         // Say when the toolkit has been narrowed. Withheld tools are simply
         // absent, so a scoped agent asked for something outside its reach does
@@ -2065,10 +2067,58 @@ export class Kernel {
   }
 
   async callBrowser(tool: string, args: Record<string, unknown>): Promise<string> {
-    const engine = browserEngine(readMcpConfig(this.workspace.root));
-    if (!engine) throw new Error("no browser engine is configured; add the browser under Settings > MCP servers");
+    const engine = this.browserEngineOrThrow();
     const prepared = await this.prepareBrowserCall(engine.server, tool, args);
     return this.mcp.call(engine.server, tool, prepared);
+  }
+
+  private browserEngineOrThrow(): BrowserEngine {
+    const engine = browserEngine(readMcpConfig(this.workspace.root));
+    if (!engine) throw new Error("no browser engine is configured; add the browser under Settings > MCP servers");
+    return engine;
+  }
+
+  /** The open tabs as the caller is told of them: whose each is, and which is its own. */
+  browserTabs(): TabInfo[] {
+    const me = this.callerConversationId;
+    const current = me ? this.browser.tabOf(me) : undefined;
+    return this.browser.tabs().map((t) => ({
+      id: t.id,
+      title: t.title,
+      url: t.url,
+      ...(t.owner && t.owner !== me ? { owner: this.conversations.get(t.owner)?.title ?? t.owner } : {}),
+      ...(t.owner && t.owner === me ? { mine: true } : {}),
+      ...(t.id === current ? { current: true } : {}),
+    }));
+  }
+
+  /** The caller moves to an open tab, which is its own from then on. */
+  async useBrowserTab(tab: string): Promise<void> {
+    this.browserEngineOrThrow();
+    await this.browser.ensure();
+    const conversationId = this.callerConversationId ?? "root";
+    this.browser.useTab({ session: sessionFor(conversationId), conversationId }, tab);
+  }
+
+  /** A new tab of the caller's own, which it is then on. */
+  async newBrowserTab(url?: string): Promise<string> {
+    this.browserEngineOrThrow();
+    const conversationId = this.callerConversationId ?? "root";
+    return this.browser.openTab(url ?? "about:blank", { session: sessionFor(conversationId), conversationId });
+  }
+
+  /**
+   * Chrome closed and started again with the settings as they are now.
+   * The engine's sessions were attached to the Chrome that is going, so
+   * each is closed first and dials the new one on its next call.
+   */
+  async restartBrowser(): Promise<BrowserStatus> {
+    const engine = this.browserEngineOrThrow();
+    for (const session of this.browser.boundSessions()) {
+      await this.mcp.call(engine.server, "agent_browser_close", { session }).catch(() => undefined);
+    }
+    await this.browser.restart();
+    return this.browser.status();
   }
 
   /**
@@ -2113,9 +2163,10 @@ export class Kernel {
     const session = sessionFor(conversationId);
     const bound = await this.browser.bind(session, conversationId);
     this.browser.touch(session);
-    if (bound.made && tool !== "agent_browser_tab_switch") {
+    if (bound.retarget && tool !== "agent_browser_tab_switch") {
       // The engine opens a blank tab of its own on first contact; the
       // switch binds it to ours instead, and the blank one is tidied away.
+      // The same switch moves it when the caller has changed tabs.
       await this.mcp.call(server, "agent_browser_tab_switch", { session, tab: bound.target });
       if (engine.viewport) {
         await this.mcp
@@ -2424,12 +2475,27 @@ export class Kernel {
    * Only what was actually named: this is the owner pointing at something, so
    * it is worth the prompt space, unlike everything else in the workspace.
    */
-  private resolveMentions(text: string): string | null {
+  private resolveMentions(text: string, conversationId?: string): string | null {
     const refs = parseMentions(text);
     if (refs.length === 0) return null;
 
     const parts: string[] = [];
     for (const ref of refs) {
+      if (ref.kind === "tab") {
+        // A page someone has open. Named with how to get to it, since the
+        // agent's own tab is elsewhere and a mention alone moves nothing.
+        const tab = this.browser.tabs().find((t) => t.id === ref.id);
+        if (!tab) {
+          parts.push(`Browser tab ${ref.id}: not open any more.`);
+          continue;
+        }
+        const whose = !tab.owner ? "the owner's own" : tab.owner === conversationId ? "yours" : `${this.conversations.get(tab.owner)?.title ?? tab.owner}'s`;
+        parts.push(
+          `Browser tab ${tab.id} (${whose}): "${tab.title || "untitled"}" at ${tab.url}. ` +
+            `To work in it, call browser.use_tab with tab "${tab.id}": it becomes your tab and you get the page as it is.`,
+        );
+        continue;
+      }
       if (ref.kind === "project") {
         const project = this.manifest.get(ref.id);
         parts.push(

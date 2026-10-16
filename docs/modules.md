@@ -122,11 +122,25 @@ browser; any engine that attaches over CDP could take its place. KOS's own
 keys beside it: `KOS_BROWSER_VIEWPORT` (`1600x1000`), the size each tab is
 set to through the engine's viewport tool; `KOS_BROWSER_CHROME`, a binary
 to run instead of the first one found; `KOS_BROWSER_HEADED=1` to show the
-window on the machine as well. Logins live in `.kos/browser-profile` under
-the workspace and survive restarts. A change to a server's entry (command,
-args, env, floors) takes effect on the next reload from Settings; the
-server is brought up again with the new one. A changed port wants a host
-restart.
+window on the machine as well; `KOS_BROWSER_EXTENSIONS`, unpacked
+extension folders (comma or newline separated) passed as
+`--load-extension`, which Google Chrome 137 and later ignores in its own
+builds while Chromium and Chrome for Testing honour it; and
+`KOS_BROWSER_SEARCH`, where the dashboard's address bar sends words, a
+URL with `%s` (DuckDuckGo by default). Settings > Browser edits these
+four. Logins and installed extensions live in `.kos/browser-profile`
+under the workspace and survive restarts. A change to a server's entry
+(command, args, env, floors) takes effect on the next reload from
+Settings; the server is brought up again with the new one. The KOS keys
+take effect when Chrome next starts (Restart the browser in Settings). A
+changed port wants a host restart.
+
+KOS's tab tools beside the visit and act: `browser.tabs` lists the open
+tabs and whose each is, `browser.use_tab` moves the caller to one (the
+owner's, or another agent's, which it then owns), `browser.new_tab` opens
+a second one of its own. A tab is one agent's at a time; an agent's tabs
+close together when it idles out, and the owner's own are closed only by
+the owner.
 
 ## Installing skills
 

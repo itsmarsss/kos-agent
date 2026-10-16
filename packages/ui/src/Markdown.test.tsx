@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { Markdown, MentionNames } from "./Markdown.js";
 import { formatElapsed } from "./LiveTurn.js";
+import { OpenTab } from "./opentab.js";
 
 function html(text: string): string {
   const { container } = render(<Markdown text={text} />);
@@ -229,6 +230,7 @@ describe("every kind of reference", () => {
     ["chat", "[abc123:owner]"],
     ["site", "budget_tracker/expenses"],
     ["agent", "7"],
+    ["tab", "A1B2C3"],
   ] as const;
 
   for (const [kind, id] of kinds) {
@@ -258,5 +260,20 @@ describe("every kind of reference", () => {
     expect(container.querySelector(".chip-ref--chat")?.textContent).toBe(
       "abc123:owner",
     );
+  });
+
+  it("opens the browser on a tab chip rather than going anywhere", () => {
+    const opened: string[] = [];
+    const { container } = render(
+      <OpenTab.Provider value={(tab) => opened.push(tab)}>
+        <MentionNames resolve={(k, id) => (k === "tab" ? `Hacker News (${id})` : undefined)}>
+          <Markdown text="look at @tab:A1B2C3" />
+        </MentionNames>
+      </OpenTab.Provider>,
+    );
+    const chip = container.querySelector(".chip-ref--tab") as HTMLAnchorElement;
+    expect(chip.textContent).toBe("Hacker News (A1B2C3)");
+    fireEvent.click(chip);
+    expect(opened).toEqual(["A1B2C3"]);
   });
 });

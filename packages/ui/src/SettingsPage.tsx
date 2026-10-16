@@ -6,8 +6,9 @@ import {
   api,
   type Behaviour,
   type ModelRate,
-  type SettingsPayload, type ModuleInfo, type SkillInfo, type McpServerInfo, type PermissionRule } from "./api.js";
+  type SettingsPayload, type ModuleInfo, type SkillInfo, type McpServerInfo, type PermissionRule, type BrowserSettings } from "./api.js";
 import { ModelSettings } from "./ModelSettings.js";
+import { useOpenTab } from "./opentab.js";
 import { Select } from "./Select.js";
 import { McpAdd, SkillsAdd } from "./ExtensionBrowser.js";
 import { isDensity, isTheme, readDensity, readTheme, setDensity, setTheme, type Density, type Theme } from "./theme.js";
@@ -62,6 +63,7 @@ type SectionId =
   | "skills"
   | "modules"
   | "mcp"
+  | "browser"
   | "permissions"
   | "workspace";
 
@@ -79,6 +81,7 @@ const SECTIONS: { id: SectionId; group: string; label: string; blurb: string }[]
   { id: "skills", group: "Extensions", label: "Skills", blurb: "What KOS knows how to do, and which are on" },
   { id: "modules", group: "Extensions", label: "Modules", blurb: "Features built as servers, and which are running" },
   { id: "mcp", group: "Extensions", label: "MCP servers", blurb: "Outside tools, by the protocol they speak" },
+  { id: "browser", group: "Extensions", label: "Browser", blurb: "The Chrome KOS drives: its window, extensions and search" },
   { id: "permissions", group: "Access", label: "Permissions", blurb: "Decisions you made at a prompt and kept" },
   { id: "network", group: "Access", label: "Network", blurb: "Ports, binding, and what the agent may reach" },
   { id: "spend", group: "Housekeeping", label: "Spend", blurb: "Tokens used and what they cost" },
@@ -184,53 +187,51 @@ function Limit({
 }
 
 /**
- * A set of hostnames, edited one at a time.
- *
- * Stored as the comma-separated string the environment file wants, because
- * that is what the host reads; shown as what it is.
+ * A list of short strings, edited one at a time: hostnames, folders.
+ * Shown as what it is, whatever the file stores it as.
  */
-function HostList({
-  value,
+function TokenList({
+  items,
   onChange,
+  placeholder,
+  action,
+  clean = (s) => s.trim(),
+  empty,
 }: {
-  value: string;
-  onChange: (next: string) => void;
+  items: string[];
+  onChange: (next: string[]) => void;
+  placeholder: string;
+  /** The verb on the button. */
+  action: string;
+  /** What was typed, as it is kept; empty to refuse it. */
+  clean?: (typed: string) => string;
+  /** Said under the list when there is nothing in it. */
+  empty?: string;
 }): ReactElement {
   const [draft, setDraft] = useState("");
-  const hosts = value
-    .split(",")
-    .map((h) => h.trim())
-    .filter(Boolean);
-
-  const write = (next: string[]): void => onChange(next.join(", "));
 
   const add = (): void => {
-    // Typed with a scheme or a path, which is the natural thing to paste.
-    const cleaned = draft
-      .trim()
-      .replace(/^[a-z]+:\/\//i, "")
-      .replace(/\/.*$/, "")
-      .toLowerCase();
-    if (!cleaned || hosts.includes(cleaned)) {
+    const cleaned = clean(draft);
+    if (!cleaned || items.includes(cleaned)) {
       setDraft("");
       return;
     }
-    write([...hosts, cleaned]);
+    onChange([...items, cleaned]);
     setDraft("");
   };
 
   return (
     <div className="hostlist">
-      {hosts.length > 0 && (
+      {items.length > 0 && (
         <ul className="hostlist-items">
-          {hosts.map((h) => (
+          {items.map((h) => (
             <li key={h}>
               <span className="ops-mono">{h}</span>
               <button
                 type="button"
                 className="icon-btn icon-btn--bare"
-                title={`Stop allowing ${h}`}
-                onClick={() => write(hosts.filter((x) => x !== h))}
+                title={`Remove ${h}`}
+                onClick={() => onChange(items.filter((x) => x !== h))}
               >
                 <svg
                   width="12"
@@ -253,7 +254,7 @@ function HostList({
         <input
           className="kos-input"
           value={draft}
-          placeholder="rss.nytimes.com"
+          placeholder={placeholder}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -268,15 +269,47 @@ function HostList({
           disabled={!draft.trim()}
           onClick={add}
         >
-          Allow
+          {action}
         </button>
       </div>
-      {hosts.length === 0 && (
-        <span className="hint">
-          Nothing is allowed, so http.fetch can reach nothing.
-        </span>
-      )}
+      {items.length === 0 && empty && <span className="hint">{empty}</span>}
     </div>
+  );
+}
+
+/**
+ * A set of hostnames, edited one at a time.
+ *
+ * Stored as the comma-separated string the environment file wants, because
+ * that is what the host reads; shown as what it is.
+ */
+function HostList({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}): ReactElement {
+  const hosts = value
+    .split(",")
+    .map((h) => h.trim())
+    .filter(Boolean);
+  return (
+    <TokenList
+      items={hosts}
+      onChange={(next) => onChange(next.join(", "))}
+      placeholder="rss.nytimes.com"
+      action="Allow"
+      // Typed with a scheme or a path, which is the natural thing to paste.
+      clean={(typed) =>
+        typed
+          .trim()
+          .replace(/^[a-z]+:\/\//i, "")
+          .replace(/\/.*$/, "")
+          .toLowerCase()
+      }
+      empty="Nothing is allowed, so http.fetch can reach nothing."
+    />
   );
 }
 
@@ -407,6 +440,20 @@ export function SettingsPage({
   useEffect(() => {
     if (active === "mcp") loadMcp();
   }, [active, loadMcp]);
+  /** How the browser runs, as the server has it, and the draft being edited. */
+  const [browser, setBrowser] = useState<BrowserSettings | null>(null);
+  const [browserDraft, setBrowserDraft] = useState<{ headed: boolean; chrome: string; extensions: string[]; search: string } | null>(null);
+  const openTab = useOpenTab();
+  const takeBrowser = useCallback((b: BrowserSettings) => {
+    setBrowser(b);
+    setBrowserDraft(b.engine ? { headed: b.headed, chrome: b.chrome, extensions: b.extensions, search: b.search } : null);
+  }, []);
+  useEffect(() => {
+    if (active !== "browser") return;
+    void api.browserSettings().then(takeBrowser).catch(() => setBrowser(null));
+  }, [active, takeBrowser]);
+  const browserDirty =
+    !!browser && !!browserDraft && JSON.stringify(browserDraft) !== JSON.stringify({ headed: browser.headed, chrome: browser.chrome, extensions: browser.extensions, search: browser.search });
   /** A server from the name and the command line or URL typed for it. */
   const loadModules = useCallback(() => {
     void api
@@ -541,6 +588,27 @@ export function SettingsPage({
     onSave,
     ...(extra ? { extra } : {}),
   });
+
+  const saveBrowser = (): void => {
+    if (!browserDraft) return;
+    setBusy("browser");
+    void api
+      .saveBrowserSettings(browserDraft)
+      .then((b) => {
+        takeBrowser(b);
+        done("browser", "Saved; restart the browser to apply");
+      })
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setBusy(null));
+  };
+  const restartBrowser = (): void => {
+    setBusy("browser");
+    void api
+      .browserRestart()
+      .then((s) => done("browser", s.attached ? "Browser restarted" : "Browser restarting"))
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setBusy(null));
+  };
 
   const same = (a: Behaviour, b: Behaviour): boolean =>
     (Object.keys(a) as (keyof Behaviour)[]).every((k) => a[k] === b[k]);
@@ -1510,6 +1578,90 @@ export function SettingsPage({
           </Section>
         )}
 
+        {active === "browser" && (
+          <Section
+            title="Browser"
+            blurb="The one Chrome KOS runs, a tab per agent and tabs of your own. Headless by default: the Browser window on the sidebar is its screen. A change here takes effect when the browser next starts."
+            saving={busy === "browser"}
+            saved={browserDirty ? "Not saved yet" : (saved["browser"] ?? null)}
+            canSave={browserDirty}
+            onSave={saveBrowser}
+            extra={
+              <button type="button" className="btn" disabled={busy === "browser" || !browser?.engine} onClick={restartBrowser} title="Close Chrome and start it again with these settings">
+                Restart the browser
+              </button>
+            }
+          >
+            {browser && !browser.engine && <p className="hint">No browser engine is set up. Add the browser under MCP servers first.</p>}
+            {browserDraft && (
+              <>
+                <div className="set-group">
+                  <h3>The window</h3>
+                  <Field
+                    label="Show the window on this machine"
+                    hint="Off, Chrome runs unseen and the dashboard's Browser window is the only view. On, Chrome's own windows open here too: that is how you install extensions from the Web Store, and it is where Chrome's own dialogs appear."
+                  >
+                    <label className="set-toggle">
+                      <input type="checkbox" checked={browserDraft.headed} onChange={(e) => setBrowserDraft({ ...browserDraft, headed: e.target.checked })} />
+                      <span>{browserDraft.headed ? "On" : "Off"}</span>
+                    </label>
+                  </Field>
+                  <Field
+                    label="Chrome to run"
+                    hint="Blank runs the first Chrome found. Name a binary to run Chromium or Chrome for Testing instead."
+                    meta={browser?.found ? <span className="set-browser-found">Would run: {browser.found}</span> : <span className="set-browser-found">No Chrome found on this machine.</span>}
+                  >
+                    <input
+                      className="kos-input"
+                      value={browserDraft.chrome}
+                      placeholder="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+                      spellCheck={false}
+                      onChange={(e) => setBrowserDraft({ ...browserDraft, chrome: e.target.value })}
+                    />
+                  </Field>
+                </div>
+                <div className="set-group">
+                  <h3>Extensions</h3>
+                  <p className="hint">
+                    Extensions live in KOS's own Chrome profile and stay there. The sure way in is to show the window, open chrome://extensions in a tab of your own, and install from the Web Store or Load unpacked there.
+                    The folders below are loaded at start with Chrome's --load-extension flag, which Google Chrome 137 and later ignores; Chromium and Chrome for Testing still honour it.
+                  </p>
+                  <Field label="Unpacked extension folders">
+                    <TokenList
+                      items={browserDraft.extensions}
+                      onChange={(extensions) => setBrowserDraft({ ...browserDraft, extensions })}
+                      placeholder="/Users/you/extensions/ublock"
+                      action="Add"
+                      empty="No folders. Extensions installed through the window still load."
+                    />
+                  </Field>
+                  {openTab && (
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      disabled={!browser?.engine}
+                      onClick={() => void api.browserNewTab("chrome://extensions").then((r) => openTab(r.tab)).catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))}
+                    >
+                      Open chrome://extensions in a tab
+                    </button>
+                  )}
+                </div>
+                <div className="set-group">
+                  <h3>Search</h3>
+                  <Field label="Where the address bar searches" hint="Words that are not an address go here, with %s standing for them.">
+                    <input
+                      className="kos-input"
+                      value={browserDraft.search}
+                      placeholder="https://duckduckgo.com/?q=%s"
+                      spellCheck={false}
+                      onChange={(e) => setBrowserDraft({ ...browserDraft, search: e.target.value })}
+                    />
+                  </Field>
+                </div>
+              </>
+            )}
+          </Section>
+        )}
         {active === "workspace" && (
           <Section
             title="Workspace"
