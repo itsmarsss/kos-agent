@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { runAgent, type Inference } from "../agent/loop.js";
 import { PressRoutes } from "../channels/presses.js";
 import type { MessageButton, MessageCard } from "../channels/types.js";
@@ -644,7 +645,7 @@ export class Kernel {
         // rather than a string it has to go and look up, and so a name that
         // no longer exists says so instead of being silently ignored.
         const mentioned = this.resolveMentions(text);
-        const formatting = channelGuidance(opts.channel);
+        const formatting = channelGuidance(opts.channel, this.surfaceStyle(opts.channel, conversation?.projectSlug ?? undefined));
         // Say when the toolkit has been narrowed. Withheld tools are simply
         // absent, so a scoped agent asked for something outside its reach does
         // not know the capability exists: it cannot say "not here", and works
@@ -1695,6 +1696,26 @@ export class Kernel {
    * memory a chat turn gets. Unattended jobs previously ran with no system
    * prompt at all, so the agent woke with no identity and no project context.
    */
+  /**
+   * The owner's own house style for a surface, if they keep one.
+   *
+   * A prompt skill named `<channel>-style` (discord-style) replaces the
+   * built-in guidance for that surface, in full. Read each turn rather than
+   * cached, so an edit to the file is the next reply's style.
+   */
+  private surfaceStyle(channel: string | undefined, projectSlug?: string): string | undefined {
+    if (!channel) return undefined;
+    const skill = this.skillsOffered(projectSlug).find(
+      (s) => s.manifest.kind === "prompt" && s.manifest.name === `${channel}-style`,
+    );
+    if (!skill) return undefined;
+    try {
+      return readFileSync(this.workspace.resolve(skill.file), "utf8");
+    } catch {
+      return undefined;
+    }
+  }
+
   /** Skills the model may reach from here: on, valid, and for this project if they say. */
   private skillsOffered(projectSlug?: string): ReturnType<typeof offeredSkills> {
     return offeredSkills(
