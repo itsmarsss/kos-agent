@@ -336,6 +336,13 @@ describe("handleApiRequest", () => {
     expect((await handleApiRequest(kernel, { method: "POST", path: "/api/browser/tabs/close", body: { tab: "T1" } })).status).toBe(400);
   });
 
+  it("carries how iMessage came up on the status, when the host says", async () => {
+    const plain = (await handleApiRequest(kernel, { method: "GET", path: "/api/status" })).body as Record<string, unknown>;
+    expect(plain).not.toHaveProperty("imessage");
+    const told = (await handleApiRequest(kernel, { method: "GET", path: "/api/status" }, { meta: { imessage: { state: "failed", detail: "Full Disk Access is not granted to /n." } } })).body as Record<string, unknown>;
+    expect(told["imessage"]).toEqual({ state: "failed", detail: "Full Disk Access is not granted to /n." });
+  });
+
   it("refuses a restart when nothing would start the host again, and says so on the status", async () => {
     const status = (await handleApiRequest(kernel, { method: "GET", path: "/api/status" })).body as { restart: { supported: boolean; pending: boolean; busy: string[] } };
     expect(status.restart).toEqual({ supported: false, pending: false, busy: [] });

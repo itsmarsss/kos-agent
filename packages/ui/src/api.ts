@@ -27,6 +27,8 @@ export interface Status {
   unhealthy?: number;
   /** A restart asked for from Settings, waiting for the host to go idle. */
   restart?: RestartState;
+  /** iMessage, when a thread is configured: watching, or why not. */
+  imessage?: { state: "watching" | "skipped" | "failed"; detail?: string };
   /** Which model answers each task class, when the router can say. */
   routes?: Record<
     string,

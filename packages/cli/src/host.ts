@@ -12,6 +12,7 @@ import {
   type ChannelAdapter,
   DiscordAdapter,
   IMessageAdapter,
+  describeStartFailure,
   SmsAdapter,
   verifyTwilioSignature,
   Kernel,
@@ -245,7 +246,13 @@ export async function runHost(options: HostOptions): Promise<void> {
   kernel.startDaemons();
 
   const staticDir = process.env.KOS_UI_DIST ?? defaultUiDist();
-  const meta = {
+  const meta: {
+    pid: number;
+    discord: boolean;
+    cron: boolean;
+    workspace: string;
+    imessage?: { state: "watching" | "skipped" | "failed"; detail?: string };
+  } = {
     pid: process.pid,
     discord: false,
     cron: true,
@@ -452,8 +459,10 @@ export async function runHost(options: HostOptions): Promise<void> {
   if (imessage) {
     const claim = claimHandle(imessage.handle);
     if (!existsSync(imessage.dbPath)) {
+      meta.imessage = { state: "skipped", detail: `no database at ${imessage.dbPath}` };
       console.log(`iMessage: skipped (no database at ${imessage.dbPath})`);
     } else if (!claim.ok) {
+      meta.imessage = { state: "skipped", detail: `pid ${claim.heldBy} is already watching that thread` };
       /*
        * Two hosts on one thread answer each other forever, and every lap is
        * two real messages and two turns. Better to run without the surface
@@ -479,17 +488,20 @@ export async function runHost(options: HostOptions): Promise<void> {
           ),
         });
         await imessageRuntime.start();
+        meta.imessage = { state: "watching" };
         console.log("iMessage: watching your own thread");
       } catch (err) {
         // Full Disk Access not granted, a locked database, Messages not set
         // up: none of them are a reason for the host to refuse to start.
+        // Said in words that name the fix, here and on the status the
+        // dashboard shows.
         imessageAdapter = undefined;
         imessageRuntime = undefined;
         imessageClaim?.release();
         imessageClaim = undefined;
-        console.log(
-          `iMessage: not started (${err instanceof Error ? err.message : String(err)})`,
-        );
+        const detail = describeStartFailure(err, process.execPath);
+        meta.imessage = { state: "failed", detail };
+        console.log(`iMessage: not started. ${detail}`);
       }
     }
   }

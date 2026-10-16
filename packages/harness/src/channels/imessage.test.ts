@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   IMessageAdapter,
+  describeStartFailure,
   parseDecision,
   renderForText,
 } from "./imessage.js";
@@ -57,6 +58,21 @@ describe("rendering for a surface with no furniture", () => {
       card: { fields: [{ name: "​", value: "just the value" }] },
     });
     expect(text).toBe("just the value");
+  });
+});
+
+describe("saying why iMessage could not start", () => {
+  it("names Full Disk Access and the binary that needs it when the database is refused", () => {
+    const said = describeStartFailure(new Error("unable to open database file"), "/usr/local/bin/node");
+    expect(said).toMatch(/^Full Disk Access is not granted to \/usr\/local\/bin\/node/);
+    expect(said).toContain("Privacy & Security > Full Disk Access");
+    expect(describeStartFailure(new Error("SQLITE_AUTH: authorization denied"), "/n")).toMatch(/Full Disk Access/);
+  });
+
+  it("passes a lock and anything else through in its own words", () => {
+    expect(describeStartFailure(new Error("database is locked"), "/n")).toMatch(/locked/);
+    expect(describeStartFailure(new Error("iMessage reader needs the handle it is allowed to read"), "/n")).toBe("iMessage reader needs the handle it is allowed to read");
+    expect(describeStartFailure("boom", "/n")).toBe("boom");
   });
 });
 
