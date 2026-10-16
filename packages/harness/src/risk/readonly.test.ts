@@ -37,6 +37,7 @@ describe("read-only command lines", () => {
     "pnpm ls --depth 0",
     "npm -v",
     "jq '.servers | keys' projects/x/config.json",
+    "jq -r .name package.json",
     "env | sort",
     "ls -la",
     "cat notes/today.md projects/x/plan.md",
@@ -98,6 +99,8 @@ describe("read-only command lines", () => {
     "grep -r token .config/",
     "cat projects/x/.env",
     "head -c 100 locks/host",
+    "jq .servers mcp.json",
+    "jq -r .x .kos/state.json",
   ];
   for (const c of acts) {
     it(`asks: ${c || "(empty)"}`, () => expect(isReadOnlyCommand(c)).toBe(false));

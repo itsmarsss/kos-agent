@@ -73,6 +73,17 @@ function namesProtected(arg: string): boolean {
   return PROTECTED.test(arg.replace(/^\.\//, ""));
 }
 
+/**
+ * The arguments that may be paths. A filter for jq or yq is its first
+ * word that is not an option, and it starts with a dot by design, which
+ * is not a hidden file.
+ */
+function pathArgs(program: string, args: string[]): string[] {
+  if (program !== "jq" && program !== "yq") return args;
+  const filter = args.findIndex((a) => !a.startsWith("-"));
+  return filter < 0 ? args : args.filter((_, i) => i !== filter);
+}
+
 interface Word {
   text: string;
   /** Holds an unquoted < or >: a redirection, not an argument. */
@@ -253,7 +264,7 @@ export function isReadOnlyCommand(command: string): boolean {
     const first = args[0]!;
     if (first.includes("=") || words[0]!.redirect) return false;
     const program = first.includes("/") ? first.slice(first.lastIndexOf("/") + 1) : first;
-    if (args.slice(1).some(namesProtected)) return false;
+    if (pathArgs(program, args.slice(1)).some(namesProtected)) return false;
     if (!readsOnly(program, args.slice(1))) return false;
   }
   return true;
