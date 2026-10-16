@@ -329,6 +329,47 @@ describe("handleApiRequest", () => {
     expect((refused.body as { error: string }).error).toMatch(/no such tab/);
     const junk = await handleApiRequest(kernel, { method: "POST", path: "/api/browser/input", body: { tab: "T1", type: "config", maxFps: 1 } });
     expect(junk.status).toBe(400);
+    // The owner's chrome: nothing to drive without a tab, and no browser to open one in.
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/browser/navigate", body: { url: "https://x" } })).status).toBe(400);
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/browser/navigate", body: { tab: "T1" } })).status).toBe(400);
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/browser/tabs", body: {} })).status).toBe(400);
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/browser/tabs/close", body: { tab: "T1" } })).status).toBe(400);
+  });
+
+  it("keeps the browser's settings as KOS's keys on the engine's entry", async () => {
+    const none = await handleApiRequest(kernel, { method: "GET", path: "/api/browser/settings" });
+    expect(none.body).toMatchObject({ engine: null, headed: false, chrome: "", extensions: [], search: "https://duckduckgo.com/?q=%s" });
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/browser/settings", body: { headed: true } })).status).toBe(400);
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/browser/restart", body: {} })).status).toBe(400);
+
+    // Written rather than added through the route, which would bring the server up.
+    const entry = { command: "npx", args: ["agent-browser"], env: { AGENT_BROWSER_CDP: "9225" } };
+    writeFileSync(join(root, "mcp.json"), JSON.stringify({ servers: { browser: { ...entry, enabled: false } } }));
+    // Off is off: the engine must be enabled to count.
+    expect(((await handleApiRequest(kernel, { method: "GET", path: "/api/browser/settings" })).body as { engine: string | null }).engine).toBeNull();
+    writeFileSync(join(root, "mcp.json"), JSON.stringify({ servers: { browser: entry } }));
+
+    const bad = await handleApiRequest(kernel, { method: "POST", path: "/api/browser/settings", body: { search: "https://example.com" } });
+    expect(bad.status).toBe(400);
+    const saved = await handleApiRequest(kernel, {
+      method: "POST",
+      path: "/api/browser/settings",
+      body: { headed: true, chrome: " /opt/chrome ", extensions: ["/x/one", " ", "/x/two"], search: "https://www.google.com/search?q=%s" },
+    });
+    expect(saved.body).toMatchObject({ engine: "browser", headed: true, chrome: "/opt/chrome", extensions: ["/x/one", "/x/two"], search: "https://www.google.com/search?q=%s" });
+    const env = (JSON.parse(readFileSync(join(root, "mcp.json"), "utf8")) as { servers: { browser: { env: Record<string, string> } } }).servers.browser.env;
+    expect(env).toEqual({
+      AGENT_BROWSER_CDP: "9225",
+      KOS_BROWSER_HEADED: "1",
+      KOS_BROWSER_CHROME: "/opt/chrome",
+      KOS_BROWSER_EXTENSIONS: "/x/one,/x/two",
+      KOS_BROWSER_SEARCH: "https://www.google.com/search?q=%s",
+    });
+    // Cleared keys go, not just empty.
+    const cleared = await handleApiRequest(kernel, { method: "POST", path: "/api/browser/settings", body: { headed: false, chrome: "", extensions: [], search: "" } });
+    expect(cleared.body).toMatchObject({ headed: false, chrome: "", extensions: [], search: "https://duckduckgo.com/?q=%s" });
+    expect((JSON.parse(readFileSync(join(root, "mcp.json"), "utf8")) as { servers: { browser: { env: Record<string, string> } } }).servers.browser.env).toEqual({ AGENT_BROWSER_CDP: "9225", KOS_BROWSER_HEADED: "0" });
+    writeFileSync(join(root, "mcp.json"), JSON.stringify({ servers: {} }));
   });
 
   it("serves the picture an approval was queued with, and nothing for one without", async () => {

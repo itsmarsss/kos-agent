@@ -33,7 +33,58 @@ describe("finding and starting Chrome", () => {
     expect(args).toContain("--remote-debugging-port=9225");
     expect(args).toContain("--user-data-dir=/w/.kos/browser-profile");
     expect(args).toContain("--window-size=1600,1000");
+    expect(args.some((a) => a.startsWith("--load-extension"))).toBe(false);
     expect(chromeArgs({ port: 9225, profileDir: "/w", headed: true })[0]).not.toBe("--headless=new");
+  });
+
+  it("loads the unpacked extensions it is given, and reads the launch afresh each start", async () => {
+    expect(chromeArgs({ port: 9225, profileDir: "/w", extensions: ["/x/one", "", "/x/two"] })).toContain("--load-extension=/x/one,/x/two");
+    let headed = false;
+    // The port answers while a spawned Chrome lives, and not after it is stopped.
+    let alive = false;
+    const spawn = vi.fn(() => {
+      const child = new FakeChild();
+      child.on("exit", () => {
+        alive = false;
+      });
+      alive = true;
+      return child;
+    });
+    const host = new ChromeHost({
+      port: 9225,
+      profileDir: "/tmp/kos-chrome-test",
+      launch: () => ({ binary: "/opt/mine/chrome", headed, extensions: ["/x/one"] }),
+      exists: (p) => p === "/opt/mine/chrome",
+      spawn: spawn as never,
+      fetchJson: async () => {
+        if (!alive) throw new Error("refused");
+        return { webSocketDebuggerUrl: "ws://127.0.0.1:9225/devtools/browser/new" };
+      },
+    });
+    expect(host.launch).toEqual({ binary: "/opt/mine/chrome", headed: false, extensions: ["/x/one"], found: "/opt/mine/chrome" });
+    await host.ensure();
+    const first = (spawn.mock.calls[0] as unknown[])[1] as string[];
+    expect(first[0]).toBe("--headless=new");
+    expect(first).toContain("--load-extension=/x/one");
+    headed = true;
+    host.stop();
+    await host.ensure();
+    const second = (spawn.mock.calls[1] as unknown[])[1] as string[];
+    expect(second[0]).not.toBe("--headless=new");
+  });
+
+  it("waits for a Chrome told to close to stop answering", async () => {
+    let answers = 2;
+    const host = new ChromeHost({
+      port: 9225,
+      profileDir: "/tmp/x",
+      fetchJson: async () => {
+        if (answers-- > 0) return { webSocketDebuggerUrl: "ws://old" };
+        throw new Error("refused");
+      },
+    });
+    await host.waitGone();
+    expect(answers).toBeLessThan(0);
   });
 
   it("adopts a Chrome already answering on the port", async () => {
@@ -57,7 +108,7 @@ describe("finding and starting Chrome", () => {
     const host = new ChromeHost({
       port: 9225,
       profileDir: "/tmp/kos-chrome-test",
-      binary: "/opt/mine/chrome",
+      launch: () => ({ binary: "/opt/mine/chrome" }),
       exists: (p) => p === "/opt/mine/chrome",
       spawn: spawn as never,
       fetchJson: async () => {

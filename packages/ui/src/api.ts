@@ -127,6 +127,27 @@ export interface CatalogMcp {
   results: CatalogMcpListing[];
 }
 
+/** One of the browser's tabs, with whose it is. */
+export interface BrowserTabInfo {
+  id: string;
+  title: string;
+  url: string;
+  owner?: string;
+}
+
+/** How the browser is set to run, as Settings > Browser shows it. */
+export interface BrowserSettings {
+  /** The MCP server that is the engine, or null when none is configured. */
+  engine: string | null;
+  headed: boolean;
+  /** The binary named, blank for the first found. */
+  chrome: string;
+  /** The binary that would run. */
+  found?: string;
+  extensions: string[];
+  search: string;
+}
+
 /** A server in mcp.json as the owner sees it in Settings, with whether it is up. */
 export interface McpServerInfo {
   name: string;
@@ -892,11 +913,21 @@ export const api = {
       configured: boolean;
       chrome: "stopped" | "starting" | "running";
       attached: boolean;
-      tabs: { id: string; title: string; url: string; owner?: string }[];
+      tabs: BrowserTabInfo[];
+      search: string;
       prefix?: string;
     }>("/api/browser/status"),
   /** A watcher's click or key, passed to one tab. */
   browserInput: (tab: string, message: Record<string, unknown>) => post<{ sent: boolean }>("/api/browser/input", { tab, ...message }),
+  /** The address bar and the arrows: a tab sent somewhere, or back, forward, reloaded. */
+  browserNavigate: (tab: string, to: { url: string } | { action: "back" | "forward" | "reload" }) => post<{ went: boolean }>("/api/browser/navigate", { tab, ...to }),
+  /** A tab of the owner's own, nobody's until an agent is sent to it. */
+  browserNewTab: (url?: string) => post<{ tab: string }>("/api/browser/tabs", url ? { url } : {}),
+  browserCloseTab: (tab: string) => post<{ closed: string }>("/api/browser/tabs/close", { tab }),
+  /** How Chrome is run; a change applies when it next starts. */
+  browserSettings: () => get<BrowserSettings>("/api/browser/settings"),
+  saveBrowserSettings: (settings: { headed: boolean; chrome: string; extensions: string[]; search: string }) => post<BrowserSettings>("/api/browser/settings", settings),
+  browserRestart: () => post<{ chrome: string; attached: boolean }>("/api/browser/restart", {}),
   /** Managing files by hand: each returns where the thing now is. */
   renameFile: (from: string, to: string) => post<{ path: string }>("/api/files/rename", { from, to }),
   copyFile: (from: string, to?: string) => post<{ path: string }>("/api/files/copy", to ? { from, to } : { from }),

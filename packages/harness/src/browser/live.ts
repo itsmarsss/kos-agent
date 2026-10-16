@@ -1,5 +1,5 @@
 import { CdpClient, type CdpEvent, type CdpSocket } from "./cdp.js";
-import type { ChromeHost, ChromeState } from "./chrome.js";
+import type { ChromeHost, ChromeLaunch, ChromeState } from "./chrome.js";
 
 /**
  * The browser, watched.
@@ -41,6 +41,8 @@ export interface BrowserStatus {
   /** This end is connected to Chrome. */
   attached: boolean;
   tabs: BrowserTab[];
+  /** Where the address bar sends words that are not an address, with %s for them. */
+  search: string;
 }
 
 export type BrowserEvent =
@@ -171,6 +173,11 @@ export const CDP_ENV = "AGENT_BROWSER_CDP";
 export const VIEWPORT_ENV = "KOS_BROWSER_VIEWPORT";
 export const CHROME_ENV = "KOS_BROWSER_CHROME";
 export const HEADED_ENV = "KOS_BROWSER_HEADED";
+/** Unpacked extension folders, one per line or comma. */
+export const EXTENSIONS_ENV = "KOS_BROWSER_EXTENSIONS";
+/** The address bar's search, a URL with %s where the words go. */
+export const SEARCH_ENV = "KOS_BROWSER_SEARCH";
+export const DEFAULT_SEARCH = "https://duckduckgo.com/?q=%s";
 
 export interface BrowserEngine {
   server: string;
@@ -181,6 +188,16 @@ export interface BrowserEngine {
   /** A Chrome binary to use, if the config names one. */
   chrome?: string;
   headed: boolean;
+  extensions: string[];
+  search: string;
+}
+
+/** Folders as the config writes them: a line or a comma each. */
+export function parseExtensions(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(/[\n,]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 /**
@@ -196,15 +213,32 @@ export function browserEngine(config: { servers: Record<string, { env?: Record<s
     if (!Number.isInteger(port) || port <= 0 || port >= 65536) continue;
     const size = /^(\d{3,5})x(\d{3,5})$/.exec(entry.env?.[VIEWPORT_ENV] ?? "");
     const chrome = entry.env?.[CHROME_ENV];
+    const search = entry.env?.[SEARCH_ENV]?.trim();
     return {
       server,
       port,
       headed: /^(1|true|yes|on)$/i.test(entry.env?.[HEADED_ENV] ?? ""),
+      extensions: parseExtensions(entry.env?.[EXTENSIONS_ENV]),
+      search: search && search.includes("%s") ? search : DEFAULT_SEARCH,
       ...(size ? { viewport: { width: Number(size[1]), height: Number(size[2]) } } : {}),
       ...(chrome ? { chrome } : {}),
     };
   }
   return undefined;
+}
+
+/**
+ * How Chrome is started for an engine's settings. The window is the
+ * viewport plus its own frame, so the page is the size each tab is set to.
+ */
+export function launchFor(engine: BrowserEngine | undefined): ChromeLaunch {
+  if (!engine) return {};
+  return {
+    headed: engine.headed,
+    extensions: engine.extensions,
+    ...(engine.chrome ? { binary: engine.chrome } : {}),
+    ...(engine.viewport ? { windowSize: { width: engine.viewport.width, height: engine.viewport.height + 90 } } : {}),
+  };
 }
 
 /** The engine's session name for a conversation: letters, digits, dashes, underscores. */
@@ -253,12 +287,28 @@ interface Watch {
   last?: BrowserFrame;
 }
 
+/** An engine session's tabs: the one it is on, and every one it has. */
+interface Binding {
+  target: string;
+  conversationId: string;
+  lastUsed: number;
+  tabs: Set<string>;
+  /** The engine has not been told which tab it is on. */
+  retarget: boolean;
+}
+
+/** The owner of a tab being opened or taken. */
+export interface TabOwner {
+  session: string;
+  conversationId: string;
+}
+
 export class BrowserLive {
   private readonly cdp: CdpClient;
   private dialing: Promise<void> | null = null;
   private readonly targets = new Map<string, Target>();
-  /** Engine session name -> the tab KOS made for it and whose it is. */
-  private readonly bindings = new Map<string, { target: string; conversationId: string; lastUsed: number }>();
+  /** Engine session name -> the tabs KOS made or took for it, and whose they are. */
+  private readonly bindings = new Map<string, Binding>();
   /** Downloads under way, by guid, until Chrome says they are done. */
   private readonly downloads = new Map<string, { url: string; suggestedFilename: string; conversationId?: string }>();
   private readonly listeners = new Set<BrowserListener>();
@@ -279,18 +329,25 @@ export class BrowserLive {
   }
 
   status(): BrowserStatus {
+    const engine = this.options.engineFor();
     return {
-      configured: this.options.engineFor() !== undefined,
+      configured: engine !== undefined,
       chrome: this.options.chrome.state,
       attached: this.cdp.open,
       tabs: this.tabs(),
+      search: engine?.search ?? DEFAULT_SEARCH,
     };
+  }
+
+  /** How Chrome would start now, and the binary that resolves to. */
+  launch(): ChromeLaunch & { found?: string } {
+    return this.options.chrome.launch;
   }
 
   /** The page tabs, with whose each is. */
   tabs(): BrowserTab[] {
     const owners = new Map<string, string>();
-    for (const b of this.bindings.values()) owners.set(b.target, b.conversationId);
+    for (const b of this.bindings.values()) for (const tab of b.tabs) owners.set(tab, b.conversationId);
     return [...this.targets.values()]
       .filter((t) => t.type === "page")
       .map((t) => {
@@ -299,10 +356,15 @@ export class BrowserLive {
       });
   }
 
-  /** The tab an engine session is bound to, if its tab is still there. */
+  /** The tab an engine session is on, if it is still there. */
   boundTab(session: string): string | undefined {
     const b = this.bindings.get(session);
     return b && this.targets.has(b.target) ? b.target : undefined;
+  }
+
+  /** The engine sessions with a tab. */
+  boundSessions(): string[] {
+    return [...this.bindings.keys()];
   }
 
   /** The tab a conversation works in, if it has one. */
@@ -326,21 +388,131 @@ export class BrowserLive {
   }
 
   /**
-   * A tab for an engine session, in a window of its own, made once and
-   * remembered. Says whether it was just made, since a new tab needs the
-   * engine told about it.
+   * The tab an engine session is on, in a window of its own, made once and
+   * remembered. Says whether the engine must be told which tab that is: a
+   * tab just made, or one picked after the one it was on closed.
    */
-  async bind(session: string, conversationId: string): Promise<{ target: string; made: boolean }> {
+  async bind(session: string, conversationId: string): Promise<{ target: string; retarget: boolean }> {
     await this.ensure();
-    const existing = this.boundTab(session);
-    if (existing) return { target: existing, made: false };
-    const result = await this.cdp.send("Target.createTarget", { url: "about:blank", newWindow: true });
+    const b = this.bindings.get(session);
+    if (b && this.targets.has(b.target)) {
+      const retarget = b.retarget;
+      b.retarget = false;
+      return { target: b.target, retarget };
+    }
+    const target = await this.openTab("about:blank", { session, conversationId });
+    this.bindings.get(session)!.retarget = false;
+    return { target, retarget: true };
+  }
+
+  /**
+   * A new tab in a window of its own: the owner's, or an agent's own next
+   * to the ones it has, which it is then on.
+   */
+  async openTab(url = "about:blank", owner?: TabOwner): Promise<string> {
+    await this.ensure();
+    const result = await this.cdp.send("Target.createTarget", { url, newWindow: true });
     const target = String(result["targetId"] ?? "");
     if (!target) throw new Error("Chrome made no tab");
-    this.bindings.set(session, { target, conversationId, lastUsed: this.now() });
-    if (!this.targets.has(target)) this.targets.set(target, { id: target, title: "", url: "about:blank", type: "page" });
+    if (!this.targets.has(target)) this.targets.set(target, { id: target, title: "", url, type: "page" });
+    if (owner) this.take(owner, target);
     this.emitTabs();
-    return { target, made: true };
+    return target;
+  }
+
+  /**
+   * An agent moves to a tab that is open: one the owner pointed at, or
+   * another agent's. A tab is one session's at a time, so whoever had it
+   * is moved to another of theirs, or starts afresh on their next call.
+   */
+  useTab(owner: TabOwner, target: string): void {
+    const t = this.targets.get(target);
+    if (!t || t.type !== "page") throw new Error("no such tab");
+    this.take(owner, target);
+    this.emitTabs();
+  }
+
+  private take(owner: TabOwner, target: string): void {
+    for (const [session, b] of this.bindings) {
+      if (session === owner.session || !b.tabs.has(target)) continue;
+      b.tabs.delete(target);
+      if (b.target === target) this.move(session, b);
+    }
+    const b = this.bindings.get(owner.session) ?? { target, conversationId: owner.conversationId, lastUsed: 0, tabs: new Set<string>(), retarget: true };
+    if (b.target !== target) b.retarget = true;
+    b.target = target;
+    b.tabs.add(target);
+    b.lastUsed = this.now();
+    this.bindings.set(owner.session, b);
+  }
+
+  /** A session's tab went: on to another of its tabs, or out of the list. */
+  private move(session: string, b: Binding): void {
+    const next = [...b.tabs].find((tab) => this.targets.has(tab));
+    if (next) {
+      b.target = next;
+      b.retarget = true;
+    } else {
+      this.bindings.delete(session);
+    }
+  }
+
+  /** A tab is gone: whoever had it moves on. */
+  private forget(target: string): void {
+    this.targets.delete(target);
+    this.sessions.delete(target);
+    for (const [session, b] of [...this.bindings]) {
+      if (!b.tabs.has(target)) continue;
+      b.tabs.delete(target);
+      if (b.target === target) this.move(session, b);
+    }
+  }
+
+  /** Close one tab, whosever it is. */
+  async closeTab(target: string): Promise<void> {
+    if (!this.targets.has(target)) throw new Error("no such tab");
+    await this.cdp.send("Target.closeTarget", { targetId: target });
+    this.forget(target);
+    this.emitTabs();
+  }
+
+  /** Send a tab somewhere, as the address bar does. */
+  async navigate(tab: string, url: string): Promise<void> {
+    if (!this.targets.has(tab)) throw new Error("no such tab");
+    const sessionId = await this.sessionFor(tab);
+    const result = await this.cdp.send("Page.navigate", { url }, sessionId);
+    if (typeof result["errorText"] === "string" && result["errorText"]) throw new Error(result["errorText"]);
+  }
+
+  /** Back or forward through a tab's history. False when there is nowhere to go. */
+  async history(tab: string, delta: -1 | 1): Promise<boolean> {
+    if (!this.targets.has(tab)) throw new Error("no such tab");
+    const sessionId = await this.sessionFor(tab);
+    const got = await this.cdp.send("Page.getNavigationHistory", {}, sessionId);
+    const entries = (got["entries"] as { id: number }[] | undefined) ?? [];
+    const at = typeof got["currentIndex"] === "number" ? got["currentIndex"] : -1;
+    const entry = entries[at + delta];
+    if (!entry) return false;
+    await this.cdp.send("Page.navigateToHistoryEntry", { entryId: entry.id }, sessionId);
+    return true;
+  }
+
+  async reload(tab: string): Promise<void> {
+    if (!this.targets.has(tab)) throw new Error("no such tab");
+    await this.cdp.send("Page.reload", {}, await this.sessionFor(tab));
+  }
+
+  /**
+   * Chrome closed and started again, so a changed launch setting (the
+   * window shown, a binary, extensions) takes effect. Every tab goes with
+   * it; each session gets a fresh one on its next call.
+   */
+  async restart(): Promise<void> {
+    if (this.cdp.open) await this.cdp.send("Browser.close").catch(() => undefined);
+    this.options.chrome.stop();
+    this.onChromeGone();
+    await this.options.chrome.waitGone();
+    await this.ensure();
   }
 
   /** A session is in use: its tab is not idle. */
@@ -352,7 +524,8 @@ export class BrowserLive {
   /**
    * Close the tabs of sessions nothing has used for a while, so a browser
    * that served twenty agents today is not twenty windows tonight. A
-   * session whose tab went is given a fresh one the next time it calls.
+   * session whose tabs went is given a fresh one the next time it calls.
+   * The owner's own tabs are nobody's and stay until they close them.
    */
   async closeIdle(maxIdleMs: number, keep: (conversationId: string) => boolean = () => false): Promise<string[]> {
     if (!this.cdp.open) return [];
@@ -361,8 +534,10 @@ export class BrowserLive {
     for (const [session, b] of [...this.bindings]) {
       if (b.lastUsed > cutoff || keep(b.conversationId)) continue;
       this.bindings.delete(session);
-      await this.cdp.send("Target.closeTarget", { targetId: b.target }).catch(() => undefined);
-      closed.push(b.target);
+      for (const tab of b.tabs) {
+        await this.cdp.send("Target.closeTarget", { targetId: tab }).catch(() => undefined);
+        closed.push(tab);
+      }
     }
     if (closed.length) this.emitTabs();
     return closed;
@@ -374,7 +549,7 @@ export class BrowserLive {
    */
   async tidy(): Promise<void> {
     if (!this.cdp.open) return;
-    const owned = new Set([...this.bindings.values()].map((b) => b.target));
+    const owned = new Set([...this.bindings.values()].flatMap((b) => [...b.tabs]));
     if (owned.size === 0) return;
     for (const t of [...this.targets.values()]) {
       if (t.type === "page" && !owned.has(t.id) && (t.url === "about:blank" || t.url === "")) {
@@ -501,14 +676,12 @@ export class BrowserLive {
       }
       case "Target.targetDestroyed": {
         const id = String(event.params["targetId"] ?? "");
-        this.targets.delete(id);
-        this.sessions.delete(id);
+        this.forget(id);
         const watch = this.watches.get(id);
         if (watch) {
           for (const listener of watch.listeners) listener({ type: "gone", tab: id });
           this.watches.delete(id);
         }
-        for (const [session, b] of this.bindings) if (b.target === id) this.bindings.delete(session);
         this.emitTabs();
         return;
       }
@@ -517,7 +690,7 @@ export class BrowserLive {
         const guid = String(event.params["guid"] ?? "");
         if (!guid) return;
         const frame = String(event.params["frameId"] ?? "");
-        const owner = [...this.bindings.values()].find((b) => b.target === frame)?.conversationId;
+        const owner = [...this.bindings.values()].find((b) => b.tabs.has(frame))?.conversationId;
         this.downloads.set(guid, {
           url: typeof event.params["url"] === "string" ? event.params["url"] : "",
           suggestedFilename: typeof event.params["suggestedFilename"] === "string" ? event.params["suggestedFilename"] : "download",

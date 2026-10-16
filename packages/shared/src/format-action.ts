@@ -162,6 +162,9 @@ export function summarizeAction(
   // KOS's own browser tools: a visit, a run of steps, or the owner's hands.
   if (tool === "browser.visit") return `Visit ${fmtVal(a.url)}`;
   if (tool === "browser.handoff") return `Needs your hands: ${fmtVal(a.reason)}`;
+  if (tool === "browser.tabs") return "List the browser's tabs";
+  if (tool === "browser.use_tab") return `Switch to tab ${fmtVal(a.tab)}`;
+  if (tool === "browser.new_tab") return a.url !== undefined ? `Open a new tab at ${fmtVal(a.url)}` : "Open a new tab";
   if (tool === "browser.act") {
     const steps = Array.isArray(a.steps) ? (a.steps as Record<string, unknown>[]) : [];
     const said = steps.slice(0, 4).map((s) => {

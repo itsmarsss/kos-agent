@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { CdpSocket } from "./cdp.js";
 import type { ChromeHost } from "./chrome.js";
-import { BrowserLive, browserEngine, inputCommand, parseInput, sessionFor, type BrowserEvent } from "./live.js";
+import { BrowserLive, browserEngine, inputCommand, launchFor, parseInput, sessionFor, type BrowserEvent } from "./live.js";
 
 /**
  * KOS's eyes on the one Chrome: tabs and whose they are, a screencast of
@@ -32,9 +32,10 @@ class FakeChrome implements CdpSocket {
         return reply({ targetInfos: this.targets });
       case "Target.createTarget": {
         const targetId = `T${this.nextTarget++}`;
-        this.targets.push({ targetId, type: "page", title: "", url: "about:blank" });
+        const url = typeof m.params["url"] === "string" ? m.params["url"] : "about:blank";
+        this.targets.push({ targetId, type: "page", title: "", url });
         reply({ targetId });
-        this.event("Target.targetCreated", { targetInfo: { targetId, type: "page", title: "", url: "about:blank" } });
+        this.event("Target.targetCreated", { targetInfo: { targetId, type: "page", title: "", url } });
         return;
       }
       case "Target.attachToTarget":
@@ -50,6 +51,14 @@ class FakeChrome implements CdpSocket {
         this.event("Target.targetDestroyed", { targetId: id });
         return;
       }
+      case "Page.navigate":
+        return reply(String(m.params["url"]).startsWith("bad:") ? { errorText: "net::ERR_INVALID_URL" } : { frameId: "F1" });
+      case "Page.getNavigationHistory":
+        return reply({ currentIndex: 1, entries: [{ id: 10 }, { id: 11 }] });
+      case "Browser.close":
+        reply({});
+        this.onclose?.({});
+        return;
       default:
         return reply({});
     }
@@ -65,7 +74,7 @@ class FakeChrome implements CdpSocket {
   }
 }
 
-type Host = ChromeHost & { exits: (() => void)[]; state: "stopped" | "starting" | "running" };
+type Host = ChromeHost & { exits: (() => void)[]; state: "stopped" | "starting" | "running"; starts: number; stops: number };
 
 function fakeHost(): Host {
   const exits: (() => void)[] = [];
@@ -73,18 +82,26 @@ function fakeHost(): Host {
     state: "stopped" as "stopped" | "starting" | "running",
     port: 9225,
     exits,
+    starts: 0,
+    stops: 0,
+    launch: { headed: false, found: "/opt/chrome" },
     onExit: (l: () => void) => {
       exits.push(l);
       return () => undefined;
     },
     ensure: async () => {
       host.state = "running";
+      host.starts++;
       return "ws://127.0.0.1:9225/devtools/browser/fake";
     },
     lost: () => {
       host.state = "stopped";
     },
-    stop: () => undefined,
+    stop: () => {
+      host.stops++;
+      host.state = "stopped";
+    },
+    waitGone: async () => undefined,
   };
   return host as unknown as Host;
 }
@@ -97,7 +114,7 @@ function setup(engine = true) {
   const downloads: unknown[] = [];
   let clock = 1000;
   const live = new BrowserLive({
-    engineFor: () => (engine ? { server: "browser", port: 9225, headed: false } : undefined),
+    engineFor: () => (engine ? { server: "browser", port: 9225, headed: false, extensions: [], search: "https://duckduckgo.com/?q=%s" } : undefined),
     chrome: host,
     connect: () => {
       queueMicrotask(() => chrome.onopen?.({}));
@@ -139,9 +156,9 @@ describe("the live view of the one Chrome", () => {
   it("binds an engine session to a tab in its own window, once, and knows whose it is", async () => {
     const { live, chrome } = setup();
     const first = await live.bind("kos-c1", "c1");
-    expect(first).toEqual({ target: "T1", made: true });
+    expect(first).toEqual({ target: "T1", retarget: true });
     expect(chrome.calls("Target.createTarget")[0]?.params).toEqual({ url: "about:blank", newWindow: true });
-    expect(await live.bind("kos-c1", "c1")).toEqual({ target: "T1", made: false });
+    expect(await live.bind("kos-c1", "c1")).toEqual({ target: "T1", retarget: false });
     expect(live.tabOf("c1")).toBe("T1");
     expect(live.boundTab("kos-c1")).toBe("T1");
     expect(live.tabs()).toEqual([
@@ -154,7 +171,7 @@ describe("the live view of the one Chrome", () => {
     // The tab closing drops the binding, so the next bind makes a fresh one.
     chrome.event("Target.targetDestroyed", { targetId: "T1" });
     expect(live.tabOf("c1")).toBeUndefined();
-    expect(await live.bind("kos-c1", "c1")).toEqual({ target: "T2", made: true });
+    expect(await live.bind("kos-c1", "c1")).toEqual({ target: "T2", retarget: true });
   });
 
   it("screencasts the watched tab, acks each frame, and stops when the last watcher leaves", async () => {
@@ -283,6 +300,88 @@ describe("the live view of the one Chrome", () => {
   });
 });
 
+describe("the owner's tabs, and an agent's second one", () => {
+  it("opens a tab that is nobody's, sends it places, and closes it", async () => {
+    const { live, chrome } = setup();
+    const seen: BrowserEvent[] = [];
+    live.subscribe((e) => seen.push(e));
+    await flush();
+    const tab = await live.openTab("https://example.com");
+    expect(chrome.calls("Target.createTarget")[0]?.params).toEqual({ url: "https://example.com", newWindow: true });
+    expect(live.tabs().find((t) => t.id === tab)).toEqual({ id: tab, title: "", url: "https://example.com" });
+    expect(seen.filter((e) => e.type === "tabs").length).toBeGreaterThan(1);
+
+    await live.navigate(tab, "https://example.org/a");
+    expect(chrome.calls("Page.navigate")[0]).toMatchObject({ params: { url: "https://example.org/a" }, sessionId: `S-${tab}` });
+    await expect(live.navigate(tab, "bad:url")).rejects.toThrow(/ERR_INVALID_URL/);
+    await expect(live.navigate("nope", "https://x")).rejects.toThrow(/no such tab/);
+
+    // History: at index 1 of 2 entries, back goes, forward has nowhere.
+    expect(await live.history(tab, -1)).toBe(true);
+    expect(chrome.calls("Page.navigateToHistoryEntry")[0]?.params).toEqual({ entryId: 10 });
+    expect(await live.history(tab, 1)).toBe(false);
+    await live.reload(tab);
+    expect(chrome.calls("Page.reload")[0]?.sessionId).toBe(`S-${tab}`);
+
+    // The owner's tab is not idle-closed: it is nobody's.
+    expect(await live.closeIdle(0)).toEqual([]);
+    await live.closeTab(tab);
+    expect(live.tabs().map((t) => t.id)).not.toContain(tab);
+    await expect(live.closeTab(tab)).rejects.toThrow(/no such tab/);
+  });
+
+  it("gives an agent a second tab of its own, which it is then on, and lists both as its", async () => {
+    const { live } = setup();
+    expect(await live.bind("kos-c1", "c1")).toEqual({ target: "T1", retarget: true });
+    const second = await live.openTab("https://example.com", { session: "kos-c1", conversationId: "c1" });
+    expect(second).toBe("T2");
+    expect(live.tabOf("c1")).toBe("T2");
+    expect(live.tabs().filter((t) => t.owner === "c1").map((t) => t.id)).toEqual(["T1", "T2"]);
+    // The engine is told once, on the next bind, then left alone.
+    expect(await live.bind("kos-c1", "c1")).toEqual({ target: "T2", retarget: true });
+    expect(await live.bind("kos-c1", "c1")).toEqual({ target: "T2", retarget: false });
+    // Both go when the session idles out.
+    expect(await live.closeIdle(0)).toEqual(["T1", "T2"]);
+  });
+
+  it("lets an agent take a tab, from the owner or from another agent, one holder at a time", async () => {
+    const { live, chrome } = setup();
+    const owners = await live.openTab("https://example.com");
+    await live.bind("kos-c1", "c1");
+    await live.bind("kos-c2", "c2");
+    expect(() => live.useTab({ session: "kos-c1", conversationId: "c1" }, "nope")).toThrow(/no such tab/);
+
+    live.useTab({ session: "kos-c1", conversationId: "c1" }, owners);
+    expect(live.tabOf("c1")).toBe(owners);
+    expect(live.tabs().find((t) => t.id === owners)?.owner).toBe("c1");
+    expect(await live.bind("kos-c1", "c1")).toEqual({ target: owners, retarget: true });
+
+    // c2 takes it from c1, whose current tab moves back to its own.
+    live.useTab({ session: "kos-c2", conversationId: "c2" }, owners);
+    expect(live.tabOf("c2")).toBe(owners);
+    expect(live.tabOf("c1")).toBe("T2");
+    expect(await live.bind("kos-c1", "c1")).toEqual({ target: "T2", retarget: true });
+    expect(await live.bind("kos-c2", "c2")).toEqual({ target: owners, retarget: true });
+
+    // Its current tab closing moves c2 to its other one, with the engine told.
+    chrome.event("Target.targetDestroyed", { targetId: owners });
+    expect(live.tabOf("c2")).toBe("T3");
+    expect(await live.bind("kos-c2", "c2")).toEqual({ target: "T3", retarget: true });
+  });
+
+  it("closes Chrome and starts it again, dropping every tab", async () => {
+    const { live, chrome, host } = setup();
+    await live.bind("kos-c1", "c1");
+    await live.restart();
+    expect(chrome.calls("Browser.close")).toHaveLength(1);
+    expect(host.stops).toBe(1);
+    expect(host.starts).toBe(2);
+    expect(live.status()).toMatchObject({ attached: true, chrome: "running" });
+    expect(live.tabOf("c1")).toBeUndefined();
+    expect(live.boundSessions()).toEqual([]);
+  });
+});
+
 describe("downloads and idle tabs", () => {
   it("has Chrome stage downloads by guid, and says whose each finished one is", async () => {
     const { live, chrome, downloads } = setup();
@@ -316,17 +415,41 @@ describe("downloads and idle tabs", () => {
     tick(10 * 60_000);
     expect(await live.closeIdle(20 * 60_000, (id) => id === "c2")).toEqual([]);
     expect(await live.closeIdle(20 * 60_000)).toEqual(["T2"]);
-    expect(await live.bind("kos-c1", "c1")).toEqual({ target: "T3", made: true });
+    expect(await live.bind("kos-c1", "c1")).toEqual({ target: "T3", retarget: true });
   });
 });
 
 describe("the engine in the MCP config, and the names things get", () => {
   it("is the enabled server naming the CDP port, with KOS's own keys read beside it", () => {
     expect(browserEngine({ servers: {} })).toBeUndefined();
-    expect(browserEngine({ servers: { browser: { env: { AGENT_BROWSER_CDP: "9225" } } } })).toEqual({ server: "browser", port: 9225, headed: false });
-    expect(
-      browserEngine({ servers: { browser: { env: { AGENT_BROWSER_CDP: "9225", KOS_BROWSER_VIEWPORT: "1600x1000", KOS_BROWSER_CHROME: "/opt/chrome", KOS_BROWSER_HEADED: "1" } } } }),
-    ).toEqual({ server: "browser", port: 9225, headed: true, viewport: { width: 1600, height: 1000 }, chrome: "/opt/chrome" });
+    expect(browserEngine({ servers: { browser: { env: { AGENT_BROWSER_CDP: "9225" } } } })).toEqual({ server: "browser", port: 9225, headed: false, extensions: [], search: "https://duckduckgo.com/?q=%s" });
+    const full = browserEngine({
+      servers: {
+        browser: {
+          env: {
+            AGENT_BROWSER_CDP: "9225",
+            KOS_BROWSER_VIEWPORT: "1600x1000",
+            KOS_BROWSER_CHROME: "/opt/chrome",
+            KOS_BROWSER_HEADED: "1",
+            KOS_BROWSER_EXTENSIONS: "/x/one, /x/two\n/x/three",
+            KOS_BROWSER_SEARCH: "https://www.google.com/search?q=%s",
+          },
+        },
+      },
+    });
+    expect(full).toEqual({
+      server: "browser",
+      port: 9225,
+      headed: true,
+      viewport: { width: 1600, height: 1000 },
+      chrome: "/opt/chrome",
+      extensions: ["/x/one", "/x/two", "/x/three"],
+      search: "https://www.google.com/search?q=%s",
+    });
+    // A search with nowhere for the words falls back; the launch is the engine's settings as Chrome wants them.
+    expect(browserEngine({ servers: { browser: { env: { AGENT_BROWSER_CDP: "9225", KOS_BROWSER_SEARCH: "https://example.com" } } } })?.search).toBe("https://duckduckgo.com/?q=%s");
+    expect(launchFor(full)).toEqual({ headed: true, extensions: ["/x/one", "/x/two", "/x/three"], binary: "/opt/chrome", windowSize: { width: 1600, height: 1090 } });
+    expect(launchFor(undefined)).toEqual({});
     expect(browserEngine({ servers: { browser: { enabled: false, env: { AGENT_BROWSER_CDP: "9225" } } } })).toBeUndefined();
     expect(browserEngine({ servers: { browser: { env: { AGENT_BROWSER_CDP: "ws" } } } })).toBeUndefined();
   });

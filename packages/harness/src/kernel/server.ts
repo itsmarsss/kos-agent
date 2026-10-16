@@ -72,7 +72,7 @@ import {
   type SkillListing,
 } from "../catalog/catalog.js";
 import { mcpToolName, readMcpConfig, removeMcpServer, serversFromJson, setMcpServerEnabled, upsertMcpServers } from "../tools/mcp.js";
-import { browserEngine } from "../browser/live.js";
+import { CHROME_ENV, DEFAULT_SEARCH, EXTENSIONS_ENV, HEADED_ENV, SEARCH_ENV, browserEngine } from "../browser/live.js";
 import { proxyToDaemon } from "../daemons/proxy.js";
 import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId } from "./session.js";
 
@@ -1451,6 +1451,94 @@ export async function handleApiRequest(
     }
   }
 
+  /*
+   * The owner's own hands on the browser's chrome, as against its pages:
+   * an address bar, back and forward, a new tab, a closed one. A tab the
+   * owner opens is nobody's; an agent sent to it with @tab: takes it.
+   */
+  if (method === "POST" && path === "/api/browser/navigate") {
+    const tab = typeof body.tab === "string" ? body.tab : "";
+    if (!tab) return { status: 400, body: { error: "tab required" } };
+    const url = typeof body.url === "string" ? body.url.trim() : "";
+    const action = body.action;
+    try {
+      if (url) {
+        await kernel.browser.navigate(tab, url);
+        return ok({ went: true });
+      }
+      if (action === "back" || action === "forward") return ok({ went: await kernel.browser.history(tab, action === "back" ? -1 : 1) });
+      if (action === "reload") {
+        await kernel.browser.reload(tab);
+        return ok({ went: true });
+      }
+      return { status: 400, body: { error: "url or action (back, forward, reload) required" } };
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  if (method === "POST" && path === "/api/browser/tabs") {
+    const url = typeof body.url === "string" && body.url.trim() ? body.url.trim() : undefined;
+    try {
+      return ok({ tab: await kernel.browser.openTab(url) });
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  if (method === "POST" && path === "/api/browser/tabs/close") {
+    const tab = typeof body.tab === "string" ? body.tab : "";
+    if (!tab) return { status: 400, body: { error: "tab required" } };
+    try {
+      await kernel.browser.closeTab(tab);
+      return ok({ closed: tab });
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  /*
+   * How Chrome is run: shown or not, which binary, unpacked extensions,
+   * and where the address bar searches. Kept as KOS's own keys in the
+   * engine's entry in mcp.json, beside the port that names it as the
+   * engine; a change takes effect when the browser next starts.
+   */
+  if (method === "GET" && path === "/api/browser/settings") {
+    return ok(browserSettings(kernel));
+  }
+
+  if (method === "POST" && path === "/api/browser/settings") {
+    const config = readMcpConfig(kernel.workspace.root);
+    const engine = browserEngine(config);
+    if (!engine) return { status: 400, body: { error: "no browser engine is configured; add the browser under Settings > MCP servers" } };
+    const entry = config.servers[engine.server]!;
+    const env = { ...(entry.env ?? {}) };
+    const set = (key: string, value: string): void => {
+      if (value) env[key] = value;
+      else delete env[key];
+    };
+    if (typeof body.headed === "boolean") env[HEADED_ENV] = body.headed ? "1" : "0";
+    if (typeof body.chrome === "string") set(CHROME_ENV, body.chrome.trim());
+    if (Array.isArray(body.extensions)) {
+      set(EXTENSIONS_ENV, body.extensions.filter((p): p is string => typeof p === "string").map((p) => p.trim()).filter(Boolean).join(","));
+    }
+    if (typeof body.search === "string") {
+      const search = body.search.trim();
+      if (search && !search.includes("%s")) return { status: 400, body: { error: "search wants a URL with %s where the words go" } };
+      set(SEARCH_ENV, search);
+    }
+    upsertMcpServers(kernel.workspace.root, { [engine.server]: { ...entry, env } });
+    return ok(browserSettings(kernel));
+  }
+
+  if (method === "POST" && path === "/api/browser/restart") {
+    try {
+      return ok(await kernel.restartBrowser());
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
   if (method === "GET" && path === "/api/file/download") {
     const target = queryParams(req.url).get("path") ?? "";
     if (!target) return { status: 400, body: { error: "path required" } };
@@ -2173,7 +2261,7 @@ export async function handleApiRequest(
     const params = queryParams(req.url);
     const q = params.get("q") ?? "";
     const kind = params.get("kind");
-    const kinds = ["project", "page", "file", "schedule", "chat", "site", "agent"];
+    const kinds = ["project", "page", "file", "schedule", "chat", "site", "agent", "tab"];
     // The palette and the @ menu ask the same question of the same index, so
     // a thing reachable by one is reachable by the other. Asked from inside a
     // project, that project's own things come first.
@@ -2193,6 +2281,11 @@ export async function handleApiRequest(
           agents: kernel.builds
             .list()
             .map((b) => ({ id: b.id, dir: b.dir, status: b.status })),
+          // The browser's tabs, each named for whose it is in words.
+          tabs: kernel.browser.tabs().map(({ owner, ...t }) => ({
+            ...t,
+            ...(owner ? { owner: kernel.conversations.get(owner)?.title ?? owner } : {}),
+          })),
         },
         q,
         limit,
@@ -2694,6 +2787,28 @@ export function withFrames(events: ChatEvent[], frames: { id: number; toolUseId:
 
 function browserStep(tool: string): boolean {
   return tool.startsWith("browser.") || /^mcp\.[^.]+\.agent_browser_/.test(tool);
+}
+
+/** How the browser is set to run, as Settings > Browser shows it. */
+export function browserSettings(kernel: Kernel): {
+  engine: string | null;
+  headed: boolean;
+  chrome: string;
+  /** The binary that would run: the one named if it exists, else the first found. */
+  found?: string;
+  extensions: string[];
+  search: string;
+} {
+  const engine = browserEngine(readMcpConfig(kernel.workspace.root));
+  const launch = kernel.browser.launch();
+  return {
+    engine: engine?.server ?? null,
+    headed: engine?.headed ?? false,
+    chrome: engine?.chrome ?? "",
+    ...(launch.found ? { found: launch.found } : {}),
+    extensions: engine?.extensions ?? [],
+    search: engine?.search ?? DEFAULT_SEARCH,
+  };
 }
 
 function streamBrowser(

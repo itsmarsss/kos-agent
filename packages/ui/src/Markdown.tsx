@@ -8,6 +8,7 @@ import {
 
 import { COMMAND_NAMES } from "@kos/shared";
 
+import { useOpenTab } from "./opentab.js";
 import { hrefFor } from "./routes.js";
 
 /**
@@ -28,7 +29,7 @@ import { hrefFor } from "./routes.js";
  * a project at a glance.
  */
 const MENTION =
-  /@(project|page|file|schedule|chat|site|agent):(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*[A-Za-z0-9_/-]))/;
+  /@(project|page|file|schedule|chat|site|agent|tab):(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*[A-Za-z0-9_/-]))/;
 /*
  * Built from the shared list rather than spelled out here. The private copy
  * went stale: /compact, /clear and /tools were added to the harness and the
@@ -74,6 +75,8 @@ function KindMark({ kind }: { kind: string }): ReactElement | null {
     chat: "M4 5h16v11H9l-5 4z",
     site: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M3 12h18M12 3c3 4 3 14 0 18M12 3c-3 4-3 14 0 18",
     agent: "M8 4h8v4H8zM5 8h14v9H5zM9 12h.01M15 12h.01M12 4V2",
+    // A browser window: a tab on a frame.
+    tab: "M3 8h18M3 8V6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v2M3 8v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8",
   };
   const d = paths[kind];
   if (!d) return null;
@@ -97,12 +100,22 @@ function KindMark({ kind }: { kind: string }): ReactElement | null {
 
 function MentionChip({ kind, id }: { kind: string; id: string }): ReactElement {
   const resolve = useContext(Names);
+  const openTab = useOpenTab();
   const label = resolve?.(kind, id) ?? id;
+  // A tab has no page of its own: the chip opens the browser window on it.
+  const onClick =
+    kind === "tab" && openTab
+      ? (e: React.MouseEvent): void => {
+          e.preventDefault();
+          openTab(id);
+        }
+      : undefined;
   return (
     <a
       className={`chip-ref chip-ref--${kind}`}
       href={refHref(kind, id)}
       title={`${kind}: ${id}`}
+      onClick={onClick}
     >
       <KindMark kind={kind} />
       {label}
@@ -113,6 +126,9 @@ function MentionChip({ kind, id }: { kind: string; id: string }): ReactElement {
 /** Where a reference goes when it is clicked. */
 function refHref(kind: string, id: string): string {
   switch (kind) {
+    case "tab":
+      // Opened in place by the chip; the page is only where it lands without that.
+      return hrefFor({ name: "home" });
     case "page":
       return hrefFor({ name: "page", id });
     case "file":

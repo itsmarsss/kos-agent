@@ -72,6 +72,7 @@ export const MENTION_KINDS = [
   "chat",
   "site",
   "agent",
+  "tab",
 ] as const;
 
 /** Split `file:notes/a` into the kind being narrowed to and the term. */
@@ -129,6 +130,7 @@ const KIND_LABEL: Record<string, string> = {
   chat: "chat",
   site: "site",
   agent: "agent",
+  tab: "tab",
   command: "command",
   approval: "waiting",
 };

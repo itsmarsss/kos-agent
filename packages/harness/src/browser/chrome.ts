@@ -15,17 +15,27 @@ import { existsSync, mkdirSync } from "node:fs";
  * one window would mean one agent's page going dark while the other works.
  */
 
-export interface ChromeOptions {
-  /** The DevTools port. Fixed, so the engine's config can name it. */
-  port: number;
-  /** Where cookies and logins live between runs. */
-  profileDir: string;
+/** How to start it. Read at each launch, so a changed setting applies on the next one. */
+export interface ChromeLaunch {
   /** A binary to use instead of the first one found. */
   binary?: string;
   /** Show the window on the machine as well. */
   headed?: boolean;
   /** Each tab's window. The page is this size less the window's own frame. */
   windowSize?: { width: number; height: number };
+  /**
+   * Unpacked extension folders. Google Chrome 137 and later ignores these in
+   * its own branded builds; Chromium and Chrome for Testing honour them.
+   */
+  extensions?: string[];
+}
+
+export interface ChromeOptions {
+  /** The DevTools port. Fixed, so the engine's config can name it. */
+  port: number;
+  /** Where cookies, logins and installed extensions live between runs. */
+  profileDir: string;
+  launch?: () => ChromeLaunch;
   /** Test seams. */
   spawn?: typeof nodeSpawn;
   fetchJson?: (url: string) => Promise<Record<string, unknown>>;
@@ -56,8 +66,9 @@ export function findChrome(preferred: string | undefined, exists: (p: string) =>
 }
 
 /** The command line, for the record and the tests. */
-export function chromeArgs(options: Pick<ChromeOptions, "port" | "profileDir" | "headed" | "windowSize">): string[] {
+export function chromeArgs(options: Pick<ChromeOptions, "port" | "profileDir"> & ChromeLaunch): string[] {
   const size = options.windowSize ?? { width: 1600, height: 1000 };
+  const extensions = (options.extensions ?? []).filter(Boolean);
   return [
     ...(options.headed ? [] : ["--headless=new"]),
     `--remote-debugging-port=${options.port}`,
@@ -71,6 +82,7 @@ export function chromeArgs(options: Pick<ChromeOptions, "port" | "profileDir" | 
     "--disable-renderer-backgrounding",
     "--disable-backgrounding-occluded-windows",
     "--disable-features=TranslateUI",
+    ...(extensions.length ? [`--load-extension=${extensions.join(",")}`] : []),
     "about:blank",
   ];
 }
@@ -83,6 +95,8 @@ const defaultFetchJson = async (url: string): Promise<Record<string, unknown>> =
 
 /** How long a launch may take to answer on its port. */
 const LAUNCH_MS = 15_000;
+/** How long a Chrome told to close may take to stop answering. */
+const GONE_MS = 5_000;
 
 export class ChromeHost {
   private child: ChildProcess | null = null;
@@ -100,6 +114,13 @@ export class ChromeHost {
 
   get port(): number {
     return this.options.port;
+  }
+
+  /** The launch as it would be now: what the settings say, and the binary they resolve to. */
+  get launch(): ChromeLaunch & { found?: string } {
+    const launch = this.options.launch?.() ?? {};
+    const found = findChrome(launch.binary, this.options.exists);
+    return { ...launch, ...(found ? { found } : {}) };
   }
 
   /** Told when the browser process ends. */
@@ -140,6 +161,22 @@ export class ChromeHost {
     }
   }
 
+  /**
+   * Until nothing answers on the port, so a restart does not adopt the
+   * Chrome on its way out. An adopted Chrome is not KOS's child, so this
+   * is the only way to know it has gone.
+   */
+  async waitGone(): Promise<void> {
+    const probe = this.options.fetchJson ?? defaultFetchJson;
+    const version = `http://127.0.0.1:${this.options.port}/json/version`;
+    const deadline = Date.now() + GONE_MS;
+    while (Date.now() < deadline) {
+      const answer = await probe(version).catch(() => null);
+      if (!answer) return;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+  }
+
   private async start(): Promise<string> {
     const probe = this.options.fetchJson ?? defaultFetchJson;
     const version = `http://127.0.0.1:${this.options.port}/json/version`;
@@ -148,11 +185,12 @@ export class ChromeHost {
       this.wsUrl = found["webSocketDebuggerUrl"];
       return this.wsUrl;
     }
-    const binary = findChrome(this.options.binary, this.options.exists);
+    const launch = this.options.launch?.() ?? {};
+    const binary = findChrome(launch.binary, this.options.exists);
     if (!binary) throw new Error("no Chrome found; set KOS_BROWSER_CHROME on the browser server to its path");
     mkdirSync(this.options.profileDir, { recursive: true });
     const spawn = this.options.spawn ?? nodeSpawn;
-    const child = spawn(binary, chromeArgs(this.options), { stdio: "ignore", env: this.options.env ?? process.env });
+    const child = spawn(binary, chromeArgs({ port: this.options.port, profileDir: this.options.profileDir, ...launch }), { stdio: "ignore", env: this.options.env ?? process.env });
     this.child = child;
     child.on("exit", () => {
       if (this.child !== child) return;

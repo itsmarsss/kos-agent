@@ -25,11 +25,13 @@ import {
   type CronJob,
   type ChatEvent,
   type Conversation,
+  type BrowserTabInfo,
   type BuildRecord,
   type PendingAction,
   type PendingMessage,
   type Project,
 } from "./api.js";
+import { tabName } from "./address.js";
 import { AttachButton, useAttachments, useDropZone } from "./Attachments.js";
 import { AttachmentStrip } from "./AttachmentStrip.js";
 import { MentionedFiles } from "./MentionedFiles.js";
@@ -110,6 +112,8 @@ export interface ChatsPageProps {
   /** Coding sub-agents, so a chat that started one can link to it. */
   agents: BuildRecord[];
   onOpenAgent: (id: number) => void;
+  /** The browser's tabs, so a chip can name one by its page rather than its id. */
+  tabs?: BrowserTabInfo[];
   /** Every job, so a project's rail can show its own. */
   crons: CronJob[];
   /** Open the editor on a job, or on a new one for a project. */
@@ -195,6 +199,7 @@ export function ChatsPage({
   deciding,
   agents,
   onOpenAgent,
+  tabs = [],
   crons,
   onEditCron,
   onOpen,
@@ -433,6 +438,10 @@ export function ChatsPage({
     if (kind === "agent") {
       const build = agents.find((b) => String(b.id) === id);
       return build ? build.dir : undefined;
+    }
+    if (kind === "tab") {
+      const tab = tabs.find((t) => t.id === id);
+      return tab ? tabName(tab) : "a closed tab";
     }
     return undefined;
   };

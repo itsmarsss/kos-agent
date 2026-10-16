@@ -31,11 +31,30 @@ export const ENGINE_TOOL = {
   scroll: "agent_browser_scroll",
 } as const;
 
+/** A tab as the caller is told of it. */
+export interface TabInfo {
+  id: string;
+  title: string;
+  url: string;
+  /** Another agent's, in words; absent for the caller's own and the owner's. */
+  owner?: string;
+  /** The caller's own. */
+  mine?: boolean;
+  /** The one the caller is on. */
+  current?: boolean;
+}
+
 export interface BrowserToolsDeps {
   /** Call one of the engine's tools for the current caller, on its own tab. */
   call: (tool: string, args: Record<string, unknown>) => Promise<string>;
   /** A picture of the caller's tab as it is, base64 JPEG, when there is one. */
   look?: () => Promise<{ data: string } | undefined>;
+  /** The open tabs, each with whose it is. */
+  tabs?: () => TabInfo[];
+  /** Move the caller to an open tab; it is the caller's from then on. */
+  useTab?: (tab: string) => Promise<void>;
+  /** A new tab of the caller's own, which it is then on. Returns its id. */
+  newTab?: (url?: string) => Promise<string>;
 }
 
 type Step =
@@ -143,6 +162,9 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         { kind: "tool", name: "browser.act", version: "1.0.0" },
         { kind: "tool", name: "browser.handoff", version: "1.0.0" },
         { kind: "tool", name: "browser.look", version: "1.0.0" },
+        { kind: "tool", name: "browser.tabs", version: "1.0.0" },
+        { kind: "tool", name: "browser.use_tab", version: "1.0.0" },
+        { kind: "tool", name: "browser.new_tab", version: "1.0.0" },
       ],
     },
     async activate(ctx: ModuleContext) {
@@ -262,6 +284,74 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           return `The owner has done it. The tab is now at ${url.trim() || "the same page"}${title.trim() ? ` (${title.trim()})` : ""}. Look again before you act.`;
         },
         RISKY,
+      );
+
+      /*
+       * Tabs. The owner points at a tab with @tab: (theirs, or another
+       * agent's), and an agent may want a second page open beside the first.
+       * A tab is one agent's at a time; using one takes it.
+       */
+      ctx.registerTool(
+        {
+          name: "browser.tabs",
+          description:
+            "The browser's open tabs: id, title, url and whose each is. Yours is marked. The owner's own tabs have no owner. " +
+            "Use browser.use_tab to work in one.",
+          inputSchema: { type: "object", properties: {} },
+        },
+        async () => {
+          const tabs = deps.tabs?.() ?? [];
+          if (tabs.length === 0) return "No tabs are open.";
+          return tabs
+            .map((t) => `${t.id}${t.current ? " (yours, current)" : t.mine ? " (yours)" : t.owner ? ` (${t.owner}'s)` : " (the owner's)"}: ${t.title.trim() || "untitled"} — ${t.url}`)
+            .join("\n");
+        },
+        SAFE,
+      );
+
+      ctx.registerTool(
+        {
+          name: "browser.use_tab",
+          description:
+            "Work in a tab that is already open: one the owner pointed at with @tab:, or one from browser.tabs. It becomes " +
+            "your tab, and you get the page as it is. `then` as for browser.visit.",
+          inputSchema: {
+            type: "object",
+            properties: { tab: { type: "string", description: "the tab's id" }, then: { type: "string", enum: ["snapshot", "read", "none"] } },
+            required: ["tab"],
+          },
+        },
+        async (input) => {
+          const tab = typeof input["tab"] === "string" ? input["tab"].trim() : "";
+          if (!tab) throw new Error("tab required");
+          if (!deps.useTab) throw new Error("no browser to switch tabs in");
+          await deps.useTab(tab);
+          const page = await pageAfter(deps, thenOf(input, "snapshot"));
+          return `Now on tab ${tab}.\n${page}`.trim();
+        },
+        SAFE,
+      );
+
+      ctx.registerTool(
+        {
+          name: "browser.new_tab",
+          description:
+            "Open a new tab of your own, at a url if given, and work in it from now on; your other tabs stay open and you can " +
+            "go back to one with browser.use_tab. `then` as for browser.visit.",
+          inputSchema: {
+            type: "object",
+            properties: { url: { type: "string" }, then: { type: "string", enum: ["snapshot", "read", "none"] } },
+          },
+        },
+        async (input) => {
+          if (!deps.newTab) throw new Error("no browser to open a tab in");
+          const url = typeof input["url"] === "string" && input["url"].trim() ? input["url"].trim() : undefined;
+          const id = await deps.newTab(url);
+          if (url) await deps.call(ENGINE_TOOL.waitForLoad, {}).catch(() => undefined);
+          const page = url ? await pageAfter(deps, thenOf(input, "snapshot")) : "";
+          return `Opened tab ${id}${url ? ` at ${url}` : ""}.\n${page}`.trim();
+        },
+        SAFE,
       );
     },
   };

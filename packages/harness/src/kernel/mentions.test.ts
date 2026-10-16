@@ -95,6 +95,23 @@ describe("findMentions", () => {
     );
   });
 
+  it("offers the browser's tabs by their page, saying whose each is", () => {
+    const src = {
+      ...sources(),
+      tabs: [
+        { id: "T1", title: "Hacker News", url: "https://news.ycombinator.com/", owner: "Research" },
+        { id: "T2", title: "", url: "https://example.com/x" },
+        { id: "T3", title: "", url: "about:blank" },
+      ],
+    };
+    expect(findMentions(src, "hacker", 12, "tab")).toEqual([
+      { kind: "tab", id: "T1", label: "Hacker News", hint: "Research · https://news.ycombinator.com/" },
+    ]);
+    expect(findMentions(src, "example", 12, "tab")).toEqual([{ kind: "tab", id: "T2", label: "example.com", hint: "https://example.com/x" }]);
+    expect(findMentions(src, "T3", 12, "tab")[0]).toEqual({ kind: "tab", id: "T3", label: "blank tab", hint: "" });
+    expect(parseMentions("look at @tab:T1 please")).toEqual([{ kind: "tab", id: "T1" }]);
+  });
+
   it("puts the project's own things first when asked from inside it", () => {
     mkdirSync(join(root, "projects", "kitchen"), { recursive: true });
     writeFileSync(join(root, "projects", "kitchen", "plan.md"), "x");
