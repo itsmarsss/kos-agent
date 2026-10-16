@@ -16,6 +16,10 @@ export interface EnqueueInput {
    * waiting, and that is not always the primary one.
    */
   conversationId?: string;
+  /** The rule a yes-and-remember would keep, named when the call was queued. */
+  rule?: { tool: string; scope: string | null; project: string | null };
+  /** A picture of what the call would act on: a browser tab, base64 JPEG. */
+  picture?: string;
 }
 
 export interface PendingAction {
@@ -30,6 +34,10 @@ export interface PendingAction {
   requestedAt: number;
   decidedAt: number | null;
   decidedBy: string | null;
+  /** The rule a yes-and-remember keeps, if the call's shape can be named. */
+  rule: { tool: string; scope: string | null; project: string | null } | null;
+  /** There is a picture of what it would act on; fetched on its own, it is big. */
+  picture: boolean;
 }
 
 const SCHEMA = `
@@ -60,6 +68,8 @@ interface Row {
   requested_at: number;
   decided_at: number | null;
   decided_by: string | null;
+  rule: string | null;
+  has_picture: number;
 }
 
 function toAction(row: Row): PendingAction {
@@ -73,6 +83,8 @@ function toAction(row: Row): PendingAction {
     userId: row.user_id,
     conversationId: row.conversation_id,
     requestedAt: row.requested_at,
+    rule: row.rule ? (JSON.parse(row.rule) as PendingAction["rule"]) : null,
+    picture: row.has_picture === 1,
     decidedAt: row.decided_at,
     decidedBy: row.decided_by,
   };
@@ -115,6 +127,18 @@ export class ApprovalQueue {
     if (!columns.some((c) => c.name === "conversation_id")) {
       this.db.exec(`ALTER TABLE pending_actions ADD COLUMN conversation_id TEXT`);
     }
+    if (!columns.some((c) => c.name === "rule")) {
+      this.db.exec(`ALTER TABLE pending_actions ADD COLUMN rule TEXT`);
+    }
+    if (!columns.some((c) => c.name === "picture")) {
+      this.db.exec(`ALTER TABLE pending_actions ADD COLUMN picture TEXT`);
+    }
+  }
+
+  /** The picture queued with an action, if one was: base64 JPEG. */
+  pictureOf(id: number): string | undefined {
+    const row = this.db.prepare(`SELECT picture FROM pending_actions WHERE id = ?`).get(id) as { picture: string | null } | undefined;
+    return row?.picture ?? undefined;
   }
 
   enqueue(input: EnqueueInput): PendingAction {
@@ -122,8 +146,8 @@ export class ApprovalQueue {
     const args = this.secrets ? this.secrets.redact(argsJson) : argsJson;
     const info = this.db
       .prepare(
-        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at, rule, picture)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.tool,
@@ -133,13 +157,15 @@ export class ApprovalQueue {
         input.userId ?? null,
         input.conversationId ?? null,
         this.now(),
+        input.rule ? JSON.stringify(input.rule) : null,
+        input.picture ?? null,
       );
     return this.get(Number(info.lastInsertRowid))!;
   }
 
   get(id: number): PendingAction | undefined {
     const row = this.db
-      .prepare(`SELECT * FROM pending_actions WHERE id = ?`)
+      .prepare(`SELECT *, (picture IS NOT NULL) AS has_picture FROM pending_actions WHERE id = ?`)
       .get(id) as Row | undefined;
     return row ? toAction(row) : undefined;
   }
@@ -147,7 +173,7 @@ export class ApprovalQueue {
   pending(): PendingAction[] {
     const rows = this.db
       .prepare(
-        `SELECT * FROM pending_actions WHERE status = 'pending' ORDER BY id`,
+        `SELECT *, (picture IS NOT NULL) AS has_picture FROM pending_actions WHERE status = 'pending' ORDER BY id`,
       )
       .all() as Row[];
     return rows.map(toAction);

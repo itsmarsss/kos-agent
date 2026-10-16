@@ -201,12 +201,14 @@ export async function runHost(options: HostOptions): Promise<void> {
     ...((creds && wantDiscord) || sms
       ? {
           onApprovalRequested: (action) => {
+            const picture = action.picture ? kernel.approvals.pictureOf(action.id) : undefined;
             const request = {
               id: String(action.id),
               text: `Approve ${action.tool}?`,
               tool: action.tool,
               args: action.args,
               reason: action.reason,
+              ...(picture ? { picture } : {}),
             };
             if (adapter && creds) void adapter.requestApproval(creds.ownerId, request);
             if (smsAdapter && sms) void smsAdapter.requestApproval(sms.owner, request);

@@ -929,6 +929,9 @@ export class DiscordAdapter implements ChannelAdapter {
     const sent = await user.send({
       content: approvalText(req),
       components: [row],
+      // The page a browser action is aimed at, when there is one: the thing
+      // being approved, rather than a description of it.
+      ...(req.picture ? { files: [{ attachment: Buffer.from(req.picture, "base64"), name: "page.jpg" }] } : {}),
     });
     this.prompts.set(req.id, { message: sent, summary });
   }

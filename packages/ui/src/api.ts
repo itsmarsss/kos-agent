@@ -48,6 +48,10 @@ export interface PendingAction {
   /** The conversation that asked, so a decision can be taken where it lives. */
   conversationId: string | null;
   requestedAt: number;
+  /** There is a picture of what it would act on, at /api/approvals/:id/picture. */
+  picture?: boolean;
+  /** What a yes-and-remember keeps. */
+  rule?: { tool: string; scope: string | null; project: string | null } | null;
 }
 
 export interface Project {

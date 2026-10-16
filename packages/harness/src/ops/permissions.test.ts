@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 
 import { writtenTables } from "../risk/rules.js";
-import { PermissionStore, scopeCovers, scopeOf } from "./permissions.js";
+import { PermissionStore, familyOf, scopeCovers, scopeOf } from "./permissions.js";
 
 describe("naming a call's scope", () => {
   it("names a file call by its directory, a fetch by its host, a write by its table", () => {
@@ -96,5 +96,29 @@ describe("remembered decisions", () => {
     expect(s.list()).toHaveLength(1);
     expect(s.revoke(a.id)).toBe(true);
     expect(s.allows("cron.schedule", {})).toBe(false);
+  });
+});
+
+describe("trusting a site for the browser", () => {
+  const context = { browser: { prefix: "mcp.browser.", site: "example.com", strict: ["mcp.browser.agent_browser_eval"] } };
+
+  it("names a browser action by the site its tab is on, as one family", () => {
+    expect(scopeOf("mcp.browser.agent_browser_click", { selector: "@e5" }, context)).toBe("site:example.com");
+    expect(familyOf("mcp.browser.agent_browser_click", context)).toBe("mcp.browser.*");
+    expect(scopeOf("mcp.browser.agent_browser_click", { selector: "@e5" }, { browser: { prefix: "mcp.browser." } })).toBeUndefined();
+    expect(scopeOf("mcp.browser.agent_browser_eval", { script: "x" }, context)).toBeUndefined();
+    expect(scopeOf("files.write", { path: "a/b.txt" }, context)).toBe("dir:a");
+    expect(familyOf("files.write", context)).toBe("files.write");
+  });
+
+  it("remembers one yes for every action on that site, and nowhere else", () => {
+    const store = new PermissionStore(new Database(":memory:"), () => 1);
+    const rule = store.ruleFor("mcp.browser.agent_browser_click", { selector: "@e5" }, null, context);
+    expect(rule).toEqual({ tool: "mcp.browser.*", scope: "site:example.com", project: null });
+    store.add(rule!);
+    expect(store.allows("mcp.browser.agent_browser_fill", { selector: "@e2", value: "x" }, undefined, context)).toBe(true);
+    expect(store.allows("mcp.browser.agent_browser_eval", { script: "x" }, undefined, context)).toBe(false);
+    expect(store.allows("mcp.browser.agent_browser_click", { selector: "@e5" }, undefined, { browser: { ...context.browser, site: "other.example" } })).toBe(false);
+    expect(store.allows("mcp.browser.agent_browser_click", { selector: "@e5" }, undefined, { browser: { prefix: "mcp.browser." } })).toBe(false);
   });
 });

@@ -33,6 +33,27 @@ describe("ApprovalQueue", () => {
     expect(pending[0]?.status).toBe("pending");
   });
 
+  it("keeps the rule and the picture a call was queued with, and adds the columns to an older table", () => {
+    const action = queue.enqueue({ tool: "mcp.browser.agent_browser_click", args: { selector: "@e5" }, riskTier: "risky", rule: { tool: "mcp.browser.*", scope: "site:shop.example", project: null }, picture: "UElD" });
+    expect(action.rule).toEqual({ tool: "mcp.browser.*", scope: "site:shop.example", project: null });
+    expect(action.picture).toBe(true);
+    expect(queue.pictureOf(action.id)).toBe("UElD");
+    const plain = queue.enqueue({ tool: "shell", args: { cmd: "ls" }, riskTier: "risky" });
+    expect(plain.rule).toBeNull();
+    expect(plain.picture).toBe(false);
+    expect(queue.pictureOf(plain.id)).toBeUndefined();
+    // Listing says there is a picture without carrying it.
+    expect(queue.pending().map((a) => a.picture)).toEqual([true, false]);
+
+    // A workspace from before: the table without the two columns.
+    ws.db.exec(`DROP TABLE pending_actions`);
+    ws.db.exec(`CREATE TABLE pending_actions (id INTEGER PRIMARY KEY, tool TEXT NOT NULL, args TEXT NOT NULL, risk_tier TEXT NOT NULL, reason TEXT, status TEXT NOT NULL DEFAULT 'pending', user_id TEXT, conversation_id TEXT, requested_at INTEGER NOT NULL, decided_at INTEGER, decided_by TEXT)`);
+    ws.db.exec(`INSERT INTO pending_actions (tool, args, risk_tier, requested_at) VALUES ('shell', '{}', 'risky', 1)`);
+    const older = new ApprovalQueue(ws.db);
+    expect(older.pending()).toHaveLength(1);
+    expect(older.pending()[0]).toMatchObject({ tool: "shell", rule: null, picture: false });
+  });
+
   it("approves and denies, leaving the queue clear", () => {
     const a = queue.enqueue({ tool: "t", args: {}, riskTier: "risky" });
     const approved = queue.approve(a.id, "owner");

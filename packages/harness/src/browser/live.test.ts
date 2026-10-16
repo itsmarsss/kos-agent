@@ -216,6 +216,20 @@ describe("the live view of the one Chrome", () => {
     expect(chrome.calls("Page.startScreencast")).toHaveLength(2);
   });
 
+  it("pictures a tab scaled to fit, and knows which site a conversation is on", async () => {
+    const { live, chrome } = setup();
+    chrome.still = true;
+    await live.bind("kos-c1", "c1");
+    expect(live.siteOf("c1")).toBeUndefined();
+    chrome.event("Target.targetInfoChanged", { targetInfo: { targetId: "T1", type: "page", title: "Shop", url: "https://shop.example.com/cart?x=1" } });
+    expect(live.siteOf("c1")).toBe("shop.example.com");
+    expect(live.siteOf("nobody")).toBeUndefined();
+    expect(await live.capture("T1", 800)).toBe("STILL");
+    const shot = chrome.calls("Page.captureScreenshot").at(-1);
+    expect(shot?.params).toMatchObject({ format: "jpeg", clip: { x: 0, y: 0, width: 1600, height: 1000, scale: 0.5 } });
+    expect(await live.capture("nope")).toBeUndefined();
+  });
+
   it("tells a watcher of a tab that is not there, without starting anything", async () => {
     const { live, chrome } = setup();
     await live.bind("kos-c1", "c1");

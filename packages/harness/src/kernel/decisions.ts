@@ -100,8 +100,11 @@ export class Decisions {
     // Kept, when the owner said so: the shape of this call, in the project
     // it came from. A call whose shape cannot be named makes no rule.
     if (options.remember) {
+      // The rule named when the call was queued, if there was one: a browser
+      // action's site is known then and not now. Otherwise named from the
+      // call's shape, as before.
       const project = action.conversationId ? (d.conversations.get(action.conversationId)?.projectSlug ?? null) : null;
-      const rule = d.permissions.ruleFor(action.tool, JSON.parse(action.args) as Record<string, unknown>, project);
+      const rule = action.rule ?? d.permissions.ruleFor(action.tool, JSON.parse(action.args) as Record<string, unknown>, project);
       if (rule) d.permissions.add(rule);
     }
 

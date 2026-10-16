@@ -630,6 +630,15 @@ export async function handleApiRequest(
     return ok(kernel.approvals.pending());
   }
 
+  // The picture queued with an approval: what a browser action would act on.
+  const approvalPicture = /^\/api\/approvals\/(\d+)\/picture$/.exec(path);
+  if (method === "GET" && approvalPicture) {
+    const picture = kernel.approvals.pictureOf(Number(approvalPicture[1]));
+    if (!picture) return { status: 404, body: { error: "no picture" } };
+    const bytes = Buffer.from(picture, "base64");
+    return { status: 200, body: bytes, headers: { "content-type": "image/jpeg", "content-length": String(bytes.byteLength), "cache-control": "private, max-age=3600" } };
+  }
+
   if (method === "GET" && path === "/api/projects") {
     return ok(kernel.manifest.list());
   }

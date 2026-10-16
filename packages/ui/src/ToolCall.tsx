@@ -65,6 +65,16 @@ export function ToolCall({
             This needs your approval before it runs.
           </span>
           <Decision id={Number(event.pendingId)} deciding={deciding} onDecide={(id, ok, remember) => onDecide?.(String(id), ok, remember)} small />
+          {/* The page a browser action is aimed at, when there is one; the
+              image hides itself when the queue has none for this call. */}
+          <img
+            className="approval-pic approval-pic--strip"
+            src={`/api/approvals/${event.pendingId}/picture`}
+            alt="The page this would act on"
+            onError={(e) => {
+              e.currentTarget.style.display = "none";
+            }}
+          />
           {/* The arguments, in view while the decision is open: what a
               command is, not that there is one, is what gets approved. */}
           <pre className="toolcall-approve-args">{JSON.stringify(event.args, null, 2)}</pre>

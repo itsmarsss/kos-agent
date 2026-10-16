@@ -49,7 +49,42 @@ function parentDir(path: string): string {
  * this cannot name (a sql write whose table it cannot read), so no rule can
  * match it and it always asks.
  */
-export function scopeOf(tool: string, input: Record<string, unknown>): string | null | undefined {
+/**
+ * What the caller knows that the call's arguments do not.
+ *
+ * A browser action names an element, not a site: the site is wherever the
+ * caller's tab is. So the kernel says which tools are the browser's and
+ * where that tab is, and a decision about them is kept per site, for the
+ * whole family of actions, since "yes, click there" and "yes, type there"
+ * are one trust. A few tools stay outside it (running script in the page)
+ * and ask every time.
+ */
+export interface PermissionContext {
+  browser?: {
+    /** The browser engine's tool-name prefix, "mcp.browser.". */
+    prefix: string;
+    /** The host of the caller's tab, when it has one. */
+    site?: string;
+    /** Tools of the family that are never remembered. */
+    strict?: string[];
+  };
+}
+
+function browserTool(tool: string, context?: PermissionContext): boolean {
+  return !!context?.browser && tool.startsWith(context.browser.prefix);
+}
+
+/** The name a rule is kept under: a browser action's whole family, else the tool itself. */
+export function familyOf(tool: string, context?: PermissionContext): string {
+  return browserTool(tool, context) ? `${context!.browser!.prefix}*` : tool;
+}
+
+export function scopeOf(tool: string, input: Record<string, unknown>, context?: PermissionContext): string | null | undefined {
+  if (browserTool(tool, context)) {
+    const browser = context!.browser!;
+    if (browser.strict?.includes(tool)) return undefined;
+    return browser.site ? `site:${browser.site}` : undefined;
+  }
   if (tool.startsWith("files.")) {
     const path = typeof input["path"] === "string" ? input["path"] : typeof input["from"] === "string" ? input["from"] : "";
     return `dir:${parentDir(path)}`;
@@ -133,18 +168,19 @@ export class PermissionStore {
    * A rule made in a project applies only there; one made at the root
    * applies everywhere. A call whose scope cannot be named never matches.
    */
-  allows(tool: string, input: Record<string, unknown>, project?: string): boolean {
-    const scope = scopeOf(tool, input);
+  allows(tool: string, input: Record<string, unknown>, project?: string, context?: PermissionContext): boolean {
+    const scope = scopeOf(tool, input, context);
     if (scope === undefined) return false;
+    const family = familyOf(tool, context);
     return this.list().some(
-      (r) => r.tool === tool && (r.project === null || r.project === (project ?? null)) && scopeCovers(r.scope, scope),
+      (r) => (r.tool === tool || r.tool === family) && (r.project === null || r.project === (project ?? null)) && scopeCovers(r.scope, scope),
     );
   }
 
   /** The rule a decision would make, for showing before it is kept. */
-  ruleFor(tool: string, input: Record<string, unknown>, project: string | null): { tool: string; scope: string | null; project: string | null } | undefined {
-    const scope = scopeOf(tool, input);
+  ruleFor(tool: string, input: Record<string, unknown>, project: string | null, context?: PermissionContext): { tool: string; scope: string | null; project: string | null } | undefined {
+    const scope = scopeOf(tool, input, context);
     if (scope === undefined) return undefined;
-    return { tool, scope, project };
+    return { tool: familyOf(tool, context), scope, project };
   }
 }
