@@ -12,6 +12,8 @@ import type { PermissionContext } from "../ops/permissions.js";
 
 /** KOS's own browser tools: they act on the caller's tab and share its site trust. */
 const BROWSER_MEMBERS = ["browser.visit", "browser.act"];
+/** The ask for the owner's hands: on the tab too, pictured too, never trusted. */
+const BROWSER_HANDOFF = "browser.handoff";
 import { ChromeHost } from "../browser/chrome.js";
 import { BrowserLive, browserEngine, sessionFor } from "../browser/live.js";
 import { BUILTIN_FEATURES, isBuiltinFeature } from "../modules/builtins.js";
@@ -1982,13 +1984,21 @@ export class Kernel {
    * the site the caller's tab is on, and the tools never trusted by site.
    */
   private browserContext(tool: string, conversationId?: string): PermissionContext | undefined {
-    if (!tool.startsWith("mcp.") && !BROWSER_MEMBERS.includes(tool)) return undefined;
+    const own = BROWSER_MEMBERS.includes(tool) || tool === BROWSER_HANDOFF;
+    if (!tool.startsWith("mcp.") && !own) return undefined;
     const engine = browserEngine(readMcpConfig(this.workspace.root));
     if (!engine) return undefined;
     const prefix = mcpToolName(engine.server, "");
-    if (!tool.startsWith(prefix) && !BROWSER_MEMBERS.includes(tool)) return undefined;
+    if (!tool.startsWith(prefix) && !own) return undefined;
     const site = conversationId ? this.browser.siteOf(conversationId) : undefined;
-    return { browser: { prefix, ...(site ? { site } : {}), strict: [`${prefix}agent_browser_eval`], members: BROWSER_MEMBERS } };
+    return {
+      browser: {
+        prefix,
+        ...(site ? { site } : {}),
+        strict: [`${prefix}agent_browser_eval`, BROWSER_HANDOFF],
+        members: [...BROWSER_MEMBERS, BROWSER_HANDOFF],
+      },
+    };
   }
 
   /**

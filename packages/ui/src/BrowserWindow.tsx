@@ -111,9 +111,18 @@ function tabLabel(t: BrowserTab, titleFor: (conversationId: string) => string | 
   return { who, what };
 }
 
+export interface Handoff {
+  id: number;
+  conversationId: string | null;
+  reason: string;
+}
+
 export interface BrowserWindowProps {
   open: boolean;
   onClose: () => void;
+  /** Agents waiting for the owner's hands on their tab. */
+  handoffs?: Handoff[];
+  onDecide?: (id: number, approved: boolean) => void;
   /** What KOS is doing with it right now, if anything, for the title line. */
   doing?: string;
   /** The conversation working right now: its tab is the one to show first. */
@@ -122,7 +131,7 @@ export interface BrowserWindowProps {
   titleFor?: (conversationId: string) => string | undefined;
 }
 
-export function BrowserWindow({ open, onClose, doing, prefer, titleFor = () => undefined }: BrowserWindowProps): ReactElement | null {
+export function BrowserWindow({ open, onClose, doing, prefer, titleFor = () => undefined, handoffs = [], onDecide }: BrowserWindowProps): ReactElement | null {
   const [chosen, setChosen] = useState<string | null>(null);
   /** The tab shown: the chosen one while it exists, else the working agent's, else the first that is someone's. */
   const [tab, setTab] = useState<string | null>(null);
@@ -282,6 +291,8 @@ export function BrowserWindow({ open, onClose, doing, prefer, titleFor = () => u
   const owner = current?.owner ? (titleFor(current.owner) ?? current.owner) : "";
   const placed: Box = maximized ? { left: EDGE, top: EDGE, width: window.innerWidth - EDGE * 2, height: window.innerHeight - EDGE * 2 } : box;
   const frameNote = live.frame ? `${live.frame.width}×${live.frame.height}` : "";
+  // The ask that belongs to the tab on screen, else the first one waiting.
+  const handoff = handoffs.find((h) => current?.owner && h.conversationId === current.owner) ?? handoffs[0];
 
   return (
     <div
@@ -369,6 +380,33 @@ export function BrowserWindow({ open, onClose, doing, prefer, titleFor = () => u
               </button>
             );
           })}
+        </div>
+      )}
+      {handoff && onDecide && (
+        <div className="browserwin-handoff" role="status">
+          <span className="browserwin-handoff-text">
+            <strong>{handoff.conversationId ? (titleFor(handoff.conversationId) ?? "An agent") : "An agent"} needs your hands.</strong> {handoff.reason}
+          </span>
+          <span className="browserwin-handoff-acts">
+            {!driving && (
+              <button type="button" className="btn btn--sm btn--primary" onClick={() => setDriving(true)}>
+                Take over
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn--sm btn--ok"
+              onClick={() => {
+                setDriving(false);
+                onDecide(handoff.id, true);
+              }}
+            >
+              Done
+            </button>
+            <button type="button" className="btn btn--sm" onClick={() => onDecide(handoff.id, false)}>
+              Can't
+            </button>
+          </span>
         </div>
       )}
       <div className="browserwin-body">

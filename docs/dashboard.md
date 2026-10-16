@@ -56,6 +56,14 @@ it instead of to the dashboard, with the window's border lit to say whose
 hand is on it. **Let go** hands it back. The agent does not stop while you
 drive; it reads the page again on its next step.
 
+**Sign in with your hands.** When an agent reaches a login, a code, a
+captcha or a payment, it asks for your hands rather than guessing. The
+window opens on that tab with the ask across the top: Take over, do the
+thing, then **Done**. The agent's turn waits for you and carries on with
+the page as you left it; logins stay in the browser's profile, so every
+agent is signed in from then on. **Can't** sends it back empty-handed.
+The same ask sits in the Inbox with an "Open the browser" button.
+
 The engine is an MCP server (`agent-browser`, under Settings › MCP servers,
 one click from the picks). Looking is safe by default: opening a page,
 reading it, scrolling, switching tabs. Acting asks you first: clicks,
