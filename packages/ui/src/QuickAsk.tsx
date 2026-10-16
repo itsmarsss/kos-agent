@@ -8,6 +8,7 @@ import {
 } from "react";
 
 import { api } from "./api.js";
+import { EDGES, clampBox, cornerBox, readBox as readStoredBox, resizedBox, saveBox as saveStoredBox, type Box, type Edge, type MinSize } from "./floatbox.js";
 import { useProgress } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
 import { Markdown } from "./Markdown.js";
@@ -35,78 +36,16 @@ interface Aside {
   a?: string;
 }
 
-/** Where the window sits and how big it is, in viewport pixels. */
-interface Box {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
-
-type Edge = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
-const EDGES: readonly Edge[] = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
-
 const BOX_KEY = "kos.quick.box";
-const EDGE = 8;
-const MIN_W = 280;
-const MIN_H = 224;
+const MIN: MinSize = { width: 280, height: 224 };
 /** How long the fade out runs; the window unmounts after it. */
 const FADE_MS = 140;
 
-function clamp(b: Box): Box {
-  const width = Math.max(MIN_W, Math.min(b.width, window.innerWidth - EDGE * 2));
-  const height = Math.max(MIN_H, Math.min(b.height, window.innerHeight - EDGE * 2));
-  return {
-    width,
-    height,
-    left: Math.max(EDGE, Math.min(b.left, window.innerWidth - width - EDGE)),
-    top: Math.max(EDGE, Math.min(b.top, window.innerHeight - height - EDGE)),
-  };
-}
-
-/** The box after one of its edges moved by (dx, dy). The opposite edge stays put. */
-function resized(from: Box, edge: Edge, dx: number, dy: number): Box {
-  let { left, top, width, height } = from;
-  const right = from.left + from.width;
-  const bottom = from.top + from.height;
-  if (edge.includes("e")) width = Math.max(MIN_W, Math.min(from.width + dx, window.innerWidth - EDGE - from.left));
-  if (edge.includes("s")) height = Math.max(MIN_H, Math.min(from.height + dy, window.innerHeight - EDGE - from.top));
-  if (edge.includes("w")) {
-    left = Math.max(EDGE, Math.min(from.left + dx, right - MIN_W));
-    width = right - left;
-  }
-  if (edge.includes("n")) {
-    top = Math.max(EDGE, Math.min(from.top + dy, bottom - MIN_H));
-    height = bottom - top;
-  }
-  return { left, top, width, height };
-}
-
+const clamp = (b: Box): Box => clampBox(b, MIN);
+const resized = (from: Box, edge: Edge, dx: number, dy: number): Box => resizedBox(from, edge, dx, dy, MIN);
 /** The remembered box, or a first-time one tucked into the bottom right. */
-function readBox(): Box {
-  try {
-    const raw = localStorage.getItem(BOX_KEY);
-    if (raw) return clamp(JSON.parse(raw) as Box);
-  } catch {
-    /* private window, or a stale shape */
-  }
-  const width = Math.min(368, window.innerWidth - EDGE * 2);
-  const height = Math.min(460, window.innerHeight - EDGE * 2);
-  return clamp({
-    left: window.innerWidth - width - 18,
-    top: window.innerHeight - height - 18,
-    width,
-    height,
-  });
-}
-
-function saveBox(b: Box): void {
-  try {
-    localStorage.setItem(BOX_KEY, JSON.stringify(b));
-  } catch {
-    /* private window */
-  }
-}
+const readBox = (): Box => readStoredBox(BOX_KEY, MIN, () => cornerBox(368, 460));
+const saveBox = (b: Box): void => saveStoredBox(BOX_KEY, b);
 
 export function QuickAsk({
   open,

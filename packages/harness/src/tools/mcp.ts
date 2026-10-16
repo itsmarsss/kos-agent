@@ -231,6 +231,8 @@ export interface McpModuleOptions {
 interface Connected {
   client: Client;
   tools: string[];
+  /** The config it was brought up with, so a changed one is noticed. */
+  spec: string;
 }
 
 export type McpStatus = Record<string, { connected: boolean; tools: string[]; error?: string }>;
@@ -239,6 +241,12 @@ export type McpStatus = Record<string, { connected: boolean; tools: string[]; er
 export interface McpModule extends KosModule {
   reload(): Promise<McpStatus>;
   status(): McpStatus;
+  /**
+   * Call one of a server's tools from KOS itself, outside any turn: no
+   * floor, no approval, no audit. For the kernel's own housekeeping of a
+   * server it manages (the browser's viewport), never for the model.
+   */
+  call(server: string, tool: string, args: Record<string, unknown>): Promise<string>;
 }
 
 /**
@@ -276,7 +284,7 @@ export function createMcpModule(options: McpModuleOptions): McpModule {
     const client = new Client({ name: "kos", version: "1.0.0" });
     await client.connect(transportFor(name, server));
     const listed = await client.listTools();
-    return { client, tools: listed.tools.map((t) => t.name) };
+    return { client, tools: listed.tools.map((t) => t.name), spec: JSON.stringify(server) };
   }
 
   const status: McpStatus = {};
@@ -341,8 +349,10 @@ export function createMcpModule(options: McpModuleOptions): McpModule {
 
   /**
    * Make the live set match the config: servers no longer wanted are
-   * dropped, servers newly wanted are brought up. What is already up and
-   * still wanted is left alone, so a toggle elsewhere does not restart it.
+   * dropped, servers newly wanted are brought up, and a server whose entry
+   * changed (command, args, env, floors) is brought up again with the new
+   * one. What is up, wanted and unchanged is left alone, so a toggle
+   * elsewhere does not restart it.
    */
   async function reload(): Promise<McpStatus> {
     if (!context) throw new Error("mcp module is not active");
@@ -350,6 +360,7 @@ export function createMcpModule(options: McpModuleOptions): McpModule {
     const wanted = new Set(Object.entries(config.servers).filter(([, s]) => s.enabled !== false).map(([n]) => n));
     for (const name of Object.keys(status)) {
       if (!wanted.has(name)) await drop(name);
+      else if (connected.get(name) && connected.get(name)!.spec !== JSON.stringify(config.servers[name])) await drop(name);
     }
     for (const name of wanted) {
       if (!(name in status)) await bring(name, config.servers[name]!);
@@ -373,6 +384,14 @@ export function createMcpModule(options: McpModuleOptions): McpModule {
     },
     reload,
     status: () => ({ ...status }),
+    call: async (server, tool, args) => {
+      const link = connected.get(server);
+      if (!link) throw new Error(`${server} is not connected`);
+      const result = await link.client.callTool({ name: tool, arguments: args });
+      const text = renderContent(result.content);
+      if (result.isError) throw new Error(text || `${tool} reported an error`);
+      return text;
+    },
   };
 
   async function reconnect(name: string, server: McpServerConfig): Promise<Connected> {

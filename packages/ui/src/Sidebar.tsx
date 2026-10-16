@@ -25,6 +25,8 @@ export function Sidebar({
   busy,
   onSearch,
   onAsk,
+  onBrowser,
+  browsing,
   onRefresh,
   onSnapshot,
   onOpenWorkspace,
@@ -40,6 +42,9 @@ export function Sidebar({
   onSearch: () => void;
   /** Toggle the quick-question window (the floating aside about the open chat). */
   onAsk: () => void;
+  onBrowser: () => void;
+  /** KOS has the browser open right now. */
+  browsing: boolean;
   onRefresh: () => void;
   onSnapshot: () => void;
   onOpenWorkspace: () => void;
@@ -148,6 +153,16 @@ export function Sidebar({
             <NavIcon name="ask" />
             <span className="side-label">Quick question</span>
             <kbd>⌘⇧K</kbd>
+          </button>
+          <button
+            type="button"
+            className={`side-link side-search${browsing ? " is-live" : ""}`}
+            onClick={onBrowser}
+            title={browsing ? "KOS is browsing: watch" : "Watch KOS's browser"}
+          >
+            <NavIcon name="browser" />
+            <span className="side-label">Browser</span>
+            {browsing && <span className="side-live" aria-label="live" />}
           </button>
           <a
             href={hrefFor({ name: "settings" })}

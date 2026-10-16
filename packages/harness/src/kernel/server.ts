@@ -70,7 +70,8 @@ import {
   type McpListing,
   type SkillListing,
 } from "../catalog/catalog.js";
-import { readMcpConfig, removeMcpServer, serversFromJson, setMcpServerEnabled, upsertMcpServers } from "../tools/mcp.js";
+import { mcpToolName, readMcpConfig, removeMcpServer, serversFromJson, setMcpServerEnabled, upsertMcpServers } from "../tools/mcp.js";
+import { browserEngine } from "../browser/live.js";
 import { proxyToDaemon } from "../daemons/proxy.js";
 import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId } from "./session.js";
 
@@ -1412,6 +1413,22 @@ export async function handleApiRequest(
     }
   }
 
+  if (method === "GET" && path === "/api/browser/status") {
+    // The tool-name prefix lets the dashboard tell a browser step from any
+    // other MCP call, so the live view can open itself when one starts.
+    const engine = browserEngine(readMcpConfig(kernel.workspace.root));
+    return ok({ ...kernel.browser.status(), ...(engine ? { prefix: mcpToolName(engine.server, "") } : {}) });
+  }
+
+  if (method === "POST" && path === "/api/browser/input") {
+    try {
+      kernel.browser.input(body);
+      return ok({ sent: true });
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
   if (method === "GET" && path === "/api/file/download") {
     const target = queryParams(req.url).get("path") ?? "";
     if (!target) return { status: 400, body: { error: "path required" } };
@@ -2626,6 +2643,36 @@ function streamBuilds(
   res.on("close", close);
 }
 
+/**
+ * The browser KOS is driving, as it happens: the newest frame first, then
+ * every frame, status change and url after it. One watcher is one stream;
+ * the kernel's end stays attached while any are open.
+ */
+function streamBrowser(
+  kernel: Kernel,
+  req: IncomingMessage,
+  res: ServerResponse,
+  options: DashboardServerOptions,
+): void {
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+    ...corsHeaders(req, options),
+  });
+  res.write(": connected\n\n");
+  const unsubscribe = kernel.browser.subscribe((event) => {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  });
+  const beat = setInterval(() => res.write(": beat\n\n"), 25_000);
+  const close = (): void => {
+    clearInterval(beat);
+    unsubscribe();
+  };
+  req.on("close", close);
+  res.on("close", close);
+}
+
 function streamProgress(
   kernel: Kernel,
   req: IncomingMessage,
@@ -2785,6 +2832,11 @@ export function createDashboardServer(
 
       if (method === "GET" && path === "/api/events") {
         streamProgress(kernel, req, res, options);
+        return;
+      }
+
+      if (method === "GET" && path === "/api/browser/live") {
+        streamBrowser(kernel, req, res, options);
         return;
       }
 

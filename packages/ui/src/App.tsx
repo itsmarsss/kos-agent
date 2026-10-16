@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   type FailingJob,
@@ -28,7 +28,9 @@ import { ease, spring } from "./motion.js";
 import { HistoryPage, type HistoryRow } from "./HistoryPage.js";
 import { HomePage } from "./HomePage.js";
 import { ChatsPage } from "./ChatsPage.js";
+import { BrowserWindow } from "./BrowserWindow.js";
 import { QuickAsk } from "./QuickAsk.js";
+import { useProgress } from "./progress.js";
 import { FilesPage } from "./FilesPage.js";
 import { AgentsPage } from "./AgentsPage.js";
 import { SettingsPage } from "./SettingsPage.js";
@@ -96,6 +98,36 @@ export function App(): React.ReactElement {
   const [paletteOpen, setPaletteOpen] = useState(false);
   /** The quick-question window: the sidebar entry or Cmd/Ctrl+Shift+K. */
   const [askOpen, setAskOpen] = useState(false);
+  /*
+   * The browser window: opened by hand from the sidebar, or on its own the
+   * moment KOS starts a browser step, so you catch the first page. Closing
+   * it while KOS is still browsing keeps it shut for that turn.
+   */
+  const [browserOpen, setBrowserOpen] = useState(false);
+  const [browserPrefix, setBrowserPrefix] = useState<string | null>(null);
+  const browserDismissed = useRef(false);
+  const live = useProgress();
+  useEffect(() => {
+    void api
+      .browserStatus()
+      .then((b) => setBrowserPrefix(b.prefix ?? null))
+      .catch(() => setBrowserPrefix(null));
+  }, []);
+  const browsing = useMemo(() => {
+    if (!browserPrefix) return null;
+    for (const turn of Object.values(live)) {
+      if (!turn || turn.ended) continue;
+      for (let i = turn.steps.length - 1; i >= 0; i--) {
+        const step = turn.steps[i]!;
+        if (step.kind === "tool" && step.tool.startsWith(browserPrefix)) return step.done ? "browsing" : step.summary;
+      }
+    }
+    return null;
+  }, [live, browserPrefix]);
+  useEffect(() => {
+    if (browsing && !browserDismissed.current) setBrowserOpen(true);
+    if (!browsing) browserDismissed.current = false;
+  }, [browsing]);
   /** A question typed as `/btw` in a chat, handed to the window to ask. */
   const [askSeed, setAskSeed] = useState<{ text: string; n: number } | null>(null);
   const askAside = (text: string): void => {
@@ -542,6 +574,11 @@ export function App(): React.ReactElement {
         busy={busy}
         onSearch={() => setPaletteOpen(true)}
         onAsk={() => setAskOpen((v) => !v)}
+        onBrowser={() => {
+          browserDismissed.current = browserOpen;
+          setBrowserOpen((v) => !v);
+        }}
+        browsing={browsing !== null}
         onRefresh={() => void refresh()}
         onSnapshot={() => void doSnapshot()}
         onOpenWorkspace={() => {
@@ -686,6 +723,14 @@ export function App(): React.ReactElement {
           ctx={paletteContext}
         />
       </main>
+      <BrowserWindow
+        open={browserOpen}
+        onClose={() => {
+          browserDismissed.current = true;
+          setBrowserOpen(false);
+        }}
+        {...(browsing && browsing !== "browsing" ? { doing: browsing } : {})}
+      />
       <QuickAsk
         open={askOpen}
         onClose={() => setAskOpen(false)}

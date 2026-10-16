@@ -213,7 +213,14 @@ describe("reloading when the set of servers changes", () => {
     expect(registry.has("mcp.c.add")).toBe(true);
     // c took the default floor; a kept what it had.
     expect(registry.classify("mcp.c.add", {}).tier).toBe("risky");
+
     expect(registry.classify("mcp.a.add", {}).tier).toBe("safe");
+
+    // A changed entry is brought up again with the change: a's floor flips.
+    config.servers.a = { command: "x", risk: "risky" };
+    await module.reload();
+    expect(registry.classify("mcp.a.add", {}).tier).toBe("risky");
+    expect(Object.keys(module.status()).sort()).toEqual(["a", "c"]);
     await module.deactivate!();
     expect(registry.has("mcp.a.add")).toBe(false);
   });
