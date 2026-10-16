@@ -303,7 +303,7 @@ describe("downloads and idle tabs", () => {
   });
 
   it("closes tabs nobody has used for a while, keeping the busy ones, and binds afresh after", async () => {
-    const { live, chrome, tick } = setup();
+    const { live, tick } = setup();
     await live.bind("kos-c1", "c1");
     await live.bind("kos-c2", "c2");
     tick(10 * 60_000);
