@@ -36,6 +36,17 @@ describe("summarizeAction", () => {
   });
 });
 
+describe("summaries for the browser", () => {
+  it("says what the action does to the page", () => {
+    expect(summarizeAction("mcp.browser.agent_browser_click", { selector: "@e5" })).toBe("Click @e5");
+    expect(summarizeAction("mcp.browser.agent_browser_fill", { selector: "@e2", value: "jane" })).toBe("Fill @e2 with “jane”");
+    expect(summarizeAction("mcp.browser.agent_browser_press", { key: "Enter" })).toBe("Press Enter");
+    expect(summarizeAction("mcp.browser.agent_browser_open", { url: "https://example.com" })).toBe("Open https://example.com");
+    expect(summarizeAction("mcp.browser.agent_browser_eval", { script: "document.title" })).toMatch(/^Run script in the page/);
+    expect(summarizeAction("mcp.browser.agent_browser_wait_for_text", { text: "Done" })).toBe("wait for text");
+  });
+});
+
 describe("summaries for the rest of the toolkit", () => {
   it("names the conversation work is handed to", () => {
     // These reach the reader now that each step is streamed, so the raw

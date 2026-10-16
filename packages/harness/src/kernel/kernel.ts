@@ -7,7 +7,8 @@ import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry } from "../agent/registry.js";
 import { type CronActionResult, runCronJob, type CronExecResult } from "../cron/executor.js";
 import { CronStore } from "../cron/store.js";
-import { readMcpConfig, type McpModule } from "../tools/mcp.js";
+import { mcpToolName, readMcpConfig, type McpModule } from "../tools/mcp.js";
+import type { PermissionContext } from "../ops/permissions.js";
 import { ChromeHost } from "../browser/chrome.js";
 import { BrowserLive, browserEngine, sessionFor } from "../browser/live.js";
 import { BUILTIN_FEATURES, isBuiltinFeature } from "../modules/builtins.js";
@@ -1815,6 +1816,8 @@ export class Kernel {
       // so. Scoping is for the many-modules case it was written for.
       ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
       permissions: this.permissions,
+      permissionContext: (tool) => this.browserContext(tool, opts.conversationId),
+      pictureFor: (tool) => this.browserPicture(tool, opts.conversationId),
       projectSlug: () =>
         opts.conversationId
           ? (this.conversations.get(opts.conversationId)?.projectSlug ?? undefined)
@@ -1969,6 +1972,27 @@ export class Kernel {
    */
   private afterToolRan(tool: string): void {
     if (tool.startsWith("cron.")) this.reloadCron();
+  }
+
+  /**
+   * What a browser action's permission turns on: the engine's tool family,
+   * the site the caller's tab is on, and the tools never trusted by site.
+   */
+  private browserContext(tool: string, conversationId?: string): PermissionContext | undefined {
+    if (!tool.startsWith("mcp.")) return undefined;
+    const engine = browserEngine(readMcpConfig(this.workspace.root));
+    if (!engine) return undefined;
+    const prefix = mcpToolName(engine.server, "");
+    if (!tool.startsWith(prefix)) return undefined;
+    const site = conversationId ? this.browser.siteOf(conversationId) : undefined;
+    return { browser: { prefix, ...(site ? { site } : {}), strict: [`${prefix}agent_browser_eval`] } };
+  }
+
+  /** The page a browser action is aimed at, pictured for the approval. */
+  private async browserPicture(tool: string, conversationId?: string): Promise<string | undefined> {
+    if (!conversationId || !this.browserContext(tool, conversationId)) return undefined;
+    const tab = this.browser.tabOf(conversationId);
+    return tab ? this.browser.capture(tab) : undefined;
   }
 
   /**

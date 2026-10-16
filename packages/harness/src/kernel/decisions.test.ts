@@ -5,7 +5,7 @@ import { SecretsRegistry } from "../secrets/secrets.js";
 import { Decisions, type DecisionsDeps } from "./decisions.js";
 
 function pending(over: Partial<PendingAction> = {}): PendingAction {
-  return { id: 5, tool: "files.rm", args: JSON.stringify({ path: "projects/books/x.md" }), riskTier: "risky", reason: "r", status: "pending", userId: "owner", conversationId: "c1", requestedAt: 0, decidedAt: null, decidedBy: null, ...over };
+  return { id: 5, tool: "files.rm", args: JSON.stringify({ path: "projects/books/x.md" }), riskTier: "risky", reason: "r", status: "pending", userId: "owner", conversationId: "c1", requestedAt: 0, decidedAt: null, decidedBy: null, rule: null, picture: false, ...over };
 }
 
 function deps(action: PendingAction | undefined, awaited: boolean, over: Partial<DecisionsDeps> = {}) {
@@ -26,6 +26,16 @@ function deps(action: PendingAction | undefined, awaited: boolean, over: Partial
   };
   return { d, log };
 }
+
+describe("remembering", () => {
+  it("keeps the rule named when the call was queued, over one named now", async () => {
+    const action = pending({ tool: "mcp.browser.agent_browser_click", args: JSON.stringify({ selector: "@e5" }), rule: { tool: "mcp.browser.*", scope: "site:shop.example", project: null } });
+    const { d, log } = deps(action, true);
+    await new Decisions(d).approve(5, "owner", { remember: true });
+    expect(log).toContain("rule:mcp.browser.*:site:shop.example:null");
+    expect(log.filter((l) => l.startsWith("rule:"))).toHaveLength(1);
+  });
+});
 
 describe("approving", () => {
   it("releases a waiting turn and does nothing else", async () => {

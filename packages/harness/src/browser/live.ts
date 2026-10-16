@@ -357,6 +357,36 @@ export class BrowserLive {
     };
   }
 
+  /**
+   * One picture of a tab, small enough to send anywhere: what an approval
+   * shows, and what a step keeps. Base64 JPEG, at most `maxWidth` wide.
+   */
+  async capture(tab: string, maxWidth = 900): Promise<string | undefined> {
+    if (!this.targets.has(tab)) return undefined;
+    const sessionId = await this.sessionFor(tab);
+    const metrics: Record<string, unknown> = await this.cdp.send("Page.getLayoutMetrics", {}, sessionId).catch(() => ({}));
+    const size = (metrics["cssVisualViewport"] ?? metrics["layoutViewport"] ?? {}) as Record<string, unknown>;
+    const width = typeof size["clientWidth"] === "number" ? size["clientWidth"] : 0;
+    const height = typeof size["clientHeight"] === "number" ? size["clientHeight"] : 0;
+    const scale = width > maxWidth ? maxWidth / width : 1;
+    const shot: Record<string, unknown> = await this.cdp
+      .send("Page.captureScreenshot", { format: "jpeg", quality: 60, ...(width && height ? { clip: { x: 0, y: 0, width, height, scale } } : {}) }, sessionId)
+      .catch(() => ({}));
+    return typeof shot["data"] === "string" && shot["data"] ? shot["data"] : undefined;
+  }
+
+  /** The host of the page a conversation's tab is on, if it has one. */
+  siteOf(conversationId: string): string | undefined {
+    const tab = this.tabOf(conversationId);
+    const url = tab ? this.targets.get(tab)?.url : undefined;
+    if (!url || url === "about:blank") return undefined;
+    try {
+      return new URL(url).host || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   /** Pass a watcher's input to a tab. */
   async input(tab: string, raw: unknown): Promise<void> {
     const command = inputCommand(parseInput(raw));

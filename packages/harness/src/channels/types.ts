@@ -216,6 +216,8 @@ export interface ApprovalRequest {
   /** Structured or JSON args. */
   args?: string | Record<string, unknown>;
   reason?: string | null;
+  /** A picture of what it would act on, base64 JPEG, for surfaces that can show one. */
+  picture?: string;
 }
 
 export interface ApprovalDecision {

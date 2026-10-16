@@ -85,6 +85,8 @@ export function InboxPage({
                   {summarizeAction(a.tool, a.args)}
                   <code className="panel-approval-tool">{a.tool}</code>
                   {a.reason && <span className="inbox-why">{a.reason}</span>}
+                  {a.picture && <img className="approval-pic" src={`/api/approvals/${a.id}/picture`} alt="The page this would act on" />}
+                  {a.rule?.scope?.startsWith("site:") && <span className="inbox-meta">Always would trust {a.rule.scope.slice(5)} for every browser action.</span>}
                   <span className="inbox-meta">
                     {ago(a.requestedAt)}
                     {a.conversationId && (

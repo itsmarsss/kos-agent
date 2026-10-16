@@ -2,6 +2,7 @@ import type { ToolBox } from "../agent/loop.js";
 import type { ToolExecution, ToolRegistry } from "../agent/registry.js";
 import type { AuditLog } from "../ops/audit.js";
 import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
+import type { PermissionContext } from "../ops/permissions.js";
 import { injectSecrets } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import { caller } from "./caller.js";
@@ -35,7 +36,14 @@ export interface GuardedToolsDeps {
   /** The conversation making the call, so approving resumes the right agent. */
   conversationId?: string;
   /** Decisions the owner has made before. A match runs without asking. */
-  permissions?: { allows(tool: string, input: Record<string, unknown>, project?: string): boolean };
+  permissions?: {
+    allows(tool: string, input: Record<string, unknown>, project?: string, context?: PermissionContext): boolean;
+    ruleFor?(tool: string, input: Record<string, unknown>, project: string | null, context?: PermissionContext): { tool: string; scope: string | null; project: string | null } | undefined;
+  };
+  /** What the caller knows about a call that its arguments do not: the browser's site. */
+  permissionContext?: (tool: string) => PermissionContext | undefined;
+  /** A picture of what a call would act on, for the approval; base64 JPEG. */
+  pictureFor?: (tool: string, input: Record<string, unknown>) => Promise<string | undefined>;
   /** The project the calling conversation belongs to, for scoping those decisions. */
   projectSlug?: () => string | undefined;
   /**
@@ -210,7 +218,8 @@ export class GuardedTools implements ToolBox {
        * asked again: the call runs as an approved one would, and the audit
        * shows it ran as risky.
        */
-      if (this.deps.permissions?.allows(name, input, this.deps.projectSlug?.())) {
+      const context = this.deps.permissionContext?.(name);
+      if (this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context)) {
         const allowedResult = await run(name, injectSecrets(input, secrets));
         audit.record({
           tool: name,
@@ -223,13 +232,21 @@ export class GuardedTools implements ToolBox {
         this.deps.onExecuted?.(name, allowedResult);
         return allowedResult;
       }
+      // Named now, while the caller's situation is known: the rule a yes-
+      // and-remember would keep, and a picture of the page a browser action
+      // is aimed at, which the arguments alone cannot show.
+      const rule = this.deps.permissions?.ruleFor?.(name, input, this.deps.projectSlug?.() ?? null, context);
+      const picture = await this.deps.pictureFor?.(name, input).catch(() => undefined);
+      const site = context?.browser?.site;
       const action = approvals.enqueue({
         tool: name,
         args: input,
         riskTier: "risky",
-        reason: assessment.escalated ? "argument escalation" : "risky tool",
+        reason: assessment.escalated ? "argument escalation" : site ? `on ${site}` : "risky tool",
         ...(userId ? { userId } : {}),
         ...(conversationId ? { conversationId } : {}),
+        ...(rule ? { rule } : {}),
+        ...(picture ? { picture } : {}),
       });
       this.deps.onQueued?.(action);
 

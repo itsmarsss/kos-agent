@@ -159,6 +159,43 @@ export function summarizeAction(
     default:
       break;
   }
+  // The browser engine's actions read as what they do to the page; the
+  // approval's small print says which site, since the call does not.
+  const browser = /^mcp\.[^.]+\.agent_browser_(.+)$/.exec(tool);
+  if (browser) {
+    const action = browser[1]!;
+    const where = a.selector !== undefined ? fmtVal(a.selector) : a.url !== undefined ? fmtVal(a.url) : "";
+    switch (action) {
+      case "open":
+        return `Open ${where || "a page"}`;
+      case "click":
+        return `Click ${where}`;
+      case "fill":
+        return `Fill ${where} with “${fmtVal(a.value ?? a.text)}”`;
+      case "type":
+      case "keyboard_type":
+      case "keyboard_insert_text":
+        return `Type “${fmtVal(a.text)}”${where ? ` into ${where}` : ""}`;
+      case "press":
+        return `Press ${fmtVal(a.key)}`;
+      case "select":
+        return `Select ${fmtVal(a.value ?? a.values)} in ${where}`;
+      case "check":
+        return `Check ${where}`;
+      case "uncheck":
+        return `Uncheck ${where}`;
+      case "scroll":
+        return `Scroll ${fmtVal(a.direction ?? "down")}`;
+      case "eval":
+        return `Run script in the page: ${fmtVal(a.script ?? a.expression)}`;
+      case "tab_new":
+        return `Open a new tab${a.url !== undefined ? ` at ${fmtVal(a.url)}` : ""}`;
+      case "tab_close":
+        return "Close the tab";
+      default:
+        return `${action.replace(/_/g, " ")}${where ? ` ${where}` : ""}`;
+    }
+  }
   const keys = Object.keys(a).slice(0, 3);
   // A server's tool, named mcp.<server>.<tool>: say whose it is.
   const mcp = /^mcp\.([^.]+)\.(.+)$/.exec(tool);

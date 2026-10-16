@@ -330,6 +330,18 @@ describe("handleApiRequest", () => {
     expect(junk.status).toBe(400);
   });
 
+  it("serves the picture an approval was queued with, and nothing for one without", async () => {
+    const pictured = kernel.approvals.enqueue({ tool: "mcp.browser.agent_browser_click", args: { selector: "@e5" }, riskTier: "risky", picture: Buffer.from("PIC").toString("base64") });
+    const plain = kernel.approvals.enqueue({ tool: "shell", args: { cmd: "ls" }, riskTier: "risky" });
+    const list = (await handleApiRequest(kernel, { method: "GET", path: "/api/approvals" })).body as { id: number; picture: boolean }[];
+    expect(list.map((a) => a.picture)).toEqual([true, false]);
+    const got = await handleApiRequest(kernel, { method: "GET", path: `/api/approvals/${pictured.id}/picture` });
+    expect(got.status).toBe(200);
+    expect(got.headers?.["content-type"]).toBe("image/jpeg");
+    expect(Buffer.isBuffer(got.body) && got.body.toString("utf8")).toBe("PIC");
+    expect((await handleApiRequest(kernel, { method: "GET", path: `/api/approvals/${plain.id}/picture` })).status).toBe(404);
+  });
+
   it("toggles the kill switch", async () => {
     await handleApiRequest(kernel, { method: "POST", path: "/api/kill", body: { halted: true } });
     expect(kernel.killSwitch.halted).toBe(true);

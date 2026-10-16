@@ -3711,6 +3711,9 @@ li:hover .chats-item-when { opacity: 0; }
    wrapper span as well, so both grew and the buttons started halfway across
    the row with empty space after them. */
 .toolcall-approve-text { flex: 1; min-width: 12rem; }
+/* The page an approval is about: a small picture beats a description. */
+.approval-pic { display: block; max-width: min(28rem, 100%); margin: 0.4rem 0 0.2rem; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); }
+.approval-pic--strip { flex-basis: 100%; max-width: min(32rem, 100%); }
 .toolcall-approve .decision { flex: none; }
 
 /* —— file browser —— */
