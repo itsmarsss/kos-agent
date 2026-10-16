@@ -653,6 +653,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     ...(options.onApprovalRequested
       ? { onApprovalRequested: options.onApprovalRequested }
       : {}),
+    ...(options.restart ? { restart: options.restart } : {}),
   });
   return kernelRef;
 }

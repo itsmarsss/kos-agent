@@ -502,7 +502,25 @@ export async function handleApiRequest(
       // failure is visible on the next open rather than only in a message the
       // owner may have missed.
       unhealthy: kernel.health.failing().length,
+      restart: kernel.restartStatus(),
     });
+  }
+
+  /*
+   * A restart that waits its turn: asked for here, done the moment no chat
+   * is mid-turn and no coding agent is running, by whatever started the
+   * host. Refused when nothing would start it again.
+   */
+  if (method === "POST" && path === "/api/host/restart") {
+    try {
+      return ok(kernel.requestRestart());
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  if (method === "POST" && path === "/api/host/restart/cancel") {
+    return ok(kernel.cancelRestart());
   }
 
   /**

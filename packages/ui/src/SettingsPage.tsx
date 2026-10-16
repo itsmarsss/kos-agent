@@ -6,7 +6,7 @@ import {
   api,
   type Behaviour,
   type ModelRate,
-  type SettingsPayload, type ModuleInfo, type SkillInfo, type McpServerInfo, type PermissionRule, type BrowserSettings } from "./api.js";
+  type SettingsPayload, type ModuleInfo, type SkillInfo, type McpServerInfo, type PermissionRule, type BrowserSettings, type RestartState } from "./api.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { useOpenTab } from "./opentab.js";
 import { Select } from "./Select.js";
@@ -442,6 +442,20 @@ export function SettingsPage({
     if (active === "mcp") loadMcp();
   }, [active, loadMcp]);
   /** How the browser runs, as the server has it, and the draft being edited. */
+  /** A restart wanted from this page, and what it is waiting on; polled while the tab is open. */
+  const [restart, setRestart] = useState<RestartState | null>(null);
+  useEffect(() => {
+    if (active !== "workspace") return;
+    const read = (): void => {
+      void api
+        .status()
+        .then((s) => setRestart(s.restart ?? null))
+        .catch(() => undefined);
+    };
+    read();
+    const t = window.setInterval(read, 3000);
+    return () => window.clearInterval(t);
+  }, [active]);
   const [browser, setBrowser] = useState<BrowserSettings | null>(null);
   const [browserDraft, setBrowserDraft] = useState<{ headed: boolean; chrome: string; extensions: string[]; search: string } | null>(null);
   const openTab = useOpenTab();
@@ -1731,13 +1745,36 @@ export function SettingsPage({
               >
                 {data.halted ? "Resume KOS" : "Halt KOS"}
               </button>
+              {restart?.pending ? (
+                <button type="button" className="btn" onClick={() => void api.cancelRestart().then(setRestart).catch(() => undefined)}>
+                  Cancel restart
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={restart !== null && !restart.supported}
+                  title={restart !== null && !restart.supported ? "Nothing would start KOS again: it is not running under launchd or kos start" : "Restart the host once nothing is mid-turn"}
+                  onClick={() => void api.requestRestart().then(setRestart).catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))}
+                >
+                  Restart KOS
+                </button>
+              )}
               {saved.workspace && <span className="set-saved">{saved.workspace}</span>}
             </div>
+            {restart?.pending && (
+              <p className="set-note" role="status">
+                {restart.busy.length === 0
+                  ? "Restarting now. The page reconnects on its own."
+                  : `Restarting when idle. Waiting on: ${restart.busy.join(", ")}.`}
+              </p>
+            )}
             <p className="set-note">
-              Halting stops every turn and scheduled job until you resume. The
-              workspace is chosen when the host starts, with{" "}
-              <code>--workspace</code>, so pointing KOS at a different folder is
-              a restart rather than a setting.
+              Halting stops every turn and scheduled job until you resume.
+              Restarting waits until no chat is mid-turn and no coding agent
+              is running, so nothing is cut. The workspace is chosen when the
+              host starts, with <code>--workspace</code>, so pointing KOS at a
+              different folder is a restart rather than a setting.
             </p>
           </Section>
         )}

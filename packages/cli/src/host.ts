@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import type { Server } from "node:http";
 import { connect } from "node:net";
 import { homedir } from "node:os";
@@ -198,6 +199,18 @@ export async function runHost(options: HostOptions): Promise<void> {
     rootDir: options.rootDir,
     allowedHosts: options.allowedHosts,
     ...(notify ? { notify } : {}),
+    // A restart asked for from Settings: `kos restart` run beside the host,
+    // detached so it outlives the stop it does. The CLI already knows how
+    // to stop this host and start the next, under launchd or not; the host
+    // only has to not be mid-turn, which the kernel sees to.
+    restart: async () => {
+      const child = spawn(
+        process.execPath,
+        [fileURLToPath(new URL("./main.js", import.meta.url)), "restart", "--workspace", options.rootDir, "--host", options.host, "--port", String(options.port)],
+        { detached: true, stdio: "ignore", env: process.env },
+      );
+      child.unref();
+    },
     ...((creds && wantDiscord) || sms
       ? {
           onApprovalRequested: (action) => {
