@@ -183,6 +183,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const mcp = createMcpModule({
     workspaceRoot: workspace.root,
     secrets,
+    // The browser engine's calls get Chrome and the caller's own tab first.
+    before: (server, tool, input) => (kernelRef ? kernelRef.prepareBrowserCall(server, tool, input) : Promise.resolve(input)),
     config: () => {
       const servers = { ...readMcpConfig(workspace.root).servers };
       const enabled = parseModuleSettings(settings.get(MODULES_KEY)).enabled;

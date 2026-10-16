@@ -1,15 +1,19 @@
+import { CdpClient, type CdpEvent, type CdpSocket } from "./cdp.js";
+import type { ChromeHost, ChromeState } from "./chrome.js";
+
 /**
  * The browser, watched.
  *
- * KOS browses through agent-browser, whose daemon streams the viewport over
- * a WebSocket on the machine: JPEG frames one way, mouse and keys the other.
- * This is KOS's end of that wire. It holds the newest frame and the page's
- * state, hands them to whoever is watching from the dashboard, and passes a
- * watcher's clicks and keystrokes back, so the owner can see every page KOS
- * opens and take the wheel mid-task.
+ * KOS runs one Chrome and every agent works in a tab of it, each tab in a
+ * window of its own so that all of them paint at once. This is KOS's eyes
+ * on that Chrome, over Chrome's own protocol: the list of tabs and whose
+ * each is, a screencast of any tab for whoever is watching it, and a
+ * watcher's clicks and keys passed to the tab they are looking at.
  *
- * Nothing here knows agent-browser's tools; only its stream protocol, kept
- * in one place so a different engine with a different wire is one file.
+ * The engine (agent-browser) is the hands: it attaches to the same Chrome
+ * over CDP, one session per conversation, pinned to the tab KOS made for
+ * it. Nothing here knows the engine's tools; swapping it touches the
+ * kernel's one bind call, not this.
  */
 
 export interface BrowserFrame {
@@ -26,67 +30,32 @@ export interface BrowserTab {
   id: string;
   title: string;
   url: string;
-  active: boolean;
+  /** The conversation this tab was made for; absent for a stray. */
+  owner?: string;
 }
 
 export interface BrowserStatus {
-  /** A stream port is known: the browser engine is configured. */
+  /** An engine with a CDP port is configured. */
   configured: boolean;
-  /** This end is attached to the stream. */
+  chrome: ChromeState;
+  /** This end is connected to Chrome. */
   attached: boolean;
-  /** The socket's state, for when "attached" needs explaining: connecting, open, or none. */
-  socket: "none" | "connecting" | "open";
-  /** How many messages the stream has sent this attachment. */
-  received: number;
-  /** The daemon has a browser. */
-  connected: boolean;
-  /** Frames are being produced. */
-  screencasting: boolean;
-  url?: string;
-  viewport?: { width: number; height: number };
-  /** The browser's tabs; the active one is what the frames show. */
   tabs: BrowserTab[];
 }
 
 export type BrowserEvent =
-  | { type: "frame"; frame: BrowserFrame }
   | { type: "status"; status: BrowserStatus }
-  | { type: "url"; url: string }
-  | { type: "tabs"; tabs: BrowserTab[] };
+  | { type: "tabs"; tabs: BrowserTab[] }
+  | { type: "frame"; tab: string; frame: BrowserFrame }
+  /** The watched tab closed. */
+  | { type: "gone"; tab: string };
 
 export type BrowserListener = (event: BrowserEvent) => void;
 
-/** Input the dashboard may send through. Shapes follow the stream protocol. */
+/** Input the dashboard may send through. Shapes follow the live view's own protocol. */
 export type BrowserInput =
   | { type: "input_mouse"; eventType: "mousePressed" | "mouseReleased" | "mouseMoved" | "mouseWheel"; x: number; y: number; button?: string; clickCount?: number; deltaX?: number; deltaY?: number; modifiers?: number }
   | { type: "input_keyboard"; eventType: "keyDown" | "keyUp" | "char"; key?: string; code?: string; text?: string; modifiers?: number };
-
-/** The slice of a WebSocket this needs, so a test can hand in a fake. */
-export interface StreamSocket {
-  send(data: string): void;
-  close(): void;
-  onopen: ((ev: unknown) => void) | null;
-  onmessage: ((ev: { data: unknown }) => void) | null;
-  onclose: ((ev: unknown) => void) | null;
-  onerror: ((ev: unknown) => void) | null;
-}
-
-export interface BrowserLiveOptions {
-  /** Where the stream is, when the engine is configured. Read on each attach. */
-  portFor: () => number | undefined;
-  /** How to open the socket. Defaults to the runtime's WebSocket. */
-  connect?: (url: string) => StreamSocket;
-  /** How long to stay attached after the last watcher leaves and the last tool ran. */
-  lingerMs?: number;
-  /** Frames per second asked of the stream. Plenty for watching; cheap on the CPU. */
-  maxFps?: number;
-  now?: () => number;
-  /** The daemon's browser came up (or came back): the moment to set it up. */
-  onBrowserUp?: () => void;
-}
-
-/** How long a socket may take to open, and then to say anything at all. */
-const HANDSHAKE_MS = 5000;
 
 const INPUT_TYPES = new Set(["input_mouse", "input_keyboard"]);
 const MOUSE_EVENTS = new Set(["mousePressed", "mouseReleased", "mouseMoved", "mouseWheel"]);
@@ -150,282 +119,419 @@ export function parseInput(raw: unknown): BrowserInput {
   return out;
 }
 
-/** The stream port an MCP server was told to use, if it is the browser engine. */
-export const STREAM_PORT_ENV = "AGENT_BROWSER_STREAM_PORT";
-/** KOS's own key in the engine's environment: the page size to ask for, as WxH. */
+/** The keys Chrome needs a virtual key code (and a character) for to act on. */
+const SPECIAL_KEYS: Record<string, { code: number; text?: string }> = {
+  Enter: { code: 13, text: "\r" },
+  Backspace: { code: 8 },
+  Tab: { code: 9, text: "\t" },
+  Escape: { code: 27 },
+  Delete: { code: 46 },
+  ArrowLeft: { code: 37 },
+  ArrowUp: { code: 38 },
+  ArrowRight: { code: 39 },
+  ArrowDown: { code: 40 },
+  Home: { code: 36 },
+  End: { code: 35 },
+  PageUp: { code: 33 },
+  PageDown: { code: 34 },
+  " ": { code: 32, text: " " },
+};
+
+/** A watcher's input as the CDP call that does it. */
+export function inputCommand(input: BrowserInput): { method: string; params: Record<string, unknown> } {
+  if (input.type === "input_mouse") {
+    const params: Record<string, unknown> = { type: input.eventType, x: input.x, y: input.y, modifiers: input.modifiers ?? 0 };
+    params["button"] = input.eventType === "mouseMoved" ? "none" : (input.button ?? "left");
+    if (input.eventType === "mousePressed" || input.eventType === "mouseReleased") params["clickCount"] = input.clickCount ?? 1;
+    if (input.eventType === "mouseWheel") {
+      params["deltaX"] = input.deltaX ?? 0;
+      params["deltaY"] = input.deltaY ?? 0;
+    }
+    return { method: "Input.dispatchMouseEvent", params };
+  }
+  const params: Record<string, unknown> = { type: input.eventType, modifiers: input.modifiers ?? 0 };
+  if (input.eventType === "char") {
+    params["text"] = input.text ?? "";
+    return { method: "Input.dispatchKeyEvent", params };
+  }
+  if (input.key !== undefined) params["key"] = input.key;
+  if (input.code !== undefined) params["code"] = input.code;
+  const special = input.key ? SPECIAL_KEYS[input.key] : undefined;
+  if (special) {
+    params["windowsVirtualKeyCode"] = special.code;
+    params["nativeVirtualKeyCode"] = special.code;
+    if (special.text && input.eventType === "keyDown") params["text"] = special.text;
+  }
+  return { method: "Input.dispatchKeyEvent", params };
+}
+
+/** The engine's own CDP port variable: the browser engine is the server that sets it. */
+export const CDP_ENV = "AGENT_BROWSER_CDP";
+/** KOS's own keys in the engine's environment. */
 export const VIEWPORT_ENV = "KOS_BROWSER_VIEWPORT";
+export const CHROME_ENV = "KOS_BROWSER_CHROME";
+export const HEADED_ENV = "KOS_BROWSER_HEADED";
 
 export interface BrowserEngine {
   server: string;
+  /** Chrome's DevTools port, which the engine attaches to and KOS runs. */
   port: number;
-  /** The viewport KOS sets when the browser comes up, if the config names one. */
+  /** The viewport KOS asks for each tab, if the config names one. */
   viewport?: { width: number; height: number };
+  /** A Chrome binary to use, if the config names one. */
+  chrome?: string;
+  headed: boolean;
 }
 
 /**
  * The browser engine among the configured MCP servers: the one whose
- * environment names a stream port. KOS reads it from the same config the
+ * environment names the CDP port. KOS reads it from the same config the
  * tools come from, so swapping engines is a config change.
  */
 export function browserEngine(config: { servers: Record<string, { env?: Record<string, string>; enabled?: boolean }> }): BrowserEngine | undefined {
   for (const [server, entry] of Object.entries(config.servers)) {
     if (entry.enabled === false) continue;
-    const raw = entry.env?.[STREAM_PORT_ENV];
+    const raw = entry.env?.[CDP_ENV];
     const port = raw ? Number(raw) : NaN;
     if (!Number.isInteger(port) || port <= 0 || port >= 65536) continue;
     const size = /^(\d{3,5})x(\d{3,5})$/.exec(entry.env?.[VIEWPORT_ENV] ?? "");
-    return { server, port, ...(size ? { viewport: { width: Number(size[1]), height: Number(size[2]) } } : {}) };
+    const chrome = entry.env?.[CHROME_ENV];
+    return {
+      server,
+      port,
+      headed: /^(1|true|yes|on)$/i.test(entry.env?.[HEADED_ENV] ?? ""),
+      ...(size ? { viewport: { width: Number(size[1]), height: Number(size[2]) } } : {}),
+      ...(chrome ? { chrome } : {}),
+    };
   }
   return undefined;
 }
 
+/** The engine's session name for a conversation: letters, digits, dashes, underscores. */
+export function sessionFor(conversationId: string): string {
+  return `kos-${conversationId.replace(/[^A-Za-z0-9_-]/g, "-")}`;
+}
+
+export interface BrowserLiveOptions {
+  engineFor: () => BrowserEngine | undefined;
+  chrome: ChromeHost;
+  /** How to open the CDP socket. Defaults to the runtime's WebSocket. */
+  connect?: (url: string) => CdpSocket;
+  /** Frames per second asked of a screencast. */
+  maxFps?: number;
+  now?: () => number;
+  report?: (message: string) => void;
+}
+
+interface Target {
+  id: string;
+  title: string;
+  url: string;
+  type: string;
+}
+
+interface Watch {
+  listeners: Set<BrowserListener>;
+  /** The CDP session the screencast runs on, once started. */
+  sessionId?: string;
+  starting?: Promise<void>;
+  seq: number;
+  /** The newest frame, for a watcher who arrives while the page is still. */
+  last?: BrowserFrame;
+}
+
 export class BrowserLive {
+  private readonly cdp: CdpClient;
+  private dialing: Promise<void> | null = null;
+  private readonly targets = new Map<string, Target>();
+  /** Engine session name -> the tab KOS made for it and whose it is. */
+  private readonly bindings = new Map<string, { target: string; conversationId: string }>();
   private readonly listeners = new Set<BrowserListener>();
-  private socket: StreamSocket | null = null;
-  private latest: BrowserFrame | null = null;
-  private url: string | undefined;
-  private tabs: BrowserTab[] = [];
-  private daemon: { connected: boolean; screencasting: boolean; viewport?: { width: number; height: number } } = { connected: false, screencasting: false };
-  private port: number | undefined;
-  /** When the last reason to stay attached went away; nothing while there is one. */
-  private idleSince: number | null = null;
-  private lingerTimer: ReturnType<typeof setTimeout> | null = null;
-  private retryTimer: ReturnType<typeof setTimeout> | null = null;
-  private retryIn = 500;
-  private readonly connect: (url: string) => StreamSocket;
-  private readonly lingerMs: number;
+  private readonly watches = new Map<string, Watch>();
+  /** CDP sessions attached per tab, for input and the screencast. */
+  private readonly sessions = new Map<string, string>();
   private readonly maxFps: number;
   private readonly now: () => number;
+  private readonly report: (message: string) => void;
   private closed = false;
-  private opened = false;
-  private received = 0;
-  /** The handshake and the first message each get this long; past it the socket is dead and is replaced. */
-  private handshakeTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly options: BrowserLiveOptions) {
-    this.connect = options.connect ?? ((url) => new WebSocket(url) as unknown as StreamSocket);
-    this.lingerMs = options.lingerMs ?? 60_000;
+    this.cdp = new CdpClient(options.connect ?? ((url) => new WebSocket(url) as unknown as CdpSocket));
     this.maxFps = options.maxFps ?? 12;
     this.now = options.now ?? Date.now;
+    this.report = options.report ?? ((m) => console.error(`[browser] ${m}`));
+    options.chrome.onExit(() => this.onChromeGone());
   }
 
   status(): BrowserStatus {
-    const port = this.options.portFor();
     return {
-      configured: port !== undefined,
-      attached: this.socket !== null,
-      socket: this.socket === null ? "none" : this.opened ? "open" : "connecting",
-      received: this.received,
-      connected: this.daemon.connected,
-      screencasting: this.daemon.screencasting,
-      ...(this.url ? { url: this.url } : {}),
-      ...(this.daemon.viewport ? { viewport: this.daemon.viewport } : {}),
-      tabs: this.tabs,
+      configured: this.options.engineFor() !== undefined,
+      chrome: this.options.chrome.state,
+      attached: this.cdp.open,
+      tabs: this.tabs(),
     };
   }
 
-  latestFrame(): BrowserFrame | null {
-    return this.latest;
+  /** The page tabs, with whose each is. */
+  tabs(): BrowserTab[] {
+    const owners = new Map<string, string>();
+    for (const b of this.bindings.values()) owners.set(b.target, b.conversationId);
+    return [...this.targets.values()]
+      .filter((t) => t.type === "page")
+      .map((t) => {
+        const owner = owners.get(t.id);
+        return { id: t.id, title: t.title, url: t.url, ...(owner ? { owner } : {}) };
+      });
   }
 
-  /** Watch. The stream is attached while anyone is, and a while after. */
-  subscribe(listener: BrowserListener): () => void {
-    this.listeners.add(listener);
-    this.idleSince = null;
-    this.clearLinger();
-    this.attach();
-    listener({ type: "status", status: this.status() });
-    if (this.tabs.length) listener({ type: "tabs", tabs: this.tabs });
-    if (this.url) listener({ type: "url", url: this.url });
-    if (this.latest) listener({ type: "frame", frame: this.latest });
-    return () => {
-      this.listeners.delete(listener);
-      if (this.listeners.size === 0) this.linger();
-    };
+  /** The tab an engine session is bound to, if its tab is still there. */
+  boundTab(session: string): string | undefined {
+    const b = this.bindings.get(session);
+    return b && this.targets.has(b.target) ? b.target : undefined;
+  }
+
+  /** The tab a conversation works in, if it has one. */
+  tabOf(conversationId: string): string | undefined {
+    for (const b of this.bindings.values()) {
+      if (b.conversationId === conversationId && this.targets.has(b.target)) return b.target;
+    }
+    return undefined;
+  }
+
+  /** Chrome up and this end attached. */
+  async ensure(): Promise<void> {
+    if (this.closed) throw new Error("the live view is closed");
+    if (this.options.engineFor() === undefined) throw new Error("no browser engine is configured");
+    if (this.cdp.open) return;
+    if (this.dialing) return this.dialing;
+    this.dialing = this.attach().finally(() => {
+      this.dialing = null;
+    });
+    return this.dialing;
   }
 
   /**
-   * KOS is using the browser: attach so frames are on hand even with nobody
-   * watching yet, and the watcher who arrives mid-task sees the page at once.
+   * A tab for an engine session, in a window of its own, made once and
+   * remembered. Says whether it was just made, since a new tab needs the
+   * engine told about it.
    */
-  wake(): void {
-    this.attach();
-    if (this.listeners.size === 0) this.linger();
+  async bind(session: string, conversationId: string): Promise<{ target: string; made: boolean }> {
+    await this.ensure();
+    const existing = this.boundTab(session);
+    if (existing) return { target: existing, made: false };
+    const result = await this.cdp.send("Target.createTarget", { url: "about:blank", newWindow: true });
+    const target = String(result["targetId"] ?? "");
+    if (!target) throw new Error("Chrome made no tab");
+    this.bindings.set(session, { target, conversationId });
+    if (!this.targets.has(target)) this.targets.set(target, { id: target, title: "", url: "about:blank", type: "page" });
+    this.emitTabs();
+    return { target, made: true };
   }
 
-  /** Pass a watcher's input to the browser. */
-  input(raw: unknown): void {
-    const message = parseInput(raw);
-    if (!this.socket) throw new Error("not attached to the browser");
-    this.socket.send(JSON.stringify(message));
+  /**
+   * Close tabs nobody owns that show nothing: Chrome's first tab, and the
+   * blank one the engine opens before it is told which tab is its own.
+   */
+  async tidy(): Promise<void> {
+    if (!this.cdp.open) return;
+    const owned = new Set([...this.bindings.values()].map((b) => b.target));
+    if (owned.size === 0) return;
+    for (const t of [...this.targets.values()]) {
+      if (t.type === "page" && !owned.has(t.id) && (t.url === "about:blank" || t.url === "")) {
+        await this.cdp.send("Target.closeTarget", { targetId: t.id }).catch(() => undefined);
+      }
+    }
+  }
+
+  /** Watch: the tab list and status always; frames of `tab` when one is named. */
+  subscribe(listener: BrowserListener, tab?: string): () => void {
+    this.listeners.add(listener);
+    listener({ type: "status", status: this.status() });
+    listener({ type: "tabs", tabs: this.tabs() });
+    void this.ensure().catch((err: unknown) => this.report(`not attached: ${err instanceof Error ? err.message : String(err)}`));
+    let unwatch: (() => void) | undefined;
+    if (tab) unwatch = this.watch(tab, listener);
+    return () => {
+      this.listeners.delete(listener);
+      unwatch?.();
+    };
+  }
+
+  /** Pass a watcher's input to a tab. */
+  async input(tab: string, raw: unknown): Promise<void> {
+    const command = inputCommand(parseInput(raw));
+    if (!this.targets.has(tab)) throw new Error("no such tab");
+    const sessionId = await this.sessionFor(tab);
+    await this.cdp.send(command.method, command.params, sessionId);
   }
 
   close(): void {
     this.closed = true;
-    this.clearLinger();
-    if (this.retryTimer) clearTimeout(this.retryTimer);
-    this.retryTimer = null;
-    this.detach();
+    this.cdp.close();
+    this.targets.clear();
+    this.watches.clear();
+    this.sessions.clear();
+    this.bindings.clear();
   }
 
-  private attach(): void {
-    if (this.closed || this.socket) return;
-    const port = this.options.portFor();
-    if (port === undefined) return;
-    this.port = port;
-    let socket: StreamSocket;
-    try {
-      socket = this.connect(`ws://127.0.0.1:${port}/?maxFps=${this.maxFps}`);
-    } catch {
-      this.scheduleRetry();
-      return;
+  private async attach(): Promise<void> {
+    const url = await this.options.chrome.ensure();
+    await this.cdp.dial(url, () => this.onChromeGone());
+    this.cdp.on((event) => this.onEvent(event));
+    const listed = await this.cdp.send("Target.getTargets");
+    this.targets.clear();
+    for (const info of (listed["targetInfos"] as Record<string, unknown>[] | undefined) ?? []) this.remember(info);
+    await this.cdp.send("Target.setDiscoverTargets", { discover: true });
+    this.emit({ type: "status", status: this.status() });
+    this.emitTabs();
+  }
+
+  private onChromeGone(): void {
+    this.options.chrome.lost();
+    this.cdp.close();
+    for (const [tab, watch] of this.watches) {
+      for (const listener of watch.listeners) listener({ type: "gone", tab });
     }
-    this.socket = socket;
-    this.opened = false;
-    this.received = 0;
-    // A socket that neither opens nor speaks is not attached to anything,
-    // whatever it says: the daemon was restarting under it, or the port was
-    // someone else's for a moment. Replace it rather than wait on it.
-    this.armHandshake(socket);
-    socket.onopen = () => {
-      if (this.socket !== socket) return;
-      this.opened = true;
-      this.retryIn = 500;
-      this.armHandshake(socket);
-      this.emit({ type: "status", status: this.status() });
-    };
-    socket.onmessage = (ev) => {
-      if (this.socket !== socket) return;
-      this.received++;
-      this.disarmHandshake();
-      this.receive(ev.data);
-    };
-    socket.onerror = () => {
-      /* onclose follows; that is where the retry is decided */
-    };
-    socket.onclose = () => {
-      if (this.socket !== socket) return;
-      this.socket = null;
-      this.daemon = { connected: false, screencasting: false };
-      this.tabs = [];
-      this.emit({ type: "status", status: this.status() });
-      // Gone while someone still wants it: the daemon restarts between
-      // tasks, so try again rather than report a dead browser.
-      if (this.listeners.size > 0 || this.idleSince !== null) this.scheduleRetry();
-    };
+    this.watches.clear();
+    this.sessions.clear();
+    this.targets.clear();
+    this.bindings.clear();
+    this.emit({ type: "status", status: this.status() });
+    this.emitTabs();
   }
 
-  private armHandshake(socket: StreamSocket): void {
-    this.disarmHandshake();
-    this.handshakeTimer = setTimeout(() => {
-      this.handshakeTimer = null;
-      if (this.socket !== socket) return;
-      this.detach();
-      if (this.listeners.size > 0 || this.idleSince !== null) this.scheduleRetry();
-    }, HANDSHAKE_MS);
+  private remember(info: Record<string, unknown>): void {
+    const id = typeof info["targetId"] === "string" ? info["targetId"] : "";
+    if (!id) return;
+    this.targets.set(id, {
+      id,
+      title: typeof info["title"] === "string" ? info["title"] : "",
+      url: typeof info["url"] === "string" ? info["url"] : "",
+      type: typeof info["type"] === "string" ? info["type"] : "page",
+    });
   }
 
-  private disarmHandshake(): void {
-    if (this.handshakeTimer) clearTimeout(this.handshakeTimer);
-    this.handshakeTimer = null;
-  }
-
-  private detach(): void {
-    this.disarmHandshake();
-    const socket = this.socket;
-    this.socket = null;
-    this.opened = false;
-    if (socket) {
-      socket.onclose = null;
-      try {
-        socket.close();
-      } catch {
-        /* already gone */
+  private onEvent(event: CdpEvent): void {
+    switch (event.method) {
+      case "Target.targetCreated":
+      case "Target.targetInfoChanged": {
+        const info = event.params["targetInfo"] as Record<string, unknown> | undefined;
+        if (info) {
+          this.remember(info);
+          this.emitTabs();
+        }
+        return;
       }
-    }
-    this.daemon = { connected: false, screencasting: false };
-  }
-
-  private scheduleRetry(): void {
-    if (this.closed || this.retryTimer) return;
-    this.retryTimer = setTimeout(() => {
-      this.retryTimer = null;
-      if (this.listeners.size > 0 || this.idleSince !== null) this.attach();
-    }, this.retryIn);
-    this.retryIn = Math.min(this.retryIn * 2, 10_000);
-  }
-
-  /** Nobody watching and no tool running: stay a little, then let go. */
-  private linger(): void {
-    this.idleSince = this.now();
-    this.clearLinger();
-    this.lingerTimer = setTimeout(() => {
-      this.lingerTimer = null;
-      if (this.listeners.size === 0) {
-        this.idleSince = null;
-        this.detach();
+      case "Target.targetDestroyed": {
+        const id = String(event.params["targetId"] ?? "");
+        this.targets.delete(id);
+        this.sessions.delete(id);
+        const watch = this.watches.get(id);
+        if (watch) {
+          for (const listener of watch.listeners) listener({ type: "gone", tab: id });
+          this.watches.delete(id);
+        }
+        for (const [session, b] of this.bindings) if (b.target === id) this.bindings.delete(session);
+        this.emitTabs();
+        return;
       }
-    }, this.lingerMs);
-  }
-
-  private clearLinger(): void {
-    if (this.lingerTimer) clearTimeout(this.lingerTimer);
-    this.lingerTimer = null;
-  }
-
-  private receive(data: unknown): void {
-    let message: Record<string, unknown>;
-    try {
-      message = JSON.parse(typeof data === "string" ? data : String(data)) as Record<string, unknown>;
-    } catch {
-      return;
-    }
-    const type = message["type"];
-    if (type === "frame") {
-      const meta = (message["metadata"] ?? {}) as Record<string, unknown>;
-      const frame: BrowserFrame = {
-        seq: typeof message["seq"] === "number" ? message["seq"] : (this.latest?.seq ?? 0) + 1,
-        data: typeof message["data"] === "string" ? message["data"] : "",
-        width: typeof meta["deviceWidth"] === "number" ? meta["deviceWidth"] : (this.daemon.viewport?.width ?? 0),
-        height: typeof meta["deviceHeight"] === "number" ? meta["deviceHeight"] : (this.daemon.viewport?.height ?? 0),
-        at: typeof meta["timestamp"] === "number" ? meta["timestamp"] : this.now(),
-      };
-      if (!frame.data) return;
-      this.latest = frame;
-      this.emit({ type: "frame", frame });
-    } else if (type === "status") {
-      const width = message["viewportWidth"];
-      const height = message["viewportHeight"];
-      const was = this.daemon.connected;
-      this.daemon = {
-        connected: message["connected"] === true,
-        screencasting: message["screencasting"] === true,
-        ...(typeof width === "number" && typeof height === "number" ? { viewport: { width, height } } : {}),
-      };
-      this.emit({ type: "status", status: this.status() });
-      if (!was && this.daemon.connected) this.options.onBrowserUp?.();
-    } else if (type === "url" && typeof message["url"] === "string") {
-      this.url = message["url"];
-      this.emit({ type: "url", url: this.url });
-    } else if (type === "tabs" && Array.isArray(message["tabs"])) {
-      // Sent on attach and on tab changes. The active tab's url is the one
-      // being looked at, which the url message only says after the next
-      // navigation; the rest is for the tab strip.
-      this.tabs = (message["tabs"] as Record<string, unknown>[])
-        .filter((t) => t["type"] === undefined || t["type"] === "page")
-        .map((t, i) => ({
-          id: typeof t["tabId"] === "string" ? t["tabId"] : typeof t["targetId"] === "string" ? t["targetId"] : `t${i + 1}`,
-          title: typeof t["title"] === "string" ? t["title"] : "",
-          url: typeof t["url"] === "string" ? t["url"] : "",
-          active: t["active"] === true,
-        }));
-      this.emit({ type: "tabs", tabs: this.tabs });
-      const active = this.tabs.find((t) => t.active) ?? this.tabs[0];
-      if (active && active.url && active.url !== this.url) {
-        this.url = active.url;
-        this.emit({ type: "url", url: this.url });
+      case "Target.detachedFromTarget": {
+        const sessionId = String(event.params["sessionId"] ?? "");
+        for (const [tab, s] of this.sessions) if (s === sessionId) this.sessions.delete(tab);
+        return;
       }
+      case "Page.screencastFrame": {
+        if (!event.sessionId) return;
+        const entry = [...this.watches].find(([, w]) => w.sessionId === event.sessionId);
+        if (!entry) return;
+        const [tab, watch] = entry;
+        const meta = (event.params["metadata"] ?? {}) as Record<string, unknown>;
+        const frame: BrowserFrame = {
+          seq: ++watch.seq,
+          data: typeof event.params["data"] === "string" ? event.params["data"] : "",
+          width: typeof meta["deviceWidth"] === "number" ? meta["deviceWidth"] : 0,
+          height: typeof meta["deviceHeight"] === "number" ? meta["deviceHeight"] : 0,
+          at: typeof meta["timestamp"] === "number" ? Math.round(meta["timestamp"] * 1000) : this.now(),
+        };
+        void this.cdp.send("Page.screencastFrameAck", { sessionId: event.params["sessionId"] }, event.sessionId).catch(() => undefined);
+        if (frame.data) this.deliver(tab, watch, frame);
+        return;
+      }
+      default:
+        return;
     }
+  }
+
+  private deliver(tab: string, watch: Watch, frame: BrowserFrame): void {
+    watch.last = frame;
+    for (const listener of watch.listeners) listener({ type: "frame", tab, frame });
+  }
+
+  /** A listener's hold on a tab's screencast; the cast runs while any hold does. */
+  private watch(tab: string, listener: BrowserListener): () => void {
+    let watch = this.watches.get(tab);
+    if (!watch) {
+      watch = { listeners: new Set(), seq: 0 };
+      this.watches.set(tab, watch);
+    }
+    watch.listeners.add(listener);
+    if (watch.last) listener({ type: "frame", tab, frame: watch.last });
+    const held = watch;
+    void this.ensure()
+      .then(() => this.startCast(tab, held))
+      .catch((err: unknown) => this.report(`screencast of ${tab} not started: ${err instanceof Error ? err.message : String(err)}`));
+    return () => {
+      held.listeners.delete(listener);
+      if (held.listeners.size === 0 && this.watches.get(tab) === held) {
+        this.watches.delete(tab);
+        if (held.sessionId) void this.cdp.send("Page.stopScreencast", {}, held.sessionId).catch(() => undefined);
+      }
+    };
+  }
+
+  private async startCast(tab: string, watch: Watch): Promise<void> {
+    if (watch.sessionId || watch.starting) return watch.starting;
+    watch.starting = (async () => {
+      const sessionId = await this.sessionFor(tab);
+      if (this.watches.get(tab) !== watch) return;
+      watch.sessionId = sessionId;
+      await this.cdp.send("Page.enable", {}, sessionId).catch(() => undefined);
+      await this.cdp.send(
+        "Page.startScreencast",
+        { format: "jpeg", quality: 75, maxWidth: 1920, maxHeight: 1200, everyNthFrame: Math.max(1, Math.round(60 / this.maxFps)) },
+        sessionId,
+      );
+      // A still page casts nothing until something on it moves, so the
+      // first picture is taken rather than waited for.
+      const shot: Record<string, unknown> = await this.cdp.send("Page.captureScreenshot", { format: "jpeg", quality: 75 }, sessionId).catch(() => ({}));
+      const data = typeof shot["data"] === "string" ? shot["data"] : "";
+      if (data && this.watches.get(tab) === watch && !watch.last) {
+        const metrics: Record<string, unknown> = await this.cdp.send("Page.getLayoutMetrics", {}, sessionId).catch(() => ({}));
+        const size = (metrics["cssVisualViewport"] ?? metrics["layoutViewport"] ?? {}) as Record<string, unknown>;
+        const width = typeof size["clientWidth"] === "number" ? size["clientWidth"] : 0;
+        const height = typeof size["clientHeight"] === "number" ? size["clientHeight"] : 0;
+        this.deliver(tab, watch, { seq: ++watch.seq, data, width, height, at: this.now() });
+      }
+    })().finally(() => {
+      watch.starting = undefined;
+    });
+    return watch.starting;
+  }
+
+  /** The CDP session for a tab, attached on first use. */
+  private async sessionFor(tab: string): Promise<string> {
+    const known = this.sessions.get(tab);
+    if (known) return known;
+    await this.ensure();
+    const result = await this.cdp.send("Target.attachToTarget", { targetId: tab, flatten: true });
+    const sessionId = String(result["sessionId"] ?? "");
+    if (!sessionId) throw new Error("Chrome gave no session for the tab");
+    this.sessions.set(tab, sessionId);
+    return sessionId;
+  }
+
+  private emitTabs(): void {
+    this.emit({ type: "tabs", tabs: this.tabs() });
   }
 
   private emit(event: BrowserEvent): void {

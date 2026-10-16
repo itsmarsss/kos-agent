@@ -104,19 +104,21 @@ file's `tools` map; the Settings page shows the floors it has.
 
 ### The browser engine
 
-The `browser` pick is agent-browser, run as an MCP server. Its environment
-carries `AGENT_BROWSER_STREAM_PORT`, and that is how KOS knows which server
-is the browser: the kernel attaches to the stream on that port to show the
-live view and to pass your input through. Any engine that speaks the same
-stream protocol could take its place by setting the same variable. Stream
-quality and size are `AGENT_BROWSER_STREAM_QUALITY` and
-`AGENT_BROWSER_STREAM_MAX_WIDTH`; `AGENT_BROWSER_HEADED=1` shows the
-browser window on the machine as well. `KOS_BROWSER_VIEWPORT` (KOS's own
-key, `1600x1000` by default) is the page size KOS asks the engine for each
-time the browser comes up, through the engine's own viewport tool, which is
-why the pick runs the server with `--tools core,mobile`. A change to a
-server's entry (command, args, env, floors) takes effect on the next reload
-from Settings; the server is brought up again with the new one.
+KOS runs one Chrome of its own, headless, on the DevTools port named by
+`AGENT_BROWSER_CDP` in the `browser` pick's environment (9225). The engine
+(agent-browser) attaches to that Chrome over CDP, one session per
+conversation, pinned to a tab KOS makes for it in a window of its own, so
+every agent's page paints at once and the live view can show any of them.
+That environment variable is also how KOS knows which server is the
+browser; any engine that attaches over CDP could take its place. KOS's own
+keys beside it: `KOS_BROWSER_VIEWPORT` (`1600x1000`), the size each tab is
+set to through the engine's viewport tool; `KOS_BROWSER_CHROME`, a binary
+to run instead of the first one found; `KOS_BROWSER_HEADED=1` to show the
+window on the machine as well. Logins live in `.kos/browser-profile` under
+the workspace and survive restarts. A change to a server's entry (command,
+args, env, floors) takes effect on the next reload from Settings; the
+server is brought up again with the new one. A changed port wants a host
+restart.
 
 ## Installing skills
 

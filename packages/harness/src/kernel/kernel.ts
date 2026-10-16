@@ -8,7 +8,8 @@ import { ToolRegistry } from "../agent/registry.js";
 import { type CronActionResult, runCronJob, type CronExecResult } from "../cron/executor.js";
 import { CronStore } from "../cron/store.js";
 import { mcpToolName, readMcpConfig, type McpModule } from "../tools/mcp.js";
-import { BrowserLive, browserEngine } from "../browser/live.js";
+import { ChromeHost } from "../browser/chrome.js";
+import { BrowserLive, browserEngine, sessionFor } from "../browser/live.js";
 import { BUILTIN_FEATURES, isBuiltinFeature } from "../modules/builtins.js";
 import { MODULES_KEY, parseModuleSettings, withBuiltinEnabled } from "../modules/workspace.js";
 import { bootKernel } from "./boot.js";
@@ -294,11 +295,8 @@ export class Kernel {
 
   /** Turn progress, for readers watching a conversation as it runs. */
   readonly progress = new ProgressBus();
-  /** The browser KOS drives, watched from the dashboard. */
-  readonly browser: BrowserLive = new BrowserLive({
-    portFor: () => browserEngine(readMcpConfig(this.workspace.root))?.port,
-    onBrowserUp: () => void this.sizeBrowser(),
-  });
+  /** The browser KOS drives, watched from the dashboard; made once the workspace is known. */
+  readonly browser: BrowserLive;
 
   /** Called by bootKernel, which assembles the args; not meant for anyone else. */
   constructor(args: {
@@ -349,6 +347,21 @@ export class Kernel {
     onApprovalRequested?: (action: PendingAction) => void;
   }) {
     this.workspace = args.workspace;
+    {
+      // One Chrome for the whole host: the engine's port is read from the
+      // config once here, so a changed port wants a restart.
+      const engine = browserEngine(readMcpConfig(this.workspace.root));
+      this.browser = new BrowserLive({
+        engineFor: () => browserEngine(readMcpConfig(this.workspace.root)),
+        chrome: new ChromeHost({
+          port: engine?.port ?? 9225,
+          profileDir: this.workspace.resolve(".kos/browser-profile"),
+          ...(engine?.chrome ? { binary: engine.chrome } : {}),
+          headed: engine?.headed ?? false,
+          ...(engine?.viewport ? { windowSize: { width: engine.viewport.width, height: engine.viewport.height + 90 } } : {}),
+        }),
+      });
+    }
     this.secrets = args.secrets;
     this.registry = args.registry;
     this.manifest = args.manifest;
@@ -1834,9 +1847,6 @@ export class Kernel {
       },
       approvalTimeoutMs: this.behaviour().approvalMinutes * 60_000,
       onStarted: (tool, input) => {
-        // Attached before the first frame, so a watcher sees the page the
-        // tool opens rather than the one after.
-        if (this.isBrowserTool(tool)) this.browser.wake();
         if (!opts.conversationId) return;
         this.progress.emit({
           kind: "tool-start",
@@ -1959,30 +1969,35 @@ export class Kernel {
    */
   private afterToolRan(tool: string): void {
     if (tool.startsWith("cron.")) this.reloadCron();
-    if (this.isBrowserTool(tool)) this.browser.wake();
   }
 
   /**
-   * A fresh browser opens at the engine's own small default. The page size
-   * is the frame size, so a bigger one is what makes the live view sharp
-   * on a large window; set each time the browser comes up, through the
-   * engine's own tool, outside any turn.
+   * Before every call to the browser engine: Chrome up, and the caller's
+   * own tab. Each conversation gets an engine session named for it, bound
+   * to a tab KOS made in a window of its own, so agents browse side by side
+   * and the live view knows whose page is whose. A call that names a
+   * session itself is left alone.
    */
-  private async sizeBrowser(): Promise<void> {
+  async prepareBrowserCall(server: string, tool: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
     const engine = browserEngine(readMcpConfig(this.workspace.root));
-    if (!engine?.viewport) return;
-    try {
-      await this.mcp.call(engine.server, "agent_browser_set_viewport", { width: engine.viewport.width, height: engine.viewport.height });
-    } catch (err) {
-      console.error(`[browser] viewport not set: ${err instanceof Error ? err.message : String(err)}`);
+    if (!engine || engine.server !== server) return input;
+    await this.browser.ensure();
+    if (typeof input["session"] === "string" && input["session"]) return input;
+    const conversationId = this.callerConversationId ?? "root";
+    const session = sessionFor(conversationId);
+    const bound = await this.browser.bind(session, conversationId);
+    if (bound.made && tool !== "agent_browser_tab_switch") {
+      // The engine opens a blank tab of its own on first contact; the
+      // switch binds it to ours instead, and the blank one is tidied away.
+      await this.mcp.call(server, "agent_browser_tab_switch", { session, tab: bound.target });
+      if (engine.viewport) {
+        await this.mcp
+          .call(server, "agent_browser_set_viewport", { session, width: engine.viewport.width, height: engine.viewport.height })
+          .catch((err: unknown) => console.error(`[browser] viewport not set: ${err instanceof Error ? err.message : String(err)}`));
+      }
+      void this.browser.tidy();
     }
-  }
-
-  /** A call to the browser engine's server, by the name its tools carry. */
-  private isBrowserTool(tool: string): boolean {
-    if (!tool.startsWith("mcp.")) return false;
-    const engine = browserEngine(readMcpConfig(this.workspace.root));
-    return engine !== undefined && tool.startsWith(mcpToolName(engine.server, ""));
+    return { ...input, session };
   }
 
   /**
