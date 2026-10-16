@@ -159,6 +159,18 @@ export function summarizeAction(
     default:
       break;
   }
+  // KOS's own browser tools: a visit, or a run of steps.
+  if (tool === "browser.visit") return `Visit ${fmtVal(a.url)}`;
+  if (tool === "browser.act") {
+    const steps = Array.isArray(a.steps) ? (a.steps as Record<string, unknown>[]) : [];
+    const said = steps.slice(0, 4).map((s) => {
+      const key = Object.keys(s)[0] ?? "step";
+      const v = s[key];
+      const what = typeof v === "string" ? v : typeof v === "number" ? `${v}ms` : v && typeof v === "object" && typeof (v as Record<string, unknown>)["selector"] === "string" ? String((v as Record<string, unknown>)["selector"]) : "";
+      return `${key}${what ? ` ${what}` : ""}`;
+    });
+    return `On the page: ${said.join(", ")}${steps.length > 4 ? `, +${steps.length - 4} more` : ""}`;
+  }
   // The browser engine's actions read as what they do to the page; the
   // approval's small print says which site, since the call does not.
   const browser = /^mcp\.[^.]+\.agent_browser_(.+)$/.exec(tool);

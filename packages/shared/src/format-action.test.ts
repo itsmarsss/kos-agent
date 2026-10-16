@@ -44,6 +44,8 @@ describe("summaries for the browser", () => {
     expect(summarizeAction("mcp.browser.agent_browser_open", { url: "https://example.com" })).toBe("Open https://example.com");
     expect(summarizeAction("mcp.browser.agent_browser_eval", { script: "document.title" })).toMatch(/^Run script in the page/);
     expect(summarizeAction("mcp.browser.agent_browser_wait_for_text", { text: "Done" })).toBe("wait for text");
+    expect(summarizeAction("browser.visit", { url: "https://example.com" })).toBe("Visit https://example.com");
+    expect(summarizeAction("browser.act", { steps: [{ fill: { selector: "@e2", text: "jane" } }, { click: "@e5" }, { wait: 500 }] })).toBe("On the page: fill @e2, click @e5, wait 500ms");
   });
 });
 

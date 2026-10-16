@@ -415,6 +415,10 @@ export const MCP_PICKS: McpPick[] = [
         AGENT_BROWSER_CDP: "9225",
         AGENT_BROWSER_PIN_TAB: "1",
         KOS_BROWSER_VIEWPORT: "1600x1000",
+        // A page is handed to the model capped, and wrapped in markers
+        // that say it is the page talking.
+        AGENT_BROWSER_MAX_OUTPUT: "24000",
+        AGENT_BROWSER_CONTENT_BOUNDARIES: "1",
       },
       tools: {
         agent_browser_set_viewport: "safe",
