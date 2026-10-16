@@ -197,6 +197,43 @@ describe("Kernel", () => {
     expect(kernel.approvals.pending()[0]?.tool).toBe("sql");
   });
 
+  it("restarts only once no chat is mid-turn, and not at all when nothing would start it again", async () => {
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((r) => (release = r));
+    const inference: Inference = {
+      async generate(): Promise<ModelResponse> {
+        await held;
+        return { content: [{ type: "text", text: "done" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    };
+    root = mkdtempSync(join(tmpdir(), "kos-kernel-"));
+    let restarted = 0;
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference,
+      profileOverrides: { name: "Kenny", timezone: "UTC" },
+      restart: async () => {
+        restarted++;
+      },
+    });
+    const turn = kernel.handleMessage("think about it");
+    await vi.waitFor(() => expect(kernel.busyConversations()).toHaveLength(1));
+    const asked = kernel.requestRestart();
+    expect(asked).toMatchObject({ supported: true, pending: true, busy: ["Main"] });
+    expect(restarted).toBe(0);
+    release!();
+    await turn;
+    // The poll notices the host is idle and hands over; nothing is cut.
+    await vi.waitFor(() => expect(restarted).toBe(1), { timeout: 5000 });
+    expect(kernel.restartStatus()).toMatchObject({ pending: false, busy: [] });
+    // Cancelled before the host goes idle, it does not go at all.
+    kernel.requestRestart();
+    expect(kernel.cancelRestart().pending).toBe(false);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(restarted).toBe(1);
+  });
+
   it("refuses to run when the kill switch is engaged", async () => {
     kernel = await boot(stubInference([]));
     kernel.killSwitch.halt();

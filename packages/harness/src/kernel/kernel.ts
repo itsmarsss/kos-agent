@@ -19,6 +19,8 @@ const BROWSER_HANDOFF = "browser.handoff";
 /** A tab nobody has used this long is closed; checked this often. */
 const IDLE_TAB_MS = 20 * 60_000;
 const IDLE_SWEEP_MS = 5 * 60_000;
+/** How often a wanted restart checks whether the host has gone idle. */
+const RESTART_POLL_MS = 2_000;
 import { ChromeHost } from "../browser/chrome.js";
 import { BrowserLive, browserEngine, launchFor, sessionFor, type BrowserDownload, type BrowserEngine, type BrowserStatus } from "../browser/live.js";
 import type { TabInfo } from "../tools/browser.js";
@@ -126,6 +128,11 @@ export interface KernelOptions {
   system?: string;
   /** Notified when a risky action is queued (e.g. to render Discord buttons). */
   onApprovalRequested?: (action: PendingAction) => void;
+  /**
+   * How the host is started again, for a restart asked for from Settings.
+   * Absent when nothing supervises it: then a restart would be a stop.
+   */
+  restart?: () => Promise<void>;
   /** Disable session history (tests). */
   sessionless?: boolean;
 }
@@ -313,6 +320,10 @@ export class Kernel {
   /** What the browser showed after each step, for the thread. */
   readonly frames: FrameStore;
   private idleSweep: ReturnType<typeof setInterval> | null = null;
+  /** How the host comes back after a restart; nothing when nothing would start it. */
+  private readonly restartHost: (() => Promise<void>) | undefined;
+  private restartWanted: { since: number } | null = null;
+  private restartPoll: ReturnType<typeof setInterval> | null = null;
 
   /** Called by bootKernel, which assembles the args; not meant for anyone else. */
   constructor(args: {
@@ -361,8 +372,10 @@ export class Kernel {
     sessionless: boolean;
     notify?: (payload: NotifyPayload) => Promise<void>;
     onApprovalRequested?: (action: PendingAction) => void;
+    restart?: () => Promise<void>;
   }) {
     this.workspace = args.workspace;
+    this.restartHost = args.restart;
     {
       // One Chrome for the whole host: the engine's port is read from the
       // config once here, so a changed port wants a restart.
@@ -2057,6 +2070,58 @@ export class Kernel {
     void this.browser.closeIdle(IDLE_TAB_MS, (id) => busy.has(id)).catch(() => undefined);
   }
 
+  /**
+   * A restart that waits its turn.
+   *
+   * Restarting under a chat cuts its turn: the reply is lost and an
+   * approval it was waiting on is orphaned. So the owner asks, and the
+   * host goes the moment nothing is mid-turn and no coding agent is
+   * running, however long that takes. Polled rather than hooked on turn
+   * ends, since a build ending is not a turn.
+   */
+  restartStatus(): { supported: boolean; pending: boolean; since?: number; busy: string[] } {
+    return {
+      supported: this.restartHost !== undefined,
+      pending: this.restartWanted !== null,
+      ...(this.restartWanted ? { since: this.restartWanted.since } : {}),
+      busy: this.restartBlockers(),
+    };
+  }
+
+  requestRestart(): ReturnType<Kernel["restartStatus"]> {
+    if (!this.restartHost) throw new Error("nothing would start KOS again: it is not running under launchd or kos start, so restart it by hand");
+    if (!this.restartWanted) {
+      this.restartWanted = { since: Date.now() };
+      this.restartPoll = setInterval(() => this.restartIfIdle(), RESTART_POLL_MS);
+      this.restartPoll.unref?.();
+      this.restartIfIdle();
+    }
+    return this.restartStatus();
+  }
+
+  cancelRestart(): ReturnType<Kernel["restartStatus"]> {
+    this.restartWanted = null;
+    if (this.restartPoll) clearInterval(this.restartPoll);
+    this.restartPoll = null;
+    return this.restartStatus();
+  }
+
+  /** What a restart now would cut: chats mid-turn, agents mid-build. */
+  private restartBlockers(): string[] {
+    const chats = this.busyConversations().map((id) => this.conversations.get(id)?.title ?? id);
+    const builds = this.builds
+      .list()
+      .filter((b) => b.status === "running" || b.status === "waiting")
+      .map((b) => `agent ${b.id} in ${b.dir}`);
+    return [...chats, ...builds];
+  }
+
+  private restartIfIdle(): void {
+    if (!this.restartWanted || !this.restartHost || this.restartBlockers().length > 0) return;
+    this.cancelRestart();
+    void this.restartHost().catch((err: unknown) => console.error(`[host] restart failed: ${err instanceof Error ? err.message : String(err)}`));
+  }
+
   /** The caller's tab as a picture, for browser.look. */
   async lookAtBrowser(): Promise<{ data: string } | undefined> {
     const conversationId = this.callerConversationId;
@@ -2814,6 +2879,7 @@ export class Kernel {
   close(): void {
     if (this.idleSweep) clearInterval(this.idleSweep);
     this.idleSweep = null;
+    this.cancelRestart();
     this.browser.close();
     this.closed = true;
     this.stopCron();

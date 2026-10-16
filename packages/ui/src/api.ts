@@ -1,5 +1,15 @@
 /** Typed client for the KOS dashboard API. */
 
+/** Whether a restart is wanted, and what it is waiting on. */
+export interface RestartState {
+  /** Something would start the host again; without it a restart is a stop. */
+  supported: boolean;
+  pending: boolean;
+  since?: number;
+  /** What is keeping it: chats mid-turn, coding agents running. */
+  busy: string[];
+}
+
 export interface Status {
   halted: boolean;
   queueDepth: number;
@@ -15,6 +25,8 @@ export interface Status {
   orchestratorId?: string;
   /** Jobs failing right now, so the header can stop claiming all is well. */
   unhealthy?: number;
+  /** A restart asked for from Settings, waiting for the host to go idle. */
+  restart?: RestartState;
   /** Which model answers each task class, when the router can say. */
   routes?: Record<
     string,
@@ -748,6 +760,9 @@ async function post<T>(path: string, body: unknown = {}): Promise<T> {
 
 export const api = {
   status: () => get<Status>("/api/status"),
+  /** Restart the host once nothing is mid-turn; the answer says what it is waiting on. */
+  requestRestart: () => post<RestartState>("/api/host/restart", {}),
+  cancelRestart: () => post<RestartState>("/api/host/restart/cancel", {}),
   approvals: () => get<PendingAction[]>("/api/approvals"),
   modelSettings: () =>
     get<{

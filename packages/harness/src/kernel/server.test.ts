@@ -336,6 +336,15 @@ describe("handleApiRequest", () => {
     expect((await handleApiRequest(kernel, { method: "POST", path: "/api/browser/tabs/close", body: { tab: "T1" } })).status).toBe(400);
   });
 
+  it("refuses a restart when nothing would start the host again, and says so on the status", async () => {
+    const status = (await handleApiRequest(kernel, { method: "GET", path: "/api/status" })).body as { restart: { supported: boolean; pending: boolean; busy: string[] } };
+    expect(status.restart).toEqual({ supported: false, pending: false, busy: [] });
+    const refused = await handleApiRequest(kernel, { method: "POST", path: "/api/host/restart", body: {} });
+    expect(refused.status).toBe(400);
+    expect((refused.body as { error: string }).error).toMatch(/restart it by hand/);
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/host/restart/cancel", body: {} })).body).toMatchObject({ pending: false });
+  });
+
   it("keeps the browser's settings as KOS's keys on the engine's entry", async () => {
     const none = await handleApiRequest(kernel, { method: "GET", path: "/api/browser/settings" });
     expect(none.body).toMatchObject({ engine: null, headed: false, chrome: "", extensions: [], search: "https://duckduckgo.com/?q=%s" });

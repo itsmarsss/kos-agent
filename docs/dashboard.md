@@ -171,7 +171,9 @@ Grouped by what you came to do.
 - **Access**: Permissions (every Always you said, revocable), Network (ports,
   bind address, hosts the agent may fetch).
 - **Housekeeping**: Spend (tokens by model, rates), Workspace (where
-  everything lives, halt and resume).
+  everything lives, halt and resume, and Restart KOS: the host restarts
+  once no chat is mid-turn and no coding agent is running, so nothing is
+  cut; the page says what it is waiting on, and Cancel takes it back).
 
 ## Phone width
 
