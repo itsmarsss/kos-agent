@@ -159,8 +159,9 @@ export function summarizeAction(
     default:
       break;
   }
-  // KOS's own browser tools: a visit, or a run of steps.
+  // KOS's own browser tools: a visit, a run of steps, or the owner's hands.
   if (tool === "browser.visit") return `Visit ${fmtVal(a.url)}`;
+  if (tool === "browser.handoff") return `Needs your hands: ${fmtVal(a.reason)}`;
   if (tool === "browser.act") {
     const steps = Array.isArray(a.steps) ? (a.steps as Record<string, unknown>[]) : [];
     const said = steps.slice(0, 4).map((s) => {

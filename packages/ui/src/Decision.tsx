@@ -19,12 +19,18 @@ export function Decision({
   onDecide,
   /** Compact form for a dense list. */
   small,
+  labels,
+  noRemember = false,
 }: {
   id: number;
   /** Ids currently being decided, so every copy of these buttons agrees. */
   deciding: ReadonlySet<number>;
   onDecide: (id: number, approved: boolean, remember?: boolean) => void;
   small?: boolean;
+  /** What yes and no are called when "Approve" and "Deny" are not the words: "Done" and "Can't" for a handoff. */
+  labels?: { yes: string; no: string };
+  /** No Always: an ask that is its own each time. */
+  noRemember?: boolean;
 }): ReactElement {
   const busy = deciding.has(id);
   const size = small ? " btn--sm" : "";
@@ -43,25 +49,27 @@ export function Decision({
             Working
           </>
         ) : (
-          "Approve"
+          (labels?.yes ?? "Approve")
         )}
       </button>
-      <button
-        type="button"
-        className={`btn btn--primary${size}`}
-        disabled={busy}
-        title="Approve, and stop asking for this shape in this project"
-        onClick={() => onDecide(id, true, true)}
-      >
-        Always
-      </button>
+      {!noRemember && (
+        <button
+          type="button"
+          className={`btn btn--primary${size}`}
+          disabled={busy}
+          title="Approve, and stop asking for this shape in this project"
+          onClick={() => onDecide(id, true, true)}
+        >
+          Always
+        </button>
+      )}
       <button
         type="button"
         className={`btn btn--danger-ghost${size}`}
         disabled={busy}
         onClick={() => onDecide(id, false)}
       >
-        Deny
+        {labels?.no ?? "Deny"}
       </button>
     </span>
   );

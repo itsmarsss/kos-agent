@@ -31,6 +31,7 @@ export function InboxPage({
   deciding,
   onDecide,
   onOpenChat,
+  onOpenBrowser,
   onDismissFailure,
   onOpenFailure,
   onFixFailure,
@@ -40,6 +41,8 @@ export function InboxPage({
   deciding: ReadonlySet<number>;
   onDecide: (id: number, approved: boolean, remember?: boolean) => void;
   onOpenChat: (id: string) => void;
+  /** Show the browser window, where a handoff is done by hand. */
+  onOpenBrowser?: () => void;
   onDismissFailure: (key: string) => void;
   onOpenFailure: (key: string) => void;
   onFixFailure: (failure: FailingJob) => void;
@@ -100,7 +103,18 @@ export function InboxPage({
                   </span>
                 </span>
                 <span className="panel-approval-actions">
-                  <Decision id={a.id} deciding={deciding} onDecide={onDecide} small />
+                  {a.tool === "browser.handoff" && onOpenBrowser && (
+                    <button type="button" className="btn btn--sm" onClick={onOpenBrowser}>
+                      Open the browser
+                    </button>
+                  )}
+                  <Decision
+                    id={a.id}
+                    deciding={deciding}
+                    onDecide={onDecide}
+                    small
+                    {...(a.tool === "browser.handoff" ? { labels: { yes: "Done", no: "Can't" }, noRemember: true } : {})}
+                  />
                 </span>
               </li>
             ))}

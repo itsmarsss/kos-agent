@@ -85,3 +85,13 @@ describe("browser.act", () => {
     expect(stepCall({ type: { selector: "@e1", text: "hi" } })).toEqual({ tool: ENGINE_TOOL.type, args: { selector: "@e1", text: "hi" }, said: "typed into @e1" });
   });
 });
+
+describe("browser.handoff", () => {
+  it("is risky, and once the owner has done it hands back where the tab is", async () => {
+    const h = harness({ [ENGINE_TOOL.url]: "https://bank.example/home\n", [ENGINE_TOOL.title]: "Home" });
+    await h.module.activate({ registerTool: (d, f, r, m) => h.registry.register(d, f, r, m) });
+    expect(h.registry.classify("browser.handoff", { reason: "log in" }).tier).toBe("risky");
+    const result = await h.registry.execute("browser.handoff", { reason: "log in" });
+    expect(result.content).toBe("The owner has done it. The tab is now at https://bank.example/home (Home). Look again before you act.");
+  });
+});

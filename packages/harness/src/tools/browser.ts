@@ -14,6 +14,7 @@ import { RISKY, SAFE } from "../risk/tiers.js";
 
 /** The engine's tools, by the short names used here. */
 export const ENGINE_TOOL = {
+  url: "agent_browser_get_url",
   open: "agent_browser_open",
   waitForLoad: "agent_browser_wait_for_load",
   waitMs: "agent_browser_wait_ms",
@@ -138,6 +139,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
       provides: [
         { kind: "tool", name: "browser.visit", version: "1.0.0" },
         { kind: "tool", name: "browser.act", version: "1.0.0" },
+        { kind: "tool", name: "browser.handoff", version: "1.0.0" },
       ],
     },
     async activate(ctx: ModuleContext) {
@@ -205,6 +207,35 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           }
           const page = await pageAfter(deps, thenOf(input, "snapshot"));
           return `Done: ${done.join("; ")}.\n${page}`.trim();
+        },
+        RISKY,
+      );
+
+      /*
+       * The owner's hands. A login, a captcha, a payment, a consent: things
+       * an agent must not do itself. The ask is queued like any risky call,
+       * so the turn waits on the owner's answer; "approved" means the owner
+       * has done it in the window, and the handler runs then, handing the
+       * agent the page as they left it. Never remembered: each ask is its
+       * own.
+       */
+      ctx.registerTool(
+        {
+          name: "browser.handoff",
+          description:
+            "Hand this tab to the owner for something you must not do yourself: a login, a two-factor code, a captcha, a payment, " +
+            "a consent. Say plainly what you need them to do. Your turn waits until they say they are done, then continues with " +
+            "the page as they left it; take a fresh look before acting on it. If they decline, say so and stop.",
+          inputSchema: {
+            type: "object",
+            properties: { reason: { type: "string", description: "what you need the owner to do, in one line" } },
+            required: ["reason"],
+          },
+        },
+        async () => {
+          const url = await deps.call(ENGINE_TOOL.url, {}).catch(() => "");
+          const title = await deps.call(ENGINE_TOOL.title, {}).catch(() => "");
+          return `The owner has done it. The tab is now at ${url.trim() || "the same page"}${title.trim() ? ` (${title.trim()})` : ""}. Look again before you act.`;
         },
         RISKY,
       );

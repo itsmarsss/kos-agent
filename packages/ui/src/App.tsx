@@ -125,10 +125,27 @@ export function App(): React.ReactElement {
     }
     return null;
   }, [live, browserPrefix]);
+  /** Agents waiting for the owner's hands on their tab: the window opens itself for those. */
+  const handoffs = useMemo(
+    () =>
+      approvals
+        .filter((a) => a.tool === "browser.handoff")
+        .map((a) => {
+          let reason = "";
+          try {
+            const parsed = JSON.parse(a.args) as { reason?: unknown };
+            reason = typeof parsed.reason === "string" ? parsed.reason : "";
+          } catch {
+            /* the args are shown elsewhere */
+          }
+          return { id: a.id, conversationId: a.conversationId, reason };
+        }),
+    [approvals],
+  );
   useEffect(() => {
-    if (browsing && !browserDismissed.current) setBrowserOpen(true);
-    if (!browsing) browserDismissed.current = false;
-  }, [browsing]);
+    if ((browsing || handoffs.length > 0) && !browserDismissed.current) setBrowserOpen(true);
+    if (!browsing && handoffs.length === 0) browserDismissed.current = false;
+  }, [browsing, handoffs.length]);
   /** A question typed as `/btw` in a chat, handed to the window to ask. */
   const [askSeed, setAskSeed] = useState<{ text: string; n: number } | null>(null);
   const askAside = (text: string): void => {
@@ -731,8 +748,10 @@ export function App(): React.ReactElement {
           setBrowserOpen(false);
         }}
         {...(browsing?.doing ? { doing: browsing.doing } : {})}
-        {...(browsing ? { prefer: browsing.id } : {})}
+        {...(handoffs[0]?.conversationId ? { prefer: handoffs[0].conversationId } : browsing ? { prefer: browsing.id } : {})}
         titleFor={(id) => conversations.find((c) => c.id === id)?.title}
+        handoffs={handoffs}
+        onDecide={(id, approved) => void decide(id, approved)}
       />
       <QuickAsk
         open={askOpen}
@@ -1087,6 +1106,10 @@ export function App(): React.ReactElement {
         deciding={deciding}
         onDecide={(id, approved, remember) => void decide(id, approved, remember)}
         onOpenChat={(id) => go({ name: "chats", id })}
+        onOpenBrowser={() => {
+          browserDismissed.current = false;
+          setBrowserOpen(true);
+        }}
         onDismissFailure={(key) => void dismissFailure(key)}
         onOpenFailure={(key) => openFailure(key)}
         onFixFailure={fixFailure}
