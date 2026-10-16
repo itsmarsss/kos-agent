@@ -15,6 +15,7 @@ import {
   PRESS_PREFIX,
   approvalCustomIds,
   approvalText,
+  settledText,
   buildButtons,
   buildCard,
   buildModal,
@@ -391,10 +392,26 @@ describe("the approval prompt", () => {
       args: { command: "rm -rf build", cwd: "/w" },
       reason: "deletes files",
     });
-    const [first, second, ...rest] = text.split("\n");
-    expect(first).toBe("**Needs your OK** · Run: rm -rf build (in /w)");
-    expect(second).toMatch(/^-# shell\.run · #12 · command: rm -rf build · cwd: \/w · deletes files$/);
-    expect(rest).toEqual([]);
+    expect(text.split("\n")).toEqual(["**Needs your OK** · Run", "```", "rm -rf build (in /w)", "```", "-# shell.run · #12 · deletes files"]);
+  });
+
+  it("keeps a command literal, whatever Discord would make of its characters", () => {
+    const text = approvalText({ id: "132", text: "x", tool: "shell.run", args: { command: 'grep -rn "fell due" --include=*.ts --include=*_x_' } });
+    expect(text).toContain('```\ngrep -rn "fell due" --include=*.ts --include=*_x_\n```');
+    expect(text.split("\n")[0]).toBe("**Needs your OK** · Run");
+  });
+
+  it("puts the arguments in the block when the summary is all sentence", () => {
+    const text = approvalText({ id: "5", text: "x", tool: "systems.project_delete", args: { slug: "old_site" } });
+    const lines = text.split("\n");
+    expect(lines[0]).toMatch(/^\*\*Needs your OK\*\* · Delete project/);
+    expect(lines.slice(1, 4)).toEqual(["```", "slug: old_site", "```"]);
+    expect(lines[4]).toBe("-# systems.project_delete · #5");
+  });
+
+  it("settles with the verb and the thing in inline code", () => {
+    expect(settledText("approved", "Run: rm -rf build (in /w)", "12")).toBe("-# ✅ Approved · Run `rm -rf build (in /w)`");
+    expect(settledText("denied", undefined, "7")).toBe("-# ❌ Denied · #7");
   });
 
   it("keeps a text-only request as it was given", () => {
@@ -410,7 +427,11 @@ describe("the approval prompt", () => {
     await adapter.requestApproval("owner-id", { id: "7", text: "x", tool: "files.rm", args: { path: "a.txt" } });
     expect(payloads).toHaveLength(1);
     expect(payloads[0]?.embeds).toBeUndefined();
-    expect(String(payloads[0]?.content).split("\n")).toHaveLength(2);
+    // The sentence, the command in its block, the small print.
+    const lines = String(payloads[0]?.content).split("\n");
+    expect(lines[0]).toMatch(/^\*\*Needs your OK\*\*/);
+    expect(lines[lines.length - 1]).toMatch(/^-# /);
+    expect(lines.length).toBeLessThanOrEqual(5);
     expect((payloads[0]?.components as unknown[])).toHaveLength(1);
   });
 });
