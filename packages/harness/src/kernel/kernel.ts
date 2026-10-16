@@ -7,7 +7,7 @@ import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry } from "../agent/registry.js";
 import { type CronActionResult, runCronJob, type CronExecResult } from "../cron/executor.js";
 import { CronStore } from "../cron/store.js";
-import { mcpToolName, readMcpConfig, type McpModule } from "../tools/mcp.js";
+import { readMcpConfig, type McpModule } from "../tools/mcp.js";
 import { ChromeHost } from "../browser/chrome.js";
 import { BrowserLive, browserEngine, sessionFor } from "../browser/live.js";
 import { BUILTIN_FEATURES, isBuiltinFeature } from "../modules/builtins.js";
