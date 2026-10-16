@@ -20,8 +20,9 @@ export function toAddress(typed: string, search: string): string {
 
 /** A tab's name where there is room for one line: its title, else its host. */
 export function tabName(tab: { title: string; url: string }): string {
-  if (tab.title.trim()) return tab.title.trim();
+  // Chrome titles a blank page "about:blank"; nobody else would.
   if (!tab.url || tab.url === "about:blank") return "blank tab";
+  if (tab.title.trim()) return tab.title.trim();
   try {
     return new URL(tab.url).host || tab.url;
   } catch {

@@ -56,8 +56,9 @@ export interface MentionSources {
 
 /** A tab's name in a list: its title, else its host, else blank. */
 export function tabLabel(tab: { title: string; url: string }): string {
-  if (tab.title.trim()) return tab.title.trim();
+  // Chrome titles a blank page "about:blank"; the owner would not.
   if (!tab.url || tab.url === "about:blank") return "blank tab";
+  if (tab.title.trim()) return tab.title.trim();
   try {
     return new URL(tab.url).host || tab.url;
   } catch {
