@@ -33,7 +33,14 @@ function toAnthropicContent(blocks: ContentBlock[]): AnthropicBlockParam[] {
         out.push({
           type: "tool_result",
           tool_use_id: block.toolUseId,
-          content: block.content,
+          // A result with pictures is a list of parts; without, the plain
+          // string it always was.
+          content: block.images?.length
+            ? [
+                { type: "text" as const, text: block.content },
+                ...block.images.map((i) => ({ type: "image" as const, source: { type: "base64" as const, media_type: i.mediaType as "image/png", data: i.data } })),
+              ]
+            : block.content,
           ...(block.isError ? { is_error: true } : {}),
         });
         break;

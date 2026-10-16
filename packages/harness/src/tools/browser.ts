@@ -34,6 +34,8 @@ export const ENGINE_TOOL = {
 export interface BrowserToolsDeps {
   /** Call one of the engine's tools for the current caller, on its own tab. */
   call: (tool: string, args: Record<string, unknown>) => Promise<string>;
+  /** A picture of the caller's tab as it is, base64 JPEG, when there is one. */
+  look?: () => Promise<{ data: string } | undefined>;
 }
 
 type Step =
@@ -140,6 +142,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         { kind: "tool", name: "browser.visit", version: "1.0.0" },
         { kind: "tool", name: "browser.act", version: "1.0.0" },
         { kind: "tool", name: "browser.handoff", version: "1.0.0" },
+        { kind: "tool", name: "browser.look", version: "1.0.0" },
       ],
     },
     async activate(ctx: ModuleContext) {
@@ -209,6 +212,27 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           return `Done: ${done.join("; ")}.\n${page}`.trim();
         },
         RISKY,
+      );
+
+      /*
+       * Eyes. The snapshot says what is on the page; a picture says how it
+       * looks, which is the question when a snapshot is ambiguous, a layout
+       * matters, or a chart is the answer. Costly in tokens, so on request.
+       */
+      ctx.registerTool(
+        {
+          name: "browser.look",
+          description:
+            "See your tab as a picture, as it is right now. Use when the snapshot leaves you unsure what the page looks like " +
+            "(a layout, a chart, an image, a visual check); otherwise the snapshot is cheaper.",
+          inputSchema: { type: "object", properties: {} },
+        },
+        async () => {
+          const shot = deps.look ? await deps.look() : undefined;
+          if (!shot) throw new Error("no tab to look at; open a page first");
+          return { text: "The tab as it is now.", images: [{ mediaType: "image/jpeg", data: shot.data }] };
+        },
+        SAFE,
       );
 
       /*

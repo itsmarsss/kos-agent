@@ -341,7 +341,10 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     systemsModule,
     sitesModule,
     // A visit, or a run of gestures, in one call: made of the engine's tools.
-    createBrowserModule({ call: (tool, args) => (kernelRef ? kernelRef.callBrowser(tool, args) : Promise.reject(new Error("not booted"))) }),
+    createBrowserModule({
+      call: (tool, args) => (kernelRef ? kernelRef.callBrowser(tool, args) : Promise.reject(new Error("not booted"))),
+      look: () => (kernelRef ? kernelRef.lookAtBrowser() : Promise.resolve(undefined)),
+    }),
     createBuildsModule({
       approvals,
       registry: builds,

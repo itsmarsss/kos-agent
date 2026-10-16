@@ -57,6 +57,14 @@ again. Each browser step in a thread keeps a small picture of the page as
 the agent left it, under its card; click it to see it large. That is the
 record of what a reply was looking at.
 
+A file an agent downloads lands in its project, under `downloads`, with the
+name the site gave it (or in a `downloads` folder at the workspace root for
+a chat with no project), and the thread says so with a file card. Tabs
+nobody has used for twenty minutes are closed; an agent that comes back
+gets a fresh one. `browser.look` lets an agent see its tab as a picture
+when the snapshot is not enough; the picture goes to the model, not just
+to you.
+
 **Take over** gives you that tab: your clicks, scrolling and typing go to
 it instead of to the dashboard, with the window's border lit to say whose
 hand is on it. **Let go** hands it back. The agent does not stop while you

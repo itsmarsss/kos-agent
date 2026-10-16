@@ -199,6 +199,17 @@ export function mcpToolName(server: string, tool: string): string {
   return `mcp.${part(server)}.${part(tool)}`;
 }
 
+/** The pictures a call produced, kept as pictures for a model that can look. */
+export function imagesIn(content: unknown): { mediaType: string; data: string }[] {
+  if (!Array.isArray(content)) return [];
+  const out: { mediaType: string; data: string }[] = [];
+  for (const block of content) {
+    const b = block as { type?: string; data?: string; mimeType?: string };
+    if (b.type === "image" && typeof b.data === "string" && b.data && typeof b.mimeType === "string") out.push({ mediaType: b.mimeType, data: b.data });
+  }
+  return out;
+}
+
 /** What a call produced, as text the model can read. */
 export function renderContent(content: unknown): string {
   if (!Array.isArray(content)) return "";
@@ -325,7 +336,8 @@ export function createMcpModule(options: McpModuleOptions): McpModule {
             const result = await live.client.callTool({ name: tool.name, arguments: args });
             const text = renderContent(result.content);
             if (result.isError) throw new Error(text || `${tool.name} reported an error`);
-            return text;
+            const images = imagesIn(result.content);
+            return images.length ? { text, images } : text;
           },
           { floor: floorFor(server, tool.name) },
           server.projects?.length ? { tags: server.projects.map((p) => `project:${p}`) } : undefined,

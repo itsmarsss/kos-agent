@@ -207,7 +207,10 @@ function serverFor(tools: ToolBox, record: (call: SdkToolCall) => void) {
           isError: result.isError === true,
         });
         return {
-          content: [{ type: "text" as const, text: result.content }],
+          content: [
+            { type: "text" as const, text: result.content },
+            ...(result.images ?? []).map((i) => ({ type: "image" as const, data: i.data, mimeType: i.mediaType })),
+          ],
           ...(result.isError ? { isError: true } : {}),
         };
       },

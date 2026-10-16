@@ -173,12 +173,13 @@ export async function runAgent(
     for (const call of running) {
       // Run under the call's own id, so whatever is kept about this step
       // (a picture of the browser after it) can find its card later.
-      const { content, isError } = await toolUse.run(call.id, () => tools_.execute(call.name, call.input));
+      const { content, isError, images } = await toolUse.run(call.id, () => tools_.execute(call.name, call.input));
       results.push({
         type: "tool_result",
         toolUseId: call.id,
         content,
         isError,
+        ...(images?.length ? { images } : {}),
       });
     }
     for (const call of deferred) {
