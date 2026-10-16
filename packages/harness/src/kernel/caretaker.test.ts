@@ -64,6 +64,26 @@ describe("looking after failures", () => {
     expect(d.log).toEqual(["notify:failing: boom", "project:Maintenance", "create:Fix: Nightly@maintenance", "turn:c1:24:prompt"]);
   });
 
+  it("goes on in the fix chat a job already has, rather than opening another", async () => {
+    const d = deps({
+      conversations: {
+        create: () => { throw new Error("should not make a second chat"); },
+        touch: () => undefined,
+        list: () => [{ id: "fix1", title: "Fix: Nightly", projectSlug: "maintenance", updatedAt: 1 }],
+      },
+    });
+    const c = new Caretaker(d);
+    const again = await c.startFix({ label: "Nightly", error: "boom again", what: "scheduled job", ref: "cron:7" });
+    expect(again.conversationId).toBe("fix1");
+    expect(again.prompt).toMatch(/^The same scheduled job failed again/);
+    expect(again.prompt).toContain("This chat holds what was found and done last time");
+    expect(d.log).toContain("turn:fix1:24:prompt");
+    // A first failure noticed by the monitor goes to the same chat too.
+    c.report("cron:7", "Nightly", false, "boom");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(d.log.filter((l) => l.startsWith("turn:"))).toEqual(["turn:fix1:24:prompt", "turn:fix1:24:prompt"]);
+  });
+
   it("puts every fix in the maintenance project, which is made once", async () => {
     const d = deps();
     const c = new Caretaker(d);

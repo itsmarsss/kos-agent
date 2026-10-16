@@ -120,7 +120,9 @@ everywhere.
 Everything waiting on you: tool approvals (with a link to the chat that
 asked), memory decisions (keep one side, both, promote, dismiss), and jobs
 failing now (open, put KOS on it, dismiss). The sidebar badge counts all
-three.
+three. A job has one fix chat, under Maintenance: when it fails again,
+KOS goes on in that chat with what it found last time rather than
+opening another.
 
 An approval does not wait forever. A turn holds for the minutes Settings >
 Behaviour gives it and then treats the silence as a refusal; the ask
