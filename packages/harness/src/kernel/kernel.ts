@@ -2123,6 +2123,9 @@ export class Kernel {
     if (!this.restartWanted || !this.restartHost || this.restartBlockers().length > 0) return;
     this.cancelRestart();
     void this.restartHost().catch((err: unknown) => console.error(`[host] restart failed: ${err instanceof Error ? err.message : String(err)}`));
+  }
+
+  /**
    * Asks nobody answered lapse, so the inbox holds today's decisions and
    * the chat that asked knows nothing was done. Said in the chat as a line
    * of its own rather than a turn: nobody asked for one, and the news is

@@ -198,11 +198,11 @@ describe("Kernel", () => {
   });
 
   it("restarts only once no chat is mid-turn, and not at all when nothing would start it again", async () => {
-    let release: (() => void) | undefined;
-    const held = new Promise<void>((r) => (release = r));
+    // Each turn waits until the test lets it go, so the host is busy on cue.
+    const gates: (() => void)[] = [];
     const inference: Inference = {
       async generate(): Promise<ModelResponse> {
-        await held;
+        await new Promise<void>((r) => gates.push(r));
         return { content: [{ type: "text", text: "done" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
       },
     };
@@ -220,18 +220,25 @@ describe("Kernel", () => {
     const turn = kernel.handleMessage("think about it");
     await vi.waitFor(() => expect(kernel.busyConversations()).toHaveLength(1));
     const asked = kernel.requestRestart();
-    expect(asked).toMatchObject({ supported: true, pending: true, busy: ["Main"] });
+    // The primary chat has no row of its own yet, so it is named by id.
+    expect(asked).toMatchObject({ supported: true, pending: true, busy: ["chat:owner"] });
     expect(restarted).toBe(0);
-    release!();
+    gates.shift()!();
     await turn;
     // The poll notices the host is idle and hands over; nothing is cut.
     await vi.waitFor(() => expect(restarted).toBe(1), { timeout: 5000 });
     expect(kernel.restartStatus()).toMatchObject({ pending: false, busy: [] });
-    // Cancelled before the host goes idle, it does not go at all.
-    kernel.requestRestart();
+    // Cancelled while the host is still busy, it does not go when the turn ends.
+    const again = kernel.handleMessage("once more");
+    await vi.waitFor(() => expect(kernel.busyConversations()).toHaveLength(1));
+    expect(kernel.requestRestart().pending).toBe(true);
     expect(kernel.cancelRestart().pending).toBe(false);
-    await new Promise((r) => setTimeout(r, 50));
+    gates.shift()!();
+    await again;
+    await new Promise((r) => setTimeout(r, 2500));
     expect(restarted).toBe(1);
+  });
+
   it("lapses an ask nobody answered in a day, and tells the chat that asked", async () => {
     kernel = await boot({
       async generate(): Promise<ModelResponse> {
