@@ -3159,6 +3159,54 @@ li:hover .chats-item-when { opacity: 0; }
 }
 
 /* —— attachment strip —— */
+/* The files a message mentions, as cards under it: look, download, open. */
+.mfiles { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.35rem 0 0.2rem; max-width: 100%; }
+.mfile {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  max-width: min(20rem, 100%);
+  padding: 0.3rem 0.35rem 0.3rem 0.3rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--panel);
+}
+.mfile:hover { border-color: var(--line-strong); background: var(--panel-2); }
+.mfile--missing { opacity: 0.6; }
+.mfile-main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.mfile-main:disabled { cursor: default; }
+.mfile .files-thumb { flex: none; width: 2.25rem; height: 2.25rem; border-radius: 5px; }
+.mfile-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 5px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.mfile-glyph--folder { background: var(--accent-dim); border-color: transparent; }
+.mfile-text { display: flex; flex-direction: column; gap: 0.05rem; min-width: 0; }
+.mfile-name { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mfile-sub { font-size: var(--text-xs); font-family: var(--mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mfile-acts { display: inline-flex; align-items: center; gap: 0.05rem; margin-left: 0.25rem; flex: none; opacity: 0.55; }
+.mfile:hover .mfile-acts { opacity: 1; }
+.mfile-acts .icon-btn { width: 1.5rem; height: 1.5rem; color: var(--muted); }
+.mfile-acts .icon-btn:hover { color: var(--text); }
 .strip { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem; }
 .strip-item { position: relative; width: 3.5rem; }
 .strip-tile {

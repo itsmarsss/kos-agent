@@ -32,6 +32,7 @@ import {
 } from "./api.js";
 import { AttachButton, useAttachments, useDropZone } from "./Attachments.js";
 import { AttachmentStrip } from "./AttachmentStrip.js";
+import { MentionedFiles } from "./MentionedFiles.js";
 import { ModelPicker } from "./ModelPicker.js";
 import { HighlightedInput } from "./HighlightedInput.js";
 import {
@@ -1057,10 +1058,12 @@ export function ChatsPage({
           </div>
         )}
         {/* Outside the bubble, under it: an attachment is a thing that came
-            with the message, not part of the sentence. */}
+            with the message, not part of the sentence. The files the message
+            mentions sit there too, for the same reason. */}
         {e.attachments && e.attachments.length > 0 && (
           <AttachmentStrip items={e.attachments} />
         )}
+        {e.text && e.role !== "system" && <MentionedFiles text={e.text} />}
         {e.text && e.role !== "system" && (
           <MessageActions
             text={e.text}
