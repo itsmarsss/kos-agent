@@ -48,6 +48,8 @@ export interface PendingAction {
   /** The conversation that asked, so a decision can be taken where it lives. */
   conversationId: string | null;
   requestedAt: number;
+  /** When it lapses if nobody decides. */
+  expiresAt?: number;
   /** There is a picture of what it would act on, at /api/approvals/:id/picture. */
   picture?: boolean;
   /** What a yes-and-remember keeps. */
@@ -476,6 +478,8 @@ export interface Behaviour {
   stallMinutes: number;
   /** Minutes a turn holds, suspended, waiting for you to decide. */
   approvalMinutes: number;
+  /** Hours an ask nobody is waiting on keeps before it lapses. */
+  approvalExpiryHours: number;
   /** Minutes between unprompted look-arounds. Zero is off. */
   heartbeatMinutes: number;
   /** A cheap model reads new conversation and proposes memory claims, in the background. */

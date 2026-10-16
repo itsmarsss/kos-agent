@@ -197,6 +197,23 @@ describe("Kernel", () => {
     expect(kernel.approvals.pending()[0]?.tool).toBe("sql");
   });
 
+  it("lapses an ask nobody answered in a day, and tells the chat that asked", async () => {
+    kernel = await boot({
+      async generate(): Promise<ModelResponse> {
+        return { content: [{ type: "text", text: "ok" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    });
+    const id = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Main" }).id;
+    const old = kernel.approvals.enqueue({ tool: "shell.run", args: { command: "rm x" }, riskTier: "risky", conversationId: id });
+    const fresh = kernel.approvals.enqueue({ tool: "shell.run", args: { command: "rm y" }, riskTier: "risky", conversationId: id });
+    kernel.workspace.db.prepare(`UPDATE pending_actions SET requested_at = ? WHERE id = ?`).run(Date.now() - 25 * 3_600_000, old.id);
+    expect(kernel.sweepExpiredApprovals().map((a) => a.id)).toEqual([old.id]);
+    expect(kernel.approvals.pending().map((a) => a.id)).toEqual([fresh.id]);
+    const said = JSON.stringify(kernel.sessions.get(id));
+    expect(said).toContain(`#${old.id} (Run: rm x) lapsed: nobody decided within 24 hours, so nothing was done.`);
+    expect(said).not.toContain(`#${fresh.id}`);
+  });
+
   it("refuses to run when the kill switch is engaged", async () => {
     kernel = await boot(stubInference([]));
     kernel.killSwitch.halt();

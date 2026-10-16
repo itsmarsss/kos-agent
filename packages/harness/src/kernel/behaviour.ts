@@ -47,6 +47,12 @@ export interface Behaviour {
    */
   approvalMinutes: number;
   /**
+   * Hours an ask nobody is waiting on keeps: one queued by an unattended
+   * run, or left behind by a turn a restart cut. After this it lapses, the
+   * chat is told, and the prompts for it settle.
+   */
+  approvalExpiryHours: number;
+  /**
    * Minutes between unprompted look-arounds. Zero is off, which is the
    * default: this is the one setting that spends money on a timer rather
    * than because the owner asked for something.
@@ -73,6 +79,7 @@ export const BEHAVIOUR_DEFAULTS: Behaviour = {
   agentTurns: 60,
   stallMinutes: 3,
   approvalMinutes: 30,
+  approvalExpiryHours: 24,
   heartbeatMinutes: 0,
   memoryExtraction: true,
   extractEveryChars: 6000,
@@ -90,6 +97,7 @@ export const BEHAVIOUR_LIMITS: Record<
   agentTurns: [1, 500],
   stallMinutes: [1, 120],
   approvalMinutes: [1, 1440],
+  approvalExpiryHours: [1, 720],
   // Zero is off. Below fifteen minutes it is a background process with a
   // model attached, not an assistant checking in.
   heartbeatMinutes: [0, 1440],
@@ -125,6 +133,7 @@ export function parseBehaviour(raw: unknown): Behaviour {
     agentTurns: clamp(input["agentTurns"], "agentTurns"),
     stallMinutes: clamp(input["stallMinutes"], "stallMinutes"),
     approvalMinutes: clamp(input["approvalMinutes"], "approvalMinutes"),
+    approvalExpiryHours: clamp(input["approvalExpiryHours"], "approvalExpiryHours"),
     heartbeatMinutes: clamp(input["heartbeatMinutes"], "heartbeatMinutes"),
     memoryExtraction:
       typeof input["memoryExtraction"] === "boolean" ? input["memoryExtraction"] : BEHAVIOUR_DEFAULTS.memoryExtraction,

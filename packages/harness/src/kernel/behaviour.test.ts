@@ -26,6 +26,9 @@ describe("behaviour settings", () => {
     // an agent looping for a day.
     expect(parseBehaviour({ maxSteps: 100000 }).maxSteps).toBe(100);
     expect(parseBehaviour({ agentMinutes: 0 }).agentMinutes).toBe(1);
+    expect(parseBehaviour({ approvalExpiryHours: 0 }).approvalExpiryHours).toBe(1);
+    expect(parseBehaviour({ approvalExpiryHours: 9000 }).approvalExpiryHours).toBe(720);
+    expect(parseBehaviour({}).approvalExpiryHours).toBe(24);
     expect(parseBehaviour({ agentMinutes: -5 }).agentMinutes).toBe(1);
   });
 

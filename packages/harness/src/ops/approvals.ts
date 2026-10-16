@@ -3,7 +3,8 @@ import type { RiskTier } from "../risk/tiers.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import type { Db } from "../store/db.js";
 
-export type ApprovalStatus = "pending" | "approved" | "denied";
+/** Expired: nobody decided in time. Reads as a refusal to the caller, and says why. */
+export type ApprovalStatus = "pending" | "approved" | "denied" | "expired";
 
 export interface EnqueueInput {
   tool: string;
@@ -190,7 +191,10 @@ export class ApprovalQueue {
    * the real result in the same breath.
    *
    * Bounded, because a turn that waits forever holds its conversation's queue
-   * forever. A decision that never comes reads as a refusal.
+   * forever. A decision that never comes reads as a refusal, and the ask
+   * lapses with the wait: it left the inbox and every prompt for it settled
+   * the moment the turn stopped waiting, rather than sitting there for a
+   * decision nothing would act on.
    */
   waitFor(id: number, timeoutMs: number): Promise<ApprovalStatus> {
     const current = this.get(id);
@@ -199,8 +203,12 @@ export class ApprovalQueue {
     }
     return new Promise<ApprovalStatus>((resolve) => {
       const timer = setTimeout(() => {
-        this.waiters.delete(id);
-        resolve("denied");
+        // Deciding wakes the waiter set below; only a race with a real
+        // decision leaves nothing to wake, and then that decision stands.
+        if (!this.decide(id, "expired", "timeout")) {
+          this.waiters.delete(id);
+          resolve(this.get(id)?.status ?? "expired");
+        }
       }, timeoutMs);
       // Unref so a pending decision cannot keep the process alive on its own.
       if (typeof timer === "object" && "unref" in timer) timer.unref();
@@ -223,6 +231,18 @@ export class ApprovalQueue {
 
   deny(id: number, decidedBy: string): PendingAction | undefined {
     return this.decide(id, "denied", decidedBy);
+  }
+
+  /**
+   * Asks nobody has answered in a long while lapse. An unattended run queues
+   * its ask and moves on, and a turn cut by a restart leaves its ask behind;
+   * either way the inbox is for today's decisions, not last week's.
+   */
+  expire(maxAgeMs: number): PendingAction[] {
+    const rows = this.db
+      .prepare(`SELECT id FROM pending_actions WHERE status = 'pending' AND requested_at <= ? ORDER BY id`)
+      .all(this.now() - maxAgeMs) as { id: number }[];
+    return rows.map((r) => this.decide(r.id, "expired", "timeout")).filter((a): a is PendingAction => a !== undefined);
   }
 
   private decide(

@@ -56,4 +56,5 @@ starts that job. The secret opens nothing else and the body is ignored.
 
 `notify` from a turn goes to you on the first surface wired, or to a named
 surface. An approval is asked on every wired surface, and the first answer
-wins.
+wins; the other prompts settle to say how it went, and so does a prompt
+whose ask lapsed because nobody answered in time.
