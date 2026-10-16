@@ -138,6 +138,35 @@ describe("tabs", () => {
     expect((await h.registry.execute("browser.new_tab", {})).content).toBe("Opened tab T9.");
   });
 
+  it("watches a page: first look, no change, then the difference, told to the owner when asked", async () => {
+    const h = harness();
+    const looks = [
+      { key: "prices", url: "https://shop.example/p", first: true, changed: false, changedAt: 1_000, seenAt: 1_000 },
+      { key: "prices", url: "https://shop.example/p", first: false, changed: false, changedAt: 1_000, seenAt: 2_000 },
+      { key: "prices", url: "https://shop.example/p", first: false, changed: true, changedAt: 3_000, seenAt: 3_000, diff: "- $40\n+ $35" },
+    ];
+    const asked: unknown[] = [];
+    const told: string[] = [];
+    const module = createBrowserModule({
+      call: async () => "",
+      watch: async (input) => {
+        asked.push(input);
+        return looks.shift()!;
+      },
+    });
+    const services = { notify: async (p: { text: string }) => { told.push(p.text); return undefined; } };
+    await module.activate({ registerTool: (d, f, r, m) => h.registry.register(d, f, r, m), services: services as never });
+    expect(h.registry.classify("browser.watch", { url: "x" }).tier).toBe("safe");
+    const first = await h.registry.execute("browser.watch", { url: "https://shop.example/p", name: "prices", selector: ".price" });
+    expect(first.content).toBe("First look at prices: kept for next time.");
+    expect(asked[0]).toEqual({ url: "https://shop.example/p", name: "prices", selector: ".price" });
+    expect((await h.registry.execute("browser.watch", { url: "https://shop.example/p", name: "prices" })).content).toBe("No change at prices since 1970-01-01T00:00:01.000Z.");
+    const moved = await h.registry.execute("browser.watch", { url: "https://shop.example/p", name: "prices", tell: true });
+    expect(moved.content).toBe("Changed: prices\nhttps://shop.example/p\n- $40\n+ $35");
+    expect(told).toEqual([moved.content]);
+    expect((await h.registry.execute("browser.watch", {})).isError).toBe(true);
+  });
+
   it("says when there is nothing to list", async () => {
     const h = harness();
     await h.module.activate({ registerTool: (d, f, r, m) => h.registry.register(d, f, r, m) });

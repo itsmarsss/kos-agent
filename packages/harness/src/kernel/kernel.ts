@@ -13,7 +13,7 @@ import { FrameStore } from "../ops/frames.js";
 import { toolUse } from "./caller.js";
 
 /** KOS's own browser tools: they act on the caller's tab and share its site trust. */
-const BROWSER_MEMBERS = ["browser.visit", "browser.act", "browser.look", "browser.tabs", "browser.use_tab", "browser.new_tab"];
+const BROWSER_MEMBERS = ["browser.visit", "browser.act", "browser.look", "browser.tabs", "browser.use_tab", "browser.new_tab", "browser.watch"];
 /** The ask for the owner's hands: on the tab too, pictured too, never trusted. */
 const BROWSER_HANDOFF = "browser.handoff";
 /** A tab nobody has used this long is closed; checked this often. */
@@ -23,7 +23,8 @@ const IDLE_SWEEP_MS = 5 * 60_000;
 const RESTART_POLL_MS = 2_000;
 import { ChromeHost } from "../browser/chrome.js";
 import { BrowserLive, browserEngine, launchFor, sessionFor, type BrowserDownload, type BrowserEngine, type BrowserStatus } from "../browser/live.js";
-import type { TabInfo } from "../tools/browser.js";
+import { ENGINE_TOOL, type TabInfo } from "../tools/browser.js";
+import { PageWatchStore, type WatchLook } from "../ops/watches.js";
 import { settleDownload } from "../browser/downloads.js";
 import { BUILTIN_FEATURES, isBuiltinFeature } from "../modules/builtins.js";
 import { MODULES_KEY, parseModuleSettings, withBuiltinEnabled } from "../modules/workspace.js";
@@ -319,6 +320,8 @@ export class Kernel {
   readonly browser: BrowserLive;
   /** What the browser showed after each step, for the thread. */
   readonly frames: FrameStore;
+  /** Pages watched for change, and what each said last time. */
+  readonly watches: PageWatchStore;
   private idleSweep: ReturnType<typeof setInterval> | null = null;
   /** How the host comes back after a restart; nothing when nothing would start it. */
   private readonly restartHost: (() => Promise<void>) | undefined;
@@ -382,6 +385,7 @@ export class Kernel {
       // config once here, so a changed port wants a restart.
       const engine = browserEngine(readMcpConfig(this.workspace.root));
       this.frames = new FrameStore(this.workspace.db);
+      this.watches = new PageWatchStore(this.workspace.db);
       const downloadsDir = this.workspace.resolve(".kos/browser-downloads");
       mkdirSync(downloadsDir, { recursive: true });
       const engineFor = (): BrowserEngine | undefined => browserEngine(readMcpConfig(this.workspace.root));
@@ -2188,6 +2192,18 @@ export class Kernel {
     await this.browser.ensure();
     const conversationId = this.callerConversationId ?? "root";
     this.browser.useTab({ session: sessionFor(conversationId), conversationId }, tab);
+  }
+
+  /**
+   * A page read in the caller's tab and compared with last time. The
+   * reading is the engine's own readable text, or one element's when a
+   * selector narrows it; the comparison is the watch store's.
+   */
+  async watchPage(input: { url: string; name?: string; selector?: string }): Promise<WatchLook> {
+    await this.callBrowser(ENGINE_TOOL.open, { url: input.url });
+    await this.callBrowser(ENGINE_TOOL.waitForLoad, {}).catch(() => undefined);
+    const text = input.selector ? await this.callBrowser("agent_browser_get_text", { selector: input.selector }) : await this.callBrowser(ENGINE_TOOL.read, {});
+    return this.watches.look(input.name ?? input.url, input.url, text);
   }
 
   /** A new tab of the caller's own, which it is then on. */

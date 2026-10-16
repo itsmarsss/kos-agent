@@ -30,7 +30,16 @@ const PRESETS: { label: string; value: string }[] = [
  * own thread), and say what to do when a calendar or mail tool is not
  * there, so they are useful before anything is wired and better after.
  */
-export const TEMPLATES: { id: string; label: string; name: string; schedule: string; prompt: string }[] = [
+export const TEMPLATES: {
+  id: string;
+  label: string;
+  name: string;
+  schedule: string;
+  /** A self-prompt job's instruction. */
+  prompt?: string;
+  /** Or fixed tool calls, for a job that needs no model. */
+  actions?: { tool: string; args: Record<string, unknown> }[];
+}[] = [
   {
     id: "brief",
     label: "Morning brief",
@@ -57,6 +66,15 @@ export const TEMPLATES: { id: string; label: string; name: string; schedule: str
       "Then up to three things worth deciding or doing first.",
       "Under twenty lines, plain text, no headers.",
     ].join("\n"),
+  },
+  {
+    id: "watch",
+    label: "Watch a page",
+    name: "Watch: example.com",
+    schedule: "0 */6 * * *",
+    // One fixed call and no model: the browser reads the page and says what
+    // changed, and tells the owner itself.
+    actions: [{ tool: "browser.watch", args: { url: "https://example.com", tell: true } }],
   },
 ];
 
@@ -288,16 +306,22 @@ export function CronEditor({
                 if (!t) return;
                 setName(t.name);
                 setSchedule(t.schedule);
-                setType("self_prompt");
-                setTask("reasoning");
-                setPrompt(t.prompt);
+                if (t.actions) {
+                  setType("actions");
+                  setActions(JSON.stringify(t.actions, null, 2));
+                } else {
+                  setType("self_prompt");
+                  setTask("reasoning");
+                  setPrompt(t.prompt ?? "");
+                }
               }}
             />
             <span className="hint">
               A whole job, written out; change any of it below. The brief
               reads your calendar and mail when those servers are added
               under Settings, MCP servers, and says what it could not read
-              until then.
+              until then. A watch reads a page in the browser and tells you
+              what changed, with no model turn.
             </span>
           </label>
         )}

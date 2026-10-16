@@ -49,6 +49,8 @@ describe("summaries for the browser", () => {
     expect(summarizeAction("browser.use_tab", { tab: "T3" })).toBe("Switch to tab T3");
     expect(summarizeAction("browser.new_tab", { url: "https://example.com" })).toBe("Open a new tab at https://example.com");
     expect(summarizeAction("browser.new_tab", {})).toBe("Open a new tab");
+    expect(summarizeAction("browser.watch", { url: "https://example.com", tell: true })).toBe("Watch https://example.com for change");
+    expect(summarizeAction("browser.watch", { url: "https://example.com", name: "prices" })).toBe("Watch prices for change");
     expect(summarizeAction("browser.handoff", { reason: "log in to your bank" })).toBe("Needs your hands: log in to your bank");
     expect(summarizeAction("browser.act", { steps: [{ fill: { selector: "@e2", text: "jane" } }, { click: "@e5" }, { wait: 500 }] })).toBe("On the page: fill @e2, click @e5, wait 500ms");
   });

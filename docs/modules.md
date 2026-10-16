@@ -138,7 +138,12 @@ changed port wants a host restart.
 KOS's tab tools beside the visit and act: `browser.tabs` lists the open
 tabs and whose each is, `browser.use_tab` moves the caller to one (the
 owner's, or another agent's, which it then owns), `browser.new_tab` opens
-a second one of its own. A tab is one agent's at a time; an agent's tabs
+a second one of its own. `browser.watch` reads a page (or one selector's
+worth of it) and compares it with the last reading under the same name:
+first look, no change since when, or the lines that went and came. With
+`tell: true` a change is sent to the owner, so a watch is a scheduled job
+of one fixed call and no model turn; the Schedule page's "Watch a page"
+template writes it. A tab is one agent's at a time; an agent's tabs
 close together when it idles out, and the owner's own are closed only by
 the owner.
 
