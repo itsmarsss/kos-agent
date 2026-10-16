@@ -48,6 +48,18 @@ describe("anthropic translators", () => {
     expect(params.output_config).toBeUndefined();
   });
 
+  it("sends a result's pictures as parts of the tool_result", () => {
+    const wire = toAnthropicMessages([
+      { role: "user", content: [{ type: "tool_result", toolUseId: "tu_1", content: "here", images: [{ mediaType: "image/jpeg", data: "AAAA" }] }] },
+    ]);
+    const block = (wire[0]?.content as { type: string; content: unknown }[])[0]!;
+    expect(block.type).toBe("tool_result");
+    expect(block.content).toEqual([
+      { type: "text", text: "here" },
+      { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "AAAA" } },
+    ]);
+  });
+
   it("maps tool_use, tool_result, and thinking blocks to wire format", () => {
     const raw = { type: "thinking", thinking: "...", signature: "sig" };
     const messages = toAnthropicMessages([

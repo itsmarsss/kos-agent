@@ -95,3 +95,16 @@ describe("browser.handoff", () => {
     expect(result.content).toBe("The owner has done it. The tab is now at https://bank.example/home (Home). Look again before you act.");
   });
 });
+
+describe("browser.look", () => {
+  it("hands back the tab as a picture, or says there is none", async () => {
+    const h = harness();
+    let shot: { data: string } | undefined = { data: "AAAA" };
+    const module = createBrowserModule({ call: async () => "", look: async () => shot });
+    await module.activate({ registerTool: (d, f, r, m) => h.registry.register(d, f, r, m) });
+    expect(await h.registry.execute("browser.look", {})).toEqual({ content: "The tab as it is now.", isError: false, images: [{ mediaType: "image/jpeg", data: "AAAA" }] });
+    expect(h.registry.classify("browser.look", {}).tier).toBe("safe");
+    shot = undefined;
+    expect((await h.registry.execute("browser.look", {})).content).toMatch(/no tab to look at/);
+  });
+});

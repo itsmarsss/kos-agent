@@ -212,9 +212,22 @@ export function sessionFor(conversationId: string): string {
   return `kos-${conversationId.replace(/[^A-Za-z0-9_-]/g, "-")}`;
 }
 
+/** A file the browser finished downloading, with whose tab it came from. */
+export interface BrowserDownload {
+  guid: string;
+  url: string;
+  suggestedFilename: string;
+  /** Where Chrome put it: the staging folder, named by guid. */
+  stagingPath: string;
+  conversationId?: string;
+}
+
 export interface BrowserLiveOptions {
   engineFor: () => BrowserEngine | undefined;
   chrome: ChromeHost;
+  /** Where Chrome puts downloads first; KOS moves them into the workspace from here. */
+  downloadsDir?: string;
+  onDownload?: (download: BrowserDownload) => void;
   /** How to open the CDP socket. Defaults to the runtime's WebSocket. */
   connect?: (url: string) => CdpSocket;
   /** Frames per second asked of a screencast. */
@@ -245,7 +258,9 @@ export class BrowserLive {
   private dialing: Promise<void> | null = null;
   private readonly targets = new Map<string, Target>();
   /** Engine session name -> the tab KOS made for it and whose it is. */
-  private readonly bindings = new Map<string, { target: string; conversationId: string }>();
+  private readonly bindings = new Map<string, { target: string; conversationId: string; lastUsed: number }>();
+  /** Downloads under way, by guid, until Chrome says they are done. */
+  private readonly downloads = new Map<string, { url: string; suggestedFilename: string; conversationId?: string }>();
   private readonly listeners = new Set<BrowserListener>();
   private readonly watches = new Map<string, Watch>();
   /** CDP sessions attached per tab, for input and the screencast. */
@@ -322,10 +337,35 @@ export class BrowserLive {
     const result = await this.cdp.send("Target.createTarget", { url: "about:blank", newWindow: true });
     const target = String(result["targetId"] ?? "");
     if (!target) throw new Error("Chrome made no tab");
-    this.bindings.set(session, { target, conversationId });
+    this.bindings.set(session, { target, conversationId, lastUsed: this.now() });
     if (!this.targets.has(target)) this.targets.set(target, { id: target, title: "", url: "about:blank", type: "page" });
     this.emitTabs();
     return { target, made: true };
+  }
+
+  /** A session is in use: its tab is not idle. */
+  touch(session: string): void {
+    const b = this.bindings.get(session);
+    if (b) b.lastUsed = this.now();
+  }
+
+  /**
+   * Close the tabs of sessions nothing has used for a while, so a browser
+   * that served twenty agents today is not twenty windows tonight. A
+   * session whose tab went is given a fresh one the next time it calls.
+   */
+  async closeIdle(maxIdleMs: number, keep: (conversationId: string) => boolean = () => false): Promise<string[]> {
+    if (!this.cdp.open) return [];
+    const closed: string[] = [];
+    const cutoff = this.now() - maxIdleMs;
+    for (const [session, b] of [...this.bindings]) {
+      if (b.lastUsed > cutoff || keep(b.conversationId)) continue;
+      this.bindings.delete(session);
+      await this.cdp.send("Target.closeTarget", { targetId: b.target }).catch(() => undefined);
+      closed.push(b.target);
+    }
+    if (closed.length) this.emitTabs();
+    return closed;
   }
 
   /**
@@ -412,6 +452,13 @@ export class BrowserLive {
     this.targets.clear();
     for (const info of (listed["targetInfos"] as Record<string, unknown>[] | undefined) ?? []) this.remember(info);
     await this.cdp.send("Target.setDiscoverTargets", { discover: true });
+    // Downloads land in the staging folder named by guid, and Chrome says
+    // when each is done, so KOS can move it to where it belongs.
+    if (this.options.downloadsDir) {
+      await this.cdp
+        .send("Browser.setDownloadBehavior", { behavior: "allowAndName", downloadPath: this.options.downloadsDir, eventsEnabled: true })
+        .catch((err: unknown) => this.report(`downloads not set up: ${err instanceof Error ? err.message : String(err)}`));
+    }
     this.emit({ type: "status", status: this.status() });
     this.emitTabs();
   }
@@ -463,6 +510,30 @@ export class BrowserLive {
         }
         for (const [session, b] of this.bindings) if (b.target === id) this.bindings.delete(session);
         this.emitTabs();
+        return;
+      }
+      case "Browser.downloadWillBegin": {
+        // The main frame's id is its tab's id, which says whose download it is.
+        const guid = String(event.params["guid"] ?? "");
+        if (!guid) return;
+        const frame = String(event.params["frameId"] ?? "");
+        const owner = [...this.bindings.values()].find((b) => b.target === frame)?.conversationId;
+        this.downloads.set(guid, {
+          url: typeof event.params["url"] === "string" ? event.params["url"] : "",
+          suggestedFilename: typeof event.params["suggestedFilename"] === "string" ? event.params["suggestedFilename"] : "download",
+          ...(owner ? { conversationId: owner } : {}),
+        });
+        return;
+      }
+      case "Browser.downloadProgress": {
+        const guid = String(event.params["guid"] ?? "");
+        const state = event.params["state"];
+        const started = this.downloads.get(guid);
+        if (!started || (state !== "completed" && state !== "canceled")) return;
+        this.downloads.delete(guid);
+        if (state === "completed" && this.options.downloadsDir) {
+          this.options.onDownload?.({ guid, ...started, stagingPath: `${this.options.downloadsDir}/${guid}` });
+        }
         return;
       }
       case "Target.detachedFromTarget": {
@@ -559,6 +630,9 @@ export class BrowserLive {
   private async recast(tab: string, watch: Watch): Promise<void> {
     const sessionId = watch.sessionId;
     if (!sessionId || this.watches.get(tab) !== watch) return;
+    // A cast that survived the navigation refuses to start twice; stopping
+    // one that is not running is a no-op, so stop first either way.
+    await this.cdp.send("Page.stopScreencast", {}, sessionId).catch(() => undefined);
     await this.cdp
       .send(
         "Page.startScreencast",

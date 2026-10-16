@@ -246,6 +246,17 @@ describe("a say before each call", () => {
   });
 });
 
+describe("a server's pictures", () => {
+  it("come through as pictures, with the words beside them", async () => {
+    const h = harness({ servers: { fake: { command: "unused", risk: "safe" } } });
+    await h.module.activate({ registerTool: (d, f, r, m) => h.registry.register(d, f, r, m) });
+    const result = await h.registry.execute("mcp.fake.picture", {});
+    expect(result.isError).toBe(false);
+    expect(result.images).toEqual([{ mediaType: "image/png", data: "AAAA" }]);
+    expect(result.content).toBe("[image image/png]");
+  });
+});
+
 describe("tools from a server", () => {
   it("registers each tool and calls straight through", async () => {
     const h = harness({ servers: { fake: { command: "unused" } } });

@@ -18,11 +18,21 @@ export interface ToolUseBlock {
   input: Record<string, unknown>;
 }
 
+/** A picture a tool hands back beside its words: a screenshot, a chart. */
+export interface ToolImage {
+  /** "image/jpeg" or "image/png". */
+  mediaType: string;
+  /** Base64, without the data: prefix. */
+  data: string;
+}
+
 export interface ToolResultBlock {
   type: "tool_result";
   toolUseId: string;
   content: string;
   isError?: boolean;
+  /** Pictures that came with the result, for a model that can look. */
+  images?: ToolImage[];
 }
 
 /**

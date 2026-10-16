@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdirSync } from "node:fs";
 import { runAgent, type Inference } from "../agent/loop.js";
 import { PressRoutes } from "../channels/presses.js";
 import type { MessageButton, MessageCard } from "../channels/types.js";
@@ -13,11 +13,15 @@ import { FrameStore } from "../ops/frames.js";
 import { toolUse } from "./caller.js";
 
 /** KOS's own browser tools: they act on the caller's tab and share its site trust. */
-const BROWSER_MEMBERS = ["browser.visit", "browser.act"];
+const BROWSER_MEMBERS = ["browser.visit", "browser.act", "browser.look"];
 /** The ask for the owner's hands: on the tab too, pictured too, never trusted. */
 const BROWSER_HANDOFF = "browser.handoff";
+/** A tab nobody has used this long is closed; checked this often. */
+const IDLE_TAB_MS = 20 * 60_000;
+const IDLE_SWEEP_MS = 5 * 60_000;
 import { ChromeHost } from "../browser/chrome.js";
-import { BrowserLive, browserEngine, sessionFor } from "../browser/live.js";
+import { BrowserLive, browserEngine, sessionFor, type BrowserDownload } from "../browser/live.js";
+import { settleDownload } from "../browser/downloads.js";
 import { BUILTIN_FEATURES, isBuiltinFeature } from "../modules/builtins.js";
 import { MODULES_KEY, parseModuleSettings, withBuiltinEnabled } from "../modules/workspace.js";
 import { bootKernel } from "./boot.js";
@@ -307,6 +311,7 @@ export class Kernel {
   readonly browser: BrowserLive;
   /** What the browser showed after each step, for the thread. */
   readonly frames: FrameStore;
+  private idleSweep: ReturnType<typeof setInterval> | null = null;
 
   /** Called by bootKernel, which assembles the args; not meant for anyone else. */
   constructor(args: {
@@ -362,8 +367,12 @@ export class Kernel {
       // config once here, so a changed port wants a restart.
       const engine = browserEngine(readMcpConfig(this.workspace.root));
       this.frames = new FrameStore(this.workspace.db);
+      const downloadsDir = this.workspace.resolve(".kos/browser-downloads");
+      mkdirSync(downloadsDir, { recursive: true });
       this.browser = new BrowserLive({
         engineFor: () => browserEngine(readMcpConfig(this.workspace.root)),
+        downloadsDir,
+        onDownload: (download) => this.placeDownload(download),
         chrome: new ChromeHost({
           port: engine?.port ?? 9225,
           profileDir: this.workspace.resolve(".kos/browser-profile"),
@@ -372,6 +381,8 @@ export class Kernel {
           ...(engine?.viewport ? { windowSize: { width: engine.viewport.width, height: engine.viewport.height + 90 } } : {}),
         }),
       });
+      this.idleSweep = setInterval(() => this.sweepIdleTabs(), IDLE_SWEEP_MS);
+      this.idleSweep.unref?.();
     }
     this.secrets = args.secrets;
     this.registry = args.registry;
@@ -2012,6 +2023,47 @@ export class Kernel {
    * tab: what KOS's own browser tools are made of. The caller's session is
    * bound and filled in exactly as it is for a call the model makes itself.
    */
+  /**
+   * A download the browser finished: moved from staging to the project of
+   * the tab it came from (or the workspace's downloads folder), and said in
+   * the thread as a file, so it shows up as a card and in Files.
+   */
+  private placeDownload(download: BrowserDownload): void {
+    const conversation = download.conversationId ? this.conversations.get(download.conversationId) : undefined;
+    try {
+      const settled = settleDownload({
+        workspaceRoot: this.workspace.root,
+        stagingPath: download.stagingPath,
+        suggestedFilename: download.suggestedFilename,
+        projectSlug: conversation?.projectSlug ?? null,
+      });
+      if (download.conversationId) {
+        this.progress.emit({ kind: "note", conversationId: download.conversationId, text: `Downloaded @file:${settled.path}` });
+      }
+    } catch (err) {
+      console.error(`[browser] download not placed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /**
+   * Tabs nothing has used for a while are closed, so a day's agents do not
+   * leave a night's windows. Runs on a timer that never keeps the process
+   * alive; a busy conversation's tab is left alone.
+   */
+  private sweepIdleTabs(): void {
+    const busy = new Set(this.busyConversations());
+    void this.browser.closeIdle(IDLE_TAB_MS, (id) => busy.has(id)).catch(() => undefined);
+  }
+
+  /** The caller's tab as a picture, for browser.look. */
+  async lookAtBrowser(): Promise<{ data: string } | undefined> {
+    const conversationId = this.callerConversationId;
+    const tab = conversationId ? this.browser.tabOf(conversationId) : undefined;
+    if (!tab) return undefined;
+    const data = await this.browser.capture(tab, 1280);
+    return data ? { data } : undefined;
+  }
+
   async callBrowser(tool: string, args: Record<string, unknown>): Promise<string> {
     const engine = browserEngine(readMcpConfig(this.workspace.root));
     if (!engine) throw new Error("no browser engine is configured; add the browser under Settings > MCP servers");
@@ -2060,6 +2112,7 @@ export class Kernel {
     const conversationId = this.callerConversationId ?? "root";
     const session = sessionFor(conversationId);
     const bound = await this.browser.bind(session, conversationId);
+    this.browser.touch(session);
     if (bound.made && tool !== "agent_browser_tab_switch") {
       // The engine opens a blank tab of its own on first contact; the
       // switch binds it to ours instead, and the blank one is tidied away.
@@ -2693,6 +2746,8 @@ export class Kernel {
   }
 
   close(): void {
+    if (this.idleSweep) clearInterval(this.idleSweep);
+    this.idleSweep = null;
     this.browser.close();
     this.closed = true;
     this.stopCron();

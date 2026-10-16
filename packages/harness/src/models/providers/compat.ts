@@ -49,8 +49,20 @@ export function toChatMessages(req: GenerateRequest): ChatMessage[] {
       });
       continue;
     }
-    const results = m.content.filter((b) => b.type === "tool_result") as { toolUseId: string; content: string }[];
+    const results = m.content.filter((b) => b.type === "tool_result") as { toolUseId: string; content: string; images?: { mediaType: string; data: string }[] }[];
     for (const r of results) out.push({ role: "tool", tool_call_id: r.toolUseId, content: r.content });
+    // A tool message carries no pictures here, so the ones a result came
+    // with follow it as a user message, said to be the tool's.
+    const pictured = results.filter((r) => r.images?.length);
+    if (pictured.length) {
+      out.push({
+        role: "user",
+        content: [
+          { type: "text" as const, text: `The picture${pictured.reduce((n, r) => n + (r.images?.length ?? 0), 0) === 1 ? "" : "s"} that came with the last tool result:` },
+          ...pictured.flatMap((r) => (r.images ?? []).map((i) => ({ type: "image_url" as const, image_url: { url: `data:${i.mediaType};base64,${i.data}` } }))),
+        ],
+      });
+    }
     if (results.length === 0) {
       const images = m.content.filter((b) => b.type === "image") as { mediaType: string; data: string }[];
       const text = textOf(m.content);

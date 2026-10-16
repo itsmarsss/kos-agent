@@ -23,6 +23,12 @@ describe("ToolRegistry", () => {
     expect(() => reg.register(echoDef, () => "y")).toThrow(/already registered/);
   });
 
+  it("keeps the pictures a handler hands back beside its words", async () => {
+    const registry = new ToolRegistry();
+    registry.register({ name: "look", description: "d", inputSchema: { type: "object" } }, () => ({ text: "here", images: [{ mediaType: "image/jpeg", data: "AAAA" }] }));
+    expect(await registry.execute("look", {})).toEqual({ content: "here", isError: false, images: [{ mediaType: "image/jpeg", data: "AAAA" }] });
+  });
+
   it("executes a tool and returns its result", async () => {
     const reg = new ToolRegistry();
     reg.register(echoDef, (input) => `got ${input.msg}`);

@@ -1,4 +1,5 @@
 import type { ToolDef } from "../models/types.js";
+import type { ToolImage } from "../models/types.js";
 import { classifyRisk, SAFE, type RiskAssessment, type ToolRisk } from "../risk/tiers.js";
 
 /**
@@ -6,9 +7,15 @@ import { classifyRisk, SAFE, type RiskAssessment, type ToolRisk } from "../risk/
  * result (the content fed back to the model). Throwing is allowed; the registry
  * converts a throw into an error tool result so the agent can recover.
  */
+/** What a handler hands back: words, or words with pictures. */
+export interface ToolOutput {
+  text: string;
+  images?: ToolImage[];
+}
+
 export type ToolHandler = (
   input: Record<string, unknown>,
-) => Promise<string> | string;
+) => Promise<string | ToolOutput> | string | ToolOutput;
 
 /** Optional registration metadata, e.g. scope tags for tool scoping. */
 export interface ToolMeta {
@@ -37,6 +44,8 @@ export interface RegisteredTool {
 export interface ToolExecution {
   content: string;
   isError: boolean;
+  /** Pictures that came with the result, kept apart from the words. */
+  images?: ToolImage[];
 }
 
 
@@ -132,8 +141,9 @@ export class ToolRegistry {
       return { content: `unknown tool: ${name}`, isError: true };
     }
     try {
-      const content = await tool.handler(input);
-      return { content, isError: false };
+      const out = await tool.handler(input);
+      if (typeof out === "string") return { content: out, isError: false };
+      return { content: out.text, isError: false, ...(out.images?.length ? { images: out.images } : {}) };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return { content: `tool error: ${message}`, isError: true };

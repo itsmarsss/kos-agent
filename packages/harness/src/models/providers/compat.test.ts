@@ -103,3 +103,24 @@ describe("an OpenAI-compatible endpoint", () => {
     expect(await new OpenAICompatibleProvider(baseURL).listModels("")).toEqual(["big-70b", "local-7b"]);
   });
 });
+
+describe("a tool result with pictures, for a chat-completions model", () => {
+  it("follows the tool message with a user message carrying the picture", () => {
+    const msgs = toChatMessages({
+      system: "",
+      messages: [
+        { role: "assistant", content: [{ type: "tool_use", id: "c1", name: "browser.look", input: {} }] },
+        { role: "user", content: [{ type: "tool_result", toolUseId: "c1", content: "The tab as it is now.", images: [{ mediaType: "image/jpeg", data: "AAAA" }] }] },
+      ],
+      tools: [],
+    } as never);
+    const tool = msgs.find((m) => m.role === "tool");
+    expect(tool).toMatchObject({ tool_call_id: "c1", content: "The tab as it is now." });
+    const after = msgs[msgs.indexOf(tool!) + 1] as { role: string; content: unknown[] };
+    expect(after.role).toBe("user");
+    expect(after.content).toEqual([
+      { type: "text", text: "The picture that came with the last tool result:" },
+      { type: "image_url", image_url: { url: "data:image/jpeg;base64,AAAA" } },
+    ]);
+  });
+});

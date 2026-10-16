@@ -94,6 +94,8 @@ function setup(engine = true) {
   chrome.targets = [{ targetId: "T0", type: "page", title: "", url: "about:blank" }];
   const host = fakeHost();
   const reports: string[] = [];
+  const downloads: unknown[] = [];
+  let clock = 1000;
   const live = new BrowserLive({
     engineFor: () => (engine ? { server: "browser", port: 9225, headed: false } : undefined),
     chrome: host,
@@ -103,8 +105,11 @@ function setup(engine = true) {
     },
     maxFps: 10,
     report: (m) => reports.push(m),
+    downloadsDir: "/w/.kos/browser-downloads",
+    onDownload: (d) => downloads.push(d),
+    now: () => clock,
   });
-  return { live, chrome, host, reports };
+  return { live, chrome, host, reports, downloads, tick: (ms: number) => { clock += ms; } };
 }
 
 const flush = async (): Promise<void> => {
@@ -275,6 +280,43 @@ describe("the live view of the one Chrome", () => {
     expect(live.status()).toMatchObject({ attached: false, chrome: "stopped", tabs: [] });
     expect(seen.some((e) => e.type === "gone")).toBe(true);
     expect(live.tabOf("c1")).toBeUndefined();
+  });
+});
+
+describe("downloads and idle tabs", () => {
+  it("has Chrome stage downloads by guid, and says whose each finished one is", async () => {
+    const { live, chrome, downloads } = setup();
+    await live.bind("kos-c1", "c1");
+    expect(chrome.calls("Browser.setDownloadBehavior")[0]?.params).toEqual({ behavior: "allowAndName", downloadPath: "/w/.kos/browser-downloads", eventsEnabled: true });
+    chrome.event("Browser.downloadWillBegin", { frameId: "T1", guid: "g1", url: "https://x/report.pdf", suggestedFilename: "report.pdf" });
+    chrome.event("Browser.downloadProgress", { guid: "g1", state: "inProgress", receivedBytes: 1, totalBytes: 2 });
+    expect(downloads).toHaveLength(0);
+    chrome.event("Browser.downloadProgress", { guid: "g1", state: "completed", receivedBytes: 2, totalBytes: 2 });
+    expect(downloads).toEqual([{ guid: "g1", url: "https://x/report.pdf", suggestedFilename: "report.pdf", conversationId: "c1", stagingPath: "/w/.kos/browser-downloads/g1" }]);
+    // A canceled one is forgotten; a stray tab's download has no owner.
+    chrome.event("Browser.downloadWillBegin", { frameId: "T0", guid: "g2", url: "https://x/a", suggestedFilename: "a" });
+    chrome.event("Browser.downloadProgress", { guid: "g2", state: "canceled" });
+    chrome.event("Browser.downloadWillBegin", { frameId: "T0", guid: "g3", url: "https://x/b", suggestedFilename: "b" });
+    chrome.event("Browser.downloadProgress", { guid: "g3", state: "completed" });
+    expect(downloads).toHaveLength(2);
+    expect(downloads[1]).not.toHaveProperty("conversationId");
+  });
+
+  it("closes tabs nobody has used for a while, keeping the busy ones, and binds afresh after", async () => {
+    const { live, tick } = setup();
+    await live.bind("kos-c1", "c1");
+    await live.bind("kos-c2", "c2");
+    tick(10 * 60_000);
+    live.touch("kos-c2");
+    tick(15 * 60_000);
+    // c1 idle 25 min, c2 idle 15 min; c3 would be busy.
+    expect(await live.closeIdle(20 * 60_000)).toEqual(["T1"]);
+    expect(live.tabOf("c1")).toBeUndefined();
+    expect(live.tabOf("c2")).toBe("T2");
+    tick(10 * 60_000);
+    expect(await live.closeIdle(20 * 60_000, (id) => id === "c2")).toEqual([]);
+    expect(await live.closeIdle(20 * 60_000)).toEqual(["T2"]);
+    expect(await live.bind("kos-c1", "c1")).toEqual({ target: "T3", made: true });
   });
 });
 
