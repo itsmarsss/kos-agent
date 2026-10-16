@@ -16,7 +16,11 @@ function deps(over: Partial<CaretakerDeps> = {}) {
     health: { observe: (_k, _l, ok, error) => (ok ? undefined : { kind: "failing", streak: 1, text: `failing: ${error}` } as never) },
     notify: async (p) => { log.push(`notify:${p.text}`); },
     sessions: { get: (id) => sessions.get(id) ?? [], record: (id, m) => { sessions.set(id, m); } },
-    conversations: { create: ({ title, projectSlug }) => { n += 1; log.push(`create:${title}@${projectSlug ?? "-"}`); return { id: `c${n}` }; }, touch: (id) => { log.push(`touch:${id}`); } },
+    conversations: {
+      create: ({ title, projectSlug }) => { n += 1; log.push(`create:${title}@${projectSlug ?? "-"}`); return { id: `c${n}` }; },
+      touch: (id) => { log.push(`touch:${id}`); },
+      list: () => [],
+    },
     crons: { list: () => [{ id: 7, name: "Nightly" }], get: (id) => (id === 7 ? { id: 7, name: "Nightly" } : undefined) },
     // The maintenance project does not exist until the first fix makes it.
     manifest: {
@@ -30,6 +34,27 @@ function deps(over: Partial<CaretakerDeps> = {}) {
   // cannot shadow the dep when the fixture is spread into the service.
   return { ...base, ...over, log, store: sessions };
 }
+
+describe("finding the chat for a failure", () => {
+  it("names the newest open fix chat under Maintenance with the failure's title, or nothing", () => {
+    const c = new Caretaker(deps({
+      conversations: {
+        create: () => ({ id: "new" }),
+        touch: () => undefined,
+        list: () => [
+          { id: "old", title: "Fix: Nightly", projectSlug: "maintenance", updatedAt: 1 },
+          { id: "newer", title: "Fix: Nightly", projectSlug: "maintenance", updatedAt: 5 },
+          { id: "elsewhere", title: "Fix: Nightly", projectSlug: null, updatedAt: 9 },
+          { id: "other", title: "Fix: Weekly", projectSlug: "maintenance", updatedAt: 9 },
+        ],
+      },
+    }));
+    expect(c.fixFor("Nightly")).toBe("newer");
+    expect(c.fixFor("Monthly")).toBeUndefined();
+    // The same clipping the title got when the chat was made.
+    expect(Caretaker.fixTitle("x".repeat(80))).toHaveLength(60);
+  });
+});
 
 describe("looking after failures", () => {
   it("tells the owner once and starts a fix on the first failure", async () => {

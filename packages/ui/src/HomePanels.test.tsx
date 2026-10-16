@@ -111,6 +111,17 @@ describe("the charts", () => {
     expect(document.querySelectorAll(".chart-col")).toHaveLength(24);
   });
 
+  it("offers to open the chat KOS already has on a failure instead of starting another", () => {
+    const failure = { key: "cron:1", label: "Nightly", streak: 2, error: "boom", since: Date.now(), lastAt: Date.now() };
+    show("failures", data({ health: { ok: false, failing: [failure], recent: { total: 2, errors: 2, rate: 1 } } }));
+    expect(screen.getByText("Fix")).toBeTruthy();
+    cleanup();
+    show("failures", data({ health: { ok: false, failing: [{ ...failure, fixing: { conversationId: "c9", activity: "working" } }], recent: { total: 2, errors: 2, rate: 1 } } }));
+    expect(screen.queryByText("Fix")).toBeNull();
+    expect(screen.getByText("Open").getAttribute("title")).toBe("KOS is on it");
+    expect(screen.getByRole("img", { name: "working" })).toBeTruthy();
+  });
+
   it("puts every recent run on the strip, coloured by how it went", () => {
     show("failures", data({
       health: { ok: true, failing: [], recent: { total: 2, errors: 1, rate: 0.5 } },

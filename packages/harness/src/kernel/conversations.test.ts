@@ -43,6 +43,26 @@ describe("ConversationStore", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  it("remembers when the owner last read a thread", () => {
+    const made = store.create({ userId: "owner", title: "Beds" });
+    expect(made.readAt).toBeNull();
+    clock = 2000;
+    store.markRead(made.id);
+    expect(store.get(made.id)?.readAt).toBe(2000);
+    // Later activity is newer than the read, which is what unread means.
+    clock = 3000;
+    store.touch(made.id);
+    const after = store.get(made.id)!;
+    expect(after.updatedAt).toBeGreaterThan(after.readAt!);
+  });
+
+  it("counts what was there before read tracking as read", () => {
+    const made = store.create({ userId: "owner", title: "Old" });
+    ws.db.exec(`ALTER TABLE conversations DROP COLUMN read_at`);
+    const upgraded = new ConversationStore(ws.db, () => clock);
+    expect(upgraded.get(made.id)?.readAt).toBe(made.updatedAt);
+  });
+
   it("moves a conversation into a project and out again", () => {
     const made = store.create({ userId: "owner", title: "Fix: Nightly" });
     expect(store.moveToProject(made.id, "maintenance")?.projectSlug).toBe("maintenance");

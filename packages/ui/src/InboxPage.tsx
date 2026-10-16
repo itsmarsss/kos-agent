@@ -5,6 +5,7 @@ import { api, type FailingJob, type InboxData } from "./api.js";
 import { Decision } from "./Decision.js";
 import { MemoryDecision } from "./MemoryPage.js";
 import { PageHead } from "./PageHead.js";
+import { ActivityDot, fixLabel } from "./StatusDot.js";
 
 /**
  * Everything waiting on you, with the buttons to clear it.
@@ -172,9 +173,23 @@ export function InboxPage({
                   </span>
                 </button>
                 <span className="panel-approval-actions">
-                  <button type="button" className="btn btn--sm" onClick={() => onFixFailure(f)}>
-                    Put KOS on it
-                  </button>
+                  {f.fixing ? (
+                    /* Already on it: say so and open that chat, rather than
+                       offer to start a second look at the same thing. */
+                    <button
+                      type="button"
+                      className="btn btn--sm btn--onit"
+                      onClick={() => onOpenChat(f.fixing!.conversationId)}
+                      title="Open the chat where KOS is looking into this"
+                    >
+                      <ActivityDot activity={f.fixing.activity} />
+                      {fixLabel(f.fixing.activity)}
+                    </button>
+                  ) : (
+                    <button type="button" className="btn btn--sm" onClick={() => onFixFailure(f)}>
+                      Put KOS on it
+                    </button>
+                  )}
                   <button type="button" className="btn btn--sm btn--ghost" onClick={() => onDismissFailure(f.key)}>
                     Dismiss
                   </button>

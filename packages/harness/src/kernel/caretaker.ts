@@ -33,6 +33,8 @@ export interface CaretakerDeps {
   conversations: {
     create: (input: { userId: string; title: string; projectSlug?: string }) => { id: string };
     touch: (id: string) => unknown;
+    /** The owner's open conversations, newest first. */
+    list: (userId: string) => { id: string; title: string; projectSlug: string | null; updatedAt: number }[];
   };
   crons: { list: () => { id: number; name: string }[]; get: (id: number) => { id: number; name: string } | undefined };
   manifest: {
@@ -122,6 +124,26 @@ export class Caretaker {
     return ensureMaintenance(this.deps.manifest);
   }
 
+  /** The title a fix chat for this label gets, so one can be found again. */
+  static fixTitle(label: string): string {
+    return `Fix: ${label}`.slice(0, 60);
+  }
+
+  /**
+   * The open chat where KOS is, or was, looking into a failure.
+   *
+   * Found by title under Maintenance rather than remembered, so it is still
+   * known after a restart. The inbox uses it to say "KOS is on it" instead
+   * of offering to start a second look at the same thing.
+   */
+  fixFor(label: string): string | undefined {
+    const title = Caretaker.fixTitle(label);
+    return this.deps.conversations
+      .list(this.deps.ownerId)
+      .filter((c) => c.projectSlug === MAINTENANCE.slug && c.title === title)
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id;
+  }
+
   /** Tell the owner on the surface they use, or leave a note where they will look. */
   tell(text: string): void {
     if (this.deps.notify) {
@@ -148,7 +170,7 @@ export class Caretaker {
    * instruction.
    */
   async startFix(input: FixRequest): Promise<{ conversationId: string; title: string; prompt: string }> {
-    const title = `Fix: ${input.label}`.slice(0, 60);
+    const title = Caretaker.fixTitle(input.label);
     const conversation = this.deps.conversations.create({ userId: this.deps.ownerId, title, projectSlug: this.maintenanceSlug() });
     const subject = this.subjectOf(input);
     const error = input.error.slice(0, 2000);

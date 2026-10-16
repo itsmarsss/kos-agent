@@ -53,6 +53,9 @@ export function connectChannel(
         ...(ctx.conversationKey ? { conversationKey: ctx.conversationKey } : {}),
         ...(ctx.attachments?.length ? { attachments: ctx.attachments } : {}),
       });
+      // The owner asked from this surface and the answer lands on it, so
+      // the thread is read as far as they are concerned.
+      kernel.conversations.markRead(res.conversationId);
       return res.reply || "(no reply)";
     },
     /*
