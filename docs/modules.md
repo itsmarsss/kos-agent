@@ -142,6 +142,18 @@ a second one of its own. A tab is one agent's at a time; an agent's tabs
 close together when it idles out, and the owner's own are closed only by
 the owner.
 
+### Calendar and mail
+
+Two picks under Settings > MCP servers: **google-calendar**
+(`@cocal/google-calendar-mcp`) and **gmail** (`@artymclabin/gmail-mcp`).
+Both use one Google OAuth client of your own, saved as
+`google-oauth-client.json` in the folder beside the settings file, outside
+the workspace, where the tokens go too; the pick's note gives the exact
+one-time `auth` command to run. Reading (events, free time, searching
+and reading mail) is floored safe; creating, changing, answering,
+sending, labelling or deleting asks. A morning brief job template under
+Schedule reads both.
+
 ## Installing skills
 
 A skill is a folder under `skills/` with a `skill.json`, or a Claude Code

@@ -22,6 +22,45 @@ const PRESETS: { label: string; value: string }[] = [
 ];
 
 /**
+ * Whole jobs to start from.
+ *
+ * A blank prompt box asks the owner to invent the job that every assistant
+ * is asked for first. These are written the way the owner would say them,
+ * send their answer through notify (a job's reply otherwise stays in its
+ * own thread), and say what to do when a calendar or mail tool is not
+ * there, so they are useful before anything is wired and better after.
+ */
+export const TEMPLATES: { id: string; label: string; name: string; schedule: string; prompt: string }[] = [
+  {
+    id: "brief",
+    label: "Morning brief",
+    name: "Morning brief",
+    schedule: "30 7 * * 1-5",
+    prompt: [
+      "Write my morning brief and send it to me with notify, as one message.",
+      "Today's calendar first: each event with its time and where, and the first thing I have to be at.",
+      "Then mail from the last 24 hours that needs a reply or a decision from me, one line each: who, and what they want.",
+      "Then anything KOS has scheduled for today or left unfinished.",
+      "Under twelve lines, plain text, no headers. Leave out a section with nothing in it.",
+      "If a calendar or mail tool is not available, say so in one line and go on with the rest.",
+    ].join("\n"),
+  },
+  {
+    id: "review",
+    label: "Weekly review",
+    name: "Weekly review",
+    schedule: "0 8 * * 1",
+    prompt: [
+      "Write my weekly review and send it to me with notify, as one message.",
+      "What happened last week across my projects and schedules: what ran, what failed, what I decided.",
+      "What this week's calendar holds, if a calendar tool is available.",
+      "Then up to three things worth deciding or doing first.",
+      "Under twenty lines, plain text, no headers.",
+    ].join("\n"),
+  },
+];
+
+/**
  * A cron line, in words.
  *
  * Only the shapes people actually write: a fixed time, an interval, a
@@ -233,6 +272,35 @@ export function CronEditor({
           The name is how it is referred to everywhere else, including in a
           message about it failing.
         </p>
+        {!job && (
+          <label className="kos-field">
+            <span className="kos-field-label">Start from</span>
+            <Select
+              className="settings-select"
+              label="Start from a template"
+              value=""
+              options={[
+                { value: "", label: "a blank job" },
+                ...TEMPLATES.map((t) => ({ value: t.id, label: t.label, hint: describeCron(t.schedule) ?? t.schedule })),
+              ]}
+              onChange={(v) => {
+                const t = TEMPLATES.find((x) => x.id === v);
+                if (!t) return;
+                setName(t.name);
+                setSchedule(t.schedule);
+                setType("self_prompt");
+                setTask("reasoning");
+                setPrompt(t.prompt);
+              }}
+            />
+            <span className="hint">
+              A whole job, written out; change any of it below. The brief
+              reads your calendar and mail when those servers are added
+              under Settings, MCP servers, and says what it could not read
+              until then.
+            </span>
+          </label>
+        )}
         <label className="kos-field">
           <span className="kos-field-label">Name</span>
           <input

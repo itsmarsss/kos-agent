@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   MCP_PICKS,
+  fillPlaces,
   listGithubSkills,
   listingFromRegistry,
   mcpConfigFor,
@@ -162,9 +163,30 @@ describe("the MCP registry", () => {
   });
 
   it("fills the workspace into a reference server's arguments", () => {
+    const places = { workspace: "/home/me/kos", secrets: "/home/me/.kos" };
     const fs = MCP_PICKS.find((p) => p.name === "filesystem")!;
-    expect(pickConfig(fs, "/home/me/kos").args).toEqual(["-y", "@modelcontextprotocol/server-filesystem", "/home/me/kos"]);
+    expect(pickConfig(fs, places).args).toEqual(["-y", "@modelcontextprotocol/server-filesystem", "/home/me/kos"]);
     const fetch = MCP_PICKS.find((p) => p.name === "fetch")!;
-    expect(pickConfig(fetch, "/x")).toEqual({ command: "uvx", args: ["mcp-server-fetch"], risk: "safe" });
+    expect(pickConfig(fetch, { workspace: "/x", secrets: "/s" })).toEqual({ command: "uvx", args: ["mcp-server-fetch"], risk: "safe" });
+  });
+
+  it("points calendar and mail credentials outside the workspace, with reading floored safe", () => {
+    const places = { workspace: "/home/me/kos", secrets: "/home/me/.kos" };
+    const calendar = pickConfig(MCP_PICKS.find((p) => p.name === "google-calendar")!, places);
+    expect(calendar.env).toEqual({
+      GOOGLE_OAUTH_CREDENTIALS: "/home/me/.kos/google-oauth-client.json",
+      GOOGLE_CALENDAR_MCP_TOKEN_PATH: "/home/me/.kos/google-calendar-tokens.json",
+    });
+    expect(calendar.tools?.["list-events"]).toBe("safe");
+    expect(calendar.tools?.["create-event"]).toBeUndefined();
+    expect(calendar.risk).toBeUndefined();
+    const gmail = pickConfig(MCP_PICKS.find((p) => p.name === "gmail")!, places);
+    expect(gmail.env?.["GMAIL_OAUTH_PATH"]).toBe("/home/me/.kos/google-oauth-client.json");
+    expect(gmail.tools?.["search_emails"]).toBe("safe");
+    expect(gmail.tools?.["send_email"]).toBeUndefined();
+    // The one-time setup is told with the real folder, not a placeholder.
+    const setup = fillPlaces(MCP_PICKS.find((p) => p.name === "gmail")!.setup!, places);
+    expect(setup).toContain("/home/me/.kos/google-oauth-client.json");
+    expect(setup).not.toContain("{secrets}");
   });
 });

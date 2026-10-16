@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { describeCron } from "./CronEditor.js";
+import { TEMPLATES, describeCron } from "./CronEditor.js";
+
+describe("the jobs offered to start from", () => {
+  it("each has a schedule that reads back, and a prompt that reaches the owner", () => {
+    expect(TEMPLATES.map((t) => t.id)).toEqual(["brief", "review"]);
+    for (const t of TEMPLATES) {
+      expect(describeCron(t.schedule)).not.toBeNull();
+      expect(t.prompt).toContain("notify");
+      expect(t.name.length).toBeGreaterThan(0);
+    }
+    expect(describeCron(TEMPLATES[0]!.schedule)).toBe("Weekdays at 07:30");
+  });
+});
 
 /**
  * Five numbers and three stars is a format you either know or you do not.

@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
-import { extname, join, normalize, relative, resolve, sep } from "node:path";
+import { dirname, extname, join, normalize, relative, resolve, sep } from "node:path";
 
 import { parseHomeLayout,
   CHAT_COMMANDS,
@@ -59,6 +59,8 @@ import { parseUpload, writeProjectFile } from "./uploads.js";
 import { installSkill, removeSkill, skillOrigin, updateSkill } from "../skills/install.js";
 import {
   MCP_PICKS,
+  fillPlaces,
+  type PickPlaces,
   SKILL_SOURCES,
   listGithubSkills,
   mcpConfigFor,
@@ -813,7 +815,16 @@ export async function handleApiRequest(
     const fetchFn = options.fetch ?? (globalThis.fetch as unknown as Fetch);
     const q = queryParams(req.url).get("q")?.trim() ?? "";
     const have = new Set(Object.keys(readMcpConfig(kernel.workspace.root).servers));
-    const picks = MCP_PICKS.map((p) => ({ name: p.name, blurb: p.blurb, needs: p.needs, command: [p.server.command, ...(p.server.args ?? [])].join(" "), installed: have.has(p.name) }));
+    const places = pickPlaces(kernel, options);
+    const picks = MCP_PICKS.map((p) => ({
+      name: p.name,
+      blurb: p.blurb,
+      needs: p.needs,
+      command: [p.server.command, ...(p.server.args ?? [])].join(" "),
+      installed: have.has(p.name),
+      // Said with the real folders, since the owner has to go and put a file there.
+      ...(p.setup ? { setup: fillPlaces(p.setup, places) } : {}),
+    }));
     if (!q) return ok({ picks, results: [] as McpListing[] });
     try {
       const results = await searchRegistry(q, fetchFn);
@@ -829,7 +840,7 @@ export async function handleApiRequest(
     const pick = MCP_PICKS.find((p) => p.name === name);
     if (!pick) return { status: 404, body: { error: `no pick named ${name}` } };
     // Off on request: a test, or an owner who wants it in the file first.
-    const server = { ...pickConfig(pick, kernel.workspace.root), ...(body.enabled === false ? { enabled: false } : {}) };
+    const server = { ...pickConfig(pick, pickPlaces(kernel, options)), ...(body.enabled === false ? { enabled: false } : {}) };
     const added = upsertMcpServers(kernel.workspace.root, { [pick.name]: server });
     const status = await kernel.mcp.reload();
     return ok({ added, status: Object.fromEntries(added.map((n) => [n, status[n] ?? { connected: false, tools: [] }])) });
@@ -2814,6 +2825,16 @@ export function withFrames(events: ChatEvent[], frames: { id: number; toolUseId:
     next++;
     return { ...e, frameId: frame.id };
   });
+}
+
+/**
+ * Where a pick's placeholders point: the workspace, and the folder the
+ * settings file lives in for credentials, which is outside the workspace
+ * by rule. Without a settings file, the workspace's own .kos, which the
+ * agent's tools refuse to read.
+ */
+function pickPlaces(kernel: Kernel, options: DashboardServerOptions): PickPlaces {
+  return { workspace: kernel.workspace.root, secrets: options.envPath ? dirname(options.envPath) : join(kernel.workspace.root, ".kos") };
 }
 
 function browserStep(tool: string): boolean {
