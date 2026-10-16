@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
-import { isImage, listDirectory, readFile, readImage } from "./files.js";
+import { copyEntry, deleteEntry, isImage, listDirectory, makeDir, readFile, readImage, readBytes, renameEntry, uniqueName } from "./files.js";
 
 describe("workspace file browsing", () => {
   let root: string;
@@ -112,5 +112,65 @@ describe("workspace file browsing", () => {
       mkdirSync(join(ws.root, "shots.png"));
       expect(() => readImage(ws, "shots.png")).toThrow(/not a file/);
     });
+  });
+});
+
+describe("managing files by hand", () => {
+  let root: string;
+  let ws: Workspace;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-files-manage-"));
+    ws = Workspace.open(root);
+    mkdirSync(join(ws.root, "projects", "budget", "notes"), { recursive: true });
+    writeFileSync(join(ws.root, "projects", "budget", "spec.json"), '{"a":1}');
+    writeFileSync(join(ws.root, "projects", "budget", "notes", "a.md"), "a");
+    writeFileSync(join(ws.root, "mcp.json"), "{}");
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("renames and moves, never over something that exists", () => {
+    expect(renameEntry(ws, "projects/budget/spec.json", "projects/budget/plan.json")).toEqual({ path: "projects/budget/plan.json" });
+    expect(renameEntry(ws, "projects/budget/plan.json", "projects/budget/notes/plan.json").path).toBe("projects/budget/notes/plan.json");
+    expect(() => renameEntry(ws, "projects/budget/notes/a.md", "projects/budget/notes/plan.json")).toThrow(/already exists/);
+    expect(() => renameEntry(ws, "projects/budget/notes", "projects/budget/notes/inner")).toThrow(/into itself/);
+    expect(() => renameEntry(ws, "projects/budget/nope.txt", "projects/budget/x.txt")).toThrow(/no such file/);
+  });
+
+  it("duplicates beside the original with a name nothing has", () => {
+    expect(uniqueName(ws, "projects/budget", "spec.json")).toBe("spec copy.json");
+    expect(copyEntry(ws, "projects/budget/spec.json")).toEqual({ path: "projects/budget/spec copy.json" });
+    expect(copyEntry(ws, "projects/budget/spec.json").path).toBe("projects/budget/spec copy 2.json");
+    expect(copyEntry(ws, "projects/budget/notes", "projects/budget/notes-2").path).toBe("projects/budget/notes-2");
+    expect(readFile(ws, "projects/budget/notes-2/a.md").text).toBe("a");
+    expect(() => copyEntry(ws, "projects/budget/notes", "projects/budget/notes/again")).toThrow(/into itself/);
+  });
+
+  it("deletes a file or a whole folder, and makes folders", () => {
+    expect(makeDir(ws, "projects/budget/out")).toEqual({ path: "projects/budget/out" });
+    expect(() => makeDir(ws, "projects/budget/out")).toThrow(/already exists/);
+    expect(deleteEntry(ws, "projects/budget/notes")).toEqual({ path: "projects/budget/notes" });
+    expect(listDirectory(ws, "projects/budget").map((e) => e.name)).toEqual(["out", "spec.json"]);
+  });
+
+  it("leaves the workspace's own files and the root alone, and stays in the jail", () => {
+    expect(() => deleteEntry(ws, ".")).toThrow(/workspace itself/);
+    expect(() => deleteEntry(ws, "mcp.json")).toThrow(/workspace's own/);
+    expect(() => deleteEntry(ws, "projects")).toThrow(/layout/);
+    expect(() => renameEntry(ws, "projects", "stuff")).toThrow(/layout/);
+    expect(() => renameEntry(ws, "projects/budget/spec.json", "kos.sqlite")).toThrow(/workspace's own/);
+    expect(() => renameEntry(ws, "projects/budget/spec.json", "../outside.json")).toThrow();
+  });
+
+  it("hands a file's bytes over for saving, with its name and a type", () => {
+    const raw = readBytes(ws, "projects/budget/spec.json");
+    expect(raw.name).toBe("spec.json");
+    expect(raw.contentType).toBe("application/octet-stream");
+    expect(raw.bytes.toString("utf8")).toBe('{"a":1}');
+    expect(() => readBytes(ws, "projects/budget")).toThrow(/not a file/);
   });
 });

@@ -190,6 +190,9 @@ describe("channelGuidance", () => {
     expect(g).toContain("Lead with the answer");
     expect(g).toContain("After an approval");
     expect(g).toContain("<t:UNIX:R>");
+    // The model wrote "these are references, not URLs" under a list of them;
+    // the adapter links them, so it is told not to explain.
+    expect(g).toContain("@schedule:[Email Amy Reminder] becomes a link");
   });
 
   it("lets the owner's own style stand in for the house one", () => {

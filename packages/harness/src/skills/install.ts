@@ -1,6 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { parseGithubTree } from "../catalog/github.js";
 import { isGitSource, nameFromSource, originOf, run, type Runner } from "../modules/install.js";
 import type { Workspace } from "../store/workspace.js";
 import { MANIFEST_FILE, SKILL_NAME, SKILLS_DIR, parseManifest, type SkillManifest } from "./manifest.js";
@@ -39,8 +40,22 @@ export function manifestFromSkillMd(text: string, fallbackName: string): SkillMa
   const front = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
   const field = (key: string): string | undefined => {
     if (!front) return undefined;
-    const m = new RegExp(`^${key}:[ \\t]*(.+)$`, "m").exec(front[1]!);
-    return m?.[1]?.trim().replace(/^(["'])(.*)\1$/, "$2") || undefined;
+    const m = new RegExp(`^${key}:[ \\t]*(.*)$`, "m").exec(front[1]!);
+    if (!m) return undefined;
+    const value = (m[1] ?? "").trim();
+    // A block scalar (`>` folded, `|` literal) runs on over the indented
+    // lines beneath. Read as one line either way: a description is prose.
+    if (/^[>|][+-]?$/.test(value)) {
+      const rest = front[1]!.slice((m.index ?? 0) + m[0].length).split(/\r?\n/);
+      const lines: string[] = [];
+      for (const line of rest) {
+        if (line.trim() === "") continue;
+        if (!/^[ \t]/.test(line)) break;
+        lines.push(line.trim());
+      }
+      return lines.join(" ") || undefined;
+    }
+    return value.replace(/^(["'])(.*)\1$/, "$2") || undefined;
   };
   const body = front ? text.slice(front[0].length) : text;
   const prose = body
@@ -55,6 +70,9 @@ export function manifestFromSkillMd(text: string, fallbackName: string): SkillMa
   };
 }
 
+/** Where a skill taken from inside a repository came from, since it has no .git of its own. */
+export const ORIGIN_FILE = ".kos-origin";
+
 export async function installSkill(
   ws: Workspace,
   source: string,
@@ -64,8 +82,25 @@ export async function installSkill(
   const root = ws.resolve(SKILLS_DIR);
   mkdirSync(root, { recursive: true });
   const holding = join(root, `.installing-${Date.now().toString(36)}`);
+  const tree = parseGithubTree(source);
 
-  if (isGitSource(source)) {
+  if (tree) {
+    // A folder inside a repository, the shape a collection of skills has.
+    // The whole repository is cloned shallow and the folder lifted out; the
+    // source is written down beside it, since the folder has no .git to ask.
+    const checkout = join(root, `.cloning-${Date.now().toString(36)}`);
+    try {
+      await runner("git", [
+        "clone", "--depth", "1", "--quiet", "--branch", tree.ref, "--", `https://github.com/${tree.owner}/${tree.repo}.git`, checkout,
+      ]);
+      const folder = join(checkout, ...tree.path.split("/"));
+      if (!existsSync(folder) || !statSync(folder).isDirectory()) throw new Error(`${tree.path} is not a folder in ${tree.owner}/${tree.repo}`);
+      cpSync(folder, holding, { recursive: true });
+      writeFileSync(join(holding, ORIGIN_FILE), `${source.trim()}\n`, "utf8");
+    } finally {
+      rmSync(checkout, { recursive: true, force: true });
+    }
+  } else if (isGitSource(source)) {
     await runner("git", ["clone", "--depth", "1", "--quiet", "--", source, holding]);
   } else {
     const from = resolve(source);
@@ -96,13 +131,21 @@ export async function installSkill(
     }
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
     renameSync(holding, dirAbs);
-    return { name, dir: `${SKILLS_DIR}/${name}`, manifest, origin: await originOf(dirAbs, runner) };
+    return { name, dir: `${SKILLS_DIR}/${name}`, manifest, origin: await skillOrigin(dirAbs, runner) };
   } catch (err) {
     // Not a skill, or not room for it: the folder goes, and the reason comes back.
     rmSync(holding, { recursive: true, force: true });
     if (err instanceof SkillExists) throw err;
     throw new Error(`${source} is not a skill: ${err instanceof Error ? err.message : String(err)}`);
   }
+}
+
+/** The repository a skill came from: its own remote, or the folder source written at install. */
+export async function skillOrigin(dirAbs: string, runner: Runner): Promise<string | null> {
+  const own = await originOf(dirAbs, runner);
+  if (own) return own;
+  const noted = join(dirAbs, ORIGIN_FILE);
+  return existsSync(noted) ? readFileSync(noted, "utf8").trim() || null : null;
 }
 
 /** Pull a skill installed from a repository. */
@@ -112,6 +155,14 @@ export async function updateSkill(ws: Workspace, name: string, options: { run?: 
   const dirRel = `${SKILLS_DIR}/${name}`;
   const dirAbs = ws.resolve(dirRel);
   if (!existsSync(dirAbs)) throw new Error(`no skill named ${name}`);
+  // Lifted out of a repository: there is nothing to pull, so it is fetched
+  // again from where it came and the folder replaced whole.
+  const noted = join(dirAbs, ORIGIN_FILE);
+  if (!existsSync(join(dirAbs, ".git")) && existsSync(noted)) {
+    const source = readFileSync(noted, "utf8").trim();
+    rmSync(dirAbs, { recursive: true, force: true });
+    return installSkill(ws, source, { name, run: runner });
+  }
   if (!existsSync(join(dirAbs, ".git"))) throw new Error(`${name} was not installed from a repository; there is nothing to pull`);
   await runner("git", ["pull", "--ff-only", "--quiet"], dirAbs);
   const manifestPath = join(dirAbs, MANIFEST_FILE);
@@ -122,7 +173,7 @@ export async function updateSkill(ws: Workspace, name: string, options: { run?: 
     : { ...manifestFromSkillMd(readFileSync(join(dirAbs, "SKILL.md"), "utf8"), name) };
   const manifest = parseManifest({ ...raw, name }, name);
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-  return { name, dir: dirRel, manifest, origin: await originOf(dirAbs, runner) };
+  return { name, dir: dirRel, manifest, origin: await skillOrigin(dirAbs, runner) };
 }
 
 export function removeSkill(ws: Workspace, name: string): void {

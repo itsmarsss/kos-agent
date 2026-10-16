@@ -86,6 +86,39 @@ export const PanelIcon = ({
   </Icon>
 );
 
+/** Head actions: a gear, a box with a lid, an arrow out, and a pin in or out. */
+export const GearIcon = (): ReactElement => (
+  <Icon title="Configure">
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </Icon>
+);
+
+export const ArchiveIcon = (): ReactElement => (
+  <Icon title="Archive">
+    <rect x="3" y="4" width="18" height="5" rx="1" />
+    <path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4" />
+  </Icon>
+);
+
+export const OpenIcon = (): ReactElement => (
+  <Icon title="Open">
+    <path d="M7 17 17 7M9 7h8v8" />
+  </Icon>
+);
+
+export const PinIcon = (): ReactElement => (
+  <Icon title="Attached">
+    <path d="M9 4h6l-1 6 3 3v1H7v-1l3-3-1-6zM12 14v6" />
+  </Icon>
+);
+
+export const UnpinIcon = (): ReactElement => (
+  <Icon title="Detached">
+    <path d="M9 4h6l-1 6 3 3v1H7v-1l3-3-1-6zM12 14v6M4 4l16 16" />
+  </Icon>
+);
+
 export const CopyIcon = (): ReactElement => (
   <Icon title="Copy">
     <rect x="9" y="9" width="11" height="11" rx="2" />

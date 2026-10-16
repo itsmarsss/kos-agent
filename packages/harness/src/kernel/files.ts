@@ -1,5 +1,5 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { extname, join } from "node:path";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { basename, dirname, extname, join } from "node:path";
 
 import type { Workspace } from "../store/workspace.js";
 
@@ -168,4 +168,99 @@ export function readImage(ws: Workspace, requestPath: unknown): RawFile {
   if (st.size > MAX_IMAGE_BYTES) throw new Error(`too large to preview: ${rel}`);
 
   return { bytes: readFileSync(abs), contentType };
+}
+
+/*
+ * Owner's file management, from the dashboard.
+ *
+ * Browsing stayed read-only for a long time because the agent has its own
+ * guarded write path and a second one was a second thing to get right. The
+ * owner is not the agent: these are their files, moved and renamed by hand,
+ * so there is no approval and no sandbox, only the jail and a short list of
+ * things the workspace cannot do without.
+ */
+
+/** Top-level names the file manager leaves alone: the workspace's own state. */
+const RESERVED = new Set([".kos", "kos.sqlite", "kos.sqlite-shm", "kos.sqlite-wal", "profile.json", "mcp.json", "daemon.json", "locks"]);
+
+/** A path the manager may touch: inside the jail, not the root, not the workspace's own files. */
+function managed(ws: Workspace, requestPath: unknown): { rel: string; abs: string } {
+  const rel = relative(requestPath).replace(/\/+$/, "");
+  if (rel === "." || rel === "") throw new Error("the workspace itself cannot be moved or removed");
+  const top = rel.split("/")[0]!;
+  if (RESERVED.has(top)) throw new Error(`${top} is the workspace's own; leave it be`);
+  return { rel, abs: ws.resolve(rel) };
+}
+
+/** Something at the top level is part of the workspace's layout, not a thing to move. */
+function layout(rel: string): void {
+  if (!rel.includes("/")) throw new Error(`${rel} is part of the workspace's layout; manage what is inside it`);
+}
+
+/** Move or rename, never over something that exists. */
+export function renameEntry(ws: Workspace, from: unknown, to: unknown): { path: string } {
+  const src = managed(ws, from);
+  const dst = managed(ws, to);
+  layout(src.rel);
+  if (!existsSync(src.abs)) throw new Error(`no such file: ${src.rel}`);
+  if (existsSync(dst.abs)) throw new Error(`${dst.rel} already exists`);
+  if (dst.rel === src.rel || dst.rel.startsWith(`${src.rel}/`)) throw new Error("a folder cannot be moved into itself");
+  mkdirSync(dirname(dst.abs), { recursive: true });
+  renameSync(src.abs, dst.abs);
+  return { path: dst.rel };
+}
+
+/** "name copy.ext", then "name copy 2.ext": a sibling name nothing has yet. */
+export function uniqueName(ws: Workspace, dir: string, name: string): string {
+  const ext = extname(name);
+  const stem = ext ? name.slice(0, -ext.length) : name;
+  const dirAbs = ws.resolve(relative(dir));
+  for (let n = 1; n < 1000; n++) {
+    const candidate = `${stem} copy${n > 1 ? ` ${n}` : ""}${ext}`;
+    if (!existsSync(join(dirAbs, candidate))) return candidate;
+  }
+  throw new Error("too many copies");
+}
+
+/** Copy a file or a folder; without a destination, a sibling called "… copy". */
+export function copyEntry(ws: Workspace, from: unknown, to?: unknown): { path: string } {
+  const src = managed(ws, from);
+  if (!existsSync(src.abs)) throw new Error(`no such file: ${src.rel}`);
+  const parent = dirname(src.rel) === "." ? "" : dirname(src.rel);
+  const target = typeof to === "string" && to ? to : `${parent ? `${parent}/` : ""}${uniqueName(ws, parent || ".", basename(src.rel))}`;
+  const dst = managed(ws, target);
+  if (existsSync(dst.abs)) throw new Error(`${dst.rel} already exists`);
+  if (dst.rel.startsWith(`${src.rel}/`)) throw new Error("a folder cannot be copied into itself");
+  mkdirSync(dirname(dst.abs), { recursive: true });
+  cpSync(src.abs, dst.abs, { recursive: true });
+  return { path: dst.rel };
+}
+
+/** Remove a file, or a folder and everything in it. */
+export function deleteEntry(ws: Workspace, requestPath: unknown): { path: string } {
+  const { rel, abs } = managed(ws, requestPath);
+  layout(rel);
+  if (!existsSync(abs)) throw new Error(`no such file: ${rel}`);
+  rmSync(abs, { recursive: true, force: true });
+  return { path: rel };
+}
+
+export function makeDir(ws: Workspace, requestPath: unknown): { path: string } {
+  const { rel, abs } = managed(ws, requestPath);
+  if (existsSync(abs)) throw new Error(`${rel} already exists`);
+  mkdirSync(abs, { recursive: true });
+  return { path: rel };
+}
+
+/** Past this a file is too big to hand to the browser in one go. */
+const MAX_DOWNLOAD_BYTES = 200_000_000;
+
+/** A file's bytes for saving, whatever it is; images keep their type. */
+export function readBytes(ws: Workspace, requestPath: unknown): RawFile & { name: string } {
+  const rel = relative(requestPath);
+  const abs = ws.resolve(rel);
+  const st = statSync(abs);
+  if (!st.isFile()) throw new Error(`not a file: ${rel}`);
+  if (st.size > MAX_DOWNLOAD_BYTES) throw new Error(`too large to download here: ${rel}`);
+  return { bytes: readFileSync(abs), contentType: IMAGE_TYPES[extname(rel).toLowerCase()] ?? "application/octet-stream", name: basename(rel) };
 }

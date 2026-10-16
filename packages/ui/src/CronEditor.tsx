@@ -86,6 +86,8 @@ export function describeCron(expr: string): string | null {
 
 export function CronEditor({
   job,
+  projects = [],
+  defaultProject,
   onDone,
   onCancel,
   onRunNow,
@@ -95,6 +97,10 @@ export function CronEditor({
 }: {
   /** Absent when writing a new one. */
   job?: CronJob;
+  /** Projects a job can belong to. */
+  projects?: { slug: string; name: string }[];
+  /** The project a new job starts in, when written from inside one. */
+  defaultProject?: string;
   /** Whether the host takes inbound hooks, so the job's address can be shown. */
   hooks?: boolean;
   onDone: () => void;
@@ -112,6 +118,9 @@ export function CronEditor({
     job?.type === "actions" ? "actions" : "self_prompt",
   );
   const [task, setTask] = useState<"reasoning" | "cheap">(job?.task === "cheap" ? "cheap" : "reasoning");
+  const [projectSlug, setProjectSlug] = useState(job?.projectSlug ?? defaultProject ?? "");
+  // KOS's own jobs are nobody's project; the field would only mislead.
+  const system = (job?.name ?? "").startsWith("kos.");
   const [prompt, setPrompt] = useState(job?.prompt ?? "");
   const [actions, setActions] = useState(
     JSON.stringify(
@@ -140,6 +149,9 @@ export function CronEditor({
       schedule,
       type,
       ...(type === "self_prompt" ? { prompt, task } : { actions: parsed }),
+      // Left out rather than sent empty: the route reads a missing one as
+      // "no project", which is also how a job is moved back to the root.
+      ...(projectSlug && !system ? { projectSlug } : {}),
     };
     const call = job
       ? api.updateCron({ id: job.id, ...body })
@@ -230,6 +242,25 @@ export function CronEditor({
             onChange={(e) => setName(e.target.value)}
           />
         </label>
+
+        {!system && (
+          <label className="kos-field">
+            <span className="kos-field-label">Project</span>
+            <Select
+              className="settings-select"
+              label="Project"
+              value={projectSlug}
+              options={[
+                { value: "", label: "None", hint: "yours, at the root" },
+                ...projects.map((p) => ({ value: p.slug, label: p.name, hint: p.slug })),
+              ]}
+              onChange={(v) => setProjectSlug(v)}
+            />
+            <span className="hint">
+              Whose job this is. A self-prompt runs with the project's context; its runs sit in the project's rail.
+            </span>
+          </label>
+        )}
 
         <div className="kos-field">
           <span className="kos-field-label">When</span>

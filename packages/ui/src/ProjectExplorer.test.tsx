@@ -83,7 +83,7 @@ describe("the project explorer", () => {
     await screen.findByText("plan.md");
   });
 
-  it("opens a file in place and leaves for Files only when asked", async () => {
+  it("opens a file in a popup and leaves for Files only when asked", async () => {
     const h = open();
     fireEvent.click(await screen.findByText("plan.md"));
     expect(await screen.findByText("Tiles first.")).toBeTruthy();

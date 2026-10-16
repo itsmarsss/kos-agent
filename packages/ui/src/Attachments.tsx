@@ -104,11 +104,15 @@ export function useDropZone(onAdd: (list: FileList | null) => void): {
     over,
     handlers: {
       onDragOver: (e) => {
+        // A row being moved within the page is not a file arriving from
+        // outside it; that drag is someone else's to take.
+        if (!Array.from(e.dataTransfer.types).includes("Files")) return;
         e.preventDefault();
         setOver(true);
       },
       onDragLeave: () => setOver(false),
       onDrop: (e) => {
+        if (!Array.from(e.dataTransfer.types).includes("Files")) return;
         e.preventDefault();
         setOver(false);
         onAdd(e.dataTransfer.files);

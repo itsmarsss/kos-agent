@@ -8,7 +8,8 @@ import { CronStore } from "../cron/store.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
-import { cronModule } from "./cron.js";
+import { caller } from "../kernel/caller.js";
+import { createCronModule, cronModule } from "./cron.js";
 
 describe("cronModule", () => {
   let root: string;
@@ -134,5 +135,38 @@ describe("cron action validation", () => {
     expect(new CronStore(ws.db).list()[0]?.actions).toEqual([
       { tool: "cron.list", args: {} },
     ]);
+  });
+});
+
+describe("a job scheduled from a project's thread", () => {
+  let root: string;
+  let ws: Workspace;
+  let registry: ToolRegistry;
+
+  beforeEach(async () => {
+    root = mkdtempSync(join(tmpdir(), "kos-crontool-project-"));
+    ws = Workspace.open(root);
+    registry = new ToolRegistry();
+    const ctx = toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() });
+    await new ModuleLoader(ctx).load([createCronModule({ projectOf: (id) => (id === "c-garden" ? "garden" : null) })]);
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const schedule = async (input: Record<string, unknown>): Promise<string> =>
+    (await registry.execute("cron.schedule", { name: "water", schedule: "0 7 * * *", type: "actions", actions: [{ tool: "notify", args: { text: "water" } }], ...input })).content;
+
+  it("is the project's job unless it names another, and nobody's outside a project", async () => {
+    const inGarden = JSON.parse(await caller.run("c-garden", () => schedule({}))) as { projectSlug?: string };
+    expect(inGarden.projectSlug).toBe("garden");
+    const elsewhere = JSON.parse(await caller.run("c-garden", () => schedule({ projectSlug: "orchard" }))) as { projectSlug?: string };
+    expect(elsewhere.projectSlug).toBe("orchard");
+    const root = JSON.parse(await caller.run("c-root", () => schedule({}))) as { projectSlug?: string };
+    expect(root.projectSlug).toBeUndefined();
+    expect(JSON.parse(await schedule({})).projectSlug).toBeUndefined();
+    expect(new CronStore(ws.db).list().map((j) => j.projectSlug)).toEqual(["garden", "orchard", null, null]);
   });
 });

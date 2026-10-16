@@ -165,11 +165,11 @@ describe("the charts", () => {
     expect(document.querySelector(".chart-dayline-run")?.getAttribute("title")).toContain("Digest at");
   });
 
-  it("splits spend by day and by model", () => {
+  it("splits spend by day and by model, and leads with the cost", () => {
     show("spend", data({ spend: {
       models: [
-        { provider: "anthropic", model: "big", inputTokens: 300, outputTokens: 100, calls: 2 },
-        { provider: "anthropic", model: "small", inputTokens: 50, outputTokens: 50, calls: 9 },
+        { provider: "anthropic", model: "big", inputTokens: 300, outputTokens: 100, calls: 2, cost: 1.25 },
+        { provider: "anthropic", model: "small", inputTokens: 50, outputTokens: 50, calls: 9, cost: 0.25 },
       ],
       byDay: [],
     } }));
@@ -177,6 +177,18 @@ describe("the charts", () => {
     expect(screen.getByText("big")).toBeTruthy();
     expect(screen.getByText("80%")).toBeTruthy();
     expect(screen.getByText("20%")).toBeTruthy();
+    expect(screen.getByText("$1.50")).toBeTruthy();
+  });
+
+  it("offers to set rates when no model is priced, and goes to the Spend settings", () => {
+    const go = show("spend", data({ spend: {
+      models: [{ provider: "anthropic", model: "big", inputTokens: 300, outputTokens: 100, calls: 2 }],
+      byDay: [],
+    } }));
+    screen.getByText("Set rates").click();
+    expect(go).toHaveBeenCalledWith("settings", "spend");
+    screen.getByText("All →").click();
+    expect(go).toHaveBeenLastCalledWith("settings", "spend");
   });
 });
 

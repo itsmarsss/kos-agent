@@ -1,3 +1,4 @@
+import { caller } from "../kernel/caller.js";
 import cron from "node-cron";
 
 import { CronStore } from "../cron/store.js";
@@ -25,6 +26,12 @@ export interface CronToolDeps {
    * exactly as they would have at 3am.
    */
   fire?: (id: number) => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * The project a conversation belongs to, if any. A job scheduled from
+   * inside a project's thread is that project's job unless it says
+   * otherwise, the way an agent started there is the project's agent.
+   */
+  projectOf?: (conversationId: string) => string | null;
 }
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -49,9 +56,10 @@ function parseSchedule(input: Record<string, unknown>): CreateCronInput {
     base.actions = parseActions(input.actions);
   } else {
     base.prompt = str(input, "prompt");
-    if (typeof input.projectSlug === "string")
-      base.projectSlug = input.projectSlug;
   }
+  // Either kind can be a project's: a self_prompt runs in its context, and
+  // an actions job that works its tables belongs with it just the same.
+  if (typeof input.projectSlug === "string" && input.projectSlug) base.projectSlug = input.projectSlug;
   return base;
 }
 
@@ -149,8 +157,15 @@ function activate(ctx: ModuleContext, deps: CronToolDeps): void {
       },
     },
     (input) => {
-      const job = store.create(parseSchedule(input));
-      return JSON.stringify({ id: job.id, name: job.name });
+      const parsed = parseSchedule(input);
+      // Scheduled from a project's thread, it is the project's job.
+      const from = caller.getStore();
+      if (!parsed.projectSlug && from && deps.projectOf) {
+        const slug = deps.projectOf(from);
+        if (slug) parsed.projectSlug = slug;
+      }
+      const job = store.create(parsed);
+      return JSON.stringify({ id: job.id, name: job.name, ...(job.projectSlug ? { projectSlug: job.projectSlug } : {}) });
     },
     { floor: "risky" },
   );

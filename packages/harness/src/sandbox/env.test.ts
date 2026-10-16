@@ -74,3 +74,14 @@ describe("what a spawned skill inherits", () => {
     expect(seen.keys).toContain("PATH");
   });
 });
+
+describe("where user-installed tools are found", () => {
+  it("puts the user's bin directories on the end of PATH, once each", async () => {
+    const { childEnv, withBins } = await import("./env.js");
+    expect(withBins("/usr/bin:/bin", ["/home/me/.local/bin", "/usr/bin"])).toBe("/usr/bin:/bin:/home/me/.local/bin");
+    const env = childEnv({ home: "/ws" }, {}, { PATH: "/usr/bin" }, ["/home/me/.local/bin"]);
+    expect(env.PATH).toBe("/usr/bin:/home/me/.local/bin");
+    // No PATH at all still gets a usable one, plus the user's.
+    expect(childEnv({ home: "/ws" }, {}, {}, ["/x/bin"]).PATH).toMatch(/\/usr\/bin.*\/x\/bin$/);
+  });
+});
