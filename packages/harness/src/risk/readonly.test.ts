@@ -33,11 +33,14 @@ describe("read-only command lines", () => {
     "sed -e 's/foo/bar/g' README.md",
     "cd projects/x && git log -3",
     "/bin/ls -1",
-    "du -sh .kos",
+    "du -sh projects",
     "pnpm ls --depth 0",
     "npm -v",
-    "jq '.servers | keys' mcp.json",
+    "jq '.servers | keys' projects/x/config.json",
+    "jq -r .name package.json",
     "env | sort",
+    "ls -la",
+    "cat notes/today.md projects/x/plan.md",
   ];
   for (const c of reads) {
     it(`reads: ${c}`, () => expect(isReadOnlyCommand(c)).toBe(true));
@@ -87,6 +90,17 @@ describe("read-only command lines", () => {
     "touch a",
     "kill 1",
     "cat < file > out",
+    // KOS's own files and anything hidden: a read is what the approval is for.
+    "cat .kos/browser-profile/Default/Cookies",
+    "ls ./.kos",
+    "sqlite3 kos.sqlite .dump",
+    "cat mcp.json",
+    "cat ./profile.json",
+    "grep -r token .config/",
+    "cat projects/x/.env",
+    "head -c 100 locks/host",
+    "jq .servers mcp.json",
+    "jq -r .x .kos/state.json",
   ];
   for (const c of acts) {
     it(`asks: ${c || "(empty)"}`, () => expect(isReadOnlyCommand(c)).toBe(false));
