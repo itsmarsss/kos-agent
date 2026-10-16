@@ -1,3 +1,4 @@
+import { DENIED_PREFIX } from "./guarded.js";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Inference } from "../agent/loop.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Kernel, orchestratorId } from "./kernel.js";
-import { handleApiRequest } from "./server.js";
+import { handleApiRequest, withFrames } from "./server.js";
 
 const stub: Inference = {
   async generate() {
@@ -340,6 +341,38 @@ describe("handleApiRequest", () => {
     expect(got.headers?.["content-type"]).toBe("image/jpeg");
     expect(Buffer.isBuffer(got.body) && got.body.toString("utf8")).toBe("PIC");
     expect((await handleApiRequest(kernel, { method: "GET", path: `/api/approvals/${plain.id}/picture` })).status).toBe(404);
+  });
+
+  it("serves a step's frame and puts it on the right transcript card", async () => {
+    const conv = kernel.conversations.create({ userId: "owner", title: "Browse", channel: "dashboard" });
+    kernel.sessions.set(conv.id, [
+      { role: "user", content: [{ type: "text", text: "look" }] },
+      { role: "assistant", content: [{ type: "tool_use", id: "tu_1", name: "browser.visit", input: { url: "https://x" } }] },
+      { role: "user", content: [{ type: "tool_result", toolUseId: "tu_1", content: "Opened", isError: false }] },
+    ]);
+    const frame = kernel.frames.add({ conversationId: conv.id, toolUseId: "tu_1", tool: "browser.visit", picture: Buffer.from("PIC").toString("base64") });
+    const got = await handleApiRequest(kernel, { method: "GET", path: `/api/frames/${frame.id}` });
+    expect(got.status).toBe(200);
+    expect(Buffer.isBuffer(got.body) && got.body.toString("utf8")).toBe("PIC");
+    expect((await handleApiRequest(kernel, { method: "GET", path: "/api/frames/999" })).status).toBe(404);
+    const thread = (await handleApiRequest(kernel, { method: "GET", path: `/api/conversations/${encodeURIComponent(conv.id)}/messages` })).body as { events: { kind: string; frameId?: number }[] };
+    const card = thread.events.find((e) => e.kind === "tool");
+    expect(card?.frameId).toBe(frame.id);
+  });
+
+  it("matches frames without a call id to browser steps in order, skipping steps that never ran", () => {
+    const events = [
+      { kind: "tool" as const, name: "browser.visit", summary: "", args: {}, result: "Opened" },
+      { kind: "tool" as const, name: "sql", summary: "", args: {}, result: "rows" },
+      { kind: "tool" as const, name: "mcp.browser.agent_browser_click", summary: "", args: {}, result: `${DENIED_PREFIX}4). no` },
+      { kind: "tool" as const, name: "browser.act", summary: "", args: {}, result: "Done" },
+      { kind: "tool" as const, name: "browser.act", summary: "", args: {}, pendingId: "9" },
+    ];
+    const frames = [
+      { id: 11, toolUseId: null, tool: "browser.visit" },
+      { id: 12, toolUseId: null, tool: "browser.act" },
+    ];
+    expect(withFrames(events, frames).map((e) => (e.kind === "tool" ? e.frameId : null))).toEqual([11, undefined, undefined, 12, undefined]);
   });
 
   it("toggles the kill switch", async () => {

@@ -51,6 +51,12 @@ whole screen, and when the browser has several tabs a strip under the bar
 says which one you are looking at. The page is rendered at 1600 by 1000 and
 drawn at your screen's own pixel density, so it reads at any size.
 
+`⌘⇧B` shows and hides the window. **Following** keeps it on whoever is
+working; pick a tab yourself and it is **Pinned** until you say follow
+again. Each browser step in a thread keeps a small picture of the page as
+the agent left it, under its card; click it to see it large. That is the
+record of what a reply was looking at.
+
 **Take over** gives you that tab: your clicks, scrolling and typing go to
 it instead of to the dashboard, with the window's border lit to say whose
 hand is on it. **Let go** hands it back. The agent does not stop while you

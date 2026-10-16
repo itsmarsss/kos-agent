@@ -53,6 +53,10 @@ export type ChatEvent =
        * this a queued call reads as a successful one that did nothing.
        */
       pendingId?: string;
+      /** The model's id for the call, so a picture taken after it can find its card. */
+      toolUseId?: string;
+      /** A picture of the browser after this step, at /api/frames/:id. */
+      frameId?: number;
     };
 
 const MAX_RESULT = 2000;
@@ -145,6 +149,7 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
           name: block.name,
           summary: summarizeAction(block.name, block.input),
           args: block.input,
+          toolUseId: block.id,
         };
         pending.set(block.id, event);
         events.push(event);

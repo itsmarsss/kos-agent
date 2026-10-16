@@ -26,6 +26,7 @@ export function ToolCall({
   deciding?: ReadonlySet<number>;
 }): ReactElement {
   const [open, setOpen] = useState(false);
+  const [frameOpen, setFrameOpen] = useState(false);
   const running = event.result === undefined;
   const queued = event.pendingId !== undefined;
 
@@ -58,6 +59,14 @@ export function ToolCall({
         <span className="toolcall-summary">{event.summary}</span>
         <span className="toolcall-state">{state}</span>
       </button>
+
+      {/* What the browser showed after this step: the evidence for what the
+          reply says it read, small until clicked. */}
+      {event.frameId !== undefined && (
+        <button type="button" className={`toolcall-frame${frameOpen ? " is-open" : ""}`} onClick={() => setFrameOpen((v) => !v)} title={frameOpen ? "Smaller" : "What the browser showed after this step"}>
+          <img src={`/api/frames/${event.frameId}`} alt="The browser after this step" loading="lazy" />
+        </button>
+      )}
 
       {queued && awaitingApproval && onDecide && (
         <div className="toolcall-approve">
