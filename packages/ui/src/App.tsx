@@ -154,6 +154,15 @@ export function App(): React.ReactElement {
   };
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        // Read inside the update: this handler is bound once.
+        setBrowserOpen((v) => {
+          browserDismissed.current = v;
+          return !v;
+        });
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setAskOpen((v) => !v);

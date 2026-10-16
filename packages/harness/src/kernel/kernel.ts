@@ -9,6 +9,8 @@ import { type CronActionResult, runCronJob, type CronExecResult } from "../cron/
 import { CronStore } from "../cron/store.js";
 import { mcpToolName, readMcpConfig, type McpModule } from "../tools/mcp.js";
 import type { PermissionContext } from "../ops/permissions.js";
+import { FrameStore } from "../ops/frames.js";
+import { toolUse } from "./caller.js";
 
 /** KOS's own browser tools: they act on the caller's tab and share its site trust. */
 const BROWSER_MEMBERS = ["browser.visit", "browser.act"];
@@ -303,6 +305,8 @@ export class Kernel {
   readonly progress = new ProgressBus();
   /** The browser KOS drives, watched from the dashboard; made once the workspace is known. */
   readonly browser: BrowserLive;
+  /** What the browser showed after each step, for the thread. */
+  readonly frames: FrameStore;
 
   /** Called by bootKernel, which assembles the args; not meant for anyone else. */
   constructor(args: {
@@ -357,6 +361,7 @@ export class Kernel {
       // One Chrome for the whole host: the engine's port is read from the
       // config once here, so a changed port wants a restart.
       const engine = browserEngine(readMcpConfig(this.workspace.root));
+      this.frames = new FrameStore(this.workspace.db);
       this.browser = new BrowserLive({
         engineFor: () => browserEngine(readMcpConfig(this.workspace.root)),
         chrome: new ChromeHost({
@@ -1837,6 +1842,7 @@ export class Kernel {
       },
       onExecuted: (tool, result) => {
         this.afterToolRan(tool);
+        this.keepFrame(tool, opts.conversationId);
         this.bus.emit({ kind: "tool:end", tool, isError: result.isError === true, conversationId: opts.conversationId ?? null });
         if (opts.conversationId) {
           this.progress.emit({
@@ -2011,6 +2017,25 @@ export class Kernel {
     if (!engine) throw new Error("no browser engine is configured; add the browser under Settings > MCP servers");
     const prepared = await this.prepareBrowserCall(engine.server, tool, args);
     return this.mcp.call(engine.server, tool, prepared);
+  }
+
+  /**
+   * After a browser step, a small picture of the tab, kept with the call's
+   * id so the thread can show what the agent saw under the step that saw
+   * it. Taken in the background: the step has run, and the reply should
+   * not wait on a screenshot.
+   */
+  private keepFrame(tool: string, conversationId?: string): void {
+    if (!conversationId || !this.browserContext(tool, conversationId)) return;
+    const tab = this.browser.tabOf(conversationId);
+    if (!tab) return;
+    const toolUseId = toolUse.getStore();
+    void this.browser
+      .capture(tab, 640)
+      .then((picture) => {
+        if (picture) this.frames.add({ conversationId, ...(toolUseId ? { toolUseId } : {}), tool, picture });
+      })
+      .catch(() => undefined);
   }
 
   /** The page a browser action is aimed at, pictured for the approval. */

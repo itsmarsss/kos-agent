@@ -32,7 +32,8 @@ import {
   MODEL_SETTINGS_KEY,
   parseModelSettings,
 } from "../models/settings.js";
-import { conversationEvents } from "./transcript.js";
+import { conversationEvents, type ChatEvent } from "./transcript.js";
+import { DENIED_PREFIX } from "./guarded.js";
 import { copyEntry, deleteEntry, listDirectory, makeDir, readFile, readImage, readBytes, renameEntry, type DirEntry } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
@@ -628,6 +629,15 @@ export async function handleApiRequest(
 
   if (method === "GET" && path === "/api/approvals") {
     return ok(kernel.approvals.pending());
+  }
+
+  // What the browser showed after a step, for the thread's tool card.
+  const frame = /^\/api\/frames\/(\d+)$/.exec(path);
+  if (method === "GET" && frame) {
+    const picture = kernel.frames.pictureOf(Number(frame[1]));
+    if (!picture) return { status: 404, body: { error: "no frame" } };
+    const bytes = Buffer.from(picture, "base64");
+    return { status: 200, body: bytes, headers: { "content-type": "image/jpeg", "content-length": String(bytes.byteLength), "cache-control": "private, max-age=86400" } };
   }
 
   // The picture queued with an approval: what a browser action would act on.
@@ -2222,7 +2232,7 @@ export async function handleApiRequest(
     return ok({
       id,
       messages: transcriptOf(kernel, id),
-      events: conversationEvents(kernel.sessions.get(id)),
+      events: withFrames(conversationEvents(kernel.sessions.get(id)), kernel.frames.listFor(id)),
       // Sent but not yet run. Shown after the transcript because that is where
       // they will land, and separately because they have not happened yet.
       pending: kernel.pending.forConversation(id).map((m) => ({
@@ -2660,6 +2670,32 @@ function streamBuilds(
  * and the frames of the one tab this watcher asked for. One watcher is one
  * stream; a tab's screencast runs while anyone watches it.
  */
+/**
+ * Each browser step's card gets the frame taken after it. By the call's id
+ * where the engine gave one; otherwise in order, since frames are kept only
+ * for steps that ran and the cards of steps that ran come in that same
+ * order. A card still waiting, or refused, took no frame and is skipped.
+ */
+export function withFrames(events: ChatEvent[], frames: { id: number; toolUseId: string | null; tool: string }[]): ChatEvent[] {
+  if (frames.length === 0) return events;
+  const byId = new Map(frames.filter((f) => f.toolUseId).map((f) => [f.toolUseId as string, f.id]));
+  const unkeyed = frames.filter((f) => !f.toolUseId);
+  let next = 0;
+  return events.map((e) => {
+    if (e.kind !== "tool" || !browserStep(e.name)) return e;
+    if (e.toolUseId && byId.has(e.toolUseId)) return { ...e, frameId: byId.get(e.toolUseId)! };
+    if (e.pendingId || (e.result && (e.result.startsWith(DENIED_PREFIX) || e.result.startsWith("Queued for approval")))) return e;
+    const frame = unkeyed[next];
+    if (!frame) return e;
+    next++;
+    return { ...e, frameId: frame.id };
+  });
+}
+
+function browserStep(tool: string): boolean {
+  return tool.startsWith("browser.") || /^mcp\.[^.]+\.agent_browser_/.test(tool);
+}
+
 function streamBrowser(
   kernel: Kernel,
   req: IncomingMessage,

@@ -61,11 +61,20 @@ const IDLE: BrowserLiveState = { status: null, tabs: [], frame: null, gone: fals
 /** The live feed, open while `on`; frames for `tab` when one is named. */
 export function useBrowserLive(on: boolean, tab: string | null): BrowserLiveState {
   const [state, setState] = useState<BrowserLiveState>(IDLE);
+  // Nothing streams to a dashboard nobody is looking at: the feed closes
+  // while this tab is hidden and opens again when it is back.
+  const [shown, setShown] = useState(() => typeof document === "undefined" || document.visibilityState !== "hidden");
+  useEffect(() => {
+    const onChange = (): void => setShown(document.visibilityState !== "hidden");
+    document.addEventListener("visibilitychange", onChange);
+    return () => document.removeEventListener("visibilitychange", onChange);
+  }, []);
   useEffect(() => {
     if (!on) {
       setState(IDLE);
       return;
     }
+    if (!shown) return;
     setState((cur) => ({ ...cur, frame: null, gone: false }));
     const source = new EventSource(`/api/browser/live${tab ? `?tab=${encodeURIComponent(tab)}` : ""}`);
     source.onmessage = (message) => {
@@ -84,7 +93,7 @@ export function useBrowserLive(on: boolean, tab: string | null): BrowserLiveStat
     };
     source.onerror = () => setState((cur) => ({ ...cur, lost: true }));
     return () => source.close();
-  }, [on, tab]);
+  }, [on, tab, shown]);
   return state;
 }
 
@@ -132,7 +141,9 @@ export interface BrowserWindowProps {
 }
 
 export function BrowserWindow({ open, onClose, doing, prefer, titleFor = () => undefined, handoffs = [], onDecide }: BrowserWindowProps): ReactElement | null {
+  /** A tab picked by hand; with follow on, the working agent's tab wins. */
   const [chosen, setChosen] = useState<string | null>(null);
+  const [follow, setFollow] = useState(true);
   /** The tab shown: the chosen one while it exists, else the working agent's, else the first that is someone's. */
   const [tab, setTab] = useState<string | null>(null);
   const live = useBrowserLive(open, tab);
@@ -153,9 +164,9 @@ export function BrowserWindow({ open, onClose, doing, prefer, titleFor = () => u
     const tabs = live.tabs;
     const has = (id: string | null): boolean => !!id && tabs.some((t) => t.id === id);
     const preferred = prefer ? (tabs.find((t) => t.owner === prefer)?.id ?? null) : null;
-    const next = has(chosen) ? chosen : (preferred ?? tabs.find((t) => t.owner)?.id ?? tabs[0]?.id ?? null);
+    const next = follow && preferred ? preferred : has(chosen) ? chosen : (preferred ?? tabs.find((t) => t.owner)?.id ?? tabs[0]?.id ?? null);
     if (next !== tab) setTab(next);
-  }, [live.tabs, prefer, chosen, tab]);
+  }, [live.tabs, prefer, chosen, tab, follow]);
 
   useEffect(() => {
     const onResize = (): void => setBox((b) => clampBox(b, MIN));
@@ -360,6 +371,15 @@ export function BrowserWindow({ open, onClose, doing, prefer, titleFor = () => u
       </div>
       {live.tabs.length > 0 && (
         <div className="browserwin-tabs" role="tablist" aria-label="Browser tabs">
+          <button
+            type="button"
+            className={`browserwin-follow${follow ? " is-on" : ""}`}
+            aria-pressed={follow}
+            title={follow ? "Following whoever is working; click to pin the tab you chose" : "Follow whoever is working"}
+            onClick={() => setFollow((v) => !v)}
+          >
+            {follow ? "Following" : "Pinned"}
+          </button>
           {live.tabs.map((t) => {
             const { who, what } = tabLabel(t, titleFor);
             return (
@@ -372,6 +392,7 @@ export function BrowserWindow({ open, onClose, doing, prefer, titleFor = () => u
                 title={t.url}
                 onClick={() => {
                   setChosen(t.id);
+                  setFollow(false);
                   setTab(t.id);
                 }}
               >

@@ -19,6 +19,16 @@ const withTool: ModelMessage[] = [
   { role: "assistant", content: [{ type: "text", text: "$3,410." }] },
 ];
 
+describe("a tool card knows its call", () => {
+  it("carries the model's tool-use id, so a frame taken after the step can find it", () => {
+    const events = conversationEvents([
+      { role: "assistant", content: [{ type: "tool_use", id: "tu_7", name: "browser.visit", input: { url: "https://x" } }] },
+      { role: "user", content: [{ type: "tool_result", toolUseId: "tu_7", content: "Opened https://x", isError: false }] },
+    ]);
+    expect(events[0]).toMatchObject({ kind: "tool", name: "browser.visit", toolUseId: "tu_7", result: "Opened https://x" });
+  });
+});
+
 describe("conversationEvents", () => {
   it("keeps the tool call in order between the turns", () => {
     const events = conversationEvents(withTool);

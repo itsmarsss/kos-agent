@@ -14,3 +14,10 @@ import { AsyncLocalStorage } from "node:async_hooks";
  * the toolbox can both import it without a cycle.
  */
 export const caller = new AsyncLocalStorage<string>();
+
+/**
+ * The model's id for the tool call being executed, where the engine has
+ * one. A picture of the browser taken after a step is keyed to it, so the
+ * transcript can put the picture under the right card.
+ */
+export const toolUse = new AsyncLocalStorage<string>();

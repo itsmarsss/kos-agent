@@ -358,6 +358,8 @@ export type ChatEvent =
       isError?: boolean;
       /** Set when the call is waiting on approval rather than having run. */
       pendingId?: string;
+      /** A picture of the browser after this step, at /api/frames/:id. */
+      frameId?: number;
     };
 
 export interface DirEntry {
