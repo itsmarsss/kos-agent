@@ -61,6 +61,18 @@ const GIT_READS: Record<string, (args: string[]) => boolean> = {
 /** `pnpm`, `npm` and `yarn` subcommands that only report. */
 const PACKAGE_READS = new Set(["ls", "list", "-v", "--version", "outdated", "why", "root", "bin"]);
 
+/**
+ * Paths a read of which is not harmless: KOS's own files (the database,
+ * the browser profile with its cookies, the config with a server's keys)
+ * and anything hidden, where a server keeps its tokens. Reading them is
+ * exactly what the approval is for, so a line that names one asks.
+ */
+const PROTECTED = /(^|\/)(\.[^/]+|kos\.sqlite(-shm|-wal)?|profile\.json|mcp\.json|daemon\.json|locks)(\/|$)/;
+
+function namesProtected(arg: string): boolean {
+  return PROTECTED.test(arg.replace(/^\.\//, ""));
+}
+
 interface Word {
   text: string;
   /** Holds an unquoted < or >: a redirection, not an argument. */
@@ -241,6 +253,7 @@ export function isReadOnlyCommand(command: string): boolean {
     const first = args[0]!;
     if (first.includes("=") || words[0]!.redirect) return false;
     const program = first.includes("/") ? first.slice(first.lastIndexOf("/") + 1) : first;
+    if (args.slice(1).some(namesProtected)) return false;
     if (!readsOnly(program, args.slice(1))) return false;
   }
   return true;
