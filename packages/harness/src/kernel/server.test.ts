@@ -54,6 +54,29 @@ describe("handleApiRequest", () => {
     expect(body.modules.builtins.map((b) => b.name)).toContain("tasks");
   });
 
+  it("gives the home page the shapes its charts draw: runs, hours, a project map and the week by day", async () => {
+    kernel.audit.record({ tool: "notify", args: {}, result: "ok", isError: false });
+    const garden = kernel.manifest.createProject({ name: "Garden", type: "tracker" });
+    kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Beds", projectSlug: garden.slug });
+    const res = await handleApiRequest(kernel, { method: "GET", path: "/api/home" });
+    const body = res.body as {
+      runs: unknown[];
+      pulse: { hour: number; calls: number; errors: number }[];
+      map: { slug: string; threads: number; working: number; needsYou: number; jobs: number }[];
+      upcoming: unknown[];
+      spend: { models: unknown[]; byDay: unknown[] };
+      chats: { activity: string }[];
+    };
+    expect(body.runs).toEqual([]);
+    expect(body.pulse).toHaveLength(1);
+    expect(body.pulse[0]).toMatchObject({ calls: 1, errors: 0 });
+    expect(body.map.find((p) => p.slug === garden.slug)).toEqual({ slug: garden.slug, threads: 1, working: 0, needsYou: 0, jobs: 0 });
+    expect(body.upcoming).toEqual([]);
+    expect(body.spend.byDay).toEqual([]);
+    // A chat on the home page says whether it is busy, like the list does.
+    expect(body.chats[0]?.activity).toBe("idle");
+  });
+
   it("lists everything waiting on the owner in one inbox", async () => {
     kernel.approvals.enqueue({ tool: "files.read", args: { path: "x" }, riskTier: "risky" });
     const res = await handleApiRequest(kernel, { method: "GET", path: "/api/inbox" });

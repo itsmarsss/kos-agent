@@ -114,6 +114,13 @@ export class CronScheduler {
     return this.tasks.size;
   }
 
+  /** When a scheduled job fires next, as epoch ms, soonest first. Empty for a job not held. */
+  nextRuns(id: number, count: number): number[] {
+    const task = this.tasks.get(id);
+    if (!task) return [];
+    return task.getNextRuns(count).map((d) => d.getTime());
+  }
+
   /** Run a job now, applying the kill switch and rate-limit guards. */
   async fire(job: CronJob): Promise<FireOutcome> {
     if (this.options.killSwitch?.halted) {

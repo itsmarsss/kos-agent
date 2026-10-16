@@ -22,6 +22,14 @@ export interface AuditRecord {
   createdAt: number;
 }
 
+/** Calls in one hour, for a chart of how busy KOS has been. */
+export interface HourCount {
+  /** Start of the hour, epoch ms. */
+  hour: number;
+  calls: number;
+  errors: number;
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY,
@@ -122,6 +130,22 @@ export class AuditLog {
       .prepare(`SELECT * FROM audit_log ORDER BY id DESC LIMIT ?`)
       .all(limit) as Row[];
     return rows.map(toRecord);
+  }
+
+  /**
+   * Calls per hour since a moment, oldest first. Only hours with a call come
+   * back; a chart pads the quiet ones. `hour` is the start of the hour in ms.
+   */
+  byHour(since: number): HourCount[] {
+    return this.db
+      .prepare(
+        `SELECT (created_at / 3600000) * 3600000 AS hour,
+                COUNT(*) AS calls,
+                SUM(is_error) AS errors
+         FROM audit_log WHERE created_at >= ?
+         GROUP BY hour ORDER BY hour`,
+      )
+      .all(since) as HourCount[];
   }
 
   /** One call in full, for a reader who opened it. */

@@ -17,20 +17,23 @@ function data(over: Partial<HomeData> = {}): HomeData {
     layout: { panels: [] },
     approvals: [],
     agents: [],
-    failures: [],
+    runs: [],
     health: { checks: [] } as unknown as HomeData["health"],
     activity: [],
+    pulse: [],
     projects: [],
+    map: [],
     chats: [],
     crons: [],
-    spend: { models: [] },
+    upcoming: [],
+    spend: { models: [], byDay: [] },
     memory: { claims: 0, unread: 0, extraction: true, decisions: 0, jobs: [] },
     modules: { modules: [], builtins: [{ name: "tasks", description: "", enabled: true }] },
     ...over,
   };
 }
 
-function show(kind: "memory" | "modules" | "approvals", d: HomeData, onGo = vi.fn()) {
+function show(kind: "memory" | "modules" | "approvals" | "pulse" | "map" | "failures" | "schedule" | "spend", d: HomeData, onGo = vi.fn()) {
   render(
     <Panel
       panel={{ id: kind, kind, span: "half" }}
@@ -89,6 +92,80 @@ describe("the modules panel", () => {
     expect(screen.getByText("2 tools")).toBeTruthy();
     expect(screen.getByText("not connected")).toBeTruthy();
     expect(screen.getByText("off")).toBeTruthy();
+  });
+});
+
+/*
+ * The chart panels. Each must say when there is nothing to draw, and when
+ * there is, carry its numbers somewhere a reader can get at them.
+ */
+describe("the charts", () => {
+  it("draws the day as bars with the figures behind them, or says the day was quiet", () => {
+    show("pulse", data());
+    expect(screen.getByText("Nothing ran in the last day.")).toBeTruthy();
+    cleanup();
+    const hour = Math.floor(Date.now() / 3_600_000) * 3_600_000;
+    show("pulse", data({ pulse: [{ hour, calls: 4, errors: 1 }] }));
+    expect(screen.getByText("4 tool calls, 1 failed")).toBeTruthy();
+    expect(screen.getByTitle(/4 calls, 1 failed/)).toBeTruthy();
+    expect(document.querySelectorAll(".chart-col")).toHaveLength(24);
+  });
+
+  it("puts every recent run on the strip, coloured by how it went", () => {
+    show("failures", data({
+      health: { ok: true, failing: [], recent: { total: 2, errors: 1, rate: 0.5 } },
+      runs: [
+        { id: 2, kind: "cron", ref: "digest", status: "error", error: "timed out", startedAt: Date.now() },
+        { id: 1, kind: "cron", ref: "digest", status: "ok", error: null, startedAt: Date.now() - 60_000 },
+      ],
+    }));
+    const ticks = document.querySelectorAll(".chart-tick");
+    expect(ticks).toHaveLength(2);
+    // Oldest on the left.
+    expect(ticks[0]?.className).toContain("chart-tick--ok");
+    expect(ticks[1]?.className).toContain("chart-tick--danger");
+    expect(ticks[1]?.getAttribute("title")).toContain("timed out");
+  });
+
+  it("maps modules on one side of KOS and projects on the other, each with its state", () => {
+    const go = show("map", data({
+      projects: [{ slug: "garden", name: "Garden", type: "tracker", status: "active", lastTouchedAt: 0 }, { slug: "old", name: "Old", type: "tracker", status: "archived", lastTouchedAt: 0 }],
+      map: [{ slug: "garden", threads: 2, working: 1, needsYou: 0, jobs: 1 }],
+      modules: { builtins: [], modules: [{ name: "mail", description: "", dir: "m", enabled: true, connected: false, error: "down" }] },
+    }));
+    expect(screen.getByText("Garden")).toBeTruthy();
+    expect(screen.queryByText("Old")).toBeNull();
+    expect(screen.getByText("2 threads · 1 job · 1 working")).toBeTruthy();
+    expect(screen.getByText("not connected")).toBeTruthy();
+    expect(screen.getByText("1 working")).toBeTruthy();
+    screen.getByText("mail").closest("g")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(go).toHaveBeenCalledWith("settings", "modules");
+    expect(screen.getByText("Garden").closest("a")?.getAttribute("href")).toBe("#/project/garden");
+  });
+
+  it("marks on the day line when each job is due, and says so on its row", () => {
+    const at = Date.now() + 2 * 3_600_000;
+    show("schedule", data({
+      crons: [{ id: 7, name: "Digest", schedule: "0 9 * * *", type: "self_prompt", enabled: true }],
+      upcoming: [{ id: 7, name: "Digest", at }],
+    }));
+    expect(document.querySelectorAll(".chart-dayline-run")).toHaveLength(1);
+    expect(screen.queryByText("0 9 * * *")).toBeNull();
+    expect(document.querySelector(".chart-dayline-run")?.getAttribute("title")).toContain("Digest at");
+  });
+
+  it("splits spend by day and by model", () => {
+    show("spend", data({ spend: {
+      models: [
+        { provider: "anthropic", model: "big", inputTokens: 300, outputTokens: 100, calls: 2 },
+        { provider: "anthropic", model: "small", inputTokens: 50, outputTokens: 50, calls: 9 },
+      ],
+      byDay: [],
+    } }));
+    expect(document.querySelectorAll(".chart-col")).toHaveLength(7);
+    expect(screen.getByText("big")).toBeTruthy();
+    expect(screen.getByText("80%")).toBeTruthy();
+    expect(screen.getByText("20%")).toBeTruthy();
   });
 });
 

@@ -93,6 +93,11 @@ export class CronService {
     return this.scheduler?.scheduledCount() ?? 0;
   }
 
+  /** When a job fires next, soonest first. Empty when the scheduler does not hold it. */
+  nextRuns(id: number, count: number): number[] {
+    return this.scheduler?.nextRuns(id, count) ?? [];
+  }
+
   /**
    * Run one job now, through the same path the schedule uses.
    *

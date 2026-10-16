@@ -416,17 +416,54 @@ export interface HealthReport {
   recent: { total: number; errors: number; rate: number };
 }
 
+/** Tool calls in one hour, for the shape of the day. */
+export interface HourCount {
+  /** Start of the hour, epoch ms. */
+  hour: number;
+  calls: number;
+  errors: number;
+}
+
+/** Tokens on one day, local time. */
+export interface DayTotal {
+  day: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/** A project as a node on the map: what hangs off it and what it is doing. */
+export interface ProjectNode {
+  slug: string;
+  threads: number;
+  working: number;
+  needsYou: number;
+  jobs: number;
+}
+
+/** A scheduled run due soon. */
+export interface UpcomingRun {
+  id: number;
+  name: string;
+  at: number;
+}
+
 export interface HomeData {
   layout: import("@kos/shared").HomeLayout;
   approvals: PendingAction[];
   agents: BuildRecord[];
-  failures: RunRecord[];
+  /** The last runs, newest first. */
+  runs: RunRecord[];
   health: HealthReport;
   activity: AuditRecord[];
+  /** Calls by the hour over the last day; quiet hours are left out. */
+  pulse: HourCount[];
   projects: Project[];
+  map: ProjectNode[];
   chats: Conversation[];
   crons: CronJob[];
-  spend: { models: ModelSpend[] };
+  /** Runs due in the next day, soonest first. */
+  upcoming: UpcomingRun[];
+  spend: { models: ModelSpend[]; byDay: DayTotal[] };
   memory: HomeMemory;
   modules: { modules: ModuleInfo[]; builtins: BuiltinInfo[] };
 }

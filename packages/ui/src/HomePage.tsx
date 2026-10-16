@@ -1,12 +1,12 @@
-import { useEffect, useState, type ReactElement } from "react";
-import type { HomeLayout, HomePanel, PanelKind, WidgetSpan } from "@kos/shared";
+import { useEffect, useRef, useState, type ReactElement } from "react";
+import type { HomeLayout, HomePanel, PanelKind } from "@kos/shared";
 
 import { AnimatePresence, m } from "motion/react";
 
 import { api, type FailingJob, type HomeData } from "./api.js";
+import { HomeGrid } from "./HomeGrid.js";
 import { Panel } from "./HomePanels.js";
-import { ease, spring } from "./motion.js";
-import { Select } from "./Select.js";
+import { ease } from "./motion.js";
 
 /**
  * The first thing you see, arranged by you.
@@ -15,7 +15,7 @@ import { Select } from "./Select.js";
  * answered a question nobody arrives with. What you actually want on opening
  * KOS is what needs a decision, what is running, and what broke while you were
  * away, and which of those matters most depends on how you use it. So it is a
- * layout rather than a page: panels you add, remove, resize and reorder.
+ * layout rather than a page: panels you drag into place and pull to size.
  *
  * Stored as owner settings rather than as a project page, because it is
  * configuration rather than content, and because the widgets a project page
@@ -25,23 +25,18 @@ import { Select } from "./Select.js";
 
 const CATALOGUE: { kind: PanelKind; label: string; blurb: string }[] = [
   { kind: "approvals", label: "Needs you", blurb: "Actions waiting on a decision" },
+  { kind: "pulse", label: "Last 24 hours", blurb: "Tool calls by the hour" },
   { kind: "agents", label: "Agents", blurb: "Coding sub-agents running now" },
-  { kind: "failures", label: "What broke", blurb: "Jobs failing now" },
+  { kind: "failures", label: "What broke", blurb: "Jobs failing now, and the run strip" },
+  { kind: "map", label: "Map", blurb: "KOS, its modules and its projects" },
   { kind: "activity", label: "Activity", blurb: "Recent tool calls" },
   { kind: "projects", label: "Projects", blurb: "What KOS is keeping for you" },
   { kind: "chats", label: "Chats", blurb: "Recent conversations" },
-  { kind: "schedule", label: "Schedule", blurb: "Jobs that run on their own" },
-  { kind: "spend", label: "Spend", blurb: "Tokens used this week" },
+  { kind: "schedule", label: "Schedule", blurb: "What runs on its own, and when next" },
+  { kind: "spend", label: "Spend", blurb: "Tokens this week, by day and by model" },
   { kind: "memory", label: "Memory", blurb: "What KOS holds, has not read, and asks you about" },
   { kind: "modules", label: "Modules", blurb: "Which modules are on and connected" },
   { kind: "note", label: "Note", blurb: "Text you write yourself" },
-];
-
-const SPAN_OPTIONS: { value: WidgetSpan; label: string }[] = [
-  { value: "quarter", label: "Quarter" },
-  { value: "third", label: "Third" },
-  { value: "half", label: "Half" },
-  { value: "full", label: "Full width" },
 ];
 
 export function HomePage({
@@ -65,15 +60,21 @@ export function HomePage({
   const [layout, setLayout] = useState<HomeLayout | null>(null);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Arrangements in flight: a panel being carried, and saves not yet
+   * answered. While either is true the poll keeps its hands off the layout,
+   * or a refresh would put the panel back where it was picked up from.
+   */
+  const dragging = useRef(false);
+  const saving = useRef(0);
 
   const load = (): void => {
     void api
       .home()
       .then((r) => {
         setData(r);
-        // While editing, the owner's arrangement wins over whatever the last
-        // poll returned; otherwise a refresh mid-edit throws away their work.
-        setLayout((current) => (editing && current ? current : r.layout));
+        const hold = editing || dragging.current || saving.current > 0;
+        setLayout((current) => (hold && current ? current : r.layout));
         setError(null);
       })
       .catch((err: unknown) =>
@@ -90,11 +91,21 @@ export function HomePage({
 
   const save = (next: HomeLayout): void => {
     setLayout(next);
+    saving.current += 1;
     void api
       .saveHome(next)
       .catch((err: unknown) =>
         setError(err instanceof Error ? err.message : String(err)),
-      );
+      )
+      .finally(() => {
+        saving.current -= 1;
+      });
+  };
+
+  const arrange = (panels: HomePanel[], commit: boolean): void => {
+    dragging.current = !commit;
+    if (commit) save({ panels });
+    else setLayout({ panels });
   };
 
   const update = (id: string, change: Partial<HomePanel>): void => {
@@ -109,16 +120,6 @@ export function HomePage({
     save({ panels: layout.panels.filter((p) => p.id !== id) });
   };
 
-  const move = (id: string, by: -1 | 1): void => {
-    if (!layout) return;
-    const panels = [...layout.panels];
-    const at = panels.findIndex((p) => p.id === id);
-    const to = at + by;
-    if (at < 0 || to < 0 || to >= panels.length) return;
-    [panels[at], panels[to]] = [panels[to]!, panels[at]!];
-    save({ panels });
-  };
-
   const add = (kind: PanelKind): void => {
     if (!layout) return;
     // Ids stay unique across repeated adds of the same kind, so two notes can
@@ -130,7 +131,9 @@ export function HomePage({
         {
           id,
           kind,
-          span: kind === "note" ? "half" : "full",
+          // The wide ones are wide because they are rows or a diagram; a
+          // chart or a short list reads better beside another.
+          span: kind === "map" || kind === "approvals" || kind === "projects" ? "full" : "half",
           ...(kind === "note" ? { text: "" } : {}),
         },
       ],
@@ -157,6 +160,9 @@ export function HomePage({
     <div className="home">
       <header className="home-bar">
         <h1>Overview</h1>
+        <span className="home-bar-hint">
+          {editing ? "Drag a panel to move it, its edge to resize it." : "Drag a panel by its title to move it."}
+        </span>
         <button
           type="button"
           className={`btn ${editing ? "btn--primary" : ""}`}
@@ -178,70 +184,27 @@ export function HomePage({
         </p>
       )}
 
-      <div className="home-grid">
-        {layout.panels.map((panel, i) => (
-          /* Laid out rather than snapped: moving a panel up or changing its
-             width is a spatial change, and seeing it travel is what tells you
-             the thing you pressed did what you meant. */
-          <m.section
-            key={panel.id}
-            layout
-            className={`home-cell home-cell--${panel.span}`}
-            transition={spring}
-          >
-            {editing && (
-              <div className="home-edit">
-                <Select
-                  className="home-span"
-                  label="Width"
-                  value={panel.span}
-                  options={SPAN_OPTIONS}
-                  onChange={(v) => update(panel.id, { span: v as WidgetSpan })}
-                />
-                <button
-                  type="button"
-                  className="icon-btn"
-                  title="Move up"
-                  disabled={i === 0}
-                  onClick={() => move(panel.id, -1)}
-                >
-                  ↑
-                </button>
-                <button
-                  type="button"
-                  className="icon-btn"
-                  title="Move down"
-                  disabled={i === layout.panels.length - 1}
-                  onClick={() => move(panel.id, 1)}
-                >
-                  ↓
-                </button>
-                <button
-                  type="button"
-                  className="icon-btn icon-btn--danger"
-                  title="Remove"
-                  onClick={() => remove(panel.id)}
-                >
-                  ✕
-                </button>
-              </div>
-            )}
-            <Panel
-              panel={panel}
-              data={data}
-              editing={editing}
-              onChange={(change) => update(panel.id, change)}
-              onOpenChat={onOpenChat}
-              onGo={onGo}
-              onDecide={onDecide}
-              deciding={deciding}
-              onDismissFailure={onDismissFailure}
-              onOpenFailure={onOpenFailure}
-              onFixFailure={onFixFailure}
-            />
-          </m.section>
-        ))}
-      </div>
+      <HomeGrid
+        panels={layout.panels}
+        editing={editing}
+        onChange={arrange}
+        onRemove={remove}
+        render={(panel) => (
+          <Panel
+            panel={panel}
+            data={data}
+            editing={editing}
+            onChange={(change) => update(panel.id, change)}
+            onOpenChat={onOpenChat}
+            onGo={onGo}
+            onDecide={onDecide}
+            deciding={deciding}
+            onDismissFailure={onDismissFailure}
+            onOpenFailure={onOpenFailure}
+            onFixFailure={onFixFailure}
+          />
+        )}
+      />
 
       <AnimatePresence>
       {editing && (

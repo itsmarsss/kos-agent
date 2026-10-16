@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { padDays } from "./SpendPanel.js";
+import { padDays } from "./chartdata.js";
 
 /**
  * The daily query groups by day, so it returns only the days that had usage.

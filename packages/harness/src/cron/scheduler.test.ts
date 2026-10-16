@@ -103,6 +103,18 @@ describe("CronScheduler", () => {
     sched.stop();
     expect(sched.scheduledCount()).toBe(0);
   });
+
+  it("says when a held job fires next, and nothing for one it does not hold", () => {
+    const hourly = store.create({ name: "hourly", schedule: "0 * * * *", type: "actions" });
+    const sched = new CronScheduler(store, async () => undefined);
+    sched.start();
+    const runs = sched.nextRuns(hourly.id, 2);
+    expect(runs).toHaveLength(2);
+    expect(runs[0]!).toBeGreaterThan(Date.now());
+    expect(runs[1]! - runs[0]!).toBe(3_600_000);
+    expect(sched.nextRuns(hourly.id + 99, 2)).toEqual([]);
+    sched.stop();
+  });
 });
 
 describe("running what fell due while nothing was listening", () => {

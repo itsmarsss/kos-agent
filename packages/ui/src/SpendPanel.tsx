@@ -9,10 +9,12 @@ import { createPortal } from "react-dom";
 
 import {
   api,
+  type DayTotal,
   type ModelDaySpend,
   type ModelRate,
   type ModelSpend,
 } from "./api.js";
+import { padDays } from "./chartdata.js";
 import { fitInside, place, type Placement } from "./popover.js";
 import { Drawer } from "./Drawer.js";
 import { Select } from "./Select.js";
@@ -43,45 +45,6 @@ const WINDOWS = [
   { value: "30", label: "Last 30 days" },
   { value: "365", label: "Last year" },
 ];
-
-export interface DayTotal {
-  day: string;
-  inputTokens: number;
-  outputTokens: number;
-}
-
-/** Local calendar date as YYYY-MM-DD, matching what the query groups by. */
-function isoDay(d: Date): string {
-  return [
-    d.getFullYear(),
-    String(d.getMonth() + 1).padStart(2, "0"),
-    String(d.getDate()).padStart(2, "0"),
-  ].join("-");
-}
-
-/**
- * One entry per day of the window, including the quiet ones.
- *
- * The query groups by day and so returns only days that had usage. Two busy
- * days in a month came back as two bars, which drew a stub in the corner of a
- * wide chart and, worse, read as "the last two days" rather than "twice in a
- * month". The gaps are the information.
- */
-export function padDays(
-  rows: DayTotal[],
-  windowDays: number,
-  today = new Date(),
-): DayTotal[] {
-  const known = new Map(rows.map((r) => [r.day, r]));
-  const out: DayTotal[] = [];
-  for (let i = windowDays - 1; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
-    const day = isoDay(d);
-    out.push(known.get(day) ?? { day, inputTokens: 0, outputTokens: 0 });
-  }
-  return out;
-}
 
 /** A bar per day, scaled to the busiest one. */
 function Trend({

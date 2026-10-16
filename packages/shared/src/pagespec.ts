@@ -121,7 +121,11 @@ export type PanelKind =
   | "agents"
   | "failures"
   | "activity"
+  /** Tool calls by the hour over the last day, as bars. */
+  | "pulse"
   | "projects"
+  /** KOS, its modules and its projects, drawn as a map. */
+  | "map"
   | "chats"
   | "schedule"
   | "spend"
@@ -151,7 +155,9 @@ const PANEL_KINDS: PanelKind[] = [
   "agents",
   "failures",
   "activity",
+  "pulse",
   "projects",
+  "map",
   "chats",
   "schedule",
   "spend",
@@ -172,11 +178,13 @@ const SPANS: WidgetSpan[] = ["quarter", "third", "half", "full"];
 export const DEFAULT_HOME: HomeLayout = {
   panels: [
     { id: "approvals", kind: "approvals", span: "full" },
-    { id: "agents", kind: "agents", span: "half" },
+    { id: "pulse", kind: "pulse", span: "half" },
     { id: "failures", kind: "failures", span: "half", limit: 5 },
+    { id: "agents", kind: "agents", span: "half" },
+    { id: "spend", kind: "spend", span: "half" },
+    { id: "map", kind: "map", span: "full" },
     { id: "memory", kind: "memory", span: "half" },
     { id: "modules", kind: "modules", span: "half" },
-    { id: "projects", kind: "projects", span: "full" },
     { id: "activity", kind: "activity", span: "half", limit: 8 },
     { id: "chats", kind: "chats", span: "half", limit: 6 },
   ],
