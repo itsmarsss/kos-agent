@@ -308,13 +308,13 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
     {
       name: "chats.project",
       description:
-        "Stand up a project and hand its orchestrator the goal. Use this for a distinct, ongoing piece of work that deserves its own space, tables and pages: a tracker, an app, anything with more than one part. It creates the project and a project orchestrator conversation, then delegates the goal to that orchestrator, which builds it and runs its own agents. For a quick one-off, use chats.create instead; for work a project already covers, use chats.dispatch to its orchestrator. Only KOS at the root can start a project.",
+        "Stand up a project and hand its orchestrator the goal. Use this for a distinct, ongoing piece of the owner's life or work that deserves its own space: a tracker, an app, a plan, a trip, anything the owner will come back to. A project may be mostly conversation and have no tables or pages at all; its orchestrator decides what the work needs. It creates the project and a project orchestrator conversation, then delegates the goal to that orchestrator, which runs its own agents. For a quick one-off, use chats.create instead; for work a project already covers, use chats.dispatch to its orchestrator. Only KOS at the root can start a project.",
       inputSchema: {
         type: "object",
         properties: {
           name: { type: "string", description: "the project's name, as it reads in a list: \"Pantry\", \"Reading Log\"" },
           type: { type: "string", description: "a short kind: tracker, notes, budget, app" },
-          goal: { type: "string", description: "what the project is for and what to build first, written as an instruction to its orchestrator" },
+          goal: { type: "string", description: "what the project is for and the first thing to do, written as an instruction to its orchestrator" },
         },
         required: ["name", "type", "goal"],
       },
