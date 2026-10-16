@@ -259,6 +259,9 @@ export type ButtonPressHandler = (
  */
 export type SenderAuthorizer = (senderId: string) => boolean;
 
+/** How an ask was settled: by the owner either way, or by nobody in time. */
+export type ApprovalOutcome = "approved" | "denied" | "expired";
+
 /**
  * A messaging surface. `requestApproval` renders an approve/deny prompt (native
  * buttons on Discord, a text reply elsewhere); the decision arrives via
@@ -289,7 +292,7 @@ export interface ChannelAdapter {
    * choice that had already been made, and pressing it reported that the
    * action did not exist.
    */
-  settleApproval?(id: string, outcome: "approved" | "denied"): Promise<void>;
+  settleApproval?(id: string, outcome: ApprovalOutcome): Promise<void>;
   /**
    * Optional: acknowledge an inbound message and return a presence handle so
    * the runtime can show progress and edit the final reply in place.

@@ -8,6 +8,7 @@ import type {
   InboundMessage,
   OutboundMessage,
   TurnPresence,
+  ApprovalOutcome,
 } from "./types.js";
 
 export interface TurnContext {
@@ -85,7 +86,7 @@ export interface ChannelRuntimeOptions {
    * Returns its own unsubscribe.
    */
   watchDecisions?: (
-    listener: (id: string, outcome: "approved" | "denied") => void,
+    listener: (id: string, outcome: ApprovalOutcome) => void,
   ) => () => void;
 }
 

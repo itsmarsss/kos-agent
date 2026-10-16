@@ -37,6 +37,7 @@ import type {
   PressResponder,
   SenderAuthorizer,
   TurnPresence,
+  ApprovalOutcome,
 } from "./types.js";
 
 export const APPROVE_PREFIX = "kos:approve:";
@@ -116,8 +117,8 @@ export function approvalText(req: ApprovalRequest): string {
 }
 
 /** What a settled prompt becomes: one small line saying how it went. */
-export function settledText(outcome: "approved" | "denied", summary: string | undefined, id: string): string {
-  const mark = outcome === "approved" ? "✅ Approved" : "❌ Denied";
+export function settledText(outcome: ApprovalOutcome, summary: string | undefined, id: string): string {
+  const mark = outcome === "approved" ? "✅ Approved" : outcome === "expired" ? "⌛ Lapsed" : "❌ Denied";
   if (!summary) return `-# ${mark} · #${id}`;
   const { head, body } = splitSummary(summary);
   return `-# ${mark} · ${escapeMarkdown(head)}${body ? ` \`${cut(body.replace(/`/g, "'"), 80)}\`` : ""}`;
@@ -942,7 +943,7 @@ export class DiscordAdapter implements ChannelAdapter {
    * The same edit the buttons make when pressed here, so a decision looks the
    * same wherever it was made.
    */
-  async settleApproval(id: string, outcome: "approved" | "denied"): Promise<void> {
+  async settleApproval(id: string, outcome: ApprovalOutcome): Promise<void> {
     const prompt = this.prompts.get(id);
     if (!prompt) return;
     this.prompts.delete(id);

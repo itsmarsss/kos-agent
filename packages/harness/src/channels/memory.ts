@@ -6,6 +6,7 @@ import type {
   InboundMessage,
   MessageHandler,
   OutboundMessage,
+  ApprovalOutcome,
 } from "./types.js";
 
 export interface SentMessage {
@@ -28,7 +29,7 @@ export class InMemoryAdapter implements ChannelAdapter {
   readonly sent: SentMessage[] = [];
   readonly approvalsRequested: SentApproval[] = [];
   /** Prompts settled because the decision was taken somewhere else. */
-  readonly settled: { id: string; outcome: "approved" | "denied" }[] = [];
+  readonly settled: { id: string; outcome: ApprovalOutcome }[] = [];
 
   private messageHandler?: MessageHandler;
   private approvalHandler?: ApprovalHandler;
@@ -57,7 +58,7 @@ export class InMemoryAdapter implements ChannelAdapter {
 
   async settleApproval(
     id: string,
-    outcome: "approved" | "denied",
+    outcome: ApprovalOutcome,
   ): Promise<void> {
     this.settled.push({ id, outcome });
   }

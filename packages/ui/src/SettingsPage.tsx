@@ -41,6 +41,7 @@ const BEHAVIOUR_FALLBACK: Behaviour = {
   agentTurns: 60,
   stallMinutes: 3,
   approvalMinutes: 30,
+  approvalExpiryHours: 24,
   heartbeatMinutes: 0,
   memoryExtraction: false,
   extractEveryChars: 6000,
@@ -1038,6 +1039,15 @@ export function SettingsPage({
                   range={limits.approvalMinutes}
                   onChange={(approvalMinutes) =>
                     setHow({ ...how, approvalMinutes })
+                  }
+                />
+                <Limit
+                  label="Hours an unanswered ask keeps"
+                  hint={`An ask nobody is waiting on, from a scheduled job or a turn a restart cut, lapses after this: it leaves the Inbox, its prompts on Discord or iMessage settle, and the chat is told nothing was done. Default ${defaults.approvalExpiryHours}.`}
+                  value={how.approvalExpiryHours}
+                  range={limits.approvalExpiryHours}
+                  onChange={(approvalExpiryHours) =>
+                    setHow({ ...how, approvalExpiryHours })
                   }
                 />
                 <Limit

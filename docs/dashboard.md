@@ -122,6 +122,14 @@ asked), memory decisions (keep one side, both, promote, dismiss), and jobs
 failing now (open, put KOS on it, dismiss). The sidebar badge counts all
 three.
 
+An approval does not wait forever. A turn holds for the minutes Settings >
+Behaviour gives it and then treats the silence as a refusal; the ask
+lapses with it. An ask nobody is waiting on, from a scheduled job or from
+a turn a restart cut, keeps for the hours set there (a day by default) and
+then lapses too. Either way it leaves the Inbox, the prompt for it on
+Discord or iMessage settles as lapsed, and the chat that asked is told
+nothing was done. Each card says when it lapses.
+
 ## Overview
 
 Panels you arrange with the Arrange button: Needs you, Agents, What broke,

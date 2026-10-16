@@ -375,8 +375,10 @@ describe("handleApiRequest", () => {
   it("serves the picture an approval was queued with, and nothing for one without", async () => {
     const pictured = kernel.approvals.enqueue({ tool: "mcp.browser.agent_browser_click", args: { selector: "@e5" }, riskTier: "risky", picture: Buffer.from("PIC").toString("base64") });
     const plain = kernel.approvals.enqueue({ tool: "shell", args: { cmd: "ls" }, riskTier: "risky" });
-    const list = (await handleApiRequest(kernel, { method: "GET", path: "/api/approvals" })).body as { id: number; picture: boolean }[];
+    const list = (await handleApiRequest(kernel, { method: "GET", path: "/api/approvals" })).body as { id: number; picture: boolean; requestedAt: number; expiresAt: number }[];
     expect(list.map((a) => a.picture)).toEqual([true, false]);
+    // Each says when it lapses: a day after it was asked, by default.
+    expect(list[0]!.expiresAt - list[0]!.requestedAt).toBe(24 * 3_600_000);
     const got = await handleApiRequest(kernel, { method: "GET", path: `/api/approvals/${pictured.id}/picture` });
     expect(got.status).toBe(200);
     expect(got.headers?.["content-type"]).toBe("image/jpeg");
