@@ -147,9 +147,10 @@ the owner.
 Two picks under Settings > MCP servers: **google-calendar**
 (`@cocal/google-calendar-mcp`) and **gmail** (`@artymclabin/gmail-mcp`).
 Both use one Google OAuth client of your own, saved as
-`google-oauth-client.json` in the folder beside the settings file, outside
-the workspace, where the tokens go too; the pick's note gives the exact
-one-time `auth` command to run. Reading (events, free time, searching
+`google-oauth-client.json` in a `secrets` folder beside the settings file
+(made when the pick is added; outside the workspace, and ignored by git),
+where the tokens go too; the pick's note gives the exact one-time `auth`
+command to run. Reading (events, free time, searching
 and reading mail) is floored safe; creating, changing, answering,
 sending, labelling or deleting asks. A morning brief job template under
 Schedule reads both.

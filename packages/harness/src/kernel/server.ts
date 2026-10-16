@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { dirname, extname, join, normalize, relative, resolve, sep } from "node:path";
 
@@ -840,7 +840,9 @@ export async function handleApiRequest(
     const pick = MCP_PICKS.find((p) => p.name === name);
     if (!pick) return { status: 404, body: { error: `no pick named ${name}` } };
     // Off on request: a test, or an owner who wants it in the file first.
-    const server = { ...pickConfig(pick, pickPlaces(kernel, options)), ...(body.enabled === false ? { enabled: false } : {}) };
+    const places = pickPlaces(kernel, options);
+    if (JSON.stringify(pick.server).includes("{secrets}")) mkdirSync(places.secrets, { recursive: true, mode: 0o700 });
+    const server = { ...pickConfig(pick, places), ...(body.enabled === false ? { enabled: false } : {}) };
     const added = upsertMcpServers(kernel.workspace.root, { [pick.name]: server });
     const status = await kernel.mcp.reload();
     return ok({ added, status: Object.fromEntries(added.map((n) => [n, status[n] ?? { connected: false, tools: [] }])) });
@@ -2828,13 +2830,18 @@ export function withFrames(events: ChatEvent[], frames: { id: number; toolUseId:
 }
 
 /**
- * Where a pick's placeholders point: the workspace, and the folder the
- * settings file lives in for credentials, which is outside the workspace
- * by rule. Without a settings file, the workspace's own .kos, which the
- * agent's tools refuse to read.
+ * Where a pick's placeholders point: the workspace, and a `secrets` folder
+ * beside the settings file for credentials, which is outside the workspace
+ * by rule and ignored by git where the settings file is a checkout's. Made
+ * when a pick wants it, so the owner has somewhere to put the file. Without
+ * a settings file, under the workspace's own .kos, which the agent's tools
+ * refuse to read.
  */
 function pickPlaces(kernel: Kernel, options: DashboardServerOptions): PickPlaces {
-  return { workspace: kernel.workspace.root, secrets: options.envPath ? dirname(options.envPath) : join(kernel.workspace.root, ".kos") };
+  return {
+    workspace: kernel.workspace.root,
+    secrets: options.envPath ? join(dirname(options.envPath), "secrets") : join(kernel.workspace.root, ".kos", "secrets"),
+  };
 }
 
 function browserStep(tool: string): boolean {

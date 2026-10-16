@@ -346,9 +346,9 @@ export function mcpConfigFor(
 
 /**
  * A reference server, ready to add. `{workspace}` in an argument or an
- * environment value is the workspace root; `{secrets}` is the folder the
- * settings file lives in, outside the workspace, where a server's
- * credentials and tokens belong so no tool of the agent's can read them.
+ * environment value is the workspace root; `{secrets}` is a folder beside
+ * the settings file, outside the workspace, where a server's credentials
+ * and tokens belong so no tool of the agent's can read them.
  */
 export interface McpPick {
   name: string;
