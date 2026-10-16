@@ -171,13 +171,18 @@ export class Caretaker {
    */
   async startFix(input: FixRequest): Promise<{ conversationId: string; title: string; prompt: string }> {
     const title = Caretaker.fixTitle(input.label);
-    const conversation = this.deps.conversations.create({ userId: this.deps.ownerId, title, projectSlug: this.maintenanceSlug() });
+    // One chat per thing that breaks. A job that failed last week and
+    // again today is the same repair, and the chat already holds what was
+    // found the first time; a second chat would start from nothing and
+    // leave the owner two threads for one problem.
+    const again = this.fixFor(input.label);
+    const conversation = again ? { id: again } : this.deps.conversations.create({ userId: this.deps.ownerId, title, projectSlug: this.maintenanceSlug() });
     const subject = this.subjectOf(input);
     const error = input.error.slice(0, 2000);
     const longest = Math.max(0, ...[...error.matchAll(/`+/g)].map((m) => m[0].length));
     const fence = "`".repeat(Math.max(3, longest + 1));
     const prompt = [
-      `A ${input.what} of mine failed and I would like you to fix it.`,
+      again ? `The same ${input.what} failed again and I would like you to look at it again.` : `A ${input.what} of mine failed and I would like you to fix it.`,
       "",
       `What: ${subject ?? input.label}${input.ref ? ` (${input.ref})` : ""}`,
       "The error, exactly as it was recorded:",
@@ -185,6 +190,13 @@ export class Caretaker {
       error,
       fence,
       "",
+      ...(again
+        ? [
+            "This chat holds what was found and done last time. Start from",
+            "that: if the earlier repair did not hold, say why, then try",
+            "something else.",
+          ]
+        : []),
       "Work out why it failed, then repair it if you safely can. Look the",
       "thing up first rather than guessing. If the right answer is to turn it",
       "off, do that and say so. If you cannot fix it, say what you found and",
