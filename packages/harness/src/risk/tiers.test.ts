@@ -30,6 +30,17 @@ describe("classifyRisk", () => {
     });
   });
 
+  it("relaxes a risky floor only when the rule proves the call harmless", () => {
+    const risk: ToolRisk = { floor: "risky", relax: (i) => i.reads === true };
+    expect(classifyRisk(risk, { reads: true })).toEqual({ tier: "safe", escalated: false });
+    expect(classifyRisk(risk, { reads: false })).toEqual({ tier: "risky", escalated: false });
+    expect(classifyRisk(risk, {})).toEqual({ tier: "risky", escalated: false });
+    // Relaxation is for a risky floor; a safe one has nothing to relax.
+    let called = false;
+    classifyRisk({ floor: "safe", relax: () => (called = true) }, {});
+    expect(called).toBe(false);
+  });
+
   it("does not consult escalation when the floor is already risky", () => {
     let called = false;
     const risk: ToolRisk = {

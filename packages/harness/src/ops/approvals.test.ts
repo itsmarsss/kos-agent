@@ -62,6 +62,36 @@ describe("ApprovalQueue", () => {
     expect(queue.pending()).toHaveLength(0);
   });
 
+  it("lapses an awaited ask when the wait runs out, so the row and every prompt settle", async () => {
+    const told: string[] = [];
+    queue.onDecided((a) => told.push(`${a.id}:${a.status}:${a.decidedBy ?? ""}`));
+    const a = queue.enqueue({ tool: "shell", args: { cmd: "rm x" }, riskTier: "risky" });
+    expect(await queue.waitFor(a.id, 5)).toBe("expired");
+    expect(queue.get(a.id)?.status).toBe("expired");
+    expect(queue.pending()).toHaveLength(0);
+    expect(told).toEqual([`${a.id}:expired:timeout`]);
+    // Lapsed is decided: the owner's late click lands on nothing.
+    expect(queue.approve(a.id, "owner")).toBeUndefined();
+    // A decision that lands first stands, and the waiter hears it.
+    const b = queue.enqueue({ tool: "shell", args: { cmd: "rm y" }, riskTier: "risky" });
+    const waited = queue.waitFor(b.id, 50);
+    queue.approve(b.id, "owner");
+    expect(await waited).toBe("approved");
+  });
+
+  it("expires the asks nobody is waiting on once they are old enough", () => {
+    let clock = 1_000_000;
+    const q = new ApprovalQueue(ws.db, undefined, () => clock);
+    const old = q.enqueue({ tool: "shell", args: { cmd: "a" }, riskTier: "risky" });
+    clock += 2 * 3_600_000;
+    const fresh = q.enqueue({ tool: "shell", args: { cmd: "b" }, riskTier: "risky" });
+    clock += 30 * 60_000;
+    expect(q.expire(3_600_000).map((x) => x.id)).toEqual([old.id]);
+    expect(q.get(old.id)).toMatchObject({ status: "expired", decidedBy: "timeout" });
+    expect(q.pending().map((x) => x.id)).toEqual([fresh.id]);
+    expect(q.expire(3_600_000)).toEqual([]);
+  });
+
   it("does not re-decide an already-decided action", () => {
     const a = queue.enqueue({ tool: "t", args: {}, riskTier: "risky" });
     expect(queue.approve(a.id, "owner")?.status).toBe("approved");

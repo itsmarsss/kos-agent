@@ -290,7 +290,7 @@ export class GuardedTools implements ToolBox {
         return {
           content: [
             `${DENIED_PREFIX}${action.id}).`,
-            "The owner did not approve it, so nothing was done.",
+            decision === "expired" ? "Nobody decided within the wait, so nothing was done." : "The owner did not approve it, so nothing was done.",
             "Do not try it again. Say what you would have done and stop, or",
             "offer something that does not need it.",
           ].join(" "),

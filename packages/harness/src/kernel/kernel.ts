@@ -324,6 +324,7 @@ export class Kernel {
   private readonly restartHost: (() => Promise<void>) | undefined;
   private restartWanted: { since: number } | null = null;
   private restartPoll: ReturnType<typeof setInterval> | null = null;
+  private expirySweep: ReturnType<typeof setInterval> | null = null;
 
   /** Called by bootKernel, which assembles the args; not meant for anyone else. */
   constructor(args: {
@@ -399,6 +400,8 @@ export class Kernel {
       this.idleSweep = setInterval(() => this.sweepIdleTabs(), IDLE_SWEEP_MS);
       this.idleSweep.unref?.();
     }
+    this.expirySweep = setInterval(() => this.sweepExpiredApprovals(), IDLE_SWEEP_MS);
+    this.expirySweep.unref?.();
     this.secrets = args.secrets;
     this.registry = args.registry;
     this.manifest = args.manifest;
@@ -2120,6 +2123,25 @@ export class Kernel {
     if (!this.restartWanted || !this.restartHost || this.restartBlockers().length > 0) return;
     this.cancelRestart();
     void this.restartHost().catch((err: unknown) => console.error(`[host] restart failed: ${err instanceof Error ? err.message : String(err)}`));
+   * Asks nobody answered lapse, so the inbox holds today's decisions and
+   * the chat that asked knows nothing was done. Said in the chat as a line
+   * of its own rather than a turn: nobody asked for one, and the news is
+   * one sentence. A chat mid-turn gets the live note only, since its
+   * transcript is being written.
+   */
+  sweepExpiredApprovals(): PendingAction[] {
+    const hours = this.behaviour().approvalExpiryHours;
+    const lapsed = this.approvals.expire(hours * 3_600_000);
+    for (const action of lapsed) {
+      const id = action.conversationId;
+      if (!id) continue;
+      const text = `#${action.id} (${summarizeAction(action.tool, action.args)}) lapsed: nobody decided within ${hours} hour${hours === 1 ? "" : "s"}, so nothing was done. Ask again if it is still wanted.`;
+      this.progress.emit({ kind: "note", conversationId: id, text });
+      if (this.working.has(id) || !this.conversations.get(id)) continue;
+      this.sessions.record(id, [...this.sessions.get(id), { role: "assistant", content: [{ type: "text", text }] }]);
+      this.conversations.touch(id);
+    }
+    return lapsed;
   }
 
   /** The caller's tab as a picture, for browser.look. */
@@ -2878,6 +2900,8 @@ export class Kernel {
 
   close(): void {
     if (this.idleSweep) clearInterval(this.idleSweep);
+    if (this.expirySweep) clearInterval(this.expirySweep);
+    this.expirySweep = null;
     this.idleSweep = null;
     this.cancelRestart();
     this.browser.close();

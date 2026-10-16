@@ -646,7 +646,9 @@ export async function handleApiRequest(
   }
 
   if (method === "GET" && path === "/api/approvals") {
-    return ok(kernel.approvals.pending());
+    // When each lapses if nobody decides, so the inbox can say so.
+    const keep = kernel.behaviour().approvalExpiryHours * 3_600_000;
+    return ok(kernel.approvals.pending().map((a) => ({ ...a, expiresAt: a.requestedAt + keep })));
   }
 
   // What the browser showed after a step, for the thread's tool card.

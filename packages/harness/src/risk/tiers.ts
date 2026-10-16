@@ -12,6 +12,13 @@ export type Escalation = (input: Record<string, unknown>) => boolean;
 export interface ToolRisk {
   floor: RiskTier;
   escalate?: Escalation;
+  /**
+   * Arguments that bring a risky floor down to safe: a shell command that
+   * only reads, say. The mirror of escalation, and as deterministic:
+   * consulted only on a risky floor, and only ever true for a call the
+   * rule can prove harmless.
+   */
+  relax?: Escalation;
 }
 
 export interface RiskAssessment {
@@ -25,7 +32,8 @@ export const RISKY: ToolRisk = { floor: "risky" };
 
 /**
  * Compute the risk tier for a tool call. A risky floor is risky regardless of
- * arguments; a safe floor can be escalated to risky by an argument rule.
+ * arguments, unless a relaxation rule proves the call harmless; a safe floor
+ * can be escalated to risky by an argument rule.
  */
 export function classifyRisk(
   risk: ToolRisk | undefined,
@@ -33,7 +41,7 @@ export function classifyRisk(
 ): RiskAssessment {
   const floor = risk?.floor ?? "safe";
   if (floor === "risky") {
-    return { tier: "risky", escalated: false };
+    return { tier: risk?.relax?.(input) ? "safe" : "risky", escalated: false };
   }
   if (risk?.escalate?.(input)) {
     return { tier: "risky", escalated: true };

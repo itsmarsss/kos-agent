@@ -412,6 +412,7 @@ describe("the approval prompt", () => {
   it("settles with the verb and the thing in inline code", () => {
     expect(settledText("approved", "Run: rm -rf build (in /w)", "12")).toBe("-# ✅ Approved · Run `rm -rf build (in /w)`");
     expect(settledText("denied", undefined, "7")).toBe("-# ❌ Denied · #7");
+    expect(settledText("expired", "Run: rm x", "8")).toBe("-# ⌛ Lapsed · Run `rm x`");
   });
 
   it("keeps a text-only request as it was given", () => {

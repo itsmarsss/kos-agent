@@ -26,6 +26,16 @@ function ago(ts: number): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
+/** How long an ask has left before it lapses on its own. */
+function lapses(ts: number): string {
+  const mins = Math.round((ts - Date.now()) / 60000);
+  if (mins < 1) return "lapses any moment";
+  if (mins < 60) return `lapses in ${mins}m`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `lapses in ${hours}h`;
+  return `lapses in ${Math.round(hours / 24)}d`;
+}
+
 export function InboxPage({
   data,
   deciding,
@@ -92,6 +102,7 @@ export function InboxPage({
                   {a.rule?.scope?.startsWith("site:") && <span className="inbox-meta">Always would trust {a.rule.scope.slice(5)} for every browser action.</span>}
                   <span className="inbox-meta">
                     {ago(a.requestedAt)}
+                    {a.expiresAt !== undefined && ` · ${lapses(a.expiresAt)}`}
                     {a.conversationId && (
                       <>
                         {" · "}

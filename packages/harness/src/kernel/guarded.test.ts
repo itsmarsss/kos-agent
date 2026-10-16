@@ -189,6 +189,9 @@ describe("GuardedTools", () => {
     // A turn that waits forever holds its conversation's queue forever.
     const res = await guarded({ approvalTimeoutMs: 10 }).execute("danger", {});
     expect(res.content).toMatch(/not approved/);
+    expect(res.content).toMatch(/Nobody decided within the wait/);
+    // The ask lapsed with the wait rather than lingering in the inbox.
+    expect(approvals.pending()).toHaveLength(0);
   });
 
 

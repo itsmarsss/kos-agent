@@ -39,9 +39,7 @@ export function connectChannel(
     // has already been made.
     watchDecisions: (listener) =>
       kernel.approvals.onDecided((action) => {
-        if (action.status === "approved" || action.status === "denied") {
-          listener(String(action.id), action.status);
-        }
+        if (action.status !== "pending") listener(String(action.id), action.status);
       }),
     handleTurn: async (ctx) => {
       // The kernel owns conversation resolution and the /new, /chats, /switch

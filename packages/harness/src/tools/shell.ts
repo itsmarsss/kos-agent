@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
+import { isReadOnlyCommand } from "../risk/readonly.js";
 import { childEnv } from "../sandbox/env.js";
 import { jailedCommand } from "../sandbox/jail.js";
 
@@ -98,7 +99,8 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
         {
           name: "shell.run",
           description:
-            "Run a shell command inside the workspace: git, pnpm, python, a build, a script. It cannot see the owner's home directory or write outside the workspace. Prefer the files, search and sql tools when one does the job; use this for programs. Output is capped; long runs time out.",
+            "Run a shell command inside the workspace: git, pnpm, python, a build, a script. It cannot see the owner's home directory or write outside the workspace. Prefer the files, search and sql tools when one does the job; use this for programs. " +
+            "A command line that only reads (ls, cat, grep, find, git status/log/diff, and the like, joined by pipes or &&) runs without asking; anything that writes, runs code or reaches the network asks the owner first. Output is capped; long runs time out.",
           inputSchema: {
             type: "object",
             properties: {
@@ -118,7 +120,9 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           const result = await runShell(command, { workspaceRoot: ws.root, cwd, timeoutMs: seconds * 1000, maxOutput: maxOutput });
           return JSON.stringify(result);
         },
-        { floor: "risky" },
+        // Risky by floor, as the spec says; a line that provably only reads
+        // runs as safe, since asking for every ls teaches the owner to say yes.
+        { floor: "risky", relax: (input) => typeof input["command"] === "string" && isReadOnlyCommand(input["command"]) },
       );
     },
   };
