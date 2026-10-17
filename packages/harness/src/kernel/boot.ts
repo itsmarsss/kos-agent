@@ -68,7 +68,7 @@ import { ensureDefaultImproveCron } from "../improve/job.js";
 import { createImproveModule } from "../tools/improve.js";
 import { createCronModule } from "../tools/cron.js";
 import { filesModule } from "../tools/files.js";
-import { createNotifyModule, noticeText, type NotifyPayload } from "../tools/notify.js";
+import { createNotifyModule, noticeText, SurfaceDownError, type NotifyPayload } from "../tools/notify.js";
 import { sqlModule } from "../tools/sql.js";
 import { createBuildsModule } from "../tools/builds.js";
 import { sitesModule } from "../tools/sites.js";
@@ -270,9 +270,23 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
         return "Sent as a reply to the press.";
       }
 
+      const { surface, kind } = payload.target;
       if (options.notify) {
-        await options.notify(payload);
-        return;
+        try {
+          await options.notify(payload);
+          return;
+        } catch (err) {
+          /*
+           * The owner's surface is wired but not connected at this moment:
+           * Discord still logging in, or dropped by the gateway. A message
+           * for the owner goes where they also look, the dashboard, and the
+           * reply says so, which is not an error and not "sent" either. A
+           * message for a channel or another person has no such place.
+           */
+          if (!(err instanceof SurfaceDownError) || kind !== "owner") throw err;
+          kernelRef?.caretaker.record(noticeText(payload));
+          return `${err.surface} is not connected right now, so this was left in the primary chat on the dashboard instead.`;
+        }
       }
       /*
        * No channel is wired, so the dashboard is where the owner already
@@ -283,7 +297,6 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
        * by writing a line on the dashboard, and answering "sent" to it is
        * how an agent comes to believe it has told someone something.
        */
-      const { surface, kind } = payload.target;
       if (surface || kind !== "owner") {
         throw new Error(
           `no ${surface ?? "messaging"} surface is connected here, so that message has nowhere to go.`,

@@ -107,7 +107,7 @@ describe("looking after failures", () => {
   });
 
   it("tells the owner about a connection blip but opens no fix chat for it", async () => {
-    for (const error of ["Connection error.", "fetch failed", "ECONNRESET", "429 rate limit exceeded", "Request timed out"]) {
+    for (const error of ["Connection error.", "fetch failed", "ECONNRESET", "429 rate limit exceeded", "Request timed out", "notify: tool error: the discord surface is not connected right now. Connected: none."]) {
       const d = deps();
       new Caretaker(d).report("cron:7", "Nightly", false, error);
       await new Promise((r) => setTimeout(r, 0));
