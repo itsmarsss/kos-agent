@@ -42,7 +42,7 @@ import { readSkills } from "../skills/manifest.js";
 import { importPage, listPages, readPage } from "../memory/pages.js";
 import { applyResolution, describeReview } from "../memory/resolve.js";
 import type { ReviewItem } from "../memory/review.js";
-import { agentConversationId, ROLE_NAME, type Role, type RoleRecord } from "../agents/roles.js";
+import { ROLE_NAME, type Role, type RoleRecord } from "../agents/roles.js";
 import type { ModelMessage } from "../models/types.js";
 import { mayRead } from "../memory/callers.js";
 import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
