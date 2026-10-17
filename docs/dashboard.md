@@ -166,8 +166,10 @@ status control, is the reversible way to set one aside.
 
 ## Agents
 
-The standing agents, one row each: what it is for, its schedule or "on
-request", and when it last ran. A row opens its file as fields: name, what
+The standing agents, one row each, with its face: a blob drawn from its
+name that glances about while it works, bounces when it needs you, droops
+on an error and sleeps when paused. Then what it is for, its schedule or
+"on request", and when it last ran. A row opens its file as fields: name, what
 it is for, the brief, the tool families it may reach, whether its memory is
 its own, the model class, the schedule and the prompt for each run. Save
 writes the file; the next turn uses it. Run now runs its scheduled prompt

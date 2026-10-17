@@ -18,6 +18,7 @@ import { useDismiss } from "./useDismiss.js";
 
 import { ContextMeter } from "./ContextMeter.js";
 import { groupChats, isBusy, placeOf, projectSummary } from "./chattree.js";
+import { Face, moodOf } from "./Face.js";
 import { Gutter } from "./Gutter.js";
 import { NewProjectDialog } from "./NewProjectDialog.js";
 import { ProjectPanel } from "./ProjectPanel.js";
@@ -1223,6 +1224,8 @@ export function ChatsPage({
                 exactly like an idle one, and the only way to find out was
                 to open it. A dot says which, and leaves the time alone. */}
             <ThreadDot live={progress[c.id]} chat={c} waiting={waitingOn.has(c.id)} />
+            {/* An agent working inside a project wears its role's face. */}
+            {c.role && <Face seed={c.role} size={16} mood={moodOf(c.activity)} />}
             <span className="chats-item-title">{c.title}</span>
             <span className="chats-item-when">{relative(c.updatedAt)}</span>
           </span>
@@ -1541,6 +1544,7 @@ export function ChatsPage({
                             <m.span className="chats-active-bar" layoutId="chat-active" transition={spring} />
                           )}
                           <span className="chats-item-top">
+                            <Face seed={c.role ?? c.id} size={18} mood={moodOf(c.activity)} />
                             <span className="chats-item-title">{c.title}</span>
                             {isBusy(c) && <StatusDot state="working" label="working" />}
                             <span className="chats-badge">agent</span>
@@ -1865,6 +1869,7 @@ export function ChatsPage({
                   })()}
                 </div>
                 <h1>
+                  {active.role && <Face seed={active.role} size={30} mood={moodOf(active.activity)} />}
                   {active.title}
                   {active.kind === "project" && <span className="chats-role">orchestrator</span>}
                 </h1>

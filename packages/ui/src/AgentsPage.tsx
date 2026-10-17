@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 
 import { api, type AgentDraft, type AgentInfo, type InvalidAgent } from "./api.js";
+import { Face, type Mood } from "./Face.js";
 import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";
 
@@ -21,6 +22,8 @@ export interface AgentsPageProps {
   onNotice: (text: string) => void;
   /** Something changed that the rest of the app lists: a thread, a job. */
   onChanged: () => void;
+  /** What each agent's thread is doing, by name, so its face can say. */
+  activity?: ReadonlyMap<string, Mood>;
 }
 
 /** The form's own shape: every field a string, so an input can hold it. */
@@ -78,7 +81,9 @@ function titleOf(name: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-export function AgentsPage({ open, onOpen, onOpenThread, onNotice, onChanged }: AgentsPageProps): ReactElement {
+export function AgentsPage({ open, onOpen, onOpenThread, onNotice, onChanged, activity }: AgentsPageProps): ReactElement {
+  /** Its face: asleep when its schedule is paused, else whatever its thread is doing. */
+  const moodFor = (a: AgentInfo): Mood => (a.job && !a.job.enabled ? "asleep" : activity?.get(a.name) ?? "idle");
   const [agents, setAgents] = useState<AgentInfo[] | null>(null);
   const [invalid, setInvalid] = useState<InvalidAgent[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -188,7 +193,10 @@ export function AgentsPage({ open, onOpen, onOpenThread, onNotice, onChanged }: 
                 onClick={() => onOpen(a.name)}
               >
                 <span className="agents-row-top">
-                  <span className="card-name">{titleOf(a.name)}</span>
+                  <span className="agents-row-who">
+                    <Face seed={a.name} size={26} mood={moodFor(a)} />
+                    <span className="card-name">{titleOf(a.name)}</span>
+                  </span>
                   <span className="chats-badge">{a.job ? (a.job.enabled ? "scheduled" : "paused") : "on request"}</span>
                 </span>
                 <span className="agents-row-desc">{a.description}</span>
@@ -223,6 +231,16 @@ export function AgentsPage({ open, onOpen, onOpenThread, onNotice, onChanged }: 
                 save();
               }}
             >
+              {/* Its face, large, and live as the name is typed: the name is
+                  what the look comes from, so a new agent is met before it
+                  is made. */}
+              <div className="agents-editor-head">
+                <Face seed={draft.name || "new"} size={56} mood={current ? moodFor(current) : "idle"} label={draft.name ? `${titleOf(draft.name)}'s face` : "A new agent's face"} />
+                <div>
+                  <strong>{draft.name ? titleOf(draft.name) : "A new agent"}</strong>
+                  <span className="hint">{current ? current.description : "Its colour, shape and eyes come from its name."}</span>
+                </div>
+              </div>
               <div className="agents-fields">
                 <label className="kos-field">
                   <span className="kos-field-label">Name</span>
