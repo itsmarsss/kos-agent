@@ -39,6 +39,8 @@ export interface ModuleServices {
   pages?: PageStore;
   /** Scheduled jobs, so a blueprint can carry a project's. */
   crons?: CronStore;
+  /** The project the calling conversation belongs to, read at call time; undefined at the root. */
+  callerProject?: () => string | undefined;
 }
 
 /**
