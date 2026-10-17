@@ -363,6 +363,19 @@ describe("handleApiRequest", () => {
     expect(kernel.conversations.get(thread.id)).toBeUndefined();
   });
 
+  it("keeps KOS's face in the workspace and carries it on the status", async () => {
+    expect((await handleApiRequest(kernel, { method: "GET", path: "/api/settings/face" })).body).toEqual({ face: {} });
+    const saved = await handleApiRequest(kernel, { method: "POST", path: "/api/settings/face", body: { face: { hue: "400", eyes: "half", gait: 9 } } });
+    expect(saved.body).toEqual({ face: { hue: 40, eyes: "half" } });
+    expect((await handleApiRequest(kernel, { method: "GET", path: "/api/status" })).body).toMatchObject({ face: { hue: 40, eyes: "half" } });
+    // An agent's own face rides on its threads, so the list draws it right.
+    kernel.roles.write({ name: "research", description: "Looks things up", brief: "You look.", memory: "own", face: { hue: 300 } });
+    kernel.ensureAgentConversation("research");
+    const listed = (await handleApiRequest(kernel, { method: "GET", path: "/api/conversations" })).body as { id: string; face?: { hue?: number } }[];
+    expect(listed.find((c) => c.id === "agent:research")?.face).toEqual({ hue: 300 });
+    kernel.roles.remove("research");
+  });
+
   it("lists, writes, runs and removes standing agents for the Agents page", async () => {
     const empty = (await handleApiRequest(kernel, { method: "GET", path: "/api/agents" })).body as { agents: unknown[]; invalid: unknown[] };
     expect(empty).toEqual({ agents: [], invalid: [] });

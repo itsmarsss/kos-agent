@@ -109,7 +109,7 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
   return (
     <aside className="project-panel" aria-label={`${titleOf(agent.name)}, the agent`} aria-hidden={hidden}>
       <div className="agent-panel-head">
-        <Face seed={agent.name} size={44} mood={moodOf(agent.thread?.activity, { paused })} />
+        <Face seed={agent.name} look={agent.face ?? {}} size={44} mood={moodOf(agent.thread?.activity, { paused })} />
         <div>
           <strong>{titleOf(agent.name)}</strong>
           <span className="hint">{agent.description}</span>

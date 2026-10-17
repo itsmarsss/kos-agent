@@ -52,6 +52,12 @@ what it is doing: it glances about while working, bounces with a mark when
 it needs you, droops on an error, and sleeps when its schedule is paused.
 With reduced motion on, it holds still.
 
+Any of the three can be set by hand, in the file (`face: hue 210, eyes
+sparkle, gait 2`; hue 0 to 359, eyes round, half or sparkle, gait 0 to 3)
+or with the sliders in Edit on the agent's page; what is left unset still
+comes from the name. KOS has a face of the same kind, in the sidebar, the
+chat rail, the landing and the tab icon, set under Settings, Appearance.
+
 ## Where it lives
 
 Each agent has one standing thread, `agent:<name>`, on the agent's own page

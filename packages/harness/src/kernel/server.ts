@@ -42,7 +42,7 @@ import { readSkills } from "../skills/manifest.js";
 import { importPage, listPages, readPage } from "../memory/pages.js";
 import { applyResolution, describeReview } from "../memory/resolve.js";
 import type { ReviewItem } from "../memory/review.js";
-import { ROLE_NAME, type Role, type RoleRecord } from "../agents/roles.js";
+import { KOS_FACE_KEY, parseFaceLook, ROLE_NAME, type Role, type RoleRecord } from "../agents/roles.js";
 import type { ModelMessage } from "../models/types.js";
 import { mayRead } from "../memory/callers.js";
 import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
@@ -211,6 +211,9 @@ function conversationLabeller(
       .filter((id): id is string => typeof id === "string"),
   );
   const failed = kernel.failedConversations();
+  // What the owner set about each agent's face, so a thread that runs as a
+  // role carries the look wherever the list draws it.
+  const faces = new Map(kernel.roles.list().roles.map((r) => [r.name, r.face ?? {}]));
   return (c) => {
     // A thread whose last turn threw is red until something happens in it:
     // the owner would otherwise find a half-answer with nothing to say why.
@@ -228,6 +231,7 @@ function conversationLabeller(
       // Touched since the owner last opened it, on any surface.
       unread: c.updatedAt > (c.readAt ?? 0),
       ...(activity === "error" ? { lastError: failed.get(c.id) } : {}),
+      ...(c.role && faces.has(c.role) ? { face: faces.get(c.role) } : {}),
     };
   };
 }
@@ -510,6 +514,9 @@ export async function handleApiRequest(
       workspace: options.meta?.workspace ?? kernel.workspace.root,
       orchestratorId: orchestratorId(kernel.profile.ownerId),
       routes: kernel.routes() ?? null,
+      // KOS's face rides on the status the dashboard already polls, so the
+      // sidebar, the rail and the tab icon all draw the same one.
+      face: parseFaceLook(kernel.settings.get(KOS_FACE_KEY)),
       // Carried on the status the dashboard already polls, so an unattended
       // failure is visible on the next open rather than only in a message the
       // owner may have missed.
@@ -581,6 +588,17 @@ export async function handleApiRequest(
       defaults: BEHAVIOUR_DEFAULTS,
       limits: BEHAVIOUR_LIMITS,
     });
+  }
+
+  /** KOS's own face, kept in the workspace so every browser and the tab icon agree. */
+  if (method === "GET" && path === "/api/settings/face") {
+    return ok({ face: parseFaceLook(kernel.settings.get(KOS_FACE_KEY)) });
+  }
+
+  if (method === "POST" && path === "/api/settings/face") {
+    const face = parseFaceLook(body.face ?? body);
+    kernel.settings.set(KOS_FACE_KEY, face);
+    return ok({ face });
   }
 
   if (method === "POST" && path === "/api/settings/behaviour") {
@@ -3081,6 +3099,7 @@ function parseRoleInput(body: Record<string, unknown>): Role | string {
   if (schedule && !cron.validate(schedule)) return `invalid cron schedule: ${schedule}`;
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
   if (schedule && !prompt) return "a schedule needs a prompt: what to do on each run";
+  const face = parseFaceLook(body.face);
   return {
     name,
     description,
@@ -3090,6 +3109,7 @@ function parseRoleInput(body: Record<string, unknown>): Role | string {
     ...(body.task === "cheap" || body.task === "reasoning" ? { task: body.task } : {}),
     ...(schedule ? { schedule } : {}),
     ...(prompt ? { prompt } : {}),
+    ...(Object.keys(face).length ? { face } : {}),
   };
 }
 

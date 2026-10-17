@@ -7,6 +7,9 @@ import {
   type Behaviour,
   type ModelRate,
   type SettingsPayload, type ModuleInfo, type SkillInfo, type McpServerInfo, type PermissionRule, type BrowserSettings, type RestartState, type Status } from "./api.js";
+import type { FaceLook } from "./api.js";
+import { KOS_SEED } from "./Face.js";
+import { FaceEditor } from "./FaceEditor.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { useOpenTab } from "./opentab.js";
 import { Select } from "./Select.js";
@@ -391,6 +394,21 @@ export function SettingsPage({
   const [error, setError] = useState<string | null>(null);
   const [active, setActiveState] = useState<SectionId>(isSection(section) ? section : "you");
   const [theme, setThemeState] = useState<Theme>(readTheme);
+  /** KOS's face, from the workspace; saved as it is changed. */
+  const [kosFace, setKosFace] = useState<FaceLook>({});
+  const [kosFaceNote, setKosFaceNote] = useState<string | null>(null);
+  useEffect(() => {
+    void api.kosFace().then((r) => setKosFace(r.face)).catch(() => undefined);
+  }, []);
+  const saveKosFace = async (face: FaceLook): Promise<void> => {
+    setKosFace(face);
+    try {
+      await api.saveKosFace(face);
+      setKosFaceNote("Saved. The sidebar and the tab icon follow within a few seconds.");
+    } catch (err) {
+      setKosFaceNote(err instanceof Error ? err.message : String(err));
+    }
+  };
   const [density, setDensityState] = useState<Density>(readDensity);
   useEffect(() => {
     if (isSection(section)) setActiveState(section);
@@ -1158,6 +1176,13 @@ export function SettingsPage({
                   }
                 }}
               />
+            </Field>
+            <Field
+              label="KOS's face"
+              hint="The blob in the sidebar, the chat rail and the tab icon. Kept in the workspace, not this browser, so every screen and the tab agree. Left alone, it comes from the name."
+            >
+              <FaceEditor seed={KOS_SEED} value={kosFace} onChange={(face) => void saveKosFace(face)} label="KOS's face" />
+              {kosFaceNote && <span className="hint">{kosFaceNote}</span>}
             </Field>
           </Section>
         )}

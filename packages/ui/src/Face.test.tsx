@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { Face, lookOf, moodOf } from "./Face.js";
+import { AgentFaces, Face, faceSvg, lookOf, moodOf } from "./Face.js";
 
 afterEach(cleanup);
 
@@ -19,6 +19,13 @@ describe("an agent's face", () => {
     const hues = new Set(names.map((n) => lookOf(n).hue));
     expect(hues.size).toBe(names.length);
     expect(lookOf("")).toEqual(lookOf("kos"));
+  });
+
+  it("takes what the owner set over the name, and only what is in range", () => {
+    const base = lookOf("research");
+    const set = lookOf("research", { hue: 400, eyes: "half", gait: 3 });
+    expect(set).toEqual({ ...base, hue: 40, eyes: "half", wobble: 3 });
+    expect(lookOf("research", { hue: Number.NaN, gait: 7 as never })).toEqual(base);
   });
 
   it("reads a thread's state as a mood, with a paused schedule asleep", () => {
@@ -42,5 +49,26 @@ describe("an agent's face", () => {
     const asleep = screen.getByRole("img", { name: "Research, paused" });
     expect(asleep.textContent).toContain("z");
     expect(asleep.textContent).not.toContain("!");
+  });
+
+  it("wears what the file says wherever it is drawn from the name alone", () => {
+    render(
+      <AgentFaces.Provider value={new Map([["research", { hue: 123 }]])}>
+        <Face seed="research" />
+      </AgentFaces.Provider>,
+    );
+    expect(screen.getByRole("img").getAttribute("style")).toContain("--blob-h: 123");
+  });
+
+  it("draws the same look still, for the tab icon", () => {
+    const look = lookOf("kos", { hue: 200, eyes: "sparkle", gait: 1 });
+    const idle = faceSvg(look);
+    expect(idle).toContain("hsl(200 88% 80%)");
+    expect(idle).toContain('fill="#fff"'); // the sparkle
+    expect(idle).not.toContain(">!<");
+    const needs = faceSvg(look, "needs-you");
+    expect(needs).toContain(">!<");
+    expect(faceSvg(look, "asleep")).toContain(">z<");
+    expect(faceSvg(look, "error")).toContain("hsl(200 40% 80%)");
   });
 });

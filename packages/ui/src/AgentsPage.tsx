@@ -119,7 +119,7 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
             <button type="button" className="agents-row" onClick={() => onOpen(a.name)}>
               <span className="agents-row-top">
                 <span className="agents-row-who">
-                  <Face seed={a.name} size={30} mood={moodOf(a.thread?.activity, { paused: Boolean(a.job && !a.job.enabled) })} />
+                  <Face seed={a.name} look={a.face ?? {}} size={30} mood={moodOf(a.thread?.activity, { paused: Boolean(a.job && !a.job.enabled) })} />
                   <span className="card-name">
                     {titleOf(a.name)}
                     {a.thread?.unread && <span className="unread-dot" aria-label="unread" />}

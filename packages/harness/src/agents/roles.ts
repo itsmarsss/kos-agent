@@ -25,6 +25,57 @@ export const ROLE_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 export type RoleMemory = "own" | "shared";
 
+/**
+ * What the owner may set about an agent's face: its hue, its eyes, its
+ * gait. Anything unset comes from the name, so a face needs no setting at
+ * all. KOS's own face is the same shape, kept in settings under KOS_FACE_KEY.
+ */
+export interface FaceLook {
+  hue?: number;
+  eyes?: "round" | "half" | "sparkle";
+  gait?: 0 | 1 | 2 | 3;
+}
+
+export const KOS_FACE_KEY = "kos.face";
+const EYES = ["round", "half", "sparkle"] as const;
+
+/** A face from an object: numbers and names checked, the rest dropped. */
+export function parseFaceLook(raw: unknown): FaceLook {
+  if (typeof raw !== "object" || raw === null) return {};
+  const r = raw as Record<string, unknown>;
+  const out: FaceLook = {};
+  const hue = typeof r["hue"] === "number" ? r["hue"] : typeof r["hue"] === "string" ? Number(r["hue"]) : NaN;
+  if (Number.isFinite(hue)) out.hue = ((Math.round(hue) % 360) + 360) % 360;
+  if (typeof r["eyes"] === "string" && (EYES as readonly string[]).includes(r["eyes"])) out.eyes = r["eyes"] as FaceLook["eyes"];
+  const gait = typeof r["gait"] === "number" ? r["gait"] : typeof r["gait"] === "string" ? Number(r["gait"]) : NaN;
+  if ([0, 1, 2, 3].includes(gait)) out.gait = gait as FaceLook["gait"];
+  return out;
+}
+
+/** "hue 210, eyes sparkle, gait 2" into a face; a part it cannot read is an error. */
+export function parseFaceText(text: string): FaceLook {
+  const raw: Record<string, string> = {};
+  for (const part of text.split(",")) {
+    const words = part.trim().split(/[\s=:]+/).filter(Boolean);
+    if (words.length === 0) continue;
+    if (words.length !== 2 || !["hue", "eyes", "gait"].includes(words[0]!)) throw new Error(`face: "${part.trim()}" is not "hue <0-359>", "eyes <round|half|sparkle>" or "gait <0-3>"`);
+    raw[words[0]!] = words[1]!;
+  }
+  const face = parseFaceLook(raw);
+  for (const key of Object.keys(raw)) {
+    if (!(key in face)) throw new Error(`face: "${key} ${raw[key]}" is out of range`);
+  }
+  return face;
+}
+
+export function formatFaceText(face: FaceLook): string {
+  return [
+    ...(face.hue !== undefined ? [`hue ${face.hue}`] : []),
+    ...(face.eyes ? [`eyes ${face.eyes}`] : []),
+    ...(face.gait !== undefined ? [`gait ${face.gait}`] : []),
+  ].join(", ");
+}
+
 export interface Role {
   name: string;
   /** One line: what it is for, as a list would show it. */
@@ -45,6 +96,8 @@ export interface Role {
   schedule?: string;
   /** What it is told on each scheduled run. Required with a schedule. */
   prompt?: string;
+  /** What the owner set about its face; absent, the name decides. */
+  face?: FaceLook;
 }
 
 export interface RoleRecord extends Role {
@@ -69,7 +122,7 @@ export function agentConversationId(name: string): string {
   return `agent:${name}`;
 }
 
-const KEYS = new Set(["name", "description", "tools", "memory", "task", "schedule", "prompt"]);
+const KEYS = new Set(["name", "description", "tools", "memory", "task", "schedule", "prompt", "face"]);
 
 /**
  * The file's head, as `key: value` lines between two `---` lines. Lists are
@@ -128,6 +181,8 @@ export function parseRole(text: string, fileName: string): Role {
   const schedule = head.get("schedule") || undefined;
   const prompt = head.get("prompt") || undefined;
   if (schedule && !prompt) throw new Error("a schedule needs a prompt: what to do on each run");
+  const faceText = head.get("face");
+  const face = faceText ? parseFaceText(faceText) : undefined;
   return {
     name,
     description,
@@ -137,6 +192,7 @@ export function parseRole(text: string, fileName: string): Role {
     ...(task ? { task } : {}),
     ...(schedule ? { schedule } : {}),
     ...(prompt ? { prompt } : {}),
+    ...(face && Object.keys(face).length ? { face } : {}),
   };
 }
 
@@ -150,6 +206,7 @@ export function formatRole(role: Role): string {
     ...(role.task ? [`task: ${role.task}`] : []),
     ...(role.schedule ? [`schedule: ${role.schedule}`] : []),
     ...(role.prompt ? [`prompt: ${oneLine(role.prompt)}`] : []),
+    ...(role.face && formatFaceText(role.face) ? [`face: ${formatFaceText(role.face)}`] : []),
   ];
   return `---\n${head.join("\n")}\n---\n\n${role.brief.trim()}\n`;
 }
