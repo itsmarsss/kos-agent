@@ -174,7 +174,7 @@ export function AgentTerminal({
 
     const loadAsks = (): void => {
       void api
-        .agent(id)
+        .build(id)
         .then((r) => {
           if (cancelled) return;
           // The stream is the source for the build itself; this only fills in
