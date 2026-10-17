@@ -19,6 +19,7 @@ import { useDismiss } from "./useDismiss.js";
 import { ContextMeter } from "./ContextMeter.js";
 import { groupChats, isBusy, placeOf, projectSummary } from "./chattree.js";
 import { Gutter } from "./Gutter.js";
+import { NewProjectDialog } from "./NewProjectDialog.js";
 import { ProjectPanel } from "./ProjectPanel.js";
 import {
   api,
@@ -122,6 +123,10 @@ export interface ChatsPageProps {
   onOpen: (id: string) => void;
   /** A project row opens the project's workspace; its chat is one action from there. */
   onOpenProject: (slug: string) => void;
+  /** An empty project from the rail's +, the same dialog the Projects page has. */
+  onCreateProject?: (input: { name: string; type: string }) => Promise<void>;
+  /** Delete a project from its row's menu; two presses, like deleting a chat. */
+  onDeleteProject?: (slug: string) => Promise<void>;
   /**
    * Project mode: the page is scoped to one project. The rail lists its
    * orchestrator and agents (nothing else), the view is whichever of those
@@ -205,6 +210,8 @@ export function ChatsPage({
   onEditCron,
   onOpen,
   onOpenProject,
+  onCreateProject,
+  onDeleteProject,
   project,
   onAside,
   onNotice,
@@ -340,6 +347,8 @@ export function ChatsPage({
   useEffect(() => {
     if (menuFor === null) setConfirmDelete(null);
   }, [menuFor]);
+  /** The New project dialog, from the rail's +. */
+  const [makingProject, setMakingProject] = useState(false);
   /** The chat being renamed, with its title as the field starts. */
   /** The chat whose brief is being handed to another, from the menu. */
   const [handingOff, setHandingOff] = useState<{ id: string; title: string } | null>(null);
@@ -606,12 +615,14 @@ export function ChatsPage({
     const busy = (slug: string, thread: Conversation | undefined): boolean =>
       (thread !== undefined && (isBusy(thread) || (progress[thread.id] !== undefined && !progress[thread.id]!.ended))) ||
       (tree.byProject.get(slug) ?? []).some(isBusy);
+    // Listed means the manifest has it, so it can be deleted; a thread whose
+    // project is already gone has only its own chat menu for that.
     const rows = projects
       .filter((p) => p.status !== "archived")
-      .map((p) => ({ slug: p.slug, name: p.name, badge: p.type, thread: threads.get(p.slug), busy: busy(p.slug, threads.get(p.slug)) }));
+      .map((p) => ({ slug: p.slug, name: p.name, badge: p.type, thread: threads.get(p.slug), busy: busy(p.slug, threads.get(p.slug)), listed: true }));
     for (const [slug, c] of threads) {
       if (!rows.some((r) => r.slug === slug)) {
-        rows.push({ slug, name: c.title, badge: "project", thread: c, busy: busy(slug, c) });
+        rows.push({ slug, name: c.title, badge: "project", thread: c, busy: busy(slug, c), listed: false });
       }
     }
     return rows.sort((a, b) => a.name.localeCompare(b.name));
@@ -1397,11 +1408,23 @@ export function ChatsPage({
               )}
               <div className="chats-group-head">
                 <span>Projects</span>
+                {onCreateProject && (
+                  <button
+                    type="button"
+                    className="chats-group-add"
+                    aria-label="New project"
+                    title="Make an empty project: a chat of its own, and nothing else until something is put there"
+                    onClick={() => setMakingProject(true)}
+                  >
+                    +
+                  </button>
+                )}
               </div>
+              {onCreateProject && <NewProjectDialog open={makingProject} onClose={() => setMakingProject(false)} onCreate={onCreateProject} />}
               {projectRows.length === 0 && (
                 <p className="chats-group-empty">
-                  None yet. Start one from New chat, or just ask KOS and it stands
-                  one up when the work needs its own space.
+                  None yet. Start one with +, from New chat, or just ask KOS and
+                  it stands one up when the work needs its own space.
                 </p>
               )}
               {projectRows.length > 0 && shownProjects.length === 0 && (
@@ -1411,27 +1434,79 @@ export function ChatsPage({
                 /* A row is the project. It opens as its own page, with its
                    orchestrator and agents; nothing unfolds here. */
                 <ul className="chats-projects">
-                  {shownProjects.map((p) => (
+                  {shownProjects.map((p) => {
+                    // Keyed apart from the chats' menus: a project's own
+                    // thread is a conversation with an id of its own.
+                    const menuKey = `proj:${p.slug}`;
+                    return (
                     <li key={p.slug}>
-                      <a
-                        className={`chats-item chats-item--pinned ${p.thread?.id === activeId ? "is-active" : ""}`}
-                        href={hrefFor({ name: "project", slug: p.slug })}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          onOpenProject(p.slug);
-                        }}
-                      >
-                        {p.thread?.id === activeId && (
-                          <m.span className="chats-active-bar" layoutId="chat-active" transition={spring} />
+                      <div className="chats-row">
+                        {onDeleteProject && p.listed && (
+                          <button
+                            type="button"
+                            className="chats-more"
+                            aria-label={`Actions for ${p.name}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMenuFor(menuFor === menuKey ? null : menuKey);
+                            }}
+                          >
+                            <MoreIcon />
+                          </button>
                         )}
-                        <span className="chats-item-top">
-                          <span className="chats-item-title">{p.name}</span>
-                          {p.busy && <StatusDot state="working" label="working" />}
-                          <span className="chats-badge">{p.badge}</span>
-                        </span>
-                      </a>
+                        <AnimatePresence>
+                        {menuFor === menuKey && (
+                          <m.div
+                            className="chats-menu"
+                            role="menu"
+                            ref={menuRef}
+                            initial={{ opacity: 0, scale: 0.96, y: -4 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.97, y: -3 }}
+                            transition={ease}
+                          >
+                            {/* Two presses, as for a chat: its tables, pages
+                                and files go with it; its chats are kept,
+                                archived at the root. */}
+                            <button
+                              type="button"
+                              className="is-danger"
+                              onClick={() => {
+                                if (confirmDelete !== menuKey) {
+                                  setConfirmDelete(menuKey);
+                                  return;
+                                }
+                                setMenuFor(null);
+                                setConfirmDelete(null);
+                                void onDeleteProject!(p.slug).catch(() => undefined);
+                              }}
+                            >
+                              {confirmDelete === menuKey ? "Confirm delete" : "Delete project"}
+                            </button>
+                          </m.div>
+                        )}
+                        </AnimatePresence>
+                        <a
+                          className={`chats-item chats-item--pinned ${p.thread?.id === activeId ? "is-active" : ""}`}
+                          href={hrefFor({ name: "project", slug: p.slug })}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            onOpenProject(p.slug);
+                          }}
+                        >
+                          {p.thread?.id === activeId && (
+                            <m.span className="chats-active-bar" layoutId="chat-active" transition={spring} />
+                          )}
+                          <span className="chats-item-top">
+                            <span className="chats-item-title">{p.name}</span>
+                            {p.busy && <StatusDot state="working" label="working" />}
+                            <span className="chats-badge">{p.badge}</span>
+                          </span>
+                        </a>
+                      </div>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               )}
               {surfaces.length > 0 && (

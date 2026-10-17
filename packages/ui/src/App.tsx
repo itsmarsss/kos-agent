@@ -590,6 +590,21 @@ export function App(): React.ReactElement {
       .then((list) => go(placeOf(id, list.find((c) => c.id === id))))
       .catch(() => go(placeOf(id)));
   };
+  /** An empty project, from the Projects page or the Chats rail; it opens once made. */
+  const createProject = async ({ name, type }: { name: string; type: string }): Promise<void> => {
+    const made = await api.createProject(name, type);
+    flash("ok", `Made ${made.name}`);
+    await refresh();
+    go({ name: "project", slug: made.slug });
+  };
+  /** Delete a project wherever it was asked from; a page that was showing it leaves it. */
+  const deleteProject = async (slug: string): Promise<void> => {
+    const gone = await api.deleteProject(slug);
+    setInspect(null);
+    flash("ok", `Deleted ${slug}: ${gone.tablesDropped.length} tables, ${gone.pagesRemoved} pages; ${gone.conversationsArchived} chats archived, ${gone.jobsDisabled} jobs off`);
+    if (route.name === "project" && route.slug === slug) go({ name: "chats" });
+    await refresh();
+  };
   /** The thread the quick question is asked beside, if one is open. */
   const askContext =
     route.name === "chats"
@@ -681,13 +696,7 @@ export function App(): React.ReactElement {
               flash("ok", `Project ${slug} → ${st}`);
               await refresh();
             }}
-            onDeleteProject={async (slug) => {
-              const gone = await api.deleteProject(slug);
-              setInspect(null);
-              flash("ok", `Deleted ${slug}: ${gone.tablesDropped.length} tables, ${gone.pagesRemoved} pages; ${gone.conversationsArchived} chats archived, ${gone.jobsDisabled} jobs off`);
-              if (route.name === "project" && route.slug === slug) go({ name: "projects" });
-              await refresh();
-            }}
+            onDeleteProject={deleteProject}
           />
           )}
         </AnimatePresence>
@@ -851,6 +860,8 @@ export function App(): React.ReactElement {
         onOpenAgent={(id) => go({ name: "agents", id })}
         onOpen={openConversation}
         onOpenProject={(slug) => go({ name: "project", slug })}
+        onCreateProject={createProject}
+        onDeleteProject={deleteProject}
         crons={crons}
         onEditCron={(job, projectSlug) => setEditingCron(job ? { job } : { ...(projectSlug ? { projectSlug } : {}) })}
         onAside={askAside}
@@ -882,6 +893,8 @@ export function App(): React.ReactElement {
         onOpenAgent={(id) => go({ name: "agents", id })}
         onOpen={openConversation}
         onOpenProject={(s) => go({ name: "project", slug: s })}
+        onCreateProject={createProject}
+        onDeleteProject={deleteProject}
         project={{
           slug,
           onBack: () => go({ name: "chats" }),
@@ -940,12 +953,7 @@ export function App(): React.ReactElement {
         onInspect={(project, pages) =>
           setInspect({ kind: "project", data: project, pages })
         }
-        onCreate={async ({ name, type }) => {
-          const made = await api.createProject(name, type);
-          flash("ok", `Made ${made.name}`);
-          await refresh();
-          go({ name: "project", slug: made.slug });
-        }}
+        onCreate={createProject}
       />,
     );
   }
