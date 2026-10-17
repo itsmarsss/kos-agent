@@ -21,6 +21,17 @@ describe("the blob's body", () => {
     expect(new Set(GAITS.map((g) => g.speed)).size).toBe(4);
   });
 
+  it("takes a silhouette: wider, peaked on top, or flattened below", () => {
+    const gait = GAITS[0]!;
+    const plain = outline(0, 1, gait);
+    const wide = outline(0, 1, gait, 1, { aspect: 1.12, peak: 0, squat: 0, spread: 1 });
+    expect(Math.max(...wide.map((p) => p[0]))).toBeGreaterThan(Math.max(...plain.map((p) => p[0])));
+    const peaked = outline(0, 1, gait, 1, { aspect: 1, peak: 0.18, squat: 0, spread: 1 });
+    expect(Math.min(...peaked.map((p) => p[1]))).toBeLessThan(Math.min(...plain.map((p) => p[1])));
+    const squat = outline(0, 1, gait, 1, { aspect: 1, peak: 0, squat: 0.24, spread: 1 });
+    expect(Math.max(...squat.map((p) => p[1]))).toBeLessThan(Math.max(...plain.map((p) => p[1])));
+  });
+
   it("joins the points into one closed curve with no corners", () => {
     const d = smoothPath(outline(0, 7, GAITS[1]!));
     expect(d.startsWith("M")).toBe(true);

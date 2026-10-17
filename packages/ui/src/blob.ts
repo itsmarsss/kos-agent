@@ -18,6 +18,31 @@ export type BlobMood = "idle" | "working" | "needs-you" | "error" | "asleep";
 export type BlobEyes = "round" | "half" | "sparkle";
 export type BlobGait = 0 | 1 | 2 | 3;
 
+/**
+ * The silhouette: what makes one blob a different creature from the next
+ * before it moves. Wider or taller, a soft peak on top or none, sitting
+ * squat or standing round, eyes close-set or wide. From the name, not set.
+ */
+export interface BlobShape {
+  /** Width over height, 0.92 to 1.12. */
+  aspect: number;
+  /** How far the top rises to a soft point, 0 to 0.18. */
+  peak: number;
+  /** How much the bottom flattens, as if sat down, 0 to 0.24. */
+  squat: number;
+  /** How far apart the eyes sit, 0.88 to 1.1 of the usual. */
+  spread: number;
+}
+
+/** Its habits: how much it cares about the cursor, and how often it blinks. */
+export interface BlobWhim {
+  curiosity: number;
+  blinkiness: number;
+}
+
+export const PLAIN_SHAPE: BlobShape = { aspect: 1, peak: 0, squat: 0, spread: 1 };
+export const PLAIN_WHIM: BlobWhim = { curiosity: 1, blinkiness: 1 };
+
 export interface BlobParams {
   /** A number from the name: the phases of its waves, so two blobs never move in step. */
   seed: number;
@@ -25,6 +50,8 @@ export interface BlobParams {
   eyes: BlobEyes;
   /** Degrees the face is cocked. */
   tilt: number;
+  shape?: BlobShape;
+  whim?: BlobWhim;
 }
 
 /** How a blob moves: how far its outline wanders, how fast, how jittery, and how slowly it breathes. */
@@ -42,13 +69,19 @@ export const GAITS: readonly GaitSpec[] = [
   { amp: 0.05, speed: 1.35, jitter: 0.75, breath: 3.4 }, // restless
 ];
 
-export const POINTS = 10;
+export const POINTS = 12;
 export const CENTER = { x: 50, y: 52 } as const;
 export const RADIUS = 38;
 
-/** The eyes' resting places, in the 100-unit box. */
+/** The eyes' resting places, in the 100-unit box, before the spread. */
 export const EYE_L = { x: 41, y: 50 } as const;
 export const EYE_R = { x: 59, y: 50 } as const;
+
+/** Where an eye sits for a shape: spread from the middle, lifted a little on a tall one. */
+export function eyeAt(side: "l" | "r", shape: BlobShape): { x: number; y: number } {
+  const base = side === "l" ? EYE_L : EYE_R;
+  return { x: CENTER.x + (base.x - CENTER.x) * shape.spread, y: base.y - shape.peak * 10 };
+}
 
 interface MoodSpec {
   speed: number;
@@ -79,9 +112,10 @@ function phases(seed: number): [number, number, number] {
 /**
  * The outline at time t: POINTS points around the centre, each pushed in or
  * out by three waves of unrelated speeds, so the shape wanders without ever
- * repeating. Pure, so a test can hold it still.
+ * repeating, over a silhouette that is the blob's own. Pure, so a test can
+ * hold it still.
  */
-export function outline(t: number, seed: number, gait: GaitSpec, ampScale = 1): Array<[number, number]> {
+export function outline(t: number, seed: number, gait: GaitSpec, ampScale = 1, shape: BlobShape = PLAIN_SHAPE): Array<[number, number]> {
   const [p1, p2, p3] = phases(seed);
   const pts: Array<[number, number]> = [];
   for (let i = 0; i < POINTS; i += 1) {
@@ -90,8 +124,11 @@ export function outline(t: number, seed: number, gait: GaitSpec, ampScale = 1): 
       Math.sin(t * gait.speed + i * 1.9 + p1) * 0.55 +
       Math.sin(t * gait.speed * 1.73 + i * 3.3 + p2) * 0.3 +
       Math.sin(t * gait.speed * 0.61 - i * 1.1 + p3) * 0.35 * (0.5 + gait.jitter);
-    const r = RADIUS * (1 + gait.amp * ampScale * w);
-    pts.push([CENTER.x + Math.cos(a) * r, CENTER.y + Math.sin(a) * r]);
+    // The top may rise to a soft point; the bottom may settle flat.
+    const up = Math.max(0, -Math.sin(a));
+    const down = Math.max(0, Math.sin(a));
+    const r = RADIUS * (1 + gait.amp * ampScale * w) * (1 + shape.peak * up ** 3);
+    pts.push([CENTER.x + Math.cos(a) * r * shape.aspect, CENTER.y + Math.sin(a) * r * (1 - shape.squat * 0.4 * down)]);
   }
   return pts;
 }
@@ -152,6 +189,8 @@ interface Blob {
   svg: SVGSVGElement;
   parts: Parts;
   params: BlobParams;
+  shape: BlobShape;
+  whim: BlobWhim;
   gait: GaitSpec;
   mood: BlobMood;
   still: boolean;
@@ -259,11 +298,11 @@ function step(b: Blob, now: number, dt: number): void {
     const dx = pointer.x - cx;
     const dy = pointer.y - cy;
     const dist = Math.hypot(dx, dy) || 1;
-    const reach = Math.min(1, dist / 90);
+    const reach = Math.min(1, dist / 90) * b.whim.curiosity;
     b.aimX = (dx / dist) * 3.2 * reach;
     b.aimY = (dy / dist) * 2.4 * reach;
     const near = Math.max(0, 1 - dist / 160);
-    leanX = (dx / dist) * 2.5 * near;
+    leanX = (dx / dist) * 2.5 * near * b.whim.curiosity;
   } else if (now > b.nextAim) {
     // A glance of its own: somewhere, then back, at its own pace. Working,
     // it darts about; idle, it wanders.
@@ -284,7 +323,7 @@ function step(b: Blob, now: number, dt: number): void {
       const p = (now - b.blinkAt) / 150;
       if (p >= 1) {
         b.blinkAt = -1;
-        b.nextBlink = now + (b.rand() < 0.25 ? 220 : 2500 + b.rand() * 4000);
+        b.nextBlink = now + (b.rand() < 0.25 ? 220 : (2500 + b.rand() * 4000) / b.whim.blinkiness);
       } else {
         blink = 1 - 0.92 * Math.sin(p * Math.PI);
       }
@@ -297,7 +336,7 @@ function step(b: Blob, now: number, dt: number): void {
 
   // Draw.
   const { parts } = b;
-  parts.body.setAttribute("d", smoothPath(outline(t, b.params.seed, b.gait, mood.amp)));
+  parts.body.setAttribute("d", smoothPath(outline(t, b.params.seed, b.gait, mood.amp, b.shape)));
   parts.all.setAttribute(
     "transform",
     `translate(${f(CENTER.x + leanX)} ${f(CENTER.y + hopY + mood.droop)}) scale(${f(b.sx * breath)} ${f(b.sy * (2 - breath))}) translate(${-CENTER.x} ${-CENTER.y})`,
@@ -306,8 +345,10 @@ function step(b: Blob, now: number, dt: number): void {
     const slant = b.mood === "error" ? (x < 50 ? 18 : -18) : 0;
     el.setAttribute("transform", `translate(${f(x + b.lookX)} ${f(y + b.lookY)}) rotate(${slant}) scale(${f(wide)} ${f(happy ? wide : wide * open)})`);
   };
-  eye(parts.eyeL, EYE_L.x, EYE_L.y);
-  eye(parts.eyeR, EYE_R.x, EYE_R.y);
+  const atL = eyeAt("l", b.shape);
+  const atR = eyeAt("r", b.shape);
+  eye(parts.eyeL, atL.x, atL.y);
+  eye(parts.eyeR, atR.x, atR.y);
   // Pleased: the eyes become arcs, the way a smile shows on a face with no mouth.
   for (const el of parts.eyes) el.setAttribute("opacity", happy ? "0" : "1");
   for (const el of parts.grins) el.setAttribute("opacity", happy ? "1" : "0");
@@ -360,6 +401,8 @@ export function mountBlob(svg: SVGSVGElement, params: BlobParams, mood: BlobMood
       mark: part<SVGTextElement>(svg, "mark"),
     },
     params,
+    shape: params.shape ?? PLAIN_SHAPE,
+    whim: params.whim ?? PLAIN_WHIM,
     gait: GAITS[params.gait] ?? GAITS[0]!,
     mood,
     still: options.still === true,
