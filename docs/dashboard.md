@@ -14,7 +14,10 @@ The list on the left:
   in a project and it hands the work on.
 - **A project row** is that project's own chat, its orchestrator. Under it,
   the agents it spawned, busy ones first. The row says how many agents and
-  whether one is working; the chevron folds them away.
+  whether one is working; the chevron folds them away. The + beside the
+  heading makes an empty project, the same dialog the Projects page has;
+  hover a row for Delete project (two presses), which is the Details
+  drawer's delete without the trip there.
 - **Scheduled** holds the threads jobs run in, folded by default.
 - **Your chats**, newest first. Hover a row for Rename, Duplicate, Hand off
   (KOS drafts a brief of the thread; you pick a chat or project, edit it,
