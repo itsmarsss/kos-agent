@@ -116,7 +116,7 @@ describe("chats.handoff", () => {
     ]);
     // Not among the restricted delegation tools: offered without a grant.
     expect(registry.classify("chats.handoff", { to: "@project:books", brief: "x" }).tier).toBe("risky");
-    expect(registry.list().find((t) => t.name === "chats.handoff")).toBeTruthy();
+    expect(registry.defs().find((t) => t.name === "chats.handoff")).toBeTruthy();
     const res = await registry.execute("chats.handoff", { to: "@project:books", brief: "Seventeen books restored; the lending table is empty.", ask: " check the lending table " });
     expect(handed).toEqual([{ to: "@project:books", brief: "Seventeen books restored; the lending table is empty.", ask: "check the lending table" }]);
     expect(JSON.parse(res.content)).toMatchObject({ conversationId: "project:books", title: "Books", chars: 120 });
