@@ -45,12 +45,15 @@ thread carries on with what it had.
 
 ## Its face
 
-Each agent has a face: a blob whose colour, shape, gait and eyes come from
-its name, so it looks the same in the rail, on its page, in a chat header
-and in an `@agent:` chip, and no two look alike by accident. The face says
-what it is doing: it glances about while working, bounces with a mark when
-it needs you, droops on an error, and sleeps when its schedule is paused.
-With reduced motion on, it holds still.
+Each agent has a face: a flat blob with two eyes, whose colour, gait and
+eyes come from its name, so it looks the same in the rail, on its page, in
+a chat header and in an `@agent:` chip, and no two look alike by accident.
+It is alive rather than animated: its outline wanders without repeating, it
+looks at your cursor and leans in when you are close, blinks, jiggles when
+poked and grins with its eyes. The face says what it is doing: it glances
+about while working, hops with a mark when it needs you, sags with slanted
+eyes on an error, and sleeps when its schedule is paused. With reduced
+motion on, it holds still.
 
 Any of the three can be set by hand, in the file (`face: hue 210, eyes
 sparkle, gait 2`; hue 0 to 359, eyes round, half or sparkle, gait 0 to 3)

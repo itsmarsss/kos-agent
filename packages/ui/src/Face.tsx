@@ -1,20 +1,22 @@
-import { createContext, useContext, useEffect, useId, useRef, useState, type CSSProperties, type ReactElement } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type ReactElement } from "react";
 
-import { GAITS, MOUTHS, EYE_L, EYE_R, mountBlob, outline, smoothPath, type BlobHandle } from "./blob.js";
+import { GAITS, EYE_L, EYE_R, mountBlob, outline, smoothPath, type BlobHandle } from "./blob.js";
 
 /**
- * An agent's face: a blob with eyes, alive.
+ * An agent's face: a flat blob with two eyes, alive.
  *
  * A standing agent is a thing you come back to, so it should be a thing you
  * recognise. Its colour, its gait and the set of its eyes all come from its
  * name, so the same agent looks the same in the rail, on its page and in a
  * chip, and two agents never look alike by accident. The owner can set any
  * of those by hand, in the agent's file or, for KOS, in Settings; what they
- * leave unset still comes from the name. The face is what it is doing: it
- * glances about while working, bounces with a mark when it needs you,
- * droops on an error and sleeps when its schedule is paused. It also looks
- * at you, blinks, blushes when you are close and jiggles when poked; that
- * lives in blob.ts. The tab icon is the same face drawn still.
+ * leave unset still comes from the name.
+ *
+ * The drawing is as plain as it can be: one matte shape, two eyes, no mouth,
+ * no shine. Everything else is motion, in blob.ts: it looks at you, blinks,
+ * leans in when you are close, jiggles when poked, and its eyes say the
+ * mood (wide when it needs you, shut when asleep, slanted on an error,
+ * arcs when pleased). The tab icon is the same face drawn still.
  */
 
 export type Mood = "idle" | "working" | "needs-you" | "error" | "asleep";
@@ -26,6 +28,7 @@ export interface Look {
   hue: number;
   /** Which of the four gaits it has: steady, lively, slow, restless. */
   wobble: Gait;
+  /** round dots; half, pills resting a little lowered; sparkle, pills with a glint. */
   eyes: Eyes;
   /** Seconds per breath, from the gait. */
   breath: number;
@@ -115,6 +118,14 @@ function usePrefersStill(): boolean {
   return still;
 }
 
+/** The body's colour, matte, and the eyes' ink on it. */
+export function fillOf(hue: number, sat = 1): string {
+  return `hsl(${hue} ${Math.round(62 * sat)}% 60%)`;
+}
+function inkOf(hue: number): string {
+  return `hsl(${hue} 35% 12%)`;
+}
+
 export interface FaceProps {
   /** What the look is derived from: the agent's name. */
   seed: string;
@@ -130,7 +141,6 @@ export interface FaceProps {
 export function Face({ seed, look: override, size = 24, mood = "idle", label }: FaceProps): ReactElement {
   const faces = useContext(AgentFaces);
   const look = lookOf(seed, override ?? faces.get(seed) ?? {});
-  const id = useId();
   const svgRef = useRef<SVGSVGElement>(null);
   const handle = useRef<BlobHandle | null>(null);
   const still = usePrefersStill();
@@ -150,9 +160,13 @@ export function Face({ seed, look: override, size = 24, mood = "idle", label }: 
     handle.current?.setMood(mood);
   }, [mood]);
 
-  const ink = `hsl(${look.hue} 45% 15%)`;
+  const ink = inkOf(look.hue);
   const style = { "--blob-h": String(look.hue), "--blob-size": `${size}px` } as CSSProperties;
   const first = smoothPath(outline(0, look.seed, GAITS[look.wobble]!));
+  const eyes = [
+    ["eye-l", EYE_L],
+    ["eye-r", EYE_R],
+  ] as const;
   return (
     <span
       className={`blob blob--${mood}`}
@@ -165,45 +179,29 @@ export function Face({ seed, look: override, size = 24, mood = "idle", label }: 
       onPointerDown={() => handle.current?.poke()}
     >
       <svg ref={svgRef} viewBox="0 0 100 100" width={size} height={size} aria-hidden="true">
-        <defs>
-          <radialGradient id={`${id}g`} cx="36%" cy="30%" r="72%">
-            <stop offset="0" stopColor={`hsl(${look.hue} 90% 82%)`} />
-            <stop offset="0.5" stopColor={`hsl(${look.hue} 76% 62%)`} />
-            <stop offset="1" stopColor={`hsl(${look.hue} 68% 46%)`} />
-          </radialGradient>
-          {look.eyes === "half" && (
-            <clipPath id={`${id}h`}>
-              <rect x="-10" y="-10" width="20" height="12.2" />
-            </clipPath>
-          )}
-        </defs>
-        <ellipse data-part="shadow" cx="50" cy="90" rx="23" ry="3.6" fill={`hsl(${look.hue} 50% 18%)`} opacity="0.22" />
         <g data-part="all">
-          <path data-part="body" d={first} fill={`url(#${id}g)`} />
-          <ellipse data-part="shine" cx="38" cy="33" rx="8.5" ry="5" fill="#fff" opacity="0.5" transform="rotate(-22 38 33)" />
+          <path data-part="body" d={first} fill={fillOf(look.hue)} />
           <g transform={`rotate(${look.tilt} 50 54)`}>
-            <ellipse data-part="blush-l" cx="35" cy="58" rx="5.5" ry="2.8" fill="#ff8aa3" opacity="0" />
-            <ellipse data-part="blush-r" cx="65" cy="58" rx="5.5" ry="2.8" fill="#ff8aa3" opacity="0" />
-            <g data-part="eye-l" transform={`translate(${EYE_L.x} ${EYE_L.y})`} clipPath={look.eyes === "half" ? `url(#${id}h)` : undefined}>
-              <ellipse rx="4.4" ry="5.2" fill={ink} />
-              <circle cx="-1.5" cy="-1.9" r={look.eyes === "sparkle" ? 1.9 : 1.5} fill="#fff" />
-              {look.eyes === "sparkle" && <circle cx="1.7" cy="1.7" r="0.9" fill="#fff" />}
-            </g>
-            <g data-part="eye-r" transform={`translate(${EYE_R.x} ${EYE_R.y})`} clipPath={look.eyes === "half" ? `url(#${id}h)` : undefined}>
-              <ellipse rx="4.4" ry="5.2" fill={ink} />
-              <circle cx="-1.5" cy="-1.9" r={look.eyes === "sparkle" ? 1.9 : 1.5} fill="#fff" />
-              {look.eyes === "sparkle" && <circle cx="1.7" cy="1.7" r="0.9" fill="#fff" />}
-            </g>
-            <path data-part="mouth" d={MOUTHS.smile} fill="none" stroke={ink} strokeWidth="2.2" strokeLinecap="round" />
+            {eyes.map(([name, at]) => (
+              <g key={name} data-part={name} transform={`translate(${at.x} ${at.y})`}>
+                {look.eyes === "round" ? (
+                  <circle data-part="eye" r="3.4" fill={ink} />
+                ) : (
+                  <rect data-part="eye" x="-2.6" y="-4.6" width="5.2" height="9.2" rx="2.6" fill={ink} />
+                )}
+                {look.eyes === "sparkle" && <circle data-part="eye" cx="-0.9" cy="-2.2" r="0.9" fill="#fff" />}
+                <path data-part="grin" d="M-3.6 1.4q3.6-4.6 7.2 0" fill="none" stroke={ink} strokeWidth="2.2" strokeLinecap="round" opacity="0" />
+              </g>
+            ))}
           </g>
         </g>
         {mood === "needs-you" && (
-          <text data-part="mark" x="80" y="22" fontFamily="sans-serif" fontSize="22" fontWeight="800" fill="#f5a524" stroke="#1a1208" strokeWidth="0.8" paintOrder="stroke">
+          <text data-part="mark" x="80" y="22" fontFamily="sans-serif" fontSize="20" fontWeight="800" fill="#f5a524">
             !
           </text>
         )}
         {mood === "asleep" && (
-          <text data-part="mark" x="74" y="24" fontFamily="sans-serif" fontSize="17" fontWeight="700" fill={ink} opacity="0">
+          <text data-part="mark" x="74" y="24" fontFamily="sans-serif" fontSize="16" fontWeight="700" fill={ink} opacity="0">
             z
           </text>
         )}
@@ -227,25 +225,20 @@ const BODIES = [
 export function faceSvg(look: Look, mood: Mood = "idle"): string {
   const h = look.hue;
   const sat = mood === "error" ? 0.45 : mood === "asleep" ? 0.7 : 1;
-  const stop = (s: number, l: number): string => `hsl(${h} ${Math.round(s * sat)}% ${l}%)`;
-  const ink = `hsl(${h} 45% 15%)`;
+  const ink = inkOf(h);
   const eye = (cx: number): string => {
-    if (mood === "asleep") return `<path d="M${cx - 3.5} 34h7" stroke="${ink}" stroke-width="2" stroke-linecap="round"/>`;
+    if (mood === "asleep") return `<path d="M${cx - 3.5} 34h7" stroke="${ink}" stroke-width="2.2" stroke-linecap="round"/>`;
     if (mood === "error") {
       const tilt = cx < 32 ? 20 : -20;
-      return `<path d="M${cx - 3.5} 34h7" stroke="${ink}" stroke-width="2" stroke-linecap="round" transform="rotate(${tilt} ${cx} 34)"/>`;
+      return `<path d="M${cx - 3.5} 34h7" stroke="${ink}" stroke-width="2.2" stroke-linecap="round" transform="rotate(${tilt} ${cx} 34)"/>`;
     }
-    const r = mood === "needs-you" ? 4 : 3.2;
-    if (look.eyes === "half") return `<path d="M${cx - r} 34a${r} ${r} 0 0 1 ${r * 2} 0z" fill="${ink}"/>`;
-    const dot = `<circle cx="${cx}" cy="34" r="${r}" fill="${ink}"/>`;
-    return look.eyes === "sparkle" ? `${dot}<circle cx="${cx - r * 0.3}" cy="${34 - r * 0.35}" r="${r * 0.38}" fill="#fff"/>` : dot;
+    const tall = mood === "needs-you" ? 1.25 : 1;
+    if (look.eyes === "round") return `<circle cx="${cx}" cy="34" r="${3.2 * tall}" fill="${ink}"/>`;
+    const w = 4.6;
+    const hh = 8.4 * tall;
+    const pill = `<rect x="${cx - w / 2}" y="${34 - hh / 2}" width="${w}" height="${hh}" rx="${w / 2}" fill="${ink}"/>`;
+    return look.eyes === "sparkle" ? `${pill}<circle cx="${cx - 0.8}" cy="${34 - hh / 4}" r="0.9" fill="#fff"/>` : pill;
   };
-  const mouth =
-    mood === "working" || mood === "needs-you"
-      ? `<circle cx="32" cy="43" r="${mood === "needs-you" ? 2.6 : 2.2}" fill="none" stroke="${ink}" stroke-width="2"/>`
-      : mood === "error"
-        ? `<path d="M27 46q5-4 10 0" fill="none" stroke="${ink}" stroke-width="2.4" stroke-linecap="round"/>`
-        : `<path d="M${mood === "asleep" ? 29 : 27} 42q${mood === "asleep" ? 3 : 5} 4 ${mood === "asleep" ? 6 : 10} 0" fill="none" stroke="${ink}" stroke-width="2.4" stroke-linecap="round"/>`;
   const extra =
     mood === "needs-you"
       ? `<text x="52" y="16" font-family="sans-serif" font-size="16" font-weight="800" fill="#f5a524">!</text>`
@@ -256,10 +249,8 @@ export function faceSvg(look: Look, mood: Mood = "idle"): string {
   const droop = mood === "error" ? ` transform="translate(0 3) scale(1 0.92)" transform-origin="32 46"` : "";
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">`,
-    `<defs><radialGradient id="g" cx="34%" cy="28%" r="72%"><stop offset="0" stop-color="${stop(88, 80)}"/><stop offset="0.55" stop-color="${stop(74, 60)}"/><stop offset="1" stop-color="${stop(66, 47)}"/></radialGradient></defs>`,
-    `<path d="${body}" fill="url(#g)"${droop}/>`,
-    `<ellipse cx="24" cy="20" rx="7" ry="4.5" fill="#fff" opacity="0.55" transform="rotate(-22 24 20)"/>`,
-    `<g transform="rotate(${look.tilt} 32 40)">${eye(25)}${eye(39)}${mouth}</g>`,
+    `<path d="${body}" fill="${fillOf(h, sat)}"${droop}/>`,
+    `<g transform="rotate(${look.tilt} 32 40)">${eye(25)}${eye(39)}</g>`,
     extra,
     `</svg>`,
   ].join("");
