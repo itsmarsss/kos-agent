@@ -2,6 +2,7 @@ import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { isSqlWrite } from "../risk/rules.js";
 import type { Db } from "../store/db.js";
+import { fence, isKernelTable, namesKernelTable } from "./fence.js";
 
 /**
  * The `sql` tool module: run DML against the workspace SQLite. SELECT is safe;
@@ -43,17 +44,10 @@ function assertDml(sql: string): void {
  * guesses again the same way. Answered with the tables that do exist, and with
  * the namespaced one when that is plainly what was meant.
  */
-function explainMissingTable(db: Db, message: string): string {
+function explainMissingTable(db: Db, message: string, showKernel: boolean): string {
   const named = /no such table:\s*([^\s]+)/.exec(message)?.[1];
   if (!named) return message;
-  const tables = (
-    db
-      .prepare(
-        `SELECT name FROM sqlite_master WHERE type = 'table'
-           AND name NOT LIKE 'sqlite_%' ORDER BY name`,
-      )
-      .all() as { name: string }[]
-  ).map((r) => r.name);
+  const tables = tableNames(db).filter((t) => showKernel || !isKernelTable(t));
   // A dotted or logical name usually differs from the physical one only in the
   // separator, so the physical table is findable by normalising both.
   const key = named.replace(/[^a-z0-9]/gi, "").toLowerCase();
@@ -70,21 +64,29 @@ function explainMissingTable(db: Db, message: string): string {
     : `${message}. This workspace has no tables yet; create one with systems.migrate.`;
 }
 
-function runSql(db: Db, input: Record<string, unknown>): string {
+/** Every table in the database, SQLite's own included. */
+function tableNames(db: Db): string[] {
+  return (db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`).all() as { name: string }[]).map((r) => r.name).concat("sqlite_master");
+}
+
+function runSql(db: Db, input: Record<string, unknown>, project: string | undefined): string {
   const sql = sqlOf(input);
   assertDml(sql);
+  const verdict = fence(sql, tableNames(db), project);
+  if (!verdict.ok) throw new Error(verdict.reason);
   let stmt;
   try {
     stmt = db.prepare(sql);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(
-      /no such table/i.test(message) ? explainMissingTable(db, message) : message,
+      /no such table/i.test(message) ? explainMissingTable(db, message, project === "maintenance") : message,
     );
   }
   if (stmt.reader) {
     const rows = stmt.all(...paramsOf(input));
-    return JSON.stringify(rows);
+    // A project listing the schema sees its own tables and not KOS's.
+    return JSON.stringify(verdict.hideKernelRows ? rows.filter((r) => !namesKernelTable(r)) : rows);
   }
   const info = stmt.run(...paramsOf(input));
   return JSON.stringify({ changes: info.changes, lastInsertRowid: Number(info.lastInsertRowid) });
@@ -95,7 +97,8 @@ export function defineSqlTool(db: Db, ctx: ModuleContext): void {
     {
       name: "sql",
       description:
-        "Run one DML statement (SELECT/INSERT/UPDATE/DELETE) against the workspace database. Use ? placeholders and the params array. DDL is not allowed; use migrate.",
+        "Run one DML statement (SELECT/INSERT/UPDATE/DELETE) against your project's tables in the workspace database. Use ? placeholders and the params array. DDL is not allowed; use migrate. " +
+        "KOS's own tables (conversations, pending messages and actions, permissions, memory) are not reachable here: use chats.handoff, memory and cron for those.",
       inputSchema: {
         type: "object",
         properties: {
@@ -105,7 +108,7 @@ export function defineSqlTool(db: Db, ctx: ModuleContext): void {
         required: ["sql"],
       },
     },
-    (input) => runSql(db, input),
+    (input) => runSql(db, input, ctx.services?.callerProject?.()),
     {
       floor: "safe",
       escalate: (input) =>

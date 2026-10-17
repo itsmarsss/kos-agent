@@ -55,6 +55,27 @@ describe("sqlModule", () => {
     expect(registry.classify("sql", { sql: "DELETE FROM tx" }).tier).toBe("risky");
   });
 
+  it("refuses KOS's own tables outside Maintenance, and the trust tables everywhere", async () => {
+    ws.db.exec("CREATE TABLE conversations (id TEXT PRIMARY KEY, title TEXT)");
+    ws.db.exec("CREATE TABLE pending_actions (id INTEGER PRIMARY KEY, status TEXT)");
+    ws.db.prepare("INSERT INTO conversations (id, title) VALUES ('c1', 'Main')").run();
+    const read = await registry.execute("sql", { sql: "SELECT * FROM conversations" });
+    expect(read.isError).toBe(true);
+    expect(read.content).toMatch(/KOS's own/);
+    // The schema listing goes through, without KOS's rows.
+    const listed = await registry.execute("sql", { sql: "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name" });
+    expect(JSON.parse(listed.content)).toEqual([{ name: "tx" }]);
+    // The same, asked from Maintenance: reads allowed, the trust tables still not written.
+    const maintenance = new ToolRegistry();
+    const ctx = toolRegistryContext(maintenance, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), callerProject: () => "maintenance" });
+    await new ModuleLoader(ctx).load([sqlModule]);
+    expect(JSON.parse((await maintenance.execute("sql", { sql: "SELECT title FROM conversations" })).content)).toEqual([{ title: "Main" }]);
+    const trust = await maintenance.execute("sql", { sql: "UPDATE pending_actions SET status = 'approved'" });
+    expect(trust.isError).toBe(true);
+    expect(trust.content).toMatch(/trust tables/);
+    expect(JSON.parse((await maintenance.execute("sql", { sql: "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name" })).content).map((r: { name: string }) => r.name)).toEqual(["conversations", "pending_actions", "tx"]);
+  });
+
   it("rejects DDL (must use migrate)", async () => {
     const res = await registry.execute("sql", { sql: "DROP TABLE tx" });
     expect(res.isError).toBe(true);
