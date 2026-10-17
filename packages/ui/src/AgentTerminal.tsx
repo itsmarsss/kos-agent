@@ -221,7 +221,7 @@ export function AgentTerminal({
     // A finished agent is woken rather than refused: its process is gone but
     // its session is not, so it carries on with what it already worked out
     // instead of reading the folder again from nothing.
-    const work = live ? api.sendToAgent(id, text) : api.wakeAgent(id, text);
+    const work = live ? api.sendToBuild(id, text) : api.wakeBuild(id, text);
     void work.catch((err: unknown) =>
       setError(err instanceof Error ? err.message : String(err)),
     );
@@ -262,14 +262,14 @@ export function AgentTerminal({
               <button
                 type="button"
                 className="btn"
-                onClick={() => void api.interruptAgent(id).catch(() => undefined)}
+                onClick={() => void api.interruptBuild(id).catch(() => undefined)}
               >
                 Interrupt
               </button>
               <button
                 type="button"
                 className="btn btn--danger"
-                onClick={() => void api.stopAgent(id).catch(() => undefined)}
+                onClick={() => void api.stopBuild(id).catch(() => undefined)}
               >
                 Stop
               </button>

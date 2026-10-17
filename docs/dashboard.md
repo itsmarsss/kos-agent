@@ -164,6 +164,19 @@ presses: its tables, pages and files go for good, its chats are kept,
 archived at the root, and its jobs are turned off. Archiving, from the
 status control, is the reversible way to set one aside.
 
+## Agents
+
+The standing agents, one row each: what it is for, its schedule or "on
+request", and when it last ran. A row opens its file as fields: name, what
+it is for, the brief, the tool families it may reach, whether its memory is
+its own, the model class, the schedule and the prompt for each run. Save
+writes the file; the next turn uses it. Run now runs its scheduled prompt
+in its own thread, Open thread goes there, File opens the markdown itself,
+and Delete (two presses) removes the file and the schedule and leaves the
+thread as an ordinary chat. New agent writes one by hand; asking KOS in a
+chat is the usual way. A file under `agents/` that does not read as an
+agent is listed with the reason. See docs/agents.md.
+
 ## Files
 
 The workspace as a browser. Folders, files with a preview, filter and sort.
@@ -188,7 +201,7 @@ Six tabs. See [memory.md](memory.md) for what each holds.
   reads your calendar and mail once those servers are added under Settings
   > MCP servers (the Google Calendar and Gmail picks, each with a one-time
   sign-in step it spells out), and until then says what it could not read.
-- **Agents**: coding sub-agents, each confined to one folder. New agent asks
+- **Builds**: coding sub-agents, each confined to one folder. New build asks
   for the folder and the task.
 
 ## Settings

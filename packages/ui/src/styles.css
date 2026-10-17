@@ -1554,7 +1554,7 @@ select {
    them read as moving between different applications. */
 .list-page,
 .know,
-.agents {
+.builds {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
@@ -4461,9 +4461,9 @@ li:hover .chats-item-when { opacity: 0; }
 .queued-edit .queued-actions { justify-content: flex-end; }
 
 /* Agents: what is running inside the workspace right now. */
-.agents-head h1 { margin: 0 0 0.25rem; font-size: var(--text-2xl); letter-spacing: -0.02em; }
-.agents-head .hint { max-width: 46rem; margin-bottom: 1.25rem; }
-.agents-list { display: flex; flex-direction: column; gap: 0.6rem; }
+.builds-head h1 { margin: 0 0 0.25rem; font-size: var(--text-2xl); letter-spacing: -0.02em; }
+.builds-head .hint { max-width: 46rem; margin-bottom: 1.25rem; }
+.builds-list { display: flex; flex-direction: column; gap: 0.6rem; }
 .agent {
   display: flex;
   flex-direction: column;
@@ -7453,3 +7453,23 @@ a.health {
 .inbox-said { display: block; margin-bottom: 0.2rem; color: var(--text); font-style: italic; }
 .inbox-said::before { content: "“"; }
 .inbox-said::after { content: "”"; }
+
+/* Agents: the list of standing agents beside the one open for editing. */
+.agents-split { display: grid; grid-template-columns: minmax(220px, 300px) 1fr; gap: 1rem; align-items: start; margin-top: 0.5rem; }
+.agents-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.agents-row {
+  display: flex; flex-direction: column; gap: 0.2rem; width: 100%; text-align: left;
+  padding: 0.6rem 0.7rem; border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--panel); color: var(--text); cursor: pointer; font: inherit;
+}
+.agents-row:hover { background: var(--panel-2); }
+.agents-row.is-active { border-color: var(--accent); }
+.agents-row-top { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.agents-row-desc { color: var(--muted); font-size: var(--text-sm); line-height: 1.4; }
+.agents-row-meta { color: var(--faint); font-size: var(--text-xs); }
+.agents-invalid { display: flex; flex-direction: column; gap: 0.2rem; padding: 0.6rem 0.7rem; border: 1px dashed var(--warn); border-radius: var(--r-md); }
+.agents-editor { padding: 1rem; }
+.agents-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.8rem; }
+.agents-brief { font-family: var(--mono); font-size: var(--text-sm); line-height: 1.5; resize: vertical; }
+.agents-actions { flex-wrap: wrap; }
+@media (max-width: 720px) { .agents-split { grid-template-columns: 1fr; } }

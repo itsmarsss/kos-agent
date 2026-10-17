@@ -35,6 +35,7 @@ import { QuickAsk } from "./QuickAsk.js";
 import { useProgress } from "./progress.js";
 import { FilesPage } from "./FilesPage.js";
 import { AgentsPage } from "./AgentsPage.js";
+import { BuildsPage } from "./BuildsPage.js";
 import { SettingsPage } from "./SettingsPage.js";
 import { ProjectsPage } from "./ProjectsPage.js";
 import { placeOf } from "./chattree.js";
@@ -213,7 +214,7 @@ export function App(): React.ReactElement {
       api.memory(300),
       api.runs(200, false),
       api.conversations(),
-      api.agents(),
+      api.builds(),
       api.inbox(),
       api.browserStatus(),
     ]);
@@ -539,7 +540,7 @@ export function App(): React.ReactElement {
     openAgent: (agentId) => {
       // The route carries it, so the log opens straight from search rather
       // than landing on the list and making you find it again.
-      go({ name: "agents", id: agentId });
+      go({ name: "builds", id: agentId });
     },
     sitesBase,
   };
@@ -857,7 +858,7 @@ export function App(): React.ReactElement {
         deciding={deciding}
         agents={agents}
         tabs={browserTabs}
-        onOpenAgent={(id) => go({ name: "agents", id })}
+        onOpenAgent={(id) => go({ name: "builds", id })}
         onOpen={openConversation}
         onOpenProject={(slug) => go({ name: "project", slug })}
         onCreateProject={createProject}
@@ -890,7 +891,7 @@ export function App(): React.ReactElement {
         deciding={deciding}
         agents={agents}
         tabs={browserTabs}
-        onOpenAgent={(id) => go({ name: "agents", id })}
+        onOpenAgent={(id) => go({ name: "builds", id })}
         onOpen={openConversation}
         onOpenProject={(s) => go({ name: "project", slug: s })}
         onCreateProject={createProject}
@@ -922,15 +923,27 @@ export function App(): React.ReactElement {
     );
   }
 
-  if (route.name === "agents") {
+  if (route.name === "builds") {
     return shell(
-      <RunsTabs current="agents">
-        <AgentsPage
+      <RunsTabs current="builds">
+        <BuildsPage
           deciding={deciding}
           onDecide={(id, approved, remember) => void decide(id, approved, remember)}
           {...(route.id !== undefined ? { openId: route.id } : {})}
         />
       </RunsTabs>,
+    );
+  }
+
+  if (route.name === "agents") {
+    return shell(
+      <AgentsPage
+        {...(route.agent !== undefined ? { open: route.agent } : {})}
+        onOpen={(agent) => go(agent ? { name: "agents", agent } : { name: "agents" })}
+        onOpenThread={openConversation}
+        onNotice={(text) => flash("ok", text)}
+        onChanged={() => void refresh()}
+      />,
     );
   }
 

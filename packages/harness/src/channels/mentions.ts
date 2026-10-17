@@ -31,6 +31,8 @@ export function mentionRoute(kind: string, id: string): string {
       return `#/chats/${enc(id)}`;
     case "agent":
       return `#/agents/${enc(id)}`;
+    case "build":
+      return `#/builds/${enc(id)}`;
     case "site":
       return `#/files/${enc(`projects/${id.replace("/", "/sites/")}`)}`;
     case "project":

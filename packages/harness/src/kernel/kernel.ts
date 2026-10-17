@@ -1342,16 +1342,24 @@ export class Kernel {
     return { conversationId: target.id, title: target.title, chars: text.length };
   }
 
-  /** A chat or a project, named as a mention or by id or slug. A project means its orchestrator. */
+  /**
+   * A chat, a project or a standing agent, named as a mention or by id, slug
+   * or name. A project means its orchestrator; an agent means its own thread.
+   */
   private handoffTarget(to: string): Conversation {
     const raw = to.trim();
     const ref = parseMentions(raw)[0];
     if (ref?.kind === "project" || (!ref && this.manifest.list().some((p) => p.slug === raw))) {
       return this.ensureProjectConversation(ref?.id ?? raw);
     }
+    if (ref?.kind === "agent" || (!ref && this.roles.exists(raw))) {
+      return this.ensureAgentConversation(ref?.id ?? raw);
+    }
     const id = ref?.kind === "chat" ? ref.id : raw;
     const chat = this.conversations.get(id);
-    if (!chat || chat.userId !== this.profile.ownerId) throw new Error(`no chat or project called ${raw}; name one with @chat: or @project:`);
+    if (!chat || chat.userId !== this.profile.ownerId) {
+      throw new Error(`no chat, project or agent called ${raw}; name one with @chat:, @project: or @agent:`);
+    }
     return chat;
   }
 
@@ -2887,9 +2895,24 @@ export class Kernel {
         continue;
       }
       if (ref.kind === "agent") {
+        // A standing agent: what it is for and where it is spoken to, so a
+        // chat can hand it work or point the owner at its thread.
+        const role = this.roles.get(ref.id);
+        parts.push(
+          role
+            ? [
+                `Standing agent "${role.name}" (its thread is @chat:[${agentConversationId(role.name)}]): ${role.description}.`,
+                role.schedule ? `Runs on ${role.schedule}.` : "Runs only when dispatched or spoken to.",
+                `Brief: ${role.brief.slice(0, 400)}`,
+              ].join(" ")
+            : `Agent ${ref.id}: there is no agents/${ref.id}.md.`,
+        );
+        continue;
+      }
+      if (ref.kind === "build") {
         const build = this.builds.get(Number(ref.id));
         if (!build) {
-          parts.push(`Agent ${ref.id}: not found, or its process has ended.`);
+          parts.push(`Build ${ref.id}: not found, or its process has ended.`);
           continue;
         }
         // The tail rather than the whole log: enough to answer "what is it
@@ -2900,7 +2923,7 @@ export class Kernel {
           .join("\n");
         parts.push(
           [
-            `Agent ${build.id} in ${build.dir}: ${build.status}.`,
+            `Build ${build.id} in ${build.dir}: ${build.status}.`,
             `Asked to: ${build.task}`,
             build.askedFor > 0 ? `Has asked the owner ${build.askedFor} time(s).` : "",
             tail ? `Recent steps:\n${tail}` : "Nothing logged yet.",

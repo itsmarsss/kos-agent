@@ -37,7 +37,9 @@ describe("parseRoute", () => {
 
   it("lights the Runs entry for all three of its routes, and Projects for a page", () => {
     expect(navActive({ name: "history" }, { name: "crons" })).toBe(true);
-    expect(navActive({ name: "history" }, { name: "agents", id: 3 })).toBe(true);
+    expect(navActive({ name: "history" }, { name: "builds", id: 3 })).toBe(true);
+    expect(navActive({ name: "agents" }, { name: "agents", agent: "research" })).toBe(true);
+    expect(navActive({ name: "history" }, { name: "agents" })).toBe(false);
     expect(navActive({ name: "projects" }, { name: "page", id: "x" })).toBe(true);
     // A project's workspace is a place inside Projects, like one of its pages.
     expect(navActive({ name: "projects" }, { name: "project", slug: "x" })).toBe(true);
