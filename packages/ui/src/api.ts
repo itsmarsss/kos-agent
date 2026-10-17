@@ -1098,6 +1098,11 @@ export const api = {
     post<Conversation>("/api/conversations/rename", { id, title }),
   archiveConversation: (id: string, archived = true) =>
     post<Conversation>("/api/conversations/archive", { id, archived }),
+  /** Pass a brief from one chat to another chat or project; the target runs with it. */
+  handoffConversation: (input: { from: string; to: string; brief: string; ask?: string }) =>
+    post<{ conversationId: string; title: string; chars: number }>("/api/conversations/handoff", input),
+  /** A brief of a chat, drafted by the cheap model, to edit before handing on. */
+  draftHandoff: (id: string) => post<{ brief: string }>("/api/conversations/handoff/draft", { id }),
   deleteConversation: (id: string) =>
     post<{ id: string; removed: boolean }>("/api/conversations/delete", { id }),
   memory: (limit = 200) =>

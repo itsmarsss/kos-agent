@@ -74,6 +74,7 @@ import { ToolCall } from "./ToolCall.js";
 import { ChatConfig } from "./ChatConfig.js";
 import { Markdown, MentionNames } from "./Markdown.js";
 import { Modal } from "./Modal.js";
+import { HandoffForm } from "./HandoffForm.js";
 import { hrefFor } from "./routes.js";
 import { composerKeyDown, useAutoGrow, useStickToBottom } from "./composer.js";
 
@@ -340,6 +341,8 @@ export function ChatsPage({
     if (menuFor === null) setConfirmDelete(null);
   }, [menuFor]);
   /** The chat being renamed, with its title as the field starts. */
+  /** The chat whose brief is being handed to another, from the menu. */
+  const [handingOff, setHandingOff] = useState<{ id: string; title: string } | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(
     null,
   );
@@ -1150,6 +1153,15 @@ export function ChatsPage({
                 type="button"
                 onClick={() => {
                   setMenuFor(null);
+                  setHandingOff({ id: c.id, title: c.title });
+                }}
+              >
+                Hand off…
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuFor(null);
                   void api.archiveConversation(c.id, !showArchived).then(onChanged);
                 }}
               >
@@ -1814,6 +1826,25 @@ export function ChatsPage({
                 onSaved={onChanged}
                 onClose={() => setEditing(false)}
               />
+            </Modal>
+
+            {/* Handing a chat on: KOS drafts the brief, the owner sends it
+                to a chat or project, which runs with it. The door the agent
+                used to find through the sql tool, as a menu item. */}
+            <Modal open={handingOff !== null} title={handingOff ? `Hand off “${handingOff.title}”` : "Hand off"} onClose={() => setHandingOff(null)}>
+              {handingOff && (
+                <HandoffForm
+                  key={handingOff.id}
+                  from={handingOff}
+                  projects={projects}
+                  conversations={conversations}
+                  onClose={() => setHandingOff(null)}
+                  onDone={() => {
+                    setHandingOff(null);
+                    onChanged();
+                  }}
+                />
+              )}
             </Modal>
 
             {/* Renaming is the one thing about a chat an owner changes most,

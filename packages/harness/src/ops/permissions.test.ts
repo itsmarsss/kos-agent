@@ -13,6 +13,13 @@ describe("naming a call's scope", () => {
     expect(scopeOf("systems.migrate", { spec: { op: "add_column", table: "Books_Items" } })).toBe("table:books_items");
   });
 
+  it("names a hand-off by its target, as the owner named it", () => {
+    expect(scopeOf("chats.handoff", { to: "@project:books", brief: "x" })).toBe("to:project:books");
+    expect(scopeOf("chats.handoff", { to: "@chat:[abc:owner]", brief: "x" })).toBe("to:chat:abc:owner");
+    expect(scopeOf("chats.handoff", { to: "books", brief: "x" })).toBe("to:books");
+    expect(scopeOf("chats.handoff", { brief: "x" })).toBeUndefined();
+  });
+
   it("names a shell call by its program, and only when it is one program", () => {
     expect(scopeOf("shell.run", { command: "git status" })).toBe("cmd:git");
     expect(scopeOf("shell.run", { command: "/opt/homebrew/bin/pnpm test" })).toBe("cmd:pnpm");

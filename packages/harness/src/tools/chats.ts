@@ -108,6 +108,51 @@ export interface ChatToolDeps {
    * creates the second level.
    */
   standUpProject?: (input: { name: string; type: string }) => { slug: string; conversationId: string; name: string };
+  /**
+   * Pass a brief to another chat or project, from the calling chat. The
+   * kernel resolves the target and delivers; this is the door the agent
+   * uses instead of KOS's own tables.
+   */
+  handoff?: (input: { to: string; brief: string; ask?: string }) => Promise<{ conversationId: string; title: string; chars: number }>;
+}
+
+/**
+ * The one chats tool every chat has.
+ *
+ * Delegation is kept to the orchestrators so a sub-agent cannot spawn more
+ * of itself. Handing context on is not delegation: the owner asked for it
+ * in this chat, the target gets a message and no tools, and the owner
+ * approves the brief, once per target if they like. Without this door an
+ * agent found the queue table with the sql tool and used that.
+ */
+function defineHandoffTool(deps: ChatToolDeps, ctx: ModuleContext): void {
+  ctx.registerTool(
+    {
+      name: "chats.handoff",
+      description:
+        "Pass what this chat knows to another chat or project, in your own words: what matters, what was decided, what is open, with @file: " +
+        "references for anything on disk. Write the brief; never copy a transcript. `to` is @chat:<id> or @project:<slug> (a project means its " +
+        "orchestrator). `ask` is what that chat should do with it now, if anything; without it the brief is kept there for later. The owner " +
+        "approves the brief once per target. It returns as soon as it is handed over; the answer comes back as a note here.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "@chat:<id>, @project:<slug>, or the id or slug" },
+          brief: { type: "string", description: "what the other chat needs to know, in your words" },
+          ask: { type: "string", description: "what it should do with it now, if anything" },
+        },
+        required: ["to", "brief"],
+      },
+    },
+    async (input) => {
+      if (!deps.handoff) throw new Error("handing off is not wired here");
+      const ask = typeof input["ask"] === "string" && input["ask"].trim() ? input["ask"].trim() : undefined;
+      const done = await deps.handoff({ to: str(input, "to"), brief: str(input, "brief"), ...(ask ? { ask } : {}) });
+      return JSON.stringify({ ...done, note: "Handed over. Say so and end your turn; the answer comes back here as a note." });
+    },
+    // The brief is the thing being approved: it is what the other chat will act on.
+    { floor: "risky" },
+  );
 }
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -564,7 +609,7 @@ export function createChatsModule(deps: ChatToolDeps): KosModule {
     manifest: {
       name: "chats",
       version: "1.0.0",
-      provides: CHAT_TOOLS.map((name) => ({
+      provides: [...CHAT_TOOLS, "chats.handoff"].map((name) => ({
         kind: "tool" as const,
         name,
         version: "1.0.0",
@@ -576,6 +621,7 @@ export function createChatsModule(deps: ChatToolDeps): KosModule {
       defineChatTools(deps, ctx);
       defineDispatchTool(deps, ctx);
       defineCongregateTool(deps, ctx);
+      defineHandoffTool(deps, ctx);
     },
   };
 }

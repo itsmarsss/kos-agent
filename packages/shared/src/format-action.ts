@@ -100,6 +100,10 @@ export function summarizeAction(
       return `Start conversation “${fmtVal(a.title)}”`;
     case "chats.dispatch":
       return `Hand work to conversation ${fmtVal(a.id)}`;
+    case "chats.handoff": {
+      const brief = typeof a.brief === "string" ? a.brief.replace(/\s+/g, " ").trim() : "";
+      return `Hand off to ${fmtVal(a.to)}: ${brief.length > 90 ? `${brief.slice(0, 89)}…` : brief}`;
+    }
     case "chats.congregate":
       return `Gather from ${Array.isArray(a.targets) ? a.targets.length : "several"} conversations`;
     case "pages.get":

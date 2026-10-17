@@ -2434,6 +2434,32 @@ export async function handleApiRequest(
     return ok(renamed);
   }
 
+  /*
+   * The owner's own hand-off, from a chat's menu: no approval, since the
+   * owner wrote or read the brief; the same door the agent's tool uses.
+   */
+  if (method === "POST" && path === "/api/conversations/handoff") {
+    const from = typeof body.from === "string" ? body.from : "";
+    const to = typeof body.to === "string" ? body.to : "";
+    const brief = typeof body.brief === "string" ? body.brief : "";
+    if (!from || !to || !brief.trim()) return { status: 400, body: { error: "from, to and brief required" } };
+    try {
+      return ok(await kernel.handoff({ from, to, brief, ...(typeof body.ask === "string" && body.ask.trim() ? { ask: body.ask } : {}), by: "owner" }));
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  if (method === "POST" && path === "/api/conversations/handoff/draft") {
+    const id = typeof body.id === "string" ? body.id : "";
+    if (!id) return { status: 400, body: { error: "id required" } };
+    try {
+      return ok({ brief: await kernel.draftHandoff(id) });
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
   if (method === "POST" && path === "/api/conversations/archive") {
     const id = typeof body.id === "string" ? body.id : "";
     if (!id) return { status: 400, body: { error: "id required" } };

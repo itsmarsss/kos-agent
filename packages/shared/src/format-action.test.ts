@@ -51,6 +51,10 @@ describe("summaries for the browser", () => {
     expect(summarizeAction("browser.new_tab", {})).toBe("Open a new tab");
     expect(summarizeAction("browser.watch", { url: "https://example.com", tell: true })).toBe("Watch https://example.com for change");
     expect(summarizeAction("browser.watch", { url: "https://example.com", name: "prices" })).toBe("Watch prices for change");
+    expect(summarizeAction("chats.handoff", { to: "@project:books", brief: "Seventeen books restored;\n the lending table is empty." })).toBe(
+      "Hand off to @project:books: Seventeen books restored; the lending table is empty.",
+    );
+    expect(summarizeAction("chats.handoff", { to: "x", brief: "a".repeat(120) })).toBe(`Hand off to x: ${"a".repeat(89)}…`);
     expect(summarizeAction("browser.handoff", { reason: "log in to your bank" })).toBe("Needs your hands: log in to your bank");
     expect(summarizeAction("browser.act", { steps: [{ fill: { selector: "@e2", text: "jane" } }, { click: "@e5" }, { wait: 500 }] })).toBe("On the page: fill @e2, click @e5, wait 500ms");
   });

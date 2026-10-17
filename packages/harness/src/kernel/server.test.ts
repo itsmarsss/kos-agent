@@ -351,6 +351,19 @@ describe("handleApiRequest", () => {
     await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/remove", body: { name: "google-calendar" } });
   });
 
+  it("hands a chat on from the dashboard, and drafts the brief", async () => {
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Beds" });
+    const other = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Garden" });
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/conversations/handoff", body: { from: chat.id, to: other.id } })).status).toBe(400);
+    const sent = await handleApiRequest(kernel, { method: "POST", path: "/api/conversations/handoff", body: { from: chat.id, to: `@chat:[${other.id}]`, brief: "Two beds need turning.", ask: "plan it" } });
+    expect(sent.body).toMatchObject({ conversationId: other.id, title: "Garden" });
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/conversations/handoff", body: { from: chat.id, to: "nowhere", brief: "x" } })).status).toBe(400);
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/conversations/handoff/draft", body: { id: chat.id } })).status).toBe(400);
+    await kernel.handleMessage("the beds by the fence", { sessionId: chat.id });
+    const draft = (await handleApiRequest(kernel, { method: "POST", path: "/api/conversations/handoff/draft", body: { id: chat.id } })).body as { brief: string };
+    expect(draft.brief.length).toBeGreaterThan(0);
+  });
+
   it("carries how iMessage came up on the status, when the host says", async () => {
     const plain = (await handleApiRequest(kernel, { method: "GET", path: "/api/status" })).body as Record<string, unknown>;
     expect(plain).not.toHaveProperty("imessage");
