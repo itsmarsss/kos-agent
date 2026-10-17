@@ -18,6 +18,10 @@ The list on the left:
   heading makes an empty project, the same dialog the Projects page has;
   hover a row for Delete project (two presses), which is the Details
   drawer's delete without the trip there.
+- **Agents** are the standing agents KOS made for a responsibility you want
+  kept up ("keep an eye on", "every Saturday"), one row each. Each is a
+  file, `agents/<name>.md`, and its row is the thread it works in; see
+  docs/agents.md.
 - **Scheduled** holds the threads jobs run in, folded by default.
 - **Your chats**, newest first. Hover a row for Rename, Duplicate, Hand off
   (KOS drafts a brief of the thread; you pick a chat or project, edit it,

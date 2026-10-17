@@ -2979,6 +2979,8 @@ function parseCronInput(body: Record<string, unknown>): CreateCronInput | string
   }
 
   if (body.task === "cheap" || body.task === "reasoning") input.task = body.task;
+  // A role's own schedule keeps its binding through an edit on the Schedule page.
+  if (typeof body.agent === "string" && body.agent) input.agent = body.agent;
   if (type === "self_prompt") {
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
     if (!prompt) return "a self_prompt job needs a prompt";
@@ -3193,6 +3195,8 @@ function refuseFixed(
   // A project's thread is fixed while the project is; once the project is
   // deleted the thread is an ordinary archived chat, the owner's to keep or drop.
   if (kind === "project" && !kernel.manifest.get(id.slice("project:".length))) return null;
+  // The same for a standing agent: its thread is fixed while its file exists.
+  if (kind === "agent" && !kernel.roles.exists(id.slice("agent:".length))) return null;
   const what =
     kind === "orchestrator"
       ? "KOS itself"
@@ -3200,7 +3204,9 @@ function refuseFixed(
         ? `the ${conversation.channel} stream`
         : kind === "project"
           ? "a project's own thread"
-          : "a schedule's own thread";
+          : kind === "agent"
+            ? "a standing agent's own thread"
+            : "a schedule's own thread";
   return {
     status: 400,
     body: { error: `${what} cannot be ${verb}.` },

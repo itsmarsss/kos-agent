@@ -351,6 +351,18 @@ describe("handleApiRequest", () => {
     await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/remove", body: { name: "google-calendar" } });
   });
 
+  it("keeps a standing agent's thread while its file exists, and lets it go once the agent is removed", async () => {
+    kernel.roles.write({ name: "research", description: "Looks things up", brief: "You look.", memory: "own" });
+    const thread = kernel.ensureAgentConversation("research");
+    const held = await handleApiRequest(kernel, { method: "POST", path: "/api/conversations/delete", body: { id: thread.id } });
+    expect(held.status).toBe(400);
+    expect((held.body as { error: string }).error).toMatch(/a standing agent's own thread cannot be deleted/);
+    kernel.roles.remove("research");
+    const dropped = await handleApiRequest(kernel, { method: "POST", path: "/api/conversations/delete", body: { id: thread.id } });
+    expect(dropped.status).toBe(200);
+    expect(kernel.conversations.get(thread.id)).toBeUndefined();
+  });
+
   it("keeps a project's thread while the project lives, and lets it go once the project is deleted", async () => {
     const made = kernel.standUpProject({ name: "Sheds", type: "tracker" });
     const held = await handleApiRequest(kernel, { method: "POST", path: "/api/conversations/delete", body: { id: made.conversationId } });

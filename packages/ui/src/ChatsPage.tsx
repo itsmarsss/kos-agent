@@ -597,6 +597,14 @@ export function ChatsPage({
         .sort((a, b) => a.title.localeCompare(b.title)),
     [conversations],
   );
+  /** Standing agents, pinned with the projects: each is a responsibility kept, not a chat begun. */
+  const standing = useMemo(
+    () =>
+      conversations
+        .filter((c) => c.kind === "agent" && !c.archived)
+        .sort((a, b) => a.title.localeCompare(b.title)),
+    [conversations],
+  );
   const tree = useMemo(() => groupChats(conversations), [conversations]);
   const q = query.trim().toLowerCase();
   const matches = (c: Conversation): boolean => !q || c.title.toLowerCase().includes(q);
@@ -1385,7 +1393,7 @@ export function ChatsPage({
             />
           </div>
           {showArchived && <div className="chats-section">Archived chats</div>}
-          {!showArchived && (orchestrator || projectRows.length > 0 || surfaces.length > 0) && (
+          {!showArchived && (orchestrator || projectRows.length > 0 || standing.length > 0 || surfaces.length > 0) && (
             <div className="chats-pinned">
               {orchestrator && (
                 <a
@@ -1508,6 +1516,40 @@ export function ChatsPage({
                     );
                   })}
                 </ul>
+              )}
+              {standing.length > 0 && (
+                /* A row is the agent's own thread: where it is spoken to and
+                   where its schedule runs. Made by KOS from a request, and
+                   edited as a file, so there is nothing to make here. */
+                <>
+                  <div className="chats-group-head">
+                    <span>Agents</span>
+                  </div>
+                  <ul className="chats-projects">
+                    {standing.map((c) => (
+                      <li key={c.id}>
+                        <a
+                          className={`chats-item chats-item--pinned ${c.id === activeId ? "is-active" : ""}`}
+                          href={hrefFor({ name: "chats", id: c.id })}
+                          title={c.role ? `A standing agent: agents/${c.role}.md` : "A standing agent"}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            onOpen(c.id);
+                          }}
+                        >
+                          {c.id === activeId && (
+                            <m.span className="chats-active-bar" layoutId="chat-active" transition={spring} />
+                          )}
+                          <span className="chats-item-top">
+                            <span className="chats-item-title">{c.title}</span>
+                            {isBusy(c) && <StatusDot state="working" label="working" />}
+                            <span className="chats-badge">agent</span>
+                          </span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </>
               )}
               {surfaces.length > 0 && (
                 /* One line however many there are. A surface is a way in, not

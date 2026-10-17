@@ -33,6 +33,12 @@ export interface CronJob {
   projectSlug: string | null;
   /** Which model class answers a self_prompt: the reasoning route, or the cheap one. */
   task: "reasoning" | "cheap";
+  /**
+   * The role this job is the schedule of, when it is one. It runs in that
+   * agent's own thread, under its brief and tool scope, rather than in a
+   * thread of the job's own.
+   */
+  agent: string | null;
   enabled: boolean;
   createdAt: number;
   updatedAt: number;
@@ -50,5 +56,6 @@ export interface CreateCronInput {
   prompt?: string;
   projectSlug?: string;
   task?: "reasoning" | "cheap";
+  agent?: string;
   enabled?: boolean;
 }

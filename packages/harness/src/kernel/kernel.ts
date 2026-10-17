@@ -88,6 +88,8 @@ import { PermissionStore } from "../ops/permissions.js";
 import { offeredSkills, readSkills } from "../skills/manifest.js";
 import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import { CHAT_TOOLS } from "../tools/chats.js";
+import { AGENT_TOOLS } from "../tools/agents.js";
+import { agentConversationId, agentScope, type Role, type RoleStore } from "../agents/roles.js";
 import { type NotifyPayload } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
 import type { EventBus } from "../modules/events.js";
@@ -158,6 +160,12 @@ export const BUILD_SETTINGS_KEY = "builds";
 /** The orchestrator's own conversation id. */
 export function orchestratorId(ownerId = "owner"): string {
   return `orchestrator:${ownerId}`;
+}
+
+/** A role's name as a thread title: "price-watch" reads as "Price watch". */
+function roleTitle(role: Role): string {
+  const words = role.name.replace(/[-_]+/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 /**
@@ -257,6 +265,8 @@ export class Kernel {
   private readonly recalls = new Map<string, TurnRecall>();
   /** What the dream job left for the owner to decide. */
   readonly review: ReviewQueue;
+  /** The standing agents, as files under agents/. */
+  readonly roles: RoleStore;
   /** Things KOS has suggested making reusable, waiting on the owner. */
   readonly suggestions: SuggestionStore;
   /** Other programs that share memory, within a grant. */
@@ -371,6 +381,7 @@ export class Kernel {
     bus: EventBus;
     mcp: McpModule;
     review: ReviewQueue;
+    roles: RoleStore;
     suggestions: SuggestionStore;
     callers: CallerStore;
     pageLog: PageLog;
@@ -455,6 +466,7 @@ export class Kernel {
     this.events = args.events;
     this.mcp = args.mcp;
     this.review = args.review;
+    this.roles = args.roles;
     this.suggestions = args.suggestions;
     this.callers = args.callers;
     this.pageLog = args.pageLog;
@@ -524,6 +536,8 @@ export class Kernel {
       isClosed: () => this.closed,
       runs: args.runs,
       facts: args.memoryWriter,
+      // A standing agent with memory of its own keeps what the owner tells it.
+      scopeOf: (id) => this.roleScope(this.conversations.get(id)),
       embedder: args.embedder,
       events: args.events,
       conversations: args.conversations,
@@ -676,9 +690,12 @@ export class Kernel {
         // A conversation may be a scoped agent: its own brief, its own reach.
         // An aside has no conversation of its own: it borrows the identity
         // (brief, tool scope, project) of the chat it is asked about.
-        const conversation =
+        // A standing agent's brief and reach come from its file, read now,
+        // so an edit the owner made is this turn's brief.
+        const conversation = this.withRole(
           this.conversations.get(sessionId) ??
-          (opts.contextFrom ? this.conversations.get(opts.contextFrom) : undefined);
+            (opts.contextFrom ? this.conversations.get(opts.contextFrom) : undefined),
+        );
         /*
          * Told the first time a call in this turn suspends on the owner, so
          * the caller can be answered while the turn itself keeps waiting.
@@ -704,10 +721,13 @@ export class Kernel {
           ...(opts.grant?.length ? { grant: opts.grant } : {}),
         });
 
+        // An agent with memory of its own reads that beside the global claims.
+        const own = this.roleScope(conversation);
         const recall = await this.memoryRetriever.recall(userId, text, {
           factLimit: 10,
           eventLimit: 4,
           projectSlug: conversation?.projectSlug ?? null,
+          ...(own ? { scopes: [own] } : {}),
           // A single matching word is retrieval, not relevance: one key hit,
           // a phrase, or two words in the value before a claim is injected.
           minScore: 2,
@@ -1115,6 +1135,9 @@ export class Kernel {
    */
   /** The job's thread, made on its first run so an unfired schedule leaves none. */
   private jobThread(job: CronJob): string {
+    // A role's schedule runs as the role: in its standing thread, under its
+    // brief and reach, so what it remembers is the agent's own.
+    if (job.agent && this.roles.exists(job.agent)) return this.ensureAgentConversation(job.agent).id;
     const id = cronSessionId(job.id);
     if (!this.conversations.get(id)) {
       this.conversations.create({
@@ -1254,7 +1277,7 @@ export class Kernel {
     const res = await this.handleMessage(text, {
       sessionId: id,
       userId: this.profile.ownerId,
-      grant: [...CHAT_TOOLS],
+      grant: [...CHAT_TOOLS, ...AGENT_TOOLS],
       allow: [...ORCHESTRATOR_SCOPE],
       ...(opts.channel ? { channel: opts.channel } : {}),
       ...(opts.attachments ? { attachments: opts.attachments } : {}),
@@ -1441,6 +1464,93 @@ export class Kernel {
   }
 
   /**
+   * A role's standing thread, made from its file and kept in step with it:
+   * where the role is spoken to at the root and where its schedule runs.
+   */
+  ensureAgentConversation(name: string): Conversation {
+    const role = this.roles.get(name);
+    if (!role) throw new Error(`no agent called ${name}`);
+    const id = agentConversationId(name);
+    const existing = this.conversations.get(id);
+    if (existing) return this.withRole(existing)!;
+    return this.conversations.create({
+      id,
+      userId: this.profile.ownerId,
+      title: roleTitle(role),
+      channel: "dashboard",
+      brief: role.brief,
+      toolAllow: role.tools ?? null,
+      role: name,
+    });
+  }
+
+  /** An instance of a role inside a project: an ordinary chat there, under the role's brief. */
+  spawnAgent(name: string, projectSlug: string): Conversation {
+    const role = this.roles.get(name);
+    if (!role) throw new Error(`no agent called ${name}`);
+    if (!this.manifest.get(projectSlug)) throw new Error(`no project called ${projectSlug}`);
+    return this.conversations.create({
+      userId: this.profile.ownerId,
+      title: roleTitle(role),
+      projectSlug,
+      brief: role.brief,
+      toolAllow: role.tools ?? null,
+      role: name,
+    });
+  }
+
+  /**
+   * The conversation with its role's current brief and reach.
+   *
+   * The file is the source: an edit to it is the next turn's brief, and the
+   * columns are a copy refreshed when they differ. A role whose file is gone
+   * keeps what it had, as an ordinary chat.
+   */
+  withRole(conversation: Conversation | undefined): Conversation | undefined {
+    if (!conversation?.role) return conversation;
+    const role = this.roles.get(conversation.role);
+    if (!role) return conversation;
+    const allow = role.tools ?? null;
+    if (conversation.brief === role.brief && JSON.stringify(conversation.toolAllow) === JSON.stringify(allow)) return conversation;
+    return this.conversations.configure(conversation.id, { brief: role.brief, toolAllow: allow }) ?? conversation;
+  }
+
+  /** The memory scope a conversation's role keeps for itself, when it has one. */
+  roleScope(conversation: Conversation | undefined): string | undefined {
+    if (!conversation?.role) return undefined;
+    const role = this.roles.get(conversation.role);
+    return role?.memory === "own" ? agentScope(role.name) : undefined;
+  }
+
+  /**
+   * A role's schedule as a job of its own, in step with the file: made or
+   * updated when the role has one, removed when it does not. The job runs
+   * in the role's thread, so it is the agent working, not a job of its own.
+   */
+  bindAgentSchedule(name: string, role: Role | undefined): CronJob | undefined {
+    const existing = this.crons.list().find((j) => j.agent === name);
+    if (!role?.schedule || !role.prompt) {
+      if (existing) {
+        this.crons.delete(existing.id);
+        this.reloadCron();
+      }
+      return undefined;
+    }
+    const input: CreateCronInput = {
+      name: `agent:${name}`,
+      schedule: role.schedule,
+      type: "self_prompt",
+      prompt: role.prompt,
+      agent: name,
+      enabled: true,
+      ...(role.task ? { task: role.task } : {}),
+    };
+    const job = existing ? this.crons.update(existing.id, input)! : this.crons.create(input);
+    this.reloadCron();
+    return job;
+  }
+
+  /**
    * Stand up a project and its orchestrator: the second level, created on
    * demand by KOS or by the owner. The project goes in the manifest; the
    * orchestrator conversation is made with a brief scoping it to that project.
@@ -1460,7 +1570,7 @@ export class Kernel {
     const res = await this.handleMessage(text, {
       sessionId: id,
       userId: this.profile.ownerId,
-      grant: [...CHAT_TOOLS],
+      grant: [...CHAT_TOOLS, ...AGENT_TOOLS],
       allow: [...ORCHESTRATOR_SCOPE],
       ...(opts.channel ? { channel: opts.channel } : {}),
       ...(opts.attachments ? { attachments: opts.attachments } : {}),

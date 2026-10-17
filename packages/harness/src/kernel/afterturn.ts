@@ -21,7 +21,13 @@ export interface AfterTurnDeps {
     start: (kind: string) => number;
     finish: (id: number, status: "ok" | "error", error?: string) => void;
   };
-  facts: { ingest: (userId: string, text: string, source: string, options?: { evidence?: number[] }) => Promise<unknown> };
+  facts: { ingest: (userId: string, text: string, source: string, options?: { evidence?: number[]; scope?: string }) => Promise<unknown> };
+  /**
+   * The scope a conversation keeps for itself, when it has one: a standing
+   * agent with memory of its own. What the owner tells it is its context,
+   * not a fact about the owner everywhere.
+   */
+  scopeOf?: (conversationId: string) => string | undefined;
   embedder: { embed: (texts: string[]) => Promise<number[][]> };
   events: { append: (event: NewEvent, embedding?: number[]) => number };
   conversations: {
@@ -62,7 +68,10 @@ export class AfterTurn {
       saidId = this.deps.events.append({ userId, role: "owner", text: said, ...place }, a);
       if (answered) this.deps.events.append({ userId, role: "agent", text: answered, ...place }, b);
     });
-    await record("memory.facts", () => this.deps.facts.ingest(userId, text, "chat", saidId ? { evidence: [saidId] } : {}));
+    const scope = conversationId ? this.deps.scopeOf?.(conversationId) : undefined;
+    await record("memory.facts", () =>
+      this.deps.facts.ingest(userId, text, "chat", { ...(saidId ? { evidence: [saidId] } : {}), ...(scope ? { scope } : {}) }),
+    );
   }
 
   /**

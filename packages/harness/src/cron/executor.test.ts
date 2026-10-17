@@ -22,6 +22,7 @@ function job(partial: Partial<CronJob>): CronJob {
     prompt: null,
     projectSlug: null,
     task: "reasoning",
+    agent: null,
     enabled: true,
     createdAt: 0,
     updatedAt: 0,

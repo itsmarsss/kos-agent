@@ -95,6 +95,11 @@ the same way, with KOS's own tools and nothing else.
 to a project or global, with the evidence it came from. Three jobs maintain
 it, each off until you switch it on. [docs/memory.md](docs/memory.md).
 
+**Keeps responsibilities.** "Keep an eye on this listing" or "handle my
+travel" becomes a standing agent: a file under `agents/` you can edit, with
+a thread of its own and a schedule if it needs one. KOS makes it from the
+sentence; nothing is written per job. [docs/agents.md](docs/agents.md).
+
 **Looks around.** A heartbeat, off by default, wakes on an interval you set,
 checks what changed, and says nothing unless something is worth saying.
 
