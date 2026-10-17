@@ -13,7 +13,7 @@ import { Select } from "./Select.js";
  * the agent proposes, not what the owner writes.
  */
 
-const PRESETS: { label: string; value: string }[] = [
+export const PRESETS: { label: string; value: string }[] = [
   { label: "Every hour", value: "0 * * * *" },
   { label: "Every day at 9am", value: "0 9 * * *" },
   { label: "Weekdays at 9am", value: "0 9 * * 1-5" },
