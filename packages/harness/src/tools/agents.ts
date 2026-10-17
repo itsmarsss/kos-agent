@@ -1,6 +1,6 @@
 import cron from "node-cron";
 
-import { agentConversationId, ROLE_NAME, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
+import { agentConversationId, parseFaceLook, ROLE_NAME, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
 import type { Conversation } from "../kernel/conversations.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 
@@ -115,6 +115,11 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
           task: { type: "string", enum: ["reasoning", "cheap"], description: "which model class answers it; the reasoning route unless the work is routine" },
           schedule: { type: "string", description: "a cron expression, when it should run on its own" },
           prompt: { type: "string", description: "what it is told on each scheduled run; required with a schedule" },
+          face: {
+            type: "object",
+            description: "its face, only if the owner asked for a look: hue 0-359, eyes round|half|sparkle, gait 0-3. Otherwise omit; the name decides.",
+            properties: { hue: { type: "number" }, eyes: { type: "string", enum: ["round", "half", "sparkle"] }, gait: { type: "number" } },
+          },
           replace: { type: "boolean", description: "rewrite an agent that already exists; otherwise an existing name is refused" },
         },
         required: ["name", "description", "brief"],
@@ -131,6 +136,7 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
       const prompt = optional(input, "prompt");
       if (schedule && !prompt) throw new Error("a schedule needs a prompt: what to do on each run");
       const tools = stringList(input.tools);
+      const face = parseFaceLook(input.face);
       const role: Role = {
         name,
         description: str(input, "description"),
@@ -140,6 +146,7 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
         ...(input.task === "cheap" || input.task === "reasoning" ? { task: input.task } : {}),
         ...(schedule ? { schedule } : {}),
         ...(prompt ? { prompt } : {}),
+        ...(Object.keys(face).length ? { face } : {}),
       };
       const record = deps.roles.write(role);
       const thread = deps.ensureAgent(name);

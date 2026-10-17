@@ -19,7 +19,7 @@ import { useDismiss } from "./useDismiss.js";
 import { ContextMeter } from "./ContextMeter.js";
 import { byAttention, groupChats, isBusy, placeOf, projectSummary } from "./chattree.js";
 import { AgentPanel } from "./AgentPanel.js";
-import { Face, moodOf } from "./Face.js";
+import { Face, KOS_SEED, faceLookOf, moodOf, useKosLook } from "./Face.js";
 import { Gutter } from "./Gutter.js";
 import { NewProjectDialog } from "./NewProjectDialog.js";
 import { ProjectPanel } from "./ProjectPanel.js";
@@ -240,6 +240,8 @@ export function ChatsPage({
   seed,
 }: ChatsPageProps): ReactElement {
   const [query, setQuery] = useState("");
+  /** KOS's face, wherever KOS is drawn on this page. */
+  const kos = useKosLook();
   /** A row's link: a project's thread links into the project, the rest into Chats. */
   const hrefOf = (c: Conversation): string => hrefFor(placeOf(c.id, c));
   const [events, setEvents] = useState<ChatEvent[]>([]);
@@ -1473,7 +1475,7 @@ export function ChatsPage({
                     onOpen(orchestrator.id);
                   }}
                 >
-                  <span className="chats-root-glyph" aria-hidden="true">✦</span>
+                  <Face seed={KOS_SEED} look={faceLookOf(kos)} size={26} mood={moodOf(orchestrator.activity)} label="KOS" />
                   <span className="chats-root-text">
                     <span className="chats-root-title">
                       {orchestrator.title}
@@ -1771,8 +1773,8 @@ export function ChatsPage({
               initial="hidden"
               animate="show"
             >
-              <m.span className="chats-welcome-glyph" aria-hidden="true" variants={card}>
-                ✦
+              <m.span className="chats-welcome-glyph" variants={card}>
+                <Face seed={KOS_SEED} look={faceLookOf(kos)} size={56} mood={moodOf(orchestrator?.activity)} label="KOS" />
               </m.span>
               <m.div className="chats-welcome-head" variants={card}>
                 <p className="chats-welcome-title">What do you want done?</p>
@@ -1906,6 +1908,7 @@ export function ChatsPage({
                 </div>
                 <h1>
                   {active.role && <Face seed={active.role} size={30} mood={moodOf(active.activity)} />}
+                  {active.kind === "orchestrator" && <Face seed={KOS_SEED} look={faceLookOf(kos)} size={30} mood={moodOf(active.activity)} label="KOS" />}
                   {active.title}
                   {active.kind === "project" && <span className="chats-role">orchestrator</span>}
                 </h1>

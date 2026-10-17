@@ -31,6 +31,7 @@ import { HomePage } from "./HomePage.js";
 import { ChatsPage } from "./ChatsPage.js";
 import { BrowserWindow } from "./BrowserWindow.js";
 import { OpenTab } from "./opentab.js";
+import { AgentFaces, KOS_SEED, KosLook, faceDataUrl, lookOf } from "./Face.js";
 import { QuickAsk } from "./QuickAsk.js";
 import { useProgress } from "./progress.js";
 import { FilesPage } from "./FilesPage.js";
@@ -186,6 +187,25 @@ export function App(): React.ReactElement {
   const [agents, setAgents] = useState<BuildRecord[]>([]);
   const [editingCron, setEditingCron] = useState<{ job?: CronJob; projectSlug?: string } | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  /** KOS's own look, from the status: every face of KOS and the tab icon use it. */
+  const kosLook = useMemo(() => lookOf(KOS_SEED, status?.face ?? {}), [status?.face]);
+  /** What the owner set about each agent's face, by role, for faces drawn from a name alone. */
+  const agentFaces = useMemo(
+    () => new Map(conversations.filter((c) => c.role && c.face).map((c) => [c.role!, c.face!])),
+    [conversations],
+  );
+  // The tab icon is KOS's face, still, with a mark when something waits.
+  useEffect(() => {
+    const mood = (status?.pendingApprovals ?? 0) > 0 ? "needs-you" : status?.halted ? "asleep" : "idle";
+    let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!link) {
+      link = document.createElement("link");
+      link.rel = "icon";
+      document.head.appendChild(link);
+    }
+    link.type = "image/svg+xml";
+    link.href = faceDataUrl(kosLook, mood);
+  }, [kosLook, status?.pendingApprovals, status?.halted]);
 
   const flash = (kind: "ok" | "err", text: string): void => {
     setToast({ kind, text });
@@ -620,6 +640,8 @@ export function App(): React.ReactElement {
           for pages that scroll, and with it the document ran past the viewport
           so the page moved behind the chat, top bar and all. */}
       <OpenTab.Provider value={openTab}>
+      <KosLook.Provider value={kosLook}>
+      <AgentFaces.Provider value={agentFaces}>
       <div className="app">
       <Sidebar
         route={route}
@@ -804,6 +826,8 @@ export function App(): React.ReactElement {
           : {})}
       />
       </div>
+      </AgentFaces.Provider>
+      </KosLook.Provider>
       </OpenTab.Provider>
     </ErrorBoundary>
   );

@@ -35,6 +35,11 @@ describe("roles", () => {
     // The sparse form reads back sparse: no empty keys invented.
     const plain = parseRole(formatRole({ name: "research", description: "Looks things up", brief: "You look.", memory: "shared" }), "research");
     expect(plain).toEqual({ name: "research", description: "Looks things up", brief: "You look.", memory: "shared" });
+    // A face the owner set rides along, as the three words it is.
+    const faced = { ...plain, face: { hue: 210, eyes: "sparkle" as const } };
+    expect(formatRole(faced)).toContain("face: hue 210, eyes sparkle\n");
+    expect(parseRole(formatRole(faced), "research")).toEqual(faced);
+    expect(parseRole("---\ndescription: d\nface: gait=3, hue:400\n---\nbody", "x").face).toEqual({ gait: 3, hue: 40 });
   });
 
   it("refuses what it could not read back", () => {
@@ -47,6 +52,8 @@ describe("roles", () => {
     expect(() => parseRole("---\ndescription: d\nmemory: mine\n---\nbody", "x")).toThrow(/memory must be/);
     expect(() => parseRole("---\ndescription: d\ntools: browser, Shell!\n---\nbody", "x")).toThrow(/not a tool family/);
     expect(() => parseRole("---\n---\nbody", "Bad Name")).toThrow(/name must match/);
+    expect(() => parseRole("---\ndescription: d\nface: eyes googly\n---\nbody", "x")).toThrow(/out of range/);
+    expect(() => parseRole("---\ndescription: d\nface: colour red\n---\nbody", "x")).toThrow(/is not "hue/);
   });
 
   it("lists what is on disk, names what does not parse, and reads an edit at once", () => {

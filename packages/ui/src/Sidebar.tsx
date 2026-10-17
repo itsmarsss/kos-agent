@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 
 import type { Status } from "./api.js";
+import { Face, KOS_SEED, faceLookOf, useKosLook, type Mood } from "./Face.js";
 import { hrefFor, NAV, navActive, type Route } from "./routes.js";
 import { NavIcon, ChevronLeft, ChevronRight } from "./icons.js";
 import { useDismiss } from "./useDismiss.js";
@@ -35,6 +36,7 @@ export function Sidebar({
 }: {
   route: Route;
   status: Status | null;
+  /** (KOS's face is read from context; see Face.tsx.) */
   /** Everything waiting on the owner, for the badge beside Inbox. */
   inboxCount: number;
   /** What the shell is doing right now, if anything. */
@@ -52,6 +54,9 @@ export function Sidebar({
   onToggleKill: () => void;
 }): ReactElement {
   const [open, setOpen] = useState(false);
+  /** KOS's face, in the brand: bouncing when something waits on you, asleep when halted. */
+  const kos = useKosLook();
+  const kosMood: Mood = inboxCount > 0 ? "needs-you" : status?.halted ? "asleep" : "idle";
   const [railed, setRailed] = useState(() => {
     try {
       return localStorage.getItem("kos.sidebar") === "rail";
@@ -96,6 +101,7 @@ export function Sidebar({
           {inboxCount > 0 && <span className="side-badge side-badge--dot" aria-label={`${inboxCount} waiting`} />}
         </button>
         <a className="brand" href="#/">
+          <Face seed={KOS_SEED} look={faceLookOf(kos)} size={20} mood={kosMood} label="KOS" />
           K<span>-OS</span>
         </a>
         <button type="button" className="btn btn--ghost phonebar-search" aria-label="Search" onClick={onSearch}>
@@ -106,6 +112,7 @@ export function Sidebar({
       <aside className={`side${open ? " is-open" : ""}`} aria-label="Primary">
         <div className="side-brand-row">
           <a className="brand side-brand" href="#/">
+            <Face seed={KOS_SEED} look={faceLookOf(kos)} size={22} mood={kosMood} label="KOS" />
             K<span>-OS</span>
           </a>
           {/* Collapse to a rail. Desktop only; on a phone the sidebar is a

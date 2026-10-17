@@ -217,7 +217,8 @@ Grouped by what you came to do.
   cap), Behaviour (fix failures on its own, steps per turn, unattended
   limits, background memory extraction, how sure the tidy job must be to
   settle a memory question alone), Appearance (dark, light or system;
-  density).
+  density; KOS's face: its colour, eyes and gait, kept in the workspace so
+  every screen and the tab icon agree).
 - **Extensions**: Skills (on by default; off keeps the folder), Modules
   (built-ins to switch, workspace modules to switch on, blueprints with
   their instances, install from a git URL or folder).

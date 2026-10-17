@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from "react";
 
-import { api, type AgentDraft, type AgentInfo } from "./api.js";
-import { Face } from "./Face.js";
+import { api, type AgentDraft, type AgentInfo, type FaceLook } from "./api.js";
+import { FaceEditor } from "./FaceEditor.js";
 import { Select } from "./Select.js";
 
 /**
@@ -26,9 +26,10 @@ interface Draft {
   task: "reasoning" | "cheap";
   schedule: string;
   prompt: string;
+  face: FaceLook;
 }
 
-const BLANK: Draft = { name: "", description: "", brief: "", tools: "", memory: "own", task: "reasoning", schedule: "", prompt: "" };
+const BLANK: Draft = { name: "", description: "", brief: "", tools: "", memory: "own", task: "reasoning", schedule: "", prompt: "", face: {} };
 
 function toDraft(a: AgentInfo): Draft {
   return {
@@ -40,6 +41,7 @@ function toDraft(a: AgentInfo): Draft {
     task: a.task ?? "reasoning",
     schedule: a.schedule ?? "",
     prompt: a.prompt ?? "",
+    face: a.face ?? {},
   };
 }
 
@@ -54,6 +56,7 @@ function fromDraft(d: Draft): AgentDraft {
     ...(tools.length ? { tools } : {}),
     ...(d.schedule.trim() ? { schedule: d.schedule.trim() } : {}),
     ...(d.prompt.trim() ? { prompt: d.prompt.trim() } : {}),
+    ...(Object.keys(d.face).length ? { face: d.face } : {}),
   };
 }
 
@@ -90,14 +93,15 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
       }}
     >
       {/* Its face, live as the name is typed: the name is what the look
-          comes from, so a new agent is met before it is made. */}
+          comes from, so a new agent is met before it is made. The three
+          things the owner may set about it sit beside it. */}
       <div className="agents-editor-head">
-        <Face seed={draft.name || "new"} size={56} label={draft.name ? `${titleOf(draft.name)}'s face` : "A new agent's face"} />
         <div>
           <strong>{draft.name ? titleOf(draft.name) : "A new agent"}</strong>
-          <span className="hint">{initial ? initial.path : "Its colour, shape and eyes come from its name."}</span>
+          <span className="hint">{initial ? initial.path : "Its colour, shape and eyes come from its name unless you set them."}</span>
         </div>
       </div>
+      <FaceEditor seed={draft.name || "new"} value={draft.face} onChange={(face) => setDraft({ ...draft, face })} label={draft.name ? `${titleOf(draft.name)}'s face` : "A new agent's face"} />
       <div className="agents-fields">
         <label className="kos-field">
           <span className="kos-field-label">Name</span>

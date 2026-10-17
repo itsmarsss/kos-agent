@@ -12,6 +12,8 @@ export interface RestartState {
 
 export interface Status {
   halted: boolean;
+  /** What the owner set about KOS's face; empty means the name's. */
+  face?: FaceLook;
   queueDepth: number;
   crons: number;
   pendingApprovals: number;
@@ -238,6 +240,13 @@ export interface ReviewItem {
   claims?: ReviewClaim[];
 }
 
+/** What the owner may set about a face; anything unset comes from the name. */
+export interface FaceLook {
+  hue?: number;
+  eyes?: "round" | "half" | "sparkle";
+  gait?: 0 | 1 | 2 | 3;
+}
+
 /** What a standing agent's file says, as the editor and the list need it. */
 export interface AgentDraft {
   name: string;
@@ -249,6 +258,7 @@ export interface AgentDraft {
   task?: "reasoning" | "cheap";
   schedule?: string;
   prompt?: string;
+  face?: FaceLook;
 }
 
 export interface AgentInfo extends AgentDraft {
@@ -403,6 +413,8 @@ export interface Conversation {
   projectSlug: string | null;
   /** The role this runs as, when it is a standing agent or an instance of one: agents/<role>.md. */
   role?: string | null;
+  /** What the owner set about its role's face, when it runs as one. */
+  face?: FaceLook;
   /** What sort of thread this is, for grouping in the list. */
   kind?: "orchestrator" | "project" | "surface" | "schedule" | "agent" | "chat";
   /** What the thread is doing, so the list can say rather than look idle. */
@@ -1076,6 +1088,9 @@ export const api = {
   deleteAgent: (name: string) => post<{ removed: string }>("/api/agents/delete", { name }),
   /** Run its scheduled prompt now, in its own thread. */
   runAgent: (name: string) => post<{ fired: boolean }>("/api/agents/run", { name }),
+  /** KOS's own face, kept in the workspace. */
+  kosFace: () => get<{ face: FaceLook }>("/api/settings/face"),
+  saveKosFace: (face: FaceLook) => post<{ face: FaceLook }>("/api/settings/face", { face }),
   settings: () => get<SettingsPayload>("/api/settings"),
   saveProfile: (name: string, timezone: string) =>
     post<{ profile: { name: string; timezone: string } }>(

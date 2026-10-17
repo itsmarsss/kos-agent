@@ -7564,3 +7564,9 @@ a.health {
 .agent-panel-lines .insp-meta { text-align: right; }
 .agent-panel-acts { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.5rem; }
 .unread-dot { display: inline-block; width: 0.45em; height: 0.45em; margin-left: 0.4em; border-radius: 50%; background: var(--ok, #3dd68c); vertical-align: middle; }
+/* A face beside the three things that may be set about it. */
+.face-editor { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+.face-editor-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.6rem 0.8rem; align-items: end; flex: 1; min-width: 0; }
+.face-editor input[type="range"] { width: 100%; accent-color: hsl(var(--blob-h, 220) 70% 55%); }
+.brand .blob { margin-right: 0.4rem; vertical-align: -0.2em; }
+.chats-welcome-glyph .blob { display: inline-block; }
