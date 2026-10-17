@@ -45,8 +45,8 @@ thread carries on with what it had.
 
 ## Its face
 
-Each agent has a face: a flat blob with two eyes, whose colour, gait and
-eyes come from its name, so it looks the same in the rail, on its page, in
+Each agent has a face: a flat blob with two eyes and a small smile, whose
+colour, silhouette, gait and eyes come from its name, so it looks the same in the rail, on its page, in
 a chat header and in an `@agent:` chip, and no two look alike by accident.
 It is alive rather than animated: its outline wanders without repeating, it
 looks at your cursor and leans in when you are close, blinks, jiggles when

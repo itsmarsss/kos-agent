@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type ReactElement } from "react";
 
-import { GAITS, eyeAt, mountBlob, outline, smoothPath, type BlobHandle, type BlobShape, type BlobWhim } from "./blob.js";
+import { GAITS, MOUTHS, eyeAt, mountBlob, outline, smoothPath, type BlobHandle, type BlobShape, type BlobWhim } from "./blob.js";
 
 /**
  * An agent's face: a flat blob with two eyes, alive.
@@ -63,16 +63,19 @@ function hash(text: string): number {
 }
 
 export function lookOf(seed: string, override: FaceLook = {}): Look {
-  const h = hash(seed.trim().toLowerCase() || KOS_SEED);
-  const wobble = ((h >>> 9) % 4) as Gait;
+  const name = seed.trim().toLowerCase() || KOS_SEED;
+  const h = hash(name);
+  // KOS itself is not left to the hash: a clear blue, tall eyes, a lively gait.
+  const kos = name === KOS_SEED;
+  const wobble = kos ? 1 : (((h >>> 9) % 4) as Gait);
   // A second number, so the silhouette and the habits are not the hue's twins.
-  const g = hash(`${seed.trim().toLowerCase() || KOS_SEED}#`);
+  const g = hash(`${name}#`);
   const base: Look = {
-    hue: h % 360,
+    hue: kos ? 214 : h % 360,
     wobble,
-    eyes: EYES[(h >>> 12) % 3]!,
+    eyes: kos ? "half" : EYES[(h >>> 12) % 3]!,
     breath: GAITS[wobble]!.breath,
-    tilt: ((h >>> 18) % 7) - 3,
+    tilt: kos ? 0 : ((h >>> 18) % 7) - 3,
     seed: h,
     shape: {
       aspect: 0.92 + ((g % 100) / 100) * 0.2,
@@ -135,14 +138,15 @@ function usePrefersStill(): boolean {
 }
 
 /**
- * The body's colour, matte. Raw HSL at one lightness turns yellow to mustard
- * and blue to murk, so the lightness follows the wheel: lifted around
- * yellow and cyan, eased down around blue and violet.
+ * The body's colour, matte but bright. Raw HSL at one lightness turns
+ * yellow to mustard and blue to murk, so the lightness follows the wheel:
+ * lifted around yellow and cyan, eased down around blue and violet. The
+ * saturation stays high; a muted blob reads as a sad one.
  */
 export function fillOf(hue: number, sat = 1): string {
   const rad = ((hue - 75) * Math.PI) / 180;
-  const l = Math.round(61 + 5 * Math.cos(rad));
-  return `hsl(${hue} ${Math.round(66 * sat)}% ${l}%)`;
+  const l = Math.round(60 + 4 * Math.cos(rad));
+  return `hsl(${hue} ${Math.round(84 * sat)}% ${l}%)`;
 }
 function inkOf(hue: number): string {
   return `hsl(${hue} 35% 12%)`;
@@ -208,14 +212,15 @@ export function Face({ seed, look: override, size = 24, mood = "idle", label }: 
             {eyes.map(([name, at]) => (
               <g key={name} data-part={name} transform={`translate(${at.x} ${at.y})`}>
                 {look.eyes === "round" ? (
-                  <circle data-part="eye" r="3.4" fill={ink} />
+                  <circle data-part="eye" r="4.6" fill={ink} />
                 ) : (
-                  <rect data-part="eye" x="-2.6" y="-4.6" width="5.2" height="9.2" rx="2.6" fill={ink} />
+                  <rect data-part="eye" x="-3.1" y="-5.6" width="6.2" height="11.2" rx="3.1" fill={ink} />
                 )}
-                {look.eyes === "sparkle" && <circle data-part="eye" cx="-0.9" cy="-2.2" r="0.9" fill="#fff" />}
-                <path data-part="grin" d="M-3.6 1.4q3.6-4.6 7.2 0" fill="none" stroke={ink} strokeWidth="2.2" strokeLinecap="round" opacity="0" />
+                {look.eyes === "sparkle" && <circle data-part="eye" cx="-1.1" cy="-2.8" r="1.1" fill="#fff" />}
+                <path data-part="grin" d="M-4.2 1.6q4.2-5.2 8.4 0" fill="none" stroke={ink} strokeWidth="2.4" strokeLinecap="round" opacity="0" />
               </g>
             ))}
+            <path data-part="mouth" d={MOUTHS.smile} fill="none" stroke={ink} strokeWidth="2" strokeLinecap="round" />
           </g>
         </g>
         {mood === "needs-you" && (
@@ -250,11 +255,15 @@ export function faceSvg(look: Look, mood: Mood = "idle"): string {
       return `<path d="M${cx - 4} ${cy}h8" stroke="${ink}" stroke-width="2.4" stroke-linecap="round" transform="rotate(${tilt} ${cx} ${cy})"/>`;
     }
     const tall = mood === "needs-you" ? 1.25 : 1;
-    if (look.eyes === "round") return `<circle cx="${cx}" cy="${cy}" r="${3.6 * tall}" fill="${ink}"/>`;
-    const w = 5.4;
-    const hh = 9.6 * tall;
+    if (look.eyes === "round") return `<circle cx="${cx}" cy="${cy}" r="${4.8 * tall}" fill="${ink}"/>`;
+    const w = 6.4;
+    const hh = 11.6 * tall;
     const pill = `<rect x="${cx - w / 2}" y="${cy - hh / 2}" width="${w}" height="${hh}" rx="${w / 2}" fill="${ink}"/>`;
-    return look.eyes === "sparkle" ? `${pill}<circle cx="${cx - 0.9}" cy="${cy - hh / 4}" r="1" fill="#fff"/>` : pill;
+    return look.eyes === "sparkle" ? `${pill}<circle cx="${cx - 1.1}" cy="${cy - hh / 4}" r="1.2" fill="#fff"/>` : pill;
+  };
+  const mouth = (): string => {
+    const d = mood === "working" ? MOUTHS.o : mood === "needs-you" ? MOUTHS.oh : mood === "error" ? MOUTHS.frown : mood === "asleep" ? MOUTHS.small : MOUTHS.smile;
+    return `<path d="${d}" fill="none" stroke="${ink}" stroke-width="2.2" stroke-linecap="round" transform="translate(0 ${-look.shape.peak * 6})"/>`;
   };
   const extra =
     mood === "needs-you"
@@ -268,7 +277,7 @@ export function faceSvg(look: Look, mood: Mood = "idle"): string {
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 4 92 92" width="64" height="64">`,
     `<path d="${body}" fill="${fillOf(h, sat)}"${droop}/>`,
-    `<g transform="rotate(${look.tilt} 50 54)">${eye("l")}${eye("r")}</g>`,
+    `<g transform="rotate(${look.tilt} 50 54)">${eye("l")}${eye("r")}${mouth()}</g>`,
     extra,
     `</svg>`,
   ].join("");

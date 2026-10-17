@@ -48,7 +48,7 @@ export function FaceEditor({ seed, value, onChange, label }: FaceEditorProps): R
             className="settings-select"
             label="Eyes"
             value={shown.eyes}
-            options={EYES.map((e) => ({ value: e, label: e }))}
+            options={EYES.map((e) => ({ value: e, label: e === "round" ? "dots" : e === "half" ? "pills" : "pills with a glint" }))}
             onChange={(eyes) => onChange({ ...value, eyes: (EYES.find((e) => e === eyes) ?? "round") })}
           />
         </label>
