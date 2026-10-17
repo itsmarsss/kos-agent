@@ -73,9 +73,19 @@ export const POINTS = 12;
 export const CENTER = { x: 50, y: 52 } as const;
 export const RADIUS = 38;
 
-/** The eyes' resting places, in the 100-unit box, before the spread. */
-export const EYE_L = { x: 41, y: 50 } as const;
-export const EYE_R = { x: 59, y: 50 } as const;
+/** The eyes' resting places, in the 100-unit box, before the spread: a little high, which reads young. */
+export const EYE_L = { x: 41, y: 48 } as const;
+export const EYE_R = { x: 59, y: 48 } as const;
+
+/** The mouth: small and quiet, so the eyes do the talking; it only opens when something is up. */
+export const MOUTHS = {
+  smile: "M46 62q4 3.2 8 0",
+  happy: "M43 61q7 6.5 14 0",
+  o: "M50 60.5a1.9 1.9 0 1 0 0.01 0",
+  oh: "M50 60.5a2.8 2.8 0 1 0 0.01 0",
+  frown: "M46 65q4-3 8 0",
+  small: "M47.5 62.5q2.5 1.4 5 0",
+} as const;
 
 /** Where an eye sits for a shape: spread from the middle, lifted a little on a tall one. */
 export function eyeAt(side: "l" | "r", shape: BlobShape): { x: number; y: number } {
@@ -90,6 +100,7 @@ interface MoodSpec {
   open: number;
   /** How big the eyes are. */
   wide: number;
+  mouth: string;
   look: "pointer" | "dart" | "straight";
   hop: boolean;
   /** How far the body sags. */
@@ -97,11 +108,11 @@ interface MoodSpec {
 }
 
 const MOODS: Record<BlobMood, MoodSpec> = {
-  idle: { speed: 1, amp: 1, open: 1, wide: 1, look: "pointer", hop: false, droop: 0 },
-  working: { speed: 2.1, amp: 1.25, open: 0.9, wide: 0.95, look: "dart", hop: false, droop: 0 },
-  "needs-you": { speed: 1.5, amp: 1.1, open: 1, wide: 1.3, look: "pointer", hop: true, droop: 0 },
-  error: { speed: 0.6, amp: 0.5, open: 0.16, wide: 1, look: "straight", hop: false, droop: 4 },
-  asleep: { speed: 0.45, amp: 0.7, open: 0.08, wide: 1, look: "straight", hop: false, droop: 1 },
+  idle: { speed: 1, amp: 1, open: 1, wide: 1, mouth: MOUTHS.smile, look: "pointer", hop: false, droop: 0 },
+  working: { speed: 2.1, amp: 1.25, open: 0.92, wide: 0.95, mouth: MOUTHS.o, look: "dart", hop: false, droop: 0 },
+  "needs-you": { speed: 1.5, amp: 1.1, open: 1, wide: 1.25, mouth: MOUTHS.oh, look: "pointer", hop: true, droop: 0 },
+  error: { speed: 0.6, amp: 0.5, open: 0.16, wide: 1, mouth: MOUTHS.frown, look: "straight", hop: false, droop: 4 },
+  asleep: { speed: 0.45, amp: 0.7, open: 0.08, wide: 1, mouth: MOUTHS.small, look: "straight", hop: false, droop: 1 },
 };
 
 function phases(seed: number): [number, number, number] {
@@ -182,6 +193,7 @@ interface Parts {
   eyes: SVGElement[];
   /** The upturned arcs the eyes become when it is pleased. */
   grins: SVGElement[];
+  mouth: SVGPathElement | null;
   mark: SVGTextElement | null;
 }
 
@@ -329,9 +341,7 @@ function step(b: Blob, now: number, dt: number): void {
       }
     }
   }
-  // Half eyes rest a little lowered: relaxed, not shut.
-  const relaxed = b.params.eyes === "half" ? 0.7 : 1;
-  const open = clamp(mood.open * relaxed * blink, 0.06, 1.3);
+  const open = clamp(mood.open * blink, 0.06, 1.3);
   const wide = mood.wide * (b.hover ? 1.08 : 1);
 
   // Draw.
@@ -349,9 +359,13 @@ function step(b: Blob, now: number, dt: number): void {
   const atR = eyeAt("r", b.shape);
   eye(parts.eyeL, atL.x, atL.y);
   eye(parts.eyeR, atR.x, atR.y);
-  // Pleased: the eyes become arcs, the way a smile shows on a face with no mouth.
+  // Pleased: the eyes become arcs and the smile widens.
   for (const el of parts.eyes) el.setAttribute("opacity", happy ? "0" : "1");
   for (const el of parts.grins) el.setAttribute("opacity", happy ? "1" : "0");
+  if (parts.mouth) {
+    parts.mouth.setAttribute("d", happy ? MOUTHS.happy : mood.mouth);
+    parts.mouth.setAttribute("transform", `translate(${f(b.lookX * 0.45)} ${f(b.lookY * 0.3 - b.shape.peak * 6)})`);
+  }
   if (parts.mark) {
     if (b.mood === "needs-you") {
       parts.mark.setAttribute("transform", `translate(0 ${f(hopY * 0.6 - 2 * Math.max(0, Math.sin(t * 7)))})`);
@@ -398,6 +412,7 @@ export function mountBlob(svg: SVGSVGElement, params: BlobParams, mood: BlobMood
       eyeR,
       eyes: Array.from(svg.querySelectorAll<SVGElement>('[data-part="eye"]')),
       grins: Array.from(svg.querySelectorAll<SVGElement>('[data-part="grin"]')),
+      mouth: part<SVGPathElement>(svg, "mouth"),
       mark: part<SVGTextElement>(svg, "mark"),
     },
     params,
