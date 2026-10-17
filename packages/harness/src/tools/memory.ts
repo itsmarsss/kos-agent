@@ -55,6 +55,12 @@ export interface MemoryToolDeps {
   currentSource?: () => string;
   /** The project the writing conversation is in, the default scope of a claim made there. */
   currentProject?: () => string | undefined;
+  /**
+   * The scope in play when it is not the project's: a standing agent with
+   * memory of its own writes to agent:<name>. Wins over currentProject for
+   * the default; "project" still names the project.
+   */
+  currentScope?: () => string | undefined;
   /** How far the log has been read for memory, shared with the fixed extractor. */
   watermark?: { get: () => number; set: (lastEventId: number) => void };
   /** Where the dream job leaves what it could not settle. */
@@ -118,12 +124,17 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
     for (const id of ids) set.add(id);
     shown.set(source(), set);
   };
-  /** "global", "project" (this one), or a project slug; the project in play by default. */
+  /**
+   * "global", "project" (this one), or a project slug; otherwise the scope in
+   * play: a standing agent's own, the project the chat is in, or global.
+   */
   const scopeOf = (raw: unknown): string => {
-    const here = deps.currentProject?.();
+    const project = deps.currentProject?.();
+    const here = deps.currentScope?.() ?? (project ? projectScope(project) : undefined);
     if (raw === "global") return GLOBAL_SCOPE;
-    if (typeof raw === "string" && raw.trim() && raw !== "project") return projectScope(raw.trim());
-    return here ? projectScope(here) : GLOBAL_SCOPE;
+    if (raw === "project") return project ? projectScope(project) : here ?? GLOBAL_SCOPE;
+    if (typeof raw === "string" && raw.trim()) return projectScope(raw.trim());
+    return here ?? GLOBAL_SCOPE;
   };
 
   ctx.registerTool(

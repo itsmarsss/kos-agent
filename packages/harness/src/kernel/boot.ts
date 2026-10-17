@@ -63,6 +63,8 @@ import { ObservationStore } from "../memory/observations.js";
 import { CallerStore } from "../memory/callers.js";
 import { PageLog } from "../memory/pages.js";
 import { ReviewQueue } from "../memory/review.js";
+import { RoleStore } from "../agents/roles.js";
+import { createAgentsModule } from "../tools/agents.js";
 import { BEHAVIOUR_DEFAULTS } from "./behaviour.js";
 import { SuggestionStore } from "../improve/store.js";
 import { ensureDefaultImproveCron } from "../improve/job.js";
@@ -223,6 +225,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   adoptFixes(manifest, conversations, profile.ownerId);
   const facts = new FactsStore(workspace.db);
   const review = new ReviewQueue(workspace.db);
+  const roles = new RoleStore(workspace);
   const suggestions = new SuggestionStore(workspace.db);
   const observations = new ObservationStore(workspace.db);
   const callers = new CallerStore(workspace.db);
@@ -437,6 +440,11 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
         const id = kernelRef?.callerConversationId;
         return id ? (conversations.get(id)?.projectSlug ?? undefined) : undefined;
       },
+      // A standing agent with memory of its own writes there by default.
+      currentScope: () => {
+        const id = kernelRef?.callerConversationId;
+        return id ? kernelRef?.roleScope(conversations.get(id)) : undefined;
+      },
       review,
       decideAbove: () => kernelRef?.behaviour().memoryDecideAbove ?? BEHAVIOUR_DEFAULTS.memoryDecideAbove,
       pages: pageLog,
@@ -496,6 +504,27 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       },
       // It should not offer you its own thread as somewhere to put work.
       hide: [orchestratorId(profile.ownerId)],
+    }),
+    createAgentsModule({
+      roles,
+      ownerId: profile.ownerId,
+      scope: () => {
+        const id = kernelRef?.callerConversationId;
+        return (id && conversations.get(id)?.projectSlug) || undefined;
+      },
+      currentConversationId: () => kernelRef?.callerConversationId,
+      ensureAgent: (name) => kernelRef!.ensureAgentConversation(name),
+      spawnAgent: (name, projectSlug) => kernelRef!.spawnAgent(name, projectSlug),
+      bindSchedule: (name, role) => {
+        const job = kernelRef!.bindAgentSchedule(name, role);
+        return job ? { id: job.id, schedule: job.schedule } : undefined;
+      },
+      dispatch: (id, text) => kernelRef!.dispatchTo(id, text),
+      onDispatchDone: (id, title, reply, from) => {
+        const summary = `${title} answered: ${reply.slice(0, 600)}`;
+        if (from) kernelRef?.progress.emit({ kind: "note", conversationId: from, text: summary });
+        kernelRef?.caretaker.tell(summary);
+      },
     }),
     ...(options.extraModules ?? []),
   ];
@@ -637,6 +666,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     bus,
     mcp,
     review,
+    roles,
     suggestions,
     callers,
     pageLog,

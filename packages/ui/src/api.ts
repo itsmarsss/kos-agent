@@ -361,9 +361,10 @@ export interface Conversation {
   toolAllow: string[] | null;
   /** The project this conversation belongs to, or null at the root. */
   projectSlug: string | null;
-  /** The orchestrator is a conversation, but not one of the owner's chats. */
+  /** The role this runs as, when it is a standing agent or an instance of one: agents/<role>.md. */
+  role?: string | null;
   /** What sort of thread this is, for grouping in the list. */
-  kind?: "orchestrator" | "project" | "surface" | "schedule" | "chat";
+  kind?: "orchestrator" | "project" | "surface" | "schedule" | "agent" | "chat";
   /** What the thread is doing, so the list can say rather than look idle. */
   activity?: "working" | "needs-you" | "error" | "idle";
   /** Why the last turn failed, while the thread is in that state. */

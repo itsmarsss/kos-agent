@@ -512,6 +512,74 @@ describe("KOS end-to-end flows", () => {
     expect(prompt).toContain("running unattended");
   });
 
+  it("runs a standing agent under its file, remembers as itself, and runs its schedule as the agent", async () => {
+    const model = scripted([
+      toolCall("m1", "memory.remember", { key: "target_price", value: "under 40" }),
+      text("Noted."),
+      text("Under 40."),
+      text("Two now."),
+      text("Ran."),
+      text("Hello."),
+      text("Hi."),
+    ]);
+    kernel = await boot(model.inference);
+    // As agents.create does it: a file, a thread, a schedule.
+    kernel.roles.write({
+      name: "price-watch",
+      description: "Watches a listing",
+      brief: "You watch one listing for the owner.",
+      memory: "own",
+      tools: ["memory"],
+      schedule: "0 */6 * * *",
+      prompt: "Look at the listing.",
+    });
+    const thread = kernel.ensureAgentConversation("price-watch");
+    expect(thread).toMatchObject({ id: "agent:price-watch", title: "Price watch", role: "price-watch", toolAllow: ["memory"] });
+    const job = kernel.bindAgentSchedule("price-watch", kernel.roles.get("price-watch"))!;
+    expect(job).toMatchObject({ name: "agent:price-watch", agent: "price-watch", type: "self_prompt", prompt: "Look at the listing.", enabled: true });
+
+    // Its turn runs under the file's brief and reach, and what it remembers is its own.
+    await kernel.handleMessage("my target price is under 40", { sessionId: thread.id });
+    expect(model.systems.at(-1)!).toContain("You watch one listing for the owner.");
+    const offered = (model.calls.at(-1)!.request.tools ?? []).map((t) => t.name);
+    expect(offered.length).toBeGreaterThan(0);
+    expect(offered.every((n) => n.startsWith("memory."))).toBe(true);
+    expect(kernel.facts.get("owner", "target_price", "agent:price-watch")?.value).toBe("under 40");
+    expect(kernel.facts.get("owner", "target_price", "global")).toBeUndefined();
+    await kernel.handleMessage("what was the target price again", { sessionId: thread.id });
+    expect(model.prompts.at(-1)!).toContain("under 40");
+
+    // The owner edits the file; the next turn is the new brief and the full toolkit.
+    writeFileSync(join(root, "agents", "price-watch.md"), "---\nname: price-watch\ndescription: Watches a listing\n---\nYou watch two listings now.\n", "utf8");
+    await kernel.handleMessage("and now?", { sessionId: thread.id });
+    expect(model.systems.at(-1)!).toContain("You watch two listings now.");
+    expect(model.systems.at(-1)!).not.toContain("one listing");
+    expect((model.calls.at(-1)!.request.tools ?? []).some((t) => t.name === "files.read")).toBe(true);
+    expect(kernel.conversations.get(thread.id)).toMatchObject({ brief: "You watch two listings now.", toolAllow: null });
+
+    // The schedule runs in the agent's own thread, not in a thread of the job's.
+    await kernel.fireCron(job.id);
+    const history = JSON.stringify(kernel.sessions.get(thread.id));
+    expect(history).toContain("Look at the listing.");
+    expect(history).toContain("Ran.");
+    expect(kernel.conversations.get(`cron:${job.id}`)).toBeUndefined();
+
+    // The file deleted by hand: the schedule switches itself off and says so.
+    rmSync(join(root, "agents", "price-watch.md"));
+    await kernel.fireCron(job.id);
+    expect(kernel.crons.get(job.id)?.enabled).toBe(false);
+    expect(JSON.stringify(kernel.sessions.get(primarySessionId("owner")))).toContain("agents/price-watch.md is gone");
+    expect(kernel.conversations.get(`cron:${job.id}`)).toBeUndefined();
+
+    // The root has the agents tools; an ordinary chat does not.
+    await kernel.handleOrchestratorTurn("hello");
+    const atRoot = (model.calls.at(-1)!.request.tools ?? []).map((t) => t.name);
+    expect(atRoot).toEqual(expect.arrayContaining(["agents.list", "agents.create", "agents.dispatch", "agents.remove"]));
+    const plain = kernel.conversations.create({ userId: "owner", title: "Plain" });
+    await kernel.handleMessage("hi", { sessionId: plain.id });
+    expect((model.calls.at(-1)!.request.tools ?? []).map((t) => t.name)).not.toContain("agents.create");
+  });
+
   it("tells the model how to format when the turn came from Discord", async () => {
     const model = scripted([text("**done**")]);
     kernel = await boot(model.inference);

@@ -43,6 +43,13 @@ export interface Conversation {
    */
   projectSlug: string | null;
   /**
+   * The role this conversation runs as, when it is a standing agent or an
+   * instance of one in a project: the name of `agents/<name>.md`. Its brief
+   * and tool scope are read from that file on every turn, so the file is
+   * the source and these columns are a copy of it.
+   */
+  role: string | null;
+  /**
    * When the owner last looked at this thread, on any surface. Null until
    * they have. Newer activity than this is unread, which is what the chat
    * list's green dot means.
@@ -84,6 +91,7 @@ interface Row {
   brief: string | null;
   tool_allow: string | null;
   project_slug?: string | null;
+  role?: string | null;
   read_at?: number | null;
 }
 
@@ -99,6 +107,7 @@ function toConversation(row: Row): Conversation {
     brief: row.brief ?? null,
     toolAllow: parseAllow(row.tool_allow),
     projectSlug: row.project_slug ?? null,
+    role: row.role ?? null,
     readAt: row.read_at ?? null,
   };
 }
@@ -139,6 +148,8 @@ export interface CreateConversationInput {
   brief?: string;
   toolAllow?: string[] | null;
   projectSlug?: string | null;
+  /** The role it runs as; see Conversation.role. */
+  role?: string;
   /** Omit to use a placeholder until the first message names it. */
   title?: string;
   channel?: string;
@@ -156,7 +167,7 @@ export interface CreateConversationInput {
  * were protected by not being shown, which is not the same as protected --
  * the endpoints took any id at all.
  */
-export type ConversationKind = "orchestrator" | "project" | "surface" | "schedule" | "chat";
+export type ConversationKind = "orchestrator" | "project" | "surface" | "schedule" | "agent" | "chat";
 
 /** The id of a project's own orchestrator: one per project, like `cron:<id>`. */
 export function projectConversationId(slug: string): string {
@@ -170,6 +181,9 @@ export function conversationKind(
   if (conversation.id === `orchestrator:${ownerId}`) return "orchestrator";
   if (conversation.id.startsWith("project:")) return "project";
   if (conversation.id.startsWith("cron:")) return "schedule";
+  // A role's standing thread: one per role, as a project has one. A role
+  // dispatched into a project is an ordinary chat there.
+  if (conversation.id.startsWith("agent:")) return "agent";
   // A surface's own stream is the channel's name and the owner's. A thread
   // on a surface that has them is `channel:threadId`, which is not this.
   if (conversation.channel && conversation.id === `${conversation.channel}:${ownerId}`) {
@@ -213,6 +227,7 @@ export class ConversationStore {
       this.db.exec(`ALTER TABLE conversations ADD COLUMN read_at INTEGER`);
       this.db.exec(`UPDATE conversations SET read_at = updated_at WHERE read_at IS NULL`);
     }
+    if (!has("role")) this.db.exec(`ALTER TABLE conversations ADD COLUMN role TEXT`);
   }
 
   /** Ids are readable and sortable; uniqueness is enforced by the primary key. */
@@ -238,13 +253,14 @@ export class ConversationStore {
       brief: input.brief?.trim() || null,
       toolAllow: input.toolAllow ?? null,
       projectSlug: input.projectSlug ?? null,
+      role: input.role ?? null,
       readAt: null,
     };
     const { readAt: _unread, ...columns } = row;
     this.db
       .prepare(
-        `INSERT INTO conversations (id, user_id, title, channel, created_at, updated_at, archived, brief, tool_allow, project_slug)
-         VALUES (@id, @userId, @title, @channel, @createdAt, @updatedAt, 0, @brief, @toolAllow, @projectSlug)
+        `INSERT INTO conversations (id, user_id, title, channel, created_at, updated_at, archived, brief, tool_allow, project_slug, role)
+         VALUES (@id, @userId, @title, @channel, @createdAt, @updatedAt, 0, @brief, @toolAllow, @projectSlug, @role)
          ON CONFLICT(id) DO NOTHING`,
       )
       .run({
