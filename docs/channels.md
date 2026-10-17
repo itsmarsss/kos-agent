@@ -8,7 +8,10 @@ can show.
 
 Direct messages from one account. Buttons for approvals and for whatever
 KOS offers; forms for answers that are not fixed. Slash commands are
-answered by the host without a model turn.
+answered by the host without a model turn. An approval card opens with
+what KOS was saying when it reached for the tool, quoted, so the ask
+reads as a sentence and not a bare command; iMessage and SMS prompts and
+the dashboard's Inbox carry the same words.
 
 ```
 KOS_SECRET_DISCORD=   bot token

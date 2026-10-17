@@ -68,6 +68,8 @@ const DETAIL_MAX = 160;
  */
 /** The longest a code block's line may run before it is cut. */
 const CODE_MAX = 600;
+/** How much of what the agent said before asking the card quotes. */
+const WHY_MAX = 300;
 
 /** Discord's formatting characters, made literal. */
 function escapeMarkdown(text: string): string {
@@ -93,8 +95,12 @@ function cut(line: string, max: number): string {
 const CODE_FENCE = "```";
 
 export function approvalText(req: ApprovalRequest): string {
+  // The sentence the ask belongs to, first: what KOS was saying when it
+  // reached for the tool. A card that opens with the command alone is a
+  // prompt to click yes blind.
+  const said = req.why?.trim() ? [`> ${cut(req.why.trim().replace(/\s*\n+\s*/g, " "), WHY_MAX)}`] : [];
   if (req.tool === undefined) {
-    return [`**Needs your OK** · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n");
+    return [...said, `**Needs your OK** · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n");
   }
   const args = req.args ?? {};
   const { head, body } = splitSummary(summarizeAction(req.tool, args));
@@ -110,6 +116,7 @@ export function approvalText(req: ApprovalRequest): string {
         .map((l) => cut(l, DETAIL_MAX));
   const small = [`${req.tool} · #${req.id}`, ...(req.reason ? [req.reason] : [])].join(" · ");
   return [
+    ...said,
     `**Needs your OK** · ${escapeMarkdown(head)}`,
     ...(code.length ? [CODE_FENCE, ...code.map((l) => l.split(CODE_FENCE).join("'''")), CODE_FENCE] : []),
     `-# ${small}`,

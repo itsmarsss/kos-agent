@@ -119,7 +119,7 @@ export class SmsAdapter implements ChannelAdapter {
 
   async requestApproval(_recipientId: string, req: ApprovalRequest): Promise<void> {
     this.pending.add(req.id);
-    const lines = [req.text];
+    const lines = [...(req.why?.trim() ? [`KOS: ${req.why.trim()}`] : []), req.text];
     if (req.reason) lines.push(req.reason);
     lines.push(`Reply "approve ${req.id}", "always ${req.id}" to stop asking for this, or "deny ${req.id}".`);
     for (const part of chunkSms(lines.join("\n"))) await this.deliver(part);

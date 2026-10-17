@@ -95,6 +95,7 @@ export function InboxPage({
             {approvals.map((a) => (
               <li key={a.id} className="panel-approval inbox-approval">
                 <span className="panel-row-main">
+                  {a.why && <span className="inbox-said">{a.why}</span>}
                   {summarizeAction(a.tool, a.args)}
                   <code className="panel-approval-tool">{a.tool}</code>
                   {a.reason && <span className="inbox-why">{a.reason}</span>}

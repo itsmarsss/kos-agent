@@ -34,13 +34,15 @@ describe("ApprovalQueue", () => {
   });
 
   it("keeps the rule and the picture a call was queued with, and adds the columns to an older table", () => {
-    const action = queue.enqueue({ tool: "mcp.browser.agent_browser_click", args: { selector: "@e5" }, riskTier: "risky", rule: { tool: "mcp.browser.*", scope: "site:shop.example", project: null }, picture: "UElD" });
+    const action = queue.enqueue({ tool: "mcp.browser.agent_browser_click", args: { selector: "@e5" }, riskTier: "risky", rule: { tool: "mcp.browser.*", scope: "site:shop.example", project: null }, picture: "UElD", why: "  I'll add it to the cart now. " });
     expect(action.rule).toEqual({ tool: "mcp.browser.*", scope: "site:shop.example", project: null });
     expect(action.picture).toBe(true);
+    expect(action.why).toBe("I'll add it to the cart now.");
     expect(queue.pictureOf(action.id)).toBe("UElD");
-    const plain = queue.enqueue({ tool: "shell", args: { cmd: "ls" }, riskTier: "risky" });
+    const plain = queue.enqueue({ tool: "shell", args: { cmd: "ls" }, riskTier: "risky", why: "   " });
     expect(plain.rule).toBeNull();
     expect(plain.picture).toBe(false);
+    expect(plain.why).toBeNull();
     expect(queue.pictureOf(plain.id)).toBeUndefined();
     // Listing says there is a picture without carrying it.
     expect(queue.pending().map((a) => a.picture)).toEqual([true, false]);
@@ -51,7 +53,7 @@ describe("ApprovalQueue", () => {
     ws.db.exec(`INSERT INTO pending_actions (tool, args, risk_tier, requested_at) VALUES ('shell', '{}', 'risky', 1)`);
     const older = new ApprovalQueue(ws.db);
     expect(older.pending()).toHaveLength(1);
-    expect(older.pending()[0]).toMatchObject({ tool: "shell", rule: null, picture: false });
+    expect(older.pending()[0]).toMatchObject({ tool: "shell", rule: null, picture: false, why: null });
   });
 
   it("approves and denies, leaving the queue clear", () => {

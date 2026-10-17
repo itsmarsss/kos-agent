@@ -21,6 +21,8 @@ export interface EnqueueInput {
   rule?: { tool: string; scope: string | null; project: string | null };
   /** A picture of what the call would act on: a browser tab, base64 JPEG. */
   picture?: string;
+  /** What the agent said just before it asked: the reason, in its own words. */
+  why?: string;
 }
 
 export interface PendingAction {
@@ -39,6 +41,8 @@ export interface PendingAction {
   rule: { tool: string; scope: string | null; project: string | null } | null;
   /** There is a picture of what it would act on; fetched on its own, it is big. */
   picture: boolean;
+  /** The agent's words before the ask, so the ask reads as a sentence and not a command. */
+  why: string | null;
 }
 
 const SCHEMA = `
@@ -71,6 +75,7 @@ interface Row {
   decided_by: string | null;
   rule: string | null;
   has_picture: number;
+  why: string | null;
 }
 
 function toAction(row: Row): PendingAction {
@@ -86,6 +91,7 @@ function toAction(row: Row): PendingAction {
     requestedAt: row.requested_at,
     rule: row.rule ? (JSON.parse(row.rule) as PendingAction["rule"]) : null,
     picture: row.has_picture === 1,
+    why: row.why ?? null,
     decidedAt: row.decided_at,
     decidedBy: row.decided_by,
   };
@@ -134,6 +140,9 @@ export class ApprovalQueue {
     if (!columns.some((c) => c.name === "picture")) {
       this.db.exec(`ALTER TABLE pending_actions ADD COLUMN picture TEXT`);
     }
+    if (!columns.some((c) => c.name === "why")) {
+      this.db.exec(`ALTER TABLE pending_actions ADD COLUMN why TEXT`);
+    }
   }
 
   /** The picture queued with an action, if one was: base64 JPEG. */
@@ -147,8 +156,8 @@ export class ApprovalQueue {
     const args = this.secrets ? this.secrets.redact(argsJson) : argsJson;
     const info = this.db
       .prepare(
-        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at, rule, picture)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO pending_actions (tool, args, risk_tier, reason, user_id, conversation_id, requested_at, rule, picture, why)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.tool,
@@ -160,6 +169,7 @@ export class ApprovalQueue {
         this.now(),
         input.rule ? JSON.stringify(input.rule) : null,
         input.picture ?? null,
+        input.why?.trim() ? input.why.trim() : null,
       );
     return this.get(Number(info.lastInsertRowid))!;
   }

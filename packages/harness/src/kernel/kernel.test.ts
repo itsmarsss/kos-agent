@@ -197,6 +197,25 @@ describe("Kernel", () => {
     expect(kernel.approvals.pending()[0]?.tool).toBe("sql");
   });
 
+  it("queues an ask with what the model said just before it, from the same stream the dashboard watches", async () => {
+    // Either engine streams text through the progress bus before the call
+    // runs; the words since the last tool call ride with the ask.
+    const script: ModelResponse[] = [
+      { content: [{ type: "tool_use", id: "t1", name: "sql", input: { sql: "DELETE FROM x" } }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" },
+      { content: [{ type: "text", text: "queued it" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" },
+    ];
+    const said = ["Those rows are the duplicates from Tuesday. ", "I'll remove them now."];
+    kernel = await boot({
+      async generate(_t, req: GenerateRequest): Promise<ModelResponse> {
+        const next = script.shift()!;
+        if (next.stopReason === "tool_use") for (const piece of said) req.onDelta?.({ kind: "text", text: piece });
+        return next;
+      },
+    });
+    await kernel.handleMessage("delete stuff");
+    expect(kernel.approvals.pending()[0]?.why).toBe("Those rows are the duplicates from Tuesday. I'll remove them now.");
+  });
+
   it("restarts only once no chat is mid-turn, and not at all when nothing would start it again", async () => {
     // Each turn waits until the test lets it go, so the host is busy on cue.
     const gates: (() => void)[] = [];

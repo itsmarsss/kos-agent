@@ -218,6 +218,8 @@ export interface ApprovalRequest {
   reason?: string | null;
   /** A picture of what it would act on, base64 JPEG, for surfaces that can show one. */
   picture?: string;
+  /** What the agent said just before it asked, in its own words. */
+  why?: string;
 }
 
 export interface ApprovalDecision {

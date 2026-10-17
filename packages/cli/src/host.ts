@@ -223,6 +223,7 @@ export async function runHost(options: HostOptions): Promise<void> {
               args: action.args,
               reason: action.reason,
               ...(picture ? { picture } : {}),
+              ...(action.why ? { why: action.why } : {}),
             };
             if (adapter && creds) void adapter.requestApproval(creds.ownerId, request);
             if (smsAdapter && sms) void smsAdapter.requestApproval(sms.owner, request);

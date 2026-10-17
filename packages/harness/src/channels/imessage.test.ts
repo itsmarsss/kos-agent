@@ -247,7 +247,8 @@ describe("the iMessage adapter", () => {
     });
     await adapter.start();
 
-    await adapter.requestApproval(OWNER, { id: "12", text: "Delete notes.txt?" });
+    await adapter.requestApproval(OWNER, { id: "12", text: "Delete notes.txt?", why: "Those are the duplicate notes from Tuesday." });
+    expect(sent.at(-1)!.startsWith("KOS: Those are the duplicate notes from Tuesday.\nDelete notes.txt?")).toBe(true);
     expect(sent.at(-1)).toContain('"approve 12"');
     expect(sent.at(-1)).toContain('"always 12"');
     expect(sent.at(-1)).toContain('"deny 12"');
