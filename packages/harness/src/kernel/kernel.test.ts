@@ -8,6 +8,8 @@ import type { GenerateRequest, ModelResponse } from "../models/types.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Kernel } from "./kernel.js";
 import { isKernelTable } from "../tools/fence.js";
+import { SurfaceDownError } from "../tools/notify.js";
+import { primarySessionId } from "./session.js";
 
 /** Inference stub: optionally emits one tool call on the first turn. */
 function stubInference(script: ModelResponse[]): Inference {
@@ -169,6 +171,36 @@ describe("Kernel", () => {
     expect(kernel.audit.recent().some((a) => a.tool === "files.write")).toBe(true);
   });
 
+  it("leaves a message for the owner on the dashboard while the surface is down", async () => {
+    const step = (name: string, input: Record<string, unknown>): ModelResponse => ({
+      content: [{ type: "tool_use", id: name, name: "notify", input }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 0, outputTokens: 0 },
+      model: "stub",
+    });
+    const done: ModelResponse = { content: [{ type: "text", text: "told you" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+    // Discord is wired but mid-login: the host's notify says so, and the
+    // message used to come back to the agent as a tool error, which marked
+    // the job failing and had the caretaker open a fix chat for nothing.
+    kernel = await boot(stubInference([step("n1", { text: "the oven is done" }), done]), async () => {
+      throw new SurfaceDownError("discord", []);
+    });
+    const primary = primarySessionId(kernel.profile.ownerId);
+    const before = kernel.sessions.get(primary).length;
+    const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Kitchen" });
+    await kernel.handleMessage("tell me when the oven is done", { sessionId: c.id });
+    const notified = kernel.audit.recent().filter((a) => a.tool === "notify");
+    const owner = notified.find((a) => a.args.includes("the oven is done"));
+    expect(owner).toMatchObject({ isError: false });
+    expect(owner!.result).toContain("discord is not connected right now");
+    expect(JSON.stringify(kernel.sessions.get(primary).slice(before))).toContain("the oven is done");
+    // A channel has no dashboard to fall back to. Called straight, since in
+    // a turn speaking in public waits on the owner first.
+    const room = await kernel.registry.execute("notify", { text: "hello room", to: "channel:123" });
+    expect(room.isError).toBe(true);
+    expect(room.content).toContain("is not connected right now");
+  });
+
   it("queues a risky tool call instead of executing it", async () => {
     kernel = await boot(
       stubInference([
@@ -257,7 +289,9 @@ describe("Kernel", () => {
     await again;
     await new Promise((r) => setTimeout(r, 2500));
     expect(restarted).toBe(1);
-  });
+    // Two poll periods of real waiting, so under a full run it needs more
+    // than the default five seconds.
+  }, 15_000);
 
   it("lapses an ask nobody answered in a day, and tells the chat that asked", async () => {
     kernel = await boot({

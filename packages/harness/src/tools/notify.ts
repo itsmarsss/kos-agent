@@ -175,6 +175,27 @@ function asButtons(raw: unknown): MessageButton[] {
 }
 
 /**
+ * A surface that is wired here but not connected right now: Discord before
+ * its login has finished, or after the gateway dropped it.
+ *
+ * Its own kind of error so the kernel can tell it from "no such surface". The
+ * first is the owner's channel being briefly out of reach, which a notice on
+ * the dashboard covers; the second is an address that does not exist here,
+ * which nothing covers. Before they were told apart, a job caught up at boot
+ * hit the first, the caretaker read it as a failure of the job, and a fix
+ * chat spent a turn finding there was nothing to fix.
+ */
+export class SurfaceDownError extends Error {
+  constructor(
+    readonly surface: string,
+    connected: string[],
+  ) {
+    super(`the ${surface} surface is not connected right now. Connected: ${connected.join(", ") || "none"}.`);
+    this.name = "SurfaceDownError";
+  }
+}
+
+/**
  * Where a message is addressed: which surface, and where on it.
  *
  * The first segment names the surface, which is a channel adapter: "discord",

@@ -23,6 +23,7 @@ import {
   primarySessionId,
   surfaceSessionId,
   startSiteServer,
+  SurfaceDownError,
   type NotifyPayload,
 } from "@kos/harness";
 
@@ -172,13 +173,7 @@ export async function runHost(options: HostOptions): Promise<void> {
           // first one wired.
           const surface = wanted ?? defaultSurface;
           const send = surfaces.get(surface)?.();
-          if (!send) {
-            throw new Error(
-              `the ${surface} surface is not connected. Connected: ${
-                connected.join(", ") || "none"
-              }.`,
-            );
-          }
+          if (!send) throw new SurfaceDownError(surface, connected);
           const msg = {
             text: payload.text,
             ...(payload.card ? { card: payload.card } : {}),
@@ -232,13 +227,6 @@ export async function runHost(options: HostOptions): Promise<void> {
       : {}),
   });
 
-  kernel.startCron();
-  // A job whose moment passed while nothing was running did not happen and
-  // said nothing. At most one run each, however many were missed.
-  const caught = kernel.catchUpCron();
-  if (caught > 0) {
-    console.log(`cron: ran ${caught} job${caught === 1 ? "" : "s"} that fell due while KOS was down`);
-  }
   // Off unless the owner set an interval; the timer re-reads it, so turning
   // it on in settings does not need a restart.
   kernel.startHeartbeat();
@@ -505,6 +493,21 @@ export async function runHost(options: HostOptions): Promise<void> {
         console.log(`iMessage: not started. ${detail}`);
       }
     }
+  }
+
+  /*
+   * The schedule starts once every surface is wired, not before. A job that
+   * fell due while KOS was down runs the moment it is caught up, and when
+   * that happened ahead of Discord's login its "tell me" found no surface:
+   * the job was marked failing, the caretaker opened a fix chat for it, and
+   * the chat found nothing wrong, at a model turn's cost, on every restart.
+   */
+  kernel.startCron();
+  // A job whose moment passed while nothing was running did not happen and
+  // said nothing. At most one run each, however many were missed.
+  const caught = kernel.catchUpCron();
+  if (caught > 0) {
+    console.log(`cron: ran ${caught} job${caught === 1 ? "" : "s"} that fell due while KOS was down`);
   }
 
   console.log("Attach with: kos   |  stop with: kos stop");

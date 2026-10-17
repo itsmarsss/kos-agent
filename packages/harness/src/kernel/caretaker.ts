@@ -51,8 +51,11 @@ export interface CaretakerDeps {
  * anything of ours is wrong. There is nothing in the workspace to repair,
  * and a fix turn would meet the same wall: it opened a "Fix: kos.observe"
  * chat that could only say it had failed to connect too.
+ *
+ * A messaging surface that is not connected is the same kind of thing: the
+ * owner's Discord mid-login or dropped, which no change to the job mends.
  */
-const TRANSIENT = /connection error|econn(reset|refused)|etimedout|timed? ?out|fetch failed|socket hang up|network|rate limit|overloaded|\b(429|502|503|504)\b/i;
+const TRANSIENT = /connection error|econn(reset|refused)|etimedout|timed? ?out|fetch failed|socket hang up|network|rate limit|overloaded|is not connected|\b(429|502|503|504)\b/i;
 
 export function isTransient(error: string | null): boolean {
   return error !== null && TRANSIENT.test(error);

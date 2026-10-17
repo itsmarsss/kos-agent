@@ -11,6 +11,7 @@ export {
   createNotifyModule,
   noticeText,
   notifyModule,
+  SurfaceDownError,
   type NotifyPayload,
 } from "./notify.js";
 export {
