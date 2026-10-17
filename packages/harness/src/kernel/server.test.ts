@@ -363,6 +363,35 @@ describe("handleApiRequest", () => {
     expect(kernel.conversations.get(thread.id)).toBeUndefined();
   });
 
+  it("lists, writes, runs and removes standing agents for the Agents page", async () => {
+    const empty = (await handleApiRequest(kernel, { method: "GET", path: "/api/agents" })).body as { agents: unknown[]; invalid: unknown[] };
+    expect(empty).toEqual({ agents: [], invalid: [] });
+    const bad = await handleApiRequest(kernel, { method: "POST", path: "/api/agents/save", body: { name: "Price Watch", description: "x", brief: "y" } });
+    expect(bad.status).toBe(400);
+    expect((bad.body as { error: string }).error).toMatch(/short and plain/);
+    const noPrompt = await handleApiRequest(kernel, { method: "POST", path: "/api/agents/save", body: { name: "price-watch", description: "x", brief: "y", schedule: "0 9 * * 1" } });
+    expect((noPrompt.body as { error: string }).error).toMatch(/needs a prompt/);
+    const saved = (await handleApiRequest(kernel, {
+      method: "POST",
+      path: "/api/agents/save",
+      body: { name: "price-watch", description: "Watches a listing", brief: "You watch.", tools: "browser, memory", schedule: "0 9 * * 1", prompt: "Look.", task: "cheap" },
+    })).body as { agent: { name: string; tools?: string[]; conversationId: string; job?: { id: number; schedule: string; enabled: boolean } } };
+    expect(saved.agent).toMatchObject({ name: "price-watch", tools: ["browser", "memory"], conversationId: "agent:price-watch", job: { schedule: "0 9 * * 1", enabled: true } });
+    expect(kernel.conversations.get("agent:price-watch")).toMatchObject({ role: "price-watch", toolAllow: ["browser", "memory"] });
+    const listed = (await handleApiRequest(kernel, { method: "GET", path: "/api/agents" })).body as { agents: { name: string; job?: { id: number } }[] };
+    expect(listed.agents.map((a) => a.name)).toEqual(["price-watch"]);
+    // Run now fires the agent's job; an agent without one has nothing to run.
+    const ran = await handleApiRequest(kernel, { method: "POST", path: "/api/agents/run", body: { name: "price-watch" } });
+    expect(ran.status).toBe(200);
+    await handleApiRequest(kernel, { method: "POST", path: "/api/agents/save", body: { name: "price-watch", description: "Watches a listing", brief: "You watch." } });
+    expect(kernel.crons.list().some((j) => j.agent === "price-watch")).toBe(false);
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/agents/run", body: { name: "price-watch" } })).status).toBe(400);
+    const removed = await handleApiRequest(kernel, { method: "POST", path: "/api/agents/delete", body: { name: "price-watch" } });
+    expect(removed.body).toEqual({ removed: "price-watch" });
+    expect(kernel.roles.exists("price-watch")).toBe(false);
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/agents/delete", body: { name: "price-watch" } })).status).toBe(404);
+  });
+
   it("keeps a project's thread while the project lives, and lets it go once the project is deleted", async () => {
     const made = kernel.standUpProject({ name: "Sheds", type: "tracker" });
     const held = await handleApiRequest(kernel, { method: "POST", path: "/api/conversations/delete", body: { id: made.conversationId } });

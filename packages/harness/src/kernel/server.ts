@@ -42,6 +42,7 @@ import { readSkills } from "../skills/manifest.js";
 import { importPage, listPages, readPage } from "../memory/pages.js";
 import { applyResolution, describeReview } from "../memory/resolve.js";
 import type { ReviewItem } from "../memory/review.js";
+import { agentConversationId, ROLE_NAME, type Role, type RoleRecord } from "../agents/roles.js";
 import { mayRead } from "../memory/callers.js";
 import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
 import { MODULES_KEY, parseModuleSettings, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
@@ -1798,7 +1799,46 @@ export async function handleApiRequest(
     }
   }
 
+  /*
+   * The standing agents, as the Agents page needs them: each file with its
+   * thread and its schedule. Written by the owner here, as a schedule is,
+   * so it takes effect without the approval queue; KOS writes the same
+   * files through agents.create.
+   */
   if (method === "GET" && path === "/api/agents") {
+    const { roles, invalid } = kernel.roles.list();
+    return ok({ agents: roles.map((r) => describeAgent(kernel, r)), invalid });
+  }
+
+  if (method === "POST" && path === "/api/agents/save") {
+    const parsed = parseRoleInput(body);
+    if (typeof parsed === "string") return { status: 400, body: { error: parsed } };
+    try {
+      const record = kernel.roles.write(parsed);
+      kernel.ensureAgentConversation(parsed.name);
+      kernel.bindAgentSchedule(parsed.name, record);
+      return ok({ agent: describeAgent(kernel, record) });
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
+  if (method === "POST" && path === "/api/agents/delete") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (!kernel.roles.remove(name)) return { status: 404, body: { error: "no such agent" } };
+    kernel.bindAgentSchedule(name, undefined);
+    return ok({ removed: name });
+  }
+
+  /** Its scheduled prompt, now, in its own thread. */
+  if (method === "POST" && path === "/api/agents/run") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const job = kernel.crons.list().find((j) => j.agent === name);
+    if (!job) return { status: 400, body: { error: "that agent has no schedule to run" } };
+    return ok(await kernel.fireCron(job.id));
+  }
+
+  if (method === "GET" && path === "/api/builds") {
     // What is running inside the workspace right now. Builds are the only kind
     // so far; the shape leaves room for others without the page changing.
     //
@@ -1810,8 +1850,8 @@ export async function handleApiRequest(
     });
   }
 
-  if (method === "GET" && path.startsWith("/api/agents/")) {
-    const id = Number(path.slice("/api/agents/".length));
+  if (method === "GET" && path.startsWith("/api/builds/")) {
+    const id = Number(path.slice("/api/builds/".length));
     if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
     const build = kernel.builds.get(id);
     if (!build) return { status: 404, body: { error: "no such build" } };
@@ -1836,7 +1876,7 @@ export async function handleApiRequest(
    * unchanged: every shell command and everything outside its folder still
    * comes back for approval.
    */
-  if (method === "POST" && path === "/api/agents/start") {
+  if (method === "POST" && path === "/api/builds/start") {
     const dir = typeof body.dir === "string" ? body.dir.trim() : "";
     const task = typeof body.task === "string" ? body.task.trim() : "";
     if (!dir || !task) {
@@ -1860,7 +1900,7 @@ export async function handleApiRequest(
    * worked out rather than reading the folder again from nothing. Without
    * this, a build that stopped one step short was a dead end.
    */
-  if (method === "POST" && path === "/api/agents/wake") {
+  if (method === "POST" && path === "/api/builds/wake") {
     const id = Number(body.id);
     const text = typeof body.text === "string" ? body.text.trim() : "";
     const build = Number.isInteger(id) ? kernel.builds.get(id) : undefined;
@@ -1884,7 +1924,7 @@ export async function handleApiRequest(
   }
 
   /** Remove a finished agent from the list. */
-  if (method === "POST" && path === "/api/agents/forget") {
+  if (method === "POST" && path === "/api/builds/forget") {
     const id = Number(body.id);
     if (!Number.isInteger(id)) {
       return { status: 400, body: { error: "id required" } };
@@ -1895,7 +1935,7 @@ export async function handleApiRequest(
     return ok({ builds: kernel.builds.list() });
   }
 
-  if (method === "POST" && path === "/api/agents/stop") {
+  if (method === "POST" && path === "/api/builds/stop") {
     const id = Number(body.id);
     if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
     if (!kernel.builds.stop(id)) {
@@ -1906,7 +1946,7 @@ export async function handleApiRequest(
     return ok({ stopped: true, builds: kernel.builds.list() });
   }
 
-  if (method === "POST" && path === "/api/agents/send") {
+  if (method === "POST" && path === "/api/builds/send") {
     const id = Number(body.id);
     const text = typeof body.text === "string" ? body.text.trim() : "";
     if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
@@ -1917,7 +1957,7 @@ export async function handleApiRequest(
     return ok({ sent: true, builds: kernel.builds.list() });
   }
 
-  if (method === "POST" && path === "/api/agents/interrupt") {
+  if (method === "POST" && path === "/api/builds/interrupt") {
     const id = Number(body.id);
     if (!Number.isInteger(id)) return { status: 400, body: { error: "id required" } };
     if (!(await kernel.builds.interrupt(id))) {
@@ -2305,7 +2345,7 @@ export async function handleApiRequest(
     const params = queryParams(req.url);
     const q = params.get("q") ?? "";
     const kind = params.get("kind");
-    const kinds = ["project", "page", "file", "schedule", "chat", "site", "agent", "tab"];
+    const kinds = ["project", "page", "file", "schedule", "chat", "site", "agent", "build", "tab"];
     // The palette and the @ menu ask the same question of the same index, so
     // a thing reachable by one is reachable by the other. Asked from inside a
     // project, that project's own things come first.
@@ -2322,7 +2362,8 @@ export async function handleApiRequest(
             .list(kernel.profile.ownerId)
             .map((c) => ({ id: c.id, title: c.title, projectSlug: c.projectSlug })),
           sites: listSites(kernel.workspace),
-          agents: kernel.builds
+          roles: kernel.roles.list().roles.map((r) => ({ name: r.name, description: r.description })),
+          builds: kernel.builds
             .list()
             .map((b) => ({ id: b.id, dir: b.dir, status: b.status })),
           // The browser's tabs, each named for whose it is in words.
@@ -2965,6 +3006,45 @@ function streamProgress(
  * used. The same shape the tool accepts, minus the approval queue: this is the
  * owner acting directly.
  */
+/** A standing agent with its thread and schedule beside the file's own fields. */
+function describeAgent(kernel: Kernel, record: RoleRecord): RoleRecord & { conversationId: string; job?: { id: number; schedule: string; enabled: boolean; lastRunAt: number | null } } {
+  const job = kernel.crons.list().find((j) => j.agent === record.name);
+  return {
+    ...record,
+    conversationId: agentConversationId(record.name),
+    ...(job ? { job: { id: job.id, schedule: job.schedule, enabled: job.enabled, lastRunAt: job.lastRunAt ?? null } } : {}),
+  };
+}
+
+/** The editor's fields as a role, or what is wrong with them. */
+function parseRoleInput(body: Record<string, unknown>): Role | string {
+  const name = typeof body.name === "string" ? body.name.trim().toLowerCase() : "";
+  if (!ROLE_NAME.test(name)) return "name must be short and plain: letters, digits, dashes";
+  const description = typeof body.description === "string" ? body.description.trim() : "";
+  if (!description) return "say what it is for";
+  const brief = typeof body.brief === "string" ? body.brief.trim() : "";
+  if (!brief) return "a brief is required";
+  const tools = Array.isArray(body.tools)
+    ? body.tools.filter((t): t is string => typeof t === "string" && t.trim() !== "").map((t) => t.trim())
+    : typeof body.tools === "string"
+      ? body.tools.split(",").map((t) => t.trim()).filter(Boolean)
+      : [];
+  const schedule = typeof body.schedule === "string" ? body.schedule.trim() : "";
+  if (schedule && !cron.validate(schedule)) return `invalid cron schedule: ${schedule}`;
+  const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+  if (schedule && !prompt) return "a schedule needs a prompt: what to do on each run";
+  return {
+    name,
+    description,
+    brief,
+    memory: body.memory === "shared" ? "shared" : "own",
+    ...(tools.length ? { tools } : {}),
+    ...(body.task === "cheap" || body.task === "reasoning" ? { task: body.task } : {}),
+    ...(schedule ? { schedule } : {}),
+    ...(prompt ? { prompt } : {}),
+  };
+}
+
 function parseCronInput(body: Record<string, unknown>): CreateCronInput | string {
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const schedule = typeof body.schedule === "string" ? body.schedule.trim() : "";
@@ -3077,7 +3157,7 @@ export function createDashboardServer(
 
       // Server-sent events need the raw response, so this cannot go through
       // the JSON handler that every other route uses.
-      if (method === "GET" && path === "/api/agents/stream") {
+      if (method === "GET" && path === "/api/builds/stream") {
         streamBuilds(kernel, req, res, options);
         return;
       }

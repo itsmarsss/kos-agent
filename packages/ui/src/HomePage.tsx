@@ -26,7 +26,7 @@ import { ease } from "./motion.js";
 const CATALOGUE: { kind: PanelKind; label: string; blurb: string }[] = [
   { kind: "approvals", label: "Needs you", blurb: "Actions waiting on a decision" },
   { kind: "pulse", label: "Last 24 hours", blurb: "Tool calls by the hour" },
-  { kind: "agents", label: "Agents", blurb: "Coding sub-agents running now" },
+  { kind: "agents", label: "Builds", blurb: "Coding sub-agents running now" },
   { kind: "failures", label: "What broke", blurb: "Jobs failing now, and the run strip" },
   { kind: "map", label: "Map", blurb: "KOS, its modules and its projects" },
   { kind: "activity", label: "Activity", blurb: "Recent tool calls" },
@@ -49,7 +49,7 @@ export function HomePage({
   onFixFailure,
 }: {
   onOpenChat: (id: string) => void;
-  onGo: (to: "agents" | "history" | "projects" | "crons" | "chats" | "settings" | "memory", section?: string) => void;
+  onGo: (to: "builds" | "history" | "projects" | "crons" | "chats" | "settings" | "memory", section?: string) => void;
   onDecide: (id: number, approved: boolean, remember?: boolean) => void;
   deciding: ReadonlySet<number>;
   onDismissFailure: (key: string) => void;

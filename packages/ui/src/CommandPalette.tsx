@@ -57,6 +57,7 @@ const KINDS = [
   "chat",
   "site",
   "agent",
+  "build",
 ] as const;
 
 /** Split `file:budget` into the kind being narrowed to and the term. */
@@ -186,8 +187,15 @@ export function buildActions(ctx: PaletteContext): Action[] {
       id: "go-Agents",
       label: "Go to Agents",
       group: "Go to",
-      keywords: "agents builds coding sub-agents runs",
+      keywords: "agents standing roles responsibilities",
       run: () => ctx.go({ name: "agents" }),
+    },
+    {
+      id: "go-Builds",
+      label: "Go to Builds",
+      group: "Go to",
+      keywords: "builds coding sub-agents runs",
+      run: () => ctx.go({ name: "builds" }),
     },
     {
       id: "go-Schedule",
@@ -219,6 +227,7 @@ const KIND_GROUP: Record<string, string> = {
   chat: "Chats",
   site: "Sites",
   agent: "Agents",
+  build: "Builds",
 };
 
 export function CommandPalette({
@@ -301,7 +310,8 @@ export function CommandPalette({
         else if (m.kind === "file") ctx.go({ name: "files", path: m.id });
         else if (m.kind === "schedule") ctx.go({ name: "crons" });
         else if (m.kind === "project") ctx.go({ name: "project", slug: m.id });
-        else if (m.kind === "agent") ctx.openAgent(Number(m.id));
+        else if (m.kind === "agent") ctx.go({ name: "agents", agent: m.id });
+        else if (m.kind === "build") ctx.openAgent(Number(m.id));
         else if (m.kind === "site" && ctx.sitesBase) {
           // Its own origin, so a new tab rather than in place.
           window.open(`${ctx.sitesBase}/${m.id}/`, "_blank", "noreferrer");

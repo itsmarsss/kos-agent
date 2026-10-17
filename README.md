@@ -39,7 +39,8 @@ the whole map:
 | **Projects** | What KOS is keeping for you. A card opens the project's details: its tables, pages, sites, schedules, chat, folder and schema history. |
 | **Files** | The workspace, browsed. |
 | **Memory** | Claims, Decisions, Pages, Log, Jobs, Callers. See [docs/memory.md](docs/memory.md). |
-| **Runs** | History (everything KOS has done), Schedule (the jobs and their editor), Agents (coding sub-agents). |
+| **Agents** | The standing agents: each file as fields, Run now, the thread. See [docs/agents.md](docs/agents.md). |
+| **Runs** | History (everything KOS has done), Schedule (the jobs and their editor), Builds (coding sub-agents). |
 | **Settings** | Account, Conduct, Extensions, Access, Housekeeping. Models, keys, behaviour, appearance, skills, modules, permissions, network, spend, workspace. |
 
 `⌘K` finds anything: a chat, a file, a page, a schedule, a setting, a

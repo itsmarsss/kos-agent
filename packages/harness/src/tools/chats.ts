@@ -137,7 +137,7 @@ function defineHandoffTool(deps: ChatToolDeps, ctx: ModuleContext): void {
       inputSchema: {
         type: "object",
         properties: {
-          to: { type: "string", description: "@chat:<id>, @project:<slug>, or the id or slug" },
+          to: { type: "string", description: "@chat:<id>, @project:<slug>, @agent:<name>, or the id, slug or name" },
           brief: { type: "string", description: "what the other chat needs to know, in your words" },
           ask: { type: "string", description: "what it should do with it now, if anything" },
         },

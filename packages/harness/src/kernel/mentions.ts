@@ -19,7 +19,10 @@ export type MentionKind =
   | "schedule"
   | "chat"
   | "site"
+  /** A standing agent, by name: the role under agents/. */
   | "agent"
+  /** A coding sub-agent, by id. */
+  | "build"
   | "tab";
 
 export interface Mention {
@@ -45,7 +48,9 @@ export interface MentionSources {
    * Coding sub-agents, running or recently finished. Addressed by id because
    * two builds in the same folder are different agents.
    */
-  agents?: { id: number; dir: string; status: string }[];
+  builds?: { id: number; dir: string; status: string }[];
+  /** Standing agents, by name, with what each is for. */
+  roles?: { name: string; description: string }[];
   /**
    * The browser's open tabs, so the owner can point an agent at a page
    * they or another agent have open. Named by the page; `owner` is whose
@@ -207,8 +212,14 @@ export function findMentions(
       label: c.title,
       ...(c.projectSlug ? { of: c.projectSlug } : {}),
     })),
-    ...(sources.agents ?? []).map((a) => ({
+    ...(sources.roles ?? []).map((r) => ({
       kind: "agent" as const,
+      id: r.name,
+      label: r.name,
+      hint: r.description,
+    })),
+    ...(sources.builds ?? []).map((a) => ({
+      kind: "build" as const,
       id: String(a.id),
       label: a.dir,
       hint: a.status,
@@ -268,7 +279,7 @@ const PLAIN_ID = /^[A-Za-z0-9._/-]*[A-Za-z0-9_/-]$/;
  * sentence eats the full stop: "@schedule:kos.backup." resolved as the job
  * "kos.backup." and was reported as not existing.
  */
-const KINDS = "project|page|file|schedule|chat|site|agent|tab";
+const KINDS = "project|page|file|schedule|chat|site|agent|build|tab";
 
 /**
  * Either bracketed, which may hold anything but a bracket, or plain. The

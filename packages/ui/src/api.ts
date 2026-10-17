@@ -238,6 +238,36 @@ export interface ReviewItem {
   claims?: ReviewClaim[];
 }
 
+/** What a standing agent's file says, as the editor and the list need it. */
+export interface AgentDraft {
+  name: string;
+  description: string;
+  brief: string;
+  /** Tool families it may reach; absent is the full toolkit. */
+  tools?: string[];
+  memory: "own" | "shared";
+  task?: "reasoning" | "cheap";
+  schedule?: string;
+  prompt?: string;
+}
+
+export interface AgentInfo extends AgentDraft {
+  /** Workspace-relative path of the file. */
+  path: string;
+  updatedAt: number;
+  /** Its standing thread. */
+  conversationId: string;
+  /** Its schedule as a job, when it has one. */
+  job?: { id: number; schedule: string; enabled: boolean; lastRunAt: number | null };
+}
+
+/** A file under agents/ that does not read as a role, with the reason. */
+export interface InvalidAgent {
+  name: string;
+  path: string;
+  reason: string;
+}
+
 /** Another program that shares memory, within a grant. */
 export interface CallerInfo {
   id: number;
@@ -1010,26 +1040,32 @@ export const api = {
     post<{ accepted?: number; dismissed?: number; conversationId?: string }>("/api/improvements/resolve", { id, action }),
   saveHome: (layout: import("@kos/shared").HomeLayout) =>
     post<{ layout: import("@kos/shared").HomeLayout }>("/api/home", { layout }),
-  agents: () => get<{ builds: BuildRecord[] }>("/api/agents"),
-  agent: (id: number) =>
-    get<{ build: BuildRecord; approvals: PendingAction[] }>(`/api/agents/${id}`),
-  startAgent: (dir: string, task: string) =>
-    post<{ started: boolean; dir: string }>("/api/agents/start", { dir, task }),
-  wakeAgent: (id: number, text: string) =>
-    post<{ woke: boolean; dir: string; resumed: boolean }>("/api/agents/wake", {
+  builds: () => get<{ builds: BuildRecord[] }>("/api/builds"),
+  build: (id: number) =>
+    get<{ build: BuildRecord; approvals: PendingAction[] }>(`/api/builds/${id}`),
+  startBuild: (dir: string, task: string) =>
+    post<{ started: boolean; dir: string }>("/api/builds/start", { dir, task }),
+  wakeBuild: (id: number, text: string) =>
+    post<{ woke: boolean; dir: string; resumed: boolean }>("/api/builds/wake", {
       id,
       text,
     }),
-  forgetAgent: (id: number) =>
-    post<{ builds: BuildRecord[] }>("/api/agents/forget", { id }),
-  stopAgent: (id: number) =>
-    post<{ stopped: boolean; builds: BuildRecord[] }>("/api/agents/stop", { id }),
-  sendToAgent: (id: number, text: string) =>
-    post<{ sent: boolean; builds: BuildRecord[] }>("/api/agents/send", { id, text }),
-  interruptAgent: (id: number) =>
-    post<{ interrupted: boolean; builds: BuildRecord[] }>("/api/agents/interrupt", {
+  forgetBuild: (id: number) =>
+    post<{ builds: BuildRecord[] }>("/api/builds/forget", { id }),
+  stopBuild: (id: number) =>
+    post<{ stopped: boolean; builds: BuildRecord[] }>("/api/builds/stop", { id }),
+  sendToBuild: (id: number, text: string) =>
+    post<{ sent: boolean; builds: BuildRecord[] }>("/api/builds/send", { id, text }),
+  interruptBuild: (id: number) =>
+    post<{ interrupted: boolean; builds: BuildRecord[] }>("/api/builds/interrupt", {
       id,
     }),
+  /** The standing agents: the files under agents/, each with its thread and schedule. */
+  agents: () => get<{ agents: AgentInfo[]; invalid: InvalidAgent[] }>("/api/agents"),
+  saveAgent: (draft: AgentDraft) => post<{ agent: AgentInfo }>("/api/agents/save", draft),
+  deleteAgent: (name: string) => post<{ removed: string }>("/api/agents/delete", { name }),
+  /** Run its scheduled prompt now, in its own thread. */
+  runAgent: (name: string) => post<{ fired: boolean }>("/api/agents/run", { name }),
   settings: () => get<SettingsPayload>("/api/settings"),
   saveProfile: (name: string, timezone: string) =>
     post<{ profile: { name: string; timezone: string } }>(

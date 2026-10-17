@@ -22,7 +22,8 @@ describe("linking references for Discord", () => {
     expect(mentionRoute("file", "notes/a b.md")).toBe("#/files/notes%2Fa%20b.md");
     expect(mentionRoute("project", "garden")).toBe("#/project/garden");
     expect(mentionRoute("chat", "c9:owner")).toBe("#/chats/c9%3Aowner");
-    expect(mentionRoute("agent", "3")).toBe("#/agents/3");
+    expect(mentionRoute("agent", "research")).toBe("#/agents/research");
+    expect(mentionRoute("build", "3")).toBe("#/builds/3");
     expect(mentionRoute("site", "garden/home")).toBe("#/files/projects%2Fgarden%2Fsites%2Fhome");
     expect(mentionRoute("unknown", "x")).toBe("#/projects");
   });

@@ -29,7 +29,7 @@ import { hrefFor } from "./routes.js";
  * a project at a glance.
  */
 const MENTION =
-  /@(project|page|file|schedule|chat|site|agent|tab):(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*[A-Za-z0-9_/-]))/;
+  /@(project|page|file|schedule|chat|site|agent|build|tab):(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*[A-Za-z0-9_/-]))/;
 /*
  * Built from the shared list rather than spelled out here. The private copy
  * went stale: /compact, /clear and /tools were added to the harness and the
@@ -74,7 +74,10 @@ function KindMark({ kind }: { kind: string }): ReactElement | null {
     schedule: "M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0",
     chat: "M4 5h16v11H9l-5 4z",
     site: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M3 12h18M12 3c3 4 3 14 0 18M12 3c-3 4-3 14 0 18",
-    agent: "M8 4h8v4H8zM5 8h14v9H5zM9 12h.01M15 12h.01M12 4V2",
+    // A standing agent: a person, kept.
+    agent: "M12 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8M4 21c0-4 3.6-7 8-7s8 3 8 7",
+    // A build: the robot it was drawn as when it was the only agent.
+    build: "M8 4h8v4H8zM5 8h14v9H5zM9 12h.01M15 12h.01M12 4V2",
     // A browser window: a tab on a frame.
     tab: "M3 8h18M3 8V6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v2M3 8v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8",
   };
@@ -138,7 +141,9 @@ function refHref(kind: string, id: string): string {
     case "chat":
       return hrefFor({ name: "chats", id });
     case "agent":
-      return hrefFor({ name: "agents", id: Number(id) });
+      return hrefFor({ name: "agents", agent: id });
+    case "build":
+      return hrefFor({ name: "builds", id: Number(id) });
     case "site":
       // Written as project/name, which is also where it lives. The site
       // server is a different origin, so this goes to the folder rather than

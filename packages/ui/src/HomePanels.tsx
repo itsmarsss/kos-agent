@@ -18,7 +18,7 @@ import { ActivityDot, fixLabel } from "./StatusDot.js";
  * makes a dashboard trustworthy.
  */
 
-type Go = (to: "agents" | "history" | "projects" | "crons" | "chats" | "settings" | "memory", section?: string) => void;
+type Go = (to: "builds" | "history" | "projects" | "crons" | "chats" | "settings" | "memory", section?: string) => void;
 
 function ago(ts: number): string {
   const mins = Math.max(0, Math.round((Date.now() - ts) / 60000));
@@ -160,9 +160,9 @@ export function Panel({
       return (
         <div className="panel">
           <Head
-            title={title ?? "Agents"}
+            title={title ?? "Builds"}
             count={live.length}
-            onMore={() => onGo("agents")}
+            onMore={() => onGo("builds")}
           />
           {data.agents.length === 0 ? (
             <Empty>No coding agents have run.</Empty>

@@ -13,7 +13,7 @@ import { hrefFor, type Route } from "./routes.js";
 const TABS: { route: Route; label: string }[] = [
   { route: { name: "history" }, label: "History" },
   { route: { name: "crons" }, label: "Schedule" },
-  { route: { name: "agents" }, label: "Agents" },
+  { route: { name: "builds" }, label: "Builds" },
 ];
 
 export function RunsTabs({ current, children }: { current: Route["name"]; children: ReactNode }): ReactElement {

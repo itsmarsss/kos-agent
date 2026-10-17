@@ -72,6 +72,7 @@ export const MENTION_KINDS = [
   "chat",
   "site",
   "agent",
+  "build",
   "tab",
 ] as const;
 
@@ -130,6 +131,7 @@ const KIND_LABEL: Record<string, string> = {
   chat: "chat",
   site: "site",
   agent: "agent",
+  build: "build",
   tab: "tab",
   command: "command",
   approval: "waiting",
