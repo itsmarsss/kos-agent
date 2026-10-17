@@ -227,6 +227,10 @@ export interface ReviewItem {
   kind: "contradiction" | "promotion" | "other";
   keys: string[];
   note: string;
+  /** What KOS would do: "keep global/city", "both", "promote" or "dismiss". Null on an older item. */
+  lean?: string | null;
+  /** How sure it was of that, 0 to 1. */
+  sure?: number | null;
   createdAt: number;
   resolvedAt: number | null;
   resolution: string | null;
@@ -502,6 +506,8 @@ export interface Behaviour {
   memoryExtraction: boolean;
   /** How much new conversation, in characters, before it reads. */
   extractEveryChars: number;
+  /** Percent sure the tidy job must be to settle a memory question itself rather than ask. */
+  memoryDecideAbove: number;
 }
 
 export interface FailingJob {

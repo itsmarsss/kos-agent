@@ -30,6 +30,10 @@ describe("behaviour settings", () => {
     expect(parseBehaviour({ approvalExpiryHours: 9000 }).approvalExpiryHours).toBe(720);
     expect(parseBehaviour({}).approvalExpiryHours).toBe(24);
     expect(parseBehaviour({ agentMinutes: -5 }).agentMinutes).toBe(1);
+    // Below an even chance is not a lean to act on; 100 is as near off as it goes.
+    expect(parseBehaviour({ memoryDecideAbove: 10 }).memoryDecideAbove).toBe(50);
+    expect(parseBehaviour({ memoryDecideAbove: 500 }).memoryDecideAbove).toBe(100);
+    expect(parseBehaviour({}).memoryDecideAbove).toBe(80);
   });
 
   it("rounds, and ignores what is not a number", () => {

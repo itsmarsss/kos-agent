@@ -97,17 +97,46 @@ const HEADLINE: Record<ReviewItem["kind"], string> = {
   other: "KOS could not settle this on its own",
 };
 
+type ReviewAction = "keep" | "both" | "promote" | "dismiss";
+
+/** What KOS said it would do, in the owner's words and as the press that does it. */
+function leanOf(item: ReviewItem): { words: string; action: ReviewAction; key?: string } | null {
+  const lean = item.lean?.trim();
+  if (!lean) return null;
+  const keep = /^keep\s+(\S+)$/i.exec(lean);
+  if (keep && item.keys.includes(keep[1]!)) {
+    const scope = keep[1]!.slice(0, keep[1]!.lastIndexOf("/"));
+    return { words: `keep the ${scope === "global" ? "global" : scope.replace(/^project:/, "")} one`, action: "keep", key: keep[1]! };
+  }
+  const plain = lean.toLowerCase();
+  if (plain === "both") return { words: "leave them both", action: "both" };
+  if (plain === "promote") return { words: "make it global", action: "promote" };
+  if (plain === "dismiss") return { words: "keep it to the project", action: "dismiss" };
+  return null;
+}
+
+/** How a claim is leaned on, for the hover: it was a line of its own and made every card a read. */
+function metaOf(c: ReviewClaim): string {
+  return [
+    c.kind,
+    c.trust && c.trust !== "owner" ? `from ${c.trust === "agent" ? "an agent" : c.trust}` : null,
+    c.useCount ? `used ${c.useCount}×${c.lastUsedAt ? `, last ${ago(c.lastUsedAt)}` : ""}` : "never used",
+    c.createdAt ? `written ${ago(c.createdAt)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 /**
  * One open question from the dream job, with the choices that settle it.
  *
- * It showed the keys and a paragraph, and a row of buttons that repeated
- * the keys: nothing said what any claim actually said, which is the one
- * thing a decision needs. Now each claim is a row, its value first, with
- * how much it is leaned on, and Keep sits on the row it keeps.
+ * Only what KOS was not sure enough to settle itself gets here, so the
+ * card leads with what it leans to and a press that does that; the claims
+ * follow as a row each, value first, with Keep on the row it keeps.
  */
 export function MemoryDecision({ item, onResolved }: { item: ReviewItem; onResolved: () => void }): ReactElement {
   const [busy, setBusy] = useState(false);
-  const decide = (action: "keep" | "both" | "promote" | "dismiss", key?: string): void => {
+  const decide = (action: ReviewAction, key?: string): void => {
     setBusy(true);
     void api
       .resolveMemoryReview(item.id, action, key)
@@ -121,34 +150,36 @@ export function MemoryDecision({ item, onResolved }: { item: ReviewItem; onResol
       const slash = qualified.lastIndexOf("/");
       return slash > 0 ? { qualified, scope: qualified.slice(0, slash), key: qualified.slice(slash + 1) } : { qualified, scope: "", key: qualified };
     });
+  const lean = leanOf(item);
   return (
     <div className="mem-decision">
       <div className="mem-decision-head">
         <span className="mem-kind">{item.kind}</span>
         <strong>{HEADLINE[item.kind]}</strong>
       </div>
-      <p className="mem-decision-note">{item.note}</p>
+      {lean ? (
+        <div className="mem-lean">
+          <span>
+            KOS leans <strong>{lean.words}</strong>
+            {typeof item.sure === "number" ? `, ${Math.round(item.sure * 100)}% sure` : ""}
+            {item.note ? `: ${item.note}` : "."}
+          </span>
+          <button type="button" className="btn btn--sm btn--primary" disabled={busy} onClick={() => decide(lean.action, lean.key)}>
+            Do that
+          </button>
+        </div>
+      ) : (
+        <p className="mem-decision-note">{item.note}</p>
+      )}
       <ul className="mem-claims">
         {claims.map((c) => (
-          <li key={c.qualified} className={`mem-claim ${c.value === undefined ? "is-gone" : ""}`}>
+          <li key={c.qualified} className={`mem-claim ${c.value === undefined ? "is-gone" : ""}`} title={c.value === undefined ? undefined : metaOf(c)}>
             <div className="mem-claim-main">
               <div className="mem-claim-key">
                 {c.scope && <span className="mem-scope">{c.scope}</span>}
                 <code>{c.key}</code>
               </div>
               <div className="mem-claim-value">{c.value === undefined ? <em>No longer in memory.</em> : c.value || <em>Empty.</em>}</div>
-              {c.value !== undefined && (
-                <div className="mem-claim-meta">
-                  {[
-                    c.kind,
-                    c.trust && c.trust !== "owner" ? `from ${c.trust === "agent" ? "an agent" : c.trust}` : null,
-                    c.useCount ? `used ${c.useCount}×${c.lastUsedAt ? `, last ${ago(c.lastUsedAt)}` : ""}` : "never used",
-                    c.createdAt ? `written ${ago(c.createdAt)}` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </div>
-              )}
             </div>
             {item.kind !== "promotion" && c.value !== undefined && (
               <button
@@ -167,7 +198,7 @@ export function MemoryDecision({ item, onResolved }: { item: ReviewItem; onResol
       <div className="mem-actions">
         {item.kind === "promotion" ? (
           <>
-            <button type="button" className="btn btn--sm btn--primary" disabled={busy} onClick={() => decide("promote")}>
+            <button type="button" className={`btn btn--sm ${lean ? "" : "btn--primary"}`} disabled={busy} onClick={() => decide("promote")}>
               Yes, make it global
             </button>
             <button type="button" className="btn btn--sm" disabled={busy} onClick={() => decide("dismiss")}>
@@ -199,8 +230,8 @@ function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
   useEffect(load, [load]);
   return (
     <>
-      <Group title="Needs a decision" blurb="Keeping one side archives the other; promoting writes the claim global. Both are on the record as yours.">
-        {pending.length === 0 && <p className="hint">Nothing waiting. The dream job flags a contradiction it cannot settle, or a project claim that may be true everywhere.</p>}
+      <Group title="Needs a decision" blurb="Only what KOS was not sure enough to settle itself. Keeping one side archives the other; promoting writes the claim global. Either is on the record as yours.">
+        {pending.length === 0 && <p className="hint">Nothing waiting. The tidy job settles what it is sure of and leaves here only a contradiction or a promotion it was not; how sure it has to be is in Settings, Behaviour.</p>}
         {pending.map((item) => (
           <MemoryDecision key={item.id} item={item} onResolved={() => { load(); onChanged(); }} />
         ))}

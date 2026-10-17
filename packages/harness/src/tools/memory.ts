@@ -3,6 +3,7 @@ import type { EventLog } from "../memory/events.js";
 import { BATCH_CHARS, relatedClaims, takeBatch, trustOf } from "../memory/extractor.js";
 import { GLOBAL_SCOPE, projectScope, type FactsStore } from "../memory/facts.js";
 import { importPage, listPages, readPage, writePage, type PageLog } from "../memory/pages.js";
+import { applyResolution, parseLean } from "../memory/resolve.js";
 import type { ReviewQueue } from "../memory/review.js";
 import type { ObservationStore } from "../memory/observations.js";
 import type { ModelMessage } from "../models/types.js";
@@ -58,6 +59,12 @@ export interface MemoryToolDeps {
   watermark?: { get: () => number; set: (lastEventId: number) => void };
   /** Where the dream job leaves what it could not settle. */
   review?: ReviewQueue;
+  /**
+   * Percent sure the job must be for its lean to be carried out rather than
+   * raised. Read on every call, so the setting takes effect at once. Absent,
+   * everything is raised.
+   */
+  decideAbove?: () => number;
   /** What the pages looked like when last written, so an owner's edit can be told apart and read back. */
   pages?: PageLog;
   /** Days without use before a claim counts as stale. */
@@ -433,15 +440,20 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
   ctx.registerTool(
     {
       name: "memory.flag",
-      description: "Leave something for the owner to decide: a contradiction you cannot settle, or a project claim that should become global. Say which claims and why in one line.",
+      description:
+        "A memory question with what you would do about it: a contradiction you cannot settle from the values alone, or a project claim that should become global. " +
+        "Say which claims, why in one line, what you lean to, and how sure you are. KOS carries out a lean it is sure enough of and raises the rest to the owner, " +
+        "so be honest: a guess is 0.5, a strong hunch 0.7, and 0.9 means you would bet on it.",
       inputSchema: {
         type: "object",
         properties: {
           kind: { type: "string", enum: ["contradiction", "promotion", "other"] },
           keys: { type: "array", items: { type: "string" }, description: "scope-qualified keys, e.g. global/city, project:pantry/city" },
           note: { type: "string" },
+          lean: { type: "string", description: '"keep <one of keys>" for the claim to keep, "both" to leave them all, "promote" to make the project claim global, "dismiss" to leave it to the project' },
+          sure: { type: "number", description: "0 to 1: how sure you are the lean is right" },
         },
-        required: ["kind", "keys", "note"],
+        required: ["kind", "keys", "note", "lean", "sure"],
       },
     },
     (input) => {
@@ -449,8 +461,21 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       const kind = input.kind === "contradiction" || input.kind === "promotion" ? input.kind : "other";
       const keys = stringList(input, "keys");
       if (keys.length === 0) throw new Error("keys is required");
-      const item = deps.review.add(kind, keys, str(input, "note"));
-      return JSON.stringify({ flagged: item.id, kind: item.kind, keys: item.keys });
+      const lean = str(input, "lean").trim();
+      const resolution = parseLean(lean, keys);
+      if (!resolution) throw new Error(`lean must be "keep <one of ${keys.join(", ")}>", "both", "promote" or "dismiss"`);
+      const sure = typeof input.sure === "number" && Number.isFinite(input.sure) ? Math.min(1, Math.max(0, input.sure)) : undefined;
+      if (sure === undefined) throw new Error("sure must be a number from 0 to 1");
+      const item = deps.review.add(kind, keys, str(input, "note"), { lean, sure });
+      // Sure enough, and the lean is carried out here and now, on the
+      // record as KOS's doing with how sure it was; the owner reads it
+      // under Memory rather than deciding it in the Inbox.
+      const threshold = deps.decideAbove?.();
+      if (threshold !== undefined && sure * 100 >= threshold) {
+        const report = applyResolution(facts, deps.review, ownerId, item.id, resolution, { by: "KOS", source: source(), sure });
+        if (report) return JSON.stringify({ decided: item.id, kind: item.kind, keys: item.keys, lean, archived: report.archived, promoted: report.promoted });
+      }
+      return JSON.stringify({ flagged: item.id, kind: item.kind, keys: item.keys, lean, sure, raised: "for the owner" });
     },
     { floor: "safe" },
     { tags: ["memory"] },

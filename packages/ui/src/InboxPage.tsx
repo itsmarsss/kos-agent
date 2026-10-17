@@ -139,7 +139,7 @@ export function InboxPage({
           <h2 className="inbox-group-title">
             Memory decisions <span className="panel-count">{decisions.length}</span>
           </h2>
-          <p className="hint">Keeping one side archives the other; promoting writes the claim global. Both are on the record as yours.</p>
+          <p className="hint">Only what KOS was not sure enough to settle itself; each leads with what it leans to. Keeping one side archives the other; promoting writes the claim global. Either is on the record as yours.</p>
           {decisions.map((item) => (
             <MemoryDecision key={item.id} item={item} onResolved={onChanged} />
           ))}

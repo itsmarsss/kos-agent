@@ -63,6 +63,7 @@ import { ObservationStore } from "../memory/observations.js";
 import { CallerStore } from "../memory/callers.js";
 import { PageLog } from "../memory/pages.js";
 import { ReviewQueue } from "../memory/review.js";
+import { BEHAVIOUR_DEFAULTS } from "./behaviour.js";
 import { SuggestionStore } from "../improve/store.js";
 import { ensureDefaultImproveCron } from "../improve/job.js";
 import { createImproveModule } from "../tools/improve.js";
@@ -437,6 +438,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
         return id ? (conversations.get(id)?.projectSlug ?? undefined) : undefined;
       },
       review,
+      decideAbove: () => kernelRef?.behaviour().memoryDecideAbove ?? BEHAVIOUR_DEFAULTS.memoryDecideAbove,
       pages: pageLog,
       threads: {
         sessions,

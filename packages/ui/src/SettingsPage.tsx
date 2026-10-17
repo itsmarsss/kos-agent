@@ -45,6 +45,7 @@ const BEHAVIOUR_FALLBACK: Behaviour = {
   heartbeatMinutes: 0,
   memoryExtraction: false,
   extractEveryChars: 6000,
+  memoryDecideAbove: 80,
 };
 
 /**
@@ -1050,6 +1051,15 @@ export function SettingsPage({
                   range={limits.extractEveryChars}
                   onChange={(extractEveryChars) =>
                     setHow({ ...how, extractEveryChars })
+                  }
+                />
+                <Limit
+                  label="Settle a memory question alone when at least N% sure"
+                  hint={`The tidy job says what it would do about a contradiction or a promotion and how sure it is. At or above this it does that and Memory records it as KOS's; below, the question comes to the Inbox with the lean in front of you. 100 settles only what it is certain of. Default ${defaults.memoryDecideAbove}.`}
+                  value={how.memoryDecideAbove}
+                  range={limits.memoryDecideAbove}
+                  onChange={(memoryDecideAbove) =>
+                    setHow({ ...how, memoryDecideAbove })
                   }
                 />
                 <Limit
