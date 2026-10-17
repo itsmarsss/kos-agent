@@ -54,6 +54,7 @@ import {
   type Recall,
 } from "../memory/index.js";
 import type { ContentBlock, ModelMessage } from "../models/types.js";
+import { textOf } from "../models/types.js";
 import { type RouteSummary } from "../models/router.js";
 import { SpendStore } from "../ops/spend.js";
 import { BuildRegistry } from "../builds/registry.js";
@@ -1282,6 +1283,82 @@ export class Kernel {
    * chats tools at all, so there is no third level.
    */
   /** The project's orchestrator conversation, made on first use so it can be opened before it is spoken to. */
+  /**
+   * Pass what one chat knows to another, as a brief.
+   *
+   * The road an agent found for this was the sql tool and KOS's own queue
+   * table; this is the door. The brief is written, not copied: what matters,
+   * what was decided, what is open. It lands in the target's own lane as a
+   * message that says where it came from and that the owner asked, and the
+   * target runs with it: with an ask, as work; without one, as context to
+   * keep. The source chat is told when the target answers.
+   */
+  async handoff(input: { from?: string; to: string; brief: string; ask?: string; by: "owner" | "agent" }): Promise<{ conversationId: string; title: string; chars: number }> {
+    const brief = input.brief.trim();
+    if (!brief) throw new Error("a brief is required: what the other chat needs to know, in your words");
+    const target = this.handoffTarget(input.to);
+    if (input.from && target.id === input.from) throw new Error("that is this chat");
+    const source = input.from ? this.conversations.get(input.from) : undefined;
+    const ask = input.ask?.trim();
+    const text = [
+      `Handed off from ${source ? `"${source.title}" (@chat:[${source.id}])` : "the owner"}${input.by === "owner" ? " at the owner's request" : ""}.`,
+      "",
+      brief,
+      "",
+      ask
+        ? `What is asked of you now: ${ask}`
+        : "Nothing is asked of you now. Keep this for when the owner picks it up here, and say in one line that you have it.",
+    ].join("\n");
+    void this.dispatchTo(target.id, text)
+      .then((res) => {
+        if (input.from) this.progress.emit({ kind: "note", conversationId: input.from, text: `${target.title} answered: ${res.reply.slice(0, 600)}` });
+      })
+      .catch((err: unknown) => {
+        if (input.from) this.progress.emit({ kind: "note", conversationId: input.from, text: `${target.title} could not take the handoff: ${err instanceof Error ? err.message : String(err)}` });
+      });
+    return { conversationId: target.id, title: target.title, chars: text.length };
+  }
+
+  /** A chat or a project, named as a mention or by id or slug. A project means its orchestrator. */
+  private handoffTarget(to: string): Conversation {
+    const raw = to.trim();
+    const ref = parseMentions(raw)[0];
+    if (ref?.kind === "project" || (!ref && this.manifest.list().some((p) => p.slug === raw))) {
+      return this.ensureProjectConversation(ref?.id ?? raw);
+    }
+    const id = ref?.kind === "chat" ? ref.id : raw;
+    const chat = this.conversations.get(id);
+    if (!chat || chat.userId !== this.profile.ownerId) throw new Error(`no chat or project called ${raw}; name one with @chat: or @project:`);
+    return chat;
+  }
+
+  /**
+   * A brief of a chat for handing on, by the cheap model: what the thread
+   * is about, what was decided, what is open, and nothing of how it went.
+   */
+  async draftHandoff(id: string): Promise<string> {
+    const conversation = this.conversations.get(id);
+    if (!conversation) throw new Error(`no such conversation: ${id}`);
+    const turns = this.sessions
+      .get(id)
+      .map((m) => ({ who: m.role === "user" ? "Owner" : "KOS", text: m.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("").trim() }))
+      .filter((t) => t.text)
+      .slice(-60);
+    if (turns.length === 0) throw new Error("nothing in this chat to hand on yet");
+    const transcript = turns.map((t) => `${t.who}: ${t.text.slice(0, 1500)}`).join("\n\n");
+    const response = await this.inference.generate("cheap", {
+      system: [
+        "You write the brief one chat hands to another. Say what the thread is about, what was decided, what is still open, and anything the next chat",
+        "would have to go and find otherwise (names, numbers, paths as @file: references). Plain text, under 250 words, no headers, no account of how",
+        "the conversation went. Write as the chat speaking to a colleague.",
+      ].join(" "),
+      messages: [{ role: "user", content: [{ type: "text", text: `Chat "${conversation.title}":\n\n${transcript.slice(-24_000)}` }] }],
+    });
+    const brief = textOf(response.content).trim();
+    if (!brief) throw new Error("the model wrote nothing");
+    return brief;
+  }
+
   ensureProjectConversation(slug: string): Conversation {
     const project = this.manifest.list().find((p) => p.slug === slug);
     if (!project) throw new Error(`no project with slug ${slug}`);

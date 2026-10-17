@@ -16,7 +16,11 @@ The list on the left:
   the agents it spawned, busy ones first. The row says how many agents and
   whether one is working; the chevron folds them away.
 - **Scheduled** holds the threads jobs run in, folded by default.
-- **Your chats**, newest first. Hover a row for Rename, Duplicate, Archive,
+- **Your chats**, newest first. Hover a row for Rename, Duplicate, Hand off
+  (KOS drafts a brief of the thread; you pick a chat or project, edit it,
+  say what that chat should do with it, and it goes over as a message
+  from this one; an agent does the same with `chats.handoff`, which asks
+  you once per target), Archive,
   Delete (two presses).
 - **Archived**, at the foot, is where archived chats go. Archive from a
   chat's header gives you eight seconds to undo.

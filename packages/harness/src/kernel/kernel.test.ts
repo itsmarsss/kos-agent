@@ -276,6 +276,38 @@ describe("Kernel", () => {
     expect(said).not.toContain(`#${fresh.id}`);
   });
 
+  it("hands a brief to a project's orchestrator as an attributed message, and tells the source chat when it answers", async () => {
+    const seen: string[] = [];
+    kernel = await boot({
+      async generate(_t, req: GenerateRequest): Promise<ModelResponse> {
+        const last = req.messages[req.messages.length - 1];
+        seen.push(last?.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("") ?? "");
+        return { content: [{ type: "text", text: "Got it." }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    });
+    const notes: string[] = [];
+    kernel.progress.subscribe((e) => {
+      if (e.kind === "note") notes.push(`${e.conversationId}: ${e.text}`);
+    });
+    const books = kernel.standUpProject({ name: "Books", type: "tracker" });
+    const source = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Main" });
+    const done = await kernel.handoff({ from: source.id, to: "@project:books", brief: "Seventeen books restored.", ask: "check the lending table", by: "owner" });
+    expect(done).toMatchObject({ conversationId: books.conversationId, title: "Books" });
+    await vi.waitFor(() => expect(notes).toEqual([`${source.id}: Books answered: Got it.`]));
+    const delivered = seen.find((t) => t.includes("Handed off from"))!;
+    expect(delivered).toContain(`Handed off from "Main" (@chat:[${source.id}]) at the owner's request.`);
+    expect(delivered).toContain("Seventeen books restored.");
+    expect(delivered).toContain("What is asked of you now: check the lending table");
+    // A chat by id works too; a name that is neither does not, nor does handing to itself.
+    expect((await kernel.handoff({ to: source.id, brief: "x", by: "agent" })).conversationId).toBe(source.id);
+    await expect(kernel.handoff({ from: source.id, to: source.id, brief: "x", by: "agent" })).rejects.toThrow(/this chat/);
+    await expect(kernel.handoff({ to: "nowhere", brief: "x", by: "agent" })).rejects.toThrow(/no chat or project/);
+    await expect(kernel.handoff({ to: "@project:books", brief: "   ", by: "agent" })).rejects.toThrow(/brief is required/);
+    // The draft comes from the cheap model over the thread's spoken turns.
+    await kernel.handleMessage("remember the lending table", { sessionId: source.id });
+    expect(await kernel.draftHandoff(source.id)).toBe("Got it.");
+  });
+
   it("names every table of its own in the sql fence, so a new store cannot slip past it", async () => {
     kernel = await boot(stubInference([]));
     const tables = (kernel.workspace.db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[]).map((r) => r.name);

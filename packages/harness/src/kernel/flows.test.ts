@@ -1248,7 +1248,7 @@ describe("KOS end-to-end flows", () => {
 
     await kernel.handleMessage("hi", { sessionId: agent!.id });
     const agentTools = (model.calls.at(-1)!.request.tools ?? []).map((t) => t.name);
-    expect(agentTools.some((n) => n.startsWith("chats."))).toBe(false);
+    expect(agentTools.filter((n) => n.startsWith("chats."))).toEqual(["chats.handoff"]);
 
     // A second agent under books with a known id, so the other project's
     // orchestrator can be scripted to reach for it by name.
@@ -1284,7 +1284,7 @@ describe("KOS end-to-end flows", () => {
     // Neither offered nor reachable by naming it: reading across threads and
     // starting new ones is a different privilege level.
     const offered = (model.calls[0]!.request.tools ?? []).map((t) => t.name);
-    expect(offered.some((n) => n.startsWith("chats."))).toBe(false);
+    expect(offered.filter((n) => n.startsWith("chats."))).toEqual(["chats.handoff"]);
     const wire = JSON.stringify(model.calls.at(-1)!.request.messages);
     expect(wire).toContain("not available in this conversation");
     expect(kernel.conversations.list("owner")).toHaveLength(before);
@@ -1461,7 +1461,7 @@ describe("KOS end-to-end flows", () => {
       expect(offered).toContain(expected);
     }
     // The chats tools stay out: those are the orchestrator's alone.
-    expect(offered.some((n) => n.startsWith("chats."))).toBe(false);
+    expect(offered.filter((n) => n.startsWith("chats."))).toEqual(["chats.handoff"]);
   });
 
   it("lets the owner set a tool scope after the fact", async () => {
@@ -1697,7 +1697,7 @@ describe("KOS end-to-end flows", () => {
     expect(JSON.stringify(kernel.sessions.get(cost.id))).toContain("Cost: about forty.");
     expect(JSON.stringify(kernel.sessions.get(risk.id))).toContain("Risk: the ladder.");
     expect(costTools.length).toBeGreaterThan(0);
-    expect(costTools.some((n) => n.startsWith("chats."))).toBe(false);
+    expect(costTools.filter((n) => n.startsWith("chats."))).toEqual(["chats.handoff"]);
 
     // The replies reached KOS as one result, in the order they were asked.
     const wire = JSON.stringify(kernel.sessions.get("orchestrator:owner"));

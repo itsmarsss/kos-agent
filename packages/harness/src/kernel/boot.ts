@@ -474,6 +474,11 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       congregationTimeoutMs: () => (kernelRef?.behaviour().agentMinutes ?? 15) * 60_000,
       // KOS at the root stands up a project and its orchestrator with this.
       standUpProject: (input) => kernelRef!.standUpProject(input),
+      // From whichever chat is calling, by the agent; the owner's own hand-offs come through the API.
+      handoff: (input) => {
+        const from = kernelRef?.callerConversationId;
+        return kernelRef!.handoff({ ...input, ...(from ? { from } : {}), by: "agent" });
+      },
       // It should not offer you its own thread as somewhere to put work.
       hide: [orchestratorId(profile.ownerId)],
     }),

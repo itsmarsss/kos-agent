@@ -82,6 +82,48 @@ async function harness(
   return { registry, conversations, asked, rosters };
 }
 
+describe("chats.handoff", () => {
+  let root: string;
+  let ws: Workspace;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-handoff-"));
+    ws = Workspace.open(root);
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("is a risky tool every chat has, and hands the brief to the kernel's door", async () => {
+    const conversations = new ConversationStore(ws.db);
+    const sessions = new SessionStore(ws.db);
+    const registry = new ToolRegistry();
+    const handed: unknown[] = [];
+    const ctx = toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() });
+    await new ModuleLoader(ctx).load([
+      createChatsModule({
+        conversations,
+        sessions,
+        ownerId: OWNER,
+        dispatch: async (id, text) => ({ reply: text, conversationId: id }),
+        handoff: async (input) => {
+          handed.push(input);
+          return { conversationId: "project:books", title: "Books", chars: 120 };
+        },
+      }),
+    ]);
+    // Not among the restricted delegation tools: offered without a grant.
+    expect(registry.classify("chats.handoff", { to: "@project:books", brief: "x" }).tier).toBe("risky");
+    expect(registry.defs().find((t) => t.name === "chats.handoff")).toBeTruthy();
+    const res = await registry.execute("chats.handoff", { to: "@project:books", brief: "Seventeen books restored; the lending table is empty.", ask: " check the lending table " });
+    expect(handed).toEqual([{ to: "@project:books", brief: "Seventeen books restored; the lending table is empty.", ask: "check the lending table" }]);
+    expect(JSON.parse(res.content)).toMatchObject({ conversationId: "project:books", title: "Books", chars: 120 });
+    expect((await registry.execute("chats.handoff", { to: "@project:books" })).isError).toBe(true);
+  });
+});
+
 describe("chats.congregate", () => {
   let root: string;
   let ws: Workspace;
