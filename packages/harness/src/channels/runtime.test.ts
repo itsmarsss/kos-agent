@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ModelResponse } from "../models/types.js";
+import type { ProgressEvent } from "../kernel/progress.js";
 import { ToolRegistry } from "../agent/registry.js";
 import {
   AllowlistMapping,
@@ -212,6 +213,60 @@ describe("ChannelRuntime", () => {
 
     expect(authorize?.("owner-id")).toBe(true);
     expect(authorize?.("stranger")).toBe(false);
+  });
+});
+
+describe("telling the turn's story on a surface with a presence", () => {
+  it("shows a step at once, text in between on a timer, and the steps alone when the answer lands", async () => {
+    const adapter = new InMemoryAdapter();
+    adapter.withPresence = true;
+    let tell: ((event: ProgressEvent) => void) | undefined;
+    const watched: string[] = [];
+    const runtime = new ChannelRuntime({
+      adapter,
+      narrateEveryMs: 40,
+      watchTurn: (ctx, listener) => {
+        watched.push(`${ctx.channel}:${ctx.userId}`);
+        tell = listener;
+        return () => {
+          tell = undefined;
+        };
+      },
+      handleTurn: async () => {
+        // The turn, as the kernel would report it: words, a step, more words, the answer.
+        tell!({ kind: "delta", conversationId: "c", of: "text", text: "Let me look." });
+        tell!({ kind: "tool-start", conversationId: "c", tool: "files.ls", summary: "List x" });
+        tell!({ kind: "tool-end", conversationId: "c", tool: "files.ls", isError: false });
+        tell!({ kind: "delta", conversationId: "c", of: "text", text: "Three files, " });
+        tell!({ kind: "delta", conversationId: "c", of: "text", text: "all fine." });
+        await new Promise((r) => setTimeout(r, 70));
+        return "Three files, all fine.";
+      },
+    });
+    await runtime.start();
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "look" });
+    expect(watched).toEqual(["memory:owner"]);
+    // A step is shown the moment it starts; the text after it waits for the timer; the end keeps the steps.
+    expect(adapter.shown).toEqual(["Let me look.\n› List x", "Let me look.\n› List x\nThree files, all fine.", "Let me look.\n› List x"]);
+    expect(adapter.completed).toEqual([{ text: "Three files, all fine." }]);
+    expect(tell).toBeUndefined();
+  });
+
+  it("shows nothing for a turn that takes no step", async () => {
+    const adapter = new InMemoryAdapter();
+    adapter.withPresence = true;
+    const runtime = new ChannelRuntime({
+      adapter,
+      watchTurn: (_ctx, listener) => {
+        listener({ kind: "delta", conversationId: "c", of: "text", text: "Hello there." });
+        return () => undefined;
+      },
+      handleTurn: async () => "Hello there.",
+    });
+    await runtime.start();
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "hi" });
+    expect(adapter.shown).toEqual([]);
+    expect(adapter.completed).toEqual([{ text: "Hello there." }]);
   });
 });
 
