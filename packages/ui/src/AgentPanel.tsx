@@ -125,7 +125,7 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
             </li>
             <li>
               <span>Next run</span>
-              <span className="insp-meta">{agent.job.nextRunAt ? when(agent.job.nextRunAt) : paused ? "when resumed" : "not scheduled"}</span>
+              <span className="insp-meta">{agent.job.nextRunAt ? when(agent.job.nextRunAt) : paused ? "when resumed" : "on its schedule"}</span>
             </li>
             <li>
               <span>Last run</span>

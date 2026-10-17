@@ -7570,3 +7570,16 @@ a.health {
 .face-editor input[type="range"] { width: 100%; accent-color: hsl(var(--blob-h, 220) 70% 55%); }
 .brand .blob { margin-right: 0.4rem; vertical-align: -0.2em; }
 .chats-welcome-glyph .blob { display: inline-block; }
+
+/*
+ * The composer's bar wraps on a narrow column rather than pushing Send past
+ * the panel: with a rail and a panel open, the middle column can be a few
+ * hundred pixels, and the model name, the meter and the memory chip are
+ * each a word or two that must not fold into three lines.
+ */
+.sheet-composer-bar { flex-wrap: wrap; row-gap: 0.4rem; column-gap: 0.4rem; min-width: 0; }
+.sheet-composer-bar > * { min-width: 0; }
+.composer-engine { display: inline-block; max-width: 11rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.composer-model .sel-button { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.composer-spacer { flex: 1 1 0.25rem; }
+.sheet-composer-bar > .btn--primary, .sheet-composer-bar > .btn--stop { margin-left: auto; }
