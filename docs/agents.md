@@ -48,9 +48,10 @@ thread carries on with what it had.
 Each agent has a face: a flat blob with two eyes and a small smile, whose
 colour, silhouette, gait and eyes come from its name, so it looks the same in the rail, on its page, in
 a chat header and in an `@agent:` chip, and no two look alike by accident.
-It is alive rather than animated: its outline wanders without repeating, it
-looks at your cursor and leans in when you are close, blinks, jiggles when
-poked and grins with its eyes. The face says what it is doing: it glances
+It is alive rather than animated: one smooth shape that breathes, squashes
+when you hover, wobbles like jelly when poked and settles, fidgets now and
+then, looks at your cursor and leans in when you are close, blinks, and
+grins with its eyes. The face says what it is doing: it glances
 about while working, hops with a mark when it needs you, sags with slanted
 eyes on an error, and sleeps when its schedule is paused. With reduced
 motion on, it holds still.

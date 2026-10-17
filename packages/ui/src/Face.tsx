@@ -36,7 +36,7 @@ export interface Look {
   tilt: number;
   /** The number its whims come from. */
   seed: number;
-  /** Its silhouette: round, tall, peaked or squat, eyes close or wide. */
+  /** Its silhouette: round or tall, standing or squat, eyes close or wide. */
   shape: BlobShape;
   /** Its habits: how it takes to the cursor, how often it blinks. */
   whim: BlobWhim;
@@ -79,7 +79,6 @@ export function lookOf(seed: string, override: FaceLook = {}): Look {
     seed: h,
     shape: {
       aspect: 0.92 + ((g % 100) / 100) * 0.2,
-      peak: ((g >>> 7) % 4) * 0.06,
       squat: ((g >>> 10) % 3) * 0.12,
       spread: 0.88 + (((g >>> 13) % 100) / 100) * 0.22,
     },
@@ -189,7 +188,7 @@ export function Face({ seed, look: override, size = 24, mood = "idle", label }: 
 
   const ink = inkOf(look.hue);
   const style = { "--blob-h": String(look.hue), "--blob-size": `${size}px` } as CSSProperties;
-  const first = smoothPath(outline(0, look.seed, GAITS[look.wobble]!, 1, look.shape));
+  const first = smoothPath(outline(look.shape));
   const eyes = [
     ["eye-l", eyeAt("l", look.shape)],
     ["eye-r", eyeAt("r", look.shape)],
@@ -263,7 +262,7 @@ export function faceSvg(look: Look, mood: Mood = "idle"): string {
   };
   const mouth = (): string => {
     const d = mood === "working" ? MOUTHS.o : mood === "needs-you" ? MOUTHS.oh : mood === "error" ? MOUTHS.frown : mood === "asleep" ? MOUTHS.small : MOUTHS.smile;
-    return `<path d="${d}" fill="none" stroke="${ink}" stroke-width="2.2" stroke-linecap="round" transform="translate(0 ${-look.shape.peak * 6})"/>`;
+    return `<path d="${d}" fill="none" stroke="${ink}" stroke-width="2.2" stroke-linecap="round"/>`;
   };
   const extra =
     mood === "needs-you"
@@ -271,8 +270,7 @@ export function faceSvg(look: Look, mood: Mood = "idle"): string {
       : mood === "asleep"
         ? `<text x="74" y="22" font-family="sans-serif" font-size="19" font-weight="700" fill="${ink}">z</text>`
         : "";
-  // Held a little way into its waves, so the icon is not the one flat frame every blob shares at t=0.
-  const body = smoothPath(outline(2, look.seed, GAITS[look.wobble]!, 1, look.shape));
+  const body = smoothPath(outline(look.shape));
   const droop = mood === "error" ? ` transform="translate(0 4) scale(1 0.92)" transform-origin="50 60"` : "";
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 4 92 92" width="64" height="64">`,

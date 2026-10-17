@@ -1,17 +1,15 @@
 /**
  * The blob as a creature rather than an animation.
  *
- * A looping shape tween reads as a screensaver: it repeats, it ignores you,
- * and every blob does the same thing. This drives each face frame by frame
- * instead. The outline is pushed about by slow waves that never line up, so
- * the shape is never the same twice; the body squashes and stretches on a
- * spring, so a hover or a poke moves it the way a jelly moves; the eyes
- * follow the pointer, drift when it is gone, and blink when they feel like
- * it. Mood is expressed through all of that (how fast it breathes, where it
- * looks, what the eyes do) rather than a class swap. The drawing itself is
- * as plain as it can be, a flat shape and two eyes, so the life is in the
- * motion and not in the rendering. One ticker drives every blob on the
- * page, and it stops when the tab is hidden or the last blob leaves.
+ * A proper blob is a clean rounded shape that is alive in how it moves, not
+ * in its edge. So the body is one smooth gumdrop, a little wider at the
+ * bottom where it sits, and everything lively happens to the whole of it:
+ * it breathes, it squashes when you hover, it wobbles like jelly on a
+ * spring when you poke it and settles, it fidgets now and then of its own
+ * accord, sways while it works, hops when it needs you and sags on an
+ * error. The eyes follow the pointer, drift when it is gone, and blink when
+ * they feel like it. One ticker drives every blob on the page, and it stops
+ * when the tab is hidden or the last blob leaves.
  */
 
 export type BlobMood = "idle" | "working" | "needs-you" | "error" | "asleep";
@@ -20,14 +18,12 @@ export type BlobGait = 0 | 1 | 2 | 3;
 
 /**
  * The silhouette: what makes one blob a different creature from the next
- * before it moves. Wider or taller, a soft peak on top or none, sitting
- * squat or standing round, eyes close-set or wide. From the name, not set.
+ * before it moves. A little wider or taller, sitting squat or standing
+ * round, eyes close-set or wide. From the name, not set.
  */
 export interface BlobShape {
   /** Width over height, 0.92 to 1.12. */
   aspect: number;
-  /** How far the top rises to a soft point, 0 to 0.18. */
-  peak: number;
   /** How much the bottom flattens, as if sat down, 0 to 0.24. */
   squat: number;
   /** How far apart the eyes sit, 0.88 to 1.1 of the usual. */
@@ -40,11 +36,11 @@ export interface BlobWhim {
   blinkiness: number;
 }
 
-export const PLAIN_SHAPE: BlobShape = { aspect: 1, peak: 0, squat: 0, spread: 1 };
+export const PLAIN_SHAPE: BlobShape = { aspect: 1, squat: 0.1, spread: 1 };
 export const PLAIN_WHIM: BlobWhim = { curiosity: 1, blinkiness: 1 };
 
 export interface BlobParams {
-  /** A number from the name: the phases of its waves, so two blobs never move in step. */
+  /** A number from the name: the timing of its whims, so two blobs never move in step. */
   seed: number;
   gait: BlobGait;
   eyes: BlobEyes;
@@ -54,28 +50,40 @@ export interface BlobParams {
   whim?: BlobWhim;
 }
 
-/** How a blob moves: how far its outline wanders, how fast, how jittery, and how slowly it breathes. */
+/**
+ * How a blob carries itself: how slowly it breathes, how springy it is when
+ * pushed, how long a wobble lasts, and how often it fidgets.
+ */
 export interface GaitSpec {
-  amp: number;
-  speed: number;
-  jitter: number;
   breath: number;
+  /** Stiffness of the jelly, in 1/s²: higher wobbles faster. */
+  spring: number;
+  /** How quickly a wobble dies, in 1/s: lower keeps it going. */
+  settle: number;
+  /** Seconds between fidgets, roughly. */
+  fidget: number;
 }
 
 export const GAITS: readonly GaitSpec[] = [
-  { amp: 0.045, speed: 0.55, jitter: 0.2, breath: 5.5 }, // steady
-  { amp: 0.065, speed: 0.95, jitter: 0.45, breath: 4 }, // lively
-  { amp: 0.06, speed: 0.35, jitter: 0.1, breath: 7 }, // slow
-  { amp: 0.05, speed: 1.35, jitter: 0.75, breath: 3.4 }, // restless
+  { breath: 5.5, spring: 320, settle: 5, fidget: 7 }, // steady
+  { breath: 4, spring: 420, settle: 4, fidget: 4 }, // lively
+  { breath: 7, spring: 240, settle: 6, fidget: 10 }, // slow
+  { breath: 3.4, spring: 520, settle: 3.5, fidget: 2.5 }, // restless
 ];
 
-export const POINTS = 12;
+export const POINTS = 16;
 export const CENTER = { x: 50, y: 52 } as const;
 export const RADIUS = 38;
 
 /** The eyes' resting places, in the 100-unit box, before the spread: a little high, which reads young. */
 export const EYE_L = { x: 41, y: 48 } as const;
 export const EYE_R = { x: 59, y: 48 } as const;
+
+/** Where an eye sits for a shape: spread from the middle. */
+export function eyeAt(side: "l" | "r", shape: BlobShape): { x: number; y: number } {
+  const base = side === "l" ? EYE_L : EYE_R;
+  return { x: CENTER.x + (base.x - CENTER.x) * shape.spread, y: base.y };
+}
 
 /** The mouth: small and quiet, so the eyes do the talking; it only opens when something is up. */
 export const MOUTHS = {
@@ -87,15 +95,8 @@ export const MOUTHS = {
   small: "M47.5 62.5q2.5 1.4 5 0",
 } as const;
 
-/** Where an eye sits for a shape: spread from the middle, lifted a little on a tall one. */
-export function eyeAt(side: "l" | "r", shape: BlobShape): { x: number; y: number } {
-  const base = side === "l" ? EYE_L : EYE_R;
-  return { x: CENTER.x + (base.x - CENTER.x) * shape.spread, y: base.y - shape.peak * 10 };
-}
-
 interface MoodSpec {
   speed: number;
-  amp: number;
   /** How open the eyes are, before blinks. */
   open: number;
   /** How big the eyes are. */
@@ -103,43 +104,36 @@ interface MoodSpec {
   mouth: string;
   look: "pointer" | "dart" | "straight";
   hop: boolean;
+  /** Side to side, while it works. */
+  sway: number;
   /** How far the body sags. */
   droop: number;
 }
 
 const MOODS: Record<BlobMood, MoodSpec> = {
-  idle: { speed: 1, amp: 1, open: 1, wide: 1, mouth: MOUTHS.smile, look: "pointer", hop: false, droop: 0 },
-  working: { speed: 2.1, amp: 1.25, open: 0.92, wide: 0.95, mouth: MOUTHS.o, look: "dart", hop: false, droop: 0 },
-  "needs-you": { speed: 1.5, amp: 1.1, open: 1, wide: 1.25, mouth: MOUTHS.oh, look: "pointer", hop: true, droop: 0 },
-  error: { speed: 0.6, amp: 0.5, open: 0.16, wide: 1, mouth: MOUTHS.frown, look: "straight", hop: false, droop: 4 },
-  asleep: { speed: 0.45, amp: 0.7, open: 0.08, wide: 1, mouth: MOUTHS.small, look: "straight", hop: false, droop: 1 },
+  idle: { speed: 1, open: 1, wide: 1, mouth: MOUTHS.smile, look: "pointer", hop: false, sway: 0, droop: 0 },
+  working: { speed: 1.8, open: 0.92, wide: 0.95, mouth: MOUTHS.o, look: "dart", hop: false, sway: 1.6, droop: 0 },
+  "needs-you": { speed: 1.4, open: 1, wide: 1.25, mouth: MOUTHS.oh, look: "pointer", hop: true, sway: 0, droop: 0 },
+  error: { speed: 0.6, open: 0.16, wide: 1, mouth: MOUTHS.frown, look: "straight", hop: false, sway: 0, droop: 4 },
+  asleep: { speed: 0.45, open: 0.08, wide: 1, mouth: MOUTHS.small, look: "straight", hop: false, sway: 0, droop: 1 },
 };
 
-function phases(seed: number): [number, number, number] {
-  const turn = Math.PI * 2;
-  return [((seed % 1000) / 1000) * turn, (((seed >>> 10) % 1000) / 1000) * turn, (((seed >>> 20) % 1000) / 1000) * turn];
-}
-
 /**
- * The outline at time t: POINTS points around the centre, each pushed in or
- * out by three waves of unrelated speeds, so the shape wanders without ever
- * repeating, over a silhouette that is the blob's own. Pure, so a test can
- * hold it still.
+ * The outline: one smooth gumdrop, a little wider low down where it sits,
+ * flattened underneath as much as its shape says, and bent by a wobble, a
+ * two-lobed deformation the jelly spring drives. Pure, so a test can hold
+ * it still.
  */
-export function outline(t: number, seed: number, gait: GaitSpec, ampScale = 1, shape: BlobShape = PLAIN_SHAPE): Array<[number, number]> {
-  const [p1, p2, p3] = phases(seed);
+export function outline(shape: BlobShape = PLAIN_SHAPE, wobble = 0, phase = 0): Array<[number, number]> {
   const pts: Array<[number, number]> = [];
   for (let i = 0; i < POINTS; i += 1) {
     const a = (i / POINTS) * Math.PI * 2;
-    const w =
-      Math.sin(t * gait.speed + i * 1.9 + p1) * 0.55 +
-      Math.sin(t * gait.speed * 1.73 + i * 3.3 + p2) * 0.3 +
-      Math.sin(t * gait.speed * 0.61 - i * 1.1 + p3) * 0.35 * (0.5 + gait.jitter);
-    // The top may rise to a soft point; the bottom may settle flat.
-    const up = Math.max(0, -Math.sin(a));
     const down = Math.max(0, Math.sin(a));
-    const r = RADIUS * (1 + gait.amp * ampScale * w) * (1 + shape.peak * up ** 3);
-    pts.push([CENTER.x + Math.cos(a) * r * shape.aspect, CENTER.y + Math.sin(a) * r * (1 - shape.squat * 0.4 * down)]);
+    // A gumdrop: the lower half spreads a touch; a wobble pulls two sides out and two in.
+    const r = RADIUS * (1 + wobble * Math.cos(2 * (a - phase)));
+    const x = CENTER.x + Math.cos(a) * r * shape.aspect * (1 + 0.07 * down);
+    const y = CENTER.y + Math.sin(a) * r * (1 - shape.squat * 0.45 * down);
+    pts.push([x, y]);
   }
   return pts;
 }
@@ -207,11 +201,16 @@ interface Blob {
   mood: BlobMood;
   still: boolean;
   t0: number;
-  /** Scale and its velocity: the spring the body moves on. */
+  /** Scale and its velocity: the spring the body stands on. */
   sx: number;
   sy: number;
   vx: number;
   vy: number;
+  /** The jelly: a two-lobed wobble and its velocity, and which way it leans. */
+  wob: number;
+  wv: number;
+  wobPhase: number;
+  nextFidget: number;
   /** Where the eyes are looking, and where they are headed. */
   lookX: number;
   lookY: number;
@@ -264,27 +263,31 @@ const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.m
 function step(b: Blob, now: number, dt: number): void {
   const mood = MOODS[b.mood];
   const t = ((now - b.t0) / 1000) * mood.speed;
-  const breath = 1 + 0.02 * Math.sin((t * Math.PI * 2) / b.gait.breath);
   const happy = now < b.happyUntil;
+
+  // Breathing: a little taller then a little wider, the way a soft thing breathes.
+  const br = Math.sin((t * Math.PI * 2) / b.gait.breath);
+  const breathX = 1 - 0.012 * br;
+  const breathY = 1 + 0.022 * br;
 
   // The body: a spring toward how it wants to stand, pushed by hovers and pokes.
   let tx = 1;
   let ty = 1;
   let hopY = 0;
   if (b.hover) {
-    tx = 1.06;
-    ty = 0.94;
+    tx = 1.08;
+    ty = 0.92;
   }
   if (mood.hop) {
     const h = Math.max(0, Math.sin((t * Math.PI * 2) / 1.1));
-    hopY = -6 * h;
+    hopY = -7 * h;
     const land = Math.max(0, -Math.sin((t * Math.PI * 2) / 1.1));
-    tx += 0.08 * land;
-    ty -= 0.08 * land;
+    tx += 0.1 * land;
+    ty -= 0.1 * land;
   }
   if (b.mood === "error") {
-    tx = 1.03;
-    ty = 0.9;
+    tx = 1.05;
+    ty = 0.88;
   }
   const k = 160;
   const damp = Math.exp(-dt * 8);
@@ -293,13 +296,23 @@ function step(b: Blob, now: number, dt: number): void {
   b.sx += b.vx * dt;
   b.sy += b.vy * dt;
 
+  // The jelly: a wobble that rings and settles, started by a poke, a mood,
+  // or a fidget of its own.
+  if (now > b.nextFidget && b.mood !== "asleep" && b.mood !== "error") {
+    b.wv += 0.5 + b.rand() * 0.4;
+    b.wobPhase = b.rand() * Math.PI;
+    b.nextFidget = now + (b.gait.fidget * 1000 * (0.6 + b.rand() * 0.8)) / (b.mood === "working" ? 1.6 : 1);
+  }
+  b.wv = (b.wv - b.wob * b.gait.spring * dt) * Math.exp(-dt * b.gait.settle);
+  b.wob += b.wv * dt;
+
   // Where to look: the pointer when it is about, a drift of its own when not.
   if (now - b.rectAt > 400) {
     const r = b.svg.getBoundingClientRect();
     b.rect = r.width > 0 ? { x: r.left, y: r.top, w: r.width, h: r.height } : null;
     b.rectAt = now;
   }
-  let leanX = 0;
+  let leanX = mood.sway * Math.sin(t * 2.2);
   const pointerFresh = pointer.seen && now - pointer.at < 6000;
   if (mood.look === "straight") {
     b.aimX = 0;
@@ -314,7 +327,7 @@ function step(b: Blob, now: number, dt: number): void {
     b.aimX = (dx / dist) * 3.2 * reach;
     b.aimY = (dy / dist) * 2.4 * reach;
     const near = Math.max(0, 1 - dist / 160);
-    leanX = (dx / dist) * 2.5 * near * b.whim.curiosity;
+    leanX += (dx / dist) * 2.5 * near * b.whim.curiosity;
   } else if (now > b.nextAim) {
     // A glance of its own: somewhere, then back, at its own pace. Working,
     // it darts about; idle, it wanders.
@@ -346,10 +359,12 @@ function step(b: Blob, now: number, dt: number): void {
 
   // Draw.
   const { parts } = b;
-  parts.body.setAttribute("d", smoothPath(outline(t, b.params.seed, b.gait, mood.amp, b.shape)));
+  parts.body.setAttribute("d", smoothPath(outline(b.shape, clamp(b.wob, -0.14, 0.14), b.wobPhase)));
+  // The jelly leans the way it wobbles, a touch, so a wobble is not only an outline.
+  const skew = b.wob * 18;
   parts.all.setAttribute(
     "transform",
-    `translate(${f(CENTER.x + leanX)} ${f(CENTER.y + hopY + mood.droop)}) scale(${f(b.sx * breath)} ${f(b.sy * (2 - breath))}) translate(${-CENTER.x} ${-CENTER.y})`,
+    `translate(${f(CENTER.x + leanX)} ${f(CENTER.y + hopY + mood.droop)}) scale(${f(b.sx * breathX)} ${f(b.sy * breathY)}) skewX(${f(skew)}) translate(${-CENTER.x} ${-CENTER.y})`,
   );
   const eye = (el: SVGGElement, x: number, y: number): void => {
     const slant = b.mood === "error" ? (x < 50 ? 18 : -18) : 0;
@@ -364,7 +379,7 @@ function step(b: Blob, now: number, dt: number): void {
   for (const el of parts.grins) el.setAttribute("opacity", happy ? "1" : "0");
   if (parts.mouth) {
     parts.mouth.setAttribute("d", happy ? MOUTHS.happy : mood.mouth);
-    parts.mouth.setAttribute("transform", `translate(${f(b.lookX * 0.45)} ${f(b.lookY * 0.3 - b.shape.peak * 6)})`);
+    parts.mouth.setAttribute("transform", `translate(${f(b.lookX * 0.45)} ${f(b.lookY * 0.3)})`);
   }
   if (parts.mark) {
     if (b.mood === "needs-you") {
@@ -381,7 +396,7 @@ function step(b: Blob, now: number, dt: number): void {
 export interface BlobHandle {
   setMood: (mood: BlobMood) => void;
   hover: (on: boolean) => void;
-  /** A poke: it jiggles, and is pleased about it for a moment. */
+  /** A poke: it wobbles like jelly, and is pleased about it for a moment. */
   poke: () => void;
   dispose: () => void;
 }
@@ -403,6 +418,7 @@ export function mountBlob(svg: SVGSVGElement, params: BlobParams, mood: BlobMood
   if (!all || !body || !eyeL || !eyeR) throw new Error("a blob needs its parts");
   const rand = rng(params.seed);
   const now = typeof performance !== "undefined" ? performance.now() : 0;
+  const gait = GAITS[params.gait] ?? GAITS[0]!;
   const b: Blob = {
     svg,
     parts: {
@@ -418,15 +434,19 @@ export function mountBlob(svg: SVGSVGElement, params: BlobParams, mood: BlobMood
     params,
     shape: params.shape ?? PLAIN_SHAPE,
     whim: params.whim ?? PLAIN_WHIM,
-    gait: GAITS[params.gait] ?? GAITS[0]!,
+    gait,
     mood,
     still: options.still === true,
-    // Started somewhere along its waves, so a row of blobs does not breathe in unison.
+    // Started somewhere along its breath, so a row of blobs does not breathe in unison.
     t0: now - rand() * 60000,
     sx: 1,
     sy: 1,
     vx: 0,
     vy: 0,
+    wob: 0,
+    wv: 0,
+    wobPhase: rand() * Math.PI,
+    nextFidget: now + gait.fidget * 1000 * rand(),
     lookX: 0,
     lookY: 0,
     aimX: 0,
@@ -452,9 +472,10 @@ export function mountBlob(svg: SVGSVGElement, params: BlobParams, mood: BlobMood
       b.mood = m;
       // The mark is in the SVG only for the moods that have one; React swaps it.
       b.parts.mark = part<SVGTextElement>(svg, "mark");
-      // A change of mood is felt: a small start.
+      // A change of mood is felt: a small start and a wobble.
       b.vy -= 1.2;
       b.vx += 1.2;
+      b.wv += 0.8;
       if (b.still) step(b, performance.now(), 0.016);
     },
     hover: (on) => {
@@ -462,8 +483,10 @@ export function mountBlob(svg: SVGSVGElement, params: BlobParams, mood: BlobMood
       if (on) b.vy -= 0.8;
     },
     poke: () => {
-      b.vx += 3.2;
-      b.vy -= 3.2;
+      b.vx += 2.6;
+      b.vy -= 2.6;
+      b.wv += 2.4;
+      b.wobPhase = b.rand() * Math.PI;
       b.happyUntil = performance.now() + 1600;
       if (b.still) step(b, performance.now(), 0.016);
     },

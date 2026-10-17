@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { GAITS, outline, smoothPath } from "./blob.js";
+import { outline, smoothPath } from "./blob.js";
 import { AgentFaces, Face, faceSvg, fillOf, lookOf, moodOf } from "./Face.js";
 
 afterEach(cleanup);
@@ -25,7 +25,6 @@ describe("an agent's face", () => {
       const { shape, whim } = lookOf(n);
       expect(shape.aspect).toBeGreaterThanOrEqual(0.92);
       expect(shape.aspect).toBeLessThanOrEqual(1.12);
-      expect([0, 0.06, 0.12, 0.18]).toContainEqual(Number(shape.peak.toFixed(2)));
       expect([0, 0.12, 0.24]).toContainEqual(Number(shape.squat.toFixed(2)));
       expect(shape.spread).toBeGreaterThanOrEqual(0.88);
       expect(shape.spread).toBeLessThanOrEqual(1.1);
@@ -83,7 +82,7 @@ describe("an agent's face", () => {
     expect(idle).not.toContain(">!<");
     expect(idle).not.toContain("radialGradient");
     // The same silhouette the live blob has, held still.
-    expect(idle).toContain(`d="${smoothPath(outline(2, look.seed, GAITS[1]!, 1, look.shape))}"`);
+    expect(idle).toContain(`d="${smoothPath(outline(look.shape))}"`);
     const needs = faceSvg(look, "needs-you");
     expect(needs).toContain(">!<");
     expect(faceSvg(look, "asleep")).toContain(">z<");
