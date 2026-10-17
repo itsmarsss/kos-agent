@@ -44,6 +44,13 @@ export interface GuardedToolsDeps {
   permissionContext?: (tool: string) => PermissionContext | undefined;
   /** A picture of what a call would act on, for the approval; base64 JPEG. */
   pictureFor?: (tool: string, input: Record<string, unknown>) => Promise<string | undefined>;
+  /**
+   * What the calling conversation's model said since its last tool call:
+   * the sentence the ask belongs to, so an approval reads as "I'll clear
+   * the build folder so the rebuild is clean" and then the command, not the
+   * command alone.
+   */
+  whyFor?: (conversationId?: string) => string | undefined;
   /** The project the calling conversation belongs to, for scoping those decisions. */
   projectSlug?: () => string | undefined;
   /**
@@ -238,6 +245,7 @@ export class GuardedTools implements ToolBox {
       const rule = this.deps.permissions?.ruleFor?.(name, input, this.deps.projectSlug?.() ?? null, context);
       const picture = await this.deps.pictureFor?.(name, input).catch(() => undefined);
       const site = context?.browser?.site;
+      const why = this.deps.whyFor?.(conversationId)?.trim();
       const action = approvals.enqueue({
         tool: name,
         args: input,
@@ -247,6 +255,7 @@ export class GuardedTools implements ToolBox {
         ...(conversationId ? { conversationId } : {}),
         ...(rule ? { rule } : {}),
         ...(picture ? { picture } : {}),
+        ...(why ? { why } : {}),
       });
       this.deps.onQueued?.(action);
 

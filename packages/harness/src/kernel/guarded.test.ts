@@ -39,6 +39,13 @@ describe("GuardedTools", () => {
     return new GuardedTools({ registry, secrets, audit, approvals, ...over });
   }
 
+  it("queues an ask with what the caller was saying, so the prompt reads as a sentence", async () => {
+    registry.register({ name: "danger", description: "d", inputSchema: { type: "object" } }, () => "done", { floor: "risky" });
+    const tools = guarded({ conversationId: "c1", whyFor: (id) => (id === "c1" ? "I'll clear the build folder so the rebuild is clean. " : undefined), waitForApproval: false });
+    await tools.execute("danger", { x: 1 });
+    expect(approvals.pending()[0]?.why).toBe("I'll clear the build folder so the rebuild is clean.");
+  });
+
   it("runs a risky call the owner already decided, without asking", async () => {
     /*
      * 96 of 97 approvals on a real workspace were granted. A decision made

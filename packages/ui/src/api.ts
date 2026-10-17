@@ -68,6 +68,8 @@ export interface PendingAction {
   picture?: boolean;
   /** What a yes-and-remember keeps. */
   rule?: { tool: string; scope: string | null; project: string | null } | null;
+  /** What the agent said just before it asked. */
+  why?: string | null;
 }
 
 export interface Project {

@@ -21,6 +21,8 @@ const IDLE_TAB_MS = 20 * 60_000;
 const IDLE_SWEEP_MS = 5 * 60_000;
 /** How often a wanted restart checks whether the host has gone idle. */
 const RESTART_POLL_MS = 2_000;
+/** How much of what a conversation said before a call is kept for the ask. */
+const SAID_KEEP = 600;
 import { ChromeHost } from "../browser/chrome.js";
 import { BrowserLive, browserEngine, launchFor, sessionFor, type BrowserDownload, type BrowserEngine, type BrowserStatus } from "../browser/live.js";
 import { ENGINE_TOOL, type TabInfo } from "../tools/browser.js";
@@ -316,6 +318,12 @@ export class Kernel {
 
   /** Turn progress, for readers watching a conversation as it runs. */
   readonly progress = new ProgressBus();
+  /**
+   * What each conversation's model has said since its last tool call, from
+   * the same stream the dashboard watches, so an approval can quote the
+   * sentence it belongs to. Engine-agnostic: both engines stream text here.
+   */
+  private readonly saidSince = new Map<string, string>();
   /** The browser KOS drives, watched from the dashboard; made once the workspace is known. */
   readonly browser: BrowserLive;
   /** What the browser showed after each step, for the thread. */
@@ -380,6 +388,14 @@ export class Kernel {
   }) {
     this.workspace = args.workspace;
     this.restartHost = args.restart;
+    this.progress.subscribe((event) => {
+      if (event.kind === "delta" && event.of === "text") {
+        const said = `${this.saidSince.get(event.conversationId) ?? ""}${event.text}`;
+        this.saidSince.set(event.conversationId, said.length > SAID_KEEP ? said.slice(-SAID_KEEP) : said);
+      } else if (event.kind === "tool-end" || event.kind === "turn-end") {
+        this.saidSince.delete(event.conversationId);
+      }
+    });
     {
       // One Chrome for the whole host: the engine's port is read from the
       // config once here, so a changed port wants a restart.
@@ -1893,6 +1909,7 @@ export class Kernel {
         }
       },
       approvalTimeoutMs: this.behaviour().approvalMinutes * 60_000,
+      whyFor: (id) => (id ? this.saidSince.get(id) : undefined),
       onStarted: (tool, input) => {
         if (!opts.conversationId) return;
         this.progress.emit({

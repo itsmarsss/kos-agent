@@ -417,6 +417,10 @@ describe("the approval prompt", () => {
 
   it("keeps a text-only request as it was given", () => {
     expect(approvalText({ id: "3", text: "Post to #general?" })).toBe("**Needs your OK** · Post to #general?\n-# #3");
+    // What KOS was saying comes first, as one quoted line, so the card is a sentence and not a command.
+    expect(approvalText({ id: "4", text: "x", tool: "shell.run", args: { command: "rm -rf build" }, why: "I'll clear the build folder\nso the rebuild is clean." })).toBe(
+      "> I'll clear the build folder so the rebuild is clean.\n**Needs your OK** · Run\n```\nrm -rf build\n```\n-# shell.run · #4",
+    );
   });
 
   it("sends no embed, only the two lines and the buttons", async () => {

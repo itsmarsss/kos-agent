@@ -117,7 +117,8 @@ everywhere.
 
 ## Inbox
 
-Everything waiting on you: tool approvals (with a link to the chat that
+Everything waiting on you: tool approvals (each quoting what KOS said
+just before it asked, with a link to the chat that
 asked), memory decisions (keep one side, both, promote, dismiss), and jobs
 failing now (open, put KOS on it, dismiss). The sidebar badge counts all
 three. A job has one fix chat, under Maintenance: when it fails again,
