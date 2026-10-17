@@ -85,23 +85,12 @@ export function eyeAt(side: "l" | "r", shape: BlobShape): { x: number; y: number
   return { x: CENTER.x + (base.x - CENTER.x) * shape.spread, y: base.y };
 }
 
-/** The mouth: small and quiet, so the eyes do the talking; it only opens when something is up. */
-export const MOUTHS = {
-  smile: "M46 62q4 3.2 8 0",
-  happy: "M43 61q7 6.5 14 0",
-  o: "M50 60.5a1.9 1.9 0 1 0 0.01 0",
-  oh: "M50 60.5a2.8 2.8 0 1 0 0.01 0",
-  frown: "M46 65q4-3 8 0",
-  small: "M47.5 62.5q2.5 1.4 5 0",
-} as const;
-
 interface MoodSpec {
   speed: number;
   /** How open the eyes are, before blinks. */
   open: number;
   /** How big the eyes are. */
   wide: number;
-  mouth: string;
   look: "pointer" | "dart" | "straight";
   hop: boolean;
   /** Side to side, while it works. */
@@ -111,11 +100,11 @@ interface MoodSpec {
 }
 
 const MOODS: Record<BlobMood, MoodSpec> = {
-  idle: { speed: 1, open: 1, wide: 1, mouth: MOUTHS.smile, look: "pointer", hop: false, sway: 0, droop: 0 },
-  working: { speed: 1.8, open: 0.92, wide: 0.95, mouth: MOUTHS.o, look: "dart", hop: false, sway: 1.6, droop: 0 },
-  "needs-you": { speed: 1.4, open: 1, wide: 1.25, mouth: MOUTHS.oh, look: "pointer", hop: true, sway: 0, droop: 0 },
-  error: { speed: 0.6, open: 0.16, wide: 1, mouth: MOUTHS.frown, look: "straight", hop: false, sway: 0, droop: 4 },
-  asleep: { speed: 0.45, open: 0.08, wide: 1, mouth: MOUTHS.small, look: "straight", hop: false, sway: 0, droop: 1 },
+  idle: { speed: 1, open: 1, wide: 1, look: "pointer", hop: false, sway: 0, droop: 0 },
+  working: { speed: 1.8, open: 0.92, wide: 0.95, look: "dart", hop: false, sway: 1.6, droop: 0 },
+  "needs-you": { speed: 1.4, open: 1, wide: 1.25, look: "pointer", hop: true, sway: 0, droop: 0 },
+  error: { speed: 0.6, open: 0.16, wide: 1, look: "straight", hop: false, sway: 0, droop: 4 },
+  asleep: { speed: 0.45, open: 0.08, wide: 1, look: "straight", hop: false, sway: 0, droop: 1 },
 };
 
 /**
@@ -187,7 +176,6 @@ interface Parts {
   eyes: SVGElement[];
   /** The upturned arcs the eyes become when it is pleased. */
   grins: SVGElement[];
-  mouth: SVGPathElement | null;
   mark: SVGTextElement | null;
 }
 
@@ -333,7 +321,8 @@ function step(b: Blob, now: number, dt: number): void {
     // it darts about; idle, it wanders.
     const dart = mood.look === "dart";
     b.aimX = (b.rand() * 2 - 1) * (dart ? 3 : 2.4);
-    b.aimY = (b.rand() * 2 - 1) * (dart ? 2.2 : 1.6);
+    // At rest it looks a little up, the way something attentive does.
+    b.aimY = (b.rand() * 2 - 1) * (dart ? 2.2 : 1.4) - (dart ? 0 : 0.8);
     b.nextAim = now + (dart ? 500 + b.rand() * 700 : 2500 + b.rand() * 4500);
   }
   const ease = 1 - Math.exp(-dt * (mood.look === "dart" ? 14 : 9));
@@ -374,13 +363,9 @@ function step(b: Blob, now: number, dt: number): void {
   const atR = eyeAt("r", b.shape);
   eye(parts.eyeL, atL.x, atL.y);
   eye(parts.eyeR, atR.x, atR.y);
-  // Pleased: the eyes become arcs and the smile widens.
+  // Pleased: the eyes become arcs, the way a face with no mouth smiles.
   for (const el of parts.eyes) el.setAttribute("opacity", happy ? "0" : "1");
   for (const el of parts.grins) el.setAttribute("opacity", happy ? "1" : "0");
-  if (parts.mouth) {
-    parts.mouth.setAttribute("d", happy ? MOUTHS.happy : mood.mouth);
-    parts.mouth.setAttribute("transform", `translate(${f(b.lookX * 0.45)} ${f(b.lookY * 0.3)})`);
-  }
   if (parts.mark) {
     if (b.mood === "needs-you") {
       parts.mark.setAttribute("transform", `translate(0 ${f(hopY * 0.6 - 2 * Math.max(0, Math.sin(t * 7)))})`);
@@ -428,7 +413,6 @@ export function mountBlob(svg: SVGSVGElement, params: BlobParams, mood: BlobMood
       eyeR,
       eyes: Array.from(svg.querySelectorAll<SVGElement>('[data-part="eye"]')),
       grins: Array.from(svg.querySelectorAll<SVGElement>('[data-part="grin"]')),
-      mouth: part<SVGPathElement>(svg, "mouth"),
       mark: part<SVGTextElement>(svg, "mark"),
     },
     params,
