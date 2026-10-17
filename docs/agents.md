@@ -43,6 +43,15 @@ KOS reads the file on every turn, so an edit is the next turn's brief. A
 file that does not parse is listed as invalid with the reason, and its
 thread carries on with what it had.
 
+## Its face
+
+Each agent has a face: a blob whose colour, shape, gait and eyes come from
+its name, so it looks the same in the rail, on its page, in a chat header
+and in an `@agent:` chip, and no two look alike by accident. The face says
+what it is doing: it glances about while working, bounces with a mark when
+it needs you, droops on an error, and sleeps when its schedule is paused.
+With reduced motion on, it holds still.
+
 ## Where it lives
 
 Each agent has one standing thread, `agent:<name>`, pinned in the Chats

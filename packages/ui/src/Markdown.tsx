@@ -8,6 +8,7 @@ import {
 
 import { COMMAND_NAMES } from "@kos/shared";
 
+import { Face } from "./Face.js";
 import { useOpenTab } from "./opentab.js";
 import { hrefFor } from "./routes.js";
 
@@ -120,7 +121,8 @@ function MentionChip({ kind, id }: { kind: string; id: string }): ReactElement {
       title={`${kind}: ${id}`}
       onClick={onClick}
     >
-      <KindMark kind={kind} />
+      {/* A standing agent is a face, not a mark. */}
+      {kind === "agent" ? <Face seed={id} size={12} label={`${id}'s face`} /> : <KindMark kind={kind} />}
       {label}
     </a>
   );

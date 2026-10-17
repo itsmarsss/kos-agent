@@ -35,6 +35,7 @@ import { QuickAsk } from "./QuickAsk.js";
 import { useProgress } from "./progress.js";
 import { FilesPage } from "./FilesPage.js";
 import { AgentsPage } from "./AgentsPage.js";
+import { moodOf } from "./Face.js";
 import { BuildsPage } from "./BuildsPage.js";
 import { SettingsPage } from "./SettingsPage.js";
 import { ProjectsPage } from "./ProjectsPage.js";
@@ -943,6 +944,7 @@ export function App(): React.ReactElement {
         onOpenThread={openConversation}
         onNotice={(text) => flash("ok", text)}
         onChanged={() => void refresh()}
+        activity={new Map(conversations.filter((c) => c.kind === "agent" && c.role).map((c) => [c.role!, moodOf(c.activity)]))}
       />,
     );
   }
