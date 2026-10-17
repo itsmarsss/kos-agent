@@ -1,39 +1,49 @@
 import { describe, expect, it } from "vitest";
 
-import { CENTER, GAITS, POINTS, RADIUS, outline, smoothPath } from "./blob.js";
+import { CENTER, GAITS, PLAIN_SHAPE, POINTS, RADIUS, outline, smoothPath } from "./blob.js";
 
 describe("the blob's body", () => {
-  it("wanders within its gait's reach, the same way for the same seed, and never in step with another", () => {
-    const gait = GAITS[0]!;
-    const a = outline(1.5, 12345, gait);
+  it("is one smooth gumdrop at rest, the same every time", () => {
+    const a = outline();
     expect(a).toHaveLength(POINTS);
-    expect(outline(1.5, 12345, gait)).toEqual(a);
+    expect(outline(PLAIN_SHAPE, 0, 0)).toEqual(a);
     for (const [x, y] of a) {
       const r = Math.hypot(x - CENTER.x, y - CENTER.y);
-      expect(r).toBeGreaterThanOrEqual(RADIUS * (1 - gait.amp * 1.21));
-      expect(r).toBeLessThanOrEqual(RADIUS * (1 + gait.amp * 1.21));
+      // Never pointy, never pinched: every point stays close to the circle it is drawn on.
+      expect(r).toBeGreaterThanOrEqual(RADIUS * 0.85);
+      expect(r).toBeLessThanOrEqual(RADIUS * 1.08);
     }
-    // Time moves it; a different seed is a different blob at the same moment.
-    expect(outline(1.6, 12345, gait)).not.toEqual(a);
-    expect(outline(1.5, 54321, gait)).not.toEqual(a);
-    // The gaits differ in reach and pace.
-    expect(GAITS).toHaveLength(4);
-    expect(new Set(GAITS.map((g) => g.speed)).size).toBe(4);
+    // Wider low down than high up: it sits.
+    const widthAt = (yFrom: number, yTo: number): number => {
+      const xs = a.filter(([, y]) => y >= yFrom && y <= yTo).map(([x]) => x);
+      return Math.max(...xs) - Math.min(...xs);
+    };
+    expect(widthAt(CENTER.y + 8, CENTER.y + 30)).toBeGreaterThan(widthAt(CENTER.y - 30, CENTER.y - 8));
   });
 
-  it("takes a silhouette: wider, peaked on top, or flattened below", () => {
-    const gait = GAITS[0]!;
-    const plain = outline(0, 1, gait);
-    const wide = outline(0, 1, gait, 1, { aspect: 1.12, peak: 0, squat: 0, spread: 1 });
+  it("takes a silhouette: wider, or flattened below, with the eyes spread to match", () => {
+    const plain = outline();
+    const wide = outline({ aspect: 1.12, squat: 0.1, spread: 1 });
     expect(Math.max(...wide.map((p) => p[0]))).toBeGreaterThan(Math.max(...plain.map((p) => p[0])));
-    const peaked = outline(0, 1, gait, 1, { aspect: 1, peak: 0.18, squat: 0, spread: 1 });
-    expect(Math.min(...peaked.map((p) => p[1]))).toBeLessThan(Math.min(...plain.map((p) => p[1])));
-    const squat = outline(0, 1, gait, 1, { aspect: 1, peak: 0, squat: 0.24, spread: 1 });
+    const squat = outline({ aspect: 1, squat: 0.24, spread: 1 });
     expect(Math.max(...squat.map((p) => p[1]))).toBeLessThan(Math.max(...plain.map((p) => p[1])));
   });
 
+  it("wobbles as a jelly does: two sides out, two sides in, and back", () => {
+    const rest = outline();
+    const bent = outline(PLAIN_SHAPE, 0.1, 0);
+    const r = (p: readonly [number, number]): number => Math.hypot(p[0] - CENTER.x, p[1] - CENTER.y);
+    // Along the wobble's axis the body is longer; across it, shorter.
+    expect(r(bent[0]!)).toBeGreaterThan(r(rest[0]!));
+    expect(r(bent[POINTS / 4]!)).toBeLessThan(r(rest[POINTS / 4]!));
+    expect(outline(PLAIN_SHAPE, 0, 1.3)).toEqual(rest);
+    // The gaits differ in how they carry themselves.
+    expect(GAITS).toHaveLength(4);
+    expect(new Set(GAITS.map((g) => g.spring)).size).toBe(4);
+  });
+
   it("joins the points into one closed curve with no corners", () => {
-    const d = smoothPath(outline(0, 7, GAITS[1]!));
+    const d = smoothPath(outline());
     expect(d.startsWith("M")).toBe(true);
     expect(d.endsWith(" Z")).toBe(true);
     expect(d.match(/ C/g)).toHaveLength(POINTS);
