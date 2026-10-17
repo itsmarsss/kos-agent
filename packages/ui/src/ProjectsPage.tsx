@@ -174,7 +174,7 @@ export function ProjectsPage({
               onChange={(kind) => setDraft({ ...draft, kind })}
             />
             {draft.kind === "other" && <input className="kos-input" value={draft.other} placeholder="a word for what it is" onChange={(e) => setDraft({ ...draft, other: e.target.value })} />}
-            <span className="hint">Empty to begin with: a folder, a chat of its own, and nothing else until you or KOS put something there.</span>
+            <span className="hint">Empty to begin with: a chat of its own, and nothing else until you or KOS put something there.</span>
           </label>
           {createError && <p className="ops-alert ops-alert--err">{createError}</p>}
           <div className="rename-actions">

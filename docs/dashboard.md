@@ -149,8 +149,8 @@ A card per project with its pages as chips. Click the card for details:
 rows and tables, pages, sites, schedules, status, type, which module it came
 from, its chat, its folder, and the schema history. A project made from a
 blueprint says so. **New project** makes an empty one: a name and a kind,
-then a folder and a chat of its own and nothing else until you or KOS put
-something there. The details drawer ends in **Delete project**, two
+then a chat of its own and nothing else until you or KOS put something
+there. The details drawer ends in **Delete project**, two
 presses: its tables, pages and files go for good, its chats are kept,
 archived at the root, and its jobs are turned off. Archiving, from the
 status control, is the reversible way to set one aside.
