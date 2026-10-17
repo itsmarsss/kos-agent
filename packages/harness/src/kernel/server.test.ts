@@ -378,8 +378,21 @@ describe("handleApiRequest", () => {
     })).body as { agent: { name: string; tools?: string[]; conversationId: string; job?: { id: number; schedule: string; enabled: boolean } } };
     expect(saved.agent).toMatchObject({ name: "price-watch", tools: ["browser", "memory"], conversationId: "agent:price-watch", job: { schedule: "0 9 * * 1", enabled: true } });
     expect(kernel.conversations.get("agent:price-watch")).toMatchObject({ role: "price-watch", toolAllow: ["browser", "memory"] });
-    const listed = (await handleApiRequest(kernel, { method: "GET", path: "/api/agents" })).body as { agents: { name: string; job?: { id: number } }[] };
+    const listed = (await handleApiRequest(kernel, { method: "GET", path: "/api/agents" })).body as {
+      agents: { name: string; thread: { id: string; activity: string; lastSaid: string | null }; job?: { id: number; nextRunAt: number | null } }[];
+    };
     expect(listed.agents.map((a) => a.name)).toEqual(["price-watch"]);
+    // What it is up to, and when it runs next, come with the row.
+    expect(listed.agents[0]!.thread).toMatchObject({ id: "agent:price-watch", activity: "idle", lastSaid: null });
+    // Null here: the scheduler is not running in a test kernel, so there is no next run to name.
+    expect(listed.agents[0]!.job!.nextRunAt).toBeNull();
+    // A file written by hand has no thread until the list stands one up.
+    kernel.roles.write({ name: "byhand", description: "Written in an editor", brief: "You were typed.", memory: "own" });
+    expect(kernel.conversations.get("agent:byhand")).toBeUndefined();
+    const withHand = (await handleApiRequest(kernel, { method: "GET", path: "/api/agents" })).body as { agents: { name: string }[] };
+    expect(withHand.agents.map((a) => a.name)).toEqual(["byhand", "price-watch"]);
+    expect(kernel.conversations.get("agent:byhand")).toMatchObject({ role: "byhand", brief: "You were typed." });
+    kernel.roles.remove("byhand");
     // Run now fires the agent's job; an agent without one has nothing to run.
     const ran = await handleApiRequest(kernel, { method: "POST", path: "/api/agents/run", body: { name: "price-watch" } });
     expect(ran.status).toBe(200);

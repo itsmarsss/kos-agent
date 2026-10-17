@@ -43,6 +43,7 @@ import { importPage, listPages, readPage } from "../memory/pages.js";
 import { applyResolution, describeReview } from "../memory/resolve.js";
 import type { ReviewItem } from "../memory/review.js";
 import { agentConversationId, ROLE_NAME, type Role, type RoleRecord } from "../agents/roles.js";
+import type { ModelMessage } from "../models/types.js";
 import { mayRead } from "../memory/callers.js";
 import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
 import { MODULES_KEY, parseModuleSettings, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
@@ -1807,7 +1808,8 @@ export async function handleApiRequest(
    */
   if (method === "GET" && path === "/api/agents") {
     const { roles, invalid } = kernel.roles.list();
-    return ok({ agents: roles.map((r) => describeAgent(kernel, r)), invalid });
+    const label = conversationLabeller(kernel);
+    return ok({ agents: roles.map((r) => describeAgent(kernel, r, label)), invalid });
   }
 
   if (method === "POST" && path === "/api/agents/save") {
@@ -3006,13 +3008,59 @@ function streamProgress(
  * used. The same shape the tool accepts, minus the approval queue: this is the
  * owner acting directly.
  */
-/** A standing agent with its thread and schedule beside the file's own fields. */
-function describeAgent(kernel: Kernel, record: RoleRecord): RoleRecord & { conversationId: string; job?: { id: number; schedule: string; enabled: boolean; lastRunAt: number | null } } {
+/** The last thing a thread said, in one line, for a list that says what each agent is up to. */
+function lastSaid(messages: ModelMessage[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i]!;
+    if (m.role !== "assistant") continue;
+    const text =
+      typeof m.content === "string"
+        ? m.content
+        : m.content.filter((b): b is { type: "text"; text: string } => b.type === "text").map((b) => b.text).join(" ");
+    const line = text.replace(/\s+/g, " ").trim();
+    if (line) return line.length > 160 ? `${line.slice(0, 159)}…` : line;
+  }
+  return null;
+}
+
+/**
+ * A standing agent with its thread and schedule beside the file's own
+ * fields. The thread is made here if a hand-written file has none yet: the
+ * list is what the owner reaches it from, so listing is what stands it up.
+ */
+function describeAgent(
+  kernel: Kernel,
+  record: RoleRecord,
+  label: ReturnType<typeof conversationLabeller> = conversationLabeller(kernel),
+): RoleRecord & {
+  conversationId: string;
+  thread: { id: string; activity: Activity; unread: boolean; updatedAt: number; lastSaid: string | null; lastError?: string };
+  job?: { id: number; schedule: string; enabled: boolean; lastRunAt: number | null; nextRunAt: number | null };
+} {
   const job = kernel.crons.list().find((j) => j.agent === record.name);
+  const thread = label(kernel.ensureAgentConversation(record.name));
   return {
     ...record,
-    conversationId: agentConversationId(record.name),
-    ...(job ? { job: { id: job.id, schedule: job.schedule, enabled: job.enabled, lastRunAt: job.lastRunAt ?? null } } : {}),
+    conversationId: thread.id,
+    thread: {
+      id: thread.id,
+      activity: thread.activity,
+      unread: thread.unread,
+      updatedAt: thread.updatedAt,
+      lastSaid: lastSaid(kernel.sessions.get(thread.id)),
+      ...(thread.lastError ? { lastError: thread.lastError } : {}),
+    },
+    ...(job
+      ? {
+          job: {
+            id: job.id,
+            schedule: job.schedule,
+            enabled: job.enabled,
+            lastRunAt: job.lastRunAt ?? null,
+            nextRunAt: job.enabled ? (kernel.cronNextRuns(job.id, 1)[0] ?? null) : null,
+          },
+        }
+      : {}),
   };
 }
 

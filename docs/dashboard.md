@@ -18,11 +18,8 @@ The list on the left:
   heading makes an empty project, the same dialog the Projects page has;
   hover a row for Delete project (two presses), which is the Details
   drawer's delete without the trip there.
-- **Agents** are the standing agents KOS made for a responsibility you want
-  kept up ("keep an eye on", "every Saturday"), one row each. Each is a
-  file, `agents/<name>.md`, and its row is the thread it works in; see
-  docs/agents.md.
-- **Scheduled** holds the threads jobs run in, folded by default.
+- **Scheduled** holds the threads jobs run in, folded by default. Standing
+  agents are not listed here: each has a page of its own under Agents.
 - **Your chats**, newest first. Hover a row for Rename, Duplicate, Hand off
   (KOS drafts a brief of the thread; you pick a chat or project, edit it,
   say what that chat should do with it, and it goes over as a message
@@ -169,12 +166,15 @@ status control, is the reversible way to set one aside.
 The standing agents, one row each, with its face: a blob drawn from its
 name that glances about while it works, bounces when it needs you, droops
 on an error and sleeps when paused. Then what it is for, its schedule or
-"on request", and when it last ran. A row opens its file as fields: name, what
-it is for, the brief, the tool families it may reach, whether its memory is
-its own, the model class, the schedule and the prompt for each run. Save
-writes the file; the next turn uses it. Run now runs its scheduled prompt
-in its own thread, Open thread goes there, File opens the markdown itself,
-and Delete (two presses) removes the file and the schedule and leaves the
+"on request", what it is up to (working now, waiting on you, its last turn
+failed, or the last thing it said), and when it runs next and last ran. A
+row opens the agent's own page: its thread in the middle, where you talk to
+it and where its schedule runs; the chats it has inside projects in the
+rail; and beside the thread its file and schedule, with Run now,
+Pause or Resume, Edit (its file as fields: name, what it is for, the brief,
+the tool families it may reach, whether its memory is its own, the model
+class, the schedule and the prompt for each run), Open in Files, and Delete
+(two presses), which removes the file and the schedule and leaves the
 thread as an ordinary chat. New agent writes one by hand; asking KOS in a
 chat is the usual way. A file under `agents/` that does not read as an
 agent is listed with the reason. See docs/agents.md.

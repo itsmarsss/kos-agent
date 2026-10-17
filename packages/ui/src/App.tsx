@@ -35,7 +35,6 @@ import { QuickAsk } from "./QuickAsk.js";
 import { useProgress } from "./progress.js";
 import { FilesPage } from "./FilesPage.js";
 import { AgentsPage } from "./AgentsPage.js";
-import { moodOf } from "./Face.js";
 import { BuildsPage } from "./BuildsPage.js";
 import { SettingsPage } from "./SettingsPage.js";
 import { ProjectsPage } from "./ProjectsPage.js";
@@ -936,15 +935,54 @@ export function App(): React.ReactElement {
     );
   }
 
+  if (route.name === "agents" && route.agent !== undefined && route.agent !== "new") {
+    /*
+     * An agent's own page: its thread in the middle, the chats it has in
+     * projects in the rail, and its file and schedule beside the thread.
+     * The same page a project gets, scoped to the agent instead.
+     */
+    const name = route.agent;
+    return shell(
+      <ChatsPage
+        conversations={conversations}
+        projects={projects}
+        activeId={`agent:${name}`}
+        pendingApprovals={pendingIds}
+        approvals={approvals}
+        deciding={deciding}
+        agents={agents}
+        tabs={browserTabs}
+        onOpenAgent={(id) => go({ name: "builds", id })}
+        onOpen={openConversation}
+        onOpenProject={(s) => go({ name: "project", slug: s })}
+        agent={{
+          name,
+          onBack: () => go({ name: "agents" }),
+          onOpenFile: (path) => go({ name: "files", path }),
+          onError: (text) => flash("err", text),
+          onRemoved: () => {
+            void refresh();
+            go({ name: "agents" });
+          },
+        }}
+        crons={crons}
+        onEditCron={(job, projectSlug) => setEditingCron(job ? { job } : { ...(projectSlug ? { projectSlug } : {}) })}
+        onAside={askAside}
+        onNotice={(text) => flash("ok", text)}
+        onChanged={() => void refresh()}
+        onDecide={decideByPendingId}
+        {...(seed ? { seed } : {})}
+      />,
+    );
+  }
+
   if (route.name === "agents") {
     return shell(
       <AgentsPage
         {...(route.agent !== undefined ? { open: route.agent } : {})}
         onOpen={(agent) => go(agent ? { name: "agents", agent } : { name: "agents" })}
-        onOpenThread={openConversation}
         onNotice={(text) => flash("ok", text)}
         onChanged={() => void refresh()}
-        activity={new Map(conversations.filter((c) => c.kind === "agent" && c.role).map((c) => [c.role!, moodOf(c.activity)]))}
       />,
     );
   }

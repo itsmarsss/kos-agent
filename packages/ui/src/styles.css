@@ -7549,3 +7549,18 @@ a.health {
 @keyframes blob-pop { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.3); } }
 @keyframes blob-zzz { 0% { opacity: 0; transform: translateY(0); } 25% { opacity: 1; } 100% { opacity: 0; transform: translateY(-0.6em); } }
 @media (prefers-reduced-motion: reduce) { .blob, .blob * { animation: none !important; } }
+.agents-list--index { max-width: 60rem; }
+.agents-row-upto { color: var(--text); font-size: var(--text-sm); line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agents-row-upto.is-working { color: var(--accent); }
+.agents-row-upto.is-needs-you { color: var(--warn, #f5a524); }
+.agents-row-upto.is-error { color: var(--danger, #e5484d); }
+.chats-root .blob { margin-right: 0.1rem; }
+.agent-panel-head { display: flex; align-items: center; gap: 0.7rem; padding: 0.2rem 0 0.6rem; }
+.agent-panel-head > div { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.agent-panel-head strong { font-size: var(--text-lg); }
+.agent-panel-head .hint { margin: 0; }
+.agent-panel-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; font-size: var(--text-sm); }
+.agent-panel-lines li { display: flex; justify-content: space-between; gap: 0.5rem; }
+.agent-panel-lines .insp-meta { text-align: right; }
+.agent-panel-acts { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.5rem; }
+.unread-dot { display: inline-block; width: 0.45em; height: 0.45em; margin-left: 0.4em; border-radius: 50%; background: var(--ok, #3dd68c); vertical-align: middle; }
