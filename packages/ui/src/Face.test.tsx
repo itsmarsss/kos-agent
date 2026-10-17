@@ -64,12 +64,16 @@ describe("an agent's face", () => {
   it("draws the same look still, for the tab icon", () => {
     const look = lookOf("kos", { hue: 200, eyes: "sparkle", gait: 1 });
     const idle = faceSvg(look);
-    expect(idle).toContain("hsl(200 88% 80%)");
-    expect(idle).toContain('fill="#fff"'); // the sparkle
+    expect(idle).toContain('fill="hsl(200 62% 60%)"');
+    expect(idle).toContain('fill="#fff"'); // the glint
     expect(idle).not.toContain(">!<");
+    expect(idle).not.toContain("radialGradient");
     const needs = faceSvg(look, "needs-you");
     expect(needs).toContain(">!<");
     expect(faceSvg(look, "asleep")).toContain(">z<");
-    expect(faceSvg(look, "error")).toContain("hsl(200 40% 80%)");
+    // Drained on an error, and the eyes are lines.
+    expect(faceSvg(look, "error")).toContain('fill="hsl(200 28% 60%)"');
+    expect(faceSvg(look, "error")).toContain("rotate(20 25 34)");
+    expect(faceSvg(lookOf("kos", { eyes: "round" }))).toContain("<circle");
   });
 });
