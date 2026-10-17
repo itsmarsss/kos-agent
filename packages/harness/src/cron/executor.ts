@@ -13,7 +13,7 @@ export interface CronActionResult {
 }
 
 export type CronExecResult =
-  | { ran: false; reason: "condition" }
+  | { ran: false; reason: "condition" | "no-agent" }
   | { ran: true; type: "actions"; results: CronActionResult[] }
   | { ran: true; type: "self_prompt"; finalText: string };
 

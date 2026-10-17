@@ -564,6 +564,13 @@ describe("KOS end-to-end flows", () => {
     expect(history).toContain("Ran.");
     expect(kernel.conversations.get(`cron:${job.id}`)).toBeUndefined();
 
+    // The file deleted by hand: the schedule switches itself off and says so.
+    rmSync(join(root, "agents", "price-watch.md"));
+    await kernel.fireCron(job.id);
+    expect(kernel.crons.get(job.id)?.enabled).toBe(false);
+    expect(JSON.stringify(kernel.sessions.get(primarySessionId("owner")))).toContain("agents/price-watch.md is gone");
+    expect(kernel.conversations.get(`cron:${job.id}`)).toBeUndefined();
+
     // The root has the agents tools; an ordinary chat does not.
     await kernel.handleOrchestratorTurn("hello");
     const atRoot = (model.calls.at(-1)!.request.tools ?? []).map((t) => t.name);

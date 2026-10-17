@@ -2561,6 +2561,15 @@ export class Kernel {
    * worth being able to read afterwards.
    */
   private async runScheduledJob(job: CronJob): Promise<CronExecResult> {
+    // A role's schedule with no role behind it: the owner deleted the file by
+    // hand. Switched off and said so, rather than run as nobody in a thread
+    // of its own.
+    if (job.agent && !this.roles.exists(job.agent)) {
+      this.crons.setEnabled(job.id, false);
+      this.reloadCron();
+      this.caretaker.record(`The schedule for the agent "${job.agent}" is switched off: agents/${job.agent}.md is gone. Make the agent again to bring it back.`);
+      return { ran: false, reason: "no-agent" };
+    }
     const jobSession = job.type === "actions" ? this.jobThread(job) : undefined;
     // The job's thread is the current conversation while it runs, as a
     // turn's is: a claim the job makes is attributed to it and lands in the
