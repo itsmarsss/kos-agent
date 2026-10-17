@@ -1,18 +1,20 @@
-import { createContext, useContext, type CSSProperties, type ReactElement } from "react";
+import { createContext, useContext, useEffect, useId, useRef, useState, type CSSProperties, type ReactElement } from "react";
+
+import { GAITS, MOUTHS, EYE_L, EYE_R, mountBlob, outline, smoothPath, type BlobHandle } from "./blob.js";
 
 /**
- * An agent's face: a blob with eyes.
+ * An agent's face: a blob with eyes, alive.
  *
  * A standing agent is a thing you come back to, so it should be a thing you
- * recognise. Its colour, its shape, how it wobbles and the set of its eyes
- * all come from its name, so the same agent looks the same in the rail, on
- * its page and in a chip, and two agents never look alike by accident. The
- * owner can set any of those three by hand, in the agent's file or, for
- * KOS, in Settings; what they leave unset still comes from the name. The
- * face is what it is doing: it glances about while working, bounces with a
- * mark when it needs you, droops on an error and sleeps when its schedule
- * is paused. All of it is CSS; nothing here runs per frame. The tab icon
- * is the same face drawn still.
+ * recognise. Its colour, its gait and the set of its eyes all come from its
+ * name, so the same agent looks the same in the rail, on its page and in a
+ * chip, and two agents never look alike by accident. The owner can set any
+ * of those by hand, in the agent's file or, for KOS, in Settings; what they
+ * leave unset still comes from the name. The face is what it is doing: it
+ * glances about while working, bounces with a mark when it needs you,
+ * droops on an error and sleeps when its schedule is paused. It also looks
+ * at you, blinks, blushes when you are close and jiggles when poked; that
+ * lives in blob.ts. The tab icon is the same face drawn still.
  */
 
 export type Mood = "idle" | "working" | "needs-you" | "error" | "asleep";
@@ -22,13 +24,15 @@ export type Gait = 0 | 1 | 2 | 3;
 export interface Look {
   /** 0 to 359: the hue the whole blob is built from. */
   hue: number;
-  /** Which of the four morph gaits it has. */
+  /** Which of the four gaits it has: steady, lively, slow, restless. */
   wobble: Gait;
   eyes: Eyes;
-  /** Seconds per breath; a slow one reads as calm, a quick one as keen. */
+  /** Seconds per breath, from the gait. */
   breath: number;
   /** Degrees the face is cocked, -3 to 3. */
   tilt: number;
+  /** The number its whims come from. */
+  seed: number;
 }
 
 /** What the owner may set about a face; anything unset comes from the name. */
@@ -53,18 +57,22 @@ function hash(text: string): number {
 
 export function lookOf(seed: string, override: FaceLook = {}): Look {
   const h = hash(seed.trim().toLowerCase() || KOS_SEED);
+  const wobble = ((h >>> 9) % 4) as Gait;
   const base: Look = {
     hue: h % 360,
-    wobble: ((h >>> 9) % 4) as Gait,
+    wobble,
     eyes: EYES[(h >>> 12) % 3]!,
-    breath: 5 + ((h >>> 15) % 5),
+    breath: GAITS[wobble]!.breath,
     tilt: ((h >>> 18) % 7) - 3,
+    seed: h,
   };
+  const gait = override.gait !== undefined && [0, 1, 2, 3].includes(override.gait) ? override.gait : wobble;
   return {
     ...base,
     ...(override.hue !== undefined && Number.isFinite(override.hue) ? { hue: ((Math.round(override.hue) % 360) + 360) % 360 } : {}),
     ...(override.eyes && EYES.includes(override.eyes) ? { eyes: override.eyes } : {}),
-    ...(override.gait !== undefined && [0, 1, 2, 3].includes(override.gait) ? { wobble: override.gait } : {}),
+    wobble: gait,
+    breath: GAITS[gait]!.breath,
   };
 }
 
@@ -94,6 +102,19 @@ export function useKosLook(): Look {
  */
 export const AgentFaces = createContext<ReadonlyMap<string, FaceLook>>(new Map());
 
+/** Whether the person asked the browser for less motion; the face then holds still. */
+function usePrefersStill(): boolean {
+  const [still, setStill] = useState(() => (typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)").matches : false));
+  useEffect(() => {
+    if (typeof matchMedia !== "function") return;
+    const mq = matchMedia("(prefers-reduced-motion: reduce)");
+    const on = (): void => setStill(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return still;
+}
+
 export interface FaceProps {
   /** What the look is derived from: the agent's name. */
   seed: string;
@@ -109,31 +130,84 @@ export interface FaceProps {
 export function Face({ seed, look: override, size = 24, mood = "idle", label }: FaceProps): ReactElement {
   const faces = useContext(AgentFaces);
   const look = lookOf(seed, override ?? faces.get(seed) ?? {});
-  const style = {
-    "--blob-h": String(look.hue),
-    "--blob-size": `${size}px`,
-    "--blob-dur": `${look.breath}s`,
-    "--blob-tilt": `${look.tilt}deg`,
-  } as CSSProperties;
+  const id = useId();
+  const svgRef = useRef<SVGSVGElement>(null);
+  const handle = useRef<BlobHandle | null>(null);
+  const still = usePrefersStill();
+
+  // Alive once mounted, for as long as this look lasts; a new look is a new blob.
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    handle.current = mountBlob(svg, { seed: look.seed, gait: look.wobble, eyes: look.eyes, tilt: look.tilt }, mood, { still });
+    return () => {
+      handle.current?.dispose();
+      handle.current = null;
+    };
+    // Mood is pushed through setMood below, so a change of it does not remount.
+  }, [look.seed, look.wobble, look.eyes, look.tilt, still]);
+  useEffect(() => {
+    handle.current?.setMood(mood);
+  }, [mood]);
+
+  const ink = `hsl(${look.hue} 45% 15%)`;
+  const style = { "--blob-h": String(look.hue), "--blob-size": `${size}px` } as CSSProperties;
+  const first = smoothPath(outline(0, look.seed, GAITS[look.wobble]!));
   return (
     <span
-      className={`blob blob--${mood} blob--w${look.wobble} blob--${look.eyes}`}
+      className={`blob blob--${mood}`}
       style={style}
       role="img"
       aria-label={label ?? `${seed}, ${mood === "needs-you" ? "needs you" : mood}`}
       data-mood={mood}
+      onPointerEnter={() => handle.current?.hover(true)}
+      onPointerLeave={() => handle.current?.hover(false)}
+      onPointerDown={() => handle.current?.poke()}
     >
-      <span className="blob-body" />
-      <span className="blob-shine" />
-      <span className="blob-face">
-        <span className="blob-eyes">
-          <span className="blob-eye blob-eye--l" />
-          <span className="blob-eye blob-eye--r" />
-        </span>
-        <span className="blob-mouth" />
-      </span>
-      {mood === "needs-you" && <span className="blob-mark" aria-hidden="true">!</span>}
-      {mood === "asleep" && <span className="blob-zzz" aria-hidden="true">z</span>}
+      <svg ref={svgRef} viewBox="0 0 100 100" width={size} height={size} aria-hidden="true">
+        <defs>
+          <radialGradient id={`${id}g`} cx="36%" cy="30%" r="72%">
+            <stop offset="0" stopColor={`hsl(${look.hue} 90% 82%)`} />
+            <stop offset="0.5" stopColor={`hsl(${look.hue} 76% 62%)`} />
+            <stop offset="1" stopColor={`hsl(${look.hue} 68% 46%)`} />
+          </radialGradient>
+          {look.eyes === "half" && (
+            <clipPath id={`${id}h`}>
+              <rect x="-10" y="-10" width="20" height="12.2" />
+            </clipPath>
+          )}
+        </defs>
+        <ellipse data-part="shadow" cx="50" cy="90" rx="23" ry="3.6" fill={`hsl(${look.hue} 50% 18%)`} opacity="0.22" />
+        <g data-part="all">
+          <path data-part="body" d={first} fill={`url(#${id}g)`} />
+          <ellipse data-part="shine" cx="38" cy="33" rx="8.5" ry="5" fill="#fff" opacity="0.5" transform="rotate(-22 38 33)" />
+          <g transform={`rotate(${look.tilt} 50 54)`}>
+            <ellipse data-part="blush-l" cx="35" cy="58" rx="5.5" ry="2.8" fill="#ff8aa3" opacity="0" />
+            <ellipse data-part="blush-r" cx="65" cy="58" rx="5.5" ry="2.8" fill="#ff8aa3" opacity="0" />
+            <g data-part="eye-l" transform={`translate(${EYE_L.x} ${EYE_L.y})`} clipPath={look.eyes === "half" ? `url(#${id}h)` : undefined}>
+              <ellipse rx="4.4" ry="5.2" fill={ink} />
+              <circle cx="-1.5" cy="-1.9" r={look.eyes === "sparkle" ? 1.9 : 1.5} fill="#fff" />
+              {look.eyes === "sparkle" && <circle cx="1.7" cy="1.7" r="0.9" fill="#fff" />}
+            </g>
+            <g data-part="eye-r" transform={`translate(${EYE_R.x} ${EYE_R.y})`} clipPath={look.eyes === "half" ? `url(#${id}h)` : undefined}>
+              <ellipse rx="4.4" ry="5.2" fill={ink} />
+              <circle cx="-1.5" cy="-1.9" r={look.eyes === "sparkle" ? 1.9 : 1.5} fill="#fff" />
+              {look.eyes === "sparkle" && <circle cx="1.7" cy="1.7" r="0.9" fill="#fff" />}
+            </g>
+            <path data-part="mouth" d={MOUTHS.smile} fill="none" stroke={ink} strokeWidth="2.2" strokeLinecap="round" />
+          </g>
+        </g>
+        {mood === "needs-you" && (
+          <text data-part="mark" x="80" y="22" fontFamily="sans-serif" fontSize="22" fontWeight="800" fill="#f5a524" stroke="#1a1208" strokeWidth="0.8" paintOrder="stroke">
+            !
+          </text>
+        )}
+        {mood === "asleep" && (
+          <text data-part="mark" x="74" y="24" fontFamily="sans-serif" fontSize="17" fontWeight="700" fill={ink} opacity="0">
+            z
+          </text>
+        )}
+      </svg>
     </span>
   );
 }
@@ -147,8 +221,8 @@ const BODIES = [
 ];
 
 /**
- * The face as a still image: the same look and mood the CSS draws, for a
- * place that cannot run CSS, the tab icon.
+ * The face as a still image: the same look and mood the blob wears, for a
+ * place that cannot run a script, the tab icon.
  */
 export function faceSvg(look: Look, mood: Mood = "idle"): string {
   const h = look.hue;
