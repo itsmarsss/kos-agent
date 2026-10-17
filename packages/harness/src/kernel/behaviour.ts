@@ -62,6 +62,13 @@ export interface Behaviour {
   memoryExtraction: boolean;
   /** How much new conversation, in characters, before the extractor reads it. */
   extractEveryChars: number;
+  /**
+   * Percent sure the tidy job must be to settle a memory question by itself:
+   * a contradiction it leans one way on, a project claim it would promote.
+   * Below this the question is raised in the Inbox with the lean in front.
+   * 100 settles only what it is certain of.
+   */
+  memoryDecideAbove: number;
 }
 
 export const BEHAVIOUR_DEFAULTS: Behaviour = {
@@ -83,6 +90,9 @@ export const BEHAVIOUR_DEFAULTS: Behaviour = {
   heartbeatMinutes: 0,
   memoryExtraction: true,
   extractEveryChars: 6000,
+  // High enough that a hunch is raised, low enough that the plain cases,
+  // which were most of what the Inbox filled with, are not.
+  memoryDecideAbove: 80,
 };
 
 /** Range for each number, as [min, max]. */
@@ -102,6 +112,8 @@ export const BEHAVIOUR_LIMITS: Record<
   // model attached, not an assistant checking in.
   heartbeatMinutes: [0, 1440],
   extractEveryChars: [1000, 50000],
+  // Below an even chance it is not a lean. 100 is the nearest thing to off.
+  memoryDecideAbove: [50, 100],
 };
 
 function clamp(value: unknown, key: keyof typeof BEHAVIOUR_LIMITS): number {
@@ -138,5 +150,6 @@ export function parseBehaviour(raw: unknown): Behaviour {
     memoryExtraction:
       typeof input["memoryExtraction"] === "boolean" ? input["memoryExtraction"] : BEHAVIOUR_DEFAULTS.memoryExtraction,
     extractEveryChars: clamp(input["extractEveryChars"], "extractEveryChars"),
+    memoryDecideAbove: clamp(input["memoryDecideAbove"], "memoryDecideAbove"),
   };
 }

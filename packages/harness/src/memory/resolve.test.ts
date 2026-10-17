@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
 import { FactsStore } from "./facts.js";
-import { applyResolution, describeReview, splitQualified } from "./resolve.js";
+import { applyResolution, describeReview, parseLean, splitQualified } from "./resolve.js";
 import { ReviewQueue } from "./review.js";
 
 describe("carrying out a review decision", () => {
@@ -28,6 +28,27 @@ describe("carrying out a review decision", () => {
     expect(splitQualified("project:pantry/city")).toEqual({ scope: "project:pantry", key: "city" });
     expect(splitQualified("global/coffee_order")).toEqual({ scope: "global", key: "coffee_order" });
     expect(splitQualified("nope")).toBeUndefined();
+  });
+
+  it("reads what KOS leans to, and only as the item's own claims", () => {
+    const keys = ["global/city", "project:trip/city"];
+    expect(parseLean("keep global/city", keys)).toEqual({ action: "keep", key: "global/city" });
+    expect(parseLean(" Both ", keys)).toEqual({ action: "both" });
+    expect(parseLean("promote", keys)).toEqual({ action: "promote" });
+    expect(parseLean("dismiss", keys)).toEqual({ action: "dismiss" });
+    expect(parseLean("keep global/country", keys)).toBeUndefined();
+    expect(parseLean("merge them", keys)).toBeUndefined();
+  });
+
+  it("records a decision KOS made as KOS's, with how sure it was", () => {
+    facts.upsert("owner", { key: "city", value: "Montreal", kind: "fact" });
+    facts.upsert("owner", { key: "city", value: "Lisbon", kind: "fact", scope: "project:trip" });
+    const item = queue.add("contradiction", ["global/city", "project:trip/city"], "one is a trip", { lean: "keep global/city", sure: 0.9 });
+    const report = applyResolution(facts, queue, "owner", item.id, { action: "keep", key: "global/city" }, { by: "KOS", source: "cron:10", sure: 0.9 })!;
+    expect(report.archived).toEqual(["project:trip/city"]);
+    expect(report.item.resolution).toBe("keep global/city (KOS, 90% sure)");
+    expect(facts.get("owner", "city", "project:trip")).toBeUndefined();
+    expect(facts.get("owner", "city")?.value).toBe("Montreal");
   });
 
   it("keeping one side of a contradiction archives the other, as the owner's doing", () => {

@@ -33,6 +33,21 @@ describe("the review queue", () => {
     expect(q.recent().map((i) => i.id)).toHaveLength(2);
   });
 
+  it("carries what KOS leaned to, and gains the columns on a table from before", () => {
+    // The table as it was: no lean, no sure.
+    ws.db.exec(`CREATE TABLE memory_review (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, keys TEXT NOT NULL, note TEXT NOT NULL, created_at INTEGER NOT NULL, resolved_at INTEGER, resolution TEXT)`);
+    ws.db.exec(`INSERT INTO memory_review (kind, keys, note, created_at) VALUES ('other', '["global/x"]', 'old', 1)`);
+    const q = new ReviewQueue(ws.db);
+    expect(q.get(1)).toMatchObject({ note: "old", lean: null, sure: null });
+    const a = q.add("contradiction", ["global/city", "project:pantry/city"], "Lisbon vs Toronto", { lean: "keep global/city", sure: 0.6 });
+    expect(a).toMatchObject({ lean: "keep global/city", sure: 0.6 });
+    // Asked again after a fresh look, the open item carries the newer view.
+    const again = q.add("contradiction", ["project:pantry/city", "global/city"], "Toronto is newer", { lean: "keep project:pantry/city", sure: 1.4 });
+    expect(again.id).toBe(a.id);
+    expect(again).toMatchObject({ note: "Toronto is newer", lean: "keep project:pantry/city", sure: 1 });
+    expect(q.pending()).toHaveLength(2);
+  });
+
   it("tells the owner's edit from its own writing, and reads claim lines back as the owner's word", () => {
     const facts = new FactsStore(ws.db);
     const log = new PageLog(ws.db);

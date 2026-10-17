@@ -25,6 +25,34 @@ export interface ResolutionReport {
   promoted: string[];
 }
 
+/**
+ * Who settled it, for the record on the item and on every claim it moved:
+ * the owner, or KOS when the dream job was sure enough to act on its lean.
+ */
+export interface Decider {
+  by: string;
+  /** What the claims' history names as the source of the change. */
+  source: string;
+  /** How sure KOS was, 0 to 1, when it was KOS. */
+  sure?: number;
+}
+
+const OWNER: Decider = { by: "owner", source: "owner" };
+
+/**
+ * What the dream job said it would do, as a resolution the buttons could
+ * also give: "keep <one of the item's keys>", "both", "promote" or
+ * "dismiss". Anything else, or a key the item is not about, is no lean.
+ */
+export function parseLean(lean: string, keys: string[]): Resolution | undefined {
+  const text = lean.trim();
+  const plain = text.toLowerCase();
+  if (plain === "both" || plain === "promote" || plain === "dismiss") return { action: plain };
+  const keep = /^keep\s+(\S+)$/i.exec(text);
+  if (keep && keys.includes(keep[1]!)) return { action: "keep", key: keep[1]! };
+  return undefined;
+}
+
 /** "project:pantry/city" into its parts. */
 export function splitQualified(qualified: string): { scope: string; key: string } | undefined {
   const slash = qualified.lastIndexOf("/");
@@ -78,6 +106,7 @@ export function applyResolution(
   ownerId: string,
   id: number,
   resolution: Resolution,
+  decider: Decider = OWNER,
 ): ResolutionReport | undefined {
   const item = queue.get(id);
   if (!item || item.resolvedAt !== null) return undefined;
@@ -90,7 +119,7 @@ export function applyResolution(
     if (!kept) throw new Error(`keep needs one of: ${item.keys.join(", ")}`);
     for (const p of parts) {
       if (p.qualified === kept.qualified) continue;
-      if (facts.archive(ownerId, p.key, p.scope, "owner", `owner kept ${kept.qualified}`)) archived.push(p.qualified);
+      if (facts.archive(ownerId, p.key, p.scope, decider.source, `${decider.by} kept ${kept.qualified}`)) archived.push(p.qualified);
     }
   } else if (resolution.action === "promote") {
     for (const p of parts) {
@@ -100,13 +129,14 @@ export function applyResolution(
       // What a caller said about a project is not the owner's word about themselves.
       if (claim.trust === "external") continue;
       const evidence = facts.trace(claim.id)?.evidence ?? [];
-      facts.upsert(ownerId, { key: claim.key, value: claim.value, kind: claim.kind, scope: GLOBAL_SCOPE, trust: claim.trust, tags: claim.tags, evidence }, "owner");
-      facts.archive(ownerId, p.key, p.scope, "owner", "promoted to global");
+      facts.upsert(ownerId, { key: claim.key, value: claim.value, kind: claim.kind, scope: GLOBAL_SCOPE, trust: claim.trust, tags: claim.tags, evidence }, decider.source);
+      facts.archive(ownerId, p.key, p.scope, decider.source, `promoted to global by ${decider.by}`);
       promoted.push(p.qualified);
     }
   }
-  // "both" and "dismiss" change no claim: the owner looked and said leave it.
+  // "both" and "dismiss" change no claim: whoever looked said leave it.
   const words = resolution.action === "keep" ? `keep ${resolution.key}` : resolution.action;
-  const resolved = queue.resolve(id, words)!;
+  const sure = decider.sure === undefined ? "" : `, ${Math.round(decider.sure * 100)}% sure`;
+  const resolved = queue.resolve(id, decider.by === OWNER.by ? words : `${words} (${decider.by}${sure})`)!;
   return { item: resolved, archived, promoted };
 }

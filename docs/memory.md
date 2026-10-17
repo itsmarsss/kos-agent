@@ -37,8 +37,12 @@ has a brief you can read and edit on the Schedule page.
   harness. A fixed extractor is the floor when the job is off and
   background extraction is on.
 - **Tidy** (`kos.dream`, nightly): merges claims that are one thing,
-  archives what has gone stale, flags contradictions and possible
-  promotions for you to decide in the Inbox, writes the pages.
+  archives what has gone stale, writes the pages. A contradiction it
+  cannot settle from the values, or a project claim that may be true
+  everywhere, it flags with what it would do and how sure it is. Sure
+  enough (Settings, Behaviour: 80% by default) and it does that itself,
+  on the record as KOS's under Memory, Decisions; below that the question
+  comes to the Inbox with the lean in front of you.
 - **Condense** (`kos.observe`, hourly): writes observations for threads past
   their budget.
 

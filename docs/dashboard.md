@@ -126,7 +126,9 @@ everywhere.
 
 Everything waiting on you: tool approvals (each quoting what KOS said
 just before it asked, with a link to the chat that
-asked), memory decisions (keep one side, both, promote, dismiss), and jobs
+asked), memory decisions (only the ones KOS was not sure enough to settle
+itself; each leads with what it leans to and a Do that button, then keep
+one side, both, promote, dismiss), and jobs
 failing now (open, put KOS on it, dismiss). The sidebar badge counts all
 three. A job has one fix chat, under Maintenance: when it fails again,
 KOS goes on in that chat with what it found last time rather than
@@ -194,7 +196,8 @@ Grouped by what you came to do.
   endpoint, the classifier).
 - **Conduct**: Conversation (history budget, exchanges kept, tool result
   cap), Behaviour (fix failures on its own, steps per turn, unattended
-  limits, background memory extraction), Appearance (dark, light or system;
+  limits, background memory extraction, how sure the tidy job must be to
+  settle a memory question alone), Appearance (dark, light or system;
   density).
 - **Extensions**: Skills (on by default; off keeps the folder), Modules
   (built-ins to switch, workspace modules to switch on, blueprints with

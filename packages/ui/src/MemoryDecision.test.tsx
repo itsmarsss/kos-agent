@@ -40,8 +40,12 @@ describe("a memory decision", () => {
     expect(screen.getByText("These claims disagree")).toBeTruthy();
     expect(screen.getByText("Montreal")).toBeTruthy();
     expect(screen.getByText("Lisbon")).toBeTruthy();
-    expect(screen.getByText(/used 4×, last 1m ago/)).toBeTruthy();
-    expect(screen.getByText(/from an agent · never used/)).toBeTruthy();
+    // How a claim is leaned on is a hover now, not a line to read.
+    expect(screen.getByTitle(/used 4×, last 1m ago/)).toBeTruthy();
+    expect(screen.getByTitle(/from an agent · never used/)).toBeTruthy();
+    // No lean on an older item: the note stands alone.
+    expect(screen.getByText("Two cities.")).toBeTruthy();
+    expect(screen.queryByText("Do that")).toBeNull();
 
     const keeps = screen.getAllByText("Keep this");
     expect(keeps).toHaveLength(2);
@@ -68,6 +72,21 @@ describe("a memory decision", () => {
     expect(screen.queryByText("Keep this")).toBeNull();
     fireEvent.click(screen.getByText("Yes, make it global"));
     expect(resolve).toHaveBeenCalledWith(7, "promote", undefined);
+  });
+
+  it("leads with what KOS leans to, and a press that does it", async () => {
+    const resolve = vi.spyOn(api, "resolveMemoryReview").mockResolvedValue({ item: item(), archived: [], promoted: [] });
+    const onResolved = vi.fn();
+    render(<MemoryDecision item={item({ lean: "keep project:trip/city", sure: 0.6 })} onResolved={onResolved} />);
+    expect(screen.getByText(/KOS leans/).textContent).toBe("KOS leans keep the trip one, 60% sure: Two cities.");
+    fireEvent.click(screen.getByText("Do that"));
+    await waitFor(() => expect(onResolved).toHaveBeenCalled());
+    expect(resolve).toHaveBeenCalledWith(7, "keep", "project:trip/city");
+    cleanup();
+    // A lean the buttons could not give is not offered as one.
+    render(<MemoryDecision item={item({ lean: "merge them", sure: 0.9 })} onResolved={() => {}} />);
+    expect(screen.queryByText("Do that")).toBeNull();
+    expect(screen.getByText("Two cities.")).toBeTruthy();
   });
 
   it("still shows the keys when the claims were not looked up", () => {

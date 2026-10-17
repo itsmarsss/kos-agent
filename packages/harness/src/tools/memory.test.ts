@@ -49,6 +49,7 @@ describe("memory tools: reading the log and citing it", () => {
       events,
       embedder,
       review: reviewQueue,
+      decideAbove: () => 80,
       threads: {
         sessions,
         conversations: { list: () => [{ id: "chat:long", title: "Long", projectSlug: null }, { id: "chat:short", title: "Short", projectSlug: null }] },
@@ -113,9 +114,21 @@ describe("memory tools: reading the log and citing it", () => {
     expect(facts.get("owner", "home_city")).toBeUndefined();
     expect((await call("memory.archive", { key: "trip", reason: "a plan, not a fact" })).json).toEqual({ archived: "global/trip" });
     expect(facts.get("owner", "trip")).toBeUndefined();
-    const flagged = (await call("memory.flag", { kind: "contradiction", keys: ["global/city", "project:trip/city"], note: "Montreal or Lisbon?" })).json!;
-    expect(flagged).toMatchObject({ kind: "contradiction", keys: ["global/city", "project:trip/city"] });
+    const keys = ["global/city", "project:trip/city"];
+    // Not sure enough: raised for the owner, lean and all.
+    const flagged = (await call("memory.flag", { kind: "contradiction", keys, note: "Montreal or Lisbon?", lean: "keep global/city", sure: 0.5 })).json!;
+    expect(flagged).toMatchObject({ kind: "contradiction", keys, lean: "keep global/city", sure: 0.5, raised: "for the owner" });
     expect(reviewQueue.pending()).toHaveLength(1);
+    expect(facts.get("owner", "city", "project:trip")?.value).toBe("Lisbon");
+    // Sure enough, and KOS settles the same question itself; the owner is not asked.
+    const decided = (await call("memory.flag", { kind: "contradiction", keys, note: "the trip is a trip", lean: "keep global/city", sure: 0.9 })).json!;
+    expect(decided).toMatchObject({ decided: flagged["flagged"], archived: ["project:trip/city"] });
+    expect(reviewQueue.pending()).toHaveLength(0);
+    expect(reviewQueue.get(flagged["flagged"] as number)?.resolution).toBe("keep global/city (KOS, 90% sure)");
+    expect(facts.get("owner", "city", "project:trip")).toBeUndefined();
+    // A lean the buttons could not give is refused before anything is written.
+    expect((await call("memory.flag", { kind: "other", keys: ["global/city"], note: "?", lean: "merge them", sure: 1 })).isError).toBe(true);
+    expect(reviewQueue.recent()).toHaveLength(1);
     expect((await call("memory.page", { name: "profile", markdown: "# Owner\n- city: Montreal" })).json).toMatchObject({ wrote: "memory/profile.md" });
     // A page comes back as its text, not JSON.
     expect((await registry.execute("memory.pages", { name: "profile" })).content).toContain("city: Montreal");
