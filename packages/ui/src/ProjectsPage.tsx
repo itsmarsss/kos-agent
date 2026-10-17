@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { m } from "motion/react";
 
 import { api, type Conversation, type PageSummary, type Project, type SiteInfo } from "./api.js";
+import { Modal } from "./Modal.js";
 import { card, stagger } from "./motion.js";
 import { hrefFor } from "./routes.js";
+import { Select } from "./Select.js";
 
 /**
  * Projects as cards, grouped by status.
@@ -23,7 +25,12 @@ export interface ProjectsPageProps {
   onOpen: (slug: string) => void;
   /** The drawer, for status and metadata. */
   onInspect: (project: Project, pages: PageSummary[]) => void;
+  /** An empty project of the owner's own, with nothing in it until they or KOS put something there. */
+  onCreate?: (input: { name: string; type: string }) => Promise<void>;
 }
+
+/** The kinds a project usually is; anything else can be typed. */
+const KINDS = ["project", "tracker", "notes", "budget", "app", "research"];
 
 /** A browser window, marking a chip as something that opens a running site. */
 function SiteGlyph(): ReactElement {
@@ -60,8 +67,28 @@ export function ProjectsPage({
   conversations,
   onOpen,
   onInspect,
+  onCreate,
 }: ProjectsPageProps): ReactElement {
   const [query, setQuery] = useState("");
+  /** The New project dialog: a name, a kind, and nothing else to decide. */
+  const [making, setMaking] = useState(false);
+  const [draft, setDraft] = useState({ name: "", kind: "project", other: "" });
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const create = (): void => {
+    const name = draft.name.trim();
+    const type = (draft.kind === "other" ? draft.other : draft.kind).trim() || "project";
+    if (!name || !onCreate || creating) return;
+    setCreating(true);
+    setCreateError(null);
+    void onCreate({ name, type })
+      .then(() => {
+        setMaking(false);
+        setDraft({ name: "", kind: "project", other: "" });
+      })
+      .catch((err: unknown) => setCreateError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setCreating(false));
+  };
   const agentsOf = (slug: string): number =>
     conversations.filter((c) => c.kind === "chat" && c.projectSlug === slug && !c.archived).length;
   // Sites live under their project, so they belong on its card rather than in
@@ -118,11 +145,52 @@ export function ProjectsPage({
           placeholder="Search projects…"
           onChange={(e) => setQuery(e.target.value)}
         />
+        {onCreate && (
+          <button type="button" className="btn btn--primary" onClick={() => setMaking(true)}>
+            New project
+          </button>
+        )}
       </div>
+
+      <Modal open={making} title="New project" onClose={() => setMaking(false)}>
+        <form
+          className="rename-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            create();
+          }}
+        >
+          <label className="kos-field">
+            <span className="kos-field-label">Name</span>
+            <input className="kos-input" autoFocus value={draft.name} placeholder="Reading log" onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+          </label>
+          <label className="kos-field">
+            <span className="kos-field-label">Kind</span>
+            <Select
+              className="settings-select"
+              label="Kind"
+              value={draft.kind}
+              options={[...KINDS.map((k) => ({ value: k, label: k })), { value: "other", label: "something else…" }]}
+              onChange={(kind) => setDraft({ ...draft, kind })}
+            />
+            {draft.kind === "other" && <input className="kos-input" value={draft.other} placeholder="a word for what it is" onChange={(e) => setDraft({ ...draft, other: e.target.value })} />}
+            <span className="hint">Empty to begin with: a folder, a chat of its own, and nothing else until you or KOS put something there.</span>
+          </label>
+          {createError && <p className="ops-alert ops-alert--err">{createError}</p>}
+          <div className="rename-actions">
+            <button type="submit" className="btn btn--primary" disabled={creating || !draft.name.trim()}>
+              {creating ? "Creating…" : "Create"}
+            </button>
+            <button type="button" className="btn" onClick={() => setMaking(false)}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       {projects.length === 0 && (
         <p className="hint">
-          Nothing yet. Ask KOS to build something and it will show up here.
+          Nothing yet. Ask KOS to build something, or make an empty project above, and it will show up here.
         </p>
       )}
       {projects.length > 0 && groups.length === 0 && (

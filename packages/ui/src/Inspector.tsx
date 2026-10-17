@@ -88,6 +88,8 @@ export function Inspector(props: {
   crons?: CronJob[];
   onSaved?: () => void;
   onSetProjectStatus?: (slug: string, status: string) => Promise<void>;
+  /** Gone for good, after a second press. */
+  onDeleteProject?: (slug: string) => Promise<void>;
 }): React.ReactElement | null {
   const { target, onClose } = props;
   const [busy, setBusy] = useState(false);
@@ -97,6 +99,8 @@ export function Inspector(props: {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [call, setCall] = useState<AuditRecord | null>(null);
   const [editStatus, setEditStatus] = useState<string | null>(null);
+  /** The delete button has been pressed once; the next press is the deed. */
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const openSlug = target?.kind === "project" ? target.data.slug : null;
@@ -564,6 +568,33 @@ export function Inspector(props: {
                       </li>
                     ))}
                   </ul>
+                </Section>
+              )}
+
+              {props.onDeleteProject && (
+                <Section title="Delete">
+                  {/* Two presses: the one thing in this drawer that cannot be
+                      undone. Archiving, above, is the reversible way to set a
+                      project aside. */}
+                  <p className="insp-meta">
+                    {confirmDelete
+                      ? `Its tables, pages and files go with it; its chats are kept, archived at the root, and its jobs turned off. Press again to delete ${p.name}.`
+                      : "Gone for good. To set it aside instead, set its status to archived."}
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--danger"
+                    disabled={busy}
+                    onClick={() => {
+                      if (!confirmDelete) {
+                        setConfirmDelete(true);
+                        return;
+                      }
+                      void run(() => props.onDeleteProject!(p.slug));
+                    }}
+                  >
+                    {confirmDelete ? "Delete for good" : "Delete project"}
+                  </button>
                 </Section>
               )}
             </aside>

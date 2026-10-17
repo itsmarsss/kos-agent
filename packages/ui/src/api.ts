@@ -828,6 +828,9 @@ export const api = {
   modules: () => get<{ modules: ModuleInfo[]; invalid: { name: string; reason: string }[]; builtins?: BuiltinInfo[] }>("/api/modules"),
   createProject: (name: string, type = "project") =>
     post<{ slug: string; name: string; conversationId: string }>("/api/projects/create", { name, type }),
+  /** Gone for good: tables, pages, files and the manifest row; its chats are archived at the root and its jobs turned off. */
+  deleteProject: (slug: string) =>
+    post<{ slug: string; tablesDropped: string[]; pagesRemoved: number; conversationsArchived: number; jobsDisabled: number }>("/api/projects/delete", { slug }),
   installModule: (source: string, name?: string) =>
     post<{ installed: string; dir: string; origin: string | null }>("/api/modules/install", { source, ...(name ? { name } : {}) }),
   updateModule: (name: string) => post<{ updated: string }>("/api/modules/update", { name }),
