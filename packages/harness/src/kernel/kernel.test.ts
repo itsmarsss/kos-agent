@@ -7,6 +7,7 @@ import type { Inference } from "../agent/loop.js";
 import type { GenerateRequest, ModelResponse } from "../models/types.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Kernel } from "./kernel.js";
+import { isKernelTable } from "../tools/fence.js";
 
 /** Inference stub: optionally emits one tool call on the first turn. */
 function stubInference(script: ModelResponse[]): Inference {
@@ -273,6 +274,13 @@ describe("Kernel", () => {
     const said = JSON.stringify(kernel.sessions.get(id));
     expect(said).toContain(`#${old.id} (Run: rm x) lapsed: nobody decided within 24 hours, so nothing was done.`);
     expect(said).not.toContain(`#${fresh.id}`);
+  });
+
+  it("names every table of its own in the sql fence, so a new store cannot slip past it", async () => {
+    kernel = await boot(stubInference([]));
+    const tables = (kernel.workspace.db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[]).map((r) => r.name);
+    expect(tables.length).toBeGreaterThan(10);
+    expect(tables.filter((t) => !isKernelTable(t))).toEqual([]);
   });
 
   it("refuses to run when the kill switch is engaged", async () => {
