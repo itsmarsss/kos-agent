@@ -15,6 +15,8 @@ export interface FaceEditorProps {
   value: FaceLook;
   onChange: (next: FaceLook) => void;
   label?: string;
+  /** Without the face itself, for a form that draws it elsewhere. */
+  preview?: boolean;
 }
 
 const GAITS: { value: string; label: string }[] = [
@@ -24,23 +26,18 @@ const GAITS: { value: string; label: string }[] = [
   { value: "3", label: "restless" },
 ];
 
-export function FaceEditor({ seed, value, onChange, label }: FaceEditorProps): ReactElement {
+const EYE_LABELS: Record<string, string> = { round: "dots", half: "pills", sparkle: "pills with a glint" };
+
+export function FaceEditor({ seed, value, onChange, label, preview = true }: FaceEditorProps): ReactElement {
   const shown = lookOf(seed, value);
   const custom = value.hue !== undefined || value.eyes !== undefined || value.gait !== undefined;
   return (
-    <div className="face-editor">
-      <Face seed={seed} look={value} size={64} label={label ?? `${seed}'s face`} />
+    <div className="face-editor" style={{ "--blob-h": String(shown.hue) } as React.CSSProperties}>
+      {preview && <Face seed={seed} look={value} size={64} label={label ?? `${seed}'s face`} />}
       <div className="face-editor-fields">
         <label className="kos-field">
           <span className="kos-field-label">Colour</span>
-          <input
-            type="range"
-            min={0}
-            max={359}
-            value={shown.hue}
-            aria-label="Hue"
-            onChange={(e) => onChange({ ...value, hue: Number(e.target.value) })}
-          />
+          <input type="range" min={0} max={359} value={shown.hue} aria-label="Hue" onChange={(e) => onChange({ ...value, hue: Number(e.target.value) })} />
         </label>
         <label className="kos-field">
           <span className="kos-field-label">Eyes</span>
@@ -48,23 +45,22 @@ export function FaceEditor({ seed, value, onChange, label }: FaceEditorProps): R
             className="settings-select"
             label="Eyes"
             value={shown.eyes}
-            options={EYES.map((e) => ({ value: e, label: e === "round" ? "dots" : e === "half" ? "pills" : "pills with a glint" }))}
-            onChange={(eyes) => onChange({ ...value, eyes: (EYES.find((e) => e === eyes) ?? "round") })}
+            options={EYES.map((e) => ({ value: e, label: EYE_LABELS[e] ?? e }))}
+            onChange={(eyes) => onChange({ ...value, eyes: EYES.find((e) => e === eyes) ?? "round" })}
           />
         </label>
         <label className="kos-field">
           <span className="kos-field-label">Gait</span>
-          <Select
-            className="settings-select"
-            label="Gait"
-            value={String(shown.wobble)}
-            options={GAITS}
-            onChange={(g) => onChange({ ...value, gait: Number(g) as Gait })}
-          />
+          <Select className="settings-select" label="Gait" value={String(shown.wobble)} options={GAITS} onChange={(g) => onChange({ ...value, gait: Number(g) as Gait })} />
         </label>
-        <button type="button" className="btn btn--sm" disabled={!custom} onClick={() => onChange({})} title="Let the name decide again">
-          Use the name's
-        </button>
+        <div className="face-editor-foot">
+          <span className="hint">{custom ? "Set by hand; the rest comes from the name." : "All of it comes from the name."}</span>
+          {custom && (
+            <button type="button" className="btn btn--sm btn--ghost" onClick={() => onChange({})} title="Let the name decide again">
+              From the name
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

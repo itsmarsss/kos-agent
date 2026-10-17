@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 
 import { AgentEditor, titleOf } from "./AgentEditor.js";
-import { api, type AgentInfo } from "./api.js";
+import { api, type AgentInfo, type DirEntry } from "./api.js";
 import { Face, moodOf } from "./Face.js";
 import { Modal } from "./Modal.js";
 import { PanelSection } from "./PanelSection.js";
+import { hrefFor } from "./routes.js";
 
 /**
  * The column beside a standing agent's thread: what it is, when it runs,
@@ -39,6 +40,7 @@ function when(ts: number): string {
 
 export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onRemoved, hidden = false }: AgentPanelProps): ReactElement {
   const [agent, setAgent] = useState<AgentInfo | null | undefined>(undefined);
+  const [entries, setEntries] = useState<DirEntry[]>([]);
   const [invalidReason, setInvalidReason] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -50,6 +52,11 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
       const found = r.agents.find((a) => a.name === name) ?? null;
       setAgent(found);
       setInvalidReason(r.invalid.find((i) => i.name === name)?.reason ?? null);
+      // Its folder, agent.md first: what it is, then what it has made.
+      if (found) {
+        const listed = await api.files(found.folder).catch(() => ({ entries: [] as DirEntry[] }));
+        setEntries([...listed.entries].sort((a, b) => (a.name === "agent.md" ? -1 : b.name === "agent.md" ? 1 : a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "dir" ? -1 : 1)));
+      }
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
     }
@@ -94,10 +101,10 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
     return (
       <aside className="project-panel" aria-hidden={hidden}>
         <p className="ops-alert ops-alert--err" role="alert">
-          {invalidReason ? `agents/${name}.md does not read as an agent: ${invalidReason}.` : `There is no agent called ${name}.`}
+          {invalidReason ? `agents/${name}/agent.md does not read as an agent: ${invalidReason}.` : `There is no agent called ${name}.`}
         </p>
         {invalidReason && (
-          <button type="button" className="btn btn--sm" onClick={() => onOpenFile(`agents/${name}.md`)}>
+          <button type="button" className="btn btn--sm" onClick={() => onOpenFile(`agents/${name}/agent.md`)}>
             Open the file
           </button>
         )}
@@ -171,14 +178,36 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
         </ul>
       </PanelSection>
 
-      <PanelSection title="File">
-        <p className="hint ops-mono">{agent.path}</p>
+      <PanelSection
+        title="Folder"
+        count={entries.length}
+        action={
+          <button type="button" className="btn btn--sm" title="The agent's folder on the Files page" onClick={() => onOpenFile(agent.folder)}>
+            Open in Files
+          </button>
+        }
+      >
+        {/* Its own place: agent.md says what it is, and the rest is what it has made. */}
+        <ul className="agent-panel-files">
+          {entries.map((e) => (
+            <li key={e.path}>
+              <a
+                href={hrefFor({ name: "files", path: e.path })}
+                onClick={(ev) => {
+                  ev.preventDefault();
+                  onOpenFile(e.path);
+                }}
+              >
+                {e.kind === "dir" ? `${e.name}/` : e.name}
+              </a>
+              {e.name === "agent.md" && <span className="insp-meta">what it is</span>}
+            </li>
+          ))}
+          {entries.length === 0 && <li className="hint">Nothing in agents/{agent.name}/ yet.</li>}
+        </ul>
         <div className="agent-panel-acts">
           <button type="button" className="btn btn--sm" disabled={busy} onClick={() => setEditing(true)}>
             Edit
-          </button>
-          <button type="button" className="btn btn--sm" onClick={() => onOpenFile(agent.path)}>
-            Open in Files
           </button>
           <button
             type="button"

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { api, type Conversation, type ToolInfo } from "./api.js";
+import { ToolPicker } from "./ToolPicker.js";
 
 /**
  * Owner-editable configuration for one conversation: what it is called, what
@@ -15,13 +16,6 @@ export interface ChatConfigProps {
   conversation: Conversation;
   onSaved: () => void;
   onClose: () => void;
-}
-
-/** Group tools by their prefix; the scope is expressed in those terms. */
-function familiesOf(tools: ToolInfo[]): string[] {
-  const seen = new Set<string>();
-  for (const t of tools) seen.add(t.name.split(".")[0] ?? t.name);
-  return [...seen].sort();
 }
 
 export function ChatConfig({
@@ -39,18 +33,7 @@ export function ChatConfig({
     void api.tools().then(setTools).catch(() => setTools([]));
   }, []);
 
-  const families = familiesOf(tools);
   const unrestricted = allow === null;
-
-  /** First click on an unrestricted chat starts a scope containing just that. */
-  function toggle(family: string): void {
-    setAllow((cur) => {
-      if (cur === null) return [family];
-      return cur.includes(family)
-        ? cur.filter((f) => f !== family)
-        : [...cur, family];
-    });
-  }
 
   async function save(): Promise<void> {
     setSaving(true);
@@ -94,49 +77,8 @@ export function ChatConfig({
 
       <div className="chatcfg-field">
         <span className="chatcfg-label">Tools</span>
-        <div className="toolpick">
-          {families.map((f) => {
-            const on = unrestricted || allow.includes(f);
-            const owned = tools.filter((t) => t.name.split(".")[0] === f);
-            return (
-              <label key={f} className={`toolpick-row ${on ? "is-on" : ""}`}>
-                <input
-                  type="checkbox"
-                  checked={on}
-                  onChange={() => toggle(f)}
-                />
-                <span className="toolpick-main">
-                  <span className="toolpick-name">{f}</span>
-                  {/* What it actually lets the chat do. A chip said only the
-                      family name, so choosing a scope meant already knowing
-                      what was inside each one. */}
-                  <span className="toolpick-tools">
-                    {owned.map((t) => t.name.split(".")[1] ?? t.name).join(", ") ||
-                      "no tools"}
-                  </span>
-                </span>
-                <span className="toolpick-count">{owned.length}</span>
-              </label>
-            );
-          })}
-        </div>
-        <span className="hint">
-          {unrestricted
-            ? "Unrestricted: this chat has the full toolkit."
-            : allow.length === 0
-              ? "No tools at all. This chat can talk, and nothing else."
-              : `Only these are available. ${families.length - allow.length} withheld.`}
-        </span>
+        <ToolPicker tools={tools} allow={allow} onChange={setAllow} />
         <div className="chatcfg-presets">
-          {!unrestricted && (
-            <button
-              type="button"
-              className="btn btn--ghost"
-              onClick={() => setAllow(null)}
-            >
-              Full toolkit
-            </button>
-          )}
           {(unrestricted || allow.length > 0) && (
             <button
               type="button"

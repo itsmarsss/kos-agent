@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -47,7 +47,7 @@ describe("roles", () => {
     expect(() => parseRole("---\ndescription: d\n", "x")).toThrow(/never closes/);
     expect(() => parseRole("---\nname: x\ndescription: d\n---\n", "x")).toThrow(/brief/);
     expect(() => parseRole("---\nname: x\ndescription: d\ncolour: red\n---\nbody", "x")).toThrow(/unknown key "colour"/);
-    expect(() => parseRole("---\nname: y\ndescription: d\n---\nbody", "x")).toThrow(/does not match its file/);
+    expect(() => parseRole("---\nname: y\ndescription: d\n---\nbody", "x")).toThrow(/does not match its folder/);
     expect(() => parseRole("---\ndescription: d\nschedule: 0 4 * * *\n---\nbody", "x")).toThrow(/needs a prompt/);
     expect(() => parseRole("---\ndescription: d\nmemory: mine\n---\nbody", "x")).toThrow(/memory must be/);
     expect(() => parseRole("---\ndescription: d\ntools: browser, Shell!\n---\nbody", "x")).toThrow(/not a tool family/);
@@ -60,15 +60,18 @@ describe("roles", () => {
     const store = new RoleStore(ws);
     expect(store.list()).toEqual({ roles: [], invalid: [] });
     const written = store.write({ name: "research", description: "Looks things up", brief: "You look things up.", memory: "own" });
-    expect(written).toMatchObject({ name: "research", path: "agents/research.md" });
-    writeFileSync(join(root, "agents", "broken.md"), "---\nname: broken\n---\nbody\n", "utf8");
+    expect(written).toMatchObject({ name: "research", path: "agents/research/agent.md", folder: "agents/research" });
+    mkdirSync(join(root, "agents", "broken"), { recursive: true });
+    writeFileSync(join(root, "agents", "broken", "agent.md"), "---\nname: broken\n---\nbody\n", "utf8");
+    // A folder with no agent.md is not an agent and is left alone.
+    mkdirSync(join(root, "agents", "offload-test"), { recursive: true });
     const { roles, invalid } = store.list();
     expect(roles.map((r) => r.name)).toEqual(["research"]);
     expect(roles[0]!.tools).toBeUndefined();
-    expect(invalid).toEqual([{ name: "broken", path: "agents/broken.md", reason: expect.stringMatching(/description/) }]);
+    expect(invalid).toEqual([{ name: "broken", path: "agents/broken/agent.md", reason: expect.stringMatching(/description/) }]);
     // The owner edits the file; the next read is the new brief.
     writeFileSync(
-      join(root, "agents", "research.md"),
+      join(root, "agents", "research", "agent.md"),
       "---\nname: research\ndescription: Looks things up, carefully\ntools: browser\n---\nYou look things up, carefully.\n",
       "utf8",
     );
@@ -77,10 +80,31 @@ describe("roles", () => {
     expect(store.get("broken")).toBeUndefined();
     expect(store.get("../etc")).toBeUndefined();
     expect(store.exists("../etc")).toBe(false);
+    // Removing an agent that made things keeps its folder; an empty one goes.
+    writeFileSync(join(root, "agents", "research", "notes.md"), "kettles\n", "utf8");
     expect(store.remove("research")).toBe(true);
     expect(store.remove("research")).toBe(false);
-    mkdirSync(join(root, "agents", "not-a-role.md"), { recursive: true });
-    expect(store.list().roles).toEqual([]);
+    expect(existsSync(join(root, "agents", "research", "notes.md"))).toBe(true);
+    expect(existsSync(join(root, "agents", "research", "agent.md"))).toBe(false);
+    store.write({ name: "fleeting", description: "d", brief: "b", memory: "own" });
+    store.remove("fleeting");
+    expect(existsSync(join(root, "agents", "fleeting"))).toBe(false);
+  });
+
+  it("moves a file from before agents had folders into one", () => {
+    const store = new RoleStore(ws);
+    mkdirSync(join(root, "agents"), { recursive: true });
+    writeFileSync(join(root, "agents", "old.md"), "---\nname: old\ndescription: From before\n---\nYou were a file.\n", "utf8");
+    expect(store.exists("old")).toBe(true);
+    expect(store.list().roles.map((r) => r.path)).toEqual(["agents/old/agent.md"]);
+    expect(existsSync(join(root, "agents", "old.md"))).toBe(false);
+    expect(store.get("old")).toMatchObject({ description: "From before", folder: "agents/old" });
+    // A note left beside the roles has no frontmatter: not an agent, not moved.
+    writeFileSync(join(root, "agents", "old-log.md"), "# Running record\n\n- did a thing\n", "utf8");
+    expect(store.list().roles.map((r) => r.name)).toEqual(["old"]);
+    expect(store.list().invalid).toEqual([]);
+    expect(store.exists("old-log")).toBe(false);
+    expect(existsSync(join(root, "agents", "old-log.md"))).toBe(true);
     expect(agentScope("research")).toBe("agent:research");
     expect(agentConversationId("research")).toBe("agent:research");
   });

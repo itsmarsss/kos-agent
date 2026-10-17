@@ -90,9 +90,8 @@ describe("an agent's face", () => {
     expect(faceSvg(look, "error")).toContain(`fill="${fillOf(200, 0.45)}"`);
     expect(faceSvg(look, "error")).toMatch(/rotate\(18 /);
     expect(faceSvg(lookOf("kos", { eyes: "round" }))).toContain("<circle");
-    // A quiet smile when idle, an o when working.
-    expect(idle).toContain('d="M46 62q4 3.2 8 0"');
-    expect(faceSvg(look, "working")).toContain("a1.9 1.9");
+    // Two eyes and nothing else.
+    expect(idle).not.toContain("<path d=\"M4");
   });
 
   it("keeps its colour soft around the wheel", () => {

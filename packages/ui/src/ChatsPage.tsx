@@ -1407,7 +1407,7 @@ export function ChatsPage({
             </button>
             <div className="chats-project-head">
               <span className="chats-project-name">{agentThread?.title ?? agent.name}</span>
-              <span className="chats-project-sub">A standing agent · agents/{agent.name}.md</span>
+              <span className="chats-project-sub">A standing agent · agents/{agent.name}/</span>
             </div>
           </div>
           <div className="chats-pinned">
@@ -1423,10 +1423,10 @@ export function ChatsPage({
                 <Face seed={agent.name} size={26} mood={moodOf(agentThread.activity)} />
                 <span className="chats-root-text">
                   <span className="chats-root-title">
-                    Its thread
+                    {agentThread.title}
                     <ThreadDot live={progress[agentThread.id]} chat={agentThread} waiting={waitingOn.has(agentThread.id)} />
                   </span>
-                  <span className="chats-root-sub">Where it is spoken to and where its schedule runs</span>
+                  <span className="chats-root-sub">Its home thread: talk to it here, and its schedule runs here</span>
                 </span>
               </a>
             )}

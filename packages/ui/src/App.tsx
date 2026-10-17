@@ -627,12 +627,16 @@ export function App(): React.ReactElement {
     await refresh();
   };
   /** The thread the quick question is asked beside, if one is open. */
+  /** An agent's own page is a chat page too: it owns the window like the others. */
+  const agentPage = route.name === "agents" && route.agent !== undefined && route.agent !== "new";
   const askContext =
     route.name === "chats"
       ? route.id
       : route.name === "project"
         ? (route.id ?? `project:${route.slug}`)
-        : undefined;
+        : agentPage
+          ? `agent:${route.agent}`
+          : undefined;
 
   const shell = (body: React.ReactNode): React.ReactElement => (
     <ErrorBoundary label="dashboard">
@@ -666,7 +670,7 @@ export function App(): React.ReactElement {
         onCopyWorkspace={() => void copyWorkspace()}
         onToggleKill={() => void toggleKill()}
       />
-      <main className={`ops ${route.name === "chats" || route.name === "project" ? "ops--full" : ""}`}>
+      <main className={`ops ${route.name === "chats" || route.name === "project" || agentPage ? "ops--full" : ""}`}>
         <AnimatePresence>
           {toast && (
             <m.div

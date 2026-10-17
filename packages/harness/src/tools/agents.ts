@@ -67,6 +67,7 @@ function summary(r: RoleRecord): Record<string, unknown> {
     ...(r.schedule ? { schedule: r.schedule } : {}),
     conversationId: agentConversationId(r.name),
     path: r.path,
+    folder: r.folder,
   };
 }
 
@@ -92,7 +93,7 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
     {
       name: "agents.create",
       description:
-        "Make a standing agent for a responsibility the owner wants kept, as a file they can read and edit (agents/<name>.md) with a thread of its own. " +
+        "Make a standing agent for a responsibility the owner wants kept: a folder of its own (agents/<name>/, with agent.md in it, which the owner can read and edit) and a thread of its own. " +
         "Give it a brief in the second person saying what it is for, how to do the work, and when to tell the owner. " +
         "A schedule makes it run unattended with the prompt on each run; without one it works only when dispatched or spoken to. " +
         "Leave tools unset unless the owner asked to limit them. Say what you made afterwards, in a line.",

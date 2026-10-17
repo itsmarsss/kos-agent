@@ -1,13 +1,20 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 
-import { api, type AgentDraft, type AgentInfo, type FaceLook } from "./api.js";
+import { api, type AgentDraft, type AgentInfo, type FaceLook, type ToolInfo } from "./api.js";
+import { describeCron, PRESETS } from "./CronEditor.js";
+import { Face } from "./Face.js";
 import { FaceEditor } from "./FaceEditor.js";
 import { Select } from "./Select.js";
+import { ToolPicker } from "./ToolPicker.js";
 
 /**
- * An agent's file as a form: the head as fields, the brief as the text it
- * is. One form for making an agent and for changing one, opened in a dialog
- * from wherever the agent is, so the page it sits on stays the agent's own.
+ * An agent's file as a form.
+ *
+ * Four parts, in the order the owner thinks about them: who it is (its
+ * face, its name, what it is for), its brief, what it may reach, and when
+ * it runs. The same controls the rest of the dashboard uses: the tool
+ * families as a list to tick, a schedule with presets and read back in
+ * words, memory and model as a choice of two.
  */
 
 /** "price-watch" as a title: "Price watch". */
@@ -16,12 +23,11 @@ export function titleOf(name: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-/** The form's own shape: every field a string, so an input can hold it. */
 interface Draft {
   name: string;
   description: string;
   brief: string;
-  tools: string;
+  tools: string[] | null;
   memory: "own" | "shared";
   task: "reasoning" | "cheap";
   schedule: string;
@@ -29,14 +35,14 @@ interface Draft {
   face: FaceLook;
 }
 
-const BLANK: Draft = { name: "", description: "", brief: "", tools: "", memory: "own", task: "reasoning", schedule: "", prompt: "", face: {} };
+const BLANK: Draft = { name: "", description: "", brief: "", tools: null, memory: "own", task: "reasoning", schedule: "", prompt: "", face: {} };
 
 function toDraft(a: AgentInfo): Draft {
   return {
     name: a.name,
     description: a.description,
     brief: a.brief,
-    tools: (a.tools ?? []).join(", "),
+    tools: a.tools?.length ? a.tools : null,
     memory: a.memory,
     task: a.task ?? "reasoning",
     schedule: a.schedule ?? "",
@@ -46,18 +52,35 @@ function toDraft(a: AgentInfo): Draft {
 }
 
 function fromDraft(d: Draft): AgentDraft {
-  const tools = d.tools.split(",").map((s) => s.trim()).filter(Boolean);
   return {
     name: d.name.trim().toLowerCase(),
     description: d.description.trim(),
     brief: d.brief.trim(),
     memory: d.memory,
     task: d.task,
-    ...(tools.length ? { tools } : {}),
+    ...(d.tools && d.tools.length ? { tools: d.tools } : {}),
     ...(d.schedule.trim() ? { schedule: d.schedule.trim() } : {}),
     ...(d.prompt.trim() ? { prompt: d.prompt.trim() } : {}),
     ...(Object.keys(d.face).length ? { face: d.face } : {}),
   };
+}
+
+/** A choice of two, as two buttons. */
+function Choice<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: Array<[T, string, string]>; onChange: (v: T) => void }): ReactElement {
+  const chosen = options.find(([v]) => v === value);
+  return (
+    <div className="kos-field">
+      <span className="kos-field-label">{label}</span>
+      <div className="seg" role="radiogroup" aria-label={label}>
+        {options.map(([v, text]) => (
+          <button key={v} type="button" className={`seg-btn ${v === value ? "is-on" : ""}`} aria-pressed={v === value} onClick={() => onChange(v)}>
+            {text}
+          </button>
+        ))}
+      </div>
+      {chosen && <span className="hint">{chosen[2]}</span>}
+    </div>
+  );
 }
 
 export interface AgentEditorProps {
@@ -69,12 +92,19 @@ export interface AgentEditorProps {
 
 export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): ReactElement {
   const [draft, setDraft] = useState<Draft>(initial ? toDraft(initial) : BLANK);
+  const [tools, setTools] = useState<ToolInfo[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isNew = !initial;
+  const readable = draft.schedule.trim() ? describeCron(draft.schedule.trim()) : null;
+  const badSchedule = draft.schedule.trim() !== "" && readable === null;
+
+  useEffect(() => {
+    void api.tools().then(setTools).catch(() => setTools([]));
+  }, []);
 
   const save = (): void => {
-    if (busy) return;
+    if (busy || badSchedule) return;
     setBusy(true);
     setError(null);
     api
@@ -84,112 +114,107 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
       .finally(() => setBusy(false));
   };
 
+  const seed = draft.name || "new";
   return (
     <form
-      className="rename-form agent-editor"
+      className="agent-editor"
       onSubmit={(e) => {
         e.preventDefault();
         save();
       }}
     >
-      {/* Its face, live as the name is typed: the name is what the look
-          comes from, so a new agent is met before it is made. The three
-          things the owner may set about it sit beside it. */}
-      <div className="agents-editor-head">
-        <div>
-          <strong>{draft.name ? titleOf(draft.name) : "A new agent"}</strong>
-          <span className="hint">{initial ? initial.path : "Its colour, shape and eyes come from its name unless you set them."}</span>
+      <section className="agent-editor-section">
+        <h3>Who it is</h3>
+        <div className="agent-editor-head">
+          <Face seed={seed} look={draft.face} size={72} label={draft.name ? `${titleOf(draft.name)}'s face` : "A new agent's face"} />
+          <div className="agent-editor-ident">
+            <div className="agents-fields">
+              <label className="kos-field">
+                <span className="kos-field-label">Name</span>
+                <input className="kos-input" value={draft.name} disabled={!isNew} placeholder="price-watch" autoFocus={isNew} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+                {isNew && <span className="hint">Short and plain: letters, digits, dashes. It names the folder and the thread.</span>}
+              </label>
+              <label className="kos-field">
+                <span className="kos-field-label">What it is for</span>
+                <input className="kos-input" value={draft.description} placeholder="Watches one listing and says when it drops" onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
+              </label>
+            </div>
+            <FaceEditor seed={seed} value={draft.face} onChange={(face) => setDraft({ ...draft, face })} preview={false} />
+          </div>
         </div>
-      </div>
-      <FaceEditor seed={draft.name || "new"} value={draft.face} onChange={(face) => setDraft({ ...draft, face })} label={draft.name ? `${titleOf(draft.name)}'s face` : "A new agent's face"} />
-      <div className="agents-fields">
-        <label className="kos-field">
-          <span className="kos-field-label">Name</span>
-          <input
-            className="kos-input"
-            value={draft.name}
-            disabled={!isNew}
-            placeholder="price-watch"
-            autoFocus={isNew}
-            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-          />
-          {isNew && <span className="hint">Short and plain: letters, digits, dashes. It is the file's name and the thread's.</span>}
-        </label>
-        <label className="kos-field">
-          <span className="kos-field-label">What it is for</span>
-          <input
-            className="kos-input"
-            value={draft.description}
-            placeholder="Watches one listing and says when it drops"
-            onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-          />
-        </label>
-      </div>
-      <label className="kos-field">
-        <span className="kos-field-label">Brief</span>
-        <textarea
-          className="kos-input agents-brief"
-          rows={10}
-          value={draft.brief}
-          placeholder="You watch one listing for the owner…"
-          onChange={(e) => setDraft({ ...draft, brief: e.target.value })}
-        />
-        <span className="hint">Its standing instructions, in the second person: what it is for, how to do the work, when to tell you.</span>
-      </label>
-      <div className="agents-fields">
-        <label className="kos-field">
-          <span className="kos-field-label">Tools</span>
-          <input className="kos-input" value={draft.tools} placeholder="all" onChange={(e) => setDraft({ ...draft, tools: e.target.value })} />
-          <span className="hint">Families it may reach, comma-separated: browser, memory, files. Empty is the full toolkit.</span>
-        </label>
-        <label className="kos-field">
-          <span className="kos-field-label">Memory</span>
-          <Select
-            className="settings-select"
-            label="Memory"
-            value={draft.memory}
-            options={[
-              { value: "own", label: "its own" },
-              { value: "shared", label: "shared" },
-            ]}
-            onChange={(memory) => setDraft({ ...draft, memory: memory === "shared" ? "shared" : "own" })}
-          />
-          <span className="hint">Its own keeps what it learns in a scope of its own, read beside your global claims.</span>
-        </label>
-        <label className="kos-field">
-          <span className="kos-field-label">Model</span>
-          <Select
-            className="settings-select"
-            label="Model"
-            value={draft.task}
-            options={[
-              { value: "reasoning", label: "reasoning" },
-              { value: "cheap", label: "cheap" },
-            ]}
-            onChange={(task) => setDraft({ ...draft, task: task === "cheap" ? "cheap" : "reasoning" })}
-          />
-        </label>
-      </div>
-      <div className="agents-fields">
-        <label className="kos-field">
-          <span className="kos-field-label">Schedule</span>
-          <input className="kos-input" value={draft.schedule} placeholder="0 9 * * 1" onChange={(e) => setDraft({ ...draft, schedule: e.target.value })} />
-          <span className="hint">A cron expression. Empty means it works only when asked.</span>
-        </label>
-        <label className="kos-field">
-          <span className="kos-field-label">On each run</span>
-          <textarea
-            className="kos-input"
-            rows={2}
-            value={draft.prompt}
-            placeholder="Look at the listing and compare with what you remember."
-            onChange={(e) => setDraft({ ...draft, prompt: e.target.value })}
-          />
-        </label>
-      </div>
+      </section>
+
+      <section className="agent-editor-section">
+        <h3>Brief</h3>
+        <textarea className="kos-input agents-brief" rows={10} value={draft.brief} placeholder="You watch one listing for the owner…" onChange={(e) => setDraft({ ...draft, brief: e.target.value })} />
+        <span className="hint">Its standing instructions, in the second person: what it is for, how to do the work, when to tell you. It has a folder of its own, agents/{seed}/, for notes and anything it makes.</span>
+      </section>
+
+      <section className="agent-editor-section">
+        <h3>Reach</h3>
+        <div className="agents-fields agents-fields--reach">
+          <div className="kos-field">
+            <span className="kos-field-label">Tools</span>
+            <ToolPicker tools={tools} allow={draft.tools} onChange={(allow) => setDraft({ ...draft, tools: allow })} />
+          </div>
+          <div className="agent-editor-stack">
+            <Choice
+              label="Memory"
+              value={draft.memory}
+              options={[
+                ["own", "Its own", "What it learns stays in a scope of its own, read beside your global claims."],
+                ["shared", "Shared", "The ordinary rule: the project it is in, or global."],
+              ]}
+              onChange={(memory) => setDraft({ ...draft, memory })}
+            />
+            <Choice
+              label="Model"
+              value={draft.task}
+              options={[
+                ["reasoning", "Reasoning", "The route that thinks; for judgement."],
+                ["cheap", "Cheap", "The quick route; for routine checks."],
+              ]}
+              onChange={(task) => setDraft({ ...draft, task })}
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="agent-editor-section">
+        <h3>Schedule</h3>
+        <div className="agents-fields">
+          <div className="kos-field">
+            <span className="kos-field-label">When</span>
+            <div className="settings-row">
+              <input className="kos-input kos-mono" value={draft.schedule} spellCheck={false} placeholder="not scheduled" onChange={(e) => setDraft({ ...draft, schedule: e.target.value })} />
+              <Select
+                className="settings-select"
+                label="Common schedules"
+                value=""
+                options={[{ value: "", label: "presets…" }, ...PRESETS.map((p) => ({ value: p.value, label: p.label, hint: p.value })), { value: "-", label: "Not scheduled" }]}
+                onChange={(v) => {
+                  if (v === "-") setDraft({ ...draft, schedule: "" });
+                  else if (v) setDraft({ ...draft, schedule: v });
+                }}
+              />
+            </div>
+            <span className={`cron-reads ${badSchedule ? "is-bad" : ""}`}>
+              {draft.schedule.trim() === "" ? "Not scheduled: it works when dispatched or spoken to." : (readable ?? "Not a schedule yet: five fields, minute to day of week.")}
+            </span>
+          </div>
+          {draft.schedule.trim() !== "" && (
+            <label className="kos-field">
+              <span className="kos-field-label">On each run</span>
+              <textarea className="kos-input" rows={3} value={draft.prompt} placeholder="Look at the listing and compare with what you remember." onChange={(e) => setDraft({ ...draft, prompt: e.target.value })} />
+              <span className="hint">What it is told each time, in its own thread.</span>
+            </label>
+          )}
+        </div>
+      </section>
+
       {error && <p className="ops-alert ops-alert--err">{error}</p>}
       <div className="rename-actions">
-        <button type="submit" className="btn btn--primary" disabled={busy || !draft.name.trim() || !draft.description.trim() || !draft.brief.trim()}>
+        <button type="submit" className="btn btn--primary" disabled={busy || badSchedule || !draft.name.trim() || !draft.description.trim() || !draft.brief.trim()}>
           {busy ? "Saving…" : isNew ? "Make it" : "Save"}
         </button>
         <button type="button" className="btn" disabled={busy} onClick={onCancel}>

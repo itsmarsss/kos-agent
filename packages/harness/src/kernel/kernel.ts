@@ -778,7 +778,12 @@ export class Kernel {
               "what you know, briefly. Do not try to run, read, query or look anything up, and do not describe tool attempts or ask for approvals; if something cannot be known without looking, say so in one line.",
             ].join("")
           : null;
-        const extra = [formatting, conversation?.brief, scopeNote, asideNote]
+        // A standing agent has a folder of its own, and should know to keep
+        // its work there rather than loose in the workspace.
+        const roleNote = conversation?.role
+          ? `You are the standing agent "${conversation.role}". Your folder is agents/${conversation.role}/: keep your notes and anything you make in it, and read it back next time.`
+          : null;
+        const extra = [formatting, conversation?.brief, roleNote, scopeNote, asideNote]
           .filter((part): part is string => Boolean(part && part.trim()))
           .join("\n\n");
         const projects = this.manifest.list();
@@ -2575,7 +2580,7 @@ export class Kernel {
     if (job.agent && !this.roles.exists(job.agent)) {
       this.crons.setEnabled(job.id, false);
       this.reloadCron();
-      this.caretaker.record(`The schedule for the agent "${job.agent}" is switched off: agents/${job.agent}.md is gone. Make the agent again to bring it back.`);
+      this.caretaker.record(`The schedule for the agent "${job.agent}" is switched off: agents/${job.agent}/agent.md is gone. Make the agent again to bring it back.`);
       return { ran: false, reason: "no-agent" };
     }
     const jobSession = job.type === "actions" ? this.jobThread(job) : undefined;
@@ -2905,7 +2910,7 @@ export class Kernel {
                 role.schedule ? `Runs on ${role.schedule}.` : "Runs only when dispatched or spoken to.",
                 `Brief: ${role.brief.slice(0, 400)}`,
               ].join(" ")
-            : `Agent ${ref.id}: there is no agents/${ref.id}.md.`,
+            : `Agent ${ref.id}: there is no agents/${ref.id}/agent.md.`,
         );
         continue;
       }

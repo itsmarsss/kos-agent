@@ -9,7 +9,7 @@ import { hrefFor } from "./routes.js";
 /**
  * The standing agents, each with what it is up to.
  *
- * An agent is a file under agents/, and KOS makes them from a request. This
+ * An agent is a folder under agents/, and KOS makes them from a request. This
  * list is where the owner sees them all at once: the face, what it is for,
  * what it last said or is doing now, and when it runs next. A row opens the
  * agent's own page, its thread in the middle and its file beside it, so
@@ -43,6 +43,11 @@ function when(ts: number): string {
   return sameDay ? time : `${d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} ${time}`;
 }
 
+/** A line of markdown as the words alone: no emphasis marks, no code ticks, no heading hashes. */
+function plain(text: string): string {
+  return text.replace(/[*_`]+/g, "").replace(/^#+\s*/gm, "").replace(/\s+/g, " ").trim();
+}
+
 /** One line on what it is up to: doing now beats said last. */
 export function upTo(a: AgentInfo): string {
   // A host from before the list said what an agent was up to sends no thread.
@@ -50,7 +55,7 @@ export function upTo(a: AgentInfo): string {
   if (t.activity === "working") return "Working now…";
   if (t.activity === "needs-you") return "Waiting on you";
   if (t.activity === "error") return `Its last turn failed${t.lastError ? `: ${t.lastError}` : ""}`;
-  if (t.lastSaid) return `“${t.lastSaid}” · ${ago(t.updatedAt)}`;
+  if (t.lastSaid) return `“${plain(t.lastSaid)}” · ${ago(t.updatedAt)}`;
   return "Nothing said yet";
 }
 
@@ -95,7 +100,7 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
         </button>
       </div>
       <p className="hint">
-        A standing agent is a responsibility KOS keeps for you: a file under agents/ with a thread of its own and a schedule if it needs one.
+        A standing agent is a responsibility KOS keeps for you: a folder under agents/ with a thread of its own and a schedule if it needs one.
         Ask KOS for one in a chat ("keep an eye on…", "every Saturday…"), or write one here. A row opens the agent's own page.
       </p>
       {error && <p className="ops-alert ops-alert--err">{error}</p>}

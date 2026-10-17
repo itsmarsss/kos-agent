@@ -170,12 +170,14 @@ on an error and sleeps when paused. Then what it is for, its schedule or
 failed, or the last thing it said), and when it runs next and last ran. A
 row opens the agent's own page: its thread in the middle, where you talk to
 it and where its schedule runs; the chats it has inside projects in the
-rail; and beside the thread its file and schedule, with Run now,
-Pause or Resume, Edit (its file as fields: name, what it is for, the brief,
-the tool families it may reach, whether its memory is its own, the model
-class, the schedule and the prompt for each run), Open in Files, and Delete
-(two presses), which removes the file and the schedule and leaves the
-thread as an ordinary chat. New agent writes one by hand; asking KOS in a
+rail; and beside the thread its schedule and its folder, with Run now,
+Pause or Resume, Edit (its file as a form: its face, name and what it is
+for; the brief; the tool families it may reach as a list to tick, whether
+its memory is its own, the model class; the schedule with presets and read
+back in words, and the prompt for each run), the folder's contents with
+Open in Files, and Delete (two presses), which removes the file and the
+schedule, leaves the thread as an ordinary chat, and keeps the folder if
+the agent made anything in it. New agent writes one by hand; asking KOS in a
 chat is the usual way. A file under `agents/` that does not read as an
 agent is listed with the reason. See docs/agents.md.
 

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type ReactElement } from "react";
 
-import { GAITS, MOUTHS, eyeAt, mountBlob, outline, smoothPath, type BlobHandle, type BlobShape, type BlobWhim } from "./blob.js";
+import { GAITS, eyeAt, mountBlob, outline, smoothPath, type BlobHandle, type BlobShape, type BlobWhim } from "./blob.js";
 
 /**
  * An agent's face: a flat blob with two eyes, alive.
@@ -211,15 +211,14 @@ export function Face({ seed, look: override, size = 24, mood = "idle", label }: 
             {eyes.map(([name, at]) => (
               <g key={name} data-part={name} transform={`translate(${at.x} ${at.y})`}>
                 {look.eyes === "round" ? (
-                  <circle data-part="eye" r="4.6" fill={ink} />
+                  <circle data-part="eye" r="4" fill={ink} />
                 ) : (
-                  <rect data-part="eye" x="-3.1" y="-5.6" width="6.2" height="11.2" rx="3.1" fill={ink} />
+                  <rect data-part="eye" x="-2.7" y="-4.8" width="5.4" height="9.6" rx="2.7" fill={ink} />
                 )}
-                {look.eyes === "sparkle" && <circle data-part="eye" cx="-1.1" cy="-2.8" r="1.1" fill="#fff" />}
-                <path data-part="grin" d="M-4.2 1.6q4.2-5.2 8.4 0" fill="none" stroke={ink} strokeWidth="2.4" strokeLinecap="round" opacity="0" />
+                {look.eyes === "sparkle" && <circle data-part="eye" cx="-1" cy="-2.4" r="1" fill="#fff" />}
+                <path data-part="grin" d="M-3.8 1.4q3.8-4.8 7.6 0" fill="none" stroke={ink} strokeWidth="2.4" strokeLinecap="round" opacity="0" />
               </g>
             ))}
-            <path data-part="mouth" d={MOUTHS.smile} fill="none" stroke={ink} strokeWidth="2" strokeLinecap="round" />
           </g>
         </g>
         {mood === "needs-you" && (
@@ -254,15 +253,11 @@ export function faceSvg(look: Look, mood: Mood = "idle"): string {
       return `<path d="M${cx - 4} ${cy}h8" stroke="${ink}" stroke-width="2.4" stroke-linecap="round" transform="rotate(${tilt} ${cx} ${cy})"/>`;
     }
     const tall = mood === "needs-you" ? 1.25 : 1;
-    if (look.eyes === "round") return `<circle cx="${cx}" cy="${cy}" r="${4.8 * tall}" fill="${ink}"/>`;
-    const w = 6.4;
-    const hh = 11.6 * tall;
+    if (look.eyes === "round") return `<circle cx="${cx}" cy="${cy}" r="${4.2 * tall}" fill="${ink}"/>`;
+    const w = 5.6;
+    const hh = 10 * tall;
     const pill = `<rect x="${cx - w / 2}" y="${cy - hh / 2}" width="${w}" height="${hh}" rx="${w / 2}" fill="${ink}"/>`;
-    return look.eyes === "sparkle" ? `${pill}<circle cx="${cx - 1.1}" cy="${cy - hh / 4}" r="1.2" fill="#fff"/>` : pill;
-  };
-  const mouth = (): string => {
-    const d = mood === "working" ? MOUTHS.o : mood === "needs-you" ? MOUTHS.oh : mood === "error" ? MOUTHS.frown : mood === "asleep" ? MOUTHS.small : MOUTHS.smile;
-    return `<path d="${d}" fill="none" stroke="${ink}" stroke-width="2.2" stroke-linecap="round"/>`;
+    return look.eyes === "sparkle" ? `${pill}<circle cx="${cx - 1}" cy="${cy - hh / 4}" r="1.1" fill="#fff"/>` : pill;
   };
   const extra =
     mood === "needs-you"
@@ -275,7 +270,7 @@ export function faceSvg(look: Look, mood: Mood = "idle"): string {
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 4 92 92" width="64" height="64">`,
     `<path d="${body}" fill="${fillOf(h, sat)}"${droop}/>`,
-    `<g transform="rotate(${look.tilt} 50 54)">${eye("l")}${eye("r")}${mouth()}</g>`,
+    `<g transform="rotate(${look.tilt} 50 54)">${eye("l")}${eye("r")}</g>`,
     extra,
     `</svg>`,
   ].join("");
