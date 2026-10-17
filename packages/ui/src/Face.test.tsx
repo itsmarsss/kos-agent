@@ -2,7 +2,8 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { AgentFaces, Face, faceSvg, lookOf, moodOf } from "./Face.js";
+import { GAITS, outline, smoothPath } from "./blob.js";
+import { AgentFaces, Face, faceSvg, fillOf, lookOf, moodOf } from "./Face.js";
 
 afterEach(cleanup);
 
@@ -19,6 +20,19 @@ describe("an agent's face", () => {
     const hues = new Set(names.map((n) => lookOf(n).hue));
     expect(hues.size).toBe(names.length);
     expect(lookOf("")).toEqual(lookOf("kos"));
+    // A silhouette and habits of its own, each within its range.
+    for (const n of names) {
+      const { shape, whim } = lookOf(n);
+      expect(shape.aspect).toBeGreaterThanOrEqual(0.92);
+      expect(shape.aspect).toBeLessThanOrEqual(1.12);
+      expect([0, 0.06, 0.12, 0.18]).toContainEqual(Number(shape.peak.toFixed(2)));
+      expect([0, 0.12, 0.24]).toContainEqual(Number(shape.squat.toFixed(2)));
+      expect(shape.spread).toBeGreaterThanOrEqual(0.88);
+      expect(shape.spread).toBeLessThanOrEqual(1.1);
+      expect(whim.curiosity).toBeGreaterThanOrEqual(0.7);
+      expect(whim.blinkiness).toBeLessThanOrEqual(1.3);
+    }
+    expect(new Set(names.map((n) => JSON.stringify(lookOf(n).shape))).size).toBeGreaterThan(3);
   });
 
   it("takes what the owner set over the name, and only what is in range", () => {
@@ -64,16 +78,25 @@ describe("an agent's face", () => {
   it("draws the same look still, for the tab icon", () => {
     const look = lookOf("kos", { hue: 200, eyes: "sparkle", gait: 1 });
     const idle = faceSvg(look);
-    expect(idle).toContain('fill="hsl(200 62% 60%)"');
+    expect(idle).toContain(`fill="${fillOf(200)}"`);
     expect(idle).toContain('fill="#fff"'); // the glint
     expect(idle).not.toContain(">!<");
     expect(idle).not.toContain("radialGradient");
+    // The same silhouette the live blob has, held still.
+    expect(idle).toContain(`d="${smoothPath(outline(2, look.seed, GAITS[1]!, 1, look.shape))}"`);
     const needs = faceSvg(look, "needs-you");
     expect(needs).toContain(">!<");
     expect(faceSvg(look, "asleep")).toContain(">z<");
     // Drained on an error, and the eyes are lines.
-    expect(faceSvg(look, "error")).toContain('fill="hsl(200 28% 60%)"');
-    expect(faceSvg(look, "error")).toContain("rotate(20 25 34)");
+    expect(faceSvg(look, "error")).toContain(`fill="${fillOf(200, 0.45)}"`);
+    expect(faceSvg(look, "error")).toMatch(/rotate\(18 /);
     expect(faceSvg(lookOf("kos", { eyes: "round" }))).toContain("<circle");
+  });
+
+  it("keeps its colour soft around the wheel", () => {
+    // Yellow is lifted, blue is eased down, and nothing is mud or neon.
+    expect(fillOf(60)).toBe("hsl(60 66% 66%)");
+    expect(fillOf(240)).toBe("hsl(240 66% 56%)");
+    expect(fillOf(0, 0.5)).toBe("hsl(0 33% 62%)");
   });
 });

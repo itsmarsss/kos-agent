@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type ReactElement } from "react";
 
-import { GAITS, EYE_L, EYE_R, mountBlob, outline, smoothPath, type BlobHandle } from "./blob.js";
+import { GAITS, eyeAt, mountBlob, outline, smoothPath, type BlobHandle, type BlobShape, type BlobWhim } from "./blob.js";
 
 /**
  * An agent's face: a flat blob with two eyes, alive.
@@ -36,6 +36,10 @@ export interface Look {
   tilt: number;
   /** The number its whims come from. */
   seed: number;
+  /** Its silhouette: round, tall, peaked or squat, eyes close or wide. */
+  shape: BlobShape;
+  /** Its habits: how it takes to the cursor, how often it blinks. */
+  whim: BlobWhim;
 }
 
 /** What the owner may set about a face; anything unset comes from the name. */
@@ -61,6 +65,8 @@ function hash(text: string): number {
 export function lookOf(seed: string, override: FaceLook = {}): Look {
   const h = hash(seed.trim().toLowerCase() || KOS_SEED);
   const wobble = ((h >>> 9) % 4) as Gait;
+  // A second number, so the silhouette and the habits are not the hue's twins.
+  const g = hash(`${seed.trim().toLowerCase() || KOS_SEED}#`);
   const base: Look = {
     hue: h % 360,
     wobble,
@@ -68,6 +74,16 @@ export function lookOf(seed: string, override: FaceLook = {}): Look {
     breath: GAITS[wobble]!.breath,
     tilt: ((h >>> 18) % 7) - 3,
     seed: h,
+    shape: {
+      aspect: 0.92 + ((g % 100) / 100) * 0.2,
+      peak: ((g >>> 7) % 4) * 0.06,
+      squat: ((g >>> 10) % 3) * 0.12,
+      spread: 0.88 + (((g >>> 13) % 100) / 100) * 0.22,
+    },
+    whim: {
+      curiosity: 0.7 + (((g >>> 20) % 50) / 100) * 1,
+      blinkiness: 0.7 + (((g >>> 26) % 60) / 100) * 1,
+    },
   };
   const gait = override.gait !== undefined && [0, 1, 2, 3].includes(override.gait) ? override.gait : wobble;
   return {
@@ -118,9 +134,15 @@ function usePrefersStill(): boolean {
   return still;
 }
 
-/** The body's colour, matte, and the eyes' ink on it. */
+/**
+ * The body's colour, matte. Raw HSL at one lightness turns yellow to mustard
+ * and blue to murk, so the lightness follows the wheel: lifted around
+ * yellow and cyan, eased down around blue and violet.
+ */
 export function fillOf(hue: number, sat = 1): string {
-  return `hsl(${hue} ${Math.round(62 * sat)}% 60%)`;
+  const rad = ((hue - 75) * Math.PI) / 180;
+  const l = Math.round(61 + 5 * Math.cos(rad));
+  return `hsl(${hue} ${Math.round(66 * sat)}% ${l}%)`;
 }
 function inkOf(hue: number): string {
   return `hsl(${hue} 35% 12%)`;
@@ -149,12 +171,13 @@ export function Face({ seed, look: override, size = 24, mood = "idle", label }: 
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
-    handle.current = mountBlob(svg, { seed: look.seed, gait: look.wobble, eyes: look.eyes, tilt: look.tilt }, mood, { still });
+    handle.current = mountBlob(svg, { seed: look.seed, gait: look.wobble, eyes: look.eyes, tilt: look.tilt, shape: look.shape, whim: look.whim }, mood, { still });
     return () => {
       handle.current?.dispose();
       handle.current = null;
     };
     // Mood is pushed through setMood below, so a change of it does not remount.
+    // The shape and habits follow the seed, so the seed stands for them.
   }, [look.seed, look.wobble, look.eyes, look.tilt, still]);
   useEffect(() => {
     handle.current?.setMood(mood);
@@ -162,10 +185,10 @@ export function Face({ seed, look: override, size = 24, mood = "idle", label }: 
 
   const ink = inkOf(look.hue);
   const style = { "--blob-h": String(look.hue), "--blob-size": `${size}px` } as CSSProperties;
-  const first = smoothPath(outline(0, look.seed, GAITS[look.wobble]!));
+  const first = smoothPath(outline(0, look.seed, GAITS[look.wobble]!, 1, look.shape));
   const eyes = [
-    ["eye-l", EYE_L],
-    ["eye-r", EYE_R],
+    ["eye-l", eyeAt("l", look.shape)],
+    ["eye-r", eyeAt("r", look.shape)],
   ] as const;
   return (
     <span
@@ -210,47 +233,42 @@ export function Face({ seed, look: override, size = 24, mood = "idle", label }: 
   );
 }
 
-/** The four gaits as still outlines, for the icon. */
-const BODIES = [
-  "M33 5c14 0 26 11 25 26S46 59 31 59 5 48 6 31 19 5 33 5z",
-  "M30 6c16-2 29 10 29 25 0 13-9 27-26 28S5 50 5 33C5 18 14 8 30 6z",
-  "M32 7c13-1 27 7 27 23 0 16-11 29-27 29S4 48 5 31C6 16 19 8 32 7z",
-  "M34 5c12 1 24 12 25 25 1 15-12 29-28 29C15 59 5 47 5 32 5 17 19 4 34 5z",
-];
-
 /**
- * The face as a still image: the same look and mood the blob wears, for a
- * place that cannot run a script, the tab icon.
+ * The face as a still image: the same silhouette, look and mood the blob
+ * wears, held at one moment, for a place that cannot run a script: the tab
+ * icon.
  */
 export function faceSvg(look: Look, mood: Mood = "idle"): string {
   const h = look.hue;
   const sat = mood === "error" ? 0.45 : mood === "asleep" ? 0.7 : 1;
   const ink = inkOf(h);
-  const eye = (cx: number): string => {
-    if (mood === "asleep") return `<path d="M${cx - 3.5} 34h7" stroke="${ink}" stroke-width="2.2" stroke-linecap="round"/>`;
+  const eye = (side: "l" | "r"): string => {
+    const { x: cx, y: cy } = eyeAt(side, look.shape);
+    if (mood === "asleep") return `<path d="M${cx - 4} ${cy}h8" stroke="${ink}" stroke-width="2.4" stroke-linecap="round"/>`;
     if (mood === "error") {
-      const tilt = cx < 32 ? 20 : -20;
-      return `<path d="M${cx - 3.5} 34h7" stroke="${ink}" stroke-width="2.2" stroke-linecap="round" transform="rotate(${tilt} ${cx} 34)"/>`;
+      const tilt = side === "l" ? 18 : -18;
+      return `<path d="M${cx - 4} ${cy}h8" stroke="${ink}" stroke-width="2.4" stroke-linecap="round" transform="rotate(${tilt} ${cx} ${cy})"/>`;
     }
     const tall = mood === "needs-you" ? 1.25 : 1;
-    if (look.eyes === "round") return `<circle cx="${cx}" cy="34" r="${3.2 * tall}" fill="${ink}"/>`;
-    const w = 4.6;
-    const hh = 8.4 * tall;
-    const pill = `<rect x="${cx - w / 2}" y="${34 - hh / 2}" width="${w}" height="${hh}" rx="${w / 2}" fill="${ink}"/>`;
-    return look.eyes === "sparkle" ? `${pill}<circle cx="${cx - 0.8}" cy="${34 - hh / 4}" r="0.9" fill="#fff"/>` : pill;
+    if (look.eyes === "round") return `<circle cx="${cx}" cy="${cy}" r="${3.6 * tall}" fill="${ink}"/>`;
+    const w = 5.4;
+    const hh = 9.6 * tall;
+    const pill = `<rect x="${cx - w / 2}" y="${cy - hh / 2}" width="${w}" height="${hh}" rx="${w / 2}" fill="${ink}"/>`;
+    return look.eyes === "sparkle" ? `${pill}<circle cx="${cx - 0.9}" cy="${cy - hh / 4}" r="1" fill="#fff"/>` : pill;
   };
   const extra =
     mood === "needs-you"
-      ? `<text x="52" y="16" font-family="sans-serif" font-size="16" font-weight="800" fill="#f5a524">!</text>`
+      ? `<text x="78" y="24" font-family="sans-serif" font-size="24" font-weight="800" fill="#f5a524">!</text>`
       : mood === "asleep"
-        ? `<text x="49" y="14" font-family="sans-serif" font-size="13" font-weight="700" fill="${ink}">z</text>`
+        ? `<text x="74" y="22" font-family="sans-serif" font-size="19" font-weight="700" fill="${ink}">z</text>`
         : "";
-  const body = BODIES[look.wobble] ?? BODIES[0]!;
-  const droop = mood === "error" ? ` transform="translate(0 3) scale(1 0.92)" transform-origin="32 46"` : "";
+  // Held a little way into its waves, so the icon is not the one flat frame every blob shares at t=0.
+  const body = smoothPath(outline(2, look.seed, GAITS[look.wobble]!, 1, look.shape));
+  const droop = mood === "error" ? ` transform="translate(0 4) scale(1 0.92)" transform-origin="50 60"` : "";
   return [
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 4 92 92" width="64" height="64">`,
     `<path d="${body}" fill="${fillOf(h, sat)}"${droop}/>`,
-    `<g transform="rotate(${look.tilt} 32 40)">${eye(25)}${eye(39)}</g>`,
+    `<g transform="rotate(${look.tilt} 50 54)">${eye("l")}${eye("r")}</g>`,
     extra,
     `</svg>`,
   ].join("");
