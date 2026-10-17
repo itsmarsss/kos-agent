@@ -41,6 +41,14 @@ export function connectChannel(
       kernel.approvals.onDecided((action) => {
         if (action.status !== "pending") listener(String(action.id), action.status);
       }),
+    // The turn's own conversation is known before it runs, so its progress
+    // can be told on the surface as it happens.
+    watchTurn: (ctx, listener) => {
+      const id = kernel.conversationFor(ctx.channel, ctx.userId, ctx.conversationKey).id;
+      return kernel.progress.subscribe((event) => {
+        if (event.conversationId === id) listener(event);
+      });
+    },
     handleTurn: async (ctx) => {
       // The kernel owns conversation resolution and the /new, /chats, /switch
       // verbs, so every adapter behaves the same without implementing any of it.

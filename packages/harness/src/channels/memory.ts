@@ -7,6 +7,7 @@ import type {
   MessageHandler,
   OutboundMessage,
   ApprovalOutcome,
+  TurnPresence,
 } from "./types.js";
 
 export interface SentMessage {
@@ -61,6 +62,30 @@ export class InMemoryAdapter implements ChannelAdapter {
     outcome: ApprovalOutcome,
   ): Promise<void> {
     this.settled.push({ id, outcome });
+  }
+
+  /**
+   * A presence, when asked for one: what the runtime showed while the turn
+   * ran, and how it ended. Off by default so the plain send path is the one
+   * most tests exercise.
+   */
+  withPresence = false;
+  readonly shown: string[] = [];
+  readonly completed: OutboundMessage[] = [];
+
+  async acknowledge(): Promise<TurnPresence | undefined> {
+    if (!this.withPresence) return undefined;
+    return {
+      update: async (status) => {
+        this.shown.push(status);
+      },
+      complete: async (reply) => {
+        this.completed.push(reply);
+      },
+      fail: async (message) => {
+        this.completed.push({ text: `failed: ${message}` });
+      },
+    };
   }
 
   /** Test helper: simulate an inbound message from the surface. */

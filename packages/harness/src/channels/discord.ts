@@ -21,6 +21,7 @@ import { detailLines, summarizeAction } from "@kos/shared";
 import { isImage, isTextual, type Attachment } from "../kernel/attachments.js";
 import { COMMANDS, completions, runCommand, type SlashContext } from "./commands.js";
 import { linkMentions } from "./mentions.js";
+import { STEP_MARK } from "./narrate.js";
 import { MESSAGE_LIMITS } from "./types.js";
 import type {
   ApprovalHandler,
@@ -70,6 +71,15 @@ const DETAIL_MAX = 160;
 const CODE_MAX = 600;
 /** How much of what the agent said before asking the card quotes. */
 const WHY_MAX = 300;
+
+/** A turn's story as Discord shows it: the agent's words plain, its steps small. */
+export function storyText(status: string): string {
+  return status
+    .split("\n")
+    .map((line) => (line.startsWith(STEP_MARK) ? `-# ${line}` : line))
+    .join("\n")
+    .slice(0, 1900);
+}
 
 /** Discord's formatting characters, made literal. */
 function escapeMarkdown(text: string): string {
@@ -889,11 +899,41 @@ export class DiscordAdapter implements ChannelAdapter {
       await channel.send(payload);
     };
 
+    /*
+     * The story of the turn, in one message edited as it goes.
+     *
+     * Posted only once the turn has taken a step, and silently: it is for
+     * the eye, and the answer is what should buzz. Its point is order. An
+     * approval card used to be the first thing the owner saw of a turn,
+     * with nothing before it saying why; now the words that led to it are
+     * on the screen first. When the turn ends the marker goes and the story
+     * stays, as the record of what was done.
+     */
+    let story: { edit: (payload: { content: string }) => Promise<unknown> } | undefined;
+    let told = "";
+    const settle = async (): Promise<void> => {
+      if (!story || !told) return;
+      try {
+        await story.edit({ content: told });
+      } catch {
+        // Deleted, or too old to edit: the answer still lands.
+      }
+    };
+
     return {
-      // Nothing to edit: the reaction says the turn is running.
-      update: async () => undefined,
+      update: async (status: string) => {
+        told = storyText(status);
+        const content = `${REACT_WORKING} ${told}`;
+        if (story) {
+          await story.edit({ content });
+          return;
+        }
+        if (!channel?.send) return;
+        story = (await channel.send({ content, flags: MessageFlags.SuppressNotifications })) as typeof story;
+      },
       complete: async (reply: OutboundMessage) => {
         await swapReact(REACT_WORKING, REACT_DONE);
+        await settle();
         try {
           await this.deliver(post, reply);
         } catch {
@@ -902,6 +942,7 @@ export class DiscordAdapter implements ChannelAdapter {
       },
       fail: async (err: string) => {
         await swapReact(REACT_WORKING, REACT_FAIL);
+        await settle();
         const text = `❌ ${err.slice(0, 1900)}`;
         try {
           await post({ content: text });

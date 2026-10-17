@@ -11,7 +11,12 @@ KOS offers; forms for answers that are not fixed. Slash commands are
 answered by the host without a model turn. An approval card opens with
 what KOS was saying when it reached for the tool, quoted, so the ask
 reads as a sentence and not a bare command; iMessage and SMS prompts and
-the dashboard's Inbox carry the same words.
+the dashboard's Inbox carry the same words. While a turn that takes
+steps runs, one silent message tells its story, the words KOS says and
+the steps it takes, redrawn as they happen, so the card for an approval
+never lands first; when the answer comes, as its own message, the story
+stays as the record of what was done. A turn with no steps gets no extra
+message.
 
 ```
 KOS_SECRET_DISCORD=   bot token

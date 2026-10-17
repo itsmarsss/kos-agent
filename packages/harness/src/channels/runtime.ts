@@ -1,7 +1,9 @@
 import { runAgent, type Inference } from "../agent/loop.js";
 import type { Attachment } from "../kernel/attachments.js";
+import type { ProgressEvent } from "../kernel/progress.js";
 import type { ToolRegistry } from "../agent/registry.js";
 import { SingleOwnerMapping, type UserMapping } from "./identity.js";
+import { TurnNarrator } from "./narrate.js";
 import type {
   ApprovalDecision,
   ChannelAdapter,
@@ -88,7 +90,24 @@ export interface ChannelRuntimeOptions {
   watchDecisions?: (
     listener: (id: string, outcome: ApprovalOutcome) => void,
   ) => () => void;
+  /**
+   * Optional: follow a turn's progress as it runs, so a surface with a
+   * presence can show the owner what the agent is doing before an approval
+   * card lands. Returns its own unsubscribe.
+   */
+  watchTurn?: (ctx: TurnWatch, listener: (event: ProgressEvent) => void) => () => void;
+  /** How often the story may be redrawn on the surface. */
+  narrateEveryMs?: number;
 }
+
+/** Enough to find the conversation a turn will run in, before it does. */
+export interface TurnWatch {
+  userId: string;
+  channel: string;
+  conversationKey?: string;
+}
+
+const NARRATE_EVERY_MS = 1_500;
 
 /**
  * Binds a channel adapter to a turn handler: inbound message -> resolve user ->
@@ -106,6 +125,8 @@ export class ChannelRuntime {
   private readonly errorReply: string;
   private readonly onRejected: RejectionLogger;
   private readonly watchDecisions: ChannelRuntimeOptions["watchDecisions"];
+  private readonly watchTurn: ChannelRuntimeOptions["watchTurn"];
+  private readonly narrateEveryMs: number;
   private unwatch: (() => void) | undefined;
 
   constructor(options: ChannelRuntimeOptions) {
@@ -117,6 +138,8 @@ export class ChannelRuntime {
       options.errorReply ?? "Something went wrong handling that.";
     this.onRejected = options.onRejected ?? logRejectedInbound;
     this.watchDecisions = options.watchDecisions;
+    this.watchTurn = options.watchTurn;
+    this.narrateEveryMs = options.narrateEveryMs ?? NARRATE_EVERY_MS;
   }
 
   async start(): Promise<void> {
@@ -146,6 +169,53 @@ export class ChannelRuntime {
     this.unwatch?.();
     this.unwatch = undefined;
     await this.adapter.stop();
+  }
+
+  /**
+   * Tell the turn's story on the surface as it goes.
+   *
+   * Nothing is shown until the turn takes a step: a plain answer gets no
+   * extra message. A step is shown at once, so the words that led to an
+   * approval are on the surface before its card; text in between is
+   * redrawn at most every so often. When the turn ends the story is
+   * trimmed to its steps, since the answer is a message of its own.
+   */
+  private narrate(presence: TurnPresence, ctx: TurnWatch): { end: () => Promise<void> } | undefined {
+    if (!this.watchTurn) return undefined;
+    const narrator = new TurnNarrator();
+    let shownAt = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let last: Promise<void> = Promise.resolve();
+    const show = (text: string): void => {
+      shownAt = Date.now();
+      last = last.then(() => presence.update(text)).catch(() => undefined);
+    };
+    const redraw = (now: boolean): void => {
+      if (!narrator.worthShowing()) return;
+      const due = this.narrateEveryMs - (Date.now() - shownAt);
+      if (now || due <= 0) {
+        if (timer) clearTimeout(timer);
+        timer = undefined;
+        show(narrator.render());
+      } else if (!timer) {
+        timer = setTimeout(() => {
+          timer = undefined;
+          show(narrator.render());
+        }, due);
+      }
+    };
+    const unwatch = this.watchTurn(ctx, (event) => {
+      if (narrator.take(event)) redraw(event.kind === "tool-start");
+    });
+    return {
+      end: async () => {
+        unwatch();
+        if (timer) clearTimeout(timer);
+        timer = undefined;
+        if (narrator.worthShowing()) show(narrator.renderSteps());
+        await last;
+      },
+    };
   }
 
   private resolve(channel: string, senderId: string): string | null {
@@ -198,6 +268,7 @@ export class ChannelRuntime {
     } catch {
       presence = undefined;
     }
+    const story = presence ? this.narrate(presence, { userId, channel: msg.channel, ...(msg.conversationKey ? { conversationKey: msg.conversationKey } : {}) }) : undefined;
 
     try {
       const answer = await this.handleTurn({
@@ -213,12 +284,14 @@ export class ChannelRuntime {
       // A turn that answered with a card and nothing else still said
       // something; only an empty one needs standing in for.
       if (!reply.text && !reply.card) reply.text = "(no reply)";
+      await story?.end();
       if (presence) {
         await presence.complete(reply);
       } else {
         await this.adapter.send(msg.senderId, reply);
       }
     } catch {
+      await story?.end().catch(() => undefined);
       /*
        * Telling the owner it went wrong can itself go wrong.
        *

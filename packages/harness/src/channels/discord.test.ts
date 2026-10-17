@@ -5,6 +5,7 @@ import type {
   Interaction,
   Message,
 } from "discord.js";
+import { MessageFlags } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -16,6 +17,7 @@ import {
   approvalCustomIds,
   approvalText,
   settledText,
+  storyText,
   buildButtons,
   buildCard,
   buildModal,
@@ -163,8 +165,14 @@ describe("the answer a turn shaped", () => {
       },
       reactions: { cache: { get: () => undefined } },
       channel: {
+        // A posted message can be edited later: the story is one of those.
         send: async (payload: Record<string, unknown>) => {
           edits.push(payload);
+          return {
+            edit: async (next: Record<string, unknown>) => {
+              edits.push({ edit: true, ...next });
+            },
+          };
         },
       },
     } as unknown as Message;
@@ -186,6 +194,21 @@ describe("the answer a turn shaped", () => {
     expect(reactions).toEqual(["⏳", "✅"]);
     expect(edits).toHaveLength(1);
     expect(edits[0]).toEqual({ content: "done" });
+  });
+
+  it("tells the turn's story in one silent message, edited as it goes, and leaves it standing when the answer lands", async () => {
+    const { adapter, edits, message } = presenceFor();
+    const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "hi", native: message });
+    await presence!.update("I'll look at the folder.\n› List projects/x");
+    // Silent, so the owner's phone buzzes for the answer and not for this.
+    expect(edits[0]).toEqual({ content: "⏳ I'll look at the folder.\n-# › List projects/x", flags: MessageFlags.SuppressNotifications });
+    await presence!.update("I'll look at the folder.\n› List projects/x\nTwo stale builds, I'll clear them.\n› Run: rm -rf build");
+    expect(edits[1]).toEqual({ edit: true, content: "⏳ I'll look at the folder.\n-# › List projects/x\nTwo stale builds, I'll clear them.\n-# › Run: rm -rf build" });
+    await presence!.complete({ text: "Cleared two stale builds." });
+    // The marker goes, the story stays, the answer is its own message.
+    expect(edits[2]).toEqual({ edit: true, content: "I'll look at the folder.\n-# › List projects/x\nTwo stale builds, I'll clear them.\n-# › Run: rm -rf build" });
+    expect(edits[3]).toEqual({ content: "Cleared two stale builds." });
+    expect(storyText("x".repeat(3000)).length).toBe(1900);
   });
 
   it("links a reference in the reply to the dashboard, since Discord cannot draw the chip", async () => {
