@@ -9,7 +9,10 @@ four tools with different briefs.
 
 ## What one is
 
-A file, `agents/<name>.md`, that you can read and edit:
+A folder of its own, `agents/<name>/`, with a file `agent.md` in it that you
+can read and edit. The rest of the folder is the agent's: it is told to keep
+its notes and anything it makes there, the way a project keeps its files
+in its own folder. The file:
 
 ```
 ---

@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import type { Workspace } from "../store/workspace.js";
 
@@ -7,10 +8,10 @@ import type { Workspace } from "../store/workspace.js";
  *
  * "Keep an eye on this listing", "handle my travel", "plan Saturdays":
  * each is a responsibility rather than a question, and a responsibility
- * needs somewhere to live between asks. A role is that place, as a file
- * the owner can read and edit: `agents/<name>.md`, a few lines of
- * frontmatter saying what the agent may reach and when it runs, and the
- * brief as the body. Nothing about a role is code. KOS writes one with
+ * needs somewhere to live between asks. A role is that place, as a folder
+ * of its own with a file the owner can read and edit: `agents/<name>/agent.md`,
+ * a few lines of frontmatter saying what the agent may reach and when it
+ * runs, and the brief as the body; the rest of the folder is the agent's. Nothing about a role is code. KOS writes one with
  * agents.create, dispatches work to it, and reads the file again on every
  * turn, so an edit is the next turn's brief.
  *
@@ -101,8 +102,10 @@ export interface Role {
 }
 
 export interface RoleRecord extends Role {
-  /** Workspace-relative path of the file. */
+  /** Workspace-relative path of the file, agents/<name>/agent.md. */
   path: string;
+  /** The agent's own folder, agents/<name>, where it keeps what it makes. */
+  folder: string;
   updatedAt: number;
 }
 
@@ -164,7 +167,7 @@ export function parseRole(text: string, fileName: string): Role {
   const { head, body } = splitFrontmatter(text);
   const name = head.get("name") ?? fileName;
   if (!ROLE_NAME.test(name)) throw new Error(`name must match ${ROLE_NAME}`);
-  if (name !== fileName) throw new Error(`name "${name}" does not match its file "${fileName}.md"`);
+  if (name !== fileName) throw new Error(`name "${name}" does not match its folder "${fileName}"`);
   const description = head.get("description") ?? "";
   if (!description) throw new Error("description is required");
   if (!body) throw new Error("the body is the brief, and it is empty");
@@ -215,7 +218,17 @@ function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-/** The roles in a workspace, read from disk on every call so an edit is live. */
+/** The file inside an agent's folder that says what it is. */
+export const ROLE_FILE = "agent.md";
+
+/**
+ * The roles in a workspace, read from disk on every call so an edit is live.
+ *
+ * An agent is a folder, `agents/<name>/`, with its file `agent.md` in it.
+ * The folder is the agent's own: where it keeps its notes and whatever it
+ * makes, the way a project has a folder. The file alone was the first
+ * shape; one met on disk is moved into its folder.
+ */
 export class RoleStore {
   constructor(private readonly workspace: Workspace) {}
 
@@ -223,23 +236,63 @@ export class RoleStore {
     return this.workspace.resolve(AGENTS_DIR);
   }
 
+  /** The agent's own folder, workspace-relative. */
+  folderOf(name: string): string {
+    return `${AGENTS_DIR}/${name}`;
+  }
+
+  /** The agent's file, workspace-relative. */
   pathOf(name: string): string {
-    return `${AGENTS_DIR}/${name}.md`;
+    return `${this.folderOf(name)}/${ROLE_FILE}`;
+  }
+
+  /**
+   * The file a role was before agents had folders, `agents/<name>.md`, if
+   * one is there. A note an agent left beside the roles is not one: a role
+   * file opens with its frontmatter line, and that is the tell.
+   */
+  private flatOf(name: string): string | undefined {
+    const flat = this.workspace.resolve(`${AGENTS_DIR}/${name}.md`);
+    if (!existsSync(flat) || !statSync(flat).isFile()) return undefined;
+    return /^---\r?\n/.test(readFileSync(flat, "utf8")) ? flat : undefined;
+  }
+
+  /** A role from before agents had folders, moved into its folder. */
+  private adopt(name: string): void {
+    const flat = this.flatOf(name);
+    if (!flat) return;
+    const abs = this.workspace.resolve(this.pathOf(name));
+    if (existsSync(abs)) {
+      rmSync(flat);
+      return;
+    }
+    mkdirSync(this.workspace.resolve(this.folderOf(name)), { recursive: true });
+    renameSync(flat, abs);
   }
 
   list(): { roles: RoleRecord[]; invalid: InvalidRole[] } {
     const dir = this.dir();
     if (!existsSync(dir)) return { roles: [], invalid: [] };
+    // A folder with an agent.md in it, or a file from before; anything else
+    // under agents/ is not an agent and is left alone.
+    const names = new Set<string>();
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".md") && this.flatOf(entry.name.slice(0, -3))) names.add(entry.name.slice(0, -3));
+      else if (entry.isDirectory() && existsSync(join(dir, entry.name, ROLE_FILE))) names.add(entry.name);
+    }
     const roles: RoleRecord[] = [];
     const invalid: InvalidRole[] = [];
-    for (const file of readdirSync(dir).sort()) {
-      if (!file.endsWith(".md")) continue;
-      const name = file.slice(0, -3);
+    for (const name of [...names].sort()) {
+      if (!ROLE_NAME.test(name)) {
+        invalid.push({ name, path: `${AGENTS_DIR}/${name}`, reason: `name must match ${ROLE_NAME}` });
+        continue;
+      }
+      this.adopt(name);
       const path = this.pathOf(name);
       try {
         const abs = this.workspace.resolve(path);
         const role = parseRole(readFileSync(abs, "utf8"), name);
-        roles.push({ ...role, path, updatedAt: statSync(abs).mtimeMs });
+        roles.push({ ...role, path, folder: this.folderOf(name), updatedAt: statSync(abs).mtimeMs });
       } catch (err) {
         invalid.push({ name, path, reason: err instanceof Error ? err.message : String(err) });
       }
@@ -250,37 +303,47 @@ export class RoleStore {
   /** The role, or undefined when there is no such file or it does not parse. */
   get(name: string): RoleRecord | undefined {
     if (!ROLE_NAME.test(name)) return undefined;
+    this.adopt(name);
     const path = this.pathOf(name);
     const abs = this.workspace.resolve(path);
     if (!existsSync(abs)) return undefined;
     try {
-      return { ...parseRole(readFileSync(abs, "utf8"), name), path, updatedAt: statSync(abs).mtimeMs };
+      return { ...parseRole(readFileSync(abs, "utf8"), name), path, folder: this.folderOf(name), updatedAt: statSync(abs).mtimeMs };
     } catch {
       return undefined;
     }
   }
 
   exists(name: string): boolean {
-    return ROLE_NAME.test(name) && existsSync(this.workspace.resolve(this.pathOf(name)));
+    if (!ROLE_NAME.test(name)) return false;
+    return existsSync(this.workspace.resolve(this.pathOf(name))) || this.flatOf(name) !== undefined;
   }
 
-  /** Write the file, whole; the role it describes is what parseRole gives back. */
+  /** Write the file, whole, in its folder; the role it describes is what parseRole gives back. */
   write(role: Role): RoleRecord {
     if (!ROLE_NAME.test(role.name)) throw new Error(`name must match ${ROLE_NAME}`);
     const text = formatRole(role);
     // Round-tripped before it is written, so a brief or prompt the parser
     // would refuse never lands on disk as a role nothing can read.
     parseRole(text, role.name);
-    mkdirSync(this.dir(), { recursive: true });
+    this.adopt(role.name);
+    mkdirSync(this.workspace.resolve(this.folderOf(role.name)), { recursive: true });
     const path = this.pathOf(role.name);
     const abs = this.workspace.resolve(path);
     writeFileSync(abs, text, "utf8");
-    return { ...parseRole(text, role.name), path, updatedAt: statSync(abs).mtimeMs };
+    return { ...parseRole(text, role.name), path, folder: this.folderOf(role.name), updatedAt: statSync(abs).mtimeMs };
   }
 
+  /**
+   * Remove the agent's file. Its folder goes too when nothing else is in it;
+   * one holding the agent's work is left, since that work is the owner's.
+   */
   remove(name: string): boolean {
     if (!this.exists(name)) return false;
+    this.adopt(name);
     rmSync(this.workspace.resolve(this.pathOf(name)));
+    const folder = this.workspace.resolve(this.folderOf(name));
+    if (existsSync(folder) && readdirSync(folder).length === 0) rmSync(folder, { recursive: true });
     return true;
   }
 }

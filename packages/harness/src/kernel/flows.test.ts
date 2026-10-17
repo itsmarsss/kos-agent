@@ -550,9 +550,11 @@ describe("KOS end-to-end flows", () => {
     expect(model.prompts.at(-1)!).toContain("under 40");
 
     // The owner edits the file; the next turn is the new brief and the full toolkit.
-    writeFileSync(join(root, "agents", "price-watch.md"), "---\nname: price-watch\ndescription: Watches a listing\n---\nYou watch two listings now.\n", "utf8");
+    writeFileSync(join(root, "agents", "price-watch", "agent.md"), "---\nname: price-watch\ndescription: Watches a listing\n---\nYou watch two listings now.\n", "utf8");
     await kernel.handleMessage("and now?", { sessionId: thread.id });
     expect(model.systems.at(-1)!).toContain("You watch two listings now.");
+    // It is told it has a folder of its own.
+    expect(model.systems.at(-1)!).toContain("Your folder is agents/price-watch/");
     expect(model.systems.at(-1)!).not.toContain("one listing");
     expect((model.calls.at(-1)!.request.tools ?? []).some((t) => t.name === "files.read")).toBe(true);
     expect(kernel.conversations.get(thread.id)).toMatchObject({ brief: "You watch two listings now.", toolAllow: null });
@@ -565,10 +567,10 @@ describe("KOS end-to-end flows", () => {
     expect(kernel.conversations.get(`cron:${job.id}`)).toBeUndefined();
 
     // The file deleted by hand: the schedule switches itself off and says so.
-    rmSync(join(root, "agents", "price-watch.md"));
+    rmSync(join(root, "agents", "price-watch", "agent.md"));
     await kernel.fireCron(job.id);
     expect(kernel.crons.get(job.id)?.enabled).toBe(false);
-    expect(JSON.stringify(kernel.sessions.get(primarySessionId("owner")))).toContain("agents/price-watch.md is gone");
+    expect(JSON.stringify(kernel.sessions.get(primarySessionId("owner")))).toContain("agents/price-watch/agent.md is gone");
     expect(kernel.conversations.get(`cron:${job.id}`)).toBeUndefined();
 
     // The root has the agents tools; an ordinary chat does not.

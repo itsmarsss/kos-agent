@@ -262,8 +262,10 @@ export interface AgentDraft {
 }
 
 export interface AgentInfo extends AgentDraft {
-  /** Workspace-relative path of the file. */
+  /** Workspace-relative path of the file, agents/<name>/agent.md. */
   path: string;
+  /** The agent's own folder, agents/<name>, where it keeps what it makes. */
+  folder: string;
   updatedAt: number;
   /** Its standing thread. */
   conversationId: string;
