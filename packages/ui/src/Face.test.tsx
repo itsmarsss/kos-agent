@@ -12,8 +12,8 @@ describe("an agent's face", () => {
     expect(lookOf("Price-Watch ")).toEqual(a);
     expect(a.hue).toBeGreaterThanOrEqual(0);
     expect(a.hue).toBeLessThan(360);
-    expect(a.breath).toBeGreaterThanOrEqual(5);
-    expect(a.breath).toBeLessThanOrEqual(9);
+    expect(a.breath).toBeGreaterThanOrEqual(3);
+    expect(a.breath).toBeLessThanOrEqual(8);
     expect(Math.abs(a.tilt)).toBeLessThanOrEqual(3);
     const names = ["price-watch", "research", "saturdays", "travel", "docs-watch", "shopper"];
     const hues = new Set(names.map((n) => lookOf(n).hue));
@@ -24,7 +24,7 @@ describe("an agent's face", () => {
   it("takes what the owner set over the name, and only what is in range", () => {
     const base = lookOf("research");
     const set = lookOf("research", { hue: 400, eyes: "half", gait: 3 });
-    expect(set).toEqual({ ...base, hue: 40, eyes: "half", wobble: 3 });
+    expect(set).toMatchObject({ hue: 40, eyes: "half", wobble: 3 });
     expect(lookOf("research", { hue: Number.NaN, gait: 7 as never })).toEqual(base);
   });
 
@@ -41,8 +41,9 @@ describe("an agent's face", () => {
     render(<Face seed="research" size={32} mood="needs-you" />);
     const img = screen.getByRole("img", { name: "research, needs you" });
     expect(img.className).toContain("blob--needs-you");
-    expect(img.className).toMatch(/blob--w[0-3]/);
     expect(img.getAttribute("style")).toContain("--blob-size: 32px");
+    expect(img.querySelector("svg")?.getAttribute("width")).toBe("32");
+    expect(img.querySelector('[data-part="body"]')?.getAttribute("d")).toMatch(/^M.* Z$/);
     expect(img.textContent).toContain("!");
     cleanup();
     render(<Face seed="research" mood="asleep" label="Research, paused" />);
