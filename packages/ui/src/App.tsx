@@ -681,6 +681,13 @@ export function App(): React.ReactElement {
               flash("ok", `Project ${slug} → ${st}`);
               await refresh();
             }}
+            onDeleteProject={async (slug) => {
+              const gone = await api.deleteProject(slug);
+              setInspect(null);
+              flash("ok", `Deleted ${slug}: ${gone.tablesDropped.length} tables, ${gone.pagesRemoved} pages; ${gone.conversationsArchived} chats archived, ${gone.jobsDisabled} jobs off`);
+              if (route.name === "project" && route.slug === slug) go({ name: "projects" });
+              await refresh();
+            }}
           />
           )}
         </AnimatePresence>
@@ -933,6 +940,12 @@ export function App(): React.ReactElement {
         onInspect={(project, pages) =>
           setInspect({ kind: "project", data: project, pages })
         }
+        onCreate={async ({ name, type }) => {
+          const made = await api.createProject(name, type);
+          flash("ok", `Made ${made.name}`);
+          await refresh();
+          go({ name: "project", slug: made.slug });
+        }}
       />,
     );
   }

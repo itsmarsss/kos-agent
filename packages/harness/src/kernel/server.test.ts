@@ -351,6 +351,19 @@ describe("handleApiRequest", () => {
     await handleApiRequest(kernel, { method: "POST", path: "/api/mcp/remove", body: { name: "google-calendar" } });
   });
 
+  it("keeps a project's thread while the project lives, and lets it go once the project is deleted", async () => {
+    const made = kernel.standUpProject({ name: "Sheds", type: "tracker" });
+    const held = await handleApiRequest(kernel, { method: "POST", path: "/api/conversations/delete", body: { id: made.conversationId } });
+    expect(held.status).toBe(400);
+    expect((held.body as { error: string }).error).toMatch(/a project's own thread cannot be deleted/);
+    const gone = (await handleApiRequest(kernel, { method: "POST", path: "/api/projects/delete", body: { slug: made.slug } })).body as { conversationsArchived: number };
+    expect(gone.conversationsArchived).toBe(1);
+    expect(kernel.conversations.get(made.conversationId)?.archived).toBe(true);
+    const dropped = await handleApiRequest(kernel, { method: "POST", path: "/api/conversations/delete", body: { id: made.conversationId } });
+    expect(dropped.status).toBe(200);
+    expect(kernel.conversations.get(made.conversationId)).toBeUndefined();
+  });
+
   it("hands a chat on from the dashboard, and drafts the brief", async () => {
     const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Beds" });
     const other = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Garden" });

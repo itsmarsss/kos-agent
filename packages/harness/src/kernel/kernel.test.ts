@@ -308,6 +308,24 @@ describe("Kernel", () => {
     expect(await kernel.draftHandoff(source.id)).toBe("Got it.");
   });
 
+  it("deletes a project with its data, keeping its chats archived at the root and turning its jobs off", async () => {
+    kernel = await boot(stubInference([]));
+    const books = kernel.standUpProject({ name: "Books", type: "tracker" });
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Shelf", projectSlug: books.slug });
+    const job = kernel.crons.create({ name: "Nightly shelf", schedule: "0 9 * * *", type: "self_prompt", prompt: "count the books", projectSlug: books.slug });
+    const gone = kernel.deleteProject(books.slug);
+    expect(gone).toMatchObject({ slug: books.slug, conversationsArchived: 2, jobsDisabled: 1 });
+    expect(kernel.manifest.get(books.slug)).toBeUndefined();
+    const kept = kernel.conversations.get(chat.id)!;
+    expect(kept.archived).toBe(true);
+    expect(kept.projectSlug).toBeNull();
+    expect(kernel.conversations.get(books.conversationId)?.archived).toBe(true);
+    const off = kernel.crons.get(job.id)!;
+    expect(off.enabled).toBe(false);
+    expect(off.projectSlug).toBeNull();
+    expect(off.prompt).toBe("count the books");
+  });
+
   it("names every table of its own in the sql fence, so a new store cannot slip past it", async () => {
     kernel = await boot(stubInference([]));
     const tables = (kernel.workspace.db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[]).map((r) => r.name);

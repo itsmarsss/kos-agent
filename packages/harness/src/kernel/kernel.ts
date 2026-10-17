@@ -44,7 +44,7 @@ import type { Provider } from "../models/provider.js";
 import { CUSTOM_PROVIDER, OpenAICompatibleProvider } from "../models/providers/compat.js";
 import { CLASSIFIER_KEY, CUSTOM_ENDPOINT_KEY, parseClassifierEndpoint, parseCustomEndpoint, type CustomEndpoint } from "../models/settings.js";
 import { HttpClassifier, LlmClassifier, type Classifier } from "../models/classify.js";
-import type { CronJob } from "../cron/types.js";
+import type { CreateCronInput, CronJob } from "../cron/types.js";
 import {
   FactsStore,
   MemoryRetriever,
@@ -1388,12 +1388,37 @@ export class Kernel {
   /**
    * Permanently delete a project and everything it owns (tables, pages, files,
    * manifest row). Irreversible; archiving via setStatus is the reversible one.
+   *
+   * Its chats are kept, archived and moved to the root, since what was said
+   * outlives the data; its jobs are turned off and left at the root, since a
+   * job for a project that is gone would run against nothing and the owner
+   * should see it rather than find it later under a slug nobody knows.
    */
-  deleteProject(slug: string): DeleteProjectResult {
-    return cascadeDeleteProject(
+  deleteProject(slug: string): DeleteProjectResult & { conversationsArchived: number; jobsDisabled: number } {
+    const result = cascadeDeleteProject(
       { manifest: this.manifest, migrator: this.migrator, pages: this.pages },
       slug,
     );
+    let conversationsArchived = 0;
+    for (const c of this.conversations.list(this.profile.ownerId, { includeArchived: true })) {
+      if (c.projectSlug !== slug) continue;
+      this.conversations.moveToProject(c.id, null);
+      if (!c.archived) {
+        this.conversations.setArchived(c.id, true);
+        conversationsArchived += 1;
+      }
+    }
+    let jobsDisabled = 0;
+    for (const job of this.crons.list()) {
+      if (job.projectSlug !== slug) continue;
+      const { id, createdAt: _c, updatedAt: _u, lastRunAt: _l, projectSlug: _p, ...rest } = job as CronJob & { createdAt?: number; updatedAt?: number; lastRunAt?: number | null };
+      this.crons.update(id, { ...(rest as CreateCronInput), enabled: false });
+      // update() leaves the switch alone; off is a setting of its own.
+      this.crons.setEnabled(id, false);
+      jobsDisabled += 1;
+    }
+    this.reloadCron();
+    return { ...result, conversationsArchived, jobsDisabled };
   }
 
   /** KOS's own conversation, made with its router brief so the hierarchy holds. */

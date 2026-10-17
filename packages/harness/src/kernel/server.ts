@@ -3190,12 +3190,17 @@ function refuseFixed(
   if (!conversation) return null;
   const kind = conversationKind(conversation, kernel.profile.ownerId);
   if (kind === "chat") return null;
+  // A project's thread is fixed while the project is; once the project is
+  // deleted the thread is an ordinary archived chat, the owner's to keep or drop.
+  if (kind === "project" && !kernel.manifest.get(id.slice("project:".length))) return null;
   const what =
     kind === "orchestrator"
       ? "KOS itself"
       : kind === "surface"
         ? `the ${conversation.channel} stream`
-        : "a schedule's own thread";
+        : kind === "project"
+          ? "a project's own thread"
+          : "a schedule's own thread";
   return {
     status: 400,
     body: { error: `${what} cannot be ${verb}.` },
