@@ -175,7 +175,7 @@ export function Panel({
                   <button
                     type="button"
                     className="panel-row"
-                    onClick={() => onGo("agents")}
+                    onClick={() => onGo("builds")}
                   >
                     <span className={`agent-dot agent-dot--${b.status}`} />
                     <span className="panel-row-main">{b.dir}</span>

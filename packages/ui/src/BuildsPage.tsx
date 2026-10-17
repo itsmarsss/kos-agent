@@ -196,7 +196,7 @@ export function BuildsPage({
 
   const load = (): void => {
     void api
-      .agents()
+      .builds()
       .then((r) => {
         setBuilds(r.builds);
         setError(null);
@@ -259,7 +259,7 @@ export function BuildsPage({
             if (!dir || !task) return;
             setBusy(true);
             void api
-              .startAgent(dir, task)
+              .startBuild(dir, task)
               .then(() => {
                 setStarting(false);
                 setDraft({ dir: "", task: "" });
