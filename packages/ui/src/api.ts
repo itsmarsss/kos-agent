@@ -257,8 +257,18 @@ export interface AgentInfo extends AgentDraft {
   updatedAt: number;
   /** Its standing thread. */
   conversationId: string;
+  /** What it is up to there. Absent from a host older than the list that shows it. */
+  thread?: {
+    id: string;
+    activity: "working" | "needs-you" | "error" | "idle";
+    unread: boolean;
+    updatedAt: number;
+    /** The last thing it said, in one line; null before it has said anything. */
+    lastSaid: string | null;
+    lastError?: string;
+  };
   /** Its schedule as a job, when it has one. */
-  job?: { id: number; schedule: string; enabled: boolean; lastRunAt: number | null };
+  job?: { id: number; schedule: string; enabled: boolean; lastRunAt: number | null; nextRunAt: number | null };
 }
 
 /** A file under agents/ that does not read as a role, with the reason. */

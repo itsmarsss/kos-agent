@@ -17,7 +17,8 @@ import { ease, listItem, spring, stagger, card } from "./motion.js";
 import { useDismiss } from "./useDismiss.js";
 
 import { ContextMeter } from "./ContextMeter.js";
-import { groupChats, isBusy, placeOf, projectSummary } from "./chattree.js";
+import { byAttention, groupChats, isBusy, placeOf, projectSummary } from "./chattree.js";
+import { AgentPanel } from "./AgentPanel.js";
 import { Face, moodOf } from "./Face.js";
 import { Gutter } from "./Gutter.js";
 import { NewProjectDialog } from "./NewProjectDialog.js";
@@ -97,6 +98,17 @@ export interface ProjectMode {
   onError: (message: string) => void;
 }
 
+/** The page scoped to one standing agent. See ChatsPageProps.agent. */
+export interface AgentMode {
+  name: string;
+  /** Out of the agent, back to the list. */
+  onBack: () => void;
+  onOpenFile: (path: string) => void;
+  onError: (message: string) => void;
+  /** The agent was removed from its panel: nothing is left to show here. */
+  onRemoved: () => void;
+}
+
 export interface ChatsPageProps {
   conversations: Conversation[];
   /** Manifest projects, so the rail shows a project even before it has an orchestrator conversation. */
@@ -134,6 +146,12 @@ export interface ChatsPageProps {
    * is open, and a third column holds the project's files, pages and tables.
    */
   project?: ProjectMode;
+  /**
+   * Agent mode: the page is one standing agent's. The rail is its thread
+   * and the chats it has in projects, the view is its thread, and the third
+   * column holds its file and schedule. Its thread stays off the Chats tab.
+   */
+  agent?: AgentMode;
   /** `/btw <question>`: ask it beside this chat, in the quick-question window. */
   onAside: (question: string) => void;
   /** A line of feedback shown briefly over the page: what a command just did. */
@@ -214,6 +232,7 @@ export function ChatsPage({
   onCreateProject,
   onDeleteProject,
   project,
+  agent,
   onAside,
   onNotice,
   onChanged,
@@ -598,15 +617,17 @@ export function ChatsPage({
         .sort((a, b) => a.title.localeCompare(b.title)),
     [conversations],
   );
-  /** Standing agents, pinned with the projects: each is a responsibility kept, not a chat begun. */
-  const standing = useMemo(
-    () =>
-      conversations
-        .filter((c) => c.kind === "agent" && !c.archived)
-        .sort((a, b) => a.title.localeCompare(b.title)),
-    [conversations],
-  );
   const tree = useMemo(() => groupChats(conversations), [conversations]);
+  /*
+   * Agent mode. The agent's own thread is agent:<name>; the chats it runs
+   * inside projects are the ones stamped with its role. Its file and
+   * schedule are the panel's business.
+   */
+  const agentThread = agent ? conversations.find((c) => c.id === `agent:${agent.name}`) : undefined;
+  const agentInstances = useMemo(
+    () => (agent ? conversations.filter((c) => c.kind === "chat" && c.role === agent.name && !c.archived).sort(byAttention) : []),
+    [agent, conversations],
+  );
   const q = query.trim().toLowerCase();
   const matches = (c: Conversation): boolean => !q || c.title.toLowerCase().includes(q);
   const filtered = useMemo(() => tree.roots.filter(matches), [tree, q]);
@@ -1252,7 +1273,7 @@ export function ChatsPage({
 
   return (
     <div
-      className={`chats ${collapsed && !narrow ? "is-collapsed" : ""} ${narrow ? "is-narrow" : ""} ${active ? "has-active" : ""} ${listOpen ? "is-list-open" : ""} ${project ? "is-project" : ""} ${project && !panelOpen ? "panel-hidden" : ""} ${resizing ? "is-resizing" : ""}`}
+      className={`chats ${collapsed && !narrow ? "is-collapsed" : ""} ${narrow ? "is-narrow" : ""} ${active ? "has-active" : ""} ${listOpen ? "is-list-open" : ""} ${project || agent ? "is-project" : ""} ${(project || agent) && !panelOpen ? "panel-hidden" : ""} ${resizing ? "is-resizing" : ""}`}
       style={{ "--rail-w": `${railW}px`, "--panel-w": `${panelW}px` } as CSSProperties}
     >
       {narrow && listOpen && (
@@ -1373,6 +1394,51 @@ export function ChatsPage({
             )}
           </ul>
         </aside>
+      ) : agent ? (
+        /* The agent's own rail: its thread above, the chats it runs inside
+           projects below. Back is the way out. */
+        <aside className="chats-list chats-list--project">
+          <div className="chats-list-head">
+            <button type="button" className="chats-back" onClick={agent.onBack}>
+              <ChevronLeft size={14} />
+              All agents
+            </button>
+            <div className="chats-project-head">
+              <span className="chats-project-name">{agentThread?.title ?? agent.name}</span>
+              <span className="chats-project-sub">A standing agent · agents/{agent.name}.md</span>
+            </div>
+          </div>
+          <div className="chats-pinned">
+            {agentThread && (
+              <a
+                className={`chats-root ${agentThread.id === activeId ? "is-active" : ""}`}
+                href={hrefOf(agentThread)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  onOpen(agentThread.id);
+                }}
+              >
+                <Face seed={agent.name} size={26} mood={moodOf(agentThread.activity)} />
+                <span className="chats-root-text">
+                  <span className="chats-root-title">
+                    Its thread
+                    <ThreadDot live={progress[agentThread.id]} chat={agentThread} waiting={waitingOn.has(agentThread.id)} />
+                  </span>
+                  <span className="chats-root-sub">Where it is spoken to and where its schedule runs</span>
+                </span>
+              </a>
+            )}
+            <div className="chats-group-head">
+              <span>In projects</span>
+            </div>
+            <ul className="chats-flat">
+              {agentInstances.map((c) => renderChat(c))}
+              {agentInstances.length === 0 && (
+                <li className="chats-empty">Not working in any project. A project's orchestrator can dispatch it into one.</li>
+              )}
+            </ul>
+          </div>
+        </aside>
       ) : (
         <aside className="chats-list">
           <div className="chats-list-head">
@@ -1396,7 +1462,7 @@ export function ChatsPage({
             />
           </div>
           {showArchived && <div className="chats-section">Archived chats</div>}
-          {!showArchived && (orchestrator || projectRows.length > 0 || standing.length > 0 || surfaces.length > 0) && (
+          {!showArchived && (orchestrator || projectRows.length > 0 || surfaces.length > 0) && (
             <div className="chats-pinned">
               {orchestrator && (
                 <a
@@ -1520,41 +1586,9 @@ export function ChatsPage({
                   })}
                 </ul>
               )}
-              {standing.length > 0 && (
-                /* A row is the agent's own thread: where it is spoken to and
-                   where its schedule runs. Made by KOS from a request, and
-                   edited as a file, so there is nothing to make here. */
-                <>
-                  <div className="chats-group-head">
-                    <span>Agents</span>
-                  </div>
-                  <ul className="chats-projects">
-                    {standing.map((c) => (
-                      <li key={c.id}>
-                        <a
-                          className={`chats-item chats-item--pinned ${c.id === activeId ? "is-active" : ""}`}
-                          href={hrefFor({ name: "chats", id: c.id })}
-                          title={c.role ? `A standing agent: agents/${c.role}.md` : "A standing agent"}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            onOpen(c.id);
-                          }}
-                        >
-                          {c.id === activeId && (
-                            <m.span className="chats-active-bar" layoutId="chat-active" transition={spring} />
-                          )}
-                          <span className="chats-item-top">
-                            <Face seed={c.role ?? c.id} size={18} mood={moodOf(c.activity)} />
-                            <span className="chats-item-title">{c.title}</span>
-                            {isBusy(c) && <StatusDot state="working" label="working" />}
-                            <span className="chats-badge">agent</span>
-                          </span>
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
+              {/* Standing agents are not listed here: each has a page of its
+                  own under Agents, with its thread and its file, and the
+                  Chats tab stays the owner's own chats. */}
               {surfaces.length > 0 && (
                 /* One line however many there are. A surface is a way in, not
                    a thread the owner is working in, and given a row each they
@@ -1705,19 +1739,21 @@ export function ChatsPage({
             </button>
           </div>
         )}
-        {!active && project ? (
+        {!active && (project || agent) ? (
           /* Inside a project there is no landing: the thread is the
              orchestrator's by default, and it is being stood up if it is not
-             there yet. */
+             there yet. Inside an agent, likewise its own thread. */
           <>
             <div className="chats-view-path">{listToggle}</div>
             <div className="chats-placeholder">
               <p className="ops-muted">
-                {!projectRecord
-                  ? `No project called ${project.slug}.`
-                  : needsOrchestrator
-                    ? "Starting the orchestrator…"
-                    : "No such thread in this project."}
+                {agent
+                  ? `No thread for an agent called ${agent.name} yet.`
+                  : !projectRecord
+                    ? `No project called ${project!.slug}.`
+                    : needsOrchestrator
+                      ? "Starting the orchestrator…"
+                      : "No such thread in this project."}
               </p>
             </div>
           </>
@@ -1895,7 +1931,7 @@ export function ChatsPage({
                 </div>
               </div>
               <div className="chats-view-actions">
-                {project && (
+                {(project || agent) && (
                   /* An icon, not words: beside Configure and Archive a third
                      label squeezed the title into two lines. */
                   <button
@@ -2421,6 +2457,17 @@ export function ChatsPage({
           hidden={!panelOpen}
         />
       )}
+      {agent && (
+        <AgentPanel
+          name={agent.name}
+          onOpenFile={agent.onOpenFile}
+          onChanged={onChanged}
+          onError={agent.onError}
+          onNotice={onNotice}
+          onRemoved={agent.onRemoved}
+          hidden={!panelOpen}
+        />
+      )}
 
       {/* The columns are the owner's to size. The handles sit in the gaps. */}
       {!narrow && (
@@ -2446,7 +2493,7 @@ export function ChatsPage({
           onExpand={() => setCollapsed(false)}
         />
       )}
-      {project && !narrow && (
+      {(project || agent) && !narrow && (
         <Gutter
           className="chats-gutter--panel"
           label="the workspace panel"

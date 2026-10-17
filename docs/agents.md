@@ -54,10 +54,11 @@ With reduced motion on, it holds still.
 
 ## Where it lives
 
-Each agent has one standing thread, `agent:<name>`, pinned in the Chats
-rail under Agents. Talk to it there as you would to any chat. Its schedule
-runs in that same thread, so a run can be watched while it happens and
-asked about afterwards, and what the agent remembers is the agent's own.
+Each agent has one standing thread, `agent:<name>`, on the agent's own page
+under Agents, not in the Chats tab. Talk to it there as you would to any
+chat. Its schedule runs in that same thread, so a run can be watched while
+it happens and asked about afterwards, and what the agent remembers is the
+agent's own.
 
 Dispatched into a project (by that project's orchestrator, or by KOS with a
 project named), the agent gets an ordinary chat inside the project, under
@@ -65,8 +66,10 @@ the same brief, so what it makes lands with the project.
 
 ## On the dashboard
 
-Agents, in the sidebar, lists them and opens each one's file as fields, with
-Run now, Open thread, File and Delete. `@agent:<name>` names one in a chat
+Agents, in the sidebar, lists them with what each is up to and opens each
+one's page: its thread, the chats it has in projects, and beside the thread
+its schedule (Run now, Pause), its file as fields (Edit), Open in Files and
+Delete. `@agent:<name>` names one in a chat
 or as a handoff target (`chats.handoff` takes it, as it takes `@chat:` and
 `@project:`): the chat is told what the agent is for and where its thread
 is. Coding sub-agents, the builds, are `@build:<id>` and live under Runs.
