@@ -522,6 +522,7 @@ describe("KOS end-to-end flows", () => {
       text("Ran."),
       text("Hello."),
       text("Hi."),
+      text("Will do."),
     ]);
     kernel = await boot(model.inference);
     // As agents.create does it: a file, a thread, a schedule.
@@ -593,6 +594,10 @@ describe("KOS end-to-end flows", () => {
     const plain = kernel.conversations.create({ userId: "owner", title: "Plain" });
     await kernel.handleMessage("hi", { sessionId: plain.id });
     expect((model.calls.at(-1)!.request.tools ?? []).map((t) => t.name)).not.toContain("agents.create");
+    // The owner talking to KOS on a surface is the root by another door.
+    await kernel.handleChannelTurn({ text: "keep an eye on this", userId: "owner", channel: "discord" });
+    const onDiscord = (model.calls.at(-1)!.request.tools ?? []).map((t) => t.name);
+    expect(onDiscord).toEqual(expect.arrayContaining(["agents.list", "agents.create", "agents.dispatch", "chats.dispatch"]));
   });
 
   it("tells the model how to format when the turn came from Discord", async () => {
