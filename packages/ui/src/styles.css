@@ -2397,22 +2397,20 @@ select {
 
 /* —— scrollbars ——
    The platform default is a light grey slab that belongs to a different
-   application. Firefox gets the two-value form; everything else the parts. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--line-strong) transparent;
+   application. Ours is a thin line at the edge in a 6px lane, faint until
+   hovered. Chrome drops the ::-webkit parts the moment scrollbar-width is
+   set (its "thin" is an 11px slab), so the two-value form is Firefox's
+   alone. */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
+  }
 }
-::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  background: var(--line);
-  border-radius: 999px;
-  /* Inset by a transparent border so the bar reads as narrower than its
-     hit area, which stays comfortable to grab. */
-  border: 3px solid transparent;
-  background-clip: content-box;
-}
-::-webkit-scrollbar-thumb:hover { background: var(--line-strong); background-clip: content-box; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--line-strong); }
 ::-webkit-scrollbar-corner { background: transparent; }
 
 /* —— select —— */

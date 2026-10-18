@@ -100,6 +100,14 @@ export function summarizeAction(
       return `Start conversation “${fmtVal(a.title)}”`;
     case "chats.dispatch":
       return `Hand work to conversation ${fmtVal(a.id)}`;
+    case "blobs.list":
+      return "List the blobs";
+    case "blobs.create":
+      return `Make the blob ${fmtVal(a.name)}${typeof a.description === "string" && a.description ? `: ${a.description}` : ""}`;
+    case "blobs.dispatch":
+      return `Hand work to the blob ${fmtVal(a.agent)}${typeof a.project === "string" && a.project ? ` in ${a.project}` : ""}`;
+    case "blobs.remove":
+      return `Remove the blob ${fmtVal(a.name)}`;
     case "chats.handoff": {
       const brief = typeof a.brief === "string" ? a.brief.replace(/\s+/g, " ").trim() : "";
       return `Hand off to ${fmtVal(a.to)}: ${brief.length > 90 ? `${brief.slice(0, 89)}…` : brief}`;
