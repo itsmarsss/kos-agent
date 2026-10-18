@@ -103,6 +103,28 @@ describe("agent-authored cards and buttons", () => {
     expect(embed.fields).toEqual([{ name: "Size", value: "2MB", inline: true }]);
   });
 
+  it("links a card's references where Discord renders markdown, and tidies them where it does not", () => {
+    // A recap's card showed @file:… and @page:… raw: only the words above a
+    // card were linked, never the card.
+    const embed = buildCard(
+      {
+        title: "Weekend recap for @project:workout_tracker",
+        body: "Five written: @file:blobs/recap/blob.md. See @page:book_crm_home.",
+        fields: [{ name: "Next: @schedule:[blob:recap]", value: "@schedule:[blob:recap] fires at 18:00" }],
+        footer: "Verified against @file:.kos/daemon.log",
+      },
+      { dashboardUrl: "https://kos.example/" },
+    ).toJSON();
+    expect(embed.title).toBe("Weekend recap for workout_tracker");
+    expect(embed.description).toBe(
+      "Five written: [blobs/recap/blob.md](https://kos.example/#/files/blobs%2Frecap%2Fblob.md). See [book_crm_home](https://kos.example/#/page/book_crm_home).",
+    );
+    expect(embed.fields).toEqual([{ name: "Next: blob:recap", value: "[blob:recap](https://kos.example/#/schedule) fires at 18:00" }]);
+    expect(embed.footer?.text).toBe("Verified against .kos/daemon.log");
+    // Nowhere to link to: the names alone, in bold where markdown renders.
+    expect(buildCard({ body: "see @page:home" }).toJSON().description).toBe("see **home**");
+  });
+
   it("trims a field rather than refusing the whole message", () => {
     const embed = buildCard({ fields: [{ name: "n", value: "x".repeat(2000) }] }).toJSON();
     expect(embed.fields?.[0]?.value).toHaveLength(1024);

@@ -43,6 +43,18 @@ export function mentionRoute(kind: string, id: string): string {
   }
 }
 
+/**
+ * The text with every reference tidied to its name and nothing more, for a
+ * place that renders no markdown at all: an embed's title or footer, where
+ * a masked link would show as its own brackets.
+ */
+export function plainMentions(text: string): string {
+  return text
+    .split(CODE)
+    .map((part, i) => (i % 2 === 1 ? part : part.replace(MENTION, (_whole, _kind: string, bracketed?: string, plain?: string) => bracketed ?? plain ?? "")))
+    .join("");
+}
+
 /** The text with every reference turned into a link, or a plain name when there is nowhere to link to. */
 export function linkMentions(text: string, dashboardUrl?: string): string {
   const base = dashboardUrl?.replace(/\/+$/, "");
