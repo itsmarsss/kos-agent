@@ -1137,7 +1137,8 @@ export function ChatsPage({
   };
 
   /** One chat in the list, at the root or under its project. */
-  const renderChat = (c: Conversation): ReactElement => (
+  /** A row for a chat; `label` says what to call it where its own title would not tell rows apart. */
+  const renderChat = (c: Conversation, label?: string): ReactElement => (
       <li key={c.id}>
         {/* Hover reveals what can be done with a chat, so the list is
             a list until you need it to be more. */}
@@ -1249,7 +1250,7 @@ export function ChatsPage({
             <ThreadDot live={progress[c.id]} chat={c} waiting={waitingOn.has(c.id)} />
             {/* An agent working inside a project wears its role's face. */}
             {c.role && <Face seed={c.role} size={16} mood={moodOf(c.activity)} />}
-            <span className="chats-item-title">{c.title}</span>
+            <span className="chats-item-title">{label ?? c.title}</span>
             <span className="chats-item-when">{relative(c.updatedAt)}</span>
           </span>
           {/* Title and state only. The brief and the tool list made every
@@ -1434,7 +1435,9 @@ export function ChatsPage({
               <span>In projects</span>
             </div>
             <ul className="chats-flat">
-              {agentInstances.map((c) => renderChat(c))}
+              {/* Every instance carries the agent's own name, so the row is
+                  named for the project it is in: that is what tells them apart. */}
+              {agentInstances.map((c) => renderChat(c, c.projectSlug ? projectName(c.projectSlug) : c.title))}
               {agentInstances.length === 0 && (
                 <li className="chats-empty">Not working in any project. A project's orchestrator can dispatch it into one.</li>
               )}
