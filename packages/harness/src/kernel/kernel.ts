@@ -2032,16 +2032,18 @@ export class Kernel {
       sessionId: conversation.id,
       channel: input.channel,
       /*
-       * The surface's own thread may hand work on.
+       * The surface's own thread may hand work on, and keep standing agents.
        *
        * It keeps the full toolkit, so most things happen where they were
        * asked. The chats tools are for the rest: work that already has a
-       * conversation, or is big enough to want one. Granted only here,
-       * because a project chat that could spawn more of itself is a loop
-       * waiting to happen.
+       * conversation, or is big enough to want one. The agents tools are
+       * there because this is the owner talking to KOS, as at the root on
+       * the dashboard: "keep an eye on this" said on Discord should get an
+       * agent the same way. Granted only here, because a project chat that
+       * could spawn more of itself is a loop waiting to happen.
        */
       ...(conversation.id === surfaceSessionId(input.channel, input.userId)
-        ? { grant: [...CHAT_TOOLS] }
+        ? { grant: [...CHAT_TOOLS, ...AGENT_TOOLS] }
         : {}),
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     });

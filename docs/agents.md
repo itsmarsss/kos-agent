@@ -92,7 +92,8 @@ is. Coding sub-agents, the builds, are `@build:<id>` and live under Runs.
 
 ## How KOS makes one
 
-The root and a project's orchestrator have four tools, and no other chat
+The root, a project's orchestrator and the thread a surface talks to KOS
+in (your Discord DM, iMessage or SMS) have four tools, and no other chat
 does, so an agent cannot spawn more of itself:
 
 - `agents.list`: what exists, with what each is for and when it runs.

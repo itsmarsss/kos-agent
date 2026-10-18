@@ -18,6 +18,14 @@ never lands first; when the answer comes, as its own message, the story
 stays as the record of what was done. A turn with no steps gets no extra
 message.
 
+Standing agents work from here as from the dashboard: "keep an eye on
+this listing" said in the DM makes one, "ask recap what I got done" sends
+the task to it, and `@agent:<name>` names one. The DM thread is told when
+a dispatched agent answers, and the answer is sent to you here as well. An
+agent's own approvals, from its schedule or a dispatch, ask here like any
+other; a message it sends you with `notify` arrives here too. Its thread
+stays on the dashboard, under Agents.
+
 ```
 KOS_SECRET_DISCORD=   bot token
 KOS_OWNER_DISCORD=    your user id, and the inbound gate
