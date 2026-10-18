@@ -398,6 +398,11 @@ describe("handleApiRequest", () => {
     })).body as { agent: { name: string; tools?: string[]; conversationId: string; job?: { id: number; schedule: string; enabled: boolean } } };
     expect(saved.agent).toMatchObject({ name: "price-watch", tools: ["browser", "memory"], conversationId: "agent:price-watch", job: { schedule: "0 9 * * 1", enabled: true } });
     expect(kernel.conversations.get("agent:price-watch")).toMatchObject({ role: "price-watch", toolAllow: ["browser", "memory"] });
+    // Making a new one under a name that exists is refused, not an overwrite.
+    const dup = await handleApiRequest(kernel, { method: "POST", path: "/api/agents/save", body: { name: "price-watch", description: "Another", brief: "No.", create: true } });
+    expect(dup.status).toBe(409);
+    expect((dup.body as { error: string }).error).toMatch(/already exists/);
+    expect(kernel.roles.get("price-watch")?.description).toBe("Watches a listing");
     const listed = (await handleApiRequest(kernel, { method: "GET", path: "/api/agents" })).body as {
       agents: { name: string; thread: { id: string; activity: string; lastSaid: string | null }; job?: { id: number; nextRunAt: number | null } }[];
     };

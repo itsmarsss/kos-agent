@@ -36,6 +36,8 @@ interface Draft {
 }
 
 const BLANK: Draft = { name: "", description: "", brief: "", tools: null, memory: "own", task: "reasoning", schedule: "", prompt: "", face: {} };
+/** What the harness accepts as a name: it is a folder name and a thread id. */
+const NAME_SHAPE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 function toDraft(a: AgentInfo): Draft {
   return {
@@ -95,20 +97,26 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The names already in use, so a new one is told it is taken before it is sent. */
+  const [taken, setTaken] = useState<ReadonlySet<string>>(new Set());
   const isNew = !initial;
   const readable = draft.schedule.trim() ? describeCron(draft.schedule.trim()) : null;
   const badSchedule = draft.schedule.trim() !== "" && readable === null;
+  const name = draft.name.trim().toLowerCase();
+  const nameTaken = isNew && name !== "" && taken.has(name);
+  const nameOdd = name !== "" && !NAME_SHAPE.test(name);
 
   useEffect(() => {
     void api.tools().then(setTools).catch(() => setTools([]));
-  }, []);
+    if (isNew) void api.agents().then((r) => setTaken(new Set([...r.agents.map((a) => a.name), ...r.invalid.map((i) => i.name)]))).catch(() => undefined);
+  }, [isNew]);
 
   const save = (): void => {
-    if (busy || badSchedule) return;
+    if (busy || badSchedule || nameTaken || nameOdd) return;
     setBusy(true);
     setError(null);
     api
-      .saveAgent(fromDraft(draft))
+      .saveAgent(fromDraft(draft), { create: isNew })
       .then((r) => onSaved(r.agent))
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
       .finally(() => setBusy(false));
@@ -131,8 +139,26 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
             <div className="agents-fields">
               <label className="kos-field">
                 <span className="kos-field-label">Name</span>
-                <input className="kos-input" value={draft.name} disabled={!isNew} placeholder="price-watch" autoFocus={isNew} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-                {isNew && <span className="hint">Short and plain: letters, digits, dashes. It names the folder and the thread.</span>}
+                <input
+                  className={`kos-input${nameTaken || nameOdd ? " is-invalid" : ""}`}
+                  value={draft.name}
+                  disabled={!isNew}
+                  placeholder="price-watch"
+                  autoFocus={isNew}
+                  aria-invalid={nameTaken || nameOdd}
+                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                />
+                {nameTaken ? (
+                  <span className="field-error" role="alert">
+                    An agent called {name} already exists. Pick another name, or edit that one.
+                  </span>
+                ) : nameOdd ? (
+                  <span className="field-error" role="alert">
+                    Letters, digits and dashes only, starting with a letter or digit.
+                  </span>
+                ) : (
+                  isNew && <span className="hint">Short and plain: letters, digits, dashes. It names the folder and the thread.</span>
+                )}
               </label>
               <label className="kos-field">
                 <span className="kos-field-label">What it is for</span>
@@ -214,7 +240,7 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
 
       {error && <p className="ops-alert ops-alert--err">{error}</p>}
       <div className="rename-actions">
-        <button type="submit" className="btn btn--primary" disabled={busy || badSchedule || !draft.name.trim() || !draft.description.trim() || !draft.brief.trim()}>
+        <button type="submit" className="btn btn--primary" disabled={busy || badSchedule || nameTaken || nameOdd || !draft.name.trim() || !draft.description.trim() || !draft.brief.trim()}>
           {busy ? "Saving…" : isNew ? "Make it" : "Save"}
         </button>
         <button type="button" className="btn" disabled={busy} onClick={onCancel}>
