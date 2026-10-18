@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   IMessageAdapter,
+  approvalLines,
   describeStartFailure,
   parseDecision,
   renderForText,
@@ -63,6 +64,19 @@ describe("rendering for a surface with no furniture", () => {
       card: { fields: [{ name: "​", value: "just the value" }] },
     });
     expect(text).toBe("just the value");
+  });
+});
+
+describe("an approval as plain lines", () => {
+  it("opens with who is asking, then what they said, the action and the reason", () => {
+    expect(approvalLines({ id: "9", text: "Approve shell.run?", reason: "deletes files", why: "I'll clear the build folder.", asker: { name: "Recap", conversationId: "agent:recap" } })).toEqual([
+      "Recap needs your OK.",
+      "Recap: I'll clear the build folder.",
+      "Approve shell.run?",
+      "deletes files",
+    ]);
+    // Raised from nowhere in particular, it is KOS's own voice and no headline.
+    expect(approvalLines({ id: "9", text: "Approve x?", why: "Doing x." })).toEqual(["KOS: Doing x.", "Approve x?"]);
   });
 });
 

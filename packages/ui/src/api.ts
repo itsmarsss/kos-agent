@@ -72,6 +72,8 @@ export interface PendingAction {
   rule?: { tool: string; scope: string | null; project: string | null } | null;
   /** What the agent said just before it asked. */
   why?: string | null;
+  /** Who is asking, by the name the owner knows the chat by: a blob's title, a project's name, KOS. */
+  asker?: string;
 }
 
 export interface Project {

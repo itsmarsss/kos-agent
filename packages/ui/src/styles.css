@@ -7452,6 +7452,7 @@ a.health {
 .ext-item-setup { font-size: var(--text-xs); color: var(--faint); line-height: 1.45; word-break: break-word; }
 
 /* What the agent said before it asked, over the ask it belongs to. */
+.inbox-asker { display: block; margin-bottom: 0.2rem; font-size: var(--text-sm); font-weight: 600; color: var(--muted); }
 .inbox-said { display: block; margin-bottom: 0.2rem; color: var(--text); font-style: italic; }
 .inbox-said::before { content: "“"; }
 .inbox-said::after { content: "”"; }

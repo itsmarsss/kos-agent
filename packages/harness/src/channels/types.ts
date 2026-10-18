@@ -232,6 +232,18 @@ export interface ApprovalRequest {
   picture?: string;
   /** What the agent said just before it asked, in its own words. */
   why?: string;
+  /**
+   * Who is asking: the chat the action belongs to, by the name the owner
+   * knows it by (a blob's title, a project's name, KOS itself). A prompt
+   * without it is a command with no one behind it, and a yes to that is a
+   * yes to anyone.
+   */
+  asker?: Asker;
+}
+
+export interface Asker {
+  name: string;
+  conversationId: string;
 }
 
 export interface ApprovalDecision {

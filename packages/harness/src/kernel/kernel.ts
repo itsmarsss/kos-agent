@@ -1,7 +1,7 @@
 import { readFileSync, mkdirSync } from "node:fs";
 import { runAgent, type Inference } from "../agent/loop.js";
 import { PressRoutes } from "../channels/presses.js";
-import type { OutboundMessage, Sender } from "../channels/types.js";
+import type { Asker, OutboundMessage, Sender } from "../channels/types.js";
 import { DaemonStore } from "../daemons/store.js";
 import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry } from "../agent/registry.js";
@@ -1618,6 +1618,20 @@ export class Kernel {
     this.crons.setEnabled(job.id, enabled);
     this.reloadCron();
     return this.agentJob(name);
+  }
+
+  /**
+   * Who is asking, for an approval raised from a conversation: the chat by
+   * the name the owner knows it by. KOS's own thread is "KOS"; a blob's is
+   * its title; anything else is the chat's title. Nothing for an action
+   * raised from nowhere.
+   */
+  askerOf(conversationId: string | null | undefined): Asker | undefined {
+    if (!conversationId) return undefined;
+    if (conversationId === orchestratorId(this.profile.ownerId)) return { name: "KOS", conversationId };
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return undefined;
+    return { name: conversation.title, conversationId };
   }
 
   /**

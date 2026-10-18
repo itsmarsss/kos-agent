@@ -212,6 +212,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       ? {
           onApprovalRequested: (action) => {
             const picture = action.picture ? kernel.approvals.pictureOf(action.id) : undefined;
+            const asker = kernel.askerOf(action.conversationId);
             const request = {
               id: String(action.id),
               text: `Approve ${action.tool}?`,
@@ -220,6 +221,7 @@ export async function runHost(options: HostOptions): Promise<void> {
               reason: action.reason,
               ...(picture ? { picture } : {}),
               ...(action.why ? { why: action.why } : {}),
+              ...(asker ? { asker } : {}),
             };
             if (adapter && creds) void adapter.requestApproval(creds.ownerId, request);
             if (smsAdapter && sms) void smsAdapter.requestApproval(sms.owner, request);

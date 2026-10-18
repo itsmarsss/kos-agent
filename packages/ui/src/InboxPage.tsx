@@ -92,6 +92,8 @@ export function InboxPage({
             {approvals.map((a) => (
               <li key={a.id} className="panel-approval inbox-approval">
                 <span className="panel-row-main">
+                  {/* Who is asking, first: a command with no one behind it is a yes to anyone. */}
+                  {a.asker && <span className="inbox-asker">{a.asker} asks</span>}
                   {a.why && <span className="inbox-said">{a.why}</span>}
                   {summarizeAction(a.tool, a.args)}
                   <code className="panel-approval-tool">{a.tool}</code>
