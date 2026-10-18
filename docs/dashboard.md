@@ -145,9 +145,12 @@ nothing was done. Each card says when it lapses.
 
 ## Overview
 
-Panels you arrange with the Arrange button: Needs you, Agents, What broke,
-Memory, Modules, Projects, Activity, Chats, Schedule, Spend, Note. Each
-answers one question and says so when the answer is nothing.
+Panels you arrange with the Arrange button: Needs you, Last 24 hours, Agents
+(the standing agents, each with its face and what it is up to: working,
+needs you, failed, paused, its next run, or when it last spoke; a row opens
+its page), Builds, What broke, Map, Activity, Projects, Chats, Schedule,
+Spend, Memory, Modules, Note. Each answers one question and says so when
+the answer is nothing.
 
 ## Projects
 

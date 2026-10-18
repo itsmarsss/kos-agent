@@ -44,10 +44,17 @@ describe("handleApiRequest", () => {
     expect(res.body).toMatchObject({ halted: false, queueDepth: 0 });
   });
 
-  it("hands the home page memory and modules in the one payload", async () => {
+  it("hands the home page memory, modules and the standing agents in the one payload", async () => {
     kernel.facts.upsert(kernel.profile.ownerId, { key: "city", value: "Toronto", kind: "fact" }, "test");
+    kernel.roles.write({ name: "watch", description: "Keeps an eye on a listing", brief: "Watch it.", memory: "own" });
     const res = await handleApiRequest(kernel, { method: "GET", path: "/api/home" });
-    const body = res.body as { memory: { claims: number; unread: number; decisions: number; jobs: { name: string }[] }; modules: { modules: unknown[]; builtins: { name: string }[] } };
+    const body = res.body as {
+      memory: { claims: number; unread: number; decisions: number; jobs: { name: string }[] };
+      modules: { modules: unknown[]; builtins: { name: string }[] };
+      standing: { name: string; conversationId: string; thread: { activity: string } }[];
+    };
+    expect(body.standing.map((a) => a.name)).toEqual(["watch"]);
+    expect(body.standing[0]).toMatchObject({ conversationId: "agent:watch", thread: { activity: "idle" } });
     expect(body.memory.claims).toBe(1);
     expect(body.memory.decisions).toBe(0);
     expect(body.memory.jobs.map((j) => j.name).sort()).toEqual(["kos.dream", "kos.memory", "kos.observe"]);

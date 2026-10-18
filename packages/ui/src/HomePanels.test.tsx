@@ -2,8 +2,8 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { HomeData } from "./api.js";
-import { Panel } from "./HomePanels.js";
+import type { AgentInfo, HomeData } from "./api.js";
+import { agentSide, Panel } from "./HomePanels.js";
 
 /**
  * The memory and modules panels, and the decisions line in Needs you.
@@ -33,7 +33,7 @@ function data(over: Partial<HomeData> = {}): HomeData {
   };
 }
 
-function show(kind: "memory" | "modules" | "approvals" | "pulse" | "map" | "failures" | "schedule" | "spend", d: HomeData, onGo = vi.fn()) {
+function show(kind: "memory" | "modules" | "approvals" | "pulse" | "map" | "failures" | "schedule" | "spend" | "standing", d: HomeData, onGo = vi.fn()) {
   render(
     <Panel
       panel={{ id: kind, kind, span: "half" }}
@@ -53,6 +53,51 @@ function show(kind: "memory" | "modules" | "approvals" | "pulse" | "map" | "fail
 }
 
 afterEach(cleanup);
+
+describe("the standing agents panel", () => {
+  const agent = (over: Partial<AgentInfo>): AgentInfo => ({
+    name: "price-watch",
+    description: "Watches one listing",
+    brief: "Watch it.",
+    memory: "own",
+    path: "agents/price-watch/agent.md",
+    folder: "agents/price-watch",
+    updatedAt: 1,
+    conversationId: "agent:price-watch",
+    thread: { id: "agent:price-watch", activity: "idle", unread: false, updatedAt: Date.now() - 120_000, lastSaid: null },
+    ...over,
+  });
+
+  it("says there are none, and where they come from", () => {
+    show("standing", data());
+    expect(screen.getByText(/No standing agents/)).toBeTruthy();
+  });
+
+  it("lists each with its face, what it is for and what it is up to, and opens its page", () => {
+    show(
+      "standing",
+      data({
+        standing: [
+          agent({}),
+          agent({ name: "recap", description: "Weekly recap", thread: { id: "agent:recap", activity: "working", unread: true, updatedAt: 1, lastSaid: "On it" } }),
+          agent({ name: "saturdays", description: "Plans the evening", job: { id: 3, schedule: "0 9 * * 6", enabled: false, lastRunAt: null, nextRunAt: null } }),
+        ],
+      }),
+    );
+    expect(screen.getByText("Price watch").closest("a")?.getAttribute("href")).toBe("#/agents/price-watch");
+    expect(screen.getByText("on request")).toBeTruthy();
+    expect(screen.getByText("working")).toBeTruthy();
+    expect(screen.getByText("paused")).toBeTruthy();
+    expect(screen.getByRole("img", { name: /recap/i })).toBeTruthy();
+    expect(screen.getByText("1")).toBeTruthy();
+  });
+
+  it("tells needs-you and a next run apart", () => {
+    expect(agentSide(agent({ thread: { id: "a", activity: "needs-you", unread: true, updatedAt: 1, lastSaid: null } }))).toBe("needs you");
+    expect(agentSide(agent({ job: { id: 1, schedule: "0 9 * * 1", enabled: true, lastRunAt: null, nextRunAt: Date.now() + 3_600_000 } }))).toMatch(/^next /);
+    expect(agentSide(agent({ thread: { id: "a", activity: "idle", unread: false, updatedAt: Date.now() - 120_000, lastSaid: "Done" } }))).toBe("2m ago");
+  });
+});
 
 describe("the memory panel", () => {
   it("says what memory holds and that its jobs are off", () => {

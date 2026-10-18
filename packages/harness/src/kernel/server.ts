@@ -2020,7 +2020,8 @@ export async function handleApiRequest(
   if (method === "GET" && path === "/api/home") {
     const now = Date.now();
     const week = now - 7 * DAY_MS;
-    const threads = kernel.conversations.list(kernel.profile.ownerId).map(conversationLabeller(kernel));
+    const label = conversationLabeller(kernel);
+    const threads = kernel.conversations.list(kernel.profile.ownerId).map(label);
     const health = kernel.health.report();
     return ok({
       layout: parseHomeLayout(kernel.settings.get(HOME_LAYOUT_KEY)),
@@ -2029,6 +2030,9 @@ export async function handleApiRequest(
       // to see it assemble itself.
       approvals: kernel.approvals.pending(),
       agents: kernel.builds.list().slice(0, 8),
+      // The standing agents as the Agents page lists them, so a glance here
+      // says what each is up to without opening that page.
+      standing: kernel.roles.list().roles.map((r) => describeAgent(kernel, r, label)),
       // The last runs in order, so a strip can show the shape of recent
       // reliability rather than only the failures in it.
       runs: kernel.runs.recent(40),

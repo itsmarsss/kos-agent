@@ -7542,3 +7542,8 @@ a.health {
 .agent-panel-files a:hover { text-decoration: underline; }
 .agent-panel-files .insp-meta { margin-left: 0.5rem; font-family: var(--sans, inherit); }
 @media (max-width: 720px) { .agents-fields--reach { grid-template-columns: 1fr; } .agent-editor-head { flex-direction: column; } .face-editor-fields { grid-template-columns: 1fr; } }
+
+/* A standing agent's row on the Overview: its face leads, centred on the line. */
+.panel-row--agent { align-items: center; }
+.panel-row--agent .blob { flex: none; }
+a.panel-row:hover .panel-row-main { color: var(--accent); }

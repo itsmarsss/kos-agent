@@ -2,10 +2,12 @@ import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
 import { summarizeAction } from "@kos/shared";
 
-import type { FailingJob, HomeData, ModelSpend, RunRecord } from "./api.js";
+import { titleOf } from "./AgentEditor.js";
+import type { AgentInfo, FailingJob, HomeData, ModelSpend, RunRecord } from "./api.js";
 import { clockLabel, dayLabel, hourLabel, padDays, padHours } from "./chartdata.js";
 import { Bars, DayLine, ProjectMap, Share, Ticks, type Tick, type Tone } from "./charts.js";
 import { Decision } from "./Decision.js";
+import { Face, moodOf } from "./Face.js";
 import { hrefFor } from "./routes.js";
 import { ActivityDot, fixLabel } from "./StatusDot.js";
 
@@ -18,7 +20,19 @@ import { ActivityDot, fixLabel } from "./StatusDot.js";
  * makes a dashboard trustworthy.
  */
 
-type Go = (to: "builds" | "history" | "projects" | "crons" | "chats" | "settings" | "memory", section?: string) => void;
+type Go = (to: "agents" | "builds" | "history" | "projects" | "crons" | "chats" | "settings" | "memory", section?: string) => void;
+
+/** A standing agent's state in a word or two, for the side of its row. */
+export function agentSide(a: AgentInfo): string {
+  const t = a.thread;
+  if (t?.activity === "working") return "working";
+  if (t?.activity === "needs-you") return "needs you";
+  if (t?.activity === "error") return "failed";
+  if (a.job && !a.job.enabled) return "paused";
+  if (a.job?.nextRunAt) return `next ${clockLabel(a.job.nextRunAt)}`;
+  if (t?.lastSaid) return `${ago(t.updatedAt)} ago`;
+  return "on request";
+}
 
 function ago(ts: number): string {
   const mins = Math.max(0, Math.round((Date.now() - ts) / 60000));
@@ -189,6 +203,37 @@ export function Panel({
                   </button>
                 </li>
               ))}
+            </ul>
+          )}
+        </div>
+      );
+    }
+
+    case "standing": {
+      const rows = data.standing ?? [];
+      const busy = rows.filter((a) => a.thread?.activity === "working" || a.thread?.activity === "needs-you");
+      return (
+        <div className={`panel${busy.some((a) => a.thread?.activity === "needs-you") ? " panel--attention" : ""}`}>
+          <Head title={title ?? "Agents"} count={busy.length} onMore={() => onGo("agents")} />
+          {rows.length === 0 ? (
+            <Empty>No standing agents. Ask KOS to keep an eye on something.</Empty>
+          ) : (
+            <ul className="panel-list">
+              {rows.slice(0, limit).map((a) => {
+                const paused = Boolean(a.job && !a.job.enabled);
+                return (
+                  <li key={a.name}>
+                    <a className="panel-row panel-row--agent" href={hrefFor({ name: "agents", agent: a.name })}>
+                      <Face seed={a.name} look={a.face ?? {}} size={18} mood={moodOf(a.thread?.activity, { paused })} />
+                      <span className="panel-row-main">
+                        {titleOf(a.name)}
+                        <span className="panel-row-project"> {a.description}</span>
+                      </span>
+                      <span className="panel-row-side">{agentSide(a)}</span>
+                    </a>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
