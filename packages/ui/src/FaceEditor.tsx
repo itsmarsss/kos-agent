@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 
-import { EYES, Face, lookOf, type FaceLook, type Gait } from "./Face.js";
+import { hexOfHsl, hueOfHex } from "./colour.js";
+import { EYES, FILL_SAT, Face, fillOf, lightnessOf, lookOf, type FaceLook, type Gait } from "./Face.js";
 import { Select } from "./Select.js";
 
 /**
@@ -28,17 +29,68 @@ const GAITS: { value: string; label: string }[] = [
 
 const EYE_LABELS: Record<string, string> = { round: "dots", half: "pills", sparkle: "pills with a glint" };
 
+/** A quick pick around the wheel; the picker is for anything between. */
+export const SWATCHES: { hue: number; name: string }[] = [
+  { hue: 0, name: "red" },
+  { hue: 24, name: "orange" },
+  { hue: 48, name: "amber" },
+  { hue: 90, name: "lime" },
+  { hue: 150, name: "green" },
+  { hue: 180, name: "teal" },
+  { hue: 214, name: "blue" },
+  { hue: 250, name: "indigo" },
+  { hue: 285, name: "violet" },
+  { hue: 330, name: "pink" },
+];
+
+/** The hex the picker shows for a hue: the blob's own body colour. */
+export function hexOfHue(hue: number): string {
+  return hexOfHsl(hue, FILL_SAT, lightnessOf(hue));
+}
+
 export function FaceEditor({ seed, value, onChange, label, preview = true }: FaceEditorProps): ReactElement {
   const shown = lookOf(seed, value);
   const custom = value.hue !== undefined || value.eyes !== undefined || value.gait !== undefined;
+  const onSwatch = SWATCHES.some((s) => s.hue === shown.hue);
   return (
     <div className="face-editor" style={{ "--blob-h": String(shown.hue) } as React.CSSProperties}>
       {preview && <Face seed={seed} look={value} size={64} label={label ?? `${seed}'s face`} />}
       <div className="face-editor-fields">
-        <label className="kos-field">
+        <div className="kos-field face-editor-colour" role="group" aria-label="Colour">
           <span className="kos-field-label">Colour</span>
-          <input type="range" min={0} max={359} value={shown.hue} aria-label="Hue" onChange={(e) => onChange({ ...value, hue: Number(e.target.value) })} />
-        </label>
+          <div className="swatches">
+            {SWATCHES.map((s) => (
+              <button
+                key={s.hue}
+                type="button"
+                className={`swatch${shown.hue === s.hue ? " is-on" : ""}`}
+                style={{ background: fillOf(s.hue) }}
+                title={s.name}
+                aria-label={s.name}
+                aria-pressed={shown.hue === s.hue}
+                onClick={() => onChange({ ...value, hue: s.hue })}
+              />
+            ))}
+            {/* Any colour: the picker gives a hex, the face takes its hue and
+                keeps its own saturation and lightness, so it stays a blob
+                colour and not a mustard or a murk. */}
+            <label
+              className={`swatch swatch--custom${onSwatch ? "" : " is-on"}`}
+              style={onSwatch ? undefined : { background: fillOf(shown.hue) }}
+              title="Any colour"
+            >
+              <input
+                type="color"
+                aria-label="Any colour"
+                value={hexOfHue(shown.hue)}
+                onChange={(e) => {
+                  const hue = hueOfHex(e.target.value);
+                  if (hue !== null) onChange({ ...value, hue });
+                }}
+              />
+            </label>
+          </div>
+        </div>
         <label className="kos-field">
           <span className="kos-field-label">Eyes</span>
           <Select

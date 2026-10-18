@@ -7529,7 +7529,13 @@ a.health {
 .agents-row-who { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
 .face-editor { display: flex; align-items: center; gap: 1rem; }
 .face-editor-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem 0.8rem; align-items: start; flex: 1; min-width: 0; }
-.face-editor input[type="range"] { width: 100%; height: 2.2rem; margin: 0; accent-color: hsl(var(--blob-h, 220) 80% 58%); }
+.face-editor-colour { grid-column: 1 / -1; }
+.swatches { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; min-height: 2.2rem; }
+.swatch { width: 1.6rem; height: 1.6rem; border-radius: 50%; border: 2px solid transparent; padding: 0; cursor: pointer; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15); transition: transform 120ms ease; }
+.swatch:hover { transform: scale(1.1); }
+.swatch.is-on { border-color: var(--text); box-shadow: 0 0 0 2px var(--panel), inset 0 0 0 1px rgb(0 0 0 / 0.15); }
+.swatch--custom { position: relative; overflow: hidden; background: conic-gradient(from 0deg, hsl(0 84% 60%), hsl(60 84% 62%), hsl(120 84% 58%), hsl(180 84% 58%), hsl(240 84% 58%), hsl(300 84% 60%), hsl(360 84% 60%)); }
+.swatch--custom input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .face-editor-foot { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-height: 1.6rem; }
 .seg { display: inline-flex; width: fit-content; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
 .seg-btn { padding: 0.4rem 0.8rem; border: 0; background: transparent; color: var(--muted); cursor: pointer; font: inherit; font-size: var(--text-md); }
