@@ -16,24 +16,33 @@ describe("the face editor", () => {
     expect(screen.getByRole("button", { name: "blue" }).getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "pink" }));
     expect(onChange).toHaveBeenCalledWith({ hue: 330 });
+    expect(SWATCHES.some((s) => s.hue === 100)).toBe(false);
+    expect(hueOfHex(hexOfHue(100))).toBe(100);
   });
 
-  it("takes any colour from the picker as its hue, and shows the picker as the face's colour", () => {
+  it("opens a picker of its own under Custom and takes any colour from it", () => {
     const onChange = vi.fn();
     render(<FaceEditor seed="kos" value={{ hue: 285 }} onChange={onChange} />);
-    const picker = screen.getByLabelText("Any colour") as HTMLInputElement;
-    expect(hueOfHex(picker.value)).toBe(285);
-    fireEvent.change(picker, { target: { value: "#ff8000" } });
-    expect(onChange).toHaveBeenCalledWith({ hue: 30 });
-    // A grey has no hue, so it changes nothing.
-    fireEvent.change(picker, { target: { value: "#777777" } });
+    expect(screen.queryByLabelText("Colour as hex")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Custom/ }));
+    const hex = screen.getByLabelText("Colour as hex") as HTMLInputElement;
+    // It opens on the face's own colour.
+    expect(hueOfHex(hex.value)).toBe(285);
+    fireEvent.change(hex, { target: { value: "#ff8000" } });
+    expect(onChange).toHaveBeenCalledWith({ hue: 285, colour: "#ff8000" });
+    // Half a hex is not a colour yet, so nothing is sent for it.
+    fireEvent.change(hex, { target: { value: "#ff80" } });
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
-  it("marks the custom swatch when the hue is not a quick pick", () => {
-    render(<FaceEditor seed="kos" value={{ hue: 100 }} onChange={() => {}} />);
-    expect(SWATCHES.some((s) => s.hue === 100)).toBe(false);
-    expect(screen.getByTitle("Any colour").className).toContain("is-on");
-    expect(hueOfHex(hexOfHue(100))).toBe(100);
+  it("wears a picked colour on Custom, and a swatch press lets it go", () => {
+    const onChange = vi.fn();
+    render(<FaceEditor seed="kos" value={{ colour: "#8b5cf6" }} onChange={onChange} />);
+    const custom = screen.getByRole("button", { name: /Custom/ });
+    expect(custom.className).toContain("is-on");
+    expect(custom.textContent).toContain("#8b5cf6");
+    expect(screen.getByRole("button", { name: "blue" }).getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "teal" }));
+    expect(onChange).toHaveBeenCalledWith({ hue: 180 });
   });
 });

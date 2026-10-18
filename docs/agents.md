@@ -59,12 +59,14 @@ about while working, hops with a mark when it needs you, sags with slanted
 eyes on an error, and sleeps when its schedule is paused. With reduced
 motion on, it holds still.
 
-Any of the three can be set by hand, in the file (`face: hue 210, eyes
-sparkle, gait 2`; hue 0 to 359, eyes round, half or sparkle, gait 0 to 3)
-or in Edit on the agent's page: a row of colours to pick from, with a
-colour picker at its end for any other (the face takes the hue of what you
-pick and keeps its own brightness, so it stays a blob colour), and the
-eyes and gait as choices; what is left unset still comes from the name. KOS has a face of the same kind, in the sidebar, the
+Any of it can be set by hand, in the file (`face: hue 210, eyes sparkle,
+gait 2`, or `colour #3b82f6` for any colour at all; hue 0 to 359, eyes
+round, half or sparkle, gait 0 to 3) or in Edit on the agent's page: a row
+of colours to pick from, and Custom, which opens a picker of the page's
+own (a square and a hue strip, with the hex) for any other. A picked colour
+is the body as you chose it; its hue colours the accents around the agent,
+and the eyes go pale on a dark body so they still show. The eyes and gait
+are choices; what is left unset still comes from the name. KOS has a face of the same kind, in the sidebar, the
 chat rail, the landing and the tab icon, set under Settings, Appearance.
 
 ## Where it lives
