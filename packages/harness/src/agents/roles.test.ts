@@ -53,7 +53,12 @@ describe("roles", () => {
     expect(() => parseRole("---\ndescription: d\ntools: browser, Shell!\n---\nbody", "x")).toThrow(/not a tool family/);
     expect(() => parseRole("---\n---\nbody", "Bad Name")).toThrow(/name must match/);
     expect(() => parseRole("---\ndescription: d\nface: eyes googly\n---\nbody", "x")).toThrow(/out of range/);
-    expect(() => parseRole("---\ndescription: d\nface: colour red\n---\nbody", "x")).toThrow(/is not "hue/);
+    expect(() => parseRole("---\ndescription: d\nface: colour red\n---\nbody", "x")).toThrow(/out of range/);
+    expect(() => parseRole("---\ndescription: d\nface: size big\n---\nbody", "x")).toThrow(/is not "hue/);
+    // A picked colour rides along as hex, lowercased.
+    const painted = parseRole("---\ndescription: d\nface: colour #3B82F6, gait 1\n---\nbody", "x");
+    expect(painted.face).toEqual({ colour: "#3b82f6", gait: 1 });
+    expect(formatRole({ ...painted, name: "x", memory: "own", description: "d", brief: "body" })).toContain("face: colour #3b82f6, gait 1\n");
   });
 
   it("lists what is on disk, names what does not parse, and reads an edit at once", () => {

@@ -29,3 +29,20 @@ describe("colour", () => {
     }
   });
 });
+
+describe("hsv", () => {
+  it("round-trips through the picker's model", async () => {
+    const { hexOfHsv, hsvOfHex, lightnessOfHex, desaturateHex } = await import("./colour.js");
+    expect(hsvOfHex("#ff0000")).toEqual({ h: 0, s: 100, v: 100 });
+    expect(hsvOfHex("#000000", 200)).toEqual({ h: 200, s: 0, v: 0 });
+    expect(hexOfHsv({ h: 120, s: 100, v: 100 })).toBe("#00ff00");
+    expect(hexOfHsv({ h: 0, s: 0, v: 50 })).toBe("#808080");
+    for (const hex of ["#3b82f6", "#f59e0b", "#10b981", "#111111", "#fafafa"]) {
+      expect(hexOfHsv(hsvOfHex(hex)!)).toBe(hex);
+    }
+    expect(lightnessOfHex("#000000")).toBe(0);
+    expect(lightnessOfHex("#ffffff")).toBe(100);
+    expect(lightnessOfHex("nope")).toBeNull();
+    expect(desaturateHex("#ff0000", 0.5)).toBe("#ff8080");
+  });
+});

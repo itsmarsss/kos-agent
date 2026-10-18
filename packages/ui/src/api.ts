@@ -243,6 +243,8 @@ export interface ReviewItem {
 /** What the owner may set about a face; anything unset comes from the name. */
 export interface FaceLook {
   hue?: number;
+  /** Any colour as #rrggbb; it is the body, and lends its hue to the accents. */
+  colour?: string;
   eyes?: "round" | "half" | "sparkle";
   gait?: 0 | 1 | 2 | 3;
 }

@@ -33,12 +33,15 @@ export type RoleMemory = "own" | "shared";
  */
 export interface FaceLook {
   hue?: number;
+  /** Any colour, #rrggbb, for a body the hue's own fill does not give. */
+  colour?: string;
   eyes?: "round" | "half" | "sparkle";
   gait?: 0 | 1 | 2 | 3;
 }
 
 export const KOS_FACE_KEY = "kos.face";
 const EYES = ["round", "half", "sparkle"] as const;
+const HEX = /^#[0-9a-f]{6}$/i;
 
 /** A face from an object: numbers and names checked, the rest dropped. */
 export function parseFaceLook(raw: unknown): FaceLook {
@@ -47,19 +50,22 @@ export function parseFaceLook(raw: unknown): FaceLook {
   const out: FaceLook = {};
   const hue = typeof r["hue"] === "number" ? r["hue"] : typeof r["hue"] === "string" ? Number(r["hue"]) : NaN;
   if (Number.isFinite(hue)) out.hue = ((Math.round(hue) % 360) + 360) % 360;
+  if (typeof r["colour"] === "string" && HEX.test(r["colour"].trim())) out.colour = r["colour"].trim().toLowerCase();
   if (typeof r["eyes"] === "string" && (EYES as readonly string[]).includes(r["eyes"])) out.eyes = r["eyes"] as FaceLook["eyes"];
   const gait = typeof r["gait"] === "number" ? r["gait"] : typeof r["gait"] === "string" ? Number(r["gait"]) : NaN;
   if ([0, 1, 2, 3].includes(gait)) out.gait = gait as FaceLook["gait"];
   return out;
 }
 
-/** "hue 210, eyes sparkle, gait 2" into a face; a part it cannot read is an error. */
+/** "hue 210, eyes sparkle, gait 2, colour #3b82f6" into a face; a part it cannot read is an error. */
 export function parseFaceText(text: string): FaceLook {
   const raw: Record<string, string> = {};
   for (const part of text.split(",")) {
     const words = part.trim().split(/[\s=:]+/).filter(Boolean);
     if (words.length === 0) continue;
-    if (words.length !== 2 || !["hue", "eyes", "gait"].includes(words[0]!)) throw new Error(`face: "${part.trim()}" is not "hue <0-359>", "eyes <round|half|sparkle>" or "gait <0-3>"`);
+    if (words.length !== 2 || !["hue", "eyes", "gait", "colour"].includes(words[0]!)) {
+      throw new Error(`face: "${part.trim()}" is not "hue <0-359>", "eyes <round|half|sparkle>", "gait <0-3>" or "colour #rrggbb"`);
+    }
     raw[words[0]!] = words[1]!;
   }
   const face = parseFaceLook(raw);
@@ -72,6 +78,7 @@ export function parseFaceText(text: string): FaceLook {
 export function formatFaceText(face: FaceLook): string {
   return [
     ...(face.hue !== undefined ? [`hue ${face.hue}`] : []),
+    ...(face.colour ? [`colour ${face.colour}`] : []),
     ...(face.eyes ? [`eyes ${face.eyes}`] : []),
     ...(face.gait !== undefined ? [`gait ${face.gait}`] : []),
   ].join(", ");

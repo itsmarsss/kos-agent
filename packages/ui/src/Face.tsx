@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type ReactElement } from "react";
 
 import { GAITS, eyeAt, mountBlob, outline, smoothPath, type BlobHandle, type BlobShape, type BlobWhim } from "./blob.js";
+import { desaturateHex, hueOfHex, lightnessOfHex } from "./colour.js";
 
 /**
  * An agent's face: a flat blob with two eyes, alive.
@@ -24,8 +25,14 @@ export type Eyes = "round" | "half" | "sparkle";
 export type Gait = 0 | 1 | 2 | 3;
 
 export interface Look {
-  /** 0 to 359: the hue the whole blob is built from. */
+  /** 0 to 359: the hue the whole blob is built from, and that its accents take. */
   hue: number;
+  /** The body's colour: the hue's own matte fill, or any colour the owner picked. */
+  fill: string;
+  /** The eyes' colour: dark on a light body, light on a dark one. */
+  ink: string;
+  /** The picked colour, when the body is one rather than the hue's fill. */
+  colour?: string;
   /** Which of the four gaits it has: steady, lively, slow, restless. */
   wobble: Gait;
   /** round dots; half, pills resting a little lowered; sparkle, pills with a glint. */
@@ -45,9 +52,13 @@ export interface Look {
 /** What the owner may set about a face; anything unset comes from the name. */
 export interface FaceLook {
   hue?: number;
+  /** Any colour, as #rrggbb; it wins over the hue for the body, and lends the hue its accents. */
+  colour?: string;
   eyes?: Eyes;
   gait?: Gait;
 }
+
+const HEX = /^#[0-9a-f]{6}$/i;
 
 export const EYES: Eyes[] = ["round", "half", "sparkle"];
 export const KOS_SEED = "kos";
@@ -62,6 +73,33 @@ function hash(text: string): number {
   return h;
 }
 
+/**
+ * The body's colour, matte but bright. Raw HSL at one lightness turns
+ * yellow to mustard and blue to murk, so the lightness follows the wheel:
+ * lifted around yellow and cyan, eased down around blue and violet. The
+ * saturation stays high; a muted blob reads as a sad one.
+ */
+export const FILL_SAT = 84;
+/** The body's lightness for a hue, in percent: the curve fillOf draws with. */
+export function lightnessOf(hue: number): number {
+  const rad = ((hue - 75) * Math.PI) / 180;
+  return Math.round(60 + 4 * Math.cos(rad));
+}
+export function fillOf(hue: number, sat = 1): string {
+  return `hsl(${hue} ${Math.round(FILL_SAT * sat)}% ${lightnessOf(hue)}%)`;
+}
+function inkOf(hue: number): string {
+  return `hsl(${hue} 35% 12%)`;
+}
+/** Ink for a picked colour: the usual dark ink, or a pale one on a body too dark for it. */
+function inkOn(colour: string, hue: number): string {
+  return (lightnessOfHex(colour) ?? 60) < 38 ? `hsl(${hue} 30% 92%)` : inkOf(hue);
+}
+/** The body as drawn still: a picked colour loses saturation the same way a hue would. */
+function fillFor(look: Look, sat: number): string {
+  return look.colour ? (sat < 1 ? desaturateHex(look.colour, sat) : look.colour) : fillOf(look.hue, sat);
+}
+
 export function lookOf(seed: string, override: FaceLook = {}): Look {
   const name = seed.trim().toLowerCase() || KOS_SEED;
   const h = hash(name);
@@ -70,8 +108,11 @@ export function lookOf(seed: string, override: FaceLook = {}): Look {
   const wobble = kos ? 1 : (((h >>> 9) % 4) as Gait);
   // A second number, so the silhouette and the habits are not the hue's twins.
   const g = hash(`${name}#`);
+  const hue = kos ? 214 : h % 360;
   const base: Look = {
-    hue: kos ? 214 : h % 360,
+    hue,
+    fill: fillOf(hue),
+    ink: inkOf(hue),
     wobble,
     eyes: kos ? "half" : EYES[(h >>> 12) % 3]!,
     breath: GAITS[wobble]!.breath,
@@ -88,9 +129,16 @@ export function lookOf(seed: string, override: FaceLook = {}): Look {
     },
   };
   const gait = override.gait !== undefined && [0, 1, 2, 3].includes(override.gait) ? override.gait : wobble;
+  const colour = override.colour && HEX.test(override.colour) ? override.colour.toLowerCase() : undefined;
+  // A picked colour is the body; its hue (a grey keeps the name's) is the accent.
+  const setHue = colour ? (hueOfHex(colour) ?? (override.hue !== undefined && Number.isFinite(override.hue) ? override.hue : base.hue)) : override.hue !== undefined && Number.isFinite(override.hue) ? override.hue : base.hue;
+  const finalHue = ((Math.round(setHue) % 360) + 360) % 360;
   return {
     ...base,
-    ...(override.hue !== undefined && Number.isFinite(override.hue) ? { hue: ((Math.round(override.hue) % 360) + 360) % 360 } : {}),
+    hue: finalHue,
+    fill: colour ?? fillOf(finalHue),
+    ink: colour ? inkOn(colour, finalHue) : inkOf(finalHue),
+    ...(colour ? { colour } : {}),
     ...(override.eyes && EYES.includes(override.eyes) ? { eyes: override.eyes } : {}),
     wobble: gait,
     breath: GAITS[gait]!.breath,
@@ -99,7 +147,7 @@ export function lookOf(seed: string, override: FaceLook = {}): Look {
 
 /** The settable part of a look, as the editors hold it. */
 export function faceLookOf(look: Look): FaceLook {
-  return { hue: look.hue, eyes: look.eyes, gait: look.wobble };
+  return { hue: look.hue, ...(look.colour ? { colour: look.colour } : {}), eyes: look.eyes, gait: look.wobble };
 }
 
 /** What a thread is doing, as a face; a paused schedule is asleep whatever the thread says. */
@@ -134,25 +182,6 @@ function usePrefersStill(): boolean {
     return () => mq.removeEventListener("change", on);
   }, []);
   return still;
-}
-
-/**
- * The body's colour, matte but bright. Raw HSL at one lightness turns
- * yellow to mustard and blue to murk, so the lightness follows the wheel:
- * lifted around yellow and cyan, eased down around blue and violet. The
- * saturation stays high; a muted blob reads as a sad one.
- */
-export const FILL_SAT = 84;
-/** The body's lightness for a hue, in percent: the curve fillOf draws with. */
-export function lightnessOf(hue: number): number {
-  const rad = ((hue - 75) * Math.PI) / 180;
-  return Math.round(60 + 4 * Math.cos(rad));
-}
-export function fillOf(hue: number, sat = 1): string {
-  return `hsl(${hue} ${Math.round(FILL_SAT * sat)}% ${lightnessOf(hue)}%)`;
-}
-function inkOf(hue: number): string {
-  return `hsl(${hue} 35% 12%)`;
 }
 
 export interface FaceProps {
@@ -190,7 +219,7 @@ export function Face({ seed, look: override, size = 24, mood = "idle", label }: 
     handle.current?.setMood(mood);
   }, [mood]);
 
-  const ink = inkOf(look.hue);
+  const ink = look.ink;
   const style = { "--blob-h": String(look.hue), "--blob-size": `${size}px` } as CSSProperties;
   const first = smoothPath(outline(look.shape));
   const eyes = [
@@ -210,7 +239,7 @@ export function Face({ seed, look: override, size = 24, mood = "idle", label }: 
     >
       <svg ref={svgRef} viewBox="0 0 100 100" width={size} height={size} aria-hidden="true">
         <g data-part="all">
-          <path data-part="body" d={first} fill={fillOf(look.hue)} />
+          <path data-part="body" d={first} fill={look.fill} />
           <g transform={`rotate(${look.tilt} 50 54)`}>
             {eyes.map(([name, at]) => (
               <g key={name} data-part={name} transform={`translate(${at.x} ${at.y})`}>
@@ -246,9 +275,8 @@ export function Face({ seed, look: override, size = 24, mood = "idle", label }: 
  * icon.
  */
 export function faceSvg(look: Look, mood: Mood = "idle"): string {
-  const h = look.hue;
   const sat = mood === "error" ? 0.45 : mood === "asleep" ? 0.7 : 1;
-  const ink = inkOf(h);
+  const ink = look.ink;
   const eye = (side: "l" | "r"): string => {
     const { x: cx, y: cy } = eyeAt(side, look.shape);
     if (mood === "asleep") return `<path d="M${cx - 4} ${cy}h8" stroke="${ink}" stroke-width="2.4" stroke-linecap="round"/>`;
@@ -273,7 +301,7 @@ export function faceSvg(look: Look, mood: Mood = "idle"): string {
   const droop = mood === "error" ? ` transform="translate(0 4) scale(1 0.92)" transform-origin="50 60"` : "";
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 4 92 92" width="64" height="64">`,
-    `<path d="${body}" fill="${fillOf(h, sat)}"${droop}/>`,
+    `<path d="${body}" fill="${fillFor(look, sat)}"${droop}/>`,
     `<g transform="rotate(${look.tilt} 50 54)">${eye("l")}${eye("r")}</g>`,
     extra,
     `</svg>`,
