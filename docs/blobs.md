@@ -132,4 +132,8 @@ work that needs them is dispatched into a project.
 Everything that applies to every other turn: the jail, the risk tiers and
 approvals with their expiry, self-prompts per hour, the kill switch. A
 purchase, a message to someone else, or anything else risky asks you, on
-whichever surface you are on, however the blob was started.
+whichever surface you are on, however the blob was started. The web is
+reachable through KOS's own browser: opening a page, scrolling it and
+waiting for it to render are reads and run unasked, so a watcher can check
+its pages every run on its own; clicking, typing or filling a form asks you
+first, once per blob if you say to remember it.
