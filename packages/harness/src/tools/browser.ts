@@ -158,19 +158,79 @@ export function stepCall(step: Step): { tool: string; args: Record<string, unkno
 }
 
 /** How the page is handed back after a visit or a run of steps. */
-type Then = "snapshot" | "read" | "none";
+/** What a visit hands back: the picture with a short index (look), the whole tree, the text, or nothing. */
+type Then = "look" | "snapshot" | "read" | "none";
 
 function thenOf(input: Record<string, unknown>, fallback: Then): Then {
   const v = input["then"];
-  return v === "snapshot" || v === "read" || v === "none" ? v : fallback;
+  return v === "look" || v === "snapshot" || v === "read" || v === "none" ? v : fallback;
 }
 
-async function pageAfter(deps: BrowserToolsDeps, then: Then, scope?: string): Promise<string> {
-  if (then === "none") return "";
-  if (then === "read") return deps.call(ENGINE_TOOL.read, {});
+/** How many of the page's controls the index names before it says "and more". */
+export const INDEX_MAX = 50;
+
+/** `- role "label" [checked] [ref=e12]`, nested by indentation; the role is a word, the label quoted and optional. */
+const SNAPSHOT_LINE = /^\s*-\s+([a-z]+(?: [a-z]+)*)(?: "((?:[^"\\]|\\.)*)")?.*?\[ref=(e\d+)\]/;
+
+/** Controls a reader can name without a label: there is something to type into or press. */
+const CONTROLS = new Set(["textbox", "searchbox", "combobox", "button", "checkbox", "radio", "switch", "slider", "spinbutton", "menuitem", "tab", "option"]);
+
+/**
+ * The page's controls as a short list, from the engine's interactive
+ * snapshot: role, label and ref, one line each, duplicates folded, unlabeled
+ * links left out, capped. A snapshot of a news page is 14 KB of tree; the
+ * model needs the picture to understand the page and only this to act on it.
+ */
+export function compactIndex(snapshot: string, max = INDEX_MAX): { lines: string[]; total: number } {
+  const seen = new Set<string>();
+  const all: string[] = [];
+  for (const raw of snapshot.split("\n")) {
+    const m = SNAPSHOT_LINE.exec(raw);
+    if (!m) continue;
+    const role = m[1]!.trim();
+    const label = m[2]?.trim() ?? "";
+    const ref = m[3]!;
+    if (!label && !CONTROLS.has(role)) continue;
+    const key = `${role}|${label}`;
+    if (label && seen.has(key)) continue;
+    seen.add(key);
+    all.push(label ? `${role} "${label}" @${ref}` : `${role} @${ref}`);
+  }
+  return { lines: all.slice(0, max), total: all.length };
+}
+
+/** What a visit hands back: the words, and the picture when the tab can be seen. */
+interface PageSeen {
+  text: string;
+  images: { mediaType: string; data: string }[];
+}
+
+async function pageAfter(deps: BrowserToolsDeps, then: Then, scope?: string): Promise<PageSeen> {
+  if (then === "none") return { text: "", images: [] };
+  if (then === "read") return { text: await deps.call(ENGINE_TOOL.read, {}), images: [] };
   const title = await deps.call(ENGINE_TOOL.title, {}).catch(() => "");
   const snapshot = await deps.call(ENGINE_TOOL.snapshot, { interactive: true, compact: true, ...(scope ? { selector: scope } : {}) });
-  return `${title ? `Title: ${title.trim()}\n` : ""}${snapshot}`;
+  const head = title ? `Title: ${title.trim()}\n` : "";
+  if (then === "snapshot") return { text: `${head}${snapshot}`, images: [] };
+  // The picture carries the page; the index is only what can be acted on.
+  const shot = deps.look ? await deps.look().catch(() => undefined) : undefined;
+  const index = compactIndex(snapshot);
+  const more = index.total > index.lines.length ? ` (${index.lines.length} of ${index.total}; then: "snapshot" lists them all)` : "";
+  const list = index.lines.length ? `Can be acted on${more}:\n${index.lines.join("\n")}` : "Nothing to act on was found; then: \"snapshot\" or \"read\" may show more.";
+  return {
+    text: `${head}${shot ? "" : "(no picture of the tab was available)\n"}${list}`,
+    images: shot ? [{ mediaType: "image/jpeg", data: shot.data }] : [],
+  };
+}
+
+/** The urls a visit was given: `url`, or `urls` for several in one call, at most four. */
+function urlsOf(input: Record<string, unknown>): string[] {
+  const many = Array.isArray(input["urls"]) ? input["urls"].filter((u): u is string => typeof u === "string" && u.trim() !== "").map((u) => u.trim()) : [];
+  const one = typeof input["url"] === "string" && input["url"].trim() ? [input["url"].trim()] : [];
+  const urls = [...one, ...many.filter((u) => !one.includes(u))];
+  if (urls.length === 0) throw new Error("url required");
+  if (urls.length > 4) throw new Error("at most four urls in one visit");
+  return urls;
 }
 
 export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
@@ -194,26 +254,38 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         {
           name: "browser.visit",
           description:
-            "Open a page in your browser tab and get what is on it, in one call: the title and an accessibility snapshot of the " +
-            "interactive elements with @refs you can act on. Use this instead of open + wait + snapshot. `then: \"read\"` returns " +
-            "the page as readable text instead (for articles); `scope` limits the snapshot to a CSS selector.",
+            "Open a page in your browser tab and see it, in one call: a picture of the tab, the title, and a short index of what " +
+            "can be acted on (role, label and @ref). Read the page from the picture; act with browser.act using the refs. " +
+            "`urls` visits up to four pages in one call, one after another. `then: \"read\"` returns the page as readable text " +
+            "instead (for articles); `then: \"snapshot\"` the whole interactive tree; `scope` limits the index to a CSS selector. " +
+            "It waits for the DOM; a page that draws itself afterwards may need {wait: ms} in browser.act, or `wait: \"load\"` here.",
           inputSchema: {
             type: "object",
             properties: {
               url: { type: "string" },
-              then: { type: "string", enum: ["snapshot", "read", "none"] },
-              scope: { type: "string", description: "CSS selector to limit the snapshot to" },
+              urls: { type: "array", items: { type: "string" }, description: "several pages in one call, at most four" },
+              then: { type: "string", enum: ["look", "snapshot", "read", "none"] },
+              scope: { type: "string", description: "CSS selector to limit the index to" },
+              wait: { type: "string", enum: ["dom", "load"], description: "dom (default): the DOM is ready; load: every resource has loaded" },
             },
-            required: ["url"],
           },
         },
         async (input) => {
-          const url = typeof input["url"] === "string" ? input["url"].trim() : "";
-          if (!url) throw new Error("url required");
-          await deps.call(ENGINE_TOOL.open, { url });
-          await deps.call(ENGINE_TOOL.waitForLoad, {}).catch(() => undefined);
-          const page = await pageAfter(deps, thenOf(input, "snapshot"), typeof input["scope"] === "string" ? input["scope"] : undefined);
-          return `Opened ${url}\n${page}`.trim();
+          const urls = urlsOf(input);
+          const then = thenOf(input, "look");
+          const scope = typeof input["scope"] === "string" ? input["scope"] : undefined;
+          const state = input["wait"] === "load" ? "load" : "domcontentloaded";
+          const parts: string[] = [];
+          const images: PageSeen["images"] = [];
+          for (const url of urls) {
+            await deps.call(ENGINE_TOOL.open, { url });
+            await deps.call(ENGINE_TOOL.waitForLoad, { state }).catch(() => undefined);
+            const page = await pageAfter(deps, then, scope);
+            parts.push(`Opened ${url}\n${page.text}`.trim());
+            images.push(...page.images);
+          }
+          const text = parts.join("\n\n");
+          return images.length ? { text, images } : text;
         },
         SAFE,
       );
@@ -232,7 +304,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
             type: "object",
             properties: {
               steps: { type: "array", items: { type: "object" }, minItems: 1, maxItems: 20 },
-              then: { type: "string", enum: ["snapshot", "read", "none"] },
+              then: { type: "string", enum: ["look", "snapshot", "read", "none"] },
             },
             required: ["steps"],
           },
@@ -253,8 +325,9 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
             }
             done.push(call.said);
           }
-          const page = await pageAfter(deps, thenOf(input, "snapshot"));
-          return `Done: ${done.join("; ")}.\n${page}`.trim();
+          const page = await pageAfter(deps, thenOf(input, "look"));
+          const text = `Done: ${done.join("; ")}.\n${page.text}`.trim();
+          return page.images.length ? { text, images: page.images } : text;
         },
         // Asks only when a step touches the page. A watcher that waits four
         // seconds for a table to render was asking the owner every six hours.
@@ -342,7 +415,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
             "your tab, and you get the page as it is. `then` as for browser.visit.",
           inputSchema: {
             type: "object",
-            properties: { tab: { type: "string", description: "the tab's id" }, then: { type: "string", enum: ["snapshot", "read", "none"] } },
+            properties: { tab: { type: "string", description: "the tab's id" }, then: { type: "string", enum: ["look", "snapshot", "read", "none"] } },
             required: ["tab"],
           },
         },
@@ -351,8 +424,9 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           if (!tab) throw new Error("tab required");
           if (!deps.useTab) throw new Error("no browser to switch tabs in");
           await deps.useTab(tab);
-          const page = await pageAfter(deps, thenOf(input, "snapshot"));
-          return `Now on tab ${tab}.\n${page}`.trim();
+          const page = await pageAfter(deps, thenOf(input, "look"));
+          const text = `Now on tab ${tab}.\n${page.text}`.trim();
+          return page.images.length ? { text, images: page.images } : text;
         },
         SAFE,
       );
@@ -365,16 +439,17 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
             "go back to one with browser.use_tab. `then` as for browser.visit.",
           inputSchema: {
             type: "object",
-            properties: { url: { type: "string" }, then: { type: "string", enum: ["snapshot", "read", "none"] } },
+            properties: { url: { type: "string" }, then: { type: "string", enum: ["look", "snapshot", "read", "none"] } },
           },
         },
         async (input) => {
           if (!deps.newTab) throw new Error("no browser to open a tab in");
           const url = typeof input["url"] === "string" && input["url"].trim() ? input["url"].trim() : undefined;
           const id = await deps.newTab(url);
-          if (url) await deps.call(ENGINE_TOOL.waitForLoad, {}).catch(() => undefined);
-          const page = url ? await pageAfter(deps, thenOf(input, "snapshot")) : "";
-          return `Opened tab ${id}${url ? ` at ${url}` : ""}.\n${page}`.trim();
+          if (url) await deps.call(ENGINE_TOOL.waitForLoad, { state: "domcontentloaded" }).catch(() => undefined);
+          const page = url ? await pageAfter(deps, thenOf(input, "look")) : { text: "", images: [] };
+          const text = `Opened tab ${id}${url ? ` at ${url}` : ""}.\n${page.text}`.trim();
+          return page.images.length ? { text, images: page.images } : text;
         },
         SAFE,
       );

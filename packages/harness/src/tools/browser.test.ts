@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
-import { ENGINE_TOOL, createBrowserModule, parseStep, stepCall, touchesPage } from "./browser.js";
+import { ENGINE_TOOL, INDEX_MAX, compactIndex, createBrowserModule, parseStep, stepCall, touchesPage } from "./browser.js";
 
 /**
  * A visit is one call: open, wait, look. A run of steps is one call too,
@@ -9,7 +9,7 @@ import { ENGINE_TOOL, createBrowserModule, parseStep, stepCall, touchesPage } fr
  * is refused before anything runs; a failing one says what got done.
  */
 
-function harness(answers: Record<string, string | Error> = {}) {
+function harness(answers: Record<string, string | Error> = {}, look?: () => Promise<{ data: string } | undefined>) {
   const calls: { tool: string; args: Record<string, unknown> }[] = [];
   const registry = new ToolRegistry();
   const module = createBrowserModule({
@@ -19,23 +19,76 @@ function harness(answers: Record<string, string | Error> = {}) {
       if (a instanceof Error) throw a;
       return a ?? "";
     },
+    ...(look ? { look } : {}),
   });
   return { calls, registry, module };
 }
 
+const HN = [
+  "- link [ref=e102]",
+  '- link "Hacker News" [ref=e103]',
+  '- link "new" [ref=e104]',
+  '- cell "1." [ref=e11]',
+  '- cell "Hybrid Reasoning Agents (arxiv.org)" [ref=e12]',
+  '  - link "Hybrid Reasoning Agents" [ref=e112]',
+  '- link "new" [ref=e204]',
+  "- textbox [ref=e300]",
+  '- button "search" [ref=e301]',
+].join("\n");
+
 describe("browser.visit", () => {
-  it("opens, waits, and hands back the title and an interactive snapshot", async () => {
-    const h = harness({ [ENGINE_TOOL.title]: "Example Domain\n", [ENGINE_TOOL.snapshot]: '- link "More" [ref=e1]' });
+  it("opens, waits for the DOM, and hands back the picture with a short index of what can be acted on", async () => {
+    // A visit used to hand over the whole interactive tree, 14 KB for a news
+    // page, before the model could think; the picture says more in fewer tokens.
+    const h = harness({ [ENGINE_TOOL.title]: "Hacker News\n", [ENGINE_TOOL.snapshot]: HN }, async () => ({ data: "JPEG" }));
     await h.module.activate({ registerTool: (d, f, r, m) => h.registry.register(d, f, r, m) });
-    const result = await h.registry.execute("browser.visit", { url: "https://example.com" });
+    const result = await h.registry.execute("browser.visit", { url: "https://news.ycombinator.com" });
     expect(result.isError).toBe(false);
-    expect(result.content).toBe('Opened https://example.com\nTitle: Example Domain\n- link "More" [ref=e1]');
+    expect(result.content).toBe(
+      [
+        "Opened https://news.ycombinator.com",
+        "Title: Hacker News",
+        "Can be acted on:",
+        'link "Hacker News" @e103',
+        'link "new" @e104',
+        'cell "1." @e11',
+        'cell "Hybrid Reasoning Agents (arxiv.org)" @e12',
+        'link "Hybrid Reasoning Agents" @e112',
+        "textbox @e300",
+        'button "search" @e301',
+      ].join("\n"),
+    );
+    expect(result.images).toEqual([{ mediaType: "image/jpeg", data: "JPEG" }]);
     expect(h.calls.map((c) => c.tool)).toEqual([ENGINE_TOOL.open, ENGINE_TOOL.waitForLoad, ENGINE_TOOL.title, ENGINE_TOOL.snapshot]);
+    expect(h.calls[1]?.args).toEqual({ state: "domcontentloaded" });
     expect(h.calls[3]?.args).toEqual({ interactive: true, compact: true });
     expect(h.registry.classify("browser.visit", {}).tier).toBe("safe");
   });
 
-  it("reads the page as text when asked, and scopes a snapshot to a selector", async () => {
+  it("says when there is no picture, waits for the full load when asked, and still gives the whole tree on request", async () => {
+    const h = harness({ [ENGINE_TOOL.title]: "Example Domain\n", [ENGINE_TOOL.snapshot]: '- link "More" [ref=e1]' });
+    await h.module.activate({ registerTool: (d, f, r, m) => h.registry.register(d, f, r, m) });
+    const result = await h.registry.execute("browser.visit", { url: "https://example.com", wait: "load" });
+    expect(result.content).toBe('Opened https://example.com\nTitle: Example Domain\n(no picture of the tab was available)\nCan be acted on:\nlink "More" @e1');
+    expect(result.images).toBeUndefined();
+    expect(h.calls[1]?.args).toEqual({ state: "load" });
+    const tree = await h.registry.execute("browser.visit", { url: "https://example.com", then: "snapshot" });
+    expect(tree.content).toBe('Opened https://example.com\nTitle: Example Domain\n- link "More" [ref=e1]');
+  });
+
+  it("visits several pages in one call, each with its own picture", async () => {
+    let n = 0;
+    const h = harness({ [ENGINE_TOOL.title]: "T", [ENGINE_TOOL.snapshot]: '- button "Go" [ref=e1]' }, async () => ({ data: `J${(n += 1)}` }));
+    await h.module.activate({ registerTool: (d, f, r, m) => h.registry.register(d, f, r, m) });
+    const result = await h.registry.execute("browser.visit", { urls: ["https://a.example", "https://b.example"] });
+    expect(result.content).toBe(['Opened https://a.example\nTitle: T\nCan be acted on:\nbutton "Go" @e1', 'Opened https://b.example\nTitle: T\nCan be acted on:\nbutton "Go" @e1'].join("\n\n"));
+    expect(result.images).toEqual([{ mediaType: "image/jpeg", data: "J1" }, { mediaType: "image/jpeg", data: "J2" }]);
+    expect(h.calls.filter((c) => c.tool === ENGINE_TOOL.open).map((c) => c.args["url"])).toEqual(["https://a.example", "https://b.example"]);
+    expect((await h.registry.execute("browser.visit", { urls: ["a", "b", "c", "d", "e"].map((x) => `https://${x}.example`) })).content).toMatch(/at most four/);
+    expect((await h.registry.execute("browser.visit", {})).content).toMatch(/url required/);
+  });
+
+  it("reads the page as text when asked, and scopes the index to a selector", async () => {
     const h = harness({ [ENGINE_TOOL.read]: "# Article\n\nWords." });
     await h.module.activate({ registerTool: (d, f, r, m) => h.registry.register(d, f, r, m) });
     const read = await h.registry.execute("browser.visit", { url: "https://a.example/post", then: "read" });
@@ -47,12 +100,29 @@ describe("browser.visit", () => {
   });
 });
 
+describe("the index of a page", () => {
+  it("names each control once, by role, label and ref, and leaves unlabeled links out", () => {
+    const { lines, total } = compactIndex(HN);
+    expect(lines).toEqual(['link "Hacker News" @e103', 'link "new" @e104', 'cell "1." @e11', 'cell "Hybrid Reasoning Agents (arxiv.org)" @e12', 'link "Hybrid Reasoning Agents" @e112', "textbox @e300", 'button "search" @e301']);
+    expect(total).toBe(7);
+  });
+
+  it("caps the list and says how many there were", () => {
+    const many = Array.from({ length: 120 }, (_, i) => `- link "item ${i}" [ref=e${i}]`).join("\n");
+    const { lines, total } = compactIndex(many);
+    expect(lines).toHaveLength(INDEX_MAX);
+    expect(total).toBe(120);
+    expect(compactIndex("nothing here")).toEqual({ lines: [], total: 0 });
+  });
+});
+
 describe("browser.act", () => {
   it("runs the steps in order as engine calls, then looks", async () => {
     const h = harness({ [ENGINE_TOOL.snapshot]: "- after" });
     await h.module.activate({ registerTool: (d, f, r, m) => h.registry.register(d, f, r, m) });
     const result = await h.registry.execute("browser.act", {
       steps: [{ fill: { selector: "@e2", text: "jane" } }, { select: { selector: "@e3", values: ["ca"] } }, { check: "@e4" }, { click: "@e5" }, { wait: 500 }, { scroll: "down" }, { press: "Enter" }],
+      then: "snapshot",
     });
     expect(result.isError).toBe(false);
     expect(h.calls.map((c) => c.tool)).toEqual([ENGINE_TOOL.fill, ENGINE_TOOL.select, ENGINE_TOOL.check, ENGINE_TOOL.click, ENGINE_TOOL.waitMs, ENGINE_TOOL.scroll, ENGINE_TOOL.press, ENGINE_TOOL.title, ENGINE_TOOL.snapshot]);
@@ -145,7 +215,7 @@ describe("tabs", () => {
       "T1 (yours, current): Mine — https://a\nT2 (Research's): untitled — https://b\nT3 (the owner's): Owner's — https://c",
     );
 
-    const moved = await h.registry.execute("browser.use_tab", { tab: "T3" });
+    const moved = await h.registry.execute("browser.use_tab", { tab: "T3", then: "snapshot" });
     expect(used).toEqual(["T3"]);
     expect(moved.content).toBe("Now on tab T3.\nTitle: Example\n- link @e1");
     expect((await h.registry.execute("browser.use_tab", {})).isError).toBe(true);
