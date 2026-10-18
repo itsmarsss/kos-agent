@@ -4,6 +4,7 @@ import { AnimatePresence, m } from "motion/react";
 
 import { api } from "./api.js";
 import { MoreIcon } from "./icons.js";
+import { ConfirmButton } from "./kit.js";
 import { Modal } from "./Modal.js";
 import { useDismiss } from "./useDismiss.js";
 
@@ -40,7 +41,6 @@ function joinPath(dir: string, name: string): string {
 type Dialog =
   | { kind: "rename"; entry: Entry; value: string }
   | { kind: "move"; entry: Entry; value: string }
-  | { kind: "delete"; entry: Entry }
   | { kind: "mkdir"; dir: string; value: string };
 
 /** What was done, so a view can follow a rename or leave a deleted file. */
@@ -192,25 +192,6 @@ export function useFileOps({
         )}
       </Modal>
 
-      <Modal open={dialog?.kind === "delete"} title="Delete" onClose={() => setDialog(null)}>
-        {dialog?.kind === "delete" && (
-          <div className="file-dialog">
-            <p>
-              Delete <strong>{dialog.entry.name}</strong>
-              {dialog.entry.kind === "dir" ? " and everything in it" : ""}? There is no undo.
-            </p>
-            <div className="file-dialog-actions">
-              <button type="button" className="btn btn--danger-ghost" disabled={busy} onClick={() => void run("delete", dialog.entry.path, () => api.deleteFile(dialog.entry.path))}>
-                Delete
-              </button>
-              <button type="button" className="btn" onClick={() => setDialog(null)}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-      </Modal>
-
       <Modal open={dialog?.kind === "mkdir"} title="New folder" onClose={() => setDialog(null)}>
         {dialog?.kind === "mkdir" && (
           <form
@@ -250,7 +231,8 @@ export function useFileOps({
     duplicate: (entry) => void run("copy", entry.path, () => api.copyFile(entry.path)),
     move: (entry) => setDialog({ kind: "move", entry, value: parentOf(entry.path) }),
     moveTo,
-    remove: (entry) => setDialog({ kind: "delete", entry }),
+    // Asked beside the menu item, not in a dialog; the menu does the asking.
+    remove: (entry) => void run("delete", entry.path, () => api.deleteFile(entry.path)),
     newFolder: (dir) => setDialog({ kind: "mkdir", dir, value: "" }),
     busy,
     dialogs,
@@ -321,7 +303,16 @@ export function EntryMenu({ entry, ops, inView = false }: { entry: Entry; ops: F
             {item("Rename", () => ops.rename(entry))}
             {item("Duplicate", () => ops.duplicate(entry))}
             {item("Move to…", () => ops.move(entry))}
-            {item("Delete", () => ops.remove(entry), true)}
+            <ConfirmButton
+              role="menuitem"
+              className="is-danger"
+              label="Delete"
+              text={`Delete ${entry.name}${entry.kind === "dir" ? " and everything in it" : ""}? There is no undo.`}
+              onConfirm={() => {
+                setOpen(false);
+                ops.remove(entry);
+              }}
+            />
           </m.div>
         )}
       </AnimatePresence>

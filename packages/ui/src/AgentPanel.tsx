@@ -5,7 +5,7 @@ import { api, type AgentInfo } from "./api.js";
 import { describeCron } from "./schedule.js";
 import { Face, lookOf, moodOf } from "./Face.js";
 import { Modal } from "./Modal.js";
-import { Card, Pill, Tag } from "./kit.js";
+import { Card, ConfirmButton, Pill, Tag } from "./kit.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
 import { WEEK, agoWords, inWords, runDays } from "./schedulewords.js";
 
@@ -49,7 +49,6 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
   const [invalidReason, setInvalidReason] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -64,7 +63,6 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
 
   useEffect(() => {
     setAgent(undefined);
-    setConfirmDelete(false);
   }, [name]);
 
   useEffect(() => {
@@ -207,24 +205,18 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
         <button type="button" className="btn btn--sm" disabled={busy} onClick={() => setEditing(true)}>
           Edit
         </button>
-        <button
-          type="button"
-          className={`btn btn--sm ${confirmDelete ? "btn--danger" : "btn--danger-ghost"}`}
+        <ConfirmButton
+          label="Delete"
+          confirmLabel="Delete for good"
+          text="Its file and its schedule go; its thread stays as an ordinary chat, and its folder stays if it made anything. There is no undo."
           disabled={busy}
-          onClick={() => {
-            if (!confirmDelete) {
-              setConfirmDelete(true);
-              return;
-            }
+          onConfirm={() => {
             void run(async () => {
               await api.deleteAgent(agent.name);
             }, `Removed ${agent.name}; its thread stays as a chat`).then(onRemoved);
           }}
-        >
-          {confirmDelete ? "Delete for good" : "Delete"}
-        </button>
+        />
       </footer>
-      {confirmDelete && <p className="hint">Its file and its schedule go; its thread stays as an ordinary chat, and its folder stays if it made anything.</p>}
 
       <Modal open={editing} title={`Edit ${title}`} onClose={() => setEditing(false)}>
         {editing && (

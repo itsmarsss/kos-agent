@@ -7566,7 +7566,8 @@ a.health {
 .swatch { width: 1.6rem; height: 1.6rem; border-radius: 50%; border: 2px solid transparent; padding: 0; cursor: pointer; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15); transition: transform 120ms ease; }
 .swatch:hover { transform: scale(1.1); }
 .swatch.is-on { border-color: var(--text); box-shadow: 0 0 0 2px var(--panel), inset 0 0 0 1px rgb(0 0 0 / 0.15); }
-.swatch--rainbow { width: 1.25rem; height: 1.25rem; background: conic-gradient(from 0deg, hsl(0 84% 60%), hsl(60 84% 62%), hsl(120 84% 58%), hsl(180 84% 58%), hsl(240 84% 58%), hsl(300 84% 60%), hsl(360 84% 60%)); }
+.swatch--any { width: 1.25rem; height: 1.25rem; background: transparent; border: 1.5px dashed var(--muted); box-shadow: none; }
+.swatch--any.is-set { border-color: transparent; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15); }
 .swatch-custom-wrap { position: relative; display: inline-flex; }
 .swatch-custom { font: inherit; background: transparent; display: inline-flex; align-items: center; gap: 0.45rem; height: 1.9rem; padding: 0 0.7rem 0 0.3rem; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: var(--text-sm); cursor: pointer; }
 .swatch-custom:hover { color: var(--text); border-color: var(--text); }
@@ -7635,13 +7636,6 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .settings-row > .kos-input { flex: 1 1 8rem; min-width: 8rem; }
 .settings-row > .sel { flex: 0 1 auto; min-width: 0; }
 
-/* "Any colour": a quiet ring of the wheel, not a beach ball. */
-.swatch--rainbow {
-  background: conic-gradient(from 200deg, hsl(0 55% 62%), hsl(50 55% 60%), hsl(120 45% 55%), hsl(190 50% 58%), hsl(250 50% 64%), hsl(320 50% 62%), hsl(360 55% 62%));
-  -webkit-mask: radial-gradient(circle at center, transparent 46%, #000 50%);
-  mask: radial-gradient(circle at center, transparent 46%, #000 50%);
-  box-shadow: none;
-}
 
 /* When something runs, as choices: a row of kinds, the kind's few controls, the line in words. */
 .sched { display: flex; flex-direction: column; gap: 0.55rem; }
@@ -7659,3 +7653,11 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .sched-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
 .sched-toggle { font-size: var(--text-sm); }
 .sched-raw { width: 100%; max-width: 22rem; }
+
+/* A window beside what opened it: a confirmation, a picker. */
+.kos-pop { position: fixed; z-index: 1000; }
+.confirm-wrap { display: inline-flex; }
+.chats-menu .confirm-wrap, .file-menu .confirm-wrap { display: contents; }
+.confirm-pop { width: 17.5rem; padding: 0.7rem 0.8rem; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); box-shadow: 0 12px 32px rgb(0 0 0 / 0.45); }
+.confirm-text { margin: 0 0 0.6rem; font-size: var(--text-base); color: var(--text); line-height: 1.45; }
+.confirm-acts { display: flex; gap: 0.4rem; }
