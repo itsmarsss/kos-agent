@@ -1122,6 +1122,8 @@ export const api = {
    * Put a file in the project's folder, or a folder inside it. The name is
    * kept to its last segment; the folder must stay inside the project.
    */
+  /** A file into any folder the file manager may touch: a blob's, say. */
+  uploadFile: (dir: string, file: Attachment) => post<{ path: string; size: number }>("/api/files/upload", { ...file, dir }),
   uploadProjectFile: (slug: string, file: Attachment, dir = "") =>
     post<{ path: string; size: number }>(
       `/api/projects/${encodeURIComponent(slug)}/files`,

@@ -57,7 +57,7 @@ import {
   type Conversation,
   type ConversationKind,
 } from "./conversations.js";
-import { parseUpload, writeProjectFile } from "./uploads.js";
+import { parseUpload, writeFileInto, writeProjectFile } from "./uploads.js";
 import { installSkill, removeSkill, skillOrigin, updateSkill } from "../skills/install.js";
 import {
   MCP_PICKS,
@@ -1471,6 +1471,20 @@ export async function handleApiRequest(
         status: 400,
         body: { error: err instanceof Error ? err.message : String(err) },
       };
+    }
+  }
+
+  /**
+   * A file the owner put into a folder from the dashboard: a blob's folder,
+   * or any folder the file manager may touch. The project route stays for
+   * projects, since it also touches the project.
+   */
+  if (method === "POST" && path === "/api/files/upload") {
+    try {
+      const dir = typeof body.dir === "string" ? body.dir : "";
+      return ok(writeFileInto(kernel.workspace, dir, parseUpload({ ...body, dir: "" })));
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
     }
   }
 
