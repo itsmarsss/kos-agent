@@ -199,7 +199,7 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
 
       {/* Its folder, browsed in place as a project's is: agent.md says what
           it is, and the rest is what it has made. */}
-      <ProjectExplorer label={agent.name} root={agent.folder} onOpenInFiles={onOpenFile} onChanged={onChanged} onError={onError} paused={hidden} />
+      <ProjectExplorer label={agent.name} root={agent.folder} upload={(file, dir) => api.uploadFile(dir ? `${agent.folder}/${dir}` : agent.folder, file)} onOpenInFiles={onOpenFile} onChanged={onChanged} onError={onError} paused={hidden} />
 
       <footer className="agent-foot">
         <button type="button" className="btn btn--sm" disabled={busy} onClick={() => setEditing(true)}>

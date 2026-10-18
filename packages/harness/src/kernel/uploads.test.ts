@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
-import { MAX_UPLOAD_BYTES, parseUpload, uploadDir, uploadName, writeProjectFile } from "./uploads.js";
+import { MAX_UPLOAD_BYTES, parseUpload, uploadDir, uploadDirAnywhere, uploadName, writeFileInto, writeProjectFile } from "./uploads.js";
 
 const b64 = (text: string): string => Buffer.from(text).toString("base64");
 
@@ -101,5 +101,33 @@ describe("writeProjectFile", () => {
     const data = "A".repeat(Math.ceil((MAX_UPLOAD_BYTES + 1024) / 3) * 4);
     expect(() => writeProjectFile(ws, "budget", { name: "big.bin", data, dir: "" })).toThrow(/limit is 5MB/);
     expect(existsSync(join(ws.root, "projects", "budget"))).toBe(false);
+  });
+});
+
+describe("an upload into any folder of the workspace", () => {
+  it("lands in the folder named, and refuses the workspace's own files and anything outside", () => {
+    expect(uploadDirAnywhere("blobs/recap")).toBe("blobs/recap");
+    expect(uploadDirAnywhere("blobs/recap/notes/")).toBe("blobs/recap/notes");
+    expect(uploadDirAnywhere("blobs/recap/../watch")).toBe("blobs/watch");
+    expect(() => uploadDirAnywhere("")).toThrow(/not a folder/);
+    expect(() => uploadDirAnywhere(".")).toThrow(/not a folder/);
+    expect(() => uploadDirAnywhere("/etc")).toThrow(/not a folder/);
+    expect(() => uploadDirAnywhere("../elsewhere")).toThrow(/not inside/);
+    expect(() => uploadDirAnywhere("blobs/../../x")).toThrow(/not inside/);
+    expect(() => uploadDirAnywhere(".kos/secrets")).toThrow(/workspace's own/);
+    expect(() => uploadDirAnywhere("kos.sqlite")).toThrow(/workspace's own/);
+  });
+
+  it("writes the file under the folder, making the folder on the way", () => {
+    const root = mkdtempSync(join(tmpdir(), "kos-upload-"));
+    const ws = Workspace.open(root);
+    try {
+      const written = writeFileInto(ws, "blobs/recap/pictures", { name: "../cat.png", data: Buffer.from("png").toString("base64"), dir: "" });
+      expect(written).toEqual({ path: "blobs/recap/pictures/cat.png", size: 3 });
+      expect(readFileSync(join(root, "blobs", "recap", "pictures", "cat.png"), "utf8")).toBe("png");
+    } finally {
+      ws.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
