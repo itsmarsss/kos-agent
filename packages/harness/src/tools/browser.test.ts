@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
-import { ENGINE_TOOL, createBrowserModule, parseStep, stepCall } from "./browser.js";
+import { ENGINE_TOOL, createBrowserModule, parseStep, stepCall, touchesPage } from "./browser.js";
 
 /**
  * A visit is one call: open, wait, look. A run of steps is one call too,
@@ -59,7 +59,26 @@ describe("browser.act", () => {
     expect(h.calls[0]?.args).toEqual({ selector: "@e2", text: "jane" });
     expect(h.calls[1]?.args).toEqual({ selector: "@e3", values: ["ca"] });
     expect(result.content).toBe("Done: filled @e2; selected ca in @e3; checked @e4; clicked @e5; waited 500ms; scrolled down; pressed Enter.\n- after");
-    expect(h.registry.classify("browser.act", {}).tier).toBe("risky");
+  });
+
+  it("asks only when a step acts on the page", async () => {
+    // A watcher that waited four seconds for a table to render was asking
+    // the owner every six hours; a wait, a scroll or a visit changes nothing.
+    const h = harness({});
+    await h.module.activate({ registerTool: (d, f, r, m) => h.registry.register(d, f, r, m) });
+    const tier = (input: Record<string, unknown>): string => h.registry.classify("browser.act", input).tier;
+    expect(tier({ steps: [{ wait: 4000 }] })).toBe("safe");
+    expect(tier({ steps: [{ open: "https://x" }, { wait: 500 }, { scroll: "down" }] })).toBe("safe");
+    expect(tier({ steps: [{ wait: 500 }, { click: "@e1" }] })).toBe("risky");
+    for (const step of [{ fill: { selector: "@e1", text: "x" } }, { type: { selector: "@e1", text: "x" } }, { press: "Enter" }, { select: { selector: "@e1", values: ["a"] } }, { check: "@e1" }, { uncheck: "@e1" }]) {
+      expect(tier({ steps: [step] })).toBe("risky");
+    }
+    // Nothing to read, or a step the parser would refuse: asked, never run unasked.
+    expect(tier({})).toBe("risky");
+    expect(tier({ steps: [] })).toBe("risky");
+    expect(tier({ steps: [{ wait: 500, click: "@e1" }] })).toBe("risky");
+    expect(tier({ steps: ["wait"] })).toBe("risky");
+    expect(touchesPage({ steps: [{ jump: "x" }] })).toBe(true);
   });
 
   it("refuses a malformed step before running any, and says where a run stopped", async () => {

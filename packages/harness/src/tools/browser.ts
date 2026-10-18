@@ -74,6 +74,24 @@ type Step =
 
 const STEP_KEYS = ["open", "click", "fill", "type", "press", "select", "check", "uncheck", "scroll", "wait"] as const;
 
+/** Steps that only look: going to a page, scrolling it, waiting for it. The rest act on it. */
+const READING_STEPS: ReadonlySet<string> = new Set(["open", "scroll", "wait"]);
+
+/**
+ * Whether a run of steps does anything to the page. Decided on the raw
+ * input, before the steps are parsed, so a shape the parser would refuse
+ * counts as touching: an unreadable step never runs unasked.
+ */
+export function touchesPage(input: Record<string, unknown>): boolean {
+  const steps = input["steps"];
+  if (!Array.isArray(steps) || steps.length === 0) return true;
+  return steps.some((s) => {
+    if (!s || typeof s !== "object" || Array.isArray(s)) return true;
+    const keys = Object.keys(s as object);
+    return keys.length !== 1 || !READING_STEPS.has(keys[0]!);
+  });
+}
+
 /** One step, checked: exactly one known key with the right shape of value. */
 export function parseStep(raw: unknown, at: number): Step {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`step ${at + 1}: must be an object with one of ${STEP_KEYS.join(", ")}`);
@@ -207,6 +225,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
             "Do several things on the current page in one call, in order, then get the page as it is afterwards. Each step is " +
             "one of {open: url}, {click: selector}, {fill: {selector, text}}, {type: {selector, text}}, {press: key}, " +
             "{select: {selector, values}}, {check: selector}, {uncheck: selector}, {scroll: \"up\"|\"down\"}, {wait: ms}. " +
+            "open, scroll and wait only look and run at once; a step that acts on the page (click, fill, type, press, select, check) asks the owner first. " +
             "Selectors are @refs from the last snapshot or CSS. Use this for a form or a short sequence instead of one call per gesture. " +
             "`then` is \"snapshot\" (default), \"read\" or \"none\".",
           inputSchema: {
@@ -237,7 +256,9 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           const page = await pageAfter(deps, thenOf(input, "snapshot"));
           return `Done: ${done.join("; ")}.\n${page}`.trim();
         },
-        RISKY,
+        // Asks only when a step touches the page. A watcher that waits four
+        // seconds for a table to render was asking the owner every six hours.
+        { floor: "safe", escalate: touchesPage },
       );
 
       /*
