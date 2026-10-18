@@ -13,7 +13,7 @@ describe("the jobs offered to start from", () => {
       else expect(t.prompt).toContain("notify");
     }
     expect(describeCron(TEMPLATES[0]!.schedule)).toBe("Weekdays at 07:30");
-    expect(describeCron(TEMPLATES[2]!.schedule)).toBe("Every 6 hours, at 00 past");
+    expect(describeCron(TEMPLATES[2]!.schedule)).toBe("Every 6 hours, on the hour");
   });
 });
 
@@ -35,7 +35,9 @@ describe("reading a cron line back in words", () => {
 
   it("reads intervals", () => {
     expect(describeCron("*/5 * * * *")).toBe("Every 5 minutes");
-    expect(describeCron("0 */6 * * *")).toBe("Every 6 hours, at 00 past");
+    expect(describeCron("0 */6 * * *")).toBe("Every 6 hours, on the hour");
+    expect(describeCron("15 */2 * * *")).toBe("Every 2 hours, at 15 past the hour");
+    expect(describeCron("0 */1 * * *")).toBe("Every hour, on the hour");
     expect(describeCron("* * * * *")).toBe("Every minute");
   });
 

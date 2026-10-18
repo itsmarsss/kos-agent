@@ -7606,3 +7606,39 @@ a.panel-row:hover .panel-row-main { color: var(--accent); }
 
 /* The project's colour on its card, a small square before its name. */
 .card-mark { width: 10px; height: 10px; border-radius: 3px; flex: none; margin-right: 0.45rem; }
+
+/* One control. An input, a search box, a textarea and a select button are the
+   same box everywhere: one height, one edge, one radius, one focus ring. */
+.kos-input, .chats-search, .list-search, .sel-button {
+  box-sizing: border-box;
+  height: 2.25rem;
+  padding: 0 0.65rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-md);
+  line-height: 1.3;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem; line-height: 1.45; resize: vertical; }
+.kos-input::placeholder, .chats-search::placeholder, .list-search::placeholder { color: var(--faint); }
+.kos-input:hover:not(:disabled):not(:focus), .chats-search:hover:not(:focus), .list-search:hover:not(:focus), .sel-button:hover:not(:disabled) { border-color: var(--muted); background: var(--bg); color: var(--text); }
+.kos-input:focus, .chats-search:focus, .list-search:focus, .sel-button:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.kos-input:disabled, .sel-button:disabled { opacity: 0.6; }
+.kos-mono, .kos-input.kos-mono { font-family: var(--mono); font-size: var(--text-base); }
+.kos-input--num { height: 2.25rem; }
+/* A select reads in the page's own type; mono was for the few that hold code, and they say so. */
+.sel-button { display: inline-flex; align-items: center; justify-content: space-between; gap: 0.5rem; max-width: 16rem; cursor: pointer; }
+.sel-button .sel-value { font-family: inherit; }
+.settings-row > .kos-input { flex: 1 1 8rem; min-width: 8rem; }
+.settings-row > .sel { flex: 0 1 auto; min-width: 0; }
+
+/* "Any colour": a quiet ring of the wheel, not a beach ball. */
+.swatch--rainbow {
+  background: conic-gradient(from 200deg, hsl(0 55% 62%), hsl(50 55% 60%), hsl(120 45% 55%), hsl(190 50% 58%), hsl(250 50% 64%), hsl(320 50% 62%), hsl(360 55% 62%));
+  -webkit-mask: radial-gradient(circle at center, transparent 46%, #000 50%);
+  mask: radial-gradient(circle at center, transparent 46%, #000 50%);
+  box-shadow: none;
+}
