@@ -518,6 +518,7 @@ describe("KOS end-to-end flows", () => {
       text("Noted."),
       text("Under 40."),
       text("Two now."),
+      text("In the shop."),
       text("Ran."),
       text("Hello."),
       text("Hi."),
@@ -558,6 +559,18 @@ describe("KOS end-to-end flows", () => {
     expect(model.systems.at(-1)!).not.toContain("one listing");
     expect((model.calls.at(-1)!.request.tools ?? []).some((t) => t.name === "files.read")).toBe(true);
     expect(kernel.conversations.get(thread.id)).toMatchObject({ brief: "You watch two listings now.", toolAllow: null });
+
+    // Dispatched into a project, it is told the project's work goes with the
+    // project and its own folder is for its notes.
+    const shop = kernel.standUpProject({ name: "Shop", type: "tracker" });
+    const instance = kernel.spawnAgent("price-watch", shop.slug);
+    expect(instance).toMatchObject({ projectSlug: shop.slug, role: "price-watch", brief: "You watch two listings now." });
+    await kernel.handleMessage("note the price", { sessionId: instance.id });
+    expect(model.systems.at(-1)!).toContain(`working inside the project ${shop.slug}`);
+    expect(model.systems.at(-1)!).toContain(`projects/${shop.slug}/`);
+    expect(model.systems.at(-1)!).toContain("Your own folder, agents/price-watch/, is for your notes");
+    // One chat per project: dispatched there again, it is the same chat.
+    expect(kernel.spawnAgent("price-watch", shop.slug).id).toBe(instance.id);
 
     // The schedule runs in the agent's own thread, not in a thread of the job's.
     await kernel.fireCron(job.id);

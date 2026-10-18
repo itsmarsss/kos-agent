@@ -321,6 +321,8 @@ export class Kernel {
    * a thread can say it is thinking instead of looking idle for ten seconds.
    */
   private readonly working = new Set<string>();
+  /** News for a chat mid-turn, written in when the turn ends. */
+  private readonly heldNotes = new Map<string, string[]>();
   /** Conversations whose last turn threw, with the error, until the next turn. */
   private readonly failed = new Map<string, string>();
 
@@ -779,9 +781,12 @@ export class Kernel {
             ].join("")
           : null;
         // A standing agent has a folder of its own, and should know to keep
-        // its work there rather than loose in the workspace.
+        // its work there rather than loose in the workspace. Dispatched into
+        // a project, what it makes is the project's and belongs with it.
         const roleNote = conversation?.role
-          ? `You are the standing agent "${conversation.role}". Your folder is agents/${conversation.role}/: keep your notes and anything you make in it, and read it back next time.`
+          ? conversation.projectSlug
+            ? `You are the standing agent "${conversation.role}", working inside the project ${conversation.projectSlug}. What you make for it goes in the project's folder, projects/${conversation.projectSlug}/, so it lands with the project. Your own folder, agents/${conversation.role}/, is for your notes: keep them there and read them back next time.`
+            : `You are the standing agent "${conversation.role}". Your folder is agents/${conversation.role}/: keep your notes and anything you make in it, and read it back next time.`
           : null;
         const extra = [formatting, conversation?.brief, roleNote, scopeNote, asideNote]
           .filter((part): part is string => Boolean(part && part.trim()))
@@ -1263,6 +1268,39 @@ export class Kernel {
     this.aborts.delete(sessionId);
     this.progress.emit({ kind: "turn-end", conversationId: sessionId });
     this.bus.emit({ kind: "turn:end", conversationId: sessionId, projectSlug: this.projectOf(sessionId) });
+    // News that arrived while the transcript was being written goes in now.
+    const held = this.heldNotes.get(sessionId);
+    if (held) {
+      this.heldNotes.delete(sessionId);
+      for (const text of held) this.writeNote(sessionId, text);
+    }
+  }
+
+  /**
+   * News for a chat from after its turn: a dispatched answer, a lapsed
+   * approval. Shown live where the chat's command answers show, and written
+   * into the transcript as a line of its own, so it is still there when the
+   * owner looks later and the chat's next turn knows. A chat mid-turn has its
+   * transcript being written, so the line waits for that turn to end.
+   */
+  noteIn(conversationId: string, text: string): void {
+    this.progress.emit({ kind: "note", conversationId, text });
+    if (this.working.has(conversationId)) {
+      this.heldNotes.set(conversationId, [...(this.heldNotes.get(conversationId) ?? []), text]);
+      return;
+    }
+    this.writeNote(conversationId, text);
+  }
+
+  /** The line itself; a chat that is gone, or a store that has closed, takes nothing. */
+  private writeNote(conversationId: string, text: string): void {
+    try {
+      if (!this.conversations.get(conversationId)) return;
+      this.sessions.record(conversationId, [...this.sessions.get(conversationId), { role: "assistant", content: [{ type: "text", text }] }]);
+      this.conversations.touch(conversationId);
+    } catch {
+      // A suspended turn can settle after close; the news has nowhere to go then.
+    }
   }
 
 
@@ -1339,10 +1377,10 @@ export class Kernel {
     ].join("\n");
     void this.dispatchTo(target.id, text)
       .then((res) => {
-        if (input.from) this.progress.emit({ kind: "note", conversationId: input.from, text: `${target.title} answered: ${res.reply.slice(0, 600)}` });
+        if (input.from) this.noteIn(input.from, `${target.title} answered: ${res.reply.slice(0, 600)}`);
       })
       .catch((err: unknown) => {
-        if (input.from) this.progress.emit({ kind: "note", conversationId: input.from, text: `${target.title} could not take the handoff: ${err instanceof Error ? err.message : String(err)}` });
+        if (input.from) this.noteIn(input.from, `${target.title} could not take the handoff: ${err instanceof Error ? err.message : String(err)}`);
       });
     return { conversationId: target.id, title: target.title, chars: text.length };
   }
@@ -1497,11 +1535,21 @@ export class Kernel {
     });
   }
 
-  /** An instance of a role inside a project: an ordinary chat there, under the role's brief. */
+  /**
+   * An instance of a role inside a project: an ordinary chat there, under
+   * the role's brief. One per project: a second dispatch goes to the chat
+   * the agent already has there, so its work in that project is one thread
+   * and not a chat per task.
+   */
   spawnAgent(name: string, projectSlug: string): Conversation {
     const role = this.roles.get(name);
     if (!role) throw new Error(`no agent called ${name}`);
     if (!this.manifest.get(projectSlug)) throw new Error(`no project called ${projectSlug}`);
+    const existing = this.conversations
+      .list(this.profile.ownerId)
+      .filter((c) => c.role === name && c.projectSlug === projectSlug && !c.archived)
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    if (existing) return existing;
     return this.conversations.create({
       userId: this.profile.ownerId,
       title: roleTitle(role),
@@ -2384,11 +2432,7 @@ export class Kernel {
     for (const action of lapsed) {
       const id = action.conversationId;
       if (!id) continue;
-      const text = `#${action.id} (${summarizeAction(action.tool, action.args)}) lapsed: nobody decided within ${hours} hour${hours === 1 ? "" : "s"}, so nothing was done. Ask again if it is still wanted.`;
-      this.progress.emit({ kind: "note", conversationId: id, text });
-      if (this.working.has(id) || !this.conversations.get(id)) continue;
-      this.sessions.record(id, [...this.sessions.get(id), { role: "assistant", content: [{ type: "text", text }] }]);
-      this.conversations.touch(id);
+      this.noteIn(id, `#${action.id} (${summarizeAction(action.tool, action.args)}) lapsed: nobody decided within ${hours} hour${hours === 1 ? "" : "s"}, so nothing was done. Ask again if it is still wanted.`);
     }
     return lapsed;
   }
