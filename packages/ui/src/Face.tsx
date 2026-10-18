@@ -142,10 +142,14 @@ function usePrefersStill(): boolean {
  * lifted around yellow and cyan, eased down around blue and violet. The
  * saturation stays high; a muted blob reads as a sad one.
  */
-export function fillOf(hue: number, sat = 1): string {
+export const FILL_SAT = 84;
+/** The body's lightness for a hue, in percent: the curve fillOf draws with. */
+export function lightnessOf(hue: number): number {
   const rad = ((hue - 75) * Math.PI) / 180;
-  const l = Math.round(60 + 4 * Math.cos(rad));
-  return `hsl(${hue} ${Math.round(84 * sat)}% ${l}%)`;
+  return Math.round(60 + 4 * Math.cos(rad));
+}
+export function fillOf(hue: number, sat = 1): string {
+  return `hsl(${hue} ${Math.round(FILL_SAT * sat)}% ${lightnessOf(hue)}%)`;
 }
 function inkOf(hue: number): string {
   return `hsl(${hue} 35% 12%)`;

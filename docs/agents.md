@@ -61,8 +61,10 @@ motion on, it holds still.
 
 Any of the three can be set by hand, in the file (`face: hue 210, eyes
 sparkle, gait 2`; hue 0 to 359, eyes round, half or sparkle, gait 0 to 3)
-or with the sliders in Edit on the agent's page; what is left unset still
-comes from the name. KOS has a face of the same kind, in the sidebar, the
+or in Edit on the agent's page: a row of colours to pick from, with a
+colour picker at its end for any other (the face takes the hue of what you
+pick and keeps its own brightness, so it stays a blob colour), and the
+eyes and gait as choices; what is left unset still comes from the name. KOS has a face of the same kind, in the sidebar, the
 chat rail, the landing and the tab icon, set under Settings, Appearance.
 
 ## Where it lives
