@@ -16,7 +16,7 @@ The list on the left:
   the agents it spawned, busy ones first. The row says how many agents and
   whether one is working; the chevron folds them away. The + beside the
   heading makes an empty project, the same dialog the Projects page has;
-  hover a row for Delete project (two presses), which is the Details
+  hover a row for Delete project (asked once beside it), which is the Details
   drawer's delete without the trip there.
 - **Scheduled** holds the threads jobs run in, folded by default. Standing
   blobs are not listed here: each has a page of its own under Blobs.
@@ -154,13 +154,14 @@ the answer is nothing.
 
 ## Projects
 
-A card per project with its pages as chips. Click the card for details:
+A card per project: its mark in its colour, its name, kind and when it was last touched, a status pill, what it is for, its pages as chips, and Chat and Details. Details opens the drawer:
 rows and tables, pages, sites, schedules, status, type, which module it came
 from, its chat, its folder, and the schema history. A project made from a
 blueprint says so. **Colour**, on the project's own page beside Open in Files, gives it a colour of its own, a swatch or anything from the picker; it tints the project's column and its mark, and From the name lets it go. **New project** makes an empty one: a name and a kind,
 then a chat of its own and nothing else until you or KOS put something
-there. The details drawer ends in **Delete project**, two
-presses: its tables, pages and files go for good, its chats are kept,
+there. **Edit**, in the drawer's head, changes the name, what it is for, the
+kind and the colour; the slug stays, since it names the folder and the
+tables. The drawer ends in **Delete project**, asked once beside the button: its tables, pages and files go for good, its chats are kept,
 archived at the root, and its jobs are turned off. Archiving, from the
 status control, is the reversible way to set one aside.
 
