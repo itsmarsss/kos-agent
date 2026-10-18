@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { AgentEditor, titleOf } from "./AgentEditor.js";
 import { api, type AgentInfo, type InvalidAgent } from "./api.js";
 import { Face, moodOf } from "./Face.js";
-import { Modal } from "./Modal.js";
+import { Drawer } from "./Drawer.js";
 import { hrefFor } from "./routes.js";
 
 /**
@@ -105,7 +105,8 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
       </p>
       {error && <p className="ops-alert ops-alert--err">{error}</p>}
 
-      <Modal open={open === "new"} title="New blob" onClose={() => onOpen()}>
+      {/* A drawer, as the schedule editor has: the list stays beside it. */}
+      <Drawer open={open === "new"} title="New blob" subtitle="A responsibility KOS keeps for you, with a face of its own" wide onClose={() => onOpen()}>
         <AgentEditor
           onSaved={(agent) => {
             onNotice(`Made ${agent.name}`);
@@ -114,7 +115,7 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
           }}
           onCancel={() => onOpen()}
         />
-      </Modal>
+      </Drawer>
 
       <ul className="agents-list agents-list--index">
         {agents === null && !error && <li className="hint">Loading…</li>}
