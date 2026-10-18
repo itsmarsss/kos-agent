@@ -224,6 +224,18 @@ describe("Kernel", () => {
     expect(seen[1]).not.toHaveProperty("from");
   });
 
+  it("names who is asking for an approval by the chat the owner knows", async () => {
+    kernel = await boot(stubInference([]));
+    kernel.roles.write({ name: "recap", description: "Sums up the day", brief: "You recap.", memory: "own" });
+    const thread = kernel.ensureAgentConversation("recap");
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Kitchen" });
+    expect(kernel.askerOf(thread.id)).toEqual({ name: "Recap", conversationId: thread.id });
+    expect(kernel.askerOf(chat.id)).toEqual({ name: "Kitchen", conversationId: chat.id });
+    expect(kernel.askerOf(`orchestrator:${kernel.profile.ownerId}`)).toEqual({ name: "KOS", conversationId: `orchestrator:${kernel.profile.ownerId}` });
+    expect(kernel.askerOf(null)).toBeUndefined();
+    expect(kernel.askerOf("nope")).toBeUndefined();
+  });
+
   it("queues a risky tool call instead of executing it", async () => {
     kernel = await boot(
       stubInference([

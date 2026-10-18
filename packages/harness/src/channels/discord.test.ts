@@ -483,6 +483,16 @@ describe("the approval prompt", () => {
     expect(settledText("expired", "Run: rm x", "8")).toBe("-# ⌛ Lapsed · Run `rm x`");
   });
 
+  it("says who is asking, in the headline", () => {
+    // A prompt that said only "Needs your OK · Run" left the owner deciding
+    // for nobody in particular: a blob, a project's chat and KOS itself all
+    // asked in the same voice.
+    const text = approvalText({ id: "209", text: "x", tool: "shell.run", args: { command: "sqlite3 kos.sqlite 'select 1'" }, asker: { name: "Recap", conversationId: "agent:recap" } });
+    expect(text.split("\n")[0]).toBe("**Recap needs your OK** · Run");
+    expect(approvalText({ id: "3", text: "Post to #general?", asker: { name: "Date Planner", conversationId: "project:date_planner" } }).split("\n")[0]).toBe("**Date Planner needs your OK** · Post to #general?");
+    expect(approvalText({ id: "4", text: "x", tool: "files.rm", args: { path: "a" }, asker: { name: "A_b*c", conversationId: "x" } }).split("\n")[0]).toContain("A\\_b\\*c needs your OK");
+  });
+
   it("keeps a text-only request as it was given", () => {
     expect(approvalText({ id: "3", text: "Post to #general?" })).toBe("**Needs your OK** · Post to #general?\n-# #3");
     // What KOS was saying comes first, as one quoted line, so the card is a sentence and not a command.

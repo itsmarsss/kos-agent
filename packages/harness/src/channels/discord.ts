@@ -112,8 +112,10 @@ export function approvalText(req: ApprovalRequest): string {
   // reached for the tool. A card that opens with the command alone is a
   // prompt to click yes blind.
   const said = req.why?.trim() ? [`> ${cut(req.why.trim().replace(/\s*\n+\s*/g, " "), WHY_MAX)}`] : [];
+  // Who is asking, in the headline: "Recap needs your OK", not a bare command.
+  const asks = req.asker ? `**${escapeMarkdown(req.asker.name)} needs your OK**` : "**Needs your OK**";
   if (req.tool === undefined) {
-    return [...said, `**Needs your OK** · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n");
+    return [...said, `${asks} · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n");
   }
   const args = req.args ?? {};
   const { head, body } = splitSummary(summarizeAction(req.tool, args));
@@ -130,7 +132,7 @@ export function approvalText(req: ApprovalRequest): string {
   const small = [`${req.tool} · #${req.id}`, ...(req.reason ? [req.reason] : [])].join(" · ");
   return [
     ...said,
-    `**Needs your OK** · ${escapeMarkdown(head)}`,
+    `${asks} · ${escapeMarkdown(head)}`,
     ...(code.length ? [CODE_FENCE, ...code.map((l) => l.split(CODE_FENCE).join("'''")), CODE_FENCE] : []),
     `-# ${small}`,
   ].join("\n");

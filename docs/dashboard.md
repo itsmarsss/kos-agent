@@ -42,7 +42,9 @@ In a chat:
 - Beside the composer: the model, how full the conversation is, and a chip
   that says what memory the last turn was given. Open it to see each claim
   with its scope and the log moments that came along.
-- A tool call that needs a yes shows Approve, Always and Deny in place.
+- A tool call that needs a yes shows who is asking (the blob, the project's
+  chat, or KOS itself), then Approve, Always and Deny in place. The same
+  name heads the prompt on Discord, iMessage and SMS.
   Always remembers the decision for that shape in that project.
 
 ## Browser

@@ -682,7 +682,7 @@ export async function handleApiRequest(
   if (method === "GET" && path === "/api/approvals") {
     // When each lapses if nobody decides, so the inbox can say so.
     const keep = kernel.behaviour().approvalExpiryHours * 3_600_000;
-    return ok(kernel.approvals.pending().map((a) => ({ ...a, expiresAt: a.requestedAt + keep })));
+    return ok(kernel.approvals.pending().map((a) => ({ ...a, asker: kernel.askerOf(a.conversationId)?.name, expiresAt: a.requestedAt + keep })));
   }
 
   // What the browser showed after a step, for the thread's tool card.
@@ -2041,7 +2041,7 @@ export async function handleApiRequest(
    */
   if (method === "GET" && path === "/api/inbox") {
     return ok({
-      approvals: kernel.approvals.pending(),
+      approvals: kernel.approvals.pending().map((a) => ({ ...a, asker: kernel.askerOf(a.conversationId)?.name })),
       // With what each claim says: a key alone is not something to decide on.
       decisions: kernel.review.pending().map((i) => describeReview(kernel.facts, kernel.profile.ownerId, i)),
       failures: withFixes(kernel, kernel.health.report().failing),
@@ -2076,7 +2076,7 @@ export async function handleApiRequest(
       // Everything the panels draw from, in one round trip: home is the first
       // thing loaded and eight separate requests to render it is eight chances
       // to see it assemble itself.
-      approvals: kernel.approvals.pending(),
+      approvals: kernel.approvals.pending().map((a) => ({ ...a, asker: kernel.askerOf(a.conversationId)?.name })),
       agents: kernel.builds.list().slice(0, 8),
       // The blobs as the Blobs page lists them, so a glance here
       // says what each is up to without opening that page.

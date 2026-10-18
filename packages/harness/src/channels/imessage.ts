@@ -139,6 +139,21 @@ function renderBody(msg: OutboundMessage): string {
   return parts.join("\n\n").trim();
 }
 
+/**
+ * An approval as plain lines, for a surface with no buttons: who is asking,
+ * what they were saying, the action, the reason. The reply instruction is
+ * the surface's own, since each reads decisions in its own words.
+ */
+export function approvalLines(req: ApprovalRequest): string[] {
+  const who = req.asker?.name ?? "KOS";
+  return [
+    ...(req.asker ? [`${who} needs your OK.`] : []),
+    ...(req.why?.trim() ? [`${who}: ${req.why.trim()}`] : []),
+    req.text,
+    ...(req.reason ? [req.reason] : []),
+  ];
+}
+
 /** An owner's answer to an approval prompt, or nothing. */
 export function parseDecision(
   text: string,
@@ -254,8 +269,7 @@ export class IMessageAdapter implements ChannelAdapter {
     req: ApprovalRequest,
   ): Promise<void> {
     this.pending.add(req.id);
-    const lines = [...(req.why?.trim() ? [`KOS: ${req.why.trim()}`] : []), req.text];
-    if (req.reason) lines.push(req.reason);
+    const lines = approvalLines(req);
     lines.push(`Reply "approve ${req.id}", "always ${req.id}" to stop asking for this, or "deny ${req.id}".`);
     const text = lines.join("\n");
     this.remember(text);
