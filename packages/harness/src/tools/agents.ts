@@ -2,6 +2,7 @@ import cron from "node-cron";
 
 import { agentConversationId, parseFaceLook, ROLE_NAME, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
 import type { Conversation } from "../kernel/conversations.js";
+import { whenWords } from "../kernel/when.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 
 /**
@@ -43,6 +44,8 @@ export interface AgentToolDeps {
   spawnAgent: (name: string, projectSlug: string) => Conversation;
   /** The role's schedule as a job, in step with the file; undefined removes it. */
   bindSchedule: (name: string, role: Role | undefined) => { id: number; schedule: string } | undefined;
+  /** The owner's timezone, for saying when a blob ran and will run. */
+  timezone: () => string;
   /** The role's job as the scheduler sees it, when the file gave it one. */
   jobOf: (name: string) => BlobJob | undefined;
   /** Pause or resume the role's job; undefined when it has none. */
@@ -70,8 +73,6 @@ function stringList(raw: unknown): string[] | undefined {
   return items.length ? items : undefined;
 }
 
-const iso = (at: number | null): string | undefined => (at === null ? undefined : new Date(at).toISOString());
-
 /**
  * Whether a blob will run on its own, in the dashboard's words. A schedule
  * in the file says what was asked; only the job says whether it fires.
@@ -80,18 +81,23 @@ function stateOf(job: BlobJob | undefined): "scheduled" | "paused" | "on request
   return job ? (job.enabled ? "scheduled" : "paused") : "on request";
 }
 
-/** The job, as a reader of the list needs it: when it last ran and when it next will. */
-function runs(job: BlobJob | undefined): Record<string, unknown> {
+/**
+ * The job, as a reader of the list needs it: when it last ran and when it
+ * next will, in the owner's words ("today 18:00") with the exact moment
+ * beside each, so the model quotes the words and never does the arithmetic.
+ */
+function runs(job: BlobJob | undefined, timezone: string): Record<string, unknown> {
   if (!job) return {};
+  const at = (ms: number): Record<string, string> => ({ words: whenWords(ms, timezone), at: new Date(ms).toISOString() });
   return {
     schedule: job.schedule,
-    ...(job.lastRunAt !== null ? { lastRun: iso(job.lastRunAt) } : {}),
-    ...(job.nextRunAt !== null ? { nextRun: iso(job.nextRunAt) } : {}),
+    ...(job.lastRunAt !== null ? { lastRun: at(job.lastRunAt) } : {}),
+    ...(job.nextRunAt !== null ? { nextRun: at(job.nextRunAt) } : {}),
   };
 }
 
 /** What a role looks like in a list: enough to choose one, not its whole brief. */
-function summary(r: RoleRecord, job: BlobJob | undefined): Record<string, unknown> {
+function summary(r: RoleRecord, job: BlobJob | undefined, timezone: string): Record<string, unknown> {
   return {
     name: r.name,
     description: r.description,
@@ -99,7 +105,7 @@ function summary(r: RoleRecord, job: BlobJob | undefined): Record<string, unknow
     memory: r.memory,
     ...(r.task ? { task: r.task } : {}),
     state: stateOf(job),
-    ...runs(job),
+    ...runs(job, timezone),
     conversationId: agentConversationId(r.name),
     path: r.path,
     folder: r.folder,
@@ -113,13 +119,14 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
     {
       name: "blobs.list",
       description:
-        "The blobs that exist: name, what each is for, what it may reach, and its state: scheduled (it runs on its own, with when it last ran and next will), paused (its schedule is off until resumed), or on request (no schedule; it works when dispatched or spoken to). " +
+        "The blobs that exist: name, what each is for, what it may reach, and its state: scheduled (it runs on its own, with when it last ran and next will, in the owner's timezone as words to quote), paused (its schedule is off until resumed), or on request (no schedule; it works when dispatched or spoken to). " +
         "Read this before making one, since the responsibility may already have a home.",
       inputSchema: { type: "object", properties: {} },
     },
     () => {
       const { roles, invalid } = deps.roles.list();
-      return JSON.stringify({ blobs: roles.map((r) => summary(r, deps.jobOf(r.name))), ...(invalid.length ? { invalid } : {}) });
+      const timezone = deps.timezone();
+      return JSON.stringify({ blobs: roles.map((r) => summary(r, deps.jobOf(r.name), timezone)), ...(invalid.length ? { invalid } : {}) });
     },
     { floor: "safe" },
     { restricted: true },
@@ -272,7 +279,7 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
         return JSON.stringify({
           name,
           state: stateOf(job),
-          ...runs(job),
+          ...runs(job, deps.timezone()),
           note: enabled ? `Resumed: it runs on ${job.schedule} again.` : "Paused: its schedule is off until resumed. Dispatching to it still works.",
         });
       },

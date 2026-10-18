@@ -59,6 +59,7 @@ async function harness(ws: Workspace, options: { scope?: string } = {}): Promise
         jobs.set(name, { id: 7, schedule: role.schedule, enabled: true, lastRunAt: null, nextRunAt: NOON });
         return { id: 7, schedule: role.schedule };
       },
+      timezone: () => "UTC",
       jobOf: (name) => jobs.get(name),
       setJobEnabled: (name, enabled) => {
         const job = jobs.get(name);
@@ -138,8 +139,14 @@ describe("blobs tools", () => {
     await h.call("blobs.create", { name: "recap", description: "Sums up the day", brief: "You recap.", schedule: "0 18 * * *", prompt: "Recap." });
     h.jobs.set("recap", { ...h.jobs.get("recap")!, lastRunAt: NOON - 86_400_000 });
     const scheduled = ((await h.call("blobs.list")).json!["blobs"] as Record<string, unknown>[]).find((b) => b["name"] === "recap");
-    // The state is the job's, with when it ran and when it will, not the file's line alone.
-    expect(scheduled).toMatchObject({ state: "scheduled", schedule: "0 18 * * *", lastRun: "2026-10-17T12:00:00.000Z", nextRun: "2026-10-18T12:00:00.000Z" });
+    // The state is the job's, with when it ran and when it will, not the
+    // file's line alone: the owner's words to quote, the exact moment beside.
+    expect(scheduled).toMatchObject({
+      state: "scheduled",
+      schedule: "0 18 * * *",
+      lastRun: { words: expect.stringMatching(/ 12:00$/), at: "2026-10-17T12:00:00.000Z" },
+      nextRun: { words: expect.stringMatching(/ 12:00$/), at: "2026-10-18T12:00:00.000Z" },
+    });
   });
 
   it("pauses and resumes a schedule, and says so when there is none", async () => {
@@ -154,7 +161,7 @@ describe("blobs tools", () => {
     expect(((await h.call("blobs.list")).json!["blobs"] as Record<string, unknown>[]).find((b) => b["name"] === "recap")).toMatchObject({ state: "paused" });
 
     const resumed = (await h.call("blobs.resume", { name: "recap" })).json!;
-    expect(resumed).toMatchObject({ name: "recap", state: "scheduled", nextRun: "2026-10-18T12:00:00.000Z" });
+    expect(resumed).toMatchObject({ name: "recap", state: "scheduled", nextRun: { at: "2026-10-18T12:00:00.000Z" } });
     expect(h.jobs.get("recap")!.enabled).toBe(true);
 
     expect((await h.call("blobs.pause", { name: "research" })).content).toMatch(/no schedule to pause/);

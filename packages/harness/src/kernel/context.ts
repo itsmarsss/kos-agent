@@ -4,6 +4,7 @@ import { renderSchemas, type ProjectSchema } from "../systems/schema.js";
 import { renderSkillsSection, type SkillRecord } from "../skills/manifest.js";
 import type { Recall } from "../memory/retriever.js";
 import type { Profile } from "./profile.js";
+import { clockLine } from "./when.js";
 
 /**
  * Context assembly: each prompt gets profile + manifest summary + salient
@@ -24,6 +25,13 @@ export interface ContextParts {
   extra?: string;
   /** Derived from this message, so it rides with the turn. */
   turnExtra?: string;
+  /**
+   * The moment of the turn. Given, the turn opens with a clock line in the
+   * owner's zone; without one the model has no date at all and reads it off
+   * the transcript, which is how a recap came out dated in UTC and a next
+   * run "a year ago".
+   */
+  now?: number;
 }
 
 /**
@@ -108,6 +116,11 @@ export function assembleSystemPrompt(parts: ContextParts): AssembledPrompt {
    * Held here and appended after everything fixed.
    */
   const volatile: string[] = [];
+  // The clock rides with the turn rather than in the system prompt: to the
+  // minute it would end the cache match at the very front every turn.
+  if (parts.now !== undefined) {
+    volatile.push(`Now: ${clockLine(parts.now, parts.profile.timezone)}. Say times in this timezone, in words, as tool results give them.`);
+  }
   if (parts.turnExtra?.trim()) volatile.push(parts.turnExtra.trim());
   const { facts, events } = parts.recall;
   if (facts.length > 0 || events.length > 0) {
@@ -188,7 +201,8 @@ const DISCORD_STYLE = [
   "  column-shaped goes in fenced code blocks with padded columns, or becomes a list.",
   "- Status at a glance: start a line with ✅ ❌ ⚠️ or ⏳ when the line reports how something went.",
   "  No other emoji, and no emoji as decoration.",
-  "- Write times as <t:UNIX:R> (relative) or <t:UNIX:f>, so they show in the reader's own timezone.",
+  "- Write times in words in the owner's timezone, as the clock line and tool results give them: today 18:00,",
+  "  tomorrow 07:30, Mon 19 Oct. Never a <t:…> timestamp: the number is worked out by hand and comes out wrong.",
   "- A reference such as @page:book_crm_home or @schedule:[Email Amy Reminder] becomes a link to the",
   "  dashboard on its way out. Write them plainly in prose, never inside code, and do not explain",
   "  that they are references: the reader sees a link with the name on it.",

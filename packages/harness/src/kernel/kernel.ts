@@ -795,6 +795,7 @@ export class Kernel {
         const { system, turnContext } = assembleSystemPrompt({
           baseSystem: this.system,
           profile: this.profile,
+          now: Date.now(),
           projects,
           // The tables those projects own. Without them the model guessed
           // column names, and 77 sql calls on one workspace failed that way.
@@ -2143,6 +2144,7 @@ export class Kernel {
     const assembled = assembleSystemPrompt({
       baseSystem: this.system,
       profile: this.profile,
+      now: Date.now(),
       projects,
       // The tables those projects own. Without them the model guessed
       // column names, and 77 sql calls on one workspace failed that way.

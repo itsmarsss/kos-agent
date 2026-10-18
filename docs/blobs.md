@@ -105,8 +105,9 @@ in (your Discord DM, iMessage or SMS) have six tools, and no other chat
 does, so a blob cannot spawn more of itself:
 
 - `blobs.list`: what exists, with what each is for and its state as the
-  scheduler holds it: scheduled (with when it last ran and next will),
-  paused, or on request when it has no schedule. A schedule in the file
+  scheduler holds it: scheduled (with when it last ran and next will, in
+  your timezone and in words, "today 18:00"), paused, or on request when it
+  has no schedule. A schedule in the file
   says what was asked; only the job says whether it fires, so the list
   reads the job.
 - `blobs.create`: the file, its thread, and its schedule if it has one.
