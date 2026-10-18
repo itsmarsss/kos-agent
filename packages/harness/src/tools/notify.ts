@@ -408,7 +408,9 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
           description:
             "Send a message on the owner's messaging surface. Plain text by default. " +
             "Add `card` for a titled block with fields, and `buttons` for something to " +
-            "press. `to` picks the surface and where on it: omit for the owner wherever " +
+            "press. Say a thing once: the text introduces and the card holds the named values, never both " +
+            "with the same words. Times in the owner's timezone, in words, as tool results give them. " +
+            "`to` picks the surface and where on it: omit for the owner wherever " +
             'they already are, "discord" for the owner on Discord, "discord:channel:<id>" ' +
             "to post in a channel, which needs approval. A press comes back as a message " +
             "in the conversation named by `replyTo`, so say what a button means in its " +

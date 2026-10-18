@@ -61,6 +61,21 @@ describe("assembleSystemPrompt", () => {
     expect(prompt.turnContext).toContain(TURN_CONTEXT_HEADER);
   });
 
+  it("opens the turn with the clock in the owner's zone, and keeps it out of the fixed half", () => {
+    const prompt = assembleSystemPrompt({
+      baseSystem: "You are KOS.",
+      profile: { ...DEFAULT_PROFILE, timezone: "America/Toronto" },
+      projects: [],
+      recall: { facts: [], events: [] },
+      now: Date.UTC(2026, 9, 18, 18, 52),
+    });
+    expect(prompt.turnContext).toContain("Now: Sunday 18 October 2026, 14:52 (America/Toronto, EDT).");
+    expect(prompt.turnContext.startsWith(TURN_CONTEXT_HEADER)).toBe(true);
+    expect(prompt.system).not.toContain("Now:");
+    // Without a moment given, nothing is claimed about the time.
+    expect(assembleSystemPrompt({ baseSystem: "x", profile: DEFAULT_PROFILE, projects: [], recall: { facts: [], events: [] } }).turnContext).toBe("");
+  });
+
   it("puts the tables the projects own in front of the model", () => {
     // Without this the model guessed column names, and lost 77 times on one
     // workspace. The physical names are what it has to type.
@@ -190,7 +205,10 @@ describe("channelGuidance", () => {
     expect(g).toContain("-# ");
     expect(g).toContain("Lead with the answer");
     expect(g).toContain("After an approval");
-    expect(g).toContain("<t:UNIX:R>");
+    // Times are quoted in the owner's words, never computed into Discord's
+    // <t:…> markup: the number came out a year off when worked out by hand.
+    expect(g).toContain("Write times in words in the owner's timezone");
+    expect(g).toContain("Never a <t:…> timestamp");
     // The model wrote "these are references, not URLs" under a list of them;
     // the adapter links them, so it is told not to explain.
     expect(g).toContain("@schedule:[Email Amy Reminder] becomes a link");

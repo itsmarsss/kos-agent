@@ -1,12 +1,16 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 import type { Workspace } from "../store/workspace.js";
+import { systemTimezone } from "./when.js";
 
 /**
  * User profile: identity read at boot. The seed/config file is the source of
  * truth (the dashboard and CLI only edit it, so there are no parallel paths
- * that disagree). Timezone underpins all scheduling and date math. ownerId is
- * the present-but-fixed single-owner id the rest of the system threads through.
+ * that disagree). Timezone underpins all scheduling and date math, and starts
+ * as the machine's own: a workspace seeded with UTC on a Toronto laptop had
+ * KOS dating every recap in UTC while its schedules fired on Toronto time.
+ * ownerId is the present-but-fixed single-owner id the rest of the system
+ * threads through.
  */
 export interface Profile {
   ownerId: string;
@@ -48,7 +52,7 @@ export function ensureProfile(
 ): Profile {
   const existing = loadProfile(ws);
   if (existing) return existing;
-  const profile: Profile = { ...DEFAULT_PROFILE, ...overrides };
+  const profile: Profile = { ...DEFAULT_PROFILE, timezone: systemTimezone(), ...overrides };
   saveProfile(ws, profile);
   return profile;
 }

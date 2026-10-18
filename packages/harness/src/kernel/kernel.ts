@@ -795,6 +795,7 @@ export class Kernel {
         const { system, turnContext } = assembleSystemPrompt({
           baseSystem: this.system,
           profile: this.profile,
+          now: Date.now(),
           projects,
           // The tables those projects own. Without them the model guessed
           // column names, and 77 sql calls on one workspace failed that way.
@@ -877,12 +878,16 @@ export class Kernel {
             signal: controller.signal,
             // An aside reads the context chat's history (plus its own earlier
             // asides) rather than its empty session, same as the API path.
+            // The turn's own context (the clock, what was recalled, what
+            // was mentioned) rides in front of the words here as it does
+            // on the API path. Sent as the bare text, this engine never
+            // saw any of it: no memory, no date.
             prompt: priorForSdk(
               [
                 ...this.sessions.historyForPrompt(opts.contextFrom ?? sessionId),
                 ...(opts.priorTurns ?? []),
               ],
-              text,
+              turnContext ? `${turnContext}\n\n${text}` : text,
             ),
             // The turn's own pictures, which a prompt string cannot carry.
             ...(opts.attachments?.length
@@ -2143,6 +2148,7 @@ export class Kernel {
     const assembled = assembleSystemPrompt({
       baseSystem: this.system,
       profile: this.profile,
+      now: Date.now(),
       projects,
       // The tables those projects own. Without them the model guessed
       // column names, and 77 sql calls on one workspace failed that way.

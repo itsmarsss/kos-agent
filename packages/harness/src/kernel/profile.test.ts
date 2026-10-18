@@ -32,6 +32,12 @@ describe("profile", () => {
     expect(loadProfile(ws)?.name).toBe("Kenny"); // written to disk
   });
 
+  it("seeds the machine's own timezone when none is given", () => {
+    const p = ensureProfile(ws);
+    expect(p.timezone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    expect(loadProfile(ws)?.timezone).toBe(p.timezone);
+  });
+
   it("does not overwrite an existing profile", () => {
     saveProfile(ws, {
       ownerId: "owner",
