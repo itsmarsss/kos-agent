@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type ReactElement } from "react";
 
 import { api, type ProjectDetail } from "./api.js";
+import { lookOf } from "./Face.js";
+import { FileIcon } from "./FileIcon.js";
+import { Pill, Tag } from "./kit.js";
 import { PanelSection } from "./PanelSection.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
 import { hrefFor } from "./routes.js";
@@ -81,30 +84,24 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError,
   const { project, tables, pages, sites } = detail;
 
   return (
-    <aside className="project-panel" aria-label={`${project.name} workspace`} aria-hidden={hidden}>
-      <div className="project-panel-head">
-        <div className="project-panel-title">
-          <h2>{project.name}</h2>
-          <div className="project-panel-meta">
-            {/* A dot and a word, not a boxed capital ACTIVE: the status is
-                one fact among three here, not a badge. */}
-            <span className={`project-panel-status is-${project.status}`}>
-              <i aria-hidden="true" />
-              {project.status}
-            </span>
-            <span>{project.type}</span>
-            <span className="ops-mono">{project.slug}</span>
-          </div>
+    <aside className="project-panel" aria-label={`${project.name} workspace`} aria-hidden={hidden} style={{ "--blob-h": String(lookOf(project.slug).hue) } as CSSProperties}>
+      {/* Who it is, as the agent page has it: a mark on a glow of the
+          project's own colour, its name, what it is for, and its facts. */}
+      <header className="hero">
+        <span className="hero-mark" aria-hidden="true">
+          <FileIcon name={project.slug} kind="dir" size={26} />
+        </span>
+        <h2>{project.name}</h2>
+        {project.description && <p className="hero-desc">{project.description}</p>}
+        <div className="hero-meta">
+          <Pill tone={project.status === "active" ? "ok" : "muted"}>{project.status}</Pill>
+          <Tag>{project.type}</Tag>
+          <Tag mono>{project.slug}</Tag>
         </div>
-        <button
-          type="button"
-          className="btn btn--sm"
-          title="The project's folder on the Files page"
-          onClick={() => onOpenFile(detail.folder)}
-        >
+        <button type="button" className="btn btn--sm" title="The project's folder on the Files page" onClick={() => onOpenFile(detail.folder)}>
           Open in Files
         </button>
-      </div>
+      </header>
 
       <ProjectExplorer
         slug={slug}
