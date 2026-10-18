@@ -51,12 +51,22 @@ describe("http.fetch module", () => {
     expect(calls[0]?.url).toBe("https://api.example.com/data");
   });
 
-  it("rejects a non-allowlisted host", async () => {
-    const fetchImpl: FetchImpl = async () => new Response("ok");
+  it("asks about a host off the list rather than refusing it, and runs it once the owner says so", async () => {
+    // A refusal left a watcher that needed one feed flailing in the browser,
+    // where browser.visit would have opened the same site unasked.
+    const reached: string[] = [];
+    const fetchImpl: FetchImpl = async (url) => {
+      reached.push(String(url));
+      return new Response("ok");
+    };
     const registry = await load({ allowedHosts: ["api.example.com"], fetchImpl });
-    const res = await registry.execute("http.fetch", { url: "https://evil.test/x" });
-    expect(res.isError).toBe(true);
-    expect(res.content).toMatch(/not allowlisted/);
+    expect(registry.classify("http.fetch", { url: "https://new.test/x" }).tier).toBe("risky");
+    expect(registry.classify("http.fetch", { url: "not a url" }).tier).toBe("risky");
+    // execute is what runs after the owner's yes: the handler does not refuse.
+    const res = await registry.execute("http.fetch", { url: "https://new.test/x" });
+    expect(res.isError).toBe(false);
+    expect(reached).toEqual(["https://new.test/x"]);
+    expect((await registry.execute("http.fetch", { url: "not a url" })).content).toMatch(/not a url/);
   });
 
   it("injects secrets into headers before the request", async () => {
@@ -139,6 +149,12 @@ describe("what a fetch asks about", () => {
     expect(tier({ url: "https://example.com/x", method: "POST" })).toBe("risky");
     expect(tier({ url: "https://example.com/x", method: "delete" })).toBe("risky");
   });
+
+  it("asks about reading a host that is not on the list", async () => {
+    const tier = await tiers();
+    expect(tier({ url: "https://other.example/feed" })).toBe("risky");
+    expect(tier({ url: "https://EXAMPLE.com/feed" })).toBe("safe");
+  });
 });
 
 /**
@@ -182,16 +198,15 @@ describe("adding a host without a restart", () => {
       }),
     ]);
 
-    const call = () =>
-      registry.execute("http.fetch", { url: "https://late.example.com/x" });
+    const tier = () => registry.classify("http.fetch", { url: "https://late.example.com/x" }).tier;
 
-    // Nothing is allowed yet.
-    expect((await call()).isError).toBe(true);
-    expect(reached).toEqual([]);
+    // Nothing is listed yet, so the read would ask.
+    expect(tier()).toBe("risky");
 
-    // The owner adds it. No restart.
+    // The owner adds it. No restart: the next read runs unasked.
     hosts = ["late.example.com"];
-    expect((await call()).isError).toBeFalsy();
+    expect(tier()).toBe("safe");
+    expect((await registry.execute("http.fetch", { url: "https://late.example.com/x" })).isError).toBeFalsy();
     expect(reached).toHaveLength(1);
   });
 });
