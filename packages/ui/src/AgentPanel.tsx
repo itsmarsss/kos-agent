@@ -10,7 +10,7 @@ import { ProjectExplorer } from "./ProjectExplorer.js";
 import { WEEK, agoWords, inWords, runDays } from "./schedulewords.js";
 
 /**
- * The column beside a standing agent's thread: who it is, how it is doing,
+ * The column beside a blob's thread: who it is, how it is doing,
  * when it runs, what it may reach, and what is in its folder. The thread
  * is where the agent is talked to; this is where it is kept. The column
  * takes the agent's own colour, so each one's page is its own.
@@ -101,10 +101,10 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
     return (
       <aside className="project-panel agent-panel" aria-hidden={hidden}>
         <p className="ops-alert ops-alert--err" role="alert">
-          {invalidReason ? `agents/${name}/agent.md does not read as an agent: ${invalidReason}.` : `There is no agent called ${name}.`}
+          {invalidReason ? `blobs/${name}/blob.md does not read as a blob: ${invalidReason}.` : `There is no blob called ${name}.`}
         </p>
         {invalidReason && (
-          <button type="button" className="btn btn--sm" onClick={() => onOpenFile(`agents/${name}/agent.md`)}>
+          <button type="button" className="btn btn--sm" onClick={() => onOpenFile(`blobs/${name}/blob.md`)}>
             Open the file
           </button>
         )}
@@ -119,7 +119,7 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
   const title = titleOf(agent.name);
 
   return (
-    <aside className="project-panel agent-panel" aria-label={`${title}, the agent`} aria-hidden={hidden} style={{ "--blob-h": String(hue) } as CSSProperties}>
+    <aside className="project-panel agent-panel" aria-label={`${title}, the blob`} aria-hidden={hidden} style={{ "--blob-h": String(hue) } as CSSProperties}>
       {/* Who it is: its face on a glow of its own colour, and how it is doing. */}
       <header className="hero">
         <Face seed={agent.name} look={agent.face ?? {}} size={72} mood={moodOf(agent.thread?.activity, { paused })} />

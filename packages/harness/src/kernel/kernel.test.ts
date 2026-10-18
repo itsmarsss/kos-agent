@@ -366,7 +366,7 @@ describe("Kernel", () => {
     // A chat by id works too; a name that is neither does not, nor does handing to itself.
     expect((await kernel.handoff({ to: source.id, brief: "x", by: "agent" })).conversationId).toBe(source.id);
     await expect(kernel.handoff({ from: source.id, to: source.id, brief: "x", by: "agent" })).rejects.toThrow(/this chat/);
-    await expect(kernel.handoff({ to: "nowhere", brief: "x", by: "agent" })).rejects.toThrow(/no chat, project or agent/);
+    await expect(kernel.handoff({ to: "nowhere", brief: "x", by: "agent" })).rejects.toThrow(/no chat, project or blob/);
     // A standing agent is a target too, by mention or by name: its own thread.
     kernel.roles.write({ name: "research", description: "Looks things up", brief: "You look.", memory: "own" });
     const toAgent = await kernel.handoff({ to: "@agent:research", brief: "The kettle question.", by: "owner" });

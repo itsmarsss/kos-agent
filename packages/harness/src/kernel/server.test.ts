@@ -363,7 +363,7 @@ describe("handleApiRequest", () => {
     const thread = kernel.ensureAgentConversation("research");
     const held = await handleApiRequest(kernel, { method: "POST", path: "/api/conversations/delete", body: { id: thread.id } });
     expect(held.status).toBe(400);
-    expect((held.body as { error: string }).error).toMatch(/a standing agent's own thread cannot be deleted/);
+    expect((held.body as { error: string }).error).toMatch(/a blob's own thread cannot be deleted/);
     kernel.roles.remove("research");
     const dropped = await handleApiRequest(kernel, { method: "POST", path: "/api/conversations/delete", body: { id: thread.id } });
     expect(dropped.status).toBe(200);

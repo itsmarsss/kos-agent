@@ -19,7 +19,7 @@ The list on the left:
   hover a row for Delete project (two presses), which is the Details
   drawer's delete without the trip there.
 - **Scheduled** holds the threads jobs run in, folded by default. Standing
-  agents are not listed here: each has a page of its own under Agents.
+  blobs are not listed here: each has a page of its own under Blobs.
 - **Your chats**, newest first. Hover a row for Rename, Duplicate, Hand off
   (KOS drafts a brief of the thread; you pick a chat or project, edit it,
   say what that chat should do with it, and it goes over as a message
@@ -36,7 +36,7 @@ In a chat:
 - **Configure** sets the chat's brief (standing instructions, added to the
   system prompt for this chat only) and which tools it may use. A scoped
   chat is told its own limits so it says "not here" rather than improvising.
-- `@` references a project, page, file, schedule, chat, site or agent.
+- `@` references a project, page, file, schedule, chat, site or blob.
   `/` opens commands: `/new`, `/chats`, `/switch`, `/rename`, `/archive`,
   `/compact`, `/clear`, `/tools`, `/help`.
 - Beside the composer: the model, how full the conversation is, and a chip
@@ -145,8 +145,8 @@ nothing was done. Each card says when it lapses.
 
 ## Overview
 
-Panels you arrange with the Arrange button: Needs you, Last 24 hours, Agents
-(the standing agents, each with its face and what it is up to: working,
+Panels you arrange with the Arrange button: Needs you, Last 24 hours, Blobs
+(each with its face and what it is up to: working,
 needs you, failed, paused, its next run, or when it last spoke; a row opens
 its page), Builds, What broke, Map, Activity, Projects, Chats, Schedule,
 Spend, Memory, Modules, Note. Each answers one question and says so when
@@ -164,14 +164,14 @@ presses: its tables, pages and files go for good, its chats are kept,
 archived at the root, and its jobs are turned off. Archiving, from the
 status control, is the reversible way to set one aside.
 
-## Agents
+## Blobs
 
-The standing agents, one row each, with its face: a blob drawn from its
+The blobs, KOS's standing helpers, one row each, with its face: a blob drawn from its
 name that glances about while it works, bounces when it needs you, droops
 on an error and sleeps when paused. Then what it is for, its schedule or
 "on request", what it is up to (working now, waiting on you, its last turn
 failed, or the last thing it said), and when it runs next and last ran. A
-row opens the agent's own page: its thread in the middle, where you talk to
+row opens the blob's own page: its thread in the middle, where you talk to
 it and where its schedule runs; the chats it has inside projects in the
 rail; and beside the thread its schedule and its folder, with Run now,
 Pause or Resume, Edit (its file as a form: its face, name and what it is
@@ -180,9 +180,9 @@ its memory is its own, the model class; the schedule with presets and read
 back in words, and the prompt for each run), the folder's contents with
 Open in Files, and Delete (two presses), which removes the file and the
 schedule, leaves the thread as an ordinary chat, and keeps the folder if
-the agent made anything in it. New agent writes one by hand; asking KOS in a
-chat is the usual way. A file under `agents/` that does not read as an
-agent is listed with the reason. See docs/agents.md.
+the blob made anything in it. New blob writes one by hand; asking KOS in a
+chat is the usual way. A file under `blobs/` that does not read as a
+blob is listed with the reason. See docs/blobs.md.
 
 ## Files
 

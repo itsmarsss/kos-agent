@@ -184,11 +184,11 @@ export function buildActions(ctx: PaletteContext): Action[] {
   // them, since "go to schedule" is what someone will type.
   actions.push(
     {
-      id: "go-Agents",
-      label: "Go to Agents",
+      id: "go-Blobs",
+      label: "Go to Blobs",
       group: "Go to",
       keywords: "agents standing roles responsibilities",
-      run: () => ctx.go({ name: "agents" }),
+      run: () => ctx.go({ name: "blobs" }),
     },
     {
       id: "go-Builds",
@@ -226,7 +226,7 @@ const KIND_GROUP: Record<string, string> = {
   schedule: "Schedule",
   chat: "Chats",
   site: "Sites",
-  agent: "Agents",
+  blob: "Blobs",
   build: "Builds",
 };
 
@@ -310,7 +310,7 @@ export function CommandPalette({
         else if (m.kind === "file") ctx.go({ name: "files", path: m.id });
         else if (m.kind === "schedule") ctx.go({ name: "crons" });
         else if (m.kind === "project") ctx.go({ name: "project", slug: m.id });
-        else if (m.kind === "agent") ctx.go({ name: "agents", agent: m.id });
+        else if (m.kind === "blob") ctx.go({ name: "blobs", blob: m.id });
         else if (m.kind === "build") ctx.openAgent(Number(m.id));
         else if (m.kind === "site" && ctx.sitesBase) {
           // Its own origin, so a new tab rather than in place.

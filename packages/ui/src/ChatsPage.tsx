@@ -98,7 +98,7 @@ export interface ProjectMode {
   onError: (message: string) => void;
 }
 
-/** The page scoped to one standing agent. See ChatsPageProps.agent. */
+/** The page scoped to one blob. See ChatsPageProps.agent. */
 export interface AgentMode {
   name: string;
   /** Out of the agent, back to the list. */
@@ -147,7 +147,7 @@ export interface ChatsPageProps {
    */
   project?: ProjectMode;
   /**
-   * Agent mode: the page is one standing agent's. The rail is its thread
+   * Agent mode: the page is one blob's. The rail is its thread
    * and the chats it has in projects, the view is its thread, and the third
    * column holds its file and schedule. Its thread stays off the Chats tab.
    */
@@ -1404,11 +1404,11 @@ export function ChatsPage({
           <div className="chats-list-head">
             <button type="button" className="chats-back" onClick={agent.onBack}>
               <ChevronLeft size={14} />
-              All agents
+              All blobs
             </button>
             <div className="chats-project-head">
               <span className="chats-project-name">{agentThread?.title ?? agent.name}</span>
-              <span className="chats-project-sub">A standing agent · agents/{agent.name}/</span>
+              <span className="chats-project-sub">A blob · blobs/{agent.name}/</span>
             </div>
           </div>
           <div className="chats-pinned">
@@ -1591,8 +1591,8 @@ export function ChatsPage({
                   })}
                 </ul>
               )}
-              {/* Standing agents are not listed here: each has a page of its
-                  own under Agents, with its thread and its file, and the
+              {/* Blobs are not listed here: each has a page of its
+                  own under Blobs, with its thread and its file, and the
                   Chats tab stays the owner's own chats. */}
               {surfaces.length > 0 && (
                 /* One line however many there are. A surface is a way in, not
@@ -1753,7 +1753,7 @@ export function ChatsPage({
             <div className="chats-placeholder">
               <p className="ops-muted">
                 {agent
-                  ? `No thread for an agent called ${agent.name} yet.`
+                  ? `No thread for a blob called ${agent.name} yet.`
                   : !projectRecord
                     ? `No project called ${project!.slug}.`
                     : needsOrchestrator
@@ -2097,7 +2097,7 @@ export function ChatsPage({
               {/* A build this conversation started. It runs somewhere else and
                   for minutes, so the chat says it exists and links to it
                   rather than going quiet and leaving the reader to find the
-                  Agents page on their own. */}
+                  Blobs page on their own. */}
               {mine.map((b) => (
                 <button
                   type="button"

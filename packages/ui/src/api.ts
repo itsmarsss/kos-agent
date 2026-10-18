@@ -251,7 +251,7 @@ export interface FaceLook {
   gait?: 0 | 1 | 2 | 3;
 }
 
-/** What a standing agent's file says, as the editor and the list need it. */
+/** What a blob's file says, as the editor and the list need it. */
 export interface AgentDraft {
   name: string;
   description: string;
@@ -266,9 +266,9 @@ export interface AgentDraft {
 }
 
 export interface AgentInfo extends AgentDraft {
-  /** Workspace-relative path of the file, agents/<name>/agent.md. */
+  /** Workspace-relative path of the file, blobs/<name>/blob.md. */
   path: string;
-  /** The agent's own folder, agents/<name>, where it keeps what it makes. */
+  /** The blob's own folder, blobs/<name>, where it keeps what it makes. */
   folder: string;
   updatedAt: number;
   /** Its standing thread. */
@@ -287,7 +287,7 @@ export interface AgentInfo extends AgentDraft {
   job?: { id: number; schedule: string; enabled: boolean; lastRunAt: number | null; nextRunAt: number | null };
 }
 
-/** A file under agents/ that does not read as a role, with the reason. */
+/** A file under blobs/ that does not read as a role, with the reason. */
 export interface InvalidAgent {
   name: string;
   path: string;
@@ -417,7 +417,7 @@ export interface Conversation {
   toolAllow: string[] | null;
   /** The project this conversation belongs to, or null at the root. */
   projectSlug: string | null;
-  /** The role this runs as, when it is a standing agent or an instance of one: agents/<role>.md. */
+  /** The role this runs as, when it is a blob or an instance of one: blobs/<role>/blob.md. */
   role?: string | null;
   /** What the owner set about its role's face, when it runs as one. */
   face?: FaceLook;
@@ -622,7 +622,7 @@ export interface HomeData {
   layout: import("@kos/shared").HomeLayout;
   approvals: PendingAction[];
   agents: BuildRecord[];
-  /** The standing agents; absent from a host older than the panel that shows them. */
+  /** The blobs; absent from a host older than the panel that shows them. */
   standing?: AgentInfo[];
   /** The last runs, newest first. */
   runs: RunRecord[];
@@ -1092,7 +1092,7 @@ export const api = {
     post<{ interrupted: boolean; builds: BuildRecord[] }>("/api/builds/interrupt", {
       id,
     }),
-  /** The standing agents: the files under agents/, each with its thread and schedule. */
+  /** The blobs: the files under blobs/, each with its thread and schedule. */
   agents: () => get<{ agents: AgentInfo[]; invalid: InvalidAgent[] }>("/api/agents"),
   /** Write an agent's file; `create` refuses a name that is already an agent's rather than overwriting it. */
   saveAgent: (draft: AgentDraft, opts: { create?: boolean } = {}) => post<{ agent: AgentInfo }>("/api/agents/save", { ...draft, ...(opts.create ? { create: true } : {}) }),

@@ -5,7 +5,7 @@ import type { Conversation } from "../kernel/conversations.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 
 /**
- * The `agents` tool module: standing agents KOS makes from a sentence.
+ * The `blobs` tool module: the standing helpers KOS makes from a sentence.
  *
  * A one-off goes to a chat; a responsibility ("keep an eye on", "every
  * Saturday", "handle my travel") needs somewhere to live between asks. These
@@ -18,7 +18,7 @@ import type { KosModule, ModuleContext } from "../modules/loader.js";
  * spawn more of itself.
  */
 
-export const AGENT_TOOLS = ["agents.list", "agents.create", "agents.dispatch", "agents.remove"] as const;
+export const BLOB_TOOLS = ["blobs.list", "blobs.create", "blobs.dispatch", "blobs.remove"] as const;
 
 export interface AgentToolDeps {
   roles: RoleStore;
@@ -76,9 +76,9 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
 
   ctx.registerTool(
     {
-      name: "agents.list",
+      name: "blobs.list",
       description:
-        "The standing agents that exist: name, what each is for, what it may reach, and when it runs. Read this before making one, since the responsibility may already have a home.",
+        "The blobs that exist: name, what each is for, what it may reach, and when it runs. Read this before making one, since the responsibility may already have a home.",
       inputSchema: { type: "object", properties: {} },
     },
     () => {
@@ -91,9 +91,9 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
 
   ctx.registerTool(
     {
-      name: "agents.create",
+      name: "blobs.create",
       description:
-        "Make a standing agent for a responsibility the owner wants kept: a folder of its own (agents/<name>/, with agent.md in it, which the owner can read and edit) and a thread of its own. " +
+        "Make a blob for a responsibility the owner wants kept: a folder of its own (blobs/<name>/, with blob.md in it, which the owner can read and edit) and a thread of its own. " +
         "Give it a brief in the second person saying what it is for, how to do the work, and when to tell the owner. " +
         "A schedule makes it run unattended with the prompt on each run; without one it works only when dispatched or spoken to. " +
         "Leave tools unset unless the owner asked to limit them. Say what you made afterwards, in a line.",
@@ -130,7 +130,7 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
       const name = str(input, "name").toLowerCase();
       if (!ROLE_NAME.test(name)) throw new Error(`name must be short and plain, like research or shopper (${ROLE_NAME})`);
       if (deps.roles.exists(name) && input.replace !== true) {
-        throw new Error(`there is already an agent called ${name}. Read it with agents.list; pass replace: true to rewrite it.`);
+        throw new Error(`there is already an agent called ${name}. Read it with blobs.list; pass replace: true to rewrite it.`);
       }
       const schedule = optional(input, "schedule");
       if (schedule && !cron.validate(schedule)) throw new Error(`not a cron schedule: ${schedule}`);
@@ -158,8 +158,8 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
         conversationId: thread.id,
         ...(job ? { job } : {}),
         note: job
-          ? `Made. It runs on ${job.schedule} in its own thread; dispatch work to it with agents.dispatch. The owner can edit ${record.path}.`
-          : `Made. Dispatch work to it with agents.dispatch. The owner can edit ${record.path}.`,
+          ? `Made. It runs on ${job.schedule} in its own thread; dispatch work to it with blobs.dispatch. The owner can edit ${record.path}.`
+          : `Made. Dispatch work to it with blobs.dispatch. The owner can edit ${record.path}.`,
       });
     },
     { floor: "safe" },
@@ -168,14 +168,14 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
 
   ctx.registerTool(
     {
-      name: "agents.dispatch",
+      name: "blobs.dispatch",
       description:
-        "Give a task to a standing agent. At the root it goes to the agent's own thread; from inside a project, or with a project named, the agent gets a chat in that project so what it makes lands there. " +
+        "Give a task to a blob. At the root it goes to the agent's own thread; from inside a project, or with a project named, the agent gets a chat in that project so what it makes lands there. " +
         "It returns as soon as the work is handed over: say what you delegated and end your turn. The owner is told when it answers.",
       inputSchema: {
         type: "object",
         properties: {
-          agent: { type: "string", description: "the agent's name, from agents.list" },
+          agent: { type: "string", description: "the agent's name, from blobs.list" },
           task: { type: "string", description: "the instruction, written the way the owner would say it TO the agent" },
           project: { type: "string", description: "a project slug: run the agent inside that project rather than in its own thread" },
         },
@@ -184,7 +184,7 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
     },
     async (input) => {
       const name = str(input, "agent").toLowerCase();
-      if (!deps.roles.get(name)) throw new Error(`no agent called ${name}; agents.list says which exist`);
+      if (!deps.roles.get(name)) throw new Error(`no agent called ${name}; blobs.list says which exist`);
       const task = str(input, "task");
       const here = deps.scope?.();
       const project = optional(input, "project") ?? here;
@@ -214,8 +214,8 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
 
   ctx.registerTool(
     {
-      name: "agents.remove",
-      description: "Remove a standing agent: its file and its schedule. Its thread stays, as an ordinary chat the owner can keep or delete.",
+      name: "blobs.remove",
+      description: "Remove a blob: its file and its schedule. Its thread stays, as an ordinary chat the owner can keep or delete.",
       inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
     },
     (input) => {
@@ -233,9 +233,9 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
 export function createAgentsModule(deps: AgentToolDeps): KosModule {
   return {
     manifest: {
-      name: "agents",
+      name: "blobs",
       version: "1.0.0",
-      provides: AGENT_TOOLS.map((name) => ({ kind: "tool" as const, name, version: "1.0.0" })),
+      provides: BLOB_TOOLS.map((name) => ({ kind: "tool" as const, name, version: "1.0.0" })),
       riskTier: "safe",
     },
     activate(ctx) {

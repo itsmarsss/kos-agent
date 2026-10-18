@@ -7,9 +7,9 @@ import { Modal } from "./Modal.js";
 import { hrefFor } from "./routes.js";
 
 /**
- * The standing agents, each with what it is up to.
+ * The blobs, each with what it is up to.
  *
- * An agent is a folder under agents/, and KOS makes them from a request. This
+ * A blob is a folder under blobs/, and KOS makes them from a request. This
  * list is where the owner sees them all at once: the face, what it is for,
  * what it last said or is doing now, and when it runs next. A row opens the
  * agent's own page, its thread in the middle and its file beside it, so
@@ -94,18 +94,18 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
   return (
     <div className="projects agents">
       <div className="projects-head">
-        <h1>Agents</h1>
+        <h1>Blobs</h1>
         <button type="button" className="btn btn--primary" onClick={() => onOpen("new")}>
-          New agent
+          New blob
         </button>
       </div>
       <p className="hint">
-        A standing agent is a responsibility KOS keeps for you: a folder under agents/ with a thread of its own and a schedule if it needs one.
-        Ask KOS for one in a chat ("keep an eye on…", "every Saturday…"), or write one here. A row opens the agent's own page.
+        A blob is a responsibility KOS keeps for you, with a face: a folder under blobs/ with a thread of its own and a schedule if it needs one.
+        Ask KOS for one in a chat ("keep an eye on…", "every Saturday…"), or write one here. A row opens the blob's own page.
       </p>
       {error && <p className="ops-alert ops-alert--err">{error}</p>}
 
-      <Modal open={open === "new"} title="New agent" onClose={() => onOpen()}>
+      <Modal open={open === "new"} title="New blob" onClose={() => onOpen()}>
         <AgentEditor
           onSaved={(agent) => {
             onNotice(`Made ${agent.name}`);
@@ -118,7 +118,7 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
 
       <ul className="agents-list agents-list--index">
         {agents === null && !error && <li className="hint">Loading…</li>}
-        {agents?.length === 0 && <li className="hint">None yet. Ask KOS to keep something up for you, or make one with New agent.</li>}
+        {agents?.length === 0 && <li className="hint">None yet. Ask KOS to keep something up for you, or make one with New blob.</li>}
         {agents?.map((a) => (
           <li key={a.name}>
             <button type="button" className="agents-row" onClick={() => onOpen(a.name)}>

@@ -78,7 +78,7 @@ describe("agents tools", () => {
 
   it("makes an agent as a file, a thread and a schedule, and refuses a second of the same name", async () => {
     const h = await harness(ws);
-    const made = (await h.call("agents.create", {
+    const made = (await h.call("blobs.create", {
       name: "Price-Watch",
       description: "Watches one listing",
       brief: "You watch one listing and tell the owner when it drops.",
@@ -87,66 +87,66 @@ describe("agents tools", () => {
       task: "cheap",
       face: { hue: 210, eyes: "sparkle", gait: 7 },
     })).json!;
-    expect(made).toMatchObject({ name: "price-watch", path: "agents/price-watch/agent.md", conversationId: "agent:price-watch", job: { id: 7, schedule: "0 */6 * * *" } });
-    expect(existsSync(join(root, "agents", "price-watch", "agent.md"))).toBe(true);
+    expect(made).toMatchObject({ name: "price-watch", path: "blobs/price-watch/blob.md", conversationId: "agent:price-watch", job: { id: 7, schedule: "0 */6 * * *" } });
+    expect(existsSync(join(root, "blobs", "price-watch", "blob.md"))).toBe(true);
     // The face the owner asked for, less the part that was out of range.
     expect(h.roles.get("price-watch")).toMatchObject({ schedule: "0 */6 * * *", prompt: "Look at the listing.", task: "cheap", memory: "own", face: { hue: 210, eyes: "sparkle" } });
     expect(h.roles.get("price-watch")!.face).not.toHaveProperty("gait");
     expect(h.conversations.get("agent:price-watch")).toMatchObject({ role: "price-watch" });
     expect(h.bound).toEqual([{ name: "price-watch", schedule: "0 */6 * * *" }]);
 
-    const again = await h.call("agents.create", { name: "price-watch", description: "x", brief: "y" });
+    const again = await h.call("blobs.create", { name: "price-watch", description: "x", brief: "y" });
     expect(again.isError).toBe(true);
     expect(again.content).toMatch(/already an agent called price-watch/);
     // Rewritten without a schedule, the job goes with it.
-    const replaced = (await h.call("agents.create", { name: "price-watch", description: "Watches one listing", brief: "You watch.", replace: true, tools: ["browser"] })).json!;
+    const replaced = (await h.call("blobs.create", { name: "price-watch", description: "Watches one listing", brief: "You watch.", replace: true, tools: ["browser"] })).json!;
     expect(replaced["job"]).toBeUndefined();
     expect(h.bound.at(-1)).toEqual({ name: "price-watch", schedule: undefined });
     expect(h.roles.get("price-watch")).toMatchObject({ brief: "You watch.", tools: ["browser"] });
 
-    expect((await h.call("agents.create", { name: "bad", description: "x", brief: "y", schedule: "every tuesday", prompt: "p" })).content).toMatch(/not a cron schedule/);
-    expect((await h.call("agents.create", { name: "bad", description: "x", brief: "y", schedule: "0 4 * * *" })).content).toMatch(/needs a prompt/);
-    expect((await h.call("agents.create", { name: "Not A Name", description: "x", brief: "y" })).content).toMatch(/short and plain/);
+    expect((await h.call("blobs.create", { name: "bad", description: "x", brief: "y", schedule: "every tuesday", prompt: "p" })).content).toMatch(/not a cron schedule/);
+    expect((await h.call("blobs.create", { name: "bad", description: "x", brief: "y", schedule: "0 4 * * *" })).content).toMatch(/needs a prompt/);
+    expect((await h.call("blobs.create", { name: "Not A Name", description: "x", brief: "y" })).content).toMatch(/short and plain/);
     expect(h.roles.exists("bad")).toBe(false);
   });
 
   it("lists what a chooser needs", async () => {
     const h = await harness(ws);
-    await h.call("agents.create", { name: "research", description: "Looks things up", brief: "You look." });
-    const listed = (await h.call("agents.list")).json!;
+    await h.call("blobs.create", { name: "research", description: "Looks things up", brief: "You look." });
+    const listed = (await h.call("blobs.list")).json!;
     expect(listed).toEqual({
-      agents: [{ name: "research", description: "Looks things up", tools: "all", memory: "own", conversationId: "agent:research", path: "agents/research/agent.md", folder: "agents/research" }],
+      agents: [{ name: "research", description: "Looks things up", tools: "all", memory: "own", conversationId: "agent:research", path: "blobs/research/blob.md", folder: "blobs/research" }],
     });
   });
 
   it("dispatches to the standing thread at the root, and into the project from a project", async () => {
     const h = await harness(ws);
-    await h.call("agents.create", { name: "research", description: "Looks things up", brief: "You look." });
-    const sent = (await h.call("agents.dispatch", { agent: "research", task: "Find the best kettle." })).json!;
+    await h.call("blobs.create", { name: "research", description: "Looks things up", brief: "You look." });
+    const sent = (await h.call("blobs.dispatch", { agent: "research", task: "Find the best kettle." })).json!;
     expect(sent).toMatchObject({ conversationId: "agent:research", started: true });
     await new Promise((r) => setTimeout(r, 0));
     expect(h.asked).toEqual([{ id: "agent:research", text: "Find the best kettle." }]);
     expect(h.done).toEqual(["orchestrator:owner <- agent:research (research): done"]);
-    expect((await h.call("agents.dispatch", { agent: "nobody", task: "x" })).content).toMatch(/no agent called nobody/);
+    expect((await h.call("blobs.dispatch", { agent: "nobody", task: "x" })).content).toMatch(/no agent called nobody/);
 
     // A project orchestrator gets the agent as a chat of its own project.
     const inside = await harness(ws, { scope: "trip" });
-    const spawned = (await inside.call("agents.dispatch", { agent: "research", task: "Find flights." })).json!;
+    const spawned = (await inside.call("blobs.dispatch", { agent: "research", task: "Find flights." })).json!;
     expect(spawned["conversationId"]).not.toBe("agent:research");
     expect(spawned["project"]).toBe("trip");
     expect(inside.conversations.get(spawned["conversationId"] as string)).toMatchObject({ role: "research", projectSlug: "trip" });
-    expect((await inside.call("agents.dispatch", { agent: "research", task: "x", project: "other" })).content).toMatch(/only be sent into trip/);
+    expect((await inside.call("blobs.dispatch", { agent: "research", task: "x", project: "other" })).content).toMatch(/only be sent into trip/);
   });
 
   it("removes the file and the schedule, and leaves the thread; only that one asks", async () => {
     const h = await harness(ws);
-    await h.call("agents.create", { name: "research", description: "Looks things up", brief: "You look.", schedule: "0 9 * * 1", prompt: "Read." });
-    expect((await h.call("agents.remove", { name: "research" })).json).toMatchObject({ removed: "research" });
+    await h.call("blobs.create", { name: "research", description: "Looks things up", brief: "You look.", schedule: "0 9 * * 1", prompt: "Read." });
+    expect((await h.call("blobs.remove", { name: "research" })).json).toMatchObject({ removed: "research" });
     expect(h.roles.exists("research")).toBe(false);
     expect(h.bound.at(-1)).toEqual({ name: "research", schedule: undefined });
     expect(h.conversations.get("agent:research")).toBeDefined();
-    expect((await h.call("agents.remove", { name: "research" })).isError).toBe(true);
-    for (const safe of ["agents.list", "agents.create", "agents.dispatch"]) expect(h.registry.classify(safe, {}).tier).toBe("safe");
-    expect(h.registry.classify("agents.remove", {}).tier).toBe("risky");
+    expect((await h.call("blobs.remove", { name: "research" })).isError).toBe(true);
+    for (const safe of ["blobs.list", "blobs.create", "blobs.dispatch"]) expect(h.registry.classify(safe, {}).tier).toBe("safe");
+    expect(h.registry.classify("blobs.remove", {}).tier).toBe("risky");
   });
 });

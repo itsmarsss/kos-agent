@@ -56,7 +56,7 @@ export interface MemoryToolDeps {
   /** The project the writing conversation is in, the default scope of a claim made there. */
   currentProject?: () => string | undefined;
   /**
-   * The scope in play when it is not the project's: a standing agent with
+   * The scope in play when it is not the project's: a blob with
    * memory of its own writes to agent:<name>. Wins over currentProject for
    * the default; "project" still names the project.
    */
@@ -126,7 +126,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
   };
   /**
    * "global", "project" (this one), or a project slug; otherwise the scope in
-   * play: a standing agent's own, the project the chat is in, or global.
+   * play: a blob's own, the project the chat is in, or global.
    */
   const scopeOf = (raw: unknown): string => {
     const project = deps.currentProject?.();

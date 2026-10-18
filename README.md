@@ -35,11 +35,11 @@ the whole map:
 | --- | --- |
 | **Chats** | Where you talk to KOS. KOS at the top routes work across your chats; each project has a chat that orchestrates it; the agents a project spawns sit under it. A chip beside the composer says what memory the last turn was given. |
 | **Inbox** | Everything waiting on you, in one list with the buttons to clear it: tool calls that need a yes, memory questions the tidy job could not settle, jobs failing now. The badge in the sidebar counts all three. |
-| **Overview** | A dashboard you arrange: what needs you, what is running, what broke, the standing agents and what each is up to, memory at a glance, modules, projects, activity, recent chats, spend. |
+| **Overview** | A dashboard you arrange: what needs you, what is running, what broke, the blobs and what each is up to, memory at a glance, modules, projects, activity, recent chats, spend. |
 | **Projects** | What KOS is keeping for you. A card opens the project's details: its tables, pages, sites, schedules, chat, folder and schema history. |
 | **Files** | The workspace, browsed. |
 | **Memory** | Claims, Decisions, Pages, Log, Jobs, Callers. See [docs/memory.md](docs/memory.md). |
-| **Agents** | The standing agents: each file as fields, Run now, the thread. See [docs/agents.md](docs/agents.md). |
+| **Blobs** | The standing helpers, each with a face: its page, its thread, its folder, Run now. See [docs/blobs.md](docs/blobs.md). |
 | **Runs** | History (everything KOS has done), Schedule (the jobs and their editor), Builds (coding sub-agents). |
 | **Settings** | Account, Conduct, Extensions, Access, Housekeeping. Models, keys, behaviour, appearance, skills, modules, permissions, network, spend, workspace. |
 
@@ -97,9 +97,9 @@ to a project or global, with the evidence it came from. Three jobs maintain
 it, each off until you switch it on. [docs/memory.md](docs/memory.md).
 
 **Keeps responsibilities.** "Keep an eye on this listing" or "handle my
-travel" becomes a standing agent: a folder under `agents/` with a file you
-can edit, a thread of its own and a schedule if it needs one. KOS makes it from the
-sentence; nothing is written per job. [docs/agents.md](docs/agents.md).
+travel" becomes a blob: a standing helper with a face, a folder under `blobs/`
+with a file you can edit, a thread of its own and a schedule if it needs one. KOS
+makes it from the sentence; nothing is written per job. [docs/blobs.md](docs/blobs.md).
 
 **Looks around.** A heartbeat, off by default, wakes on an interval you set,
 checks what changed, and says nothing unless something is worth saying.

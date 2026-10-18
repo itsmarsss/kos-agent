@@ -14,7 +14,7 @@ All in `packages/ui/src/kit.tsx` unless named otherwise.
   tab filled.
 - **Card**: a boxed section with a small uppercase title, an optional count,
   a Pill or an action at its right, then its body. Columns are stacks of
-  cards: the agent page, the project page. A page-level panel on the
+  cards: the blob page, the project page. A page-level panel on the
   Overview is the same box with a bold title, since there it is the page's
   own content rather than a section of something.
 - **Field**: a label, the control, then one line under it: a hint on what to
@@ -36,9 +36,9 @@ All in `packages/ui/src/kit.tsx` unless named otherwise.
   saying what goes.
 - **Uppercase** is for section and card titles and table column heads, and
   nothing else. Form labels are not uppercase.
-- **Faces** (`Face.tsx`): an agent's or KOS's blob, at 16 to 18 in rows, 26
+- **Faces** (`Face.tsx`): a blob's or KOS's face, at 16 to 18 in rows, 26
   in list rows, 44 to 72 in a head. Its hue is the column's accent on the
-  agent page (`--blob-h`).
+  blob page (`--blob-h`).
 
 ## Audit, 2026-10-18
 
@@ -46,13 +46,13 @@ What a walk through every page found, and where each item stands.
 
 | Where | What was off | Now |
 | --- | --- | --- |
-| Agent page, right column | Plain lines, no hierarchy | Hero, cards, pills, tags (#355); the model for the rest |
-| New agent, New project, New schedule, Configure, Hand off | Labels in two styles, no sign of what is required | One `Field`, required marks, errors in place of hints |
-| Project page, right column | Bare uppercase heads with no box; a plain head | Cards, and a hero like the agent page's, in the project's own colour |
+| Blob page, right column | Plain lines, no hierarchy | Hero, cards, pills, tags (#355); the model for the rest |
+| New blob, New project, New schedule, Configure, Hand off | Labels in two styles, no sign of what is required | One `Field`, required marks, errors in place of hints |
+| Project page, right column | Bare uppercase heads with no box; a plain head | Cards, and a hero like the blob page's, in the project's own colour |
 | Inbox, nothing waiting | Its own empty state | `Empty` |
 | Files, a file's header | Icon, name, meta and buttons spread across the width | Grouped left, actions right (#357) |
 | Face colour | A hue slider | Swatches and an in-page picker (#352, #354, #358) |
-| Agents index, Overview Agents panel | Markdown marks in the last-said line | Stripped |
+| Blobs index, Overview Blobs panel | Markdown marks in the last-said line | Stripped |
 | Settings | Its own `Field` with larger labels, and uppercase labels inside Models | On the kit's label and hint |
 | Overview panels | Bold heads with "All →" | Kept: the page-level card style |
 | Memory, Runs, Projects | List pages: filter chips, tables, a card each | Consistent among themselves; chip stays the pressable one |

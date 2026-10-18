@@ -528,7 +528,7 @@ describe("KOS end-to-end flows", () => {
       text("Will do."),
     ]);
     kernel = await boot(model.inference);
-    // As agents.create does it: a file, a thread, a schedule.
+    // As blobs.create does it: a file, a thread, a schedule.
     kernel.roles.write({
       name: "price-watch",
       description: "Watches a listing",
@@ -541,7 +541,7 @@ describe("KOS end-to-end flows", () => {
     const thread = kernel.ensureAgentConversation("price-watch");
     expect(thread).toMatchObject({ id: "agent:price-watch", title: "Price watch", role: "price-watch", toolAllow: ["memory"] });
     const job = kernel.bindAgentSchedule("price-watch", kernel.roles.get("price-watch"))!;
-    expect(job).toMatchObject({ name: "agent:price-watch", agent: "price-watch", type: "self_prompt", prompt: "Look at the listing.", enabled: true });
+    expect(job).toMatchObject({ name: "blob:price-watch", agent: "price-watch", type: "self_prompt", prompt: "Look at the listing.", enabled: true });
 
     // Its turn runs under the file's brief and reach, and what it remembers is its own.
     await kernel.handleMessage("my target price is under 40", { sessionId: thread.id });
@@ -555,11 +555,11 @@ describe("KOS end-to-end flows", () => {
     expect(model.prompts.at(-1)!).toContain("under 40");
 
     // The owner edits the file; the next turn is the new brief and the full toolkit.
-    writeFileSync(join(root, "agents", "price-watch", "agent.md"), "---\nname: price-watch\ndescription: Watches a listing\n---\nYou watch two listings now.\n", "utf8");
+    writeFileSync(join(root, "blobs", "price-watch", "blob.md"), "---\nname: price-watch\ndescription: Watches a listing\n---\nYou watch two listings now.\n", "utf8");
     await kernel.handleMessage("and now?", { sessionId: thread.id });
     expect(model.systems.at(-1)!).toContain("You watch two listings now.");
     // It is told it has a folder of its own.
-    expect(model.systems.at(-1)!).toContain("Your folder is agents/price-watch/");
+    expect(model.systems.at(-1)!).toContain("Your folder is blobs/price-watch/");
     expect(model.systems.at(-1)!).not.toContain("one listing");
     expect((model.calls.at(-1)!.request.tools ?? []).some((t) => t.name === "files.read")).toBe(true);
     expect(kernel.conversations.get(thread.id)).toMatchObject({ brief: "You watch two listings now.", toolAllow: null });
@@ -572,7 +572,7 @@ describe("KOS end-to-end flows", () => {
     await kernel.handleMessage("note the price", { sessionId: instance.id });
     expect(model.systems.at(-1)!).toContain(`working inside the project ${shop.slug}`);
     expect(model.systems.at(-1)!).toContain(`projects/${shop.slug}/`);
-    expect(model.systems.at(-1)!).toContain("Your own folder, agents/price-watch/, is for your notes");
+    expect(model.systems.at(-1)!).toContain("Your own folder, blobs/price-watch/, is for your notes");
     // One chat per project: dispatched there again, it is the same chat.
     expect(kernel.spawnAgent("price-watch", shop.slug).id).toBe(instance.id);
 
@@ -600,23 +600,23 @@ describe("KOS end-to-end flows", () => {
     expect(kernel.conversations.get(`cron:${job.id}`)).toBeUndefined();
 
     // The file deleted by hand: the schedule switches itself off and says so.
-    rmSync(join(root, "agents", "price-watch", "agent.md"));
+    rmSync(join(root, "blobs", "price-watch", "blob.md"));
     await kernel.fireCron(job.id);
     expect(kernel.crons.get(job.id)?.enabled).toBe(false);
-    expect(JSON.stringify(kernel.sessions.get(primarySessionId("owner")))).toContain("agents/price-watch/agent.md is gone");
+    expect(JSON.stringify(kernel.sessions.get(primarySessionId("owner")))).toContain("blobs/price-watch/blob.md is gone");
     expect(kernel.conversations.get(`cron:${job.id}`)).toBeUndefined();
 
     // The root has the agents tools; an ordinary chat does not.
     await kernel.handleOrchestratorTurn("hello");
     const atRoot = (model.calls.at(-1)!.request.tools ?? []).map((t) => t.name);
-    expect(atRoot).toEqual(expect.arrayContaining(["agents.list", "agents.create", "agents.dispatch", "agents.remove"]));
+    expect(atRoot).toEqual(expect.arrayContaining(["blobs.list", "blobs.create", "blobs.dispatch", "blobs.remove"]));
     const plain = kernel.conversations.create({ userId: "owner", title: "Plain" });
     await kernel.handleMessage("hi", { sessionId: plain.id });
-    expect((model.calls.at(-1)!.request.tools ?? []).map((t) => t.name)).not.toContain("agents.create");
+    expect((model.calls.at(-1)!.request.tools ?? []).map((t) => t.name)).not.toContain("blobs.create");
     // The owner talking to KOS on a surface is the root by another door.
     await kernel.handleChannelTurn({ text: "keep an eye on this", userId: "owner", channel: "discord" });
     const onDiscord = (model.calls.at(-1)!.request.tools ?? []).map((t) => t.name);
-    expect(onDiscord).toEqual(expect.arrayContaining(["agents.list", "agents.create", "agents.dispatch", "chats.dispatch"]));
+    expect(onDiscord).toEqual(expect.arrayContaining(["blobs.list", "blobs.create", "blobs.dispatch", "chats.dispatch"]));
   });
 
   it("tells the model how to format when the turn came from Discord", async () => {

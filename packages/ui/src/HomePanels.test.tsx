@@ -54,7 +54,7 @@ function show(kind: "memory" | "modules" | "approvals" | "pulse" | "map" | "fail
 
 afterEach(cleanup);
 
-describe("the standing agents panel", () => {
+describe("the blobs panel", () => {
   const agent = (over: Partial<AgentInfo>): AgentInfo => ({
     name: "price-watch",
     description: "Watches one listing",
@@ -70,7 +70,7 @@ describe("the standing agents panel", () => {
 
   it("says there are none, and where they come from", () => {
     show("standing", data());
-    expect(screen.getByText(/No standing agents/)).toBeTruthy();
+    expect(screen.getByText(/No blobs yet/)).toBeTruthy();
   });
 
   it("lists each with its face, what it is for and what it is up to, and opens its page", () => {
@@ -84,7 +84,7 @@ describe("the standing agents panel", () => {
         ],
       }),
     );
-    expect(screen.getByText("Price watch").closest("a")?.getAttribute("href")).toBe("#/agents/price-watch");
+    expect(screen.getByText("Price watch").closest("a")?.getAttribute("href")).toBe("#/blobs/price-watch");
     expect(screen.getByText("on request")).toBeTruthy();
     expect(screen.getByText("working")).toBeTruthy();
     expect(screen.getByText("paused")).toBeTruthy();

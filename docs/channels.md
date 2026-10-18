@@ -18,20 +18,20 @@ never lands first; when the answer comes, as its own message, the story
 stays as the record of what was done. A turn with no steps gets no extra
 message.
 
-Standing agents work from here as from the dashboard: "keep an eye on
+Blobs, KOS's standing helpers, work from here as from the dashboard: "keep an eye on
 this listing" said in the DM makes one, "ask recap what I got done" sends
-the task to it, and `@agent:<name>` names one. The DM thread is told when
-a dispatched agent answers, and the answer is sent to you here as well. An
-agent's own approvals, from its schedule or a dispatch, ask here like any
+the task to it, and `@blob:<name>` names one. The DM thread is told when
+a dispatched blob answers, and the answer is sent to you here as well. A
+blob's own approvals, from its schedule or a dispatch, ask here like any
 other; a message it sends you with `notify` arrives here too. Its thread
-stays on the dashboard, under Agents.
+stays on the dashboard, under Blobs.
 
-To talk to an agent itself, start the message with its name: `@recap what
-did I get done this week`, or `@agent:recap …`. That goes to the agent's
+To talk to a blob itself, start the message with its name: `@recap what
+did I get done this week`, or `@blob:recap …`. That goes to the blob's
 own thread, the same one its page shows, and its reply comes back here as
 `Recap: …`; while it works, the story of its steps shows here as KOS's
-would. A name that is not an agent's, or a name with nothing after it, is
-an ordinary message to KOS.
+would. A name that is not a blob's, or a name with nothing after it, is an
+ordinary message to KOS.
 
 ```
 KOS_SECRET_DISCORD=   bot token
