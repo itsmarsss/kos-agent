@@ -314,7 +314,7 @@ function HostList({
           .replace(/\/.*$/, "")
           .toLowerCase()
       }
-      empty="Nothing is allowed, so http.fetch can reach nothing."
+      empty="Nothing is listed, so every fetch asks you first."
     />
   );
 }

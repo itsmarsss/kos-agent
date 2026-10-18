@@ -24,28 +24,26 @@ export interface HttpModuleOptions {
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 1_000_000;
 
-function hostAllowed(url: string, allowed: Set<string>): boolean {
+function hostOf(url: string): string | undefined {
   try {
-    return allowed.has(new URL(url).hostname.toLowerCase());
+    return new URL(url).hostname.toLowerCase() || undefined;
   } catch {
-    return false;
+    return undefined;
   }
 }
 
 async function doFetch(
   input: Record<string, unknown>,
-  opts: Required<Omit<HttpModuleOptions, "allowedHosts">> & {
-    allowed: () => Set<string>;
-  },
+  opts: Required<Omit<HttpModuleOptions, "allowedHosts">>,
   secrets: SecretsRegistry,
 ): Promise<string> {
   const rawUrl = input.url;
   if (typeof rawUrl !== "string") throw new Error("http.fetch requires a url");
   // Inject secrets after reasoning, just before the request leaves.
   const url = injectSecretsInString(rawUrl, secrets);
-  if (!hostAllowed(url, opts.allowed())) {
-    throw new Error(`host not allowlisted: ${new URL(url).hostname}`);
-  }
+  // The list decides what asks, not what runs: a host not on it reached
+  // this handler only because the owner said yes to that call.
+  if (!hostOf(url)) throw new Error(`not a url: ${rawUrl}`);
 
   const headers = injectSecrets(
     (input.headers as Record<string, string>) ?? {},
@@ -79,10 +77,11 @@ async function doFetch(
 }
 
 /**
- * The `http.fetch` tool module: fetch a URL with a domain allowlist, timeout,
- * and size cap. Secrets are referenced by name in args ({{secret:name}}) and
- * injected by the harness at call time, so the model never sees the real value.
- * Risky tier: queues for approval; a non-allowlisted host is rejected outright.
+ * The `http.fetch` tool module: fetch a URL, with a timeout and a size cap.
+ * Secrets are referenced by name in args ({{secret:name}}) and injected by
+ * the harness at call time, so the model never sees the real value. The
+ * owner's host list says which reads run unasked; any other host asks, and
+ * a yes the owner remembers is kept per host (see ops/permissions scopeOf).
  */
 export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
   const allowed = (): Set<string> => {
@@ -96,7 +95,6 @@ export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxBytes: options.maxBytes ?? DEFAULT_MAX_BYTES,
     fetchImpl: options.fetchImpl ?? fetch,
-    allowed,
   };
 
   return {
@@ -112,7 +110,8 @@ export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
         {
           name: "http.fetch",
           description:
-            "Fetch a URL (allowlisted hosts only). Reference secrets by name as {{secret:name}} in url/headers/body; the harness injects real values.",
+            "Fetch a URL. A read from a host on the owner's list runs at once; any other host, and any write, asks the owner first, and a yes they remember stands for that host. " +
+            "Reference secrets by name as {{secret:name}} in url/headers/body; the harness injects real values.",
           inputSchema: {
             type: "object",
             properties: {
@@ -127,22 +126,24 @@ export function createHttpModule(options: HttpModuleOptions = {}): KosModule {
         (input) => doFetch(input, resolved, secrets),
         {
           /*
-           * The allow-list is the permission.
+           * The list is what runs unasked; everything else asks.
            *
            * Every fetch used to queue for approval, including to a host the
-           * owner had explicitly listed -- so the answer to "may it reach
-           * rss.nytimes.com" was given twice, once in settings and again on
-           * every call. A host that is not on the list is refused by the
-           * tool regardless, so asking about that one is theatre too.
-           *
-           * What still asks is a write. Reading a page the owner allowed is
-           * what the list is for; posting to it is a different act, and one
-           * that can carry data out of the workspace.
+           * owner had explicitly listed, so "may it reach rss.nytimes.com"
+           * was answered twice. Then a host off the list was refused outright,
+           * which left a watcher that only needed one feed flailing in the
+           * browser instead, while browser.visit would have opened the same
+           * site unasked. Now a read from a listed host runs at once, a read
+           * from any other host asks (and "always" keeps that host, since a
+           * remembered fetch is scoped to its host), and a write asks
+           * whatever the host: posting can carry data out of the workspace.
            */
           floor: "safe",
           escalate: (input) => {
             const method = String(input["method"] ?? "GET").toUpperCase();
-            return method !== "GET" && method !== "HEAD";
+            if (method !== "GET" && method !== "HEAD") return true;
+            const host = typeof input["url"] === "string" ? hostOf(input["url"]) : undefined;
+            return host === undefined || !allowed().has(host);
           },
         },
       );

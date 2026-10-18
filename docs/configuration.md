@@ -29,7 +29,7 @@ KOS_HOST=                default 127.0.0.1; anything else exposes KOS to the net
 KOS_PORT=                default 4317; sites are served on the next port
 KOS_DASHBOARD_TOKEN=     bearer token for every API route; set one if reachable beyond this machine
 KOS_HOOK_SECRET=         enables POST /api/hooks/<job>
-KOS_ALLOWED_HOSTS=       hosts http.fetch may reach
+KOS_ALLOWED_HOSTS=       hosts http.fetch reads without asking; any other host asks you first, and a yes you remember stands for that host
 KOS_UI_DIST=             built UI, default packages/ui/dist
 ```
 
