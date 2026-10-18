@@ -251,7 +251,11 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     // Always wired. Without a channel this used to be absent, so `notify`
     // threw and every unattended job that ended in "tell me" lost its
     // message. The fallback puts it where the owner already looks.
-    notify: async (payload: NotifyPayload): Promise<string | undefined> => {
+    notify: async (sent: NotifyPayload): Promise<string | undefined> => {
+      // A blob speaking is tagged as itself wherever the message lands;
+      // the tool does not know who called it, and the kernel does.
+      const from = kernelRef?.senderFor(kernelRef.callerConversationId);
+      const payload: NotifyPayload = { ...sent, ...(from ? { from } : {}) };
       /*
        * A turn that is answering a press has somewhere better to send than
        * the owner's inbox: back into the interaction the press opened.
@@ -270,6 +274,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
           text: payload.text,
           ...(payload.card ? { card: payload.card } : {}),
           ...(payload.buttons ? { buttons: payload.buttons } : {}),
+          ...(from ? { from } : {}),
         });
         return "Sent as a reply to the press.";
       }

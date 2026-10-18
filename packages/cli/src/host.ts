@@ -178,6 +178,7 @@ export async function runHost(options: HostOptions): Promise<void> {
             text: payload.text,
             ...(payload.card ? { card: payload.card } : {}),
             ...(payload.buttons ? { buttons: payload.buttons } : {}),
+            ...(payload.from ? { from: payload.from } : {}),
           };
           // An addressed message goes through sendTo; the owner's DM is the
           // path everything took before and still takes.

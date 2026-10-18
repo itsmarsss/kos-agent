@@ -85,6 +85,14 @@ surface. A surface that is wired but not connected at that moment (Discord
 still logging in, or dropped by the gateway) is not an error: a message for
 you is left in the primary chat on the dashboard and the turn is told so.
 A message for a channel or another person has nowhere else to go, so that
-one fails. An approval is asked on every wired surface, and the first answer
+one fails.
+
+A blob's message is tagged as the blob's, since the bot is KOS and the
+speaker is not. On Discord the words open with its name in bold; a card
+takes the blob's colour as its stripe and, when there are no words above
+it, its name as the author line. On iMessage and SMS the name comes first,
+"Recap: …". The same tag is on a blob's answer when you spoke to it by name
+from a surface, and on a notice left in the primary chat while the surface
+was down. KOS's own messages carry no tag. An approval is asked on every wired surface, and the first answer
 wins; the other prompts settle to say how it went, and so does a prompt
 whose ask lapsed because nobody answered in time.

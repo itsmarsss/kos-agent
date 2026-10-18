@@ -50,6 +50,11 @@ describe("rendering for a surface with no furniture", () => {
     expect(text).toContain('"Add a book"');
   });
 
+  it("opens with the blob's name when a blob is speaking", () => {
+    expect(renderForText({ text: "Done for today.", from: { name: "Recap", colour: "#3b82f6" } })).toBe("Recap: Done for today.");
+    expect(renderForText({ text: "", from: { name: "Recap" } })).toBe("");
+  });
+
   it("uses the unnamed field's value alone", () => {
     // Discord needs a zero-width name to render a bare block. Printed here it
     // would be a stray colon at the start of the line.

@@ -272,6 +272,8 @@ describe("notifyModule", () => {
     expect(text).toContain("Heads up");
     expect(text).toContain("**Backup**");
     expect(text).toContain("Size: 2MB");
+    // A blob's notice is the blob's, on the dashboard as on a surface.
+    expect(noticeText({ text: "Heads up", target: { kind: "owner" }, from: { name: "Recap" } })).toBe("Recap: Heads up");
   });
 
   it("errors when no channel is wired", async () => {
