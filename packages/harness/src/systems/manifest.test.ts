@@ -58,6 +58,17 @@ describe("ProjectManifest", () => {
     expect(manifest.get("garden")?.colour).toBeNull();
   });
 
+  it("lets the name, what it is for and the kind change, and refuses a name another has", () => {
+    manifest.createProject({ name: "Garden", type: "notes" });
+    manifest.createProject({ name: "Shed", type: "notes" });
+    const changed = manifest.update("garden", { name: "Back garden", description: "Beds and the greenhouse", type: "tracker" });
+    expect(changed).toMatchObject({ slug: "garden", name: "Back garden", description: "Beds and the greenhouse", type: "tracker" });
+    expect(manifest.update("garden", { description: "  " }).description).toBeNull();
+    expect(() => manifest.update("garden", { name: "Shed" })).toThrow(/another project is called Shed/);
+    expect(() => manifest.update("garden", { name: " " })).toThrow(/needs a name/);
+    expect(() => manifest.update("nope", { name: "x" })).toThrow(/no project/);
+  });
+
   it("lists projects, optionally filtered by status", () => {
     manifest.createProject({ name: "A", type: "x" });
     manifest.createProject({ name: "B", type: "x", status: "done" });

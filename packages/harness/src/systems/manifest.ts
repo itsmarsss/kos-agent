@@ -168,6 +168,22 @@ export class ProjectManifest {
     this.db.prepare(`UPDATE manifest SET module = ? WHERE slug = ?`).run(module, slug);
   }
 
+  /** What the owner may change about a project after it is made; the slug stays, since it names the folder and the tables. */
+  update(slug: string, patch: { name?: string; description?: string | null; type?: string }): Project {
+    const current = this.get(slug);
+    if (!current) throw new Error(`no project called ${slug}`);
+    const name = patch.name === undefined ? current.name : patch.name.trim();
+    if (!name) throw new Error("a project needs a name");
+    const type = patch.type === undefined ? current.type : patch.type.trim() || current.type;
+    const description = patch.description === undefined ? current.description : (patch.description?.trim() ?? null) || null;
+    const taken = this.db.prepare(`SELECT slug FROM manifest WHERE name = ? AND slug != ?`).get(name, slug) as { slug: string } | undefined;
+    if (taken) throw new Error(`another project is called ${name}`);
+    this.db
+      .prepare(`UPDATE manifest SET name = ?, type = ?, description = ?, last_touched_at = ? WHERE slug = ?`)
+      .run(name, type, description, this.now(), slug);
+    return this.get(slug)!;
+  }
+
   /** The owner's colour for a project, as #rrggbb; null gives it back to the name. */
   setColour(slug: string, colour: string | null): void {
     if (colour !== null && !/^#[0-9a-f]{6}$/i.test(colour)) throw new Error("a colour is #rrggbb");

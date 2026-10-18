@@ -1222,6 +1222,21 @@ export async function handleApiRequest(
     return ok(kernel.manifest.get(slug));
   }
 
+  if (method === "POST" && path === "/api/projects/update") {
+    const slug = typeof body.slug === "string" ? body.slug : "";
+    if (!slug) return { status: 400, body: { error: "slug required" } };
+    if (!kernel.manifest.get(slug)) return { status: 404, body: { error: "project not found" } };
+    const patch: { name?: string; description?: string | null; type?: string } = {};
+    if (typeof body.name === "string") patch.name = body.name;
+    if (typeof body.description === "string" || body.description === null) patch.description = body.description as string | null;
+    if (typeof body.type === "string") patch.type = body.type;
+    try {
+      return ok(kernel.manifest.update(slug, patch));
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+  }
+
   if (method === "POST" && path === "/api/projects/colour") {
     const slug = typeof body.slug === "string" ? body.slug : "";
     const colour = body.colour === null ? null : typeof body.colour === "string" ? body.colour.trim() : undefined;

@@ -50,7 +50,7 @@ function open(over: Record<string, unknown> = {}): void {
 
 /** Section headings only: "Pages" is also a stat label in the summary strip. */
 function sections(): string[] {
-  return [...document.querySelectorAll("h3.insp-label")].map(
+  return [...document.querySelectorAll(".insp-section .card-title")].map(
     (h) => h.textContent ?? "",
   );
 }
@@ -125,7 +125,8 @@ describe("the project drawer", () => {
     // not change when the drawer saves, so it went on saying "active".
     open();
     await waitFor(() => expect(sections()).toContain("About"));
-    expect(screen.getByText(/kitchen_redo · active/)).toBeTruthy();
+    expect(document.querySelector(".insp-hero-meta .pill")?.textContent).toBe("active");
+    expect(screen.getByText("kitchen_redo")).toBeTruthy();
   });
 
   it("still shows the panel when the detail fetch fails", async () => {

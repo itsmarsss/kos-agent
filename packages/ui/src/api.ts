@@ -862,6 +862,8 @@ export const api = {
     post<{ custom: { baseUrl: string } | null; providers: string[] }>("/api/settings/models/custom", { baseUrl }),
   availableModels: () => get<{ models: string[] }>("/api/models"),
   projects: () => get<Project[]>("/api/projects"),
+  /** What the owner may change about a project after it is made; the slug stays. */
+  updateProject: (slug: string, patch: { name?: string; description?: string | null; type?: string }) => post<Project>("/api/projects/update", { slug, ...patch }),
   /** The project's colour, #rrggbb, or null to let its name decide again. */
   setProjectColour: (slug: string, colour: string | null) => post<Project>("/api/projects/colour", { slug, colour }),
   setProjectStatus: (slug: string, status: string) =>

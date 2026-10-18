@@ -719,6 +719,14 @@ export function App(): React.ReactElement {
               go({ name: "files", path });
             }}
             onSaved={() => void refresh()}
+            onUpdateProject={async (slug, patch) => {
+              await api.updateProject(slug, patch);
+              await refresh();
+            }}
+            onSetProjectColour={async (slug, colour) => {
+              await api.setProjectColour(slug, colour);
+              await refresh();
+            }}
             onSetProjectStatus={async (slug, st) => {
               await api.setProjectStatus(slug, st);
               flash("ok", `Project ${slug} → ${st}`);

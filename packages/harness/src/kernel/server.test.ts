@@ -624,6 +624,11 @@ describe("handleApiRequest", () => {
       body: { slug: "p", status: "dormant" },
     });
     expect((st.body as { status: string }).status).toBe("dormant");
+    // The name, what it is for and the kind can change; the slug stays.
+    const renamed = await handleApiRequest(kernel, { method: "POST", path: "/api/projects/update", body: { slug: "p", name: "Pantry", description: "What is in the cupboard", type: "tracker" } });
+    expect(renamed.body).toMatchObject({ slug: "p", name: "Pantry", description: "What is in the cupboard", type: "tracker" });
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/projects/update", body: { slug: "p", name: "" } })).status).toBe(400);
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/projects/update", body: { slug: "nope", name: "x" } })).status).toBe(404);
     // A colour of the owner's, kept on the manifest row; null gives it back to the name.
     const painted = await handleApiRequest(kernel, { method: "POST", path: "/api/projects/colour", body: { slug: "p", colour: "#3B82F6" } });
     expect((painted.body as { colour: string | null }).colour).toBe("#3b82f6");
