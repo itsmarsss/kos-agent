@@ -141,12 +141,12 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
   return (
     <aside className="project-panel agent-panel" aria-label={`${title}, the agent`} aria-hidden={hidden} style={{ "--blob-h": String(hue) } as CSSProperties}>
       {/* Who it is: its face on a glow of its own colour, and how it is doing. */}
-      <header className="agent-hero">
+      <header className="hero">
         <Face seed={agent.name} look={agent.face ?? {}} size={72} mood={moodOf(agent.thread?.activity, { paused })} />
         <h2>{title}</h2>
-        <p className="agent-hero-desc">{agent.description}</p>
-        <span className={`agent-hero-state is-${state.tone}`}>
-          <span className="agent-hero-dot" aria-hidden="true" />
+        <p className="hero-desc">{agent.description}</p>
+        <span className={`hero-state is-${state.tone}`}>
+          <span className="hero-dot" aria-hidden="true" />
           {state.text}
         </span>
       </header>

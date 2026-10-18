@@ -48,18 +48,18 @@ What a walk through every page found, and where each item stands.
 | --- | --- | --- |
 | Agent page, right column | Plain lines, no hierarchy | Hero, cards, pills, tags (#355); the model for the rest |
 | New agent, New project, New schedule, Configure, Hand off | Labels in two styles, no sign of what is required | One `Field`, required marks, errors in place of hints |
-| Project page, right column | Bare uppercase heads with no box | Cards, like the agent page |
+| Project page, right column | Bare uppercase heads with no box; a plain head | Cards, and a hero like the agent page's, in the project's own colour |
 | Inbox, nothing waiting | Its own empty state | `Empty` |
 | Files, a file's header | Icon, name, meta and buttons spread across the width | Grouped left, actions right (#357) |
 | Face colour | A hue slider | Swatches and an in-page picker (#352, #354, #358) |
 | Agents index, Overview Agents panel | Markdown marks in the last-said line | Stripped |
-| Settings | Its own `Field` with sentence labels, and uppercase labels inside Models | Next: onto the kit's `Field` and `Card` |
+| Settings | Its own `Field` with larger labels, and uppercase labels inside Models | On the kit's label and hint |
 | Overview panels | Bold heads with "All →" | Kept: the page-level card style |
 | Memory, Runs, Projects | List pages: filter chips, tables, a card each | Consistent among themselves; chip stays the pressable one |
 | Chats | Its own rail and landing | By design; not a list page |
 
 ## Next
 
-Settings onto `Field` and `Card`; the project column's head as a hero like
-the agent's; the Overview panel head as the card's bold variant; any
-remaining chip that cannot be pressed becomes a `Tag`.
+The Overview panel head as the card's bold variant; any remaining chip that
+cannot be pressed becomes a `Tag`; the Memory and Runs tab bar as one
+component.

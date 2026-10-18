@@ -140,14 +140,15 @@ function Field({
       </div>
     );
   }
+  // The kit's field, so a setting reads like a field anywhere else.
   return (
-    <div className="set-field">
-      <div className="set-label">
-        <span>{label}</span>
+    <div className="kos-field set-field">
+      <span className="kos-field-label">
+        {label}
         {badge}
-      </div>
+      </span>
       {children}
-      {hint && <p className="set-hint">{hint}</p>}
+      {hint && <span className="hint">{hint}</span>}
       {meta}
     </div>
   );
