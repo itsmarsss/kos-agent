@@ -1995,6 +1995,22 @@ export class Kernel {
     };
   }
 
+  /**
+   * A message addressed to a standing agent by name, "@agent:recap …" or
+   * "@recap …", from a surface where the owner has one thread with KOS and
+   * no page per agent. The name has to be an agent's, and something has to
+   * follow it, or the message is for KOS as usual, mention and all.
+   */
+  addressedAgent(text: string): { name: string; text: string } | undefined {
+    const trimmed = text.trim();
+    const m = /^@(?:agent:)?([a-z0-9][a-z0-9_-]*)(?=[\s:,.!?]|$)[\s:,]*/i.exec(trimmed);
+    if (!m) return undefined;
+    const name = m[1]!.toLowerCase();
+    if (!this.roles.get(name)) return undefined;
+    const rest = trimmed.slice(m[0].length).trim();
+    return rest ? { name, text: rest } : undefined;
+  }
+
   async handleChannelTurn(input: {
     text: string;
     userId: string;
@@ -2025,6 +2041,20 @@ export class Kernel {
         conversationId: result.switchedTo ?? conversation.id,
         isCommand: true,
       };
+    }
+
+    // "@recap what did I get done": to the agent itself, in its own thread,
+    // and its answer comes back here under its name.
+    const addressed = this.addressedAgent(input.text);
+    if (addressed) {
+      const thread = this.ensureAgentConversation(addressed.name);
+      const res = await this.handleMessage(addressed.text, {
+        userId: input.userId,
+        sessionId: thread.id,
+        channel: input.channel,
+        ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+      });
+      return { ...res, reply: res.reply ? `${thread.title}: ${res.reply}` : res.reply, conversationId: thread.id, isCommand: false };
     }
 
     const res = await this.handleMessage(input.text, {

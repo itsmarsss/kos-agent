@@ -105,6 +105,8 @@ export interface TurnWatch {
   userId: string;
   channel: string;
   conversationKey?: string;
+  /** What was said, since a message addressed to an agent runs in the agent's thread. */
+  text?: string;
 }
 
 const NARRATE_EVERY_MS = 1_500;
@@ -268,7 +270,7 @@ export class ChannelRuntime {
     } catch {
       presence = undefined;
     }
-    const story = presence ? this.narrate(presence, { userId, channel: msg.channel, ...(msg.conversationKey ? { conversationKey: msg.conversationKey } : {}) }) : undefined;
+    const story = presence ? this.narrate(presence, { userId, channel: msg.channel, text: msg.text, ...(msg.conversationKey ? { conversationKey: msg.conversationKey } : {}) }) : undefined;
 
     try {
       const answer = await this.handleTurn({
