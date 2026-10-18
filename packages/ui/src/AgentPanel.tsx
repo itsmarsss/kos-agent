@@ -4,7 +4,7 @@ import { AgentEditor, titleOf } from "./AgentEditor.js";
 import { api, type AgentInfo } from "./api.js";
 import { describeCron } from "./schedule.js";
 import { Face, lookOf, moodOf } from "./Face.js";
-import { Modal } from "./Modal.js";
+import { Drawer } from "./Drawer.js";
 import { Card, ConfirmButton, Pill, Tag } from "./kit.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
 import { WEEK, agoWords, inWords, runDays } from "./schedulewords.js";
@@ -218,7 +218,7 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
         />
       </footer>
 
-      <Modal open={editing} title={`Edit ${title}`} onClose={() => setEditing(false)}>
+      <Drawer open={editing} title={`Edit ${title}`} subtitle="Its file, as a form; what you save is the next turn's brief" wide onClose={() => setEditing(false)}>
         {editing && (
           <AgentEditor
             initial={agent}
@@ -231,7 +231,7 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
             onCancel={() => setEditing(false)}
           />
         )}
-      </Modal>
+      </Drawer>
     </aside>
   );
 }

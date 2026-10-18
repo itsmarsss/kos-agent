@@ -1,13 +1,14 @@
 import { useState, type ReactElement } from "react";
 
 import { Field } from "./kit.js";
-import { Modal } from "./Modal.js";
+import { Drawer } from "./Drawer.js";
 import { Select } from "./Select.js";
 
 /**
- * The New project dialog: a name, a kind, and nothing else to decide.
+ * New project: a name, a kind, and nothing else to decide, in a drawer so
+ * the page stays beside it.
  *
- * One dialog for both places a project can be made from, the Projects page
+ * One form for both places a project can be made from, the Projects page
  * and the Chats rail, so the two ask the same two questions and make the
  * same empty thing: a chat of its own, with nothing in it until the owner
  * or KOS puts something there.
@@ -41,7 +42,7 @@ export function NewProjectDialog({ open, onClose, onCreate }: NewProjectDialogPr
       .finally(() => setCreating(false));
   };
   return (
-    <Modal open={open} title="New project" onClose={onClose}>
+    <Drawer open={open} title="New project" subtitle="A name and a kind; empty until you or KOS put something in it" onClose={onClose}>
       <form
         className="rename-form"
         onSubmit={(e) => {
@@ -72,6 +73,6 @@ export function NewProjectDialog({ open, onClose, onCreate }: NewProjectDialogPr
           </button>
         </div>
       </form>
-    </Modal>
+    </Drawer>
   );
 }

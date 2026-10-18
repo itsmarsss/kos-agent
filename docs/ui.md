@@ -40,6 +40,11 @@ All in `packages/ui/src/kit.tsx` unless named otherwise.
   project, a blob, a schedule, a file.
 - **Empty**: what a list or panel says when there is nothing in it: a title
   and a line in a dashed box. A blank reads as broken; an answer does not.
+- **Drawer** (`Drawer.tsx`): anything with more than a field or two opens
+  in the panel that slides in from the right, with the page still beside
+  it: a schedule, a project's details, a new project, a new blob, a blob's
+  edit. A modal is kept for the small blocking questions only: rename
+  this, hand this off.
 - **Buttons**: `.btn`; `.btn--primary` once per form, last; `.btn--sm`
   inside cards and rows; `.btn--ghost` for the quiet choice; a delete is
   `.btn--danger-ghost` and asks through `ConfirmButton`.
