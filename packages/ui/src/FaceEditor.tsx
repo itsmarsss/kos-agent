@@ -74,11 +74,10 @@ export function FaceEditor({ seed, value, onChange, label, preview = true }: Fac
             {/* Any colour: the picker gives a hex, the face takes its hue and
                 keeps its own saturation and lightness, so it stays a blob
                 colour and not a mustard or a murk. */}
-            <label
-              className={`swatch swatch--custom${onSwatch ? "" : " is-on"}`}
-              style={onSwatch ? undefined : { background: fillOf(shown.hue) }}
-              title="Any colour"
-            >
+            <label className={`swatch-custom${onSwatch ? "" : " is-on"}`} title="Any colour">
+              <span className="swatch swatch--rainbow" style={onSwatch ? undefined : { background: fillOf(shown.hue) }} aria-hidden="true" />
+              <span>Custom</span>
+              {!onSwatch && <code className="swatch-hex">{hexOfHue(shown.hue)}</code>}
               <input
                 type="color"
                 aria-label="Any colour"
