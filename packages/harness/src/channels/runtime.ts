@@ -292,7 +292,14 @@ export class ChannelRuntime {
       } else {
         await this.adapter.send(msg.senderId, reply);
       }
-    } catch {
+    } catch (err) {
+      // Said in the log whatever happens next: a reply lost to a surface
+      // that was unreachable for a moment is otherwise a message the owner
+      // never got and nobody can account for.
+      console.error(
+        `[channels] ${this.adapter.name}: the turn failed or its reply was not delivered`,
+        err instanceof Error ? err.message : String(err),
+      );
       await story?.end().catch(() => undefined);
       /*
        * Telling the owner it went wrong can itself go wrong.

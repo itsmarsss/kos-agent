@@ -74,8 +74,10 @@ const CODE_MAX = 600;
 const WHY_MAX = 300;
 
 /** A turn's story as Discord shows it: the agent's words plain, its steps small. */
-export function storyText(status: string): string {
-  return status
+export function storyText(status: string, dashboardUrl?: string): string {
+  // References in the story link where they link in the answer, or the
+  // same name reads as a token in one place and a link in the other.
+  return linkMentions(status, dashboardUrl)
     .split("\n")
     .map((line) => (line.startsWith(STEP_MARK) ? `-# ${line}` : line))
     .join("\n")
@@ -951,7 +953,7 @@ export class DiscordAdapter implements ChannelAdapter {
 
     return {
       update: async (status: string) => {
-        told = storyText(status);
+        told = storyText(status, this.dashboardUrl);
         const content = `${REACT_WORKING} ${told}`;
         if (story) {
           await story.edit({ content });
@@ -965,7 +967,8 @@ export class DiscordAdapter implements ChannelAdapter {
         await settle();
         try {
           await this.deliver(post, reply);
-        } catch {
+        } catch (err) {
+          console.warn(`[discord] the answer could not be posted in the DM, sending it directly:`, err instanceof Error ? err.message : String(err));
           await this.send(msg.senderId, reply);
         }
       },

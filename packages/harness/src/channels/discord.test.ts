@@ -231,6 +231,9 @@ describe("the answer a turn shaped", () => {
     expect(edits[2]).toEqual({ edit: true, content: "I'll look at the folder.\n-# › List projects/x\nTwo stale builds, I'll clear them.\n-# › Run: rm -rf build" });
     expect(edits[3]).toEqual({ content: "Cleared two stale builds." });
     expect(storyText("x".repeat(3000)).length).toBe(1900);
+    // A reference in the story links as it does in the answer, so the same
+    // name is not a token in one message and a link in the next.
+    expect(storyText("Reading it.\n› Read @page:home", "https://kos.example")).toBe("Reading it.\n-# › Read [home](https://kos.example/#/page/home)");
   });
 
   it("links a reference in the reply to the dashboard, since Discord cannot draw the chip", async () => {

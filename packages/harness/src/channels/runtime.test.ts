@@ -240,6 +240,9 @@ describe("telling the turn's story on a surface with a presence", () => {
         tell!({ kind: "delta", conversationId: "c", of: "text", text: "Three files, " });
         tell!({ kind: "delta", conversationId: "c", of: "text", text: "all fine." });
         await new Promise((r) => setTimeout(r, 70));
+        // The kernel says the turn is over before the handler returns; the
+        // story must still settle to its steps, not keep the answer.
+        tell!({ kind: "turn-end", conversationId: "c" });
         return "Three files, all fine.";
       },
     });
