@@ -98,6 +98,8 @@ describe("the risky tools say what they would do", () => {
     expect(summarizeAction("blobs.list", {})).toBe("List the blobs");
     expect(summarizeAction("blobs.create", { name: "watch", description: "Watches a listing" })).toBe("Make the blob watch: Watches a listing");
     expect(summarizeAction("blobs.dispatch", { agent: "recap", task: "x", project: "garden" })).toBe("Hand work to the blob recap in garden");
+    expect(summarizeAction("blobs.pause", { name: "recap" })).toBe("Pause the blob recap");
+    expect(summarizeAction("blobs.resume", { name: "recap" })).toBe("Resume the blob recap");
     expect(summarizeAction("blobs.remove", { name: "watch" })).toBe("Remove the blob watch");
     expect(summarizeAction("daemons.create", { name: "api", runtime: "node", entry: "server.mjs", args: ["--port", "3000"] })).toBe("Create daemon “api”: node server.mjs --port 3000");
     expect(summarizeAction("systems.project_delete", { project: "old_tracker" })).toBe("Delete project old_tracker and everything in it");

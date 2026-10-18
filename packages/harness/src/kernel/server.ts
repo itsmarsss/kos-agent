@@ -43,6 +43,7 @@ import { importPage, listPages, readPage } from "../memory/pages.js";
 import { applyResolution, describeReview } from "../memory/resolve.js";
 import type { ReviewItem } from "../memory/review.js";
 import { KOS_FACE_KEY, parseFaceLook, ROLE_NAME, type Role, type RoleRecord } from "../agents/roles.js";
+import type { BlobJob } from "../tools/agents.js";
 import type { ModelMessage } from "../models/types.js";
 import { mayRead } from "../memory/callers.js";
 import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
@@ -3104,9 +3105,9 @@ function describeAgent(
 ): RoleRecord & {
   conversationId: string;
   thread: { id: string; activity: Activity; unread: boolean; updatedAt: number; lastSaid: string | null; lastError?: string };
-  job?: { id: number; schedule: string; enabled: boolean; lastRunAt: number | null; nextRunAt: number | null };
+  job?: BlobJob;
 } {
-  const job = kernel.crons.list().find((j) => j.agent === record.name);
+  const job = kernel.agentJob(record.name);
   const thread = label(kernel.ensureAgentConversation(record.name));
   return {
     ...record,
@@ -3119,17 +3120,7 @@ function describeAgent(
       lastSaid: lastSaid(kernel.sessions.get(thread.id)),
       ...(thread.lastError ? { lastError: thread.lastError } : {}),
     },
-    ...(job
-      ? {
-          job: {
-            id: job.id,
-            schedule: job.schedule,
-            enabled: job.enabled,
-            lastRunAt: job.lastRunAt ?? null,
-            nextRunAt: job.enabled ? (kernel.cronNextRuns(job.id, 1)[0] ?? null) : null,
-          },
-        }
-      : {}),
+    ...(job ? { job } : {}),
   };
 }
 

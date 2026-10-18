@@ -18,7 +18,17 @@ import type { KosModule, ModuleContext } from "../modules/loader.js";
  * spawn more of itself.
  */
 
-export const BLOB_TOOLS = ["blobs.list", "blobs.create", "blobs.dispatch", "blobs.remove"] as const;
+export const BLOB_TOOLS = ["blobs.list", "blobs.create", "blobs.dispatch", "blobs.pause", "blobs.resume", "blobs.remove"] as const;
+
+/** A blob's schedule as the scheduler holds it: whether it will fire, and when it did and will. */
+export interface BlobJob {
+  id: number;
+  schedule: string;
+  enabled: boolean;
+  lastRunAt: number | null;
+  /** Null while paused: nothing is coming. */
+  nextRunAt: number | null;
+}
 
 export interface AgentToolDeps {
   roles: RoleStore;
@@ -33,6 +43,10 @@ export interface AgentToolDeps {
   spawnAgent: (name: string, projectSlug: string) => Conversation;
   /** The role's schedule as a job, in step with the file; undefined removes it. */
   bindSchedule: (name: string, role: Role | undefined) => { id: number; schedule: string } | undefined;
+  /** The role's job as the scheduler sees it, when the file gave it one. */
+  jobOf: (name: string) => BlobJob | undefined;
+  /** Pause or resume the role's job; undefined when it has none. */
+  setJobEnabled: (name: string, enabled: boolean) => BlobJob | undefined;
   /** Run a turn inside a conversation and return its reply. The kernel owns the queue. */
   dispatch: (conversationId: string, text: string) => Promise<{ reply: string; conversationId: string }>;
   /** Told when a dispatched conversation answers, so the chat that delegated can say so. */
@@ -56,15 +70,36 @@ function stringList(raw: unknown): string[] | undefined {
   return items.length ? items : undefined;
 }
 
+const iso = (at: number | null): string | undefined => (at === null ? undefined : new Date(at).toISOString());
+
+/**
+ * Whether a blob will run on its own, in the dashboard's words. A schedule
+ * in the file says what was asked; only the job says whether it fires.
+ */
+function stateOf(job: BlobJob | undefined): "scheduled" | "paused" | "on request" {
+  return job ? (job.enabled ? "scheduled" : "paused") : "on request";
+}
+
+/** The job, as a reader of the list needs it: when it last ran and when it next will. */
+function runs(job: BlobJob | undefined): Record<string, unknown> {
+  if (!job) return {};
+  return {
+    schedule: job.schedule,
+    ...(job.lastRunAt !== null ? { lastRun: iso(job.lastRunAt) } : {}),
+    ...(job.nextRunAt !== null ? { nextRun: iso(job.nextRunAt) } : {}),
+  };
+}
+
 /** What a role looks like in a list: enough to choose one, not its whole brief. */
-function summary(r: RoleRecord): Record<string, unknown> {
+function summary(r: RoleRecord, job: BlobJob | undefined): Record<string, unknown> {
   return {
     name: r.name,
     description: r.description,
     tools: r.tools ?? "all",
     memory: r.memory,
     ...(r.task ? { task: r.task } : {}),
-    ...(r.schedule ? { schedule: r.schedule } : {}),
+    state: stateOf(job),
+    ...runs(job),
     conversationId: agentConversationId(r.name),
     path: r.path,
     folder: r.folder,
@@ -78,12 +113,13 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
     {
       name: "blobs.list",
       description:
-        "The blobs that exist: name, what each is for, what it may reach, and when it runs. Read this before making one, since the responsibility may already have a home.",
+        "The blobs that exist: name, what each is for, what it may reach, and its state: scheduled (it runs on its own, with when it last ran and next will), paused (its schedule is off until resumed), or on request (no schedule; it works when dispatched or spoken to). " +
+        "Read this before making one, since the responsibility may already have a home.",
       inputSchema: { type: "object", properties: {} },
     },
     () => {
       const { roles, invalid } = deps.roles.list();
-      return JSON.stringify({ agents: roles.map(summary), ...(invalid.length ? { invalid } : {}) });
+      return JSON.stringify({ blobs: roles.map((r) => summary(r, deps.jobOf(r.name))), ...(invalid.length ? { invalid } : {}) });
     },
     { floor: "safe" },
     { restricted: true },
@@ -121,7 +157,7 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
             description: "its face, only if the owner asked for a look: hue 0-359, eyes round|half|sparkle, gait 0-3. Otherwise omit; the name decides.",
             properties: { hue: { type: "number" }, eyes: { type: "string", enum: ["round", "half", "sparkle"] }, gait: { type: "number" } },
           },
-          replace: { type: "boolean", description: "rewrite an agent that already exists; otherwise an existing name is refused" },
+          replace: { type: "boolean", description: "rewrite a blob that already exists; otherwise an existing name is refused" },
         },
         required: ["name", "description", "brief"],
       },
@@ -130,7 +166,7 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
       const name = str(input, "name").toLowerCase();
       if (!ROLE_NAME.test(name)) throw new Error(`name must be short and plain, like research or shopper (${ROLE_NAME})`);
       if (deps.roles.exists(name) && input.replace !== true) {
-        throw new Error(`there is already an agent called ${name}. Read it with blobs.list; pass replace: true to rewrite it.`);
+        throw new Error(`there is already a blob called ${name}. Read it with blobs.list; pass replace: true to rewrite it.`);
       }
       const schedule = optional(input, "schedule");
       if (schedule && !cron.validate(schedule)) throw new Error(`not a cron schedule: ${schedule}`);
@@ -170,26 +206,26 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
     {
       name: "blobs.dispatch",
       description:
-        "Give a task to a blob. At the root it goes to the agent's own thread; from inside a project, or with a project named, the agent gets a chat in that project so what it makes lands there. " +
+        "Give a task to a blob. At the root it goes to the blob's own thread; from inside a project, or with a project named, the blob gets a chat in that project so what it makes lands there. " +
         "It returns as soon as the work is handed over: say what you delegated and end your turn. The owner is told when it answers.",
       inputSchema: {
         type: "object",
         properties: {
-          agent: { type: "string", description: "the agent's name, from blobs.list" },
-          task: { type: "string", description: "the instruction, written the way the owner would say it TO the agent" },
-          project: { type: "string", description: "a project slug: run the agent inside that project rather than in its own thread" },
+          agent: { type: "string", description: "the blob's name, from blobs.list" },
+          task: { type: "string", description: "the instruction, written the way the owner would say it TO the blob" },
+          project: { type: "string", description: "a project slug: run the blob inside that project rather than in its own thread" },
         },
         required: ["agent", "task"],
       },
     },
     async (input) => {
       const name = str(input, "agent").toLowerCase();
-      if (!deps.roles.get(name)) throw new Error(`no agent called ${name}; blobs.list says which exist`);
+      if (!deps.roles.get(name)) throw new Error(`no blob called ${name}; blobs.list says which exist`);
       const task = str(input, "task");
       const here = deps.scope?.();
       const project = optional(input, "project") ?? here;
-      // A project orchestrator sends agents into its own project and no other.
-      if (here !== undefined && project !== here) throw new Error(`from this project an agent can only be sent into ${here}`);
+      // A project orchestrator sends blobs into its own project and no other.
+      if (here !== undefined && project !== here) throw new Error(`from this project a blob can only be sent into ${here}`);
       const target = project ? deps.spawnAgent(name, project) : deps.ensureAgent(name);
       // Handed over, not waited on, as chats.dispatch does: the agent's turn
       // may be minutes of work, and the answer comes back as its own note.
@@ -212,6 +248,41 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
     { restricted: true },
   );
 
+  // Pausing and resuming are the dashboard's Pause button, for when the
+  // owner says it in a chat instead. A blob with no schedule has nothing to
+  // pause, and a schedule comes from its file, so that is where to add one.
+  const toggle = (tool: "blobs.pause" | "blobs.resume", enabled: boolean, description: string): void => {
+    ctx.registerTool(
+      {
+        name: tool,
+        description,
+        inputSchema: { type: "object", properties: { name: { type: "string", description: "the blob's name, from blobs.list" } }, required: ["name"] },
+      },
+      (input) => {
+        const name = str(input, "name").toLowerCase();
+        if (!deps.roles.get(name)) throw new Error(`no blob called ${name}; blobs.list says which exist`);
+        const job = deps.setJobEnabled(name, enabled);
+        if (!job) {
+          throw new Error(
+            enabled
+              ? `${name} has no schedule to resume; it works when asked. To give it one, rewrite it with blobs.create (replace: true) with a schedule and a prompt.`
+              : `${name} has no schedule to pause; it only works when asked.`,
+          );
+        }
+        return JSON.stringify({
+          name,
+          state: stateOf(job),
+          ...runs(job),
+          note: enabled ? `Resumed: it runs on ${job.schedule} again.` : "Paused: its schedule is off until resumed. Dispatching to it still works.",
+        });
+      },
+      { floor: "safe" },
+      { restricted: true },
+    );
+  };
+  toggle("blobs.pause", false, "Pause a blob's schedule: it stops running on its own until resumed. It can still be dispatched to or spoken to.");
+  toggle("blobs.resume", true, "Resume a paused blob's schedule, so it runs on its own again.");
+
   ctx.registerTool(
     {
       name: "blobs.remove",
@@ -220,7 +291,7 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
     },
     (input) => {
       const name = str(input, "name").toLowerCase();
-      if (!deps.roles.remove(name)) throw new Error(`no agent called ${name}`);
+      if (!deps.roles.remove(name)) throw new Error(`no blob called ${name}`);
       deps.bindSchedule(name, undefined);
       return JSON.stringify({ removed: name, note: "Its file and schedule are gone; its thread stays as an ordinary chat." });
     },

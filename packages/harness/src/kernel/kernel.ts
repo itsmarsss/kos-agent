@@ -88,7 +88,7 @@ import { PermissionStore } from "../ops/permissions.js";
 import { offeredSkills, readSkills } from "../skills/manifest.js";
 import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import { CHAT_TOOLS } from "../tools/chats.js";
-import { BLOB_TOOLS } from "../tools/agents.js";
+import { BLOB_TOOLS, type BlobJob } from "../tools/agents.js";
 import { agentConversationId, agentScope, type Role, type RoleStore } from "../agents/roles.js";
 import { type NotifyPayload } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
@@ -1609,6 +1609,28 @@ export class Kernel {
     const job = existing ? this.crons.update(existing.id, input)! : this.crons.create(input);
     this.reloadCron();
     return job;
+  }
+
+  /** A blob's job as the scheduler sees it, when its file gave it one. */
+  agentJob(name: string): BlobJob | undefined {
+    const job = this.crons.list().find((j) => j.agent === name);
+    if (!job) return undefined;
+    return {
+      id: job.id,
+      schedule: job.schedule,
+      enabled: job.enabled,
+      lastRunAt: job.lastRunAt ?? null,
+      nextRunAt: job.enabled ? (this.cronNextRuns(job.id, 1)[0] ?? null) : null,
+    };
+  }
+
+  /** Pause or resume a blob's job, as the dashboard's button does; undefined when it has none. */
+  setAgentJobEnabled(name: string, enabled: boolean): BlobJob | undefined {
+    const job = this.crons.list().find((j) => j.agent === name);
+    if (!job) return undefined;
+    this.crons.setEnabled(job.id, enabled);
+    this.reloadCron();
+    return this.agentJob(name);
   }
 
   /**
