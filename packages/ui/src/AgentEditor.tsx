@@ -4,6 +4,7 @@ import { api, type AgentDraft, type AgentInfo, type FaceLook, type ToolInfo } fr
 import { describeCron, PRESETS } from "./CronEditor.js";
 import { Face } from "./Face.js";
 import { FaceEditor } from "./FaceEditor.js";
+import { Field, Req } from "./kit.js";
 import { Select } from "./Select.js";
 import { ToolPicker } from "./ToolPicker.js";
 
@@ -137,10 +138,14 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
           <Face seed={seed} look={draft.face} size={72} label={draft.name ? `${titleOf(draft.name)}'s face` : "A new agent's face"} />
           <div className="agent-editor-ident">
             <div className="agents-fields">
-              <label className="kos-field">
-                <span className="kos-field-label">Name</span>
+              <Field
+                label="Name"
+                required
+                hint={isNew ? "Short and plain: letters, digits, dashes. It names the folder and the thread." : undefined}
+                error={nameTaken ? `An agent called ${name} already exists. Pick another name, or edit that one.` : nameOdd ? "Letters, digits and dashes only, starting with a letter or digit." : undefined}
+              >
                 <input
-                  className={`kos-input${nameTaken || nameOdd ? " is-invalid" : ""}`}
+                  className="kos-input"
                   value={draft.name}
                   disabled={!isNew}
                   placeholder="price-watch"
@@ -148,22 +153,10 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
                   aria-invalid={nameTaken || nameOdd}
                   onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                 />
-                {nameTaken ? (
-                  <span className="field-error" role="alert">
-                    An agent called {name} already exists. Pick another name, or edit that one.
-                  </span>
-                ) : nameOdd ? (
-                  <span className="field-error" role="alert">
-                    Letters, digits and dashes only, starting with a letter or digit.
-                  </span>
-                ) : (
-                  isNew && <span className="hint">Short and plain: letters, digits, dashes. It names the folder and the thread.</span>
-                )}
-              </label>
-              <label className="kos-field">
-                <span className="kos-field-label">What it is for</span>
+              </Field>
+              <Field label="What it is for" required hint="One line, as a list would show it.">
                 <input className="kos-input" value={draft.description} placeholder="Watches one listing and says when it drops" onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
-              </label>
+              </Field>
             </div>
             <FaceEditor seed={seed} value={draft.face} onChange={(face) => setDraft({ ...draft, face })} preview={false} />
           </div>
@@ -171,7 +164,9 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
       </section>
 
       <section className="agent-editor-section">
-        <h3>Brief</h3>
+        <h3>
+          Brief <Req />
+        </h3>
         <textarea className="kos-input agents-brief" rows={10} value={draft.brief} placeholder="You watch one listing for the owner…" onChange={(e) => setDraft({ ...draft, brief: e.target.value })} />
         <span className="hint">Its standing instructions, in the second person: what it is for, how to do the work, when to tell you. It has a folder of its own, agents/{seed}/, for notes and anything it makes.</span>
       </section>
@@ -179,10 +174,9 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
       <section className="agent-editor-section">
         <h3>Reach</h3>
         <div className="agents-fields agents-fields--reach">
-          <div className="kos-field">
-            <span className="kos-field-label">Tools</span>
+          <Field label="Tools" group>
             <ToolPicker tools={tools} allow={draft.tools} onChange={(allow) => setDraft({ ...draft, tools: allow })} />
-          </div>
+          </Field>
           <div className="agent-editor-stack">
             <Choice
               label="Memory"
@@ -209,8 +203,7 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
       <section className="agent-editor-section">
         <h3>Schedule</h3>
         <div className="agents-fields">
-          <div className="kos-field">
-            <span className="kos-field-label">When</span>
+          <Field label="When" group>
             <div className="settings-row">
               <input className="kos-input kos-mono" value={draft.schedule} spellCheck={false} placeholder="not scheduled" onChange={(e) => setDraft({ ...draft, schedule: e.target.value })} />
               <Select
@@ -227,20 +220,18 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
             <span className={`cron-reads ${badSchedule ? "is-bad" : ""}`}>
               {draft.schedule.trim() === "" ? "Not scheduled: it works when dispatched or spoken to." : (readable ?? "Not a schedule yet: five fields, minute to day of week.")}
             </span>
-          </div>
+          </Field>
           {draft.schedule.trim() !== "" && (
-            <label className="kos-field">
-              <span className="kos-field-label">On each run</span>
+            <Field label="On each run" required hint="What it is told each time, in its own thread.">
               <textarea className="kos-input" rows={3} value={draft.prompt} placeholder="Look at the listing and compare with what you remember." onChange={(e) => setDraft({ ...draft, prompt: e.target.value })} />
-              <span className="hint">What it is told each time, in its own thread.</span>
-            </label>
+            </Field>
           )}
         </div>
       </section>
 
       {error && <p className="ops-alert ops-alert--err">{error}</p>}
       <div className="rename-actions">
-        <button type="submit" className="btn btn--primary" disabled={busy || badSchedule || nameTaken || nameOdd || !draft.name.trim() || !draft.description.trim() || !draft.brief.trim()}>
+        <button type="submit" className="btn btn--primary" disabled={busy || badSchedule || nameTaken || nameOdd || !draft.name.trim() || !draft.description.trim() || !draft.brief.trim() || (draft.schedule.trim() !== "" && !draft.prompt.trim())}>
           {busy ? "Saving…" : isNew ? "Make it" : "Save"}
         </button>
         <button type="button" className="btn" disabled={busy} onClick={onCancel}>

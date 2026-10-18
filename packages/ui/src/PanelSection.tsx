@@ -1,6 +1,6 @@
 import type { ReactElement, ReactNode } from "react";
 
-/** One titled block of the project panel: a small uppercase head, a count, an action, then its body. */
+/** One titled block of a panel: the kit's card, with a small uppercase head, a count, an action, then its body. */
 export function PanelSection({
   title,
   count,
@@ -16,11 +16,11 @@ export function PanelSection({
   children: ReactNode;
 } & Omit<React.HTMLAttributes<HTMLElement>, "title" | "className" | "children">): ReactElement {
   return (
-    <section className={`project-panel-section${className ? ` ${className}` : ""}`} {...rest}>
-      <div className="ops-section-head">
-        <h2>
+    <section className={`card project-panel-section${className ? ` ${className}` : ""}`} {...rest}>
+      <div className="card-head">
+        <h2 className="card-title">
           {title}
-          {count !== undefined && count > 0 && <span className="project-panel-count">{count}</span>}
+          {count !== undefined && count > 0 && <span className="card-count">{count}</span>}
         </h2>
         {action}
       </div>

@@ -5,6 +5,7 @@ import { api, type AgentInfo, type DirEntry } from "./api.js";
 import { describeCron } from "./CronEditor.js";
 import { Face, lookOf, moodOf } from "./Face.js";
 import { Modal } from "./Modal.js";
+import { Card, Pill, Tag } from "./kit.js";
 import { hrefFor } from "./routes.js";
 import { WEEK, agoWords, inWords, runDays, sizeWords } from "./schedulewords.js";
 
@@ -150,11 +151,7 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
         </span>
       </header>
 
-      <section className="agent-card" aria-label="Schedule">
-        <div className="agent-card-head">
-          <span className="agent-card-title">Schedule</span>
-          {agent.job && <span className={`agent-pill${paused ? " agent-pill--paused" : ""}`}>{paused ? "paused" : "on"}</span>}
-        </div>
+      <Card title="Schedule" pill={agent.job ? <Pill tone={paused ? "warn" : "ok"}>{paused ? "paused" : "on"}</Pill> : undefined}>
         {agent.job ? (
           <>
             <p className="agent-when">{describeCron(agent.job.schedule) ?? agent.job.schedule}</p>
@@ -201,42 +198,33 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
             <p className="hint">It works when you speak to it or KOS dispatches it. Edit to give it a schedule.</p>
           </>
         )}
-      </section>
+      </Card>
 
-      <section className="agent-card" aria-label="Reach">
-        <div className="agent-card-head">
-          <span className="agent-card-title">Reach</span>
-        </div>
-        <div className="agent-chips">
+      <Card title="Reach">
+        <div className="tags">
           {agent.tools?.length ? (
             agent.tools.map((t) => (
-              <span key={t} className="agent-chip agent-chip--mono" title="A tool family it may use">
+              <Tag key={t} mono title="A tool family it may use">
                 {t}
-              </span>
+              </Tag>
             ))
           ) : (
-            <span className="agent-chip" title="Every tool KOS has">
-              Full toolkit
-            </span>
+            <Tag title="Every tool KOS has">Full toolkit</Tag>
           )}
-          <span className="agent-chip" title={agent.memory === "own" ? "What it remembers is its own" : "It shares memory with the project it is in, or the global pool"}>
-            {agent.memory === "own" ? "Own memory" : "Shared memory"}
-          </span>
-          <span className="agent-chip" title="Which model class answers">
-            {agent.task === "cheap" ? "Cheap model" : "Reasoning model"}
-          </span>
+          <Tag title={agent.memory === "own" ? "What it remembers is its own" : "It shares memory with the project it is in, or the global pool"}>{agent.memory === "own" ? "Own memory" : "Shared memory"}</Tag>
+          <Tag title="Which model class answers">{agent.task === "cheap" ? "Cheap model" : "Reasoning model"}</Tag>
         </div>
-      </section>
+      </Card>
 
-      <section className="agent-card" aria-label="Folder">
-        <div className="agent-card-head">
-          <span className="agent-card-title">
-            Folder <span className="agent-card-count">{entries.length}</span>
-          </span>
+      <Card
+        title="Folder"
+        count={entries.length}
+        action={
           <button type="button" className="link" onClick={() => onOpenFile(agent.folder)} title="Its folder on the Files page">
             Open in Files →
           </button>
-        </div>
+        }
+      >
         {/* Its own place: agent.md says what it is, and the rest is what it has made. */}
         <ul className="agent-files">
           {entries.map((e) => (
@@ -259,7 +247,7 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
           ))}
           {entries.length === 0 && <li className="hint">Nothing in agents/{agent.name}/ yet.</li>}
         </ul>
-      </section>
+      </Card>
 
       <footer className="agent-foot">
         <button type="button" className="btn btn--sm" disabled={busy} onClick={() => setEditing(true)}>

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { api, type Conversation, type ToolInfo } from "./api.js";
+import { Field } from "./kit.js";
 import { ToolPicker } from "./ToolPicker.js";
 
 /**
@@ -54,29 +55,21 @@ export function ChatConfig({
 
   return (
     <div className="chatcfg">
-      <label className="chatcfg-field">
-        <span className="chatcfg-label">Title</span>
-        <input
-          className="chats-search"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-      </label>
+      <Field label="Title" required>
+        <input className="kos-input" value={title} onChange={(e) => setTitle(e.target.value)} />
+      </Field>
 
-      <label className="chatcfg-field">
-        <span className="chatcfg-label">Brief</span>
+      <Field label="Brief" hint="Added to the system prompt for this chat only.">
         <textarea
-          className="chatcfg-textarea"
+          className="kos-input"
           rows={4}
           value={brief}
           placeholder="What is this conversation for, and how should it behave?"
           onChange={(e) => setBrief(e.target.value)}
         />
-        <span className="hint">Added to the system prompt for this chat only.</span>
-      </label>
+      </Field>
 
-      <div className="chatcfg-field">
-        <span className="chatcfg-label">Tools</span>
+      <Field label="Tools" group>
         <ToolPicker tools={tools} allow={allow} onChange={setAllow} />
         <div className="chatcfg-presets">
           {(unrestricted || allow.length > 0) && (
@@ -89,7 +82,7 @@ export function ChatConfig({
             </button>
           )}
         </div>
-      </div>
+      </Field>
 
       <div className="chatcfg-bar">
         <button type="button" className="btn btn--ghost" onClick={onClose}>

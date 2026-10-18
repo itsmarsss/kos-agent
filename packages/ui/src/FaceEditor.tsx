@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { ColourPicker } from "./ColourPicker.js";
 import { hexOfHsl } from "./colour.js";
 import { EYES, FILL_SAT, Face, fillOf, lightnessOf, lookOf, type FaceLook, type Gait } from "./Face.js";
+import { Field } from "./kit.js";
 import { Select } from "./Select.js";
 
 /**
@@ -102,8 +103,7 @@ export function FaceEditor({ seed, value, onChange, label, preview = true }: Fac
     <div className="face-editor" style={{ "--blob-h": String(shown.hue) } as React.CSSProperties}>
       {preview && <Face seed={seed} look={value} size={64} label={label ?? `${seed}'s face`} />}
       <div className="face-editor-fields">
-        <div className="kos-field face-editor-colour" role="group" aria-label="Colour">
-          <span className="kos-field-label">Colour</span>
+        <Field label="Colour" group className="face-editor-colour">
           <div className="swatches">
             {SWATCHES.map((s) => (
               <button
@@ -137,9 +137,8 @@ export function FaceEditor({ seed, value, onChange, label, preview = true }: Fac
                 )}
             </div>
           </div>
-        </div>
-        <label className="kos-field">
-          <span className="kos-field-label">Eyes</span>
+        </Field>
+        <Field label="Eyes">
           <Select
             className="settings-select"
             label="Eyes"
@@ -147,11 +146,10 @@ export function FaceEditor({ seed, value, onChange, label, preview = true }: Fac
             options={EYES.map((e) => ({ value: e, label: EYE_LABELS[e] ?? e }))}
             onChange={(eyes) => onChange({ ...value, eyes: EYES.find((e) => e === eyes) ?? "round" })}
           />
-        </label>
-        <label className="kos-field">
-          <span className="kos-field-label">Gait</span>
+        </Field>
+        <Field label="Gait">
           <Select className="settings-select" label="Gait" value={String(shown.wobble)} options={GAITS} onChange={(g) => onChange({ ...value, gait: Number(g) as Gait })} />
-        </label>
+        </Field>
         <div className="face-editor-foot">
           <span className="hint">{custom ? "Set by hand; the rest comes from the name." : "All of it comes from the name."}</span>
           {custom && (
