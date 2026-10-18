@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { TEMPLATES, describeCron } from "./CronEditor.js";
+import { TEMPLATES } from "./CronEditor.js";
+import { describeCron } from "./schedule.js";
 
 describe("the jobs offered to start from", () => {
   it("each has a schedule that reads back, and a prompt that reaches the owner", () => {
@@ -47,7 +48,7 @@ describe("reading a cron line back in words", () => {
 
   it("says nothing rather than guessing", () => {
     // A confident wrong reading is worse than none: the owner would trust it.
-    expect(describeCron("0 9 * * 1,3,5")).toBeNull();
+    expect(describeCron("0 9 * * 1,3,5")).toBe("Mon, Wed, Fri at 09:00");
     expect(describeCron("0 9 1-7 * *")).toBeNull();
     expect(describeCron("nonsense")).toBeNull();
     expect(describeCron("0 9 * *")).toBeNull();

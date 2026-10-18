@@ -28,6 +28,11 @@ All in `packages/ui/src/kit.tsx` unless named otherwise.
 - **Tag**: a fact in a word or two: a tool family (mono), a memory scope, a
   model class, a type. Never a button. A filter chip that can be pressed
   is `.chip`, which is a different thing and looks like one.
+- **SchedulePicker** (`SchedulePicker.tsx`): when something runs, as
+  choices (daily, weekdays, the days you pick, hourly, minutes, monthly)
+  with the line it writes read back in words, and the line itself to edit
+  for anything the choices do not cover. Every place a schedule is set uses
+  it; nowhere asks for five fields cold.
 - **Empty**: what a list or panel says when there is nothing in it: a title
   and a line in a dashed box. A blank reads as broken; an answer does not.
 - **Buttons**: `.btn`; `.btn--primary` once per form, last; `.btn--sm`

@@ -2,6 +2,8 @@ import { useState, type ReactElement } from "react";
 
 import { api, type CronJob } from "./api.js";
 import { Field } from "./kit.js";
+import { describeCron } from "./schedule.js";
+import { SchedulePicker } from "./SchedulePicker.js";
 import { Select } from "./Select.js";
 
 /**
@@ -14,13 +16,6 @@ import { Select } from "./Select.js";
  * the agent proposes, not what the owner writes.
  */
 
-export const PRESETS: { label: string; value: string }[] = [
-  { label: "Every hour", value: "0 * * * *" },
-  { label: "Every day at 9am", value: "0 9 * * *" },
-  { label: "Weekdays at 9am", value: "0 9 * * 1-5" },
-  { label: "Every Monday at 8am", value: "0 8 * * 1" },
-  { label: "First of the month", value: "0 9 1 * *" },
-];
 
 /**
  * Whole jobs to start from.
@@ -78,71 +73,6 @@ export const TEMPLATES: {
     actions: [{ tool: "browser.watch", args: { url: "https://example.com", tell: true } }],
   },
 ];
-
-/**
- * A cron line, in words.
- *
- * Only the shapes people actually write: a fixed time, an interval, a
- * weekday. Anything else is left to the expression itself rather than
- * guessed at, because a confident wrong reading is worse than none.
- */
-export function describeCron(expr: string): string | null {
-  const parts = expr.trim().split(/\s+/);
-  if (parts.length !== 5) return null;
-  const [min, hour, dom, mon, dow] = parts as [
-    string,
-    string,
-    string,
-    string,
-    string,
-  ];
-
-  const everyMinutes = /^\*\/(\d+)$/.exec(min);
-  if (
-    everyMinutes &&
-    hour === "*" &&
-    dom === "*" &&
-    mon === "*" &&
-    dow === "*"
-  ) {
-    return `Every ${everyMinutes[1]} minutes`;
-  }
-  if (min === "*" && hour === "*") return "Every minute";
-
-  if (!/^\d+$/.test(min)) return null;
-  const at = (h: string): string =>
-    `${h.padStart(2, "0")}:${min.padStart(2, "0")}`;
-
-  const everyHours = /^\*\/(\d+)$/.exec(hour);
-  if (everyHours && dom === "*" && mon === "*" && dow === "*") {
-    const n = Number(everyHours[1]);
-    const each = n === 1 ? "Every hour" : `Every ${n} hours`;
-    return min === "0" ? `${each}, on the hour` : `${each}, at ${min.padStart(2, "0")} past the hour`;
-  }
-  if (!/^\d+$/.test(hour)) return null;
-
-  const days = [
-    "Sunday",
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-  ];
-  if (dom === "*" && mon === "*" && dow === "*")
-    return `Every day at ${at(hour)}`;
-  if (dom === "*" && mon === "*" && /^[0-6]$/.test(dow)) {
-    return `Every ${days[Number(dow)]} at ${at(hour)}`;
-  }
-  if (dom === "*" && mon === "*" && dow === "1-5") {
-    return `Weekdays at ${at(hour)}`;
-  }
-  if (/^\d+$/.test(dom) && mon === "*" && dow === "*") {
-    return `On day ${dom} of each month at ${at(hour)}`;
-  }
-  return null;
-}
 
 export function CronEditor({
   job,
@@ -224,7 +154,6 @@ export function CronEditor({
       .finally(() => setSaving(false));
   };
 
-  const readable = describeCron(schedule);
 
   return (
     <div className="settings cron-editor">
@@ -348,35 +277,7 @@ export function CronEditor({
         )}
 
         <Field label="When" required group>
-          <div className="settings-row">
-            <input
-              className="kos-input kos-mono"
-              value={schedule}
-              spellCheck={false}
-              onChange={(e) => setSchedule(e.target.value)}
-            />
-            <Select
-              className="settings-select"
-              label="Common schedules"
-              value=""
-              options={[
-                { value: "", label: "presets…" },
-                ...PRESETS.map((p) => ({
-                  value: p.value,
-                  label: p.label,
-                  hint: p.value,
-                })),
-              ]}
-              onChange={(v) => v && setSchedule(v)}
-            />
-          </div>
-          {/* Read back in words. Five numbers and three stars is a format you
-            either know or do not, and getting it wrong means a job that runs
-            at a time you did not intend and no way to notice from here. */}
-          <span className={`cron-reads ${readable ? "" : "is-bad"}`}>
-            {readable ??
-              "Not a schedule yet: five fields, minute to day of week."}
-          </span>
+          <SchedulePicker value={schedule} onChange={setSchedule} />
         </Field>
       </div>
 
