@@ -7661,3 +7661,25 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .confirm-pop { width: 17.5rem; padding: 0.7rem 0.8rem; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); box-shadow: 0 12px 32px rgb(0 0 0 / 0.45); }
 .confirm-text { margin: 0 0 0.6rem; font-size: var(--text-base); color: var(--text); line-height: 1.45; }
 .confirm-acts { display: flex; gap: 0.4rem; }
+
+/* A project's card: its mark, name and kind, a status pill; its pages; then its ways in. */
+.project-card { min-height: 11rem; gap: 0.6rem; }
+.project-card-head { display: flex; align-items: center; gap: 0.6rem; }
+.project-card-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.project-card-sub { font-size: var(--text-xs); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hero-mark--sm { width: 36px; height: 36px; border-radius: 10px; flex: none; }
+.project-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: auto; padding-top: 0.4rem; border-top: 1px solid var(--line); }
+.project-card-foot .card-acts { display: inline-flex; gap: 0.35rem; }
+.card-mark { display: none; }
+
+/* The project drawer's head: the mark on its colour, the words, Edit beside Close. */
+.insp-head--hero { align-items: flex-start; background: linear-gradient(180deg, hsl(var(--blob-h, 214) 72% 62% / 0.12), transparent); }
+.insp-hero { display: flex; align-items: flex-start; gap: 0.8rem; flex: 1; min-width: 0; }
+.insp-hero-words { min-width: 0; }
+.insp-hero-words .insp-desc { margin: 0.3rem 0 0; }
+.insp-hero-meta { justify-content: flex-start; margin-top: 0.5rem; }
+.insp-head-acts { display: flex; gap: 0.35rem; flex: none; }
+.insp-edit { display: flex; flex-direction: column; gap: 0.6rem; flex: 1; min-width: 0; max-width: 34rem; }
+.insp-edit-acts { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.insp-section .insp-rows { margin: 0; }
+.insp-stats { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }

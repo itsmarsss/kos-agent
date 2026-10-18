@@ -10,7 +10,11 @@ import type {
   RunRecord,
 } from "./api.js";
 import { api, type ProjectDetail } from "./api.js";
-import { ConfirmButton } from "./kit.js";
+import { ColourChoice } from "./ColourPicker.js";
+import { hexOfHsl, hueOfHex, lightnessOfHex } from "./colour.js";
+import { lookOf } from "./Face.js";
+import { FileIcon } from "./FileIcon.js";
+import { Card, ConfirmButton, Field, Pill, Tag } from "./kit.js";
 import { ease, spring } from "./motion.js";
 import { Select } from "./Select.js";
 
@@ -91,8 +95,15 @@ export function Inspector(props: {
   onSetProjectStatus?: (slug: string, status: string) => Promise<void>;
   /** Gone for good, after a second press. */
   onDeleteProject?: (slug: string) => Promise<void>;
+  /** The name, what it is for and the kind, changed from the drawer. */
+  onUpdateProject?: (slug: string, patch: { name?: string; description?: string | null; type?: string }) => Promise<void>;
+  onSetProjectColour?: (slug: string, colour: string | null) => Promise<void>;
 }): React.ReactElement | null {
   const { target, onClose } = props;
+  /** The project as edited here, shown at once; the list behind catches up on its next read. */
+  const [local, setLocal] = useState<{ name: string; description: string | null; type: string; colour: string | null } | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ name: "", description: "", type: "" });
   const [busy, setBusy] = useState(false);
   // Counts, tables, sites and schema history, fetched when a project is
   // opened rather than carried on the card: the list does not need them and
@@ -163,6 +174,8 @@ export function Inspector(props: {
   let subtitle = "";
   let body: React.ReactNode = null;
   let actions: React.ReactNode = null;
+  /** A head of the target's own, in place of the plain title and subtitle. */
+  let head: React.ReactNode = null;
 
   const run = async (fn: () => Promise<void>): Promise<void> => {
     setBusy(true);
@@ -312,13 +325,108 @@ export function Inspector(props: {
       break;
     }
     case "project": {
-      const p = target.data;
+      const p = { ...target.data, ...(local ?? {}) };
       title = p.name;
       // The live value, not the one the card was holding when it was clicked:
       // the header went on saying "active" after the status had been changed
       // to dormant a few pixels below it.
       const status = editStatus ?? p.status;
       subtitle = `${p.slug} · ${status}`;
+      const hue = (p.colour ? hueOfHex(p.colour) : null) ?? lookOf(p.slug).hue;
+      const saveEdit = (): void => {
+        if (!props.onUpdateProject || !draft.name.trim()) return;
+        void run(async () => {
+          await props.onUpdateProject!(p.slug, { name: draft.name, description: draft.description, type: draft.type });
+          setLocal({ name: draft.name.trim(), description: draft.description.trim() || null, type: draft.type.trim() || p.type, colour: p.colour ?? null });
+          setEditing(false);
+        });
+      };
+      const recolour = (colour: string | null): void => {
+        if (!props.onSetProjectColour) return;
+        void run(async () => {
+          await props.onSetProjectColour!(p.slug, colour);
+          setLocal({ name: p.name, description: p.description ?? null, type: p.type, colour });
+        });
+      };
+      head = (
+        <header className="insp-head insp-head--hero" style={{ "--blob-h": String(hue) } as React.CSSProperties}>
+          <div className="insp-hero">
+            <span className="hero-mark hero-mark--sm" aria-hidden="true" style={p.colour ? { background: p.colour, color: markInk(p.colour) } : undefined}>
+              <FileIcon name={p.slug} kind="dir" size={22} />
+            </span>
+            {editing ? (
+              <form
+                className="insp-edit"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  saveEdit();
+                }}
+              >
+                <Field label="Name" required>
+                  <input className="kos-input" value={draft.name} autoFocus onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+                </Field>
+                <Field label="What it is for">
+                  <input className="kos-input" value={draft.description} placeholder="One line, as the card shows it" onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
+                </Field>
+                <Field label="Kind" hint="project, tracker, notes, budget, app, research, or a word of your own">
+                  <input className="kos-input" value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value })} />
+                </Field>
+                <Field label="Colour" group>
+                  <ColourChoice
+                    value={p.colour ?? hexOfHsl(hue, 70, 60)}
+                    swatchHue={p.colour ? undefined : hue}
+                    picked={Boolean(p.colour)}
+                    fillOfHue={(h) => `hsl(${h} 70% 60%)`}
+                    onSwatch={(h) => recolour(hexOfHsl(h, 70, 60))}
+                    onPick={(hex) => recolour(hex)}
+                  />
+                </Field>
+                <div className="insp-edit-acts">
+                  <button type="submit" className="btn btn--sm btn--primary" disabled={busy || !draft.name.trim()}>
+                    Save
+                  </button>
+                  <button type="button" className="btn btn--sm btn--ghost" onClick={() => setEditing(false)}>
+                    Cancel
+                  </button>
+                  {p.colour && (
+                    <button type="button" className="btn btn--sm btn--ghost" onClick={() => recolour(null)} title="Let the name decide the colour again">
+                      Colour from the name
+                    </button>
+                  )}
+                </div>
+              </form>
+            ) : (
+              <div className="insp-hero-words">
+                <div className="insp-kicker">project</div>
+                <h2 className="insp-title">{p.name}</h2>
+                {p.description && <p className="insp-desc">{p.description}</p>}
+                <div className="hero-meta insp-hero-meta">
+                  <Pill tone={status === "active" ? "ok" : status === "archived" || status === "done" ? "muted" : "warn"}>{status}</Pill>
+                  <Tag>{p.type}</Tag>
+                  <Tag mono>{p.slug}</Tag>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="insp-head-acts">
+            {!editing && props.onUpdateProject && (
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={() => {
+                  setDraft({ name: p.name, description: p.description ?? "", type: p.type });
+                  setEditing(true);
+                }}
+              >
+                Edit
+              </button>
+            )}
+            <button type="button" className="btn btn--sm btn--ghost" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </header>
+      );
       const pages = detail?.pages ?? target.pages;
       const sites = detail?.sites ?? [];
       const schedules = detail?.crons ?? [];
@@ -336,8 +444,6 @@ export function Inspector(props: {
       // drawer to read "5 rows".
       body = (
         <>
-          {p.description && <p className="insp-desc">{p.description}</p>}
-
           {/* The counts arrive after the panel does, and snapping from a row
               of dashes to a row of numbers reads as the drawer flinching.
               Keyed on whether they are known, so they cross-fade instead. */}
@@ -623,16 +729,18 @@ export function Inspector(props: {
         exit={{ x: 28, opacity: 0 }}
         transition={spring}
       >
-        <header className="insp-head">
-          <div>
-            <div className="insp-kicker">{target.kind}</div>
-            <h2 className="insp-title">{title}</h2>
-            <div className="ops-muted">{subtitle}</div>
-          </div>
-          <button type="button" className="ops-btn" onClick={onClose}>
-            Close
-          </button>
-        </header>
+        {head ?? (
+          <header className="insp-head">
+            <div>
+              <div className="insp-kicker">{target.kind}</div>
+              <h2 className="insp-title">{title}</h2>
+              <div className="ops-muted">{subtitle}</div>
+            </div>
+            <button type="button" className="btn btn--sm btn--ghost" onClick={onClose}>
+              Close
+            </button>
+          </header>
+        )}
         <div className="insp-body">
           {err && <div className="ops-alert ops-alert--err">{err}</div>}
           {body}
@@ -666,16 +774,17 @@ function Facts({ rows }: { rows: [string, string][] }): React.ReactElement {
 }
 
 /** A labelled group. One heading style everywhere, rather than nine. */
-function Section(props: {
-  title: string;
-  children: React.ReactNode;
-}): React.ReactElement {
+function Section(props: { title: string; children: React.ReactNode }): React.ReactElement {
   return (
-    <section className="insp-section">
-      <h3 className="insp-label">{props.title}</h3>
+    <Card title={props.title} className="insp-section">
       {props.children}
-    </section>
+    </Card>
   );
+}
+
+/** Ink for the mark on a picked colour: pale on a dark one, dark on a light one. */
+function markInk(colour: string): string {
+  return (lightnessOfHex(colour) ?? 60) < 55 ? "rgb(255 255 255 / 0.9)" : "rgb(0 0 0 / 0.7)";
 }
 
 function Block(props: { label: string; text: string }): React.ReactElement {

@@ -50,7 +50,7 @@ function open(over: Record<string, unknown> = {}): void {
 
 /** Section headings only: "Pages" is also a stat label in the summary strip. */
 function sections(): string[] {
-  return [...document.querySelectorAll("h3.insp-label")].map(
+  return [...document.querySelectorAll(".insp-section .card-title")].map(
     (h) => h.textContent ?? "",
   );
 }

@@ -2,7 +2,10 @@ import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { m } from "motion/react";
 
 import { api, type Conversation, type PageSummary, type Project, type SiteInfo } from "./api.js";
+import { lightnessOfHex } from "./colour.js";
 import { lookOf } from "./Face.js";
+import { FileIcon } from "./FileIcon.js";
+import { Pill } from "./kit.js";
 import { card, stagger } from "./motion.js";
 import { NewProjectDialog } from "./NewProjectDialog.js";
 import { hrefFor } from "./routes.js";
@@ -56,6 +59,11 @@ function relative(ts: number): string {
   const hours = Math.round(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.round(hours / 24)}d ago`;
+}
+
+/** Ink for the mark on a picked colour: pale on a dark one, dark on a light one. */
+function markInk(colour: string): string {
+  return (lightnessOfHex(colour) ?? 60) < 55 ? "rgb(255 255 255 / 0.9)" : "rgb(0 0 0 / 0.7)";
 }
 
 export function ProjectsPage({
@@ -178,11 +186,18 @@ export function ProjectsPage({
                     onOpen(p.slug);
                   }}
                 >
-                  <div className="card-top">
-                    {/* The project's colour, as the mark on its own page wears it. */}
-                    <span className="card-mark" aria-hidden="true" style={{ background: p.colour ?? `hsl(${lookOf(p.slug).hue} 70% 60%)` }} />
-                    <span className="card-name">{p.name}</span>
-                    <span className={`dot dot--${p.status}`} />
+                  <div className="project-card-head">
+                    {/* The project's mark in its colour, as its own page wears it. */}
+                    <span className="hero-mark hero-mark--sm" aria-hidden="true" style={{ background: p.colour ?? `hsl(${lookOf(p.slug).hue} 70% 60% / 0.25)`, color: p.colour ? markInk(p.colour) : `hsl(${lookOf(p.slug).hue} 75% 72%)` }}>
+                      <FileIcon name={p.slug} kind="dir" size={18} />
+                    </span>
+                    <div className="project-card-titles">
+                      <span className="card-name">{p.name}</span>
+                      <span className="project-card-sub">
+                        {p.module ? `${p.type} · from ${p.module}` : p.type} · {relative(p.lastTouchedAt)}
+                      </span>
+                    </div>
+                    <Pill tone={p.status === "active" ? "ok" : p.status === "archived" || p.status === "done" ? "muted" : "warn"}>{p.status}</Pill>
                   </div>
                   {p.description && (
                     <p className="project-desc">{p.description}</p>
@@ -235,24 +250,17 @@ export function ProjectsPage({
                     </div>
                   )}
 
-                  <div className="card-foot">
-                    <span>{p.module ? `${p.type} · from ${p.module}` : p.type}</span>
-                    {/* The project's chat is where its work happens; the card
-                        said nothing about it, so the way in was the chat list. */}
-                    <a className="link" href={hrefFor({ name: "project", slug: p.slug })}>
-                      Chat
-                    </a>
-                    {agentsOf(p.slug) > 0 && (
-                      <span>{agentsOf(p.slug)} {agentsOf(p.slug) === 1 ? "agent" : "agents"}</span>
-                    )}
-                    <button
-                      type="button"
-                      className="link project-more"
-                      onClick={() => onInspect(p, pages)}
-                    >
-                      Details
-                    </button>
-                    <span>{relative(p.lastTouchedAt)}</span>
+                  <div className="card-foot project-card-foot">
+                    <span className="hint">{agentsOf(p.slug) > 0 ? `${agentsOf(p.slug)} ${agentsOf(p.slug) === 1 ? "agent" : "agents"}` : "no agents"}</span>
+                    <span className="card-acts">
+                      {/* The project's chat is where its work happens. */}
+                      <a className="btn btn--sm btn--primary" href={hrefFor({ name: "project", slug: p.slug })}>
+                        Chat
+                      </a>
+                      <button type="button" className="btn btn--sm" onClick={() => onInspect(p, pages)}>
+                        Details
+                      </button>
+                    </span>
                   </div>
                 </m.div>
               );
