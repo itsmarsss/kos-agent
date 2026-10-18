@@ -20,7 +20,7 @@ import { detailLines, summarizeAction } from "@kos/shared";
 
 import { isImage, isTextual, type Attachment } from "../kernel/attachments.js";
 import { COMMANDS, completions, runCommand, type SlashContext } from "./commands.js";
-import { linkMentions } from "./mentions.js";
+import { linkMentions, plainMentions } from "./mentions.js";
 import { STEP_MARK } from "./narrate.js";
 import { MESSAGE_LIMITS } from "./types.js";
 import type {
@@ -328,26 +328,40 @@ function taggedText(msg: OutboundMessage): string {
   return msg.from ? `**${msg.from.name}**\n${msg.text}` : msg.text;
 }
 
+export interface CardOptions {
+  /** The blob speaking, for the stripe's colour and the author line. */
+  from?: Sender;
+  /** Whether the author line is wanted: not when words above the card carry the name. */
+  named?: boolean;
+  /** Where references link to; without it they are tidied to their names. */
+  dashboardUrl?: string;
+}
+
 /**
  * Turn a neutral card into a Discord embed.
  *
  * A blob's card takes the blob's colour for its stripe, and its name as the
  * author line when the words above it are not there to carry the name.
+ * References link to the dashboard where Discord renders markdown (the
+ * body and the fields' values) and are tidied to their names where it does
+ * not (the title, the footer, a field's name), so `@page:x` never shows raw
+ * in either place.
  */
-export function buildCard(card: MessageCard, from?: Sender, named = true): EmbedBuilder {
+export function buildCard(card: MessageCard, { from, named = true, dashboardUrl }: CardOptions = {}): EmbedBuilder {
+  const link = (text: string): string => linkMentions(text, dashboardUrl);
   const embed = new EmbedBuilder();
   if (from && named) embed.setAuthor({ name: from.name.slice(0, CARD_TITLE_MAX) });
-  if (card.title) embed.setTitle(card.title.slice(0, CARD_TITLE_MAX));
-  if (card.body) embed.setDescription(card.body.slice(0, CARD_BODY_MAX));
+  if (card.title) embed.setTitle(plainMentions(card.title).slice(0, CARD_TITLE_MAX));
+  if (card.body) embed.setDescription(link(card.body).slice(0, CARD_BODY_MAX));
   if (card.url) embed.setURL(card.url);
   if (typeof card.color === "number") embed.setColor(card.color);
   else if (from?.colour) embed.setColor(parseInt(from.colour.slice(1), 16));
-  if (card.footer) embed.setFooter({ text: card.footer.slice(0, CARD_TITLE_MAX) });
+  if (card.footer) embed.setFooter({ text: plainMentions(card.footer).slice(0, CARD_TITLE_MAX) });
   if (card.imageUrl) embed.setImage(card.imageUrl);
   if (card.thumbnailUrl) embed.setThumbnail(card.thumbnailUrl);
   const fields = (card.fields ?? []).slice(0, FIELDS_MAX).map((f) => ({
-    name: f.name.slice(0, FIELD_NAME_MAX) || "\u200b",
-    value: f.value.slice(0, FIELD_VALUE_MAX) || "\u200b",
+    name: plainMentions(f.name).slice(0, FIELD_NAME_MAX) || "\u200b",
+    value: link(f.value).slice(0, FIELD_VALUE_MAX) || "\u200b",
     ...(f.inline ? { inline: true } : {}),
   }));
   if (fields.length) embed.addFields(fields);
@@ -595,7 +609,7 @@ export class DiscordAdapter implements ChannelAdapter {
       // news for a channel.
       await interaction.reply({
         ...(said.text ? { content: said.text } : {}),
-        ...(said.card ? { embeds: [buildCard(said.card)] } : {}),
+        ...(said.card ? { embeds: [buildCard(said.card, { dashboardUrl: this.dashboardUrl })] } : {}),
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -696,7 +710,7 @@ export class DiscordAdapter implements ChannelAdapter {
       components?: ActionRowBuilder<ButtonBuilder>[];
     } => ({
       ...(taggedText(msg) ? { content: linkMentions(taggedText(msg), this.dashboardUrl).slice(0, 2000) } : {}),
-      ...(msg.card ? { embeds: [buildCard(msg.card, msg.from, !msg.text)] } : {}),
+      ...(msg.card ? { embeds: [buildCard(msg.card, { from: msg.from, named: !msg.text, dashboardUrl: this.dashboardUrl })] } : {}),
       ...(msg.buttons?.length ? { components: buildButtons(msg.buttons) } : {}),
     });
 
@@ -858,7 +872,7 @@ export class DiscordAdapter implements ChannelAdapter {
     // References become links first, so the split sees the longer text.
     const text = taggedText(msg);
     const chunks = text ? chunkText(linkMentions(text, this.dashboardUrl)) : [];
-    const embeds = msg.card ? [buildCard(msg.card, msg.from, chunks.length === 0)] : [];
+    const embeds = msg.card ? [buildCard(msg.card, { from: msg.from, named: chunks.length === 0, dashboardUrl: this.dashboardUrl })] : [];
     const components = buildButtons(msg.buttons ?? []);
     if (chunks.length === 0 && embeds.length === 0) {
       throw new Error("nothing to send: no text and no card");

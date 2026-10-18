@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { linkMentions, mentionRoute } from "./mentions.js";
+import { linkMentions, mentionRoute, plainMentions } from "./mentions.js";
 
 /**
  * On Discord a reference token is a typo unless it becomes a link. The
@@ -37,6 +37,11 @@ describe("linking references for Discord", () => {
 
   it("tidies the token to its name when there is nowhere to link", () => {
     expect(linkMentions("open @page:home")).toBe("open **home**");
+  });
+
+  it("tidies the token to its bare name where nothing renders, leaving code alone", () => {
+    expect(plainMentions("Recap for @project:garden and @schedule:[Email Amy]")).toBe("Recap for garden and Email Amy");
+    expect(plainMentions("see `@page:home`")).toBe("see `@page:home`");
   });
 
   it("drops a trailing slash on the base and keeps other text as it was", () => {
