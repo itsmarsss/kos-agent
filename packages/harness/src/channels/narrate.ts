@@ -41,7 +41,9 @@ export class TurnNarrator {
         return true;
       }
       case "turn-end":
-        this.flush();
+        // What is being said as the turn ends is the answer, and the answer
+        // is a message of its own. Flushed into the lines it was read twice:
+        // once in the story, once as the reply under it.
         return false;
       default:
         return false;

@@ -33,6 +33,9 @@ describe("narrating a turn", () => {
     expect(n.render()).toBe("› List x\nHere is what I found: three files.");
     expect(n.renderSteps()).toBe("› List x");
     expect(n.take({ kind: "turn-end", conversationId: c })).toBe(false);
+    // The turn's end used to flush the answer into the lines, so the story
+    // settled with the answer in it and the reply repeated it underneath.
+    expect(n.renderSteps()).toBe("› List x");
   });
 
   it("keeps the tail when the story runs long", () => {
