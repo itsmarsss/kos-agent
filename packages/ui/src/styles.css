@@ -7661,8 +7661,8 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .kos-pop { position: fixed; z-index: 1000; }
 .confirm-wrap { display: inline-flex; }
 .chats-menu .confirm-wrap, .file-menu .confirm-wrap { display: contents; }
-.confirm-pop { width: 17.5rem; padding: 0.7rem 0.8rem; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); box-shadow: 0 12px 32px rgb(0 0 0 / 0.45); }
-.confirm-text { margin: 0 0 0.6rem; font-size: var(--text-base); color: var(--text); line-height: 1.45; }
+.confirm-pop { width: max-content; max-width: 18rem; padding: 0.65rem 0.75rem; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); box-shadow: 0 12px 32px rgb(0 0 0 / 0.45); }
+.confirm-text { margin: 0 0 0.55rem; font-size: var(--text-md); color: var(--text); line-height: 1.4; }
 .confirm-acts { display: flex; gap: 0.4rem; }
 
 /* A project's card: its mark, name and kind, a status pill; its pages; then its ways in. */

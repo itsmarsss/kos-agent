@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, m } from "motion/react";
+
+import { ease } from "./motion.js";
 
 /**
  * The small parts every page is built from, so they are built the same way.
@@ -227,29 +230,42 @@ export function ConfirmButton({ label, text, confirmLabel, onConfirm, className 
       <button ref={button} type="button" role={role} className={className} disabled={disabled} title={title} aria-expanded={open} onClick={toggle}>
         {label}
       </button>
-      {at &&
-        createPortal(
-          <div className="kos-pop confirm-pop" ref={pop} role="alertdialog" aria-label={label} style={{ top: at.top, left: at.left }}>
-            <p className="confirm-text">{text}</p>
-            <div className="confirm-acts">
-              <button
-                type="button"
-                className="btn btn--sm btn--danger"
-                autoFocus
-                onClick={() => {
-                  close();
-                  onConfirm();
-                }}
-              >
-                {confirmLabel ?? label}
-              </button>
-              <button type="button" className="btn btn--sm btn--ghost" onClick={close}>
-                Cancel
-              </button>
-            </div>
-          </div>,
-          document.body,
-        )}
+      {createPortal(
+        <AnimatePresence>
+          {at && (
+            <m.div
+              className="kos-pop confirm-pop"
+              ref={pop}
+              role="alertdialog"
+              aria-label={label}
+              style={{ top: at.top, left: at.left }}
+              initial={{ opacity: 0, scale: 0.96, y: -4 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97, y: -3 }}
+              transition={ease}
+            >
+              <p className="confirm-text">{text}</p>
+              <div className="confirm-acts">
+                <button
+                  type="button"
+                  className="btn btn--sm btn--danger"
+                  autoFocus
+                  onClick={() => {
+                    close();
+                    onConfirm();
+                  }}
+                >
+                  {confirmLabel ?? label}
+                </button>
+                <button type="button" className="btn btn--sm btn--ghost" onClick={close}>
+                  Cancel
+                </button>
+              </div>
+            </m.div>
+          )}
+        </AnimatePresence>,
+        document.body,
+      )}
     </div>
   );
 }

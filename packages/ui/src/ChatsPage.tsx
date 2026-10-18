@@ -1214,7 +1214,7 @@ export function ChatsPage({
               <ConfirmButton
                 className="is-danger"
                 label="Delete"
-                text={`Delete “${c.title}”? Its messages go with it, and there is no undo.`}
+                text={`Delete “${c.title}”?`}
                 onConfirm={() => {
                   setMenuFor(null);
                   void api.deleteConversation(c.id).then(onChanged);
@@ -1542,7 +1542,7 @@ export function ChatsPage({
                               className="is-danger"
                               label="Delete project"
                               confirmLabel="Delete for good"
-                              text={`Its tables, pages and files go with it; its chats are kept, archived at the root, and its jobs turned off. There is no undo for ${p.name}.`}
+                              text={`Delete ${p.name}? Its chats are kept; the rest goes.`}
                               onConfirm={() => {
                                 setMenuFor(null);
                                 void onDeleteProject!(p.slug).catch(() => undefined);

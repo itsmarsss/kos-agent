@@ -188,7 +188,7 @@ export function CronEditor({
             {/* The only delete lived in a panel the schedule list does not
                 open, so from here a job could be paused forever and never
                 removed. */}
-            {onDelete && <ConfirmButton label="Delete" text={`Delete “${job.name}”? Its runs go with it, and there is no undo.`} onConfirm={() => onDelete(job.id)} />}
+            {onDelete && <ConfirmButton label="Delete" text={`Delete “${job.name}” and its runs?`} onConfirm={() => onDelete(job.id)} />}
           </span>
           {/* Where an outside service posts to start this job. Only when
               the host has a hook secret; without one there is no address. */}

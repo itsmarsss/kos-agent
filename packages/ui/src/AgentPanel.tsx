@@ -208,7 +208,7 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
         <ConfirmButton
           label="Delete"
           confirmLabel="Delete for good"
-          text="Its file and its schedule go; its thread stays as an ordinary chat, and its folder stays if it made anything. There is no undo."
+          text={`Delete ${title}? Its thread stays as a chat.`}
           disabled={busy}
           onConfirm={() => {
             void run(async () => {
