@@ -9,16 +9,17 @@ import { ConversationStore } from "../kernel/conversations.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
-import { createAgentsModule } from "./agents.js";
+import { createAgentsModule, type BlobJob } from "./agents.js";
 
 /**
- * The agents tools, driven through the registry with the kernel's part
+ * The blobs tools, driven through the registry with the kernel's part
  * scripted: what gets written, which thread work goes to, and what the
  * schedule is told to be. The kernel's own half is covered in kernel.test.
  */
 
 const OWNER = "owner";
 const DISPATCHER = "orchestrator:owner";
+const NOON = Date.UTC(2026, 9, 18, 12);
 
 interface Harness {
   registry: ToolRegistry;
@@ -27,6 +28,8 @@ interface Harness {
   call: (name: string, input?: Record<string, unknown>) => Promise<{ content: string; isError: boolean; json?: Record<string, unknown> }>;
   asked: Array<{ id: string; text: string }>;
   bound: Array<{ name: string; schedule: string | undefined }>;
+  /** The jobs the scripted scheduler holds, by blob. */
+  jobs: Map<string, BlobJob>;
   done: string[];
 }
 
@@ -36,6 +39,7 @@ async function harness(ws: Workspace, options: { scope?: string } = {}): Promise
   const registry = new ToolRegistry();
   const asked: Harness["asked"] = [];
   const bound: Harness["bound"] = [];
+  const jobs = new Map<string, BlobJob>();
   const done: string[] = [];
   const ctx = toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() });
   await new ModuleLoader(ctx).load([
@@ -48,7 +52,20 @@ async function harness(ws: Workspace, options: { scope?: string } = {}): Promise
       spawnAgent: (name, projectSlug) => conversations.create({ userId: OWNER, title: name, role: name, projectSlug }),
       bindSchedule: (name, role: Role | undefined) => {
         bound.push({ name, schedule: role?.schedule });
-        return role?.schedule ? { id: 7, schedule: role.schedule } : undefined;
+        if (!role?.schedule) {
+          jobs.delete(name);
+          return undefined;
+        }
+        jobs.set(name, { id: 7, schedule: role.schedule, enabled: true, lastRunAt: null, nextRunAt: NOON });
+        return { id: 7, schedule: role.schedule };
+      },
+      jobOf: (name) => jobs.get(name),
+      setJobEnabled: (name, enabled) => {
+        const job = jobs.get(name);
+        if (!job) return undefined;
+        const next = { ...job, enabled, nextRunAt: enabled ? NOON : null };
+        jobs.set(name, next);
+        return next;
       },
       dispatch: async (id, text) => {
         asked.push({ id, text });
@@ -61,10 +78,10 @@ async function harness(ws: Workspace, options: { scope?: string } = {}): Promise
     const res = await registry.execute(name, input);
     return { ...res, json: res.isError ? undefined : (JSON.parse(res.content) as Record<string, unknown>) };
   };
-  return { registry, roles, conversations, call, asked, bound, done };
+  return { registry, roles, conversations, call, asked, bound, jobs, done };
 }
 
-describe("agents tools", () => {
+describe("blobs tools", () => {
   let root: string;
   let ws: Workspace;
   beforeEach(() => {
@@ -97,7 +114,7 @@ describe("agents tools", () => {
 
     const again = await h.call("blobs.create", { name: "price-watch", description: "x", brief: "y" });
     expect(again.isError).toBe(true);
-    expect(again.content).toMatch(/already an agent called price-watch/);
+    expect(again.content).toMatch(/already a blob called price-watch/);
     // Rewritten without a schedule, the job goes with it.
     const replaced = (await h.call("blobs.create", { name: "price-watch", description: "Watches one listing", brief: "You watch.", replace: true, tools: ["browser"] })).json!;
     expect(replaced["job"]).toBeUndefined();
@@ -110,13 +127,40 @@ describe("agents tools", () => {
     expect(h.roles.exists("bad")).toBe(false);
   });
 
-  it("lists what a chooser needs", async () => {
+  it("lists what a chooser needs, with whether each will run on its own", async () => {
     const h = await harness(ws);
     await h.call("blobs.create", { name: "research", description: "Looks things up", brief: "You look." });
     const listed = (await h.call("blobs.list")).json!;
     expect(listed).toEqual({
-      agents: [{ name: "research", description: "Looks things up", tools: "all", memory: "own", conversationId: "agent:research", path: "blobs/research/blob.md", folder: "blobs/research" }],
+      blobs: [{ name: "research", description: "Looks things up", tools: "all", memory: "own", state: "on request", conversationId: "agent:research", path: "blobs/research/blob.md", folder: "blobs/research" }],
     });
+
+    await h.call("blobs.create", { name: "recap", description: "Sums up the day", brief: "You recap.", schedule: "0 18 * * *", prompt: "Recap." });
+    h.jobs.set("recap", { ...h.jobs.get("recap")!, lastRunAt: NOON - 86_400_000 });
+    const scheduled = ((await h.call("blobs.list")).json!["blobs"] as Record<string, unknown>[]).find((b) => b["name"] === "recap");
+    // The state is the job's, with when it ran and when it will, not the file's line alone.
+    expect(scheduled).toMatchObject({ state: "scheduled", schedule: "0 18 * * *", lastRun: "2026-10-17T12:00:00.000Z", nextRun: "2026-10-18T12:00:00.000Z" });
+  });
+
+  it("pauses and resumes a schedule, and says so when there is none", async () => {
+    const h = await harness(ws);
+    await h.call("blobs.create", { name: "recap", description: "Sums up the day", brief: "You recap.", schedule: "0 18 * * *", prompt: "Recap." });
+    await h.call("blobs.create", { name: "research", description: "Looks things up", brief: "You look." });
+
+    const paused = (await h.call("blobs.pause", { name: "Recap" })).json!;
+    expect(paused).toMatchObject({ name: "recap", state: "paused", schedule: "0 18 * * *" });
+    expect(paused).not.toHaveProperty("nextRun");
+    expect(h.jobs.get("recap")!.enabled).toBe(false);
+    expect(((await h.call("blobs.list")).json!["blobs"] as Record<string, unknown>[]).find((b) => b["name"] === "recap")).toMatchObject({ state: "paused" });
+
+    const resumed = (await h.call("blobs.resume", { name: "recap" })).json!;
+    expect(resumed).toMatchObject({ name: "recap", state: "scheduled", nextRun: "2026-10-18T12:00:00.000Z" });
+    expect(h.jobs.get("recap")!.enabled).toBe(true);
+
+    expect((await h.call("blobs.pause", { name: "research" })).content).toMatch(/no schedule to pause/);
+    expect((await h.call("blobs.resume", { name: "research" })).content).toMatch(/no schedule to resume/);
+    expect((await h.call("blobs.pause", { name: "nobody" })).content).toMatch(/no blob called nobody/);
+    for (const safe of ["blobs.pause", "blobs.resume"]) expect(h.registry.classify(safe, {}).tier).toBe("safe");
   });
 
   it("dispatches to the standing thread at the root, and into the project from a project", async () => {
@@ -127,7 +171,7 @@ describe("agents tools", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(h.asked).toEqual([{ id: "agent:research", text: "Find the best kettle." }]);
     expect(h.done).toEqual(["orchestrator:owner <- agent:research (research): done"]);
-    expect((await h.call("blobs.dispatch", { agent: "nobody", task: "x" })).content).toMatch(/no agent called nobody/);
+    expect((await h.call("blobs.dispatch", { agent: "nobody", task: "x" })).content).toMatch(/no blob called nobody/);
 
     // A project orchestrator gets the agent as a chat of its own project.
     const inside = await harness(ws, { scope: "trip" });

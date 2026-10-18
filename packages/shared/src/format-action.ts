@@ -106,6 +106,10 @@ export function summarizeAction(
       return `Make the blob ${fmtVal(a.name)}${typeof a.description === "string" && a.description ? `: ${a.description}` : ""}`;
     case "blobs.dispatch":
       return `Hand work to the blob ${fmtVal(a.agent)}${typeof a.project === "string" && a.project ? ` in ${a.project}` : ""}`;
+    case "blobs.pause":
+      return `Pause the blob ${fmtVal(a.name)}`;
+    case "blobs.resume":
+      return `Resume the blob ${fmtVal(a.name)}`;
     case "blobs.remove":
       return `Remove the blob ${fmtVal(a.name)}`;
     case "chats.handoff": {

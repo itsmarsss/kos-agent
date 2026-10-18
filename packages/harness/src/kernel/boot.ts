@@ -513,6 +513,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
         const job = kernelRef!.bindAgentSchedule(name, role);
         return job ? { id: job.id, schedule: job.schedule } : undefined;
       },
+      jobOf: (name) => kernelRef!.agentJob(name),
+      setJobEnabled: (name, enabled) => kernelRef!.setAgentJobEnabled(name, enabled),
       dispatch: (id, text) => kernelRef!.dispatchTo(id, text),
       onDispatchDone: (id, title, reply, from) => {
         const summary = `${title} answered: ${reply.slice(0, 600)}`;

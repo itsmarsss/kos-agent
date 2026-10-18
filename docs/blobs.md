@@ -99,15 +99,23 @@ is. Coding sub-agents, the builds, are `@build:<id>` and live under Runs.
 ## How KOS makes one
 
 The root, a project's orchestrator and the thread a surface talks to KOS
-in (your Discord DM, iMessage or SMS) have four tools, and no other chat
+in (your Discord DM, iMessage or SMS) have six tools, and no other chat
 does, so a blob cannot spawn more of itself:
 
-- `blobs.list`: what exists, with what each is for and when it runs.
+- `blobs.list`: what exists, with what each is for and its state as the
+  scheduler holds it: scheduled (with when it last ran and next will),
+  paused, or on request when it has no schedule. A schedule in the file
+  says what was asked; only the job says whether it fires, so the list
+  reads the job.
 - `blobs.create`: the file, its thread, and its schedule if it has one.
   An existing name is refused unless `replace` is set.
 - `blobs.dispatch`: a task to a blob, handed over rather than waited on.
   When it answers, the chat that sent it gets the answer as a line of its
   own (after its turn, if it is mid-turn), and you are told.
+- `blobs.pause` and `blobs.resume`: the Pause button on the blob's page,
+  for when you say it in a chat instead ("pause the recap", "wake watch
+  back up"). A paused blob still takes dispatches; one with no schedule
+  has nothing to pause, and is told so.
 - `blobs.remove`: the file and the schedule go; the thread stays as an
   ordinary chat you can keep or delete. This one asks first.
 

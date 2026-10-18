@@ -2397,20 +2397,26 @@ select {
 
 /* —— scrollbars ——
    The platform default is a light grey slab that belongs to a different
-   application. Ours is a thin line at the edge in a 6px lane, faint until
-   hovered. Chrome drops the ::-webkit parts the moment scrollbar-width is
-   set (its "thin" is an 11px slab), so the two-value form is Firefox's
-   alone. */
+   application. Ours is a 6px lane that stays empty until the pointer is
+   over the thing that scrolls, then shows a thin line at the edge, as the
+   platform's own overlay bars do. Chrome drops the ::-webkit parts the
+   moment scrollbar-width is set (its "thin" is an 11px slab), so the
+   two-value form is Firefox's alone. */
 @supports not selector(::-webkit-scrollbar) {
   * {
     scrollbar-width: thin;
     scrollbar-color: var(--line) transparent;
   }
 }
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 6px; height: 6px; background: transparent; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
-::-webkit-scrollbar-thumb:hover { background: var(--line-strong); }
+::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
+/* Chrome repaints a scrollbar only when the bar itself changes, never for
+   its thumb alone, so the hover touches the bar too, in a colour no eye
+   can see. */
+:hover::-webkit-scrollbar { background: rgb(0 0 0 / 0.001); }
+:hover::-webkit-scrollbar-thumb { background: var(--line-strong); }
+::-webkit-scrollbar-thumb:hover { background: var(--faint); }
 ::-webkit-scrollbar-corner { background: transparent; }
 
 /* —— select —— */
