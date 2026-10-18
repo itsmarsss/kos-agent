@@ -6,7 +6,7 @@ import { desaturateHex, hueOfHex, lightnessOfHex } from "./colour.js";
 /**
  * An agent's face: a flat blob with two eyes, alive.
  *
- * A standing agent is a thing you come back to, so it should be a thing you
+ * A blob is a thing you come back to, so it should be a thing you
  * recognise. Its colour, its gait and the set of its eyes all come from its
  * name, so the same agent looks the same in the rail, on its page and in a
  * chip, and two agents never look alike by accident. The owner can set any

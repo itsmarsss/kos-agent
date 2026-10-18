@@ -16,8 +16,8 @@ export type Route =
   | { name: "chats"; id?: string }
   | { name: "files"; path?: string }
   | { name: "settings"; section?: string }
-  /** The standing agents; `agent` is the one open in the editor, "new" for a blank one. */
-  | { name: "agents"; agent?: string }
+  /** The blobs; `blob` is the one whose page is open, "new" for a blank editor. */
+  | { name: "blobs"; blob?: string }
   /** Coding sub-agents, the builds; `id` opens one's log. */
   | { name: "builds"; id?: number }
   | { name: "page"; id: string };
@@ -46,13 +46,14 @@ export function parseRoute(hash: string): Route {
   if (path === "/builds") return { name: "builds" };
   const build = path.match(/^\/builds\/(\d+)$/);
   if (build?.[1]) return { name: "builds", id: Number(build[1]) };
-  if (path === "/agents") return { name: "agents" };
+  if (path === "/blobs" || path === "/agents") return { name: "blobs" };
   // A build's log was at /agents/<id> before builds had a page of their own;
   // a number there still opens that log.
   const oldBuild = path.match(/^\/agents\/(\d+)$/);
   if (oldBuild?.[1]) return { name: "builds", id: Number(oldBuild[1]) };
-  const agent = path.match(/^\/agents\/([^/]+)$/);
-  if (agent?.[1]) return { name: "agents", agent: decodeURIComponent(agent[1]) };
+  // Blobs were agents first; a link from then still opens the blob.
+  const blob = path.match(/^\/(?:blobs|agents)\/([^/]+)$/);
+  if (blob?.[1]) return { name: "blobs", blob: decodeURIComponent(blob[1]) };
   const file = path.match(/^\/files\/(.+)$/);
   if (file?.[1]) return { name: "files", path: decodeURIComponent(file[1]) };
   const chat = path.match(/^\/chats\/([^/]+)$/);
@@ -90,8 +91,8 @@ export function hrefFor(route: Route): string {
       return route.id ? `#/chats/${encodeURIComponent(route.id)}` : "#/chats";
     case "files":
       return route.path ? `#/files/${encodeURIComponent(route.path)}` : "#/files";
-    case "agents":
-      return route.agent ? `#/agents/${encodeURIComponent(route.agent)}` : "#/agents";
+    case "blobs":
+      return route.blob ? `#/blobs/${encodeURIComponent(route.blob)}` : "#/blobs";
     case "builds":
       return route.id ? `#/builds/${route.id}` : "#/builds";
     case "settings":
@@ -105,7 +106,7 @@ export function hrefFor(route: Route): string {
  * Primary nav, in the sidebar.
  *
  * Chats first because that is what KOS is for. Inbox second because it is
- * the one place everything waiting on you is listed. Agents are the
+ * the one place everything waiting on you is listed. Blobs are the
  * responsibilities KOS keeps for you, so they sit with Projects. Builds,
  * Schedule and History are one entry, Runs: they are all what KOS does on
  * its own, and none of them is a daily visit.
@@ -120,7 +121,7 @@ export const NAV: Array<{ route: Route; label: string }> = [
   { route: { name: "chats" }, label: "Chats" },
   { route: { name: "inbox" }, label: "Inbox" },
   { route: { name: "projects" }, label: "Projects" },
-  { route: { name: "agents" }, label: "Agents" },
+  { route: { name: "blobs" }, label: "Blobs" },
   { route: { name: "files" }, label: "Files" },
   { route: { name: "memory" }, label: "Memory" },
   { route: { name: "history" }, label: "Runs" },

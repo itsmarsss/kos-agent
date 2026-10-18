@@ -43,8 +43,8 @@ export interface Conversation {
    */
   projectSlug: string | null;
   /**
-   * The role this conversation runs as, when it is a standing agent or an
-   * instance of one in a project: the name of `agents/<name>.md`. Its brief
+   * The role this conversation runs as, when it is a blob or an
+   * instance of one in a project: the name of `blobs/<name>/blob.md`. Its brief
    * and tool scope are read from that file on every turn, so the file is
    * the source and these columns are a copy of it.
    */

@@ -88,7 +88,7 @@ import { PermissionStore } from "../ops/permissions.js";
 import { offeredSkills, readSkills } from "../skills/manifest.js";
 import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import { CHAT_TOOLS } from "../tools/chats.js";
-import { AGENT_TOOLS } from "../tools/agents.js";
+import { BLOB_TOOLS } from "../tools/agents.js";
 import { agentConversationId, agentScope, type Role, type RoleStore } from "../agents/roles.js";
 import { type NotifyPayload } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
@@ -265,7 +265,7 @@ export class Kernel {
   private readonly recalls = new Map<string, TurnRecall>();
   /** What the dream job left for the owner to decide. */
   readonly review: ReviewQueue;
-  /** The standing agents, as files under agents/. */
+  /** The blobs, as files under blobs/. */
   readonly roles: RoleStore;
   /** Things KOS has suggested making reusable, waiting on the owner. */
   readonly suggestions: SuggestionStore;
@@ -538,7 +538,7 @@ export class Kernel {
       isClosed: () => this.closed,
       runs: args.runs,
       facts: args.memoryWriter,
-      // A standing agent with memory of its own keeps what the owner tells it.
+      // A blob with memory of its own keeps what the owner tells it.
       scopeOf: (id) => this.roleScope(this.conversations.get(id)),
       embedder: args.embedder,
       events: args.events,
@@ -692,7 +692,7 @@ export class Kernel {
         // A conversation may be a scoped agent: its own brief, its own reach.
         // An aside has no conversation of its own: it borrows the identity
         // (brief, tool scope, project) of the chat it is asked about.
-        // A standing agent's brief and reach come from its file, read now,
+        // A blob's brief and reach come from its file, read now,
         // so an edit the owner made is this turn's brief.
         const conversation = this.withRole(
           this.conversations.get(sessionId) ??
@@ -780,13 +780,13 @@ export class Kernel {
               "what you know, briefly. Do not try to run, read, query or look anything up, and do not describe tool attempts or ask for approvals; if something cannot be known without looking, say so in one line.",
             ].join("")
           : null;
-        // A standing agent has a folder of its own, and should know to keep
+        // A blob has a folder of its own, and should know to keep
         // its work there rather than loose in the workspace. Dispatched into
         // a project, what it makes is the project's and belongs with it.
         const roleNote = conversation?.role
           ? conversation.projectSlug
-            ? `You are the standing agent "${conversation.role}", working inside the project ${conversation.projectSlug}. What you make for it goes in the project's folder, projects/${conversation.projectSlug}/, so it lands with the project. Your own folder, agents/${conversation.role}/, is for your notes: keep them there and read them back next time.`
-            : `You are the standing agent "${conversation.role}". Your folder is agents/${conversation.role}/: keep your notes and anything you make in it, and read it back next time.`
+            ? `You are the blob "${conversation.role}", a standing helper, working inside the project ${conversation.projectSlug}. What you make for it goes in the project's folder, projects/${conversation.projectSlug}/, so it lands with the project. Your own folder, blobs/${conversation.role}/, is for your notes: keep them there and read them back next time.`
+            : `You are the blob "${conversation.role}", a standing helper. Your folder is blobs/${conversation.role}/: keep your notes and anything you make in it, and read it back next time.`
           : null;
         const extra = [formatting, conversation?.brief, roleNote, scopeNote, asideNote]
           .filter((part): part is string => Boolean(part && part.trim()))
@@ -1320,7 +1320,7 @@ export class Kernel {
     const res = await this.handleMessage(text, {
       sessionId: id,
       userId: this.profile.ownerId,
-      grant: [...CHAT_TOOLS, ...AGENT_TOOLS],
+      grant: [...CHAT_TOOLS, ...BLOB_TOOLS],
       allow: [...ORCHESTRATOR_SCOPE],
       ...(opts.channel ? { channel: opts.channel } : {}),
       ...(opts.attachments ? { attachments: opts.attachments } : {}),
@@ -1386,7 +1386,7 @@ export class Kernel {
   }
 
   /**
-   * A chat, a project or a standing agent, named as a mention or by id, slug
+   * A chat, a project or a blob, named as a mention or by id, slug
    * or name. A project means its orchestrator; an agent means its own thread.
    */
   private handoffTarget(to: string): Conversation {
@@ -1395,13 +1395,13 @@ export class Kernel {
     if (ref?.kind === "project" || (!ref && this.manifest.list().some((p) => p.slug === raw))) {
       return this.ensureProjectConversation(ref?.id ?? raw);
     }
-    if (ref?.kind === "agent" || (!ref && this.roles.exists(raw))) {
+    if (ref?.kind === "blob" || (!ref && this.roles.exists(raw))) {
       return this.ensureAgentConversation(ref?.id ?? raw);
     }
     const id = ref?.kind === "chat" ? ref.id : raw;
     const chat = this.conversations.get(id);
     if (!chat || chat.userId !== this.profile.ownerId) {
-      throw new Error(`no chat, project or agent called ${raw}; name one with @chat:, @project: or @agent:`);
+      throw new Error(`no chat, project or blob called ${raw}; name one with @chat:, @project: or @blob:`);
     }
     return chat;
   }
@@ -1598,7 +1598,7 @@ export class Kernel {
       return undefined;
     }
     const input: CreateCronInput = {
-      name: `agent:${name}`,
+      name: `blob:${name}`,
       schedule: role.schedule,
       type: "self_prompt",
       prompt: role.prompt,
@@ -1631,7 +1631,7 @@ export class Kernel {
     const res = await this.handleMessage(text, {
       sessionId: id,
       userId: this.profile.ownerId,
-      grant: [...CHAT_TOOLS, ...AGENT_TOOLS],
+      grant: [...CHAT_TOOLS, ...BLOB_TOOLS],
       allow: [...ORCHESTRATOR_SCOPE],
       ...(opts.channel ? { channel: opts.channel } : {}),
       ...(opts.attachments ? { attachments: opts.attachments } : {}),
@@ -1996,14 +1996,14 @@ export class Kernel {
   }
 
   /**
-   * A message addressed to a standing agent by name, "@agent:recap …" or
+   * A message addressed to a blob by name, "@blob:recap …" (or the older "@agent:recap …") or
    * "@recap …", from a surface where the owner has one thread with KOS and
    * no page per agent. The name has to be an agent's, and something has to
    * follow it, or the message is for KOS as usual, mention and all.
    */
   addressedAgent(text: string): { name: string; text: string } | undefined {
     const trimmed = text.trim();
-    const m = /^@(?:agent:)?([a-z0-9][a-z0-9_-]*)(?=[\s:,.!?]|$)[\s:,]*/i.exec(trimmed);
+    const m = /^@(?:blob:|agent:)?([a-z0-9][a-z0-9_-]*)(?=[\s:,.!?]|$)[\s:,]*/i.exec(trimmed);
     if (!m) return undefined;
     const name = m[1]!.toLowerCase();
     if (!this.roles.get(name)) return undefined;
@@ -2062,7 +2062,7 @@ export class Kernel {
       sessionId: conversation.id,
       channel: input.channel,
       /*
-       * The surface's own thread may hand work on, and keep standing agents.
+       * The surface's own thread may hand work on, and keep blobs.
        *
        * It keeps the full toolkit, so most things happen where they were
        * asked. The chats tools are for the rest: work that already has a
@@ -2073,7 +2073,7 @@ export class Kernel {
        * could spawn more of itself is a loop waiting to happen.
        */
       ...(conversation.id === surfaceSessionId(input.channel, input.userId)
-        ? { grant: [...CHAT_TOOLS, ...AGENT_TOOLS] }
+        ? { grant: [...CHAT_TOOLS, ...BLOB_TOOLS] }
         : {}),
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     });
@@ -2656,7 +2656,7 @@ export class Kernel {
     if (job.agent && !this.roles.exists(job.agent)) {
       this.crons.setEnabled(job.id, false);
       this.reloadCron();
-      this.caretaker.record(`The schedule for the agent "${job.agent}" is switched off: agents/${job.agent}/agent.md is gone. Make the agent again to bring it back.`);
+      this.caretaker.record(`The schedule for the blob "${job.agent}" is switched off: blobs/${job.agent}/blob.md is gone. Make the blob again to bring it back.`);
       return { ran: false, reason: "no-agent" };
     }
     const jobSession = job.type === "actions" ? this.jobThread(job) : undefined;
@@ -2975,14 +2975,14 @@ export class Kernel {
         );
         continue;
       }
-      if (ref.kind === "agent") {
-        // A standing agent: what it is for and where it is spoken to, so a
+      if (ref.kind === "blob") {
+        // A blob: what it is for and where it is spoken to, so a
         // chat can hand it work or point the owner at its thread.
         const role = this.roles.get(ref.id);
         parts.push(
           role
             ? [
-                `Standing agent "${role.name}" (its thread is @chat:[${agentConversationId(role.name)}]): ${role.description}.`,
+                `Blob "${role.name}", a standing helper (its thread is @chat:[${agentConversationId(role.name)}]): ${role.description}.`,
                 role.schedule ? `Runs on ${role.schedule}.` : "Runs only when dispatched or spoken to.",
                 `Brief: ${role.brief.slice(0, 400)}`,
               ].join(" ")

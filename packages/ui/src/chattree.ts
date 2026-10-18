@@ -61,10 +61,10 @@ export function placeOf(id: string, c?: Conversation): Route {
   if (c?.kind === "project" && c.projectSlug) return { name: "project", slug: c.projectSlug };
   if (c?.kind === "chat" && c.projectSlug) return { name: "project", slug: c.projectSlug, id };
   if (!c && id.startsWith("project:")) return { name: "project", slug: id.slice("project:".length) };
-  // A standing agent's thread opens on the agent's own page, beside its
+  // A blob's thread opens on the agent's own page, beside its
   // file, never in the Chats tab.
-  if (c?.kind === "agent" && c.role) return { name: "agents", agent: c.role };
-  if (!c && id.startsWith("agent:")) return { name: "agents", agent: id.slice("agent:".length) };
+  if (c?.kind === "agent" && c.role) return { name: "blobs", blob: c.role };
+  if (!c && id.startsWith("agent:")) return { name: "blobs", blob: id.slice("agent:".length) };
   return { name: "chats", id };
 }
 

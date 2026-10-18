@@ -55,8 +55,8 @@ describe("the conversation tree", () => {
     expect(placeOf("project:pantry")).toEqual({ name: "project", slug: "pantry" });
     expect(placeOf("mine", convo("mine"))).toEqual({ name: "chats", id: "mine" });
     // A standing agent's thread lives on the agent's page, not in Chats.
-    expect(placeOf("agent:research", convo("agent:research", { kind: "agent", role: "research" }))).toEqual({ name: "agents", agent: "research" });
-    expect(placeOf("agent:research")).toEqual({ name: "agents", agent: "research" });
+    expect(placeOf("agent:research", convo("agent:research", { kind: "agent", role: "research" }))).toEqual({ name: "blobs", blob: "research" });
+    expect(placeOf("agent:research")).toEqual({ name: "blobs", blob: "research" });
     expect(placeOf("kos", convo("kos", { kind: "orchestrator" }))).toEqual({ name: "chats", id: "kos" });
     expect(placeOf("gone")).toEqual({ name: "chats", id: "gone" });
   });

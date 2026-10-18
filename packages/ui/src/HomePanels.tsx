@@ -20,9 +20,9 @@ import { ActivityDot, fixLabel } from "./StatusDot.js";
  * makes a dashboard trustworthy.
  */
 
-type Go = (to: "agents" | "builds" | "history" | "projects" | "crons" | "chats" | "settings" | "memory", section?: string) => void;
+type Go = (to: "blobs" | "builds" | "history" | "projects" | "crons" | "chats" | "settings" | "memory", section?: string) => void;
 
-/** A standing agent's state in a word or two, for the side of its row. */
+/** A blob's state in a word or two, for the side of its row. */
 export function agentSide(a: AgentInfo): string {
   const t = a.thread;
   if (t?.activity === "working") return "working";
@@ -214,16 +214,16 @@ export function Panel({
       const busy = rows.filter((a) => a.thread?.activity === "working" || a.thread?.activity === "needs-you");
       return (
         <div className={`panel${busy.some((a) => a.thread?.activity === "needs-you") ? " panel--attention" : ""}`}>
-          <Head title={title ?? "Agents"} count={busy.length} onMore={() => onGo("agents")} />
+          <Head title={title ?? "Blobs"} count={busy.length} onMore={() => onGo("blobs")} />
           {rows.length === 0 ? (
-            <Empty>No standing agents. Ask KOS to keep an eye on something.</Empty>
+            <Empty>No blobs yet. Ask KOS to keep an eye on something.</Empty>
           ) : (
             <ul className="panel-list">
               {rows.slice(0, limit).map((a) => {
                 const paused = Boolean(a.job && !a.job.enabled);
                 return (
                   <li key={a.name}>
-                    <a className="panel-row panel-row--agent" href={hrefFor({ name: "agents", agent: a.name })}>
+                    <a className="panel-row panel-row--agent" href={hrefFor({ name: "blobs", blob: a.name })}>
                       <Face seed={a.name} look={a.face ?? {}} size={18} mood={moodOf(a.thread?.activity, { paused })} />
                       <span className="panel-row-main">
                         {titleOf(a.name)}

@@ -12,7 +12,7 @@
  */
 
 const MENTION =
-  /@(project|page|file|schedule|chat|site|agent):(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*[A-Za-z0-9_/-]))/g;
+  /@(project|page|file|schedule|chat|site|blob|agent):(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*[A-Za-z0-9_/-]))/g;
 
 /** Fenced blocks and inline code, which are not rewritten. */
 const CODE = /(```[\s\S]*?```|`[^`\n]*`)/g;
@@ -29,8 +29,9 @@ export function mentionRoute(kind: string, id: string): string {
       return "#/schedule";
     case "chat":
       return `#/chats/${enc(id)}`;
+    case "blob":
     case "agent":
-      return `#/agents/${enc(id)}`;
+      return `#/blobs/${enc(id)}`;
     case "build":
       return `#/builds/${enc(id)}`;
     case "site":

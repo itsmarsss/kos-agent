@@ -440,7 +440,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
         const id = kernelRef?.callerConversationId;
         return id ? (conversations.get(id)?.projectSlug ?? undefined) : undefined;
       },
-      // A standing agent with memory of its own writes there by default.
+      // A blob with memory of its own writes there by default.
       currentScope: () => {
         const id = kernelRef?.callerConversationId;
         return id ? kernelRef?.roleScope(conversations.get(id)) : undefined;
@@ -526,6 +526,11 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const loader = new ModuleLoader(toolRegistryContext(registry, services, bus));
   const loadReport = await loader.load(modules, { skip: parseModuleSettings(settings.get(MODULES_KEY)).disabledBuiltins.filter(isBuiltinFeature) });
 
+  // A blob's job was named agent:<name> when blobs were agents; the name is
+  // what the Schedule page shows, so the old ones take the new one.
+  for (const job of crons.list()) {
+    if (job.agent && job.name.startsWith("agent:")) crons.rename(job.id, `blob:${job.name.slice("agent:".length)}`);
+  }
   ensureDefaultBackupCron(crons);
   ensureDefaultMemoryCron(crons);
   ensureDefaultDreamCron(crons);

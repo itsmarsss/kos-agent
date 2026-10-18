@@ -135,14 +135,14 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
       <section className="agent-editor-section">
         <h3>Who it is</h3>
         <div className="agent-editor-head">
-          <Face seed={seed} look={draft.face} size={72} label={draft.name ? `${titleOf(draft.name)}'s face` : "A new agent's face"} />
+          <Face seed={seed} look={draft.face} size={72} label={draft.name ? `${titleOf(draft.name)}'s face` : "A new blob's face"} />
           <div className="agent-editor-ident">
             <div className="agents-fields">
               <Field
                 label="Name"
                 required
                 hint={isNew ? "Short and plain: letters, digits, dashes. It names the folder and the thread." : undefined}
-                error={nameTaken ? `An agent called ${name} already exists. Pick another name, or edit that one.` : nameOdd ? "Letters, digits and dashes only, starting with a letter or digit." : undefined}
+                error={nameTaken ? `A blob called ${name} already exists. Pick another name, or edit that one.` : nameOdd ? "Letters, digits and dashes only, starting with a letter or digit." : undefined}
               >
                 <input
                   className="kos-input"
@@ -168,7 +168,7 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
           Brief <Req />
         </h3>
         <textarea className="kos-input agents-brief" rows={10} value={draft.brief} placeholder="You watch one listing for the owner…" onChange={(e) => setDraft({ ...draft, brief: e.target.value })} />
-        <span className="hint">Its standing instructions, in the second person: what it is for, how to do the work, when to tell you. It has a folder of its own, agents/{seed}/, for notes and anything it makes.</span>
+        <span className="hint">Its standing instructions, in the second person: what it is for, how to do the work, when to tell you. It has a folder of its own, blobs/{seed}/, for notes and anything it makes.</span>
       </section>
 
       <section className="agent-editor-section">

@@ -4,23 +4,28 @@ import { join } from "node:path";
 import type { Workspace } from "../store/workspace.js";
 
 /**
- * A role: a standing agent KOS can make from a sentence.
+ * A role: a blob, the standing helper KOS makes from a sentence.
  *
  * "Keep an eye on this listing", "handle my travel", "plan Saturdays":
  * each is a responsibility rather than a question, and a responsibility
  * needs somewhere to live between asks. A role is that place, as a folder
- * of its own with a file the owner can read and edit: `agents/<name>/agent.md`,
- * a few lines of frontmatter saying what the agent may reach and when it
- * runs, and the brief as the body; the rest of the folder is the agent's. Nothing about a role is code. KOS writes one with
- * agents.create, dispatches work to it, and reads the file again on every
- * turn, so an edit is the next turn's brief.
+ * of its own with a file the owner can read and edit: `blobs/<name>/blob.md`,
+ * a few lines of frontmatter saying what the blob may reach and when it
+ * runs, and the brief as the body; the rest of the folder is the blob's.
+ * Nothing about a role is code. KOS writes one with blobs.create, dispatches
+ * work to it, and reads the file again on every turn, so an edit is the
+ * next turn's brief.
  *
- * A role has one standing thread, `agent:<name>`, where it is spoken to
- * at the root and where its schedule runs; dispatched into a project it
- * gets an ordinary conversation there, under the same brief.
+ * A role has one standing thread, `agent:<name>` (the id is from when
+ * blobs were called agents, and is not shown), where it is spoken to at
+ * the root and where its schedule runs; dispatched into a project it gets
+ * an ordinary conversation there, under the same brief.
  */
 
-export const AGENTS_DIR = "agents";
+export const AGENTS_DIR = "blobs";
+/** Where roles lived before they were blobs; anything of theirs still there is moved. */
+const LEGACY_DIR = "agents";
+const LEGACY_FILE = "agent.md";
 /** A name is a file name and a thread id, and shows up in a prompt. Keep it plain. */
 export const ROLE_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
@@ -109,9 +114,9 @@ export interface Role {
 }
 
 export interface RoleRecord extends Role {
-  /** Workspace-relative path of the file, agents/<name>/agent.md. */
+  /** Workspace-relative path of the file, blobs/<name>/blob.md. */
   path: string;
-  /** The agent's own folder, agents/<name>, where it keeps what it makes. */
+  /** The blob's own folder, blobs/<name>, where it keeps what it makes. */
   folder: string;
   updatedAt: number;
 }
@@ -122,7 +127,7 @@ export interface InvalidRole {
   reason: string;
 }
 
-/** The memory scope a role with memory "own" writes to and reads. */
+/** The memory scope a role with memory "own" writes to and reads; the prefix is from when blobs were agents. */
 export function agentScope(name: string): string {
   return `agent:${name}`;
 }
@@ -225,16 +230,17 @@ function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-/** The file inside an agent's folder that says what it is. */
-export const ROLE_FILE = "agent.md";
+/** The file inside a blob's folder that says what it is. */
+export const ROLE_FILE = "blob.md";
 
 /**
  * The roles in a workspace, read from disk on every call so an edit is live.
  *
- * An agent is a folder, `agents/<name>/`, with its file `agent.md` in it.
- * The folder is the agent's own: where it keeps its notes and whatever it
- * makes, the way a project has a folder. The file alone was the first
- * shape; one met on disk is moved into its folder.
+ * A blob is a folder, `blobs/<name>/`, with its file `blob.md` in it. The
+ * folder is the blob's own: where it keeps its notes and whatever it makes,
+ * the way a project has a folder. Earlier shapes (a flat file, and the
+ * `agents/<name>/agent.md` of when blobs were agents) are moved into place
+ * when met.
  */
 export class RoleStore {
   constructor(private readonly workspace: Workspace) {}
@@ -243,49 +249,91 @@ export class RoleStore {
     return this.workspace.resolve(AGENTS_DIR);
   }
 
-  /** The agent's own folder, workspace-relative. */
+  /** The blob's own folder, workspace-relative. */
   folderOf(name: string): string {
     return `${AGENTS_DIR}/${name}`;
   }
 
-  /** The agent's file, workspace-relative. */
+  /** The blob's file, workspace-relative. */
   pathOf(name: string): string {
     return `${this.folderOf(name)}/${ROLE_FILE}`;
   }
 
   /**
-   * The file a role was before agents had folders, `agents/<name>.md`, if
-   * one is there. A note an agent left beside the roles is not one: a role
-   * file opens with its frontmatter line, and that is the tell.
+   * A flat role file, `<dir>/<name>.md`, if one is there. A note an agent
+   * left beside the roles is not one: a role file opens with its
+   * frontmatter line, and that is the tell.
    */
-  private flatOf(name: string): string | undefined {
-    const flat = this.workspace.resolve(`${AGENTS_DIR}/${name}.md`);
+  private flatIn(dir: string, name: string): string | undefined {
+    const flat = this.workspace.resolve(`${dir}/${name}.md`);
     if (!existsSync(flat) || !statSync(flat).isFile()) return undefined;
     return /^---\r?\n/.test(readFileSync(flat, "utf8")) ? flat : undefined;
   }
 
-  /** A role from before agents had folders, moved into its folder. */
-  private adopt(name: string): void {
-    const flat = this.flatOf(name);
-    if (!flat) return;
-    const abs = this.workspace.resolve(this.pathOf(name));
-    if (existsSync(abs)) {
-      rmSync(flat);
-      return;
+  /** Whether a folder holds a role file under either of its names. */
+  private roleFileIn(dirAbs: string): string | undefined {
+    for (const file of [ROLE_FILE, LEGACY_FILE]) {
+      const abs = join(dirAbs, file);
+      if (existsSync(abs) && statSync(abs).isFile()) return abs;
     }
-    mkdirSync(this.workspace.resolve(this.folderOf(name)), { recursive: true });
-    renameSync(flat, abs);
+    return undefined;
+  }
+
+  /**
+   * A role from an earlier shape, moved into `blobs/<name>/blob.md`: a flat
+   * file in either directory, or a folder under the old directory, or a
+   * folder here whose file still carries the old name. Anything that is not
+   * a role's is left where it is.
+   */
+  private adopt(name: string): void {
+    const home = this.workspace.resolve(this.folderOf(name));
+    const abs = this.workspace.resolve(this.pathOf(name));
+    const legacyDir = this.workspace.resolve(`${LEGACY_DIR}/${name}`);
+    if (!existsSync(abs) && existsSync(legacyDir) && statSync(legacyDir).isDirectory() && this.roleFileIn(legacyDir)) {
+      if (existsSync(home)) {
+        // Both exist: the blob's own folder wins; the old file is retired, the rest left.
+        rmSync(this.roleFileIn(legacyDir)!);
+      } else {
+        mkdirSync(this.workspace.resolve(AGENTS_DIR), { recursive: true });
+        renameSync(legacyDir, home);
+      }
+    }
+    for (const flat of [this.flatIn(AGENTS_DIR, name), this.flatIn(LEGACY_DIR, name)]) {
+      if (!flat) continue;
+      if (existsSync(abs) || this.roleFileIn(home)) {
+        rmSync(flat);
+        continue;
+      }
+      mkdirSync(home, { recursive: true });
+      renameSync(flat, abs);
+    }
+    const old = join(home, LEGACY_FILE);
+    if (!existsSync(abs) && existsSync(old)) renameSync(old, abs);
+  }
+
+  /** The role names an earlier layout still holds, so a list finds them before they are moved. */
+  private legacyNames(): string[] {
+    const dir = this.workspace.resolve(LEGACY_DIR);
+    if (!existsSync(dir)) return [];
+    const names: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".md") && this.flatIn(LEGACY_DIR, entry.name.slice(0, -3))) names.push(entry.name.slice(0, -3));
+      else if (entry.isDirectory() && this.roleFileIn(join(dir, entry.name))) names.push(entry.name);
+    }
+    return names;
   }
 
   list(): { roles: RoleRecord[]; invalid: InvalidRole[] } {
     const dir = this.dir();
-    if (!existsSync(dir)) return { roles: [], invalid: [] };
-    // A folder with an agent.md in it, or a file from before; anything else
-    // under agents/ is not an agent and is left alone.
-    const names = new Set<string>();
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith(".md") && this.flatOf(entry.name.slice(0, -3))) names.add(entry.name.slice(0, -3));
-      else if (entry.isDirectory() && existsSync(join(dir, entry.name, ROLE_FILE))) names.add(entry.name);
+    // A folder with a role file in it, or a flat file from before; anything
+    // else under blobs/ is not a blob and is left alone. The old directory
+    // is read too, so what is still there is found and moved.
+    const names = new Set<string>(this.legacyNames());
+    if (existsSync(dir)) {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isFile() && entry.name.endsWith(".md") && this.flatIn(AGENTS_DIR, entry.name.slice(0, -3))) names.add(entry.name.slice(0, -3));
+        else if (entry.isDirectory() && this.roleFileIn(join(dir, entry.name))) names.add(entry.name);
+      }
     }
     const roles: RoleRecord[] = [];
     const invalid: InvalidRole[] = [];
@@ -323,7 +371,8 @@ export class RoleStore {
 
   exists(name: string): boolean {
     if (!ROLE_NAME.test(name)) return false;
-    return existsSync(this.workspace.resolve(this.pathOf(name))) || this.flatOf(name) !== undefined;
+    this.adopt(name);
+    return existsSync(this.workspace.resolve(this.pathOf(name)));
   }
 
   /** Write the file, whole, in its folder; the role it describes is what parseRole gives back. */
@@ -342,8 +391,8 @@ export class RoleStore {
   }
 
   /**
-   * Remove the agent's file. Its folder goes too when nothing else is in it;
-   * one holding the agent's work is left, since that work is the owner's.
+   * Remove the blob's file. Its folder goes too when nothing else is in it;
+   * one holding the blob's work is left, since that work is the owner's.
    */
   remove(name: string): boolean {
     if (!this.exists(name)) return false;

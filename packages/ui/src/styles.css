@@ -7449,7 +7449,7 @@ a.health {
 .inbox-said::before { content: "“"; }
 .inbox-said::after { content: "”"; }
 
-/* Agents: the list of standing agents beside the one open for editing. */
+/* Blobs: the list beside the one open for editing. */
 .agents-split { display: grid; grid-template-columns: minmax(220px, 300px) 1fr; gap: 1rem; align-items: start; margin-top: 0.5rem; }
 .agents-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
 .agents-row {
@@ -7590,7 +7590,7 @@ a.health {
 .toolpick-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
 @media (max-width: 720px) { .agents-fields--reach { grid-template-columns: 1fr; } .agent-editor-head { flex-direction: column; } .face-editor-fields { grid-template-columns: 1fr; } }
 
-/* A standing agent's row on the Overview: its face leads, centred on the line. */
+/* A blob's row on the Overview: its face leads, centred on the line. */
 .panel-row--agent { align-items: center; }
 .panel-row--agent .blob { flex: none; }
 a.panel-row:hover .panel-row-main { color: var(--accent); }

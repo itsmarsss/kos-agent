@@ -628,14 +628,14 @@ export function App(): React.ReactElement {
   };
   /** The thread the quick question is asked beside, if one is open. */
   /** An agent's own page is a chat page too: it owns the window like the others. */
-  const agentPage = route.name === "agents" && route.agent !== undefined && route.agent !== "new";
+  const agentPage = route.name === "blobs" && route.blob !== undefined && route.blob !== "new";
   const askContext =
     route.name === "chats"
       ? route.id
       : route.name === "project"
         ? (route.id ?? `project:${route.slug}`)
         : agentPage
-          ? `agent:${route.agent}`
+          ? `agent:${route.blob}`
           : undefined;
 
   const shell = (body: React.ReactNode): React.ReactElement => (
@@ -963,13 +963,13 @@ export function App(): React.ReactElement {
     );
   }
 
-  if (route.name === "agents" && route.agent !== undefined && route.agent !== "new") {
+  if (route.name === "blobs" && route.blob !== undefined && route.blob !== "new") {
     /*
      * An agent's own page: its thread in the middle, the chats it has in
      * projects in the rail, and its file and schedule beside the thread.
      * The same page a project gets, scoped to the agent instead.
      */
-    const name = route.agent;
+    const name = route.blob;
     return shell(
       <ChatsPage
         conversations={conversations}
@@ -985,12 +985,12 @@ export function App(): React.ReactElement {
         onOpenProject={(s) => go({ name: "project", slug: s })}
         agent={{
           name,
-          onBack: () => go({ name: "agents" }),
+          onBack: () => go({ name: "blobs" }),
           onOpenFile: (path) => go({ name: "files", path }),
           onError: (text) => flash("err", text),
           onRemoved: () => {
             void refresh();
-            go({ name: "agents" });
+            go({ name: "blobs" });
           },
         }}
         crons={crons}
@@ -1004,11 +1004,11 @@ export function App(): React.ReactElement {
     );
   }
 
-  if (route.name === "agents") {
+  if (route.name === "blobs") {
     return shell(
       <AgentsPage
-        {...(route.agent !== undefined ? { open: route.agent } : {})}
-        onOpen={(agent) => go(agent ? { name: "agents", agent } : { name: "agents" })}
+        {...(route.blob !== undefined ? { open: route.blob } : {})}
+        onOpen={(blob) => go(blob ? { name: "blobs", blob } : { name: "blobs" })}
         onNotice={(text) => flash("ok", text)}
         onChanged={() => void refresh()}
       />,

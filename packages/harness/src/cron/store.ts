@@ -136,6 +136,11 @@ export class CronStore {
    * The same read-only rule as create: a query is the job's variable scope,
    * and an edit is exactly as good a place to slip a write into it.
    */
+  /** A new name alone; everything else about the job stays. */
+  rename(id: number, name: string): void {
+    this.db.prepare(`UPDATE crons SET name = ?, updated_at = ? WHERE id = ?`).run(name, this.now(), id);
+  }
+
   update(id: number, input: CreateCronInput): CronJob | undefined {
     if (!this.get(id)) return undefined;
     if (input.query && !isReadOnlyQuery(input.query)) {

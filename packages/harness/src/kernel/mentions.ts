@@ -19,8 +19,8 @@ export type MentionKind =
   | "schedule"
   | "chat"
   | "site"
-  /** A standing agent, by name: the role under agents/. */
-  | "agent"
+  /** A blob, by name: the role under blobs/. */
+  | "blob"
   /** A coding sub-agent, by id. */
   | "build"
   | "tab";
@@ -49,7 +49,7 @@ export interface MentionSources {
    * two builds in the same folder are different agents.
    */
   builds?: { id: number; dir: string; status: string }[];
-  /** Standing agents, by name, with what each is for. */
+  /** Blobs, by name, with what each is for. */
   roles?: { name: string; description: string }[];
   /**
    * The browser's open tabs, so the owner can point an agent at a page
@@ -213,7 +213,7 @@ export function findMentions(
       ...(c.projectSlug ? { of: c.projectSlug } : {}),
     })),
     ...(sources.roles ?? []).map((r) => ({
-      kind: "agent" as const,
+      kind: "blob" as const,
       id: r.name,
       label: r.name,
       hint: r.description,
@@ -279,7 +279,8 @@ const PLAIN_ID = /^[A-Za-z0-9._/-]*[A-Za-z0-9_/-]$/;
  * sentence eats the full stop: "@schedule:kos.backup." resolved as the job
  * "kos.backup." and was reported as not existing.
  */
-const KINDS = "project|page|file|schedule|chat|site|agent|build|tab";
+// "agent" is what a blob was called first; it still reads as one.
+const KINDS = "project|page|file|schedule|chat|site|blob|agent|build|tab";
 
 /**
  * Either bracketed, which may hold anything but a bracket, or plain. The
@@ -306,7 +307,7 @@ export function parseMentions(text: string): { kind: MentionKind; id: string }[]
     const key = `${match[1]}:${id}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ kind: match[1] as MentionKind, id });
+    out.push({ kind: (match[1] === "agent" ? "blob" : match[1]) as MentionKind, id });
   }
   return out;
 }

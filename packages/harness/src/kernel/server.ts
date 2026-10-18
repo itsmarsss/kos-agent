@@ -1832,10 +1832,10 @@ export async function handleApiRequest(
   }
 
   /*
-   * The standing agents, as the Agents page needs them: each file with its
+   * The blobs, as the Blobs page needs them: each file with its
    * thread and its schedule. Written by the owner here, as a schedule is,
    * so it takes effect without the approval queue; KOS writes the same
-   * files through agents.create.
+   * files through blobs.create.
    */
   if (method === "GET" && path === "/api/agents") {
     const { roles, invalid } = kernel.roles.list();
@@ -2048,7 +2048,7 @@ export async function handleApiRequest(
       // to see it assemble itself.
       approvals: kernel.approvals.pending(),
       agents: kernel.builds.list().slice(0, 8),
-      // The standing agents as the Agents page lists them, so a glance here
+      // The blobs as the Blobs page lists them, so a glance here
       // says what each is up to without opening that page.
       standing: kernel.roles.list().roles.map((r) => describeAgent(kernel, r, label)),
       // The last runs in order, so a strip can show the shape of recent
@@ -3064,7 +3064,7 @@ function lastSaid(messages: ModelMessage[]): string | null {
 }
 
 /**
- * A standing agent with its thread and schedule beside the file's own
+ * A blob with its thread and schedule beside the file's own
  * fields. The thread is made here if a hand-written file has none yet: the
  * list is what the owner reaches it from, so listing is what stands it up.
  */
@@ -3365,7 +3365,7 @@ function refuseFixed(
   // A project's thread is fixed while the project is; once the project is
   // deleted the thread is an ordinary archived chat, the owner's to keep or drop.
   if (kind === "project" && !kernel.manifest.get(id.slice("project:".length))) return null;
-  // The same for a standing agent: its thread is fixed while its file exists.
+  // The same for a blob: its thread is fixed while its file exists.
   if (kind === "agent" && !kernel.roles.exists(id.slice("agent:".length))) return null;
   const what =
     kind === "orchestrator"
@@ -3375,7 +3375,7 @@ function refuseFixed(
         : kind === "project"
           ? "a project's own thread"
           : kind === "agent"
-            ? "a standing agent's own thread"
+            ? "a blob's own thread"
             : "a schedule's own thread";
   return {
     status: 400,
