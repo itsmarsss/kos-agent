@@ -181,7 +181,7 @@ export function readImage(ws: Workspace, requestPath: unknown): RawFile {
  */
 
 /** Top-level names the file manager leaves alone: the workspace's own state. */
-const RESERVED = new Set([".kos", "kos.sqlite", "kos.sqlite-shm", "kos.sqlite-wal", "profile.json", "mcp.json", "daemon.json", "locks"]);
+export const RESERVED = new Set([".kos", "kos.sqlite", "kos.sqlite-shm", "kos.sqlite-wal", "profile.json", "mcp.json", "daemon.json", "locks"]);
 
 /** A path the manager may touch: inside the jail, not the root, not the workspace's own files. */
 function managed(ws: Workspace, requestPath: unknown): { rel: string; abs: string } {

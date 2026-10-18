@@ -7,6 +7,7 @@ import { api, type DirEntry, type FileContent } from "./api.js";
 import { EntryMenu, dragProps, dropProps, useFileOps, type FileChange } from "./FileActions.js";
 import { FileIcon, previewable } from "./FileIcon.js";
 import { ImageView, Thumb } from "./FileThumb.js";
+import { useHiddenFiles } from "./hiddenfiles.js";
 import { Markdown } from "./Markdown.js";
 import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";
@@ -183,14 +184,17 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
     }
   };
 
+  const [showHidden, setShowHidden] = useHiddenFiles();
+  const hiddenCount = useMemo(() => (entries ?? []).filter((e) => e.name.startsWith(".")).length, [entries]);
   const shown = useMemo(() => {
     if (!entries) return [];
     const q = filter.trim().toLowerCase();
+    const visible = showHidden ? entries : entries.filter((e) => !e.name.startsWith("."));
     const matching = q
-      ? entries.filter((e) => e.name.toLowerCase().includes(q))
-      : entries;
+      ? visible.filter((e) => e.name.toLowerCase().includes(q))
+      : visible;
     return sortEntries(matching, sort);
-  }, [entries, filter, sort]);
+  }, [entries, filter, sort, showHidden]);
 
   const trail = crumbs(path);
   const parent = trail.length > 1 ? trail[trail.length - 2] : null;
@@ -261,6 +265,11 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
               ]}
               onChange={(v) => reorder(v as SortKey)}
             />
+            {hiddenCount > 0 && (
+              <button type="button" className="btn btn--sm btn--ghost" aria-pressed={showHidden} title={showHidden ? "Hide files whose names start with a dot" : `Show ${hiddenCount} hidden`} onClick={() => setShowHidden(!showHidden)}>
+                {showHidden ? "Hide hidden" : `Hidden ${hiddenCount}`}
+              </button>
+            )}
             <button type="button" className="btn btn--sm files-newfolder" onClick={() => ops.newFolder(dirOf(path))}>
               New folder
             </button>

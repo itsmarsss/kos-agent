@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, posix } from "node:path";
 
 import { PROJECTS_DIR } from "../sites/server.js";
+import { RESERVED } from "./files.js";
 import type { Workspace } from "../store/workspace.js";
 
 /**
@@ -81,6 +82,36 @@ export function writeProjectFile(ws: Workspace, slug: string, upload: Upload): W
   }
   const bytes = Buffer.from(upload.data, "base64");
   const rel = `${uploadDir(slug, upload.dir)}/${name}`;
+  const abs = ws.resolve(rel);
+  mkdirSync(dirname(abs), { recursive: true });
+  writeFileSync(abs, bytes);
+  return { path: rel, size: bytes.byteLength };
+}
+
+/**
+ * A folder anywhere the file manager may touch, normalised and checked:
+ * inside the workspace, not its root, not one of its own files. A blob's
+ * folder, a project's, a folder the owner made.
+ */
+export function uploadDirAnywhere(dir: string): string {
+  const clean = dir.replace(/\\/g, "/").trim().replace(/\/+$/, "");
+  if (clean === "" || clean === "." || clean.startsWith("/") || clean.includes("\0")) throw new Error(`not a folder in the workspace: ${dir}`);
+  const rel = posix.normalize(clean);
+  if (rel === "." || rel === "" || rel.startsWith("../") || rel === "..") throw new Error(`${dir} is not inside the workspace`);
+  const top = rel.split("/")[0]!;
+  if (RESERVED.has(top)) throw new Error(`${top} is the workspace's own; nothing is uploaded there`);
+  return rel;
+}
+
+/** A file the owner put into a folder of the workspace from the dashboard. */
+export function writeFileInto(ws: Workspace, dir: string, upload: Upload): WrittenFile {
+  const name = uploadName(upload.name);
+  const approx = Math.floor((upload.data.length * 3) / 4);
+  if (approx > MAX_UPLOAD_BYTES) {
+    throw new Error(`${name} is ${Math.round(approx / 1024 / 1024)}MB; the limit is ${MAX_UPLOAD_BYTES / 1024 / 1024}MB`);
+  }
+  const bytes = Buffer.from(upload.data, "base64");
+  const rel = `${uploadDirAnywhere(dir)}/${name}`;
   const abs = ws.resolve(rel);
   mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, bytes);

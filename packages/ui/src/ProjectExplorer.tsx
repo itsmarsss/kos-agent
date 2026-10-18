@@ -7,6 +7,7 @@ import { FileIcon, previewable } from "./FileIcon.js";
 import { FilePreview, ago, bytes } from "./FilePreview.js";
 import { Thumb } from "./FileThumb.js";
 import { ChevronRight } from "./icons.js";
+import { useHiddenFiles } from "./hiddenfiles.js";
 import { PanelSection } from "./PanelSection.js";
 
 /**
@@ -119,7 +120,9 @@ export function ProjectExplorer({ label, root, upload: send, onOpenInFiles, onCh
   /** The folder's path relative to the project, from an entry inside it. */
   const relative = (e: { path: string; name: string }): string => (e.path.startsWith(`${root}/`) ? e.path.slice(root.length + 1) : e.name);
 
-  const shown = useMemo(() => (entries ? sorted(entries) : []), [entries]);
+  const [showHidden, setShowHidden] = useHiddenFiles();
+  const hiddenCount = useMemo(() => (entries ?? []).filter((e) => e.name.startsWith(".")).length, [entries]);
+  const shown = useMemo(() => (entries ? sorted(showHidden ? entries : entries.filter((e) => !e.name.startsWith("."))) : []), [entries, showHidden]);
   const files = useMemo(() => shown.filter((e) => e.kind === "file").map((e) => e.path), [shown]);
   const segments = dir ? dir.split("/") : [];
   const fileName = filePath ? (filePath.split("/").pop() ?? filePath) : "";
@@ -146,12 +149,17 @@ export function ProjectExplorer({ label, root, upload: send, onOpenInFiles, onCh
 
   return (
     <PanelSection
-      title="Files & images"
+      title="Files & folders"
       {...(entries ? { count: entries.length } : {})}
       className={drop.over && send ? "project-panel-drop is-over" : "project-panel-drop"}
       {...(send ? drop.handlers : {})}
       action={
         <>
+          {hiddenCount > 0 && (
+            <button type="button" className="btn btn--sm btn--ghost" aria-pressed={showHidden} title={showHidden ? "Hide files whose names start with a dot" : `Show ${hiddenCount} hidden`} onClick={() => setShowHidden(!showHidden)}>
+              {showHidden ? "Hide hidden" : `Hidden ${hiddenCount}`}
+            </button>
+          )}
           <button type="button" className="btn btn--sm" title={dir ? `New folder in ${dir}` : `New folder in ${label}`} onClick={() => ops.newFolder(here)}>
             New folder
           </button>

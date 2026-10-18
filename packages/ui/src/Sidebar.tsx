@@ -102,7 +102,8 @@ export function Sidebar({
         </button>
         <a className="brand" href="#/">
           <Face seed={KOS_SEED} look={faceLookOf(kos)} size={20} mood={kosMood} label="KOS" />
-          K<span>-OS</span>
+          <span className="brand-k">K</span>
+          <span>-OS</span>
         </a>
         <button type="button" className="btn btn--ghost phonebar-search" aria-label="Search" onClick={onSearch}>
           ⌘K
@@ -113,7 +114,8 @@ export function Sidebar({
         <div className="side-brand-row">
           <a className="brand side-brand" href="#/">
             <Face seed={KOS_SEED} look={faceLookOf(kos)} size={22} mood={kosMood} label="KOS" />
-            K<span>-OS</span>
+            <span className="brand-k">K</span>
+          <span>-OS</span>
           </a>
           {/* Collapse to a rail. Desktop only; on a phone the sidebar is a
               drawer and this button is hidden. */}
