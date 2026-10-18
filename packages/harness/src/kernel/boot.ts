@@ -476,17 +476,11 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
         const id = kernelRef?.callerConversationId;
         return (id && conversations.get(id)?.projectSlug) || undefined;
       },
-      // The answer lands as a note in the chat that delegated, and is told
+      // The answer lands as a line in the chat that delegated, and is told
       // to the owner as well so it is not lost if they are elsewhere.
       onDispatchDone: (id, title, reply, from) => {
         const summary = `${title} answered: ${reply.slice(0, 600)}`;
-        if (from) {
-          kernelRef?.progress.emit({
-            kind: "note",
-            conversationId: from,
-            text: summary,
-          });
-        }
+        if (from) kernelRef?.noteIn(from, summary);
         kernelRef?.caretaker.tell(summary);
       },
       // The roster of a fan-out, shown in the chat that asked while it waits.
@@ -522,7 +516,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       dispatch: (id, text) => kernelRef!.dispatchTo(id, text),
       onDispatchDone: (id, title, reply, from) => {
         const summary = `${title} answered: ${reply.slice(0, 600)}`;
-        if (from) kernelRef?.progress.emit({ kind: "note", conversationId: from, text: summary });
+        if (from) kernelRef?.noteIn(from, summary);
         kernelRef?.caretaker.tell(summary);
       },
     }),

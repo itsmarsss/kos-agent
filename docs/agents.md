@@ -75,7 +75,10 @@ agent's own.
 
 Dispatched into a project (by that project's orchestrator, or by KOS with a
 project named), the agent gets an ordinary chat inside the project, under
-the same brief, so what it makes lands with the project.
+the same brief, and is told that what it makes there goes in the project's
+folder, so it lands with the project; its own folder stays for its notes.
+It has one such chat per project: dispatched there again, the task goes to
+the chat it already has, so its work in a project reads as one thread.
 
 ## On the dashboard
 
@@ -95,8 +98,9 @@ does, so an agent cannot spawn more of itself:
 - `agents.list`: what exists, with what each is for and when it runs.
 - `agents.create`: the file, its thread, and its schedule if it has one.
   An existing name is refused unless `replace` is set.
-- `agents.dispatch`: a task to an agent, handed over rather than waited on;
-  you are told when it answers.
+- `agents.dispatch`: a task to an agent, handed over rather than waited on.
+  When it answers, the chat that sent it gets the answer as a line of its
+  own (after its turn, if it is mid-turn), and you are told.
 - `agents.remove`: the file and the schedule go; the thread stays as an
   ordinary chat you can keep or delete. This one asks first.
 

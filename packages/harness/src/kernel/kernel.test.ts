@@ -310,6 +310,35 @@ describe("Kernel", () => {
     expect(said).not.toContain(`#${fresh.id}`);
   });
 
+  it("writes news into a chat after its turn rather than into the turn", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    kernel = await boot({
+      async generate(): Promise<ModelResponse> {
+        await gate;
+        return { content: [{ type: "text", text: "Done." }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    });
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Main" });
+    const turn = kernel.handleMessage("go", { sessionId: chat.id });
+    await vi.waitFor(() => expect(kernel.busyConversations()).toContain(chat.id));
+    kernel.noteIn(chat.id, "Books answered: later.");
+    expect(JSON.stringify(kernel.sessions.get(chat.id))).not.toContain("Books answered");
+    release();
+    await turn;
+    const said = kernel.sessions.get(chat.id);
+    expect(JSON.stringify(said)).toContain("Books answered: later.");
+    // After the turn's own reply, as its own line.
+    expect(JSON.stringify(said.at(-1))).toContain("Books answered: later.");
+    expect(JSON.stringify(said.at(-2))).toContain("Done.");
+    kernel.noteIn(chat.id, "Books answered: now.");
+    expect(JSON.stringify(kernel.sessions.get(chat.id).at(-1))).toContain("Books answered: now.");
+    // A chat that is gone takes nothing, quietly.
+    kernel.noteIn("nowhere", "lost");
+  });
+
   it("hands a brief to a project's orchestrator as an attributed message, and tells the source chat when it answers", async () => {
     const seen: string[] = [];
     kernel = await boot({
@@ -328,6 +357,8 @@ describe("Kernel", () => {
     const done = await kernel.handoff({ from: source.id, to: "@project:books", brief: "Seventeen books restored.", ask: "check the lending table", by: "owner" });
     expect(done).toMatchObject({ conversationId: books.conversationId, title: "Books" });
     await vi.waitFor(() => expect(notes).toEqual([`${source.id}: Books answered: Got it.`]));
+    // The answer is in the source chat's transcript too, not only on screen at the time.
+    expect(JSON.stringify(kernel.sessions.get(source.id))).toContain("Books answered: Got it.");
     const delivered = seen.find((t) => t.includes("Handed off from"))!;
     expect(delivered).toContain(`Handed off from "Main" (@chat:[${source.id}]) at the owner's request.`);
     expect(delivered).toContain("Seventeen books restored.");
