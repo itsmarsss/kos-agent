@@ -23,7 +23,8 @@ import { AnimatePresence, m } from "motion/react";
 
 import { hrefFor, parseRoute, type Route } from "./routes.js";
 import { Drawer } from "./Drawer.js";
-import { CronEditor, describeCron } from "./CronEditor.js";
+import { CronEditor } from "./CronEditor.js";
+import { describeCron } from "./schedule.js";
 import { StatusDot } from "./StatusDot.js";
 import { ease, spring } from "./motion.js";
 import { HistoryPage, type HistoryRow } from "./HistoryPage.js";

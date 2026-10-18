@@ -7642,3 +7642,20 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
   mask: radial-gradient(circle at center, transparent 46%, #000 50%);
   box-shadow: none;
 }
+
+/* When something runs, as choices: a row of kinds, the kind's few controls, the line in words. */
+.sched { display: flex; flex-direction: column; gap: 0.55rem; }
+.sched-kinds { flex-wrap: wrap; gap: 0.3rem; border: 0; border-radius: 0; overflow: visible; }
+.sched-kinds .seg-btn { border: 1px solid var(--line); border-radius: 999px; padding: 0.3rem 0.75rem; }
+.sched-kinds .seg-btn + .seg-btn { border-left: 1px solid var(--line); }
+.sched-kinds .seg-btn.is-on { border-color: var(--accent); background: var(--accent-dim); color: var(--text); }
+.sched-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.45rem; font-size: var(--text-md); color: var(--muted); }
+.kos-input--time { width: 7.5rem; flex: none; font-variant-numeric: tabular-nums; }
+.kos-input--n { width: 4.5rem; flex: none; text-align: center; font-variant-numeric: tabular-nums; }
+.daypick { display: inline-flex; gap: 0.25rem; }
+.daypick-day { width: 2rem; height: 2rem; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--panel-2); color: var(--muted); font: inherit; font-size: var(--text-sm); font-weight: 600; cursor: pointer; }
+.daypick-day:hover { border-color: var(--muted); color: var(--text); }
+.daypick-day.is-on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.sched-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
+.sched-toggle { font-size: var(--text-sm); }
+.sched-raw { width: 100%; max-width: 22rem; }

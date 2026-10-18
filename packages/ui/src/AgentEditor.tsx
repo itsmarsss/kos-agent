@@ -1,11 +1,10 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { api, type AgentDraft, type AgentInfo, type FaceLook, type ToolInfo } from "./api.js";
-import { describeCron, PRESETS } from "./CronEditor.js";
+import { SchedulePicker } from "./SchedulePicker.js";
 import { Face } from "./Face.js";
 import { FaceEditor } from "./FaceEditor.js";
 import { Field, Req } from "./kit.js";
-import { Select } from "./Select.js";
 import { ToolPicker } from "./ToolPicker.js";
 
 /**
@@ -101,8 +100,8 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
   /** The names already in use, so a new one is told it is taken before it is sent. */
   const [taken, setTaken] = useState<ReadonlySet<string>>(new Set());
   const isNew = !initial;
-  const readable = draft.schedule.trim() ? describeCron(draft.schedule.trim()) : null;
-  const badSchedule = draft.schedule.trim() !== "" && readable === null;
+  // Five fields is a schedule as far as the form can tell; the host checks it properly.
+  const badSchedule = draft.schedule.trim() !== "" && draft.schedule.trim().split(/\s+/).length !== 5;
   const name = draft.name.trim().toLowerCase();
   const nameTaken = isNew && name !== "" && taken.has(name);
   const nameOdd = name !== "" && !NAME_SHAPE.test(name);
@@ -204,22 +203,7 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
         <h3>Schedule</h3>
         <div className="agents-fields">
           <Field label="When" group>
-            <div className="settings-row">
-              <input className="kos-input kos-mono" value={draft.schedule} spellCheck={false} placeholder="not scheduled" onChange={(e) => setDraft({ ...draft, schedule: e.target.value })} />
-              <Select
-                className="settings-select"
-                label="Common schedules"
-                value=""
-                options={[{ value: "", label: "presets…" }, ...PRESETS.map((p) => ({ value: p.value, label: p.label, hint: p.value })), { value: "-", label: "Not scheduled" }]}
-                onChange={(v) => {
-                  if (v === "-") setDraft({ ...draft, schedule: "" });
-                  else if (v) setDraft({ ...draft, schedule: v });
-                }}
-              />
-            </div>
-            <span className={`cron-reads ${badSchedule ? "is-bad" : ""}`}>
-              {draft.schedule.trim() === "" ? "Not scheduled: it works when dispatched or spoken to." : (readable ?? "Not a schedule yet: five fields, minute to day of week.")}
-            </span>
+            <SchedulePicker value={draft.schedule} allowNone onChange={(schedule) => setDraft({ ...draft, schedule })} />
           </Field>
           {draft.schedule.trim() !== "" && (
             <Field label="On each run" required hint="What it is told each time, in its own thread.">

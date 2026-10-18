@@ -176,7 +176,7 @@ it and where its schedule runs; the chats it has inside projects in the
 rail; and beside the thread its schedule and its folder, with Run now,
 Pause or Resume, Edit (its file as a form: its face, name and what it is
 for; the brief; the tool families it may reach as a list to tick, whether
-its memory is its own, the model class; the schedule with presets and read
+its memory is its own, the model class; the schedule as choices, read
 back in words, and the prompt for each run), the folder's contents with
 Open in Files, and Delete (two presses), which removes the file and the
 schedule, leaves the thread as an ordinary chat, and keeps the folder if
@@ -197,7 +197,7 @@ Six tabs. See [memory.md](memory.md) for what each holds.
 - **History**: everything KOS has done, newest first. Filter to tools, runs
   or failures. A row opens its full record; a failure has Fix, which opens a
   chat with KOS on it.
-- **Schedule**: the jobs. A row opens the editor: name, when (with presets),
+- **Schedule**: the jobs. A row opens the editor: name, when (as choices: daily, weekdays, the days you pick, every so many hours or minutes, a day of the month; the cron line itself is there to edit for anything else),
   what it does (Ask KOS with a prompt and a model class, or fixed tool
   calls), Run now, Pause, Delete. The built-in backup has no actions to edit.
   A new job can start from a template: **Morning brief** (weekdays at

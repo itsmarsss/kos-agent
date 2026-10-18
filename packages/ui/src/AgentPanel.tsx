@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type CSSProperties, type ReactElement
 
 import { AgentEditor, titleOf } from "./AgentEditor.js";
 import { api, type AgentInfo } from "./api.js";
-import { describeCron } from "./CronEditor.js";
+import { describeCron } from "./schedule.js";
 import { Face, lookOf, moodOf } from "./Face.js";
 import { Modal } from "./Modal.js";
 import { Card, Pill, Tag } from "./kit.js";
