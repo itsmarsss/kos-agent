@@ -6918,7 +6918,7 @@ a.health {
   .side { transition: padding 280ms cubic-bezier(0.4, 0, 0.2, 1), gap 280ms ease; }
   .side-link { transition: background 0.12s ease, color 0.12s ease, gap 220ms ease, padding 220ms ease; }
   .side-label,
-  .side-brand span,
+  .side-brand > span:not(.blob),
   .side-search kbd,
   .side-health-text {
     max-width: 12rem;
@@ -6929,12 +6929,12 @@ a.health {
   /* Inline text has no width to fold; the brand's tail is a box so it can.
      Aligned by its top: a clipped inline-block sits its bottom edge on the
      baseline, which lifted "-OS" above the K. */
-  .side-brand span { display: inline-block; vertical-align: top; }
+  .side-brand > span:not(.blob) { display: inline-block; vertical-align: top; }
   :root[data-sidebar="rail"] .side-search kbd { margin-left: 0; padding: 0; border-color: transparent; }
   :root[data-sidebar="rail"] .app { grid-template-columns: 3.4rem minmax(0, 1fr); }
   :root[data-sidebar="rail"] .side { padding: 1rem 0.4rem; gap: 0.2rem; }
   :root[data-sidebar="rail"] .side-label,
-  :root[data-sidebar="rail"] .side-brand span,
+  :root[data-sidebar="rail"] .side-brand > span:not(.blob),
   :root[data-sidebar="rail"] .side-search kbd,
   :root[data-sidebar="rail"] .side-health-text {
     max-width: 0;
@@ -6956,7 +6956,7 @@ a.health {
     .side,
     .side-link,
     .side-label,
-    .side-brand span,
+    .side-brand > span:not(.blob),
     .side-search kbd,
     .side-health-text { transition: none; }
   }
@@ -7467,11 +7467,11 @@ a.health {
 .agents-row-meta { color: var(--faint); font-size: var(--text-xs); }
 .agents-invalid { display: flex; flex-direction: column; gap: 0.2rem; padding: 0.6rem 0.7rem; border: 1px dashed var(--warn); border-radius: var(--r-md); }
 .agents-editor { padding: 1rem; }
-.agents-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.8rem; }
+.agents-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem 1.2rem; }
 .agents-brief { font-family: var(--mono); font-size: var(--text-sm); line-height: 1.5; resize: vertical; }
 .agents-actions { flex-wrap: wrap; }
 @media (max-width: 720px) { .agents-split { grid-template-columns: 1fr; } }
-.agents-list--index { max-width: 60rem; }
+.agents-list--index { max-width: none; }
 .agents-row-upto { color: var(--text); font-size: var(--text-sm); line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agents-row-upto.is-working { color: var(--accent); }
 .agents-row-upto.is-needs-you { color: var(--warn, #f5a524); }
@@ -7560,7 +7560,7 @@ a.health {
 .agent-editor-head { display: flex; gap: 1.1rem; align-items: flex-start; }
 .agent-editor-ident { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.7rem; }
 .agent-editor-stack { display: flex; flex-direction: column; gap: 0.8rem; }
-.agents-fields--reach { grid-template-columns: minmax(0, 1.4fr) minmax(220px, 1fr); }
+.agents-fields--reach { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .agents-row-who { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
 .face-editor { display: flex; align-items: center; gap: 1rem; }
 .face-editor-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem 0.8rem; align-items: start; flex: 1; min-width: 0; }
@@ -7592,7 +7592,7 @@ a.health {
 .seg-btn.is-on { background: var(--panel-2); color: var(--text); }
 .toolpick-wrap { display: flex; flex-direction: column; gap: 0.4rem; }
 .toolpick-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
-@media (max-width: 720px) { .agents-fields--reach { grid-template-columns: 1fr; } .agent-editor-head { flex-direction: column; } .face-editor-fields { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .agents-fields, .agents-fields--reach { grid-template-columns: 1fr; } .agent-editor-head { flex-direction: column; } .face-editor-fields { grid-template-columns: 1fr; } }
 
 /* A blob's row on the Overview: its face leads, centred on the line. */
 .panel-row--agent { align-items: center; }
