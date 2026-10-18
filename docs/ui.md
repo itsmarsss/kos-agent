@@ -33,12 +33,16 @@ All in `packages/ui/src/kit.tsx` unless named otherwise.
   with the line it writes read back in words, and the line itself to edit
   for anything the choices do not cover. Every place a schedule is set uses
   it; nowhere asks for five fields cold.
+- **ConfirmButton**: anything that cannot be undone asks once, in a small
+  window beside the button, with one line on what goes and the choice. Not
+  a dialog in the middle of the page, and not a button that changes its
+  words on the first press. Every delete on the site uses it: a chat, a
+  project, a blob, a schedule, a file.
 - **Empty**: what a list or panel says when there is nothing in it: a title
   and a line in a dashed box. A blank reads as broken; an answer does not.
 - **Buttons**: `.btn`; `.btn--primary` once per form, last; `.btn--sm`
   inside cards and rows; `.btn--ghost` for the quiet choice; a delete is
-  `.btn--danger-ghost` and becomes `.btn--danger` once pressed, with a line
-  saying what goes.
+  `.btn--danger-ghost` and asks through `ConfirmButton`.
 - **Uppercase** is for section and card titles and table column heads, and
   nothing else. Form labels are not uppercase.
 - **Faces** (`Face.tsx`): a blob's or KOS's face, at 16 to 18 in rows, 26

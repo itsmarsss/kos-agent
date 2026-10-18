@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from "react";
 
 import { api, type CronJob } from "./api.js";
-import { Field } from "./kit.js";
+import { ConfirmButton, Field } from "./kit.js";
 import { describeCron } from "./schedule.js";
 import { SchedulePicker } from "./SchedulePicker.js";
 import { Select } from "./Select.js";
@@ -188,23 +188,7 @@ export function CronEditor({
             {/* The only delete lived in a panel the schedule list does not
                 open, so from here a job could be paused forever and never
                 removed. */}
-            {onDelete && (
-              <button
-                type="button"
-                className="btn btn--sm btn--danger-ghost"
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      `Delete “${job.name}”? Its runs go with it.`,
-                    )
-                  ) {
-                    onDelete(job.id);
-                  }
-                }}
-              >
-                Delete
-              </button>
-            )}
+            {onDelete && <ConfirmButton label="Delete" text={`Delete “${job.name}”? Its runs go with it, and there is no undo.`} onConfirm={() => onDelete(job.id)} />}
           </span>
           {/* Where an outside service posts to start this job. Only when
               the host has a hook secret; without one there is no address. */}

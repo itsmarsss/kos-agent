@@ -1,4 +1,5 @@
-import type { ReactElement, ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * The small parts every page is built from, so they are built the same way.
@@ -126,6 +127,122 @@ export function Empty({ title, className, children }: { title?: string; classNam
     <div className={`empty${className ? ` ${className}` : ""}`}>
       {title && <strong className="empty-title">{title}</strong>}
       <p className="empty-text">{children}</p>
+    </div>
+  );
+}
+
+/**
+ * A small window fixed beside the thing that opened it: a colour picker, a
+ * confirmation. Fixed to the viewport, so no card, drawer or modal clips
+ * it, and placed below the anchor or above it when there is no room.
+ */
+export function useAnchoredPop(size: { width: number; height: number }): {
+  at: { top: number; left: number } | null;
+  open: boolean;
+  toggle: () => void;
+  close: () => void;
+  wrap: React.RefObject<HTMLDivElement | null>;
+  pop: React.RefObject<HTMLDivElement | null>;
+} {
+  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
+  const wrap = useRef<HTMLDivElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  const open = at !== null;
+  const close = (): void => setAt(null);
+  const toggle = (): void => {
+    if (at) {
+      setAt(null);
+      return;
+    }
+    const box = wrap.current?.getBoundingClientRect();
+    if (!box) return;
+    const below = box.bottom + 6 + size.height <= window.innerHeight;
+    setAt({
+      top: below ? box.bottom + 6 : Math.max(8, box.top - 6 - size.height),
+      left: Math.min(box.left, Math.max(8, window.innerWidth - size.width - 8)),
+    });
+  };
+  // It closes on a press outside it, on Escape, or when the page moves under it.
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent): void => {
+      const t = e.target as Node;
+      if (!pop.current?.contains(t) && !wrap.current?.contains(t)) setAt(null);
+    };
+    const key = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setAt(null);
+      }
+    };
+    const moved = (e: Event): void => {
+      if (!pop.current?.contains(e.target as Node)) setAt(null);
+    };
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", key, true);
+    window.addEventListener("resize", moved);
+    document.addEventListener("scroll", moved, true);
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("keydown", key, true);
+      window.removeEventListener("resize", moved);
+      document.removeEventListener("scroll", moved, true);
+    };
+  }, [open]);
+  return { at, open, toggle, close, wrap, pop };
+}
+
+export interface ConfirmButtonProps {
+  /** The button as it sits in the page. */
+  label: string;
+  /** The line in the window: what goes, and that it cannot be undone. */
+  text: string;
+  /** The button in the window; the label again when absent. */
+  confirmLabel?: string;
+  onConfirm: () => void;
+  className?: string;
+  disabled?: boolean;
+  title?: string;
+  /** "menuitem" when the button is one item of a menu. */
+  role?: string;
+}
+
+/**
+ * Something that cannot be undone asks once, right where it was pressed:
+ * a small window beside the button with one line and the choice. Not a
+ * dialog in the middle of the page, and not a button that changes its
+ * words on the first press. Every delete on the site uses this.
+ */
+export function ConfirmButton({ label, text, confirmLabel, onConfirm, className = "btn btn--sm btn--danger-ghost", disabled = false, title, role }: ConfirmButtonProps): ReactElement {
+  const { at, open, toggle, close, wrap, pop } = useAnchoredPop({ width: 280, height: 96 });
+  return (
+    <div className="confirm-wrap" ref={wrap}>
+      <button type="button" role={role} className={className} disabled={disabled} title={title} aria-expanded={open} onClick={toggle}>
+        {label}
+      </button>
+      {at &&
+        createPortal(
+          <div className="kos-pop confirm-pop" ref={pop} role="alertdialog" aria-label={label} style={{ top: at.top, left: at.left }}>
+            <p className="confirm-text">{text}</p>
+            <div className="confirm-acts">
+              <button
+                type="button"
+                className="btn btn--sm btn--danger"
+                autoFocus
+                onClick={() => {
+                  close();
+                  onConfirm();
+                }}
+              >
+                {confirmLabel ?? label}
+              </button>
+              <button type="button" className="btn btn--sm btn--ghost" onClick={close}>
+                Cancel
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

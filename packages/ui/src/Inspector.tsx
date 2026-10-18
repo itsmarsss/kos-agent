@@ -10,6 +10,7 @@ import type {
   RunRecord,
 } from "./api.js";
 import { api, type ProjectDetail } from "./api.js";
+import { ConfirmButton } from "./kit.js";
 import { ease, spring } from "./motion.js";
 import { Select } from "./Select.js";
 
@@ -100,7 +101,6 @@ export function Inspector(props: {
   const [call, setCall] = useState<AuditRecord | null>(null);
   const [editStatus, setEditStatus] = useState<string | null>(null);
   /** The delete button has been pressed once; the next press is the deed. */
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const openSlug = target?.kind === "project" ? target.data.slug : null;
@@ -573,28 +573,18 @@ export function Inspector(props: {
 
               {props.onDeleteProject && (
                 <Section title="Delete">
-                  {/* Two presses: the one thing in this drawer that cannot be
-                      undone. Archiving, above, is the reversible way to set a
-                      project aside. */}
-                  <p className="insp-meta">
-                    {confirmDelete
-                      ? `Its tables, pages and files go with it; its chats are kept, archived at the root, and its jobs turned off. Press again to delete ${p.name}.`
-                      : "Gone for good. To set it aside instead, set its status to archived."}
-                  </p>
-                  <button
-                    type="button"
-                    className="btn btn--sm btn--danger"
+                  {/* Asked once, beside the button: the one thing in this
+                      drawer that cannot be undone. Archiving, above, is the
+                      reversible way to set a project aside. */}
+                  <p className="insp-meta">Gone for good. To set it aside instead, set its status to archived.</p>
+                  <ConfirmButton
+                    label="Delete project"
+                    confirmLabel="Delete for good"
+                    className="btn btn--sm btn--danger-ghost"
+                    text={`Its tables, pages and files go with it; its chats are kept, archived at the root, and its jobs turned off. There is no undo for ${p.name}.`}
                     disabled={busy}
-                    onClick={() => {
-                      if (!confirmDelete) {
-                        setConfirmDelete(true);
-                        return;
-                      }
-                      void run(() => props.onDeleteProject!(p.slug));
-                    }}
-                  >
-                    {confirmDelete ? "Delete for good" : "Delete project"}
-                  </button>
+                    onConfirm={() => void run(() => props.onDeleteProject!(p.slug))}
+                  />
                 </Section>
               )}
             </aside>

@@ -26,7 +26,11 @@ export function useDismiss(
 
     const away = (event: PointerEvent): void => {
       const el = ref.current;
-      if (el && !el.contains(event.target as Node)) onClose();
+      const target = event.target as Node;
+      // A window anchored to something inside (a confirmation, a picker) is
+      // drawn at the body, so a press in it is not a press outside.
+      if (target instanceof Element && target.closest(".kos-pop")) return;
+      if (el && !el.contains(target)) onClose();
     };
     const escape = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {

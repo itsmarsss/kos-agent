@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Card, Empty, Field, Pill, Tag } from "./kit.js";
+import { Card, ConfirmButton, Empty, Field, Pill, Tag } from "./kit.js";
 
 afterEach(cleanup);
 
@@ -57,5 +57,24 @@ describe("the kit", () => {
     expect(screen.getByText("browser").className).toBe("tag tag--mono");
     expect(screen.getByText("All clear").className).toBe("empty-title");
     expect(screen.getByText("Nothing is waiting on you.")).toBeTruthy();
+  });
+});
+
+describe("a confirmation beside the button", () => {
+  it("asks once, right there, and only does it on the second press", async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    const onConfirm = vi.fn();
+    render(<ConfirmButton label="Delete" confirmLabel="Delete for good" text="It goes; there is no undo." onConfirm={onConfirm} />);
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const ask = screen.getByRole("alertdialog", { name: "Delete" });
+    expect(ask.textContent).toContain("It goes; there is no undo.");
+    expect(onConfirm).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete for good" }));
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 });

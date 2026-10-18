@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, ty
 import { createPortal } from "react-dom";
 
 import { hexOfHsv, hsvOfHex, type Hsv } from "./colour.js";
+import { useAnchoredPop } from "./kit.js";
 
 /**
  * A colour picker of KOS's own: a square of saturation and value under a
@@ -139,49 +140,7 @@ export interface ColourChoiceProps {
  * project. The popover is fixed to the viewport so no card or modal clips it.
  */
 export function ColourChoice({ value, swatchHue, fillOfHue, onSwatch, onPick, picked }: ColourChoiceProps): ReactElement {
-  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
-  const wrap = useRef<HTMLDivElement>(null);
-  const pop = useRef<HTMLDivElement>(null);
-  const open = at !== null;
-
-  const toggle = (): void => {
-    if (at) {
-      setAt(null);
-      return;
-    }
-    const box = wrap.current?.getBoundingClientRect();
-    if (!box) return;
-    const height = 260;
-    const width = 240;
-    const below = box.bottom + 6 + height <= window.innerHeight;
-    setAt({ top: below ? box.bottom + 6 : Math.max(8, box.top - 6 - height), left: Math.min(box.left, Math.max(8, window.innerWidth - width - 8)) });
-  };
-
-  // The picker closes on a press outside it, on Escape, or when the page moves under it, like a menu.
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: PointerEvent): void => {
-      const t = e.target as Node;
-      if (!pop.current?.contains(t) && !wrap.current?.contains(t)) setAt(null);
-    };
-    const key = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") setAt(null);
-    };
-    const moved = (e: Event): void => {
-      if (!pop.current?.contains(e.target as Node)) setAt(null);
-    };
-    document.addEventListener("pointerdown", away);
-    document.addEventListener("keydown", key);
-    window.addEventListener("resize", moved);
-    document.addEventListener("scroll", moved, true);
-    return () => {
-      document.removeEventListener("pointerdown", away);
-      document.removeEventListener("keydown", key);
-      window.removeEventListener("resize", moved);
-      document.removeEventListener("scroll", moved, true);
-    };
-  }, [open]);
-
+  const { at, open, toggle, wrap, pop } = useAnchoredPop({ width: 240, height: 260 });
   return (
     <div className="swatches">
       {SWATCHES.map((s) => (
@@ -198,13 +157,14 @@ export function ColourChoice({ value, swatchHue, fillOfHue, onSwatch, onPick, pi
       ))}
       <div className="swatch-custom-wrap" ref={wrap}>
         <button type="button" className={`swatch-custom${picked ? " is-on" : ""}`} title="Any colour" aria-expanded={open} onClick={toggle}>
-          <span className="swatch swatch--rainbow" style={picked ? { background: value } : undefined} aria-hidden="true" />
+          {/* Empty until a colour is picked: a dashed ring, then the colour. */}
+          <span className={`swatch swatch--any${picked ? " is-set" : ""}`} style={picked ? { background: value } : undefined} aria-hidden="true" />
           <span>Custom</span>
           {picked && <code className="swatch-hex">{value}</code>}
         </button>
         {at &&
           createPortal(
-            <div className="cpick-pop" ref={pop} style={{ top: at.top, left: at.left }}>
+            <div className="kos-pop cpick-pop" ref={pop} style={{ top: at.top, left: at.left }}>
               <ColourPicker value={value} onChange={onPick} />
             </div>,
             document.body,

@@ -20,6 +20,7 @@ import { ContextMeter } from "./ContextMeter.js";
 import { byAttention, groupChats, isBusy, placeOf, projectSummary } from "./chattree.js";
 import { AgentPanel } from "./AgentPanel.js";
 import { Face, KOS_SEED, faceLookOf, moodOf, useKosLook } from "./Face.js";
+import { ConfirmButton } from "./kit.js";
 import { Gutter } from "./Gutter.js";
 import { NewProjectDialog } from "./NewProjectDialog.js";
 import { ProjectPanel } from "./ProjectPanel.js";
@@ -322,7 +323,6 @@ export function ChatsPage({
   }, [listOpen]);
   const [showArchived, setShowArchived] = useState(false);
   /** The row whose Delete was pressed once; a second press deletes. */
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   /** A chat just archived from its header, offered back for a moment. */
   const [undo, setUndo] = useState<{ id: string; title: string } | null>(null);
   useEffect(() => {
@@ -366,9 +366,6 @@ export function ChatsPage({
   };
   const [showScheduled, setShowScheduled] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
-  useEffect(() => {
-    if (menuFor === null) setConfirmDelete(null);
-  }, [menuFor]);
   /** The New project dialog, from the rail's +. */
   const [makingProject, setMakingProject] = useState(false);
   /** The chat being renamed, with its title as the field starts. */
@@ -1211,24 +1208,18 @@ export function ChatsPage({
               >
                 {showArchived ? "Unarchive" : "Archive"}
               </button>
-              {/* Two presses: delete is the one thing here that cannot be
-                  undone, and a menu item that does it on one click is a
-                  trap beside Archive. */}
-              <button
-                type="button"
+              {/* Asked once, beside the item: delete is the one thing here
+                  that cannot be undone, and a menu item that does it on one
+                  click is a trap beside Archive. */}
+              <ConfirmButton
                 className="is-danger"
-                onClick={() => {
-                  if (confirmDelete !== c.id) {
-                    setConfirmDelete(c.id);
-                    return;
-                  }
+                label="Delete"
+                text={`Delete “${c.title}”? Its messages go with it, and there is no undo.`}
+                onConfirm={() => {
                   setMenuFor(null);
-                  setConfirmDelete(null);
                   void api.deleteConversation(c.id).then(onChanged);
                 }}
-              >
-                {confirmDelete === c.id ? "Confirm delete" : "Delete"}
-              </button>
+              />
             </m.div>
           )}
           </AnimatePresence>
@@ -1547,24 +1538,16 @@ export function ChatsPage({
                             exit={{ opacity: 0, scale: 0.97, y: -3 }}
                             transition={ease}
                           >
-                            {/* Two presses, as for a chat: its tables, pages
-                                and files go with it; its chats are kept,
-                                archived at the root. */}
-                            <button
-                              type="button"
+                            <ConfirmButton
                               className="is-danger"
-                              onClick={() => {
-                                if (confirmDelete !== menuKey) {
-                                  setConfirmDelete(menuKey);
-                                  return;
-                                }
+                              label="Delete project"
+                              confirmLabel="Delete for good"
+                              text={`Its tables, pages and files go with it; its chats are kept, archived at the root, and its jobs turned off. There is no undo for ${p.name}.`}
+                              onConfirm={() => {
                                 setMenuFor(null);
-                                setConfirmDelete(null);
                                 void onDeleteProject!(p.slug).catch(() => undefined);
                               }}
-                            >
-                              {confirmDelete === menuKey ? "Confirm delete" : "Delete project"}
-                            </button>
+                            />
                           </m.div>
                         )}
                         </AnimatePresence>
