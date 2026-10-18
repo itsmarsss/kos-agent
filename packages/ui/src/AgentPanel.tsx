@@ -1,16 +1,18 @@
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type ReactElement } from "react";
 
 import { AgentEditor, titleOf } from "./AgentEditor.js";
 import { api, type AgentInfo, type DirEntry } from "./api.js";
-import { Face, moodOf } from "./Face.js";
+import { describeCron } from "./CronEditor.js";
+import { Face, lookOf, moodOf } from "./Face.js";
 import { Modal } from "./Modal.js";
-import { PanelSection } from "./PanelSection.js";
 import { hrefFor } from "./routes.js";
+import { WEEK, agoWords, inWords, runDays, sizeWords } from "./schedulewords.js";
 
 /**
- * The column beside a standing agent's thread: what it is, when it runs,
- * what it may reach, and the file itself. The thread is where the agent
- * is talked to; this is where it is kept.
+ * The column beside a standing agent's thread: who it is, how it is doing,
+ * when it runs, what it may reach, and what is in its folder. The thread
+ * is where the agent is talked to; this is where it is kept. The column
+ * takes the agent's own colour, so each one's page is its own.
  */
 
 export interface AgentPanelProps {
@@ -26,16 +28,34 @@ export interface AgentPanelProps {
 
 const POLL_MS = 5000;
 
-function ago(ts: number): string {
-  const mins = Math.max(1, Math.round((Date.now() - ts) / 60000));
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
-}
-
 function when(ts: number): string {
   return new Date(ts).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+/** How the agent is doing, in a line, with a tone for the dot beside it. */
+export function stateOf(a: AgentInfo, paused: boolean): { tone: "working" | "needs-you" | "error" | "asleep" | "idle"; text: string } {
+  const t = a.thread;
+  if (t?.activity === "working") return { tone: "working", text: "Working now" };
+  if (t?.activity === "needs-you") return { tone: "needs-you", text: "Waiting on you" };
+  if (t?.activity === "error") return { tone: "error", text: `Last turn failed${t.lastError ? `: ${t.lastError}` : ""}` };
+  if (paused) return { tone: "asleep", text: "Asleep, its schedule is paused" };
+  if (t?.lastSaid) return { tone: "idle", text: `Quiet, last spoke ${agoWords(t.updatedAt)}` };
+  return { tone: "idle", text: "Quiet, nothing said yet" };
+}
+
+/** A small mark for a file row: its extension, or a slash for a folder. */
+function glyphOf(e: DirEntry): string {
+  if (e.kind === "dir") return "/";
+  const dot = e.name.lastIndexOf(".");
+  return dot > 0 ? e.name.slice(dot + 1).slice(0, 4) : "·";
+}
+
+/** agent.md first, then folders, then files by name. */
+function byPlace(a: DirEntry, b: DirEntry): number {
+  if (a.name === "agent.md") return -1;
+  if (b.name === "agent.md") return 1;
+  if (a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
+  return a.name.localeCompare(b.name);
 }
 
 export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onRemoved, hidden = false }: AgentPanelProps): ReactElement {
@@ -52,10 +72,9 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
       const found = r.agents.find((a) => a.name === name) ?? null;
       setAgent(found);
       setInvalidReason(r.invalid.find((i) => i.name === name)?.reason ?? null);
-      // Its folder, agent.md first: what it is, then what it has made.
       if (found) {
         const listed = await api.files(found.folder).catch(() => ({ entries: [] as DirEntry[] }));
-        setEntries([...listed.entries].sort((a, b) => (a.name === "agent.md" ? -1 : b.name === "agent.md" ? 1 : a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === "dir" ? -1 : 1)));
+        setEntries([...listed.entries].sort(byPlace));
       }
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
@@ -92,14 +111,14 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
 
   if (agent === undefined) {
     return (
-      <aside className="project-panel" aria-hidden={hidden}>
+      <aside className="project-panel agent-panel" aria-hidden={hidden}>
         <p className="ops-muted">Loading…</p>
       </aside>
     );
   }
   if (agent === null) {
     return (
-      <aside className="project-panel" aria-hidden={hidden}>
+      <aside className="project-panel agent-panel" aria-hidden={hidden}>
         <p className="ops-alert ops-alert--err" role="alert">
           {invalidReason ? `agents/${name}/agent.md does not read as an agent: ${invalidReason}.` : `There is no agent called ${name}.`}
         </p>
@@ -113,123 +132,159 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
   }
 
   const paused = Boolean(agent.job && !agent.job.enabled);
+  const state = stateOf(agent, paused);
+  const hue = lookOf(agent.name, agent.face ?? {}).hue;
+  const days = agent.job ? runDays(agent.job.schedule) : null;
+  const title = titleOf(agent.name);
+
   return (
-    <aside className="project-panel" aria-label={`${titleOf(agent.name)}, the agent`} aria-hidden={hidden}>
-      <div className="agent-panel-head">
-        <Face seed={agent.name} look={agent.face ?? {}} size={44} mood={moodOf(agent.thread?.activity, { paused })} />
-        <div>
-          <strong>{titleOf(agent.name)}</strong>
-          <span className="hint">{agent.description}</span>
-        </div>
-      </div>
+    <aside className="project-panel agent-panel" aria-label={`${title}, the agent`} aria-hidden={hidden} style={{ "--blob-h": String(hue) } as CSSProperties}>
+      {/* Who it is: its face on a glow of its own colour, and how it is doing. */}
+      <header className="agent-hero">
+        <Face seed={agent.name} look={agent.face ?? {}} size={72} mood={moodOf(agent.thread?.activity, { paused })} />
+        <h2>{title}</h2>
+        <p className="agent-hero-desc">{agent.description}</p>
+        <span className={`agent-hero-state is-${state.tone}`}>
+          <span className="agent-hero-dot" aria-hidden="true" />
+          {state.text}
+        </span>
+      </header>
 
-      <PanelSection title="Schedule">
+      <section className="agent-card" aria-label="Schedule">
+        <div className="agent-card-head">
+          <span className="agent-card-title">Schedule</span>
+          {agent.job && <span className={`agent-pill${paused ? " agent-pill--paused" : ""}`}>{paused ? "paused" : "on"}</span>}
+        </div>
         {agent.job ? (
-          <ul className="agent-panel-lines">
-            <li>
-              <span className="ops-mono">{agent.job.schedule}</span>
-              <span className="insp-meta">{paused ? "paused" : "on"}</span>
-            </li>
-            <li>
-              <span>Next run</span>
-              <span className="insp-meta">{agent.job.nextRunAt ? when(agent.job.nextRunAt) : paused ? "when resumed" : "on its schedule"}</span>
-            </li>
-            <li>
-              <span>Last run</span>
-              <span className="insp-meta">{agent.job.lastRunAt ? ago(agent.job.lastRunAt) : "not yet"}</span>
-            </li>
-          </ul>
+          <>
+            <p className="agent-when">{describeCron(agent.job.schedule) ?? agent.job.schedule}</p>
+            <code className="agent-cron">{agent.job.schedule}</code>
+            {days && (
+              <div className="agent-week" aria-label="Days it runs">
+                {WEEK.map((d, i) => (
+                  <span key={i} className={days.has(i) ? "is-on" : ""} aria-label={days.has(i) ? "runs" : "rests"}>
+                    {d}
+                  </span>
+                ))}
+              </div>
+            )}
+            <ul className="agent-kv">
+              <li>
+                <span>Next run</span>
+                <b>{agent.job.nextRunAt ? inWords(agent.job.nextRunAt) : paused ? "when resumed" : "on its schedule"}</b>
+                {agent.job.nextRunAt && <span>{when(agent.job.nextRunAt)}</span>}
+              </li>
+              <li>
+                <span>Last run</span>
+                <b>{agent.job.lastRunAt ? agoWords(agent.job.lastRunAt) : "not yet"}</b>
+                {agent.job.lastRunAt && <span>{when(agent.job.lastRunAt)}</span>}
+              </li>
+            </ul>
+            <div className="agent-acts">
+              <button
+                type="button"
+                className="btn btn--sm btn--primary"
+                disabled={busy}
+                title="Run its scheduled prompt now, in its thread"
+                onClick={() => void run(() => api.runAgent(agent.name).then(() => undefined), `${title} is running`)}
+              >
+                Run now
+              </button>
+              <button type="button" className="btn btn--sm" disabled={busy} onClick={() => void run(() => api.setCronEnabled(agent.job!.id, paused).then(() => undefined), paused ? "Resumed" : "Paused")}>
+                {paused ? "Resume" : "Pause"}
+              </button>
+            </div>
+          </>
         ) : (
-          <p className="hint">No schedule: it works when dispatched or spoken to. Edit the file to give it one.</p>
+          <>
+            <p className="agent-when">On request</p>
+            <p className="hint">It works when you speak to it or KOS dispatches it. Edit to give it a schedule.</p>
+          </>
         )}
-        <div className="agent-panel-acts">
-          {agent.job && (
-            <button type="button" className="btn btn--sm" disabled={busy} title="Run its scheduled prompt now, in its thread" onClick={() => void run(() => api.runAgent(agent.name).then(() => undefined), `${titleOf(agent.name)} is running`)}>
-              Run now
-            </button>
-          )}
-          {agent.job && (
-            <button
-              type="button"
-              className="btn btn--sm"
-              disabled={busy}
-              onClick={() => void run(() => api.setCronEnabled(agent.job!.id, paused).then(() => undefined), paused ? "Resumed" : "Paused")}
-            >
-              {paused ? "Resume" : "Pause"}
-            </button>
-          )}
+      </section>
+
+      <section className="agent-card" aria-label="Reach">
+        <div className="agent-card-head">
+          <span className="agent-card-title">Reach</span>
         </div>
-      </PanelSection>
+        <div className="agent-chips">
+          {agent.tools?.length ? (
+            agent.tools.map((t) => (
+              <span key={t} className="agent-chip agent-chip--mono" title="A tool family it may use">
+                {t}
+              </span>
+            ))
+          ) : (
+            <span className="agent-chip" title="Every tool KOS has">
+              Full toolkit
+            </span>
+          )}
+          <span className="agent-chip" title={agent.memory === "own" ? "What it remembers is its own" : "It shares memory with the project it is in, or the global pool"}>
+            {agent.memory === "own" ? "Own memory" : "Shared memory"}
+          </span>
+          <span className="agent-chip" title="Which model class answers">
+            {agent.task === "cheap" ? "Cheap model" : "Reasoning model"}
+          </span>
+        </div>
+      </section>
 
-      <PanelSection title="Reach">
-        <ul className="agent-panel-lines">
-          <li>
-            <span>Tools</span>
-            <span className="insp-meta">{agent.tools?.length ? agent.tools.join(", ") : "all"}</span>
-          </li>
-          <li>
-            <span>Memory</span>
-            <span className="insp-meta">{agent.memory === "own" ? "its own" : "shared"}</span>
-          </li>
-          <li>
-            <span>Model</span>
-            <span className="insp-meta">{agent.task ?? "reasoning"}</span>
-          </li>
-        </ul>
-      </PanelSection>
-
-      <PanelSection
-        title="Folder"
-        count={entries.length}
-        action={
-          <button type="button" className="btn btn--sm" title="The agent's folder on the Files page" onClick={() => onOpenFile(agent.folder)}>
-            Open in Files
+      <section className="agent-card" aria-label="Folder">
+        <div className="agent-card-head">
+          <span className="agent-card-title">
+            Folder <span className="agent-card-count">{entries.length}</span>
+          </span>
+          <button type="button" className="link" onClick={() => onOpenFile(agent.folder)} title="Its folder on the Files page">
+            Open in Files →
           </button>
-        }
-      >
+        </div>
         {/* Its own place: agent.md says what it is, and the rest is what it has made. */}
-        <ul className="agent-panel-files">
+        <ul className="agent-files">
           {entries.map((e) => (
             <li key={e.path}>
               <a
+                className="agent-file"
                 href={hrefFor({ name: "files", path: e.path })}
                 onClick={(ev) => {
                   ev.preventDefault();
                   onOpenFile(e.path);
                 }}
               >
-                {e.kind === "dir" ? `${e.name}/` : e.name}
+                <span className="agent-file-glyph" aria-hidden="true">
+                  {glyphOf(e)}
+                </span>
+                <span className="agent-file-name">{e.kind === "dir" ? `${e.name}/` : e.name}</span>
+                {e.name === "agent.md" ? <span className="agent-file-tag">what it is</span> : e.kind === "file" && <span className="agent-file-meta">{sizeWords(e.size)}</span>}
               </a>
-              {e.name === "agent.md" && <span className="insp-meta">what it is</span>}
             </li>
           ))}
           {entries.length === 0 && <li className="hint">Nothing in agents/{agent.name}/ yet.</li>}
         </ul>
-        <div className="agent-panel-acts">
-          <button type="button" className="btn btn--sm" disabled={busy} onClick={() => setEditing(true)}>
-            Edit
-          </button>
-          <button
-            type="button"
-            className="btn btn--sm btn--danger"
-            disabled={busy}
-            onClick={() => {
-              if (!confirmDelete) {
-                setConfirmDelete(true);
-                return;
-              }
-              void run(async () => {
-                await api.deleteAgent(agent.name);
-              }, `Removed ${agent.name}; its thread stays as a chat`).then(onRemoved);
-            }}
-          >
-            {confirmDelete ? "Delete for good" : "Delete"}
-          </button>
-        </div>
-        {confirmDelete && <p className="hint">Its file and its schedule go; its thread stays as an ordinary chat you can keep or delete.</p>}
-      </PanelSection>
+      </section>
 
-      <Modal open={editing} title={`Edit ${titleOf(agent.name)}`} onClose={() => setEditing(false)}>
+      <footer className="agent-foot">
+        <button type="button" className="btn btn--sm" disabled={busy} onClick={() => setEditing(true)}>
+          Edit
+        </button>
+        <button
+          type="button"
+          className={`btn btn--sm ${confirmDelete ? "btn--danger" : "btn--danger-ghost"}`}
+          disabled={busy}
+          onClick={() => {
+            if (!confirmDelete) {
+              setConfirmDelete(true);
+              return;
+            }
+            void run(async () => {
+              await api.deleteAgent(agent.name);
+            }, `Removed ${agent.name}; its thread stays as a chat`).then(onRemoved);
+          }}
+        >
+          {confirmDelete ? "Delete for good" : "Delete"}
+        </button>
+      </footer>
+      {confirmDelete && <p className="hint">Its file and its schedule go; its thread stays as an ordinary chat, and its folder stays if it made anything.</p>}
+
+      <Modal open={editing} title={`Edit ${title}`} onClose={() => setEditing(false)}>
         {editing && (
           <AgentEditor
             initial={agent}
