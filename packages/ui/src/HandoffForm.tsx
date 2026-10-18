@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { api, type Conversation, type Project } from "./api.js";
+import { Field } from "./kit.js";
 import { Select } from "./Select.js";
 
 /**
@@ -75,12 +76,10 @@ export function HandoffForm({
         send();
       }}
     >
-      <label className="kos-field">
-        <span className="kos-field-label">To</span>
+      <Field label="To" required>
         <Select className="settings-select" label="Where it goes" value={to} options={[{ value: "", label: "pick a chat or project" }, ...targets]} onChange={setTo} />
-      </label>
-      <label className="kos-field">
-        <span className="kos-field-label">The brief</span>
+      </Field>
+      <Field label="The brief" required hint="Drafted by KOS from this thread; change anything. It goes over as a message from this chat, at your request.">
         <textarea
           className="kos-input"
           rows={9}
@@ -89,12 +88,10 @@ export function HandoffForm({
           disabled={drafting}
           onChange={(e) => setBrief(e.target.value)}
         />
-        <span className="hint">Drafted by KOS from this thread; change anything. It goes over as a message from this chat, at your request.</span>
-      </label>
-      <label className="kos-field">
-        <span className="kos-field-label">What it should do with it</span>
-        <input className="kos-input" value={ask} placeholder="Leave empty to have it kept for later" onChange={(e) => setAsk(e.target.value)} />
-      </label>
+      </Field>
+      <Field label="What it should do with it" hint="Leave it empty to have the brief kept for later.">
+        <input className="kos-input" value={ask} placeholder="Check the lending table" onChange={(e) => setAsk(e.target.value)} />
+      </Field>
       {error && <p className="ops-alert ops-alert--err">{error}</p>}
       <div className="rename-actions">
         <button type="submit" className="btn btn--primary" disabled={busy || drafting || !to || !brief.trim()}>

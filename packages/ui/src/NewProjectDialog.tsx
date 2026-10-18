@@ -1,5 +1,6 @@
 import { useState, type ReactElement } from "react";
 
+import { Field } from "./kit.js";
 import { Modal } from "./Modal.js";
 import { Select } from "./Select.js";
 
@@ -48,12 +49,10 @@ export function NewProjectDialog({ open, onClose, onCreate }: NewProjectDialogPr
           create();
         }}
       >
-        <label className="kos-field">
-          <span className="kos-field-label">Name</span>
+        <Field label="Name" required>
           <input className="kos-input" autoFocus value={draft.name} placeholder="Reading log" onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-        </label>
-        <label className="kos-field">
-          <span className="kos-field-label">Kind</span>
+        </Field>
+        <Field label="Kind" hint="Empty to begin with: a chat of its own, and nothing else until you or KOS put something there.">
           <Select
             className="settings-select"
             label="Kind"
@@ -62,8 +61,7 @@ export function NewProjectDialog({ open, onClose, onCreate }: NewProjectDialogPr
             onChange={(kind) => setDraft({ ...draft, kind })}
           />
           {draft.kind === "other" && <input className="kos-input" value={draft.other} placeholder="a word for what it is" onChange={(e) => setDraft({ ...draft, other: e.target.value })} />}
-          <span className="hint">Empty to begin with: a chat of its own, and nothing else until you or KOS put something there.</span>
-        </label>
+        </Field>
         {error && <p className="ops-alert ops-alert--err">{error}</p>}
         <div className="rename-actions">
           <button type="submit" className="btn btn--primary" disabled={creating || !draft.name.trim()}>

@@ -3,6 +3,7 @@ import { summarizeAction } from "@kos/shared";
 
 import { api, type FailingJob, type InboxData } from "./api.js";
 import { Decision } from "./Decision.js";
+import { Empty } from "./kit.js";
 import { MemoryDecision } from "./MemoryPage.js";
 import { PageHead } from "./PageHead.js";
 import { ActivityDot, fixLabel } from "./StatusDot.js";
@@ -77,13 +78,9 @@ export function InboxPage({
       />
 
       {data && total === 0 && (
-        <div className="inbox-clear">
-          <p className="inbox-clear-title">All clear.</p>
-          <p className="hint">
-            Tool calls that need a yes, memory questions the tidy job could not settle, and jobs failing
-            now will show up here.
-          </p>
-        </div>
+        <Empty title="All clear." className="inbox-clear">
+          Tool calls that need a yes, memory questions the tidy job could not settle, and jobs failing now will show up here.
+        </Empty>
       )}
 
       {approvals.length > 0 && (

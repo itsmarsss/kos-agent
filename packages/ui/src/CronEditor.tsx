@@ -1,6 +1,7 @@
 import { useState, type ReactElement } from "react";
 
 import { api, type CronJob } from "./api.js";
+import { Field } from "./kit.js";
 import { Select } from "./Select.js";
 
 /**
@@ -291,8 +292,10 @@ export function CronEditor({
           message about it failing.
         </p>
         {!job && (
-          <label className="kos-field">
-            <span className="kos-field-label">Start from</span>
+          <Field
+            label="Start from"
+            hint="A whole job, written out; change any of it below. The brief reads your calendar and mail when those servers are added under Settings, MCP servers, and says what it could not read until then. A watch reads a page in the browser and tells you what changed, with no model turn."
+          >
             <Select
               className="settings-select"
               label="Start from a template"
@@ -316,28 +319,19 @@ export function CronEditor({
                 }
               }}
             />
-            <span className="hint">
-              A whole job, written out; change any of it below. The brief
-              reads your calendar and mail when those servers are added
-              under Settings, MCP servers, and says what it could not read
-              until then. A watch reads a page in the browser and tells you
-              what changed, with no model turn.
-            </span>
-          </label>
+          </Field>
         )}
-        <label className="kos-field">
-          <span className="kos-field-label">Name</span>
+        <Field label="Name" required>
           <input
             className="kos-input"
             value={name}
             placeholder="Morning summary"
             onChange={(e) => setName(e.target.value)}
           />
-        </label>
+        </Field>
 
         {!system && (
-          <label className="kos-field">
-            <span className="kos-field-label">Project</span>
+          <Field label="Project" hint="Whose job this is. A self-prompt runs with the project's context; its runs sit in the project's rail.">
             <Select
               className="settings-select"
               label="Project"
@@ -348,14 +342,10 @@ export function CronEditor({
               ]}
               onChange={(v) => setProjectSlug(v)}
             />
-            <span className="hint">
-              Whose job this is. A self-prompt runs with the project's context; its runs sit in the project's rail.
-            </span>
-          </label>
+          </Field>
         )}
 
-        <div className="kos-field">
-          <span className="kos-field-label">When</span>
+        <Field label="When" required group>
           <div className="settings-row">
             <input
               className="kos-input kos-mono"
@@ -385,7 +375,7 @@ export function CronEditor({
             {readable ??
               "Not a schedule yet: five fields, minute to day of week."}
           </span>
-        </div>
+        </Field>
       </div>
 
       <div className="set-group">
@@ -394,8 +384,7 @@ export function CronEditor({
           Either KOS decides what to do each time, or the same calls run
           unchanged.
         </p>
-        <div className="kos-field">
-          <span className="kos-field-label">Kind</span>
+        <Field label="Kind" group>
           <Select
             className="settings-select"
             label="Job type"
@@ -416,11 +405,10 @@ export function CronEditor({
               setType(v === "actions" ? "actions" : "self_prompt")
             }
           />
-        </div>
+        </Field>
 
         {type === "self_prompt" && (
-          <div className="kos-field">
-            <span className="kos-field-label">Model</span>
+          <Field label="Model" group>
             <Select
               className="settings-select"
               label="Model class"
@@ -431,11 +419,10 @@ export function CronEditor({
               ]}
               onChange={(v) => setTask(v === "cheap" ? "cheap" : "reasoning")}
             />
-          </div>
+          </Field>
         )}
         {type === "self_prompt" ? (
-          <label className="kos-field">
-            <span className="kos-field-label">Prompt</span>
+          <Field label="Prompt" required hint="Written as an instruction to KOS, the way you would say it.">
             <textarea
               className="kos-input"
               rows={4}
@@ -443,10 +430,7 @@ export function CronEditor({
               placeholder="Look at this week's expenses and message me anything unusual."
               onChange={(e) => setPrompt(e.target.value)}
             />
-            <span className="hint">
-              Written as an instruction to KOS, the way you would say it.
-            </span>
-          </label>
+          </Field>
         ) : job?.name === "kos.backup" ? (
           <p className="hint">
             The built-in workspace backup: a git snapshot of the whole
@@ -454,8 +438,7 @@ export function CronEditor({
             edit; its schedule above is the only setting.
           </p>
         ) : (
-          <label className="kos-field">
-            <span className="kos-field-label">Tool calls</span>
+          <Field label="Tool calls" required hint="Run in order. Nothing is substituted into them, so anything that has to read data and then report on it belongs in Ask KOS instead.">
             <textarea
               className="kos-input kos-mono"
               rows={7}
@@ -463,11 +446,7 @@ export function CronEditor({
               spellCheck={false}
               onChange={(e) => setActions(e.target.value)}
             />
-            <span className="hint">
-              Run in order. Nothing is substituted into them, so anything that
-              has to read data and then report on it belongs in Ask KOS instead.
-            </span>
-          </label>
+          </Field>
         )}
       </div>
 
