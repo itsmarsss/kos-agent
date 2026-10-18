@@ -130,10 +130,22 @@ export interface MessageButton {
   token?: string;
 }
 
+/**
+ * Who is speaking, when it is not KOS itself: a blob, by its name and its
+ * colour. The surface shows it as a tag in its own idiom, so a message from
+ * the recap blob reads as the recap blob's and not as KOS's.
+ */
+export interface Sender {
+  name: string;
+  /** #rrggbb, the blob's body as the dashboard draws it. */
+  colour?: string;
+}
+
 export interface OutboundMessage {
   text: string;
   card?: MessageCard;
   buttons?: MessageButton[];
+  from?: Sender;
 }
 
 /**

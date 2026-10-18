@@ -65,6 +65,8 @@ export function connectChannel(
       // The owner asked from this surface and the answer lands on it, so
       // the thread is read as far as they are concerned.
       kernel.conversations.markRead(res.conversationId);
+      // A blob's answer carries its name, for the surface to show as a tag.
+      if (res.from && res.reply) return { text: res.reply, from: res.from };
       return res.reply || "(no reply)";
     },
     /*

@@ -4,6 +4,7 @@ import type {
   MessageCard,
   MessageTarget,
   ModalSpec,
+  Sender,
 } from "../channels/types.js";
 import type { KosModule } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
@@ -45,6 +46,8 @@ export interface NotifyPayload {
   target: MessageTarget;
   card?: MessageCard;
   buttons?: MessageButton[];
+  /** The blob speaking, when it is one; the kernel fills this in, not the tool. */
+  from?: Sender;
 }
 
 export interface NotifyToolDeps {
@@ -298,7 +301,8 @@ export function noticeText(payload: NotifyPayload): string {
     for (const field of card.fields ?? []) parts.push(`${field.name}: ${field.value}`);
     if (card.footer) parts.push(card.footer);
   }
-  return parts.filter(Boolean).join("\n\n");
+  const text = parts.filter(Boolean).join("\n\n");
+  return payload.from ? `${payload.from.name}: ${text}` : text;
 }
 
 /**

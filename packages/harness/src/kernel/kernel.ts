@@ -1,7 +1,7 @@
 import { readFileSync, mkdirSync } from "node:fs";
 import { runAgent, type Inference } from "../agent/loop.js";
 import { PressRoutes } from "../channels/presses.js";
-import type { MessageButton, MessageCard } from "../channels/types.js";
+import type { OutboundMessage, Sender } from "../channels/types.js";
 import { DaemonStore } from "../daemons/store.js";
 import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry } from "../agent/registry.js";
@@ -103,7 +103,7 @@ import { ProgressBus } from "./progress.js";
 import { BEHAVIOUR_KEY, parseBehaviour, type Behaviour } from "./behaviour.js";
 import { parseMentions } from "./mentions.js";
 import { readFile as readWorkspaceFile } from "./files.js";
-import { summarizeAction } from "@kos/shared";
+import { bodyHexOf, summarizeAction } from "@kos/shared";
 import { attachmentBlocks, type Attachment } from "./attachments.js";
 import { type Profile } from "./profile.js";
 import { SessionStore, cronSessionId } from "./session.js";
@@ -1106,34 +1106,16 @@ export class Kernel {
     return { reply, suspended: false };
   }
 
-  private readonly replySurfaces = new Map<
-    string,
-    (msg: { text: string; card?: MessageCard; buttons?: MessageButton[] }) => Promise<void>
-  >();
+  private readonly replySurfaces = new Map<string, (msg: OutboundMessage) => Promise<void>>();
 
   /** Hold a reply surface open for one turn, and take it away after. */
-  openReplySurface(
-    conversationId: string,
-    send: (msg: {
-      text: string;
-      card?: MessageCard;
-      buttons?: MessageButton[];
-    }) => Promise<void>,
-  ): () => void {
+  openReplySurface(conversationId: string, send: (msg: OutboundMessage) => Promise<void>): () => void {
     this.replySurfaces.set(conversationId, send);
     return () => this.replySurfaces.delete(conversationId);
   }
 
   /** The open surface for a conversation, if a press is being answered in it. */
-  replySurfaceFor(
-    conversationId?: string,
-  ):
-    | ((msg: {
-        text: string;
-        card?: MessageCard;
-        buttons?: MessageButton[];
-      }) => Promise<void>)
-    | undefined {
+  replySurfaceFor(conversationId?: string): ((msg: OutboundMessage) => Promise<void>) | undefined {
     return conversationId ? this.replySurfaces.get(conversationId) : undefined;
   }
 
@@ -1634,6 +1616,18 @@ export class Kernel {
   }
 
   /**
+   * Who speaks from a conversation, when it is a blob and not KOS: its title
+   * and the colour the dashboard draws it in, for a surface to show as a
+   * tag. A blob's thread and its chats inside projects both carry its role.
+   */
+  senderFor(conversationId: string | undefined): Sender | undefined {
+    const role = conversationId ? this.conversations.get(conversationId)?.role : undefined;
+    const record = role ? this.roles.get(role) : undefined;
+    if (!record) return undefined;
+    return { name: roleTitle(record), colour: bodyHexOf(record.name, record.face ?? {}) };
+  }
+
+  /**
    * Stand up a project and its orchestrator: the second level, created on
    * demand by KOS or by the owner. The project goes in the manifest; the
    * orchestrator conversation is made with a brief scoping it to that project.
@@ -2039,7 +2033,7 @@ export class Kernel {
     channel: string;
     conversationKey?: string;
     attachments?: Attachment[];
-  }): Promise<HandleResult & { conversationId: string; isCommand: boolean }> {
+  }): Promise<HandleResult & { conversationId: string; isCommand: boolean; from?: Sender }> {
     const conversation = this.conversationFor(
       input.channel,
       input.userId,
@@ -2066,7 +2060,7 @@ export class Kernel {
     }
 
     // "@recap what did I get done": to the agent itself, in its own thread,
-    // and its answer comes back here under its name.
+    // and its answer comes back here tagged as its own.
     const addressed = this.addressedAgent(input.text);
     if (addressed) {
       const thread = this.ensureAgentConversation(addressed.name);
@@ -2076,7 +2070,8 @@ export class Kernel {
         channel: input.channel,
         ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       });
-      return { ...res, reply: res.reply ? `${thread.title}: ${res.reply}` : res.reply, conversationId: thread.id, isCommand: false };
+      const from = this.senderFor(thread.id);
+      return { ...res, ...(from ? { from } : {}), conversationId: thread.id, isCommand: false };
     }
 
     const res = await this.handleMessage(input.text, {

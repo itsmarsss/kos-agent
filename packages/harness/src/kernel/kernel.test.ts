@@ -8,7 +8,8 @@ import type { GenerateRequest, ModelResponse } from "../models/types.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Kernel } from "./kernel.js";
 import { isKernelTable } from "../tools/fence.js";
-import { SurfaceDownError } from "../tools/notify.js";
+import { SurfaceDownError, type NotifyPayload } from "../tools/notify.js";
+import { bodyHexOf } from "@kos/shared";
 import { primarySessionId } from "./session.js";
 
 /** Inference stub: optionally emits one tool call on the first turn. */
@@ -199,6 +200,28 @@ describe("Kernel", () => {
     const room = await kernel.registry.execute("notify", { text: "hello room", to: "channel:123" });
     expect(room.isError).toBe(true);
     expect(room.content).toContain("is not connected right now");
+  });
+
+  it("tags a blob's message with the blob's name and colour, and leaves KOS's own untagged", async () => {
+    const step = (name: string, text: string): ModelResponse => ({
+      content: [{ type: "tool_use", id: name, name: "notify", input: { text } }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 0, outputTokens: 0 },
+      model: "stub",
+    });
+    const done: ModelResponse = { content: [{ type: "text", text: "sent" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+    const seen: NotifyPayload[] = [];
+    kernel = await boot(stubInference([step("n1", "the day is done"), done, step("n2", "hi from kos"), done]), async (payload) => {
+      seen.push(payload as NotifyPayload);
+    });
+    // The surface is told who is speaking, so a blob's message does not read as KOS's.
+    kernel.roles.write({ name: "recap", description: "Sums up the day", brief: "You recap.", memory: "own" });
+    await kernel.handleMessage("send it", { sessionId: kernel.ensureAgentConversation("recap").id });
+    expect(seen[0]).toMatchObject({ text: "the day is done", from: { name: "Recap", colour: bodyHexOf("recap") } });
+    const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Kitchen" });
+    await kernel.handleMessage("say hi", { sessionId: c.id });
+    expect(seen[1]).toMatchObject({ text: "hi from kos" });
+    expect(seen[1]).not.toHaveProperty("from");
   });
 
   it("queues a risky tool call instead of executing it", async () => {

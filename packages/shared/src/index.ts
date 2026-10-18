@@ -55,3 +55,15 @@ export {
   COMMAND_NAMES,
   type CommandSpec,
 } from "./commands.js";
+
+export {
+  FILL_SAT,
+  KOS_HUE,
+  KOS_SEED,
+  bodyHexOf,
+  hashName,
+  hexOfHsl,
+  hueOfName,
+  lightnessOf,
+  type FaceColour,
+} from "./face.js";

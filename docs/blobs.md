@@ -75,7 +75,9 @@ Each blob has one standing thread, `blob:<name>`, on the blob's own page
 under Blobs, not in the Chats tab. Talk to it there as you would to any
 chat, or from Discord, iMessage or SMS by starting a message with its name
 (`@recap what did I get done`): the exchange lands in this same thread and
-the reply comes back to you there under its name. Its schedule runs in
+the reply comes back to you there tagged as the blob's, as is anything it
+sends you with `notify` (its name in bold on Discord, its colour on a card;
+"Recap: …" on iMessage and SMS). Its schedule runs in
 that same thread, so a run can be watched while it happens and asked about
 afterwards, and what the blob remembers is the blob's own.
 

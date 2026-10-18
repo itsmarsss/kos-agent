@@ -1,7 +1,11 @@
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type ReactElement } from "react";
 
+import { FILL_SAT, KOS_SEED, hashName, hueOfName, lightnessOf } from "@kos/shared";
+
 import { GAITS, eyeAt, mountBlob, outline, smoothPath, type BlobHandle, type BlobShape, type BlobWhim } from "./blob.js";
 import { desaturateHex, hueOfHex, lightnessOfHex } from "./colour.js";
+
+export { FILL_SAT, KOS_SEED, lightnessOf };
 
 /**
  * An agent's face: a flat blob with two eyes, alive.
@@ -61,30 +65,8 @@ export interface FaceLook {
 const HEX = /^#[0-9a-f]{6}$/i;
 
 export const EYES: Eyes[] = ["round", "half", "sparkle"];
-export const KOS_SEED = "kos";
 
-/** FNV-1a, so a name is the same number on every machine and every render. */
-function hash(text: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i += 1) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h;
-}
-
-/**
- * The body's colour, matte but bright. Raw HSL at one lightness turns
- * yellow to mustard and blue to murk, so the lightness follows the wheel:
- * lifted around yellow and cyan, eased down around blue and violet. The
- * saturation stays high; a muted blob reads as a sad one.
- */
-export const FILL_SAT = 84;
-/** The body's lightness for a hue, in percent: the curve fillOf draws with. */
-export function lightnessOf(hue: number): number {
-  const rad = ((hue - 75) * Math.PI) / 180;
-  return Math.round(60 + 4 * Math.cos(rad));
-}
+/** The body's colour, matte but bright: the saturation and lightness curve are the harness's too. */
 export function fillOf(hue: number, sat = 1): string {
   return `hsl(${hue} ${Math.round(FILL_SAT * sat)}% ${lightnessOf(hue)}%)`;
 }
@@ -102,13 +84,13 @@ function fillFor(look: Look, sat: number): string {
 
 export function lookOf(seed: string, override: FaceLook = {}): Look {
   const name = seed.trim().toLowerCase() || KOS_SEED;
-  const h = hash(name);
+  const h = hashName(name);
   // KOS itself is not left to the hash: a clear blue, tall eyes, a lively gait.
   const kos = name === KOS_SEED;
   const wobble = kos ? 1 : (((h >>> 9) % 4) as Gait);
   // A second number, so the silhouette and the habits are not the hue's twins.
-  const g = hash(`${name}#`);
-  const hue = kos ? 214 : h % 360;
+  const g = hashName(`${name}#`);
+  const hue = hueOfName(name);
   const base: Look = {
     hue,
     fill: fillOf(hue),

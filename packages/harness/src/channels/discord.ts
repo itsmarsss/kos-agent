@@ -39,6 +39,7 @@ import type {
   SenderAuthorizer,
   TurnPresence,
   ApprovalOutcome,
+  Sender,
 } from "./types.js";
 
 export const APPROVE_PREFIX = "kos:approve:";
@@ -321,13 +322,26 @@ const FIELDS_MAX = MESSAGE_LIMITS.cardFields;
 const BUTTONS_MAX = MESSAGE_LIMITS.buttons;
 const MODAL_FIELDS_MAX = MESSAGE_LIMITS.modalFields;
 
-/** Turn a neutral card into a Discord embed. */
-export function buildCard(card: MessageCard): EmbedBuilder {
+/** A blob's words open with its name in bold: the tag for a speaker that is not the bot. */
+function taggedText(msg: OutboundMessage): string {
+  if (!msg.text) return "";
+  return msg.from ? `**${msg.from.name}**\n${msg.text}` : msg.text;
+}
+
+/**
+ * Turn a neutral card into a Discord embed.
+ *
+ * A blob's card takes the blob's colour for its stripe, and its name as the
+ * author line when the words above it are not there to carry the name.
+ */
+export function buildCard(card: MessageCard, from?: Sender, named = true): EmbedBuilder {
   const embed = new EmbedBuilder();
+  if (from && named) embed.setAuthor({ name: from.name.slice(0, CARD_TITLE_MAX) });
   if (card.title) embed.setTitle(card.title.slice(0, CARD_TITLE_MAX));
   if (card.body) embed.setDescription(card.body.slice(0, CARD_BODY_MAX));
   if (card.url) embed.setURL(card.url);
   if (typeof card.color === "number") embed.setColor(card.color);
+  else if (from?.colour) embed.setColor(parseInt(from.colour.slice(1), 16));
   if (card.footer) embed.setFooter({ text: card.footer.slice(0, CARD_TITLE_MAX) });
   if (card.imageUrl) embed.setImage(card.imageUrl);
   if (card.thumbnailUrl) embed.setThumbnail(card.thumbnailUrl);
@@ -681,8 +695,8 @@ export class DiscordAdapter implements ChannelAdapter {
       embeds?: EmbedBuilder[];
       components?: ActionRowBuilder<ButtonBuilder>[];
     } => ({
-      ...(msg.text ? { content: linkMentions(msg.text, this.dashboardUrl).slice(0, 2000) } : {}),
-      ...(msg.card ? { embeds: [buildCard(msg.card)] } : {}),
+      ...(taggedText(msg) ? { content: linkMentions(taggedText(msg), this.dashboardUrl).slice(0, 2000) } : {}),
+      ...(msg.card ? { embeds: [buildCard(msg.card, msg.from, !msg.text)] } : {}),
       ...(msg.buttons?.length ? { components: buildButtons(msg.buttons) } : {}),
     });
 
@@ -842,8 +856,9 @@ export class DiscordAdapter implements ChannelAdapter {
     msg: OutboundMessage,
   ): Promise<void> {
     // References become links first, so the split sees the longer text.
-    const chunks = msg.text ? chunkText(linkMentions(msg.text, this.dashboardUrl)) : [];
-    const embeds = msg.card ? [buildCard(msg.card)] : [];
+    const text = taggedText(msg);
+    const chunks = text ? chunkText(linkMentions(text, this.dashboardUrl)) : [];
+    const embeds = msg.card ? [buildCard(msg.card, msg.from, chunks.length === 0)] : [];
     const components = buildButtons(msg.buttons ?? []);
     if (chunks.length === 0 && embeds.length === 0) {
       throw new Error("nothing to send: no text and no card");

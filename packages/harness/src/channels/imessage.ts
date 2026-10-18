@@ -104,9 +104,15 @@ end run`;
  * A card is a title, a body and its fields laid out as lines. Buttons are
  * listed rather than dropped: the owner cannot press one, but they can see
  * what was on offer and say it back, and a silent omission would make the
- * agent look like it had said less than it did.
+ * agent look like it had said less than it did. A blob's message starts
+ * with its name, the one tag plain text can carry.
  */
 export function renderForText(msg: OutboundMessage): string {
+  const body = renderBody(msg);
+  return msg.from && body ? `${msg.from.name}: ${body}` : body;
+}
+
+function renderBody(msg: OutboundMessage): string {
   const parts: string[] = [];
   if (msg.text) parts.push(msg.text);
   const card = msg.card;

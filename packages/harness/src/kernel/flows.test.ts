@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { isValidPageSpec, type PageSpec } from "@kos/shared";
+import { bodyHexOf, isValidPageSpec, type PageSpec } from "@kos/shared";
 
 import type { Inference } from "../agent/loop.js";
 import type { Task } from "../models/router.js";
@@ -577,10 +577,12 @@ describe("KOS end-to-end flows", () => {
     expect(kernel.spawnAgent("price-watch", shop.slug).id).toBe(instance.id);
 
     // From a surface, a message that starts with the agent's name goes to
-    // the agent itself, and its answer comes back under its name.
+    // the agent itself, and its answer comes back tagged as its own: its
+    // title and the colour the dashboard draws it in.
     const direct = await kernel.handleChannelTurn({ text: "@agent:price-watch what was the target price again", userId: "owner", channel: "discord" });
     expect(direct.conversationId).toBe("agent:price-watch");
-    expect(direct.reply).toBe("Price watch: Still under 40.");
+    expect(direct.reply).toBe("Still under 40.");
+    expect(direct.from).toEqual({ name: "Price watch", colour: bodyHexOf("price-watch") });
     expect(model.prompts.at(-1)!).toContain("what was the target price again");
     expect(JSON.stringify(kernel.sessions.get("discord:owner"))).not.toContain("target price again");
     const bare = await kernel.handleChannelTurn({ text: "@price-watch: and now?", userId: "owner", channel: "discord" });

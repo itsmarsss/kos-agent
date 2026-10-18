@@ -269,6 +269,26 @@ describe("the answer a turn shaped", () => {
     expect(final.embeds).toBeUndefined();
     expect(final.components).toBeUndefined();
   });
+
+  it("tags a blob's answer with its name, and gives its card the blob's colour", async () => {
+    const { adapter, edits, message } = presenceFor();
+    const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "hi", native: message });
+    const from = { name: "Recap", colour: "#3b82f6" };
+    // Words open with the name in bold: the bot is KOS, the speaker is not.
+    await presence!.complete({ text: "Done for today.", from });
+    expect(edits.at(-1)).toEqual({ content: "**Recap**\nDone for today." });
+    // A card alone carries the name as its author, and the colour as its stripe.
+    await presence!.complete({ text: "", card: { title: "Today" }, from });
+    const alone = (edits.at(-1)!.embeds as EmbedBuilder[])[0]!.toJSON();
+    expect(alone.author?.name).toBe("Recap");
+    expect(alone.color).toBe(0x3b82f6);
+    // With words to carry the name, the card keeps only the colour, and a colour of its own wins.
+    await presence!.complete({ text: "Here.", card: { title: "Today", color: 0x111111 }, from });
+    expect(edits.at(-1)!.content).toBe("**Recap**\nHere.");
+    const under = (edits.at(-1)!.embeds as EmbedBuilder[])[0]!.toJSON();
+    expect(under.author).toBeUndefined();
+    expect(under.color).toBe(0x111111);
+  });
 });
 
 describe("answering a button press", () => {
