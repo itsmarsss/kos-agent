@@ -136,7 +136,11 @@ export function Empty({ title, className, children }: { title?: string; classNam
  * confirmation. Fixed to the viewport, so no card, drawer or modal clips
  * it, and placed below the anchor or above it when there is no room.
  */
-export function useAnchoredPop(size: { width: number; height: number }): {
+export function useAnchoredPop(
+  size: { width: number; height: number },
+  /** What to measure, when the wrap has no box of its own (a menu renders it as `display: contents`). */
+  anchor?: React.RefObject<HTMLElement | null>,
+): {
   at: { top: number; left: number } | null;
   open: boolean;
   toggle: () => void;
@@ -154,7 +158,7 @@ export function useAnchoredPop(size: { width: number; height: number }): {
       setAt(null);
       return;
     }
-    const box = wrap.current?.getBoundingClientRect();
+    const box = (anchor?.current ?? wrap.current)?.getBoundingClientRect();
     if (!box) return;
     const below = box.bottom + 6 + size.height <= window.innerHeight;
     setAt({
@@ -214,10 +218,13 @@ export interface ConfirmButtonProps {
  * words on the first press. Every delete on the site uses this.
  */
 export function ConfirmButton({ label, text, confirmLabel, onConfirm, className = "btn btn--sm btn--danger-ghost", disabled = false, title, role }: ConfirmButtonProps): ReactElement {
-  const { at, open, toggle, close, wrap, pop } = useAnchoredPop({ width: 280, height: 96 });
+  // Measured from the button: inside a menu the wrap is `display: contents`
+  // and has no box, which put the window at the top left of the page.
+  const button = useRef<HTMLButtonElement>(null);
+  const { at, open, toggle, close, wrap, pop } = useAnchoredPop({ width: 280, height: 96 }, button);
   return (
     <div className="confirm-wrap" ref={wrap}>
-      <button type="button" role={role} className={className} disabled={disabled} title={title} aria-expanded={open} onClick={toggle}>
+      <button ref={button} type="button" role={role} className={className} disabled={disabled} title={title} aria-expanded={open} onClick={toggle}>
         {label}
       </button>
       {at &&

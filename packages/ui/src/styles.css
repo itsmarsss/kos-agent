@@ -7686,3 +7686,6 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .insp-edit-acts { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .insp-section .insp-rows { margin: 0; }
 .insp-stats { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+
+/* A project row's kind gives way to its menu button on hover, rather than sitting under it. */
+.chats-row:hover .chats-badge, .chats-row:focus-within .chats-badge { opacity: 0; }
