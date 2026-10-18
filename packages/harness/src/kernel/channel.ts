@@ -1,3 +1,4 @@
+import { agentConversationId } from "../agents/roles.js";
 import { ChannelRuntime } from "../channels/runtime.js";
 import type { ChannelAdapter } from "../channels/types.js";
 import type { UserMapping } from "../channels/identity.js";
@@ -42,9 +43,11 @@ export function connectChannel(
         if (action.status !== "pending") listener(String(action.id), action.status);
       }),
     // The turn's own conversation is known before it runs, so its progress
-    // can be told on the surface as it happens.
+    // can be told on the surface as it happens. A message addressed to an
+    // agent runs in the agent's thread, so that is the one to watch.
     watchTurn: (ctx, listener) => {
-      const id = kernel.conversationFor(ctx.channel, ctx.userId, ctx.conversationKey).id;
+      const addressed = ctx.text ? kernel.addressedAgent(ctx.text) : undefined;
+      const id = addressed ? agentConversationId(addressed.name) : kernel.conversationFor(ctx.channel, ctx.userId, ctx.conversationKey).id;
       return kernel.progress.subscribe((event) => {
         if (event.conversationId === id) listener(event);
       });

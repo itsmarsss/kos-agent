@@ -519,6 +519,9 @@ describe("KOS end-to-end flows", () => {
       text("Under 40."),
       text("Two now."),
       text("In the shop."),
+      text("Still under 40."),
+      text("Two listings."),
+      text("Hello from KOS."),
       text("Ran."),
       text("Hello."),
       text("Hi."),
@@ -572,6 +575,22 @@ describe("KOS end-to-end flows", () => {
     expect(model.systems.at(-1)!).toContain("Your own folder, agents/price-watch/, is for your notes");
     // One chat per project: dispatched there again, it is the same chat.
     expect(kernel.spawnAgent("price-watch", shop.slug).id).toBe(instance.id);
+
+    // From a surface, a message that starts with the agent's name goes to
+    // the agent itself, and its answer comes back under its name.
+    const direct = await kernel.handleChannelTurn({ text: "@agent:price-watch what was the target price again", userId: "owner", channel: "discord" });
+    expect(direct.conversationId).toBe("agent:price-watch");
+    expect(direct.reply).toBe("Price watch: Still under 40.");
+    expect(model.prompts.at(-1)!).toContain("what was the target price again");
+    expect(JSON.stringify(kernel.sessions.get("discord:owner"))).not.toContain("target price again");
+    const bare = await kernel.handleChannelTurn({ text: "@price-watch: and now?", userId: "owner", channel: "discord" });
+    expect(bare.conversationId).toBe("agent:price-watch");
+    expect(JSON.stringify(kernel.sessions.get("agent:price-watch"))).toContain("and now?");
+    // A name that is no agent's, or a name alone, is a message for KOS as usual.
+    const other = await kernel.handleChannelTurn({ text: "@nobody hi", userId: "owner", channel: "discord" });
+    expect(other.conversationId).toBe("discord:owner");
+    expect(kernel.addressedAgent("@price-watch")).toBeUndefined();
+    expect(kernel.addressedAgent("@Agent:Price-Watch, look")).toEqual({ name: "price-watch", text: "look" });
 
     // The schedule runs in the agent's own thread, not in a thread of the job's.
     await kernel.fireCron(job.id);

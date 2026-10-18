@@ -26,6 +26,13 @@ agent's own approvals, from its schedule or a dispatch, ask here like any
 other; a message it sends you with `notify` arrives here too. Its thread
 stays on the dashboard, under Agents.
 
+To talk to an agent itself, start the message with its name: `@recap what
+did I get done this week`, or `@agent:recap …`. That goes to the agent's
+own thread, the same one its page shows, and its reply comes back here as
+`Recap: …`; while it works, the story of its steps shows here as KOS's
+would. A name that is not an agent's, or a name with nothing after it, is
+an ordinary message to KOS.
+
 ```
 KOS_SECRET_DISCORD=   bot token
 KOS_OWNER_DISCORD=    your user id, and the inbound gate

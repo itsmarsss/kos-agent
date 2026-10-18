@@ -71,9 +71,11 @@ chat rail, the landing and the tab icon, set under Settings, Appearance.
 
 Each agent has one standing thread, `agent:<name>`, on the agent's own page
 under Agents, not in the Chats tab. Talk to it there as you would to any
-chat. Its schedule runs in that same thread, so a run can be watched while
-it happens and asked about afterwards, and what the agent remembers is the
-agent's own.
+chat, or from Discord, iMessage or SMS by starting a message with its name
+(`@recap what did I get done`): the exchange lands in this same thread and
+the reply comes back to you there under its name. Its schedule runs in
+that same thread, so a run can be watched while it happens and asked about
+afterwards, and what the agent remembers is the agent's own.
 
 Dispatched into a project (by that project's orchestrator, or by KOS with a
 project named), the agent gets an ordinary chat inside the project, under
