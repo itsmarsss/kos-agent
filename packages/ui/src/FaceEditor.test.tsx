@@ -2,7 +2,8 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { FaceEditor, SWATCHES, hexOfHue } from "./FaceEditor.js";
+import { SWATCHES } from "./ColourPicker.js";
+import { FaceEditor, hexOfHue } from "./FaceEditor.js";
 import { hueOfHex } from "./colour.js";
 
 afterEach(cleanup);

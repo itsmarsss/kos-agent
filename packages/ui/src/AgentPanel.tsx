@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactElement } from "react";
 
 import { AgentEditor, titleOf } from "./AgentEditor.js";
-import { api, type AgentInfo, type DirEntry } from "./api.js";
+import { api, type AgentInfo } from "./api.js";
 import { describeCron } from "./CronEditor.js";
 import { Face, lookOf, moodOf } from "./Face.js";
 import { Modal } from "./Modal.js";
 import { Card, Pill, Tag } from "./kit.js";
-import { hrefFor } from "./routes.js";
-import { WEEK, agoWords, inWords, runDays, sizeWords } from "./schedulewords.js";
+import { ProjectExplorer } from "./ProjectExplorer.js";
+import { WEEK, agoWords, inWords, runDays } from "./schedulewords.js";
 
 /**
  * The column beside a standing agent's thread: who it is, how it is doing,
@@ -44,24 +44,8 @@ export function stateOf(a: AgentInfo, paused: boolean): { tone: "working" | "nee
   return { tone: "idle", text: "Quiet, nothing said yet" };
 }
 
-/** A small mark for a file row: its extension, or a slash for a folder. */
-function glyphOf(e: DirEntry): string {
-  if (e.kind === "dir") return "/";
-  const dot = e.name.lastIndexOf(".");
-  return dot > 0 ? e.name.slice(dot + 1).slice(0, 4) : "·";
-}
-
-/** agent.md first, then folders, then files by name. */
-function byPlace(a: DirEntry, b: DirEntry): number {
-  if (a.name === "agent.md") return -1;
-  if (b.name === "agent.md") return 1;
-  if (a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
-  return a.name.localeCompare(b.name);
-}
-
 export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onRemoved, hidden = false }: AgentPanelProps): ReactElement {
   const [agent, setAgent] = useState<AgentInfo | null | undefined>(undefined);
-  const [entries, setEntries] = useState<DirEntry[]>([]);
   const [invalidReason, setInvalidReason] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -73,10 +57,6 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
       const found = r.agents.find((a) => a.name === name) ?? null;
       setAgent(found);
       setInvalidReason(r.invalid.find((i) => i.name === name)?.reason ?? null);
-      if (found) {
-        const listed = await api.files(found.folder).catch(() => ({ entries: [] as DirEntry[] }));
-        setEntries([...listed.entries].sort(byPlace));
-      }
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
     }
@@ -149,6 +129,9 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
           <span className="hero-dot" aria-hidden="true" />
           {state.text}
         </span>
+        <button type="button" className="btn btn--sm" title="Its folder on the Files page" onClick={() => onOpenFile(agent.folder)}>
+          Open in Files
+        </button>
       </header>
 
       <Card title="Schedule" pill={agent.job ? <Pill tone={paused ? "warn" : "ok"}>{paused ? "paused" : "on"}</Pill> : undefined}>
@@ -216,38 +199,9 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
         </div>
       </Card>
 
-      <Card
-        title="Folder"
-        count={entries.length}
-        action={
-          <button type="button" className="link" onClick={() => onOpenFile(agent.folder)} title="Its folder on the Files page">
-            Open in Files →
-          </button>
-        }
-      >
-        {/* Its own place: agent.md says what it is, and the rest is what it has made. */}
-        <ul className="agent-files">
-          {entries.map((e) => (
-            <li key={e.path}>
-              <a
-                className="agent-file"
-                href={hrefFor({ name: "files", path: e.path })}
-                onClick={(ev) => {
-                  ev.preventDefault();
-                  onOpenFile(e.path);
-                }}
-              >
-                <span className="agent-file-glyph" aria-hidden="true">
-                  {glyphOf(e)}
-                </span>
-                <span className="agent-file-name">{e.kind === "dir" ? `${e.name}/` : e.name}</span>
-                {e.name === "agent.md" ? <span className="agent-file-tag">what it is</span> : e.kind === "file" && <span className="agent-file-meta">{sizeWords(e.size)}</span>}
-              </a>
-            </li>
-          ))}
-          {entries.length === 0 && <li className="hint">Nothing in agents/{agent.name}/ yet.</li>}
-        </ul>
-      </Card>
+      {/* Its folder, browsed in place as a project's is: agent.md says what
+          it is, and the rest is what it has made. */}
+      <ProjectExplorer label={agent.name} root={agent.folder} onOpenInFiles={onOpenFile} onChanged={onChanged} onError={onError} paused={hidden} />
 
       <footer className="agent-foot">
         <button type="button" className="btn btn--sm" disabled={busy} onClick={() => setEditing(true)}>

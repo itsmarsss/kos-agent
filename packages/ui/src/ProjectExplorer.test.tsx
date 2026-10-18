@@ -37,7 +37,7 @@ type Handlers = {
 
 function open(): Handlers {
   const h: Handlers = { onOpenInFiles: vi.fn(), onChanged: vi.fn(), onError: vi.fn() };
-  render(<ProjectExplorer slug={slug} root={root} {...h} />);
+  render(<ProjectExplorer label={slug} root={root} upload={(file, dir) => api.uploadProjectFile(slug, file, dir)} {...h} />);
   return h;
 }
 

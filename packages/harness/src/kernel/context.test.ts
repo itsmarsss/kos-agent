@@ -21,6 +21,7 @@ describe("assembleSystemPrompt", () => {
           type: "tracker",
           status: "active",
           description: "household",
+          colour: null,
           module: "budget",
           createdAt: 0,
           lastTouchedAt: 0,

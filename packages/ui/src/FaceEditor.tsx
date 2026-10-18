@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
-import { createPortal } from "react-dom";
+import type { ReactElement } from "react";
 
-import { ColourPicker } from "./ColourPicker.js";
+import { ColourChoice } from "./ColourPicker.js";
 import { hexOfHsl } from "./colour.js";
 import { EYES, FILL_SAT, Face, fillOf, lightnessOf, lookOf, type FaceLook, type Gait } from "./Face.js";
 import { Field } from "./kit.js";
@@ -32,20 +31,6 @@ const GAITS: { value: string; label: string }[] = [
 
 const EYE_LABELS: Record<string, string> = { round: "dots", half: "pills", sparkle: "pills with a glint" };
 
-/** A quick pick around the wheel; the picker is for anything between. */
-export const SWATCHES: { hue: number; name: string }[] = [
-  { hue: 0, name: "red" },
-  { hue: 24, name: "orange" },
-  { hue: 48, name: "amber" },
-  { hue: 90, name: "lime" },
-  { hue: 150, name: "green" },
-  { hue: 180, name: "teal" },
-  { hue: 214, name: "blue" },
-  { hue: 250, name: "indigo" },
-  { hue: 285, name: "violet" },
-  { hue: 330, name: "pink" },
-];
-
 /** The hex the picker shows for a hue: the blob's own body colour. */
 export function hexOfHue(hue: number): string {
   return hexOfHsl(hue, FILL_SAT, lightnessOf(hue));
@@ -55,88 +40,24 @@ export function FaceEditor({ seed, value, onChange, label, preview = true }: Fac
   const shown = lookOf(seed, value);
   const custom = value.hue !== undefined || value.colour !== undefined || value.eyes !== undefined || value.gait !== undefined;
   const picked = shown.colour !== undefined;
-  /** Where the picker sits, fixed to the viewport, so no card or modal clips it. */
-  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
-  const wrap = useRef<HTMLDivElement>(null);
-  const pop = useRef<HTMLDivElement>(null);
-  const open = at !== null;
-
-  const toggle = (): void => {
-    if (at) {
-      setAt(null);
-      return;
-    }
-    const box = wrap.current?.getBoundingClientRect();
-    if (!box) return;
-    const height = 260;
-    const width = 240;
-    const below = box.bottom + 6 + height <= window.innerHeight;
-    setAt({ top: below ? box.bottom + 6 : Math.max(8, box.top - 6 - height), left: Math.min(box.left, Math.max(8, window.innerWidth - width - 8)) });
-  };
-
-  // The picker closes on a press outside it, on Escape, or when the page moves under it, like a menu.
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: PointerEvent): void => {
-      const t = e.target as Node;
-      if (!pop.current?.contains(t) && !wrap.current?.contains(t)) setAt(null);
-    };
-    const key = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") setAt(null);
-    };
-    const moved = (e: Event): void => {
-      if (!pop.current?.contains(e.target as Node)) setAt(null);
-    };
-    document.addEventListener("pointerdown", away);
-    document.addEventListener("keydown", key);
-    window.addEventListener("resize", moved);
-    document.addEventListener("scroll", moved, true);
-    return () => {
-      document.removeEventListener("pointerdown", away);
-      document.removeEventListener("keydown", key);
-      window.removeEventListener("resize", moved);
-      document.removeEventListener("scroll", moved, true);
-    };
-  }, [open]);
-
   return (
     <div className="face-editor" style={{ "--blob-h": String(shown.hue) } as React.CSSProperties}>
       {preview && <Face seed={seed} look={value} size={64} label={label ?? `${seed}'s face`} />}
       <div className="face-editor-fields">
         <Field label="Colour" group className="face-editor-colour">
-          <div className="swatches">
-            {SWATCHES.map((s) => (
-              <button
-                key={s.hue}
-                type="button"
-                className={`swatch${!picked && shown.hue === s.hue ? " is-on" : ""}`}
-                style={{ background: fillOf(s.hue) }}
-                title={s.name}
-                aria-label={s.name}
-                aria-pressed={!picked && shown.hue === s.hue}
-                onClick={() => {
-                  const { colour: _dropped, ...rest } = value;
-                  onChange({ ...rest, hue: s.hue });
-                }}
-              />
-            ))}
-            {/* Any colour at all, from a picker of the page's own; the face
-                wears it as it is, and takes its hue for the accents. */}
-            <div className="swatch-custom-wrap" ref={wrap}>
-              <button type="button" className={`swatch-custom${picked ? " is-on" : ""}`} title="Any colour" aria-expanded={open} onClick={toggle}>
-                <span className="swatch swatch--rainbow" style={picked ? { background: shown.fill } : undefined} aria-hidden="true" />
-                <span>Custom</span>
-                {picked && <code className="swatch-hex">{shown.colour}</code>}
-              </button>
-              {at &&
-                createPortal(
-                  <div className="cpick-pop" ref={pop} style={{ top: at.top, left: at.left }}>
-                    <ColourPicker value={shown.colour ?? hexOfHue(shown.hue)} onChange={(colour) => onChange({ ...value, colour })} />
-                  </div>,
-                  document.body,
-                )}
-            </div>
-          </div>
+          {/* A swatch is a hue the face fills its own way; the picker gives
+              it any colour as it is, and the hue for its accents. */}
+          <ColourChoice
+            value={shown.colour ?? hexOfHue(shown.hue)}
+            swatchHue={shown.hue}
+            picked={picked}
+            fillOfHue={(hue) => fillOf(hue)}
+            onSwatch={(hue) => {
+              const { colour: _dropped, ...rest } = value;
+              onChange({ ...rest, hue });
+            }}
+            onPick={(colour) => onChange({ ...value, colour })}
+          />
         </Field>
         <Field label="Eyes">
           <Select

@@ -48,6 +48,16 @@ describe("ProjectManifest", () => {
     expect(manifest.get("plan")?.status).toBe("archived");
   });
 
+  it("keeps a colour the owner gave a project, as lowercase hex, and lets it go", () => {
+    manifest.createProject({ name: "Garden", type: "notes" });
+    expect(manifest.get("garden")?.colour).toBeNull();
+    manifest.setColour("garden", "#3B82F6");
+    expect(manifest.get("garden")?.colour).toBe("#3b82f6");
+    expect(() => manifest.setColour("garden", "blue")).toThrow(/#rrggbb/);
+    manifest.setColour("garden", null);
+    expect(manifest.get("garden")?.colour).toBeNull();
+  });
+
   it("lists projects, optionally filtered by status", () => {
     manifest.createProject({ name: "A", type: "x" });
     manifest.createProject({ name: "B", type: "x", status: "done" });
