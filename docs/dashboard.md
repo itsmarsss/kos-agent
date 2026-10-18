@@ -157,7 +157,7 @@ the answer is nothing.
 A card per project with its pages as chips. Click the card for details:
 rows and tables, pages, sites, schedules, status, type, which module it came
 from, its chat, its folder, and the schema history. A project made from a
-blueprint says so. **New project** makes an empty one: a name and a kind,
+blueprint says so. **Colour**, on the project's own page beside Open in Files, gives it a colour of its own, a swatch or anything from the picker; it tints the project's column and its mark, and From the name lets it go. **New project** makes an empty one: a name and a kind,
 then a chat of its own and nothing else until you or KOS put something
 there. The details drawer ends in **Delete project**, two
 presses: its tables, pages and files go for good, its chats are kept,

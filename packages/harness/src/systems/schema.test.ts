@@ -12,6 +12,7 @@ function project(slug: string, touched: number, status = "active"): Project {
     type: "tracker",
     status: status as Project["status"],
     description: null,
+    colour: null,
     module: null,
     createdAt: 0,
     lastTouchedAt: touched,

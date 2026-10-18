@@ -1222,6 +1222,19 @@ export async function handleApiRequest(
     return ok(kernel.manifest.get(slug));
   }
 
+  if (method === "POST" && path === "/api/projects/colour") {
+    const slug = typeof body.slug === "string" ? body.slug : "";
+    const colour = body.colour === null ? null : typeof body.colour === "string" ? body.colour.trim() : undefined;
+    if (!slug || colour === undefined) return { status: 400, body: { error: "slug and a colour (#rrggbb, or null for the name's) required" } };
+    if (!kernel.manifest.get(slug)) return { status: 404, body: { error: "project not found" } };
+    try {
+      kernel.manifest.setColour(slug, colour);
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+    }
+    return ok(kernel.manifest.get(slug));
+  }
+
   if (method === "POST" && path === "/api/projects/delete") {
     const slug = typeof body.slug === "string" ? body.slug : "";
     if (!slug) {

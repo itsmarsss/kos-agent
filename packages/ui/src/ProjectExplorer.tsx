@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 
-import { api, type DirEntry } from "./api.js";
+import { api, type Attachment, type DirEntry } from "./api.js";
 import { readFile, useDropZone } from "./Attachments.js";
 import { EntryMenu, dragProps, dropProps, useFileOps } from "./FileActions.js";
 import { FileIcon, previewable } from "./FileIcon.js";
@@ -21,9 +21,12 @@ import { PanelSection } from "./PanelSection.js";
  */
 
 export interface ProjectExplorerProps {
-  slug: string;
-  /** The project's folder, workspace-relative. */
+  /** What the root crumb says: the project's slug, an agent's name. */
+  label: string;
+  /** The folder, workspace-relative. */
   root: string;
+  /** How a file gets in, when it can: absent, there is no Upload and no drop. */
+  upload?: (file: Attachment, dir: string) => Promise<unknown>;
   /** Open this path on the Files page. Taken only when asked for. */
   onOpenInFiles: (path: string) => void;
   /** Something changed that the rest of the dashboard lists too. */
@@ -48,7 +51,7 @@ function sorted(entries: DirEntry[]): DirEntry[] {
   });
 }
 
-export function ProjectExplorer({ slug, root, onOpenInFiles, onChanged, onError, paused = false }: ProjectExplorerProps): ReactElement {
+export function ProjectExplorer({ label, root, upload: send, onOpenInFiles, onChanged, onError, paused = false }: ProjectExplorerProps): ReactElement {
   /** The folder being looked at, relative to the project's folder; "" is the root. */
   const [dir, setDir] = useState("");
   const [entries, setEntries] = useState<DirEntry[] | null>(null);
@@ -93,13 +96,13 @@ export function ProjectExplorer({ slug, root, onOpenInFiles, onChanged, onError,
   }, [list, paused]);
 
   const upload = async (picked: FileList | null): Promise<void> => {
-    if (!picked?.length || uploading) return;
+    if (!send || !picked?.length || uploading) return;
     const files = Array.from(picked);
     setUploading({ done: 0, total: files.length });
     const failed: string[] = [];
     for (const [i, f] of files.entries()) {
       try {
-        await api.uploadProjectFile(slug, await readFile(f), dir);
+        await send(await readFile(f), dir);
       } catch (err) {
         failed.push(`${f.name}: ${message(err)}`);
       }
@@ -145,22 +148,24 @@ export function ProjectExplorer({ slug, root, onOpenInFiles, onChanged, onError,
     <PanelSection
       title="Files & images"
       {...(entries ? { count: entries.length } : {})}
-      className={drop.over ? "project-panel-drop is-over" : "project-panel-drop"}
-      {...drop.handlers}
+      className={drop.over && send ? "project-panel-drop is-over" : "project-panel-drop"}
+      {...(send ? drop.handlers : {})}
       action={
         <>
-          <button type="button" className="btn btn--sm" title={dir ? `New folder in ${dir}` : "New folder in the project"} onClick={() => ops.newFolder(here)}>
+          <button type="button" className="btn btn--sm" title={dir ? `New folder in ${dir}` : `New folder in ${label}`} onClick={() => ops.newFolder(here)}>
             New folder
           </button>
-          <button
-            type="button"
-            className="btn btn--sm"
-            disabled={uploading !== null}
-            title={dir ? `Upload into ${dir}` : "Upload into the project"}
-            onClick={() => picker.current?.click()}
-          >
-            {uploading ? `${uploading.done} of ${uploading.total}…` : "Upload"}
-          </button>
+          {send && (
+            <button
+              type="button"
+              className="btn btn--sm"
+              disabled={uploading !== null}
+              title={dir ? `Upload into ${dir}` : `Upload into ${label}`}
+              onClick={() => picker.current?.click()}
+            >
+              {uploading ? `${uploading.done} of ${uploading.total}…` : "Upload"}
+            </button>
+          )}
           <input
             ref={picker}
             type="file"
@@ -183,7 +188,7 @@ export function ProjectExplorer({ slug, root, onOpenInFiles, onChanged, onError,
           onClick={() => setDir("")}
           {...dropProps(root, ops, overHandlers(root))}
         >
-          {slug}
+          {label}
         </button>
         {segments.map((seg, i) => {
           const sub = segments.slice(0, i + 1).join("/");

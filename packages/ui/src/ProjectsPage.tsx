@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { m } from "motion/react";
 
 import { api, type Conversation, type PageSummary, type Project, type SiteInfo } from "./api.js";
+import { lookOf } from "./Face.js";
 import { card, stagger } from "./motion.js";
 import { NewProjectDialog } from "./NewProjectDialog.js";
 import { hrefFor } from "./routes.js";
@@ -178,6 +179,8 @@ export function ProjectsPage({
                   }}
                 >
                   <div className="card-top">
+                    {/* The project's colour, as the mark on its own page wears it. */}
+                    <span className="card-mark" aria-hidden="true" style={{ background: p.colour ?? `hsl(${lookOf(p.slug).hue} 70% 60%)` }} />
                     <span className="card-name">{p.name}</span>
                     <span className={`dot dot--${p.status}`} />
                   </div>

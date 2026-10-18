@@ -22,7 +22,7 @@ export function PanelSection({
           {title}
           {count !== undefined && count > 0 && <span className="card-count">{count}</span>}
         </h2>
-        {action}
+        {action && <span className="card-acts">{action}</span>}
       </div>
       {children}
     </section>

@@ -81,6 +81,8 @@ export interface Project {
   type: string;
   status: string;
   description?: string | null;
+  /** The owner's colour for it, #rrggbb; absent or null, its name gives one. */
+  colour?: string | null;
   module?: string | null;
   lastTouchedAt: number;
   createdAt?: number;
@@ -860,6 +862,8 @@ export const api = {
     post<{ custom: { baseUrl: string } | null; providers: string[] }>("/api/settings/models/custom", { baseUrl }),
   availableModels: () => get<{ models: string[] }>("/api/models"),
   projects: () => get<Project[]>("/api/projects"),
+  /** The project's colour, #rrggbb, or null to let its name decide again. */
+  setProjectColour: (slug: string, colour: string | null) => post<Project>("/api/projects/colour", { slug, colour }),
   setProjectStatus: (slug: string, status: string) =>
     post<Project>("/api/projects/status", { slug, status }),
   skills: () => get<{ skills: SkillInfo[]; invalid: { name: string; reason: string }[] }>("/api/skills"),

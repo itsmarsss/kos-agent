@@ -624,6 +624,13 @@ describe("handleApiRequest", () => {
       body: { slug: "p", status: "dormant" },
     });
     expect((st.body as { status: string }).status).toBe("dormant");
+    // A colour of the owner's, kept on the manifest row; null gives it back to the name.
+    const painted = await handleApiRequest(kernel, { method: "POST", path: "/api/projects/colour", body: { slug: "p", colour: "#3B82F6" } });
+    expect((painted.body as { colour: string | null }).colour).toBe("#3b82f6");
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/projects/colour", body: { slug: "p", colour: "blue" } })).status).toBe(400);
+    const plain = await handleApiRequest(kernel, { method: "POST", path: "/api/projects/colour", body: { slug: "p", colour: null } });
+    expect((plain.body as { colour: string | null }).colour).toBeNull();
+    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/projects/colour", body: { slug: "nope", colour: null } })).status).toBe(404);
   });
 
   it("exposes health, clear, and custom sessionId", async () => {

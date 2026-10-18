@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactElement } from "react";
 
 import { api, type ProjectDetail } from "./api.js";
+import { ColourChoice } from "./ColourPicker.js";
+import { hexOfHsl, hueOfHex, lightnessOfHex } from "./colour.js";
 import { lookOf } from "./Face.js";
 import { FileIcon } from "./FileIcon.js";
 import { Pill, Tag } from "./kit.js";
@@ -29,6 +31,11 @@ export interface ProjectPanelProps {
 /** How often the panel re-reads the project, so a page an agent made shows up. */
 const POLL_MS = 5000;
 
+/** Ink for the mark on a picked colour: pale on a dark one, dark on a light one. */
+function markInk(colour: string): string {
+  return (lightnessOfHex(colour) ?? 60) < 55 ? "rgb(255 255 255 / 0.9)" : "rgb(0 0 0 / 0.7)";
+}
+
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -36,6 +43,8 @@ function message(err: unknown): string {
 export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError, hidden = false }: ProjectPanelProps): ReactElement {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** The colour row under the hero, shown on request. */
+  const [colouring, setColouring] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -82,13 +91,23 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError,
   }
 
   const { project, tables, pages, sites } = detail;
+  const hue = (project.colour ? hueOfHex(project.colour) : null) ?? lookOf(project.slug).hue;
+  const recolour = async (colour: string | null): Promise<void> => {
+    try {
+      await api.setProjectColour(project.slug, colour);
+      await load();
+      onChanged();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   return (
-    <aside className="project-panel" aria-label={`${project.name} workspace`} aria-hidden={hidden} style={{ "--blob-h": String(lookOf(project.slug).hue) } as CSSProperties}>
+    <aside className="project-panel" aria-label={`${project.name} workspace`} aria-hidden={hidden} style={{ "--blob-h": String(hue) } as CSSProperties}>
       {/* Who it is, as the agent page has it: a mark on a glow of the
           project's own colour, its name, what it is for, and its facts. */}
       <header className="hero">
-        <span className="hero-mark" aria-hidden="true">
+        <span className="hero-mark" aria-hidden="true" style={project.colour ? { background: project.colour, color: markInk(project.colour) } : undefined}>
           <FileIcon name={project.slug} kind="dir" size={26} />
         </span>
         <h2>{project.name}</h2>
@@ -98,14 +117,38 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError,
           <Tag>{project.type}</Tag>
           <Tag mono>{project.slug}</Tag>
         </div>
-        <button type="button" className="btn btn--sm" title="The project's folder on the Files page" onClick={() => onOpenFile(detail.folder)}>
-          Open in Files
-        </button>
+        <div className="hero-acts">
+          <button type="button" className="btn btn--sm" title="The project's folder on the Files page" onClick={() => onOpenFile(detail.folder)}>
+            Open in Files
+          </button>
+          <button type="button" className="btn btn--sm btn--ghost" aria-expanded={colouring} onClick={() => setColouring((v) => !v)} title="Give the project a colour of its own">
+            Colour
+          </button>
+        </div>
+        {colouring && (
+          /* The same swatches and picker a face has; a project's swatch is the plain colour. */
+          <div className="hero-colour">
+            <ColourChoice
+              value={project.colour ?? hexOfHsl(hue, 70, 60)}
+              swatchHue={project.colour ? undefined : hue}
+              picked={Boolean(project.colour)}
+              fillOfHue={(h) => `hsl(${h} 70% 60%)`}
+              onSwatch={(h) => void recolour(hexOfHsl(h, 70, 60))}
+              onPick={(hex) => void recolour(hex)}
+            />
+            {project.colour && (
+              <button type="button" className="btn btn--sm btn--ghost" onClick={() => void recolour(null)} title="Let the name decide again">
+                From the name
+              </button>
+            )}
+          </div>
+        )}
       </header>
 
       <ProjectExplorer
-        slug={slug}
+        label={slug}
         root={detail.folder}
+        upload={(file, dir) => api.uploadProjectFile(slug, file, dir)}
         onOpenInFiles={onOpenFile}
         onChanged={onChanged}
         onError={onError}

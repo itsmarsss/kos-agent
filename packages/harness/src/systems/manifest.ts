@@ -13,6 +13,8 @@ export interface Project {
   type: string;
   status: ProjectStatus;
   description: string | null;
+  /** The owner's colour for it, #rrggbb, or null for the one its name gives. */
+  colour: string | null;
   /**
    * The module (blueprint) this project is an instance of, or null for an
    * embedded/ad-hoc project not tied to a packaged module. A multi-instance
@@ -55,6 +57,7 @@ interface Row {
   type: string;
   status: string;
   description: string | null;
+  colour: string | null;
   module: string | null;
   created_at: number;
   last_touched_at: number;
@@ -68,6 +71,7 @@ function toProject(row: Row): Project {
     type: row.type,
     status: row.status as ProjectStatus,
     description: row.description,
+    colour: row.colour ?? null,
     module: row.module,
     createdAt: row.created_at,
     lastTouchedAt: row.last_touched_at,
@@ -85,6 +89,9 @@ export class ProjectManifest {
     private readonly now: () => number = Date.now,
   ) {
     this.db.exec(SCHEMA);
+    // A column from after the table: added in place on an older workspace.
+    const columns = (this.db.prepare(`PRAGMA table_info(manifest)`).all() as { name: string }[]).map((c) => c.name);
+    if (!columns.includes("colour")) this.db.exec(`ALTER TABLE manifest ADD COLUMN colour TEXT`);
   }
 
   createProject(input: CreateProjectInput): Project {
@@ -159,6 +166,12 @@ export class ProjectManifest {
   /** Promotion: the project this blueprint was drawn from becomes its first instance. */
   setModule(slug: string, module: string | null): void {
     this.db.prepare(`UPDATE manifest SET module = ? WHERE slug = ?`).run(module, slug);
+  }
+
+  /** The owner's colour for a project, as #rrggbb; null gives it back to the name. */
+  setColour(slug: string, colour: string | null): void {
+    if (colour !== null && !/^#[0-9a-f]{6}$/i.test(colour)) throw new Error("a colour is #rrggbb");
+    this.db.prepare(`UPDATE manifest SET colour = ? WHERE slug = ?`).run(colour === null ? null : colour.toLowerCase(), slug);
   }
 
   setStatus(slug: string, status: ProjectStatus): void {

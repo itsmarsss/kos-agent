@@ -7204,8 +7204,8 @@ a.health {
 .project-panel-section .insp-rows { margin: 0; }
 .project-panel-section .hint { font-size: var(--text-sm); }
 /* A dragged file is aimed at the section, so the section says so. */
-.project-panel-drop { margin: -0.3rem; padding: 0.3rem; border: 1px dashed transparent; border-radius: var(--r-sm); }
-.project-panel-drop.is-over { border-color: var(--accent); background: var(--accent-dim); }
+/* The explorer's card is its own drop target: no wider than its neighbours, lit when something is held over it. */
+.project-panel-drop.is-over { border-color: var(--accent); border-style: dashed; background: var(--accent-dim); }
 .project-panel-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 
 /* The project's folder, browsed in place: a trail, rows, and the open file. */
@@ -7478,11 +7478,14 @@ a.health {
 .project-panel { --tint: hsl(var(--blob-h, 214) 72% 62%); --tint-dim: hsl(var(--blob-h, 214) 72% 62% / 0.14); }
 .agent-panel { gap: 0.7rem; }
 .hero { flex: none; position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.3rem; padding: 1.2rem 0.6rem 0.9rem; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: linear-gradient(180deg, var(--tint-dim), transparent 90%); }
-.hero::before { content: ""; position: absolute; left: -20%; right: -20%; top: -55%; height: 110%; background: radial-gradient(ellipse at 50% 60%, hsl(var(--blob-h, 214) 80% 60% / 0.32), transparent 60%); pointer-events: none; }
+.hero::before { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse 80% 55% at 50% 0%, hsl(var(--blob-h, 214) 80% 60% / 0.32), transparent 100%); pointer-events: none; }
 .hero > * { position: relative; }
 .hero-mark { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 16px; background: hsl(var(--blob-h, 214) 70% 60% / 0.22); color: hsl(var(--blob-h, 214) 75% 72%); }
 .hero-meta { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.35rem; margin-top: 0.35rem; }
-.hero > .btn { margin-top: 0.5rem; }
+.hero > .btn, .hero-acts { margin-top: 0.5rem; }
+.hero-acts { display: flex; gap: 0.4rem; }
+.hero-colour { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; margin-top: 0.5rem; align-self: stretch; min-width: 0; }
+.hero-colour .swatches { justify-content: center; }
 .hero h2 { margin: 0.5rem 0 0; font-size: var(--text-lg); line-height: 1.2; }
 .hero-desc { margin: 0; color: var(--muted); font-size: var(--text-base); max-width: 30ch; }
 .hero-state { display: inline-flex; align-items: center; gap: 0.4rem; margin-top: 0.45rem; padding: 0.2rem 0.65rem; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: var(--text-sm); }
@@ -7492,14 +7495,17 @@ a.health {
 .hero-state.is-error { color: var(--danger); } .hero-state.is-error .hero-dot { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-dim); }
 .hero-state.is-idle .hero-dot { background: var(--ok); }
 .card { flex: none; display: flex; flex-direction: column; gap: 0.5rem; padding: 0.75rem 0.85rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
-.card-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-height: 1.4rem; }
-.card-title { margin: 0; font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); }
+.card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.35rem 0.5rem; min-height: 1.4rem; }
+.card-acts { display: inline-flex; align-items: center; gap: 0.35rem; flex: none; }
+.card-title { margin: 0; font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); white-space: nowrap; }
 .card-count { margin-left: 0.3rem; color: var(--tint, var(--accent)); }
-.pill { font-size: var(--text-xs); padding: 0.1rem 0.55rem; border-radius: 999px; background: var(--panel-2); color: var(--muted); white-space: nowrap; }
-.pill--ok { background: var(--ok-dim); color: var(--ok); }
-.pill--warn { background: var(--warn-dim); color: var(--warn); }
-.pill--danger { background: var(--danger-dim); color: var(--danger); }
-.pill--accent { background: var(--accent-dim); color: var(--accent); }
+/* A pill is a tag that is coloured by its meaning: the same size, filled rather than outlined. */
+.pill { display: inline-flex; align-items: center; padding: 0.2rem 0.6rem; border-radius: 999px; border: 1px solid transparent; background: var(--panel-2); color: var(--muted); font-size: var(--text-sm); line-height: 1.3; white-space: nowrap; }
+.pill--ok { background: var(--ok-dim); border-color: color-mix(in srgb, var(--ok) 35%, transparent); color: var(--ok); }
+.pill--warn { background: var(--warn-dim); border-color: color-mix(in srgb, var(--warn) 35%, transparent); color: var(--warn); }
+.pill--danger { background: var(--danger-dim); border-color: color-mix(in srgb, var(--danger) 35%, transparent); color: var(--danger); }
+.pill--accent { background: var(--accent-dim); border-color: color-mix(in srgb, var(--accent) 35%, transparent); color: var(--accent); }
+.card-head .pill { font-size: var(--text-xs); padding: 0.1rem 0.5rem; }
 .agent-when { margin: 0; font-size: var(--text-md); font-weight: 600; }
 .agent-cron { font-family: var(--mono); font-size: var(--text-xs); color: var(--faint); }
 .agent-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.25rem; margin-top: 0.15rem; }
@@ -7510,16 +7516,8 @@ a.health {
 .agent-kv b { font-size: var(--text-md); color: var(--text); font-weight: 600; }
 .agent-acts { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.2rem; }
 .tags { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-.tag { display: inline-flex; align-items: center; padding: 0.2rem 0.6rem; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2); font-size: var(--text-sm); color: var(--text); }
+.tag { display: inline-flex; align-items: center; padding: 0.2rem 0.6rem; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2); font-size: var(--text-sm); line-height: 1.3; color: var(--text); }
 .tag--mono { font-family: var(--mono); font-size: var(--text-xs); }
-.agent-files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.agent-files > li + li { border-top: 1px solid var(--line); }
-.agent-file { display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0; color: var(--text); text-decoration: none; font-size: var(--text-sm); }
-.agent-file:hover .agent-file-name { color: var(--accent); }
-.agent-file-glyph { width: 1.6rem; height: 1.4rem; display: grid; place-items: center; border-radius: 6px; background: var(--panel-2); color: var(--muted); font-family: var(--mono); font-size: var(--text-xs); flex: none; }
-.agent-file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
-.agent-file-meta { color: var(--faint); font-size: var(--text-xs); }
-.agent-file-tag { color: var(--tint); font-size: var(--text-xs); }
 .agent-foot { display: flex; justify-content: space-between; gap: 0.4rem; padding-top: 0.1rem; }
 .unread-dot { display: inline-block; width: 0.45em; height: 0.45em; margin-left: 0.4em; border-radius: 50%; background: var(--ok, #3dd68c); vertical-align: middle; }
 /* A face beside the three things that may be set about it. */
@@ -7605,3 +7603,6 @@ a.panel-row:hover .panel-row-main { color: var(--accent); }
 .empty { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; padding: 1.4rem 1rem; text-align: center; border: 1px dashed var(--line); border-radius: 10px; }
 .empty-title { font-size: var(--text-md); }
 .empty-text { margin: 0; color: var(--faint); font-size: var(--text-base); max-width: 48ch; }
+
+/* The project's colour on its card, a small square before its name. */
+.card-mark { width: 10px; height: 10px; border-radius: 3px; flex: none; margin-right: 0.45rem; }
