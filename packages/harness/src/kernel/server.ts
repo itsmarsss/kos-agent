@@ -1833,6 +1833,11 @@ export async function handleApiRequest(
   if (method === "POST" && path === "/api/agents/save") {
     const parsed = parseRoleInput(body);
     if (typeof parsed === "string") return { status: 400, body: { error: parsed } };
+    // Making a new one never overwrites one that exists: the name is the
+    // folder and the thread, so a second "recap" would take the first's.
+    if (body.create === true && kernel.roles.exists(parsed.name)) {
+      return { status: 409, body: { error: `an agent called ${parsed.name} already exists; pick another name, or edit that one` } };
+    }
     try {
       const record = kernel.roles.write(parsed);
       kernel.ensureAgentConversation(parsed.name);

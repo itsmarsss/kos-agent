@@ -3854,13 +3854,14 @@ li:hover .chats-item-when { opacity: 0; }
 }
 .files-file-head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.7rem 0.85rem;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.85rem;
   border-bottom: 1px solid var(--line);
 }
-.files-file-head strong { font-family: var(--mono); font-size: var(--text-md); }
+.files-file-head strong { font-family: var(--mono); font-size: var(--text-md); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.files-file-head > .hint { flex: none; white-space: nowrap; }
+.files-file-head .file-head-acts { margin-left: auto; }
 .files-pre {
   margin: 0;
   padding: 0.85rem;
@@ -7585,3 +7586,7 @@ a.health {
 .panel-row--agent { align-items: center; }
 .panel-row--agent .blob { flex: none; }
 a.panel-row:hover .panel-row-main { color: var(--accent); }
+
+/* A field that cannot be sent as it is says why, under it, in the danger colour. */
+.field-error { color: var(--danger); font-size: var(--text-sm); }
+.kos-input.is-invalid, .kos-input[aria-invalid="true"] { border-color: var(--danger); }

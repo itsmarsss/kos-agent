@@ -1088,7 +1088,8 @@ export const api = {
     }),
   /** The standing agents: the files under agents/, each with its thread and schedule. */
   agents: () => get<{ agents: AgentInfo[]; invalid: InvalidAgent[] }>("/api/agents"),
-  saveAgent: (draft: AgentDraft) => post<{ agent: AgentInfo }>("/api/agents/save", draft),
+  /** Write an agent's file; `create` refuses a name that is already an agent's rather than overwriting it. */
+  saveAgent: (draft: AgentDraft, opts: { create?: boolean } = {}) => post<{ agent: AgentInfo }>("/api/agents/save", { ...draft, ...(opts.create ? { create: true } : {}) }),
   deleteAgent: (name: string) => post<{ removed: string }>("/api/agents/delete", { name }),
   /** Run its scheduled prompt now, in its own thread. */
   runAgent: (name: string) => post<{ fired: boolean }>("/api/agents/run", { name }),
