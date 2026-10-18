@@ -118,7 +118,10 @@ export interface PageSpec {
  */
 export type PanelKind =
   | "approvals"
+  /** Coding sub-agents, the builds; named before the standing agents existed. */
   | "agents"
+  /** The standing agents and what each is up to. */
+  | "standing"
   | "failures"
   | "activity"
   /** Tool calls by the hour over the last day, as bars. */
@@ -153,6 +156,7 @@ export interface HomeLayout {
 const PANEL_KINDS: PanelKind[] = [
   "approvals",
   "agents",
+  "standing",
   "failures",
   "activity",
   "pulse",
@@ -184,6 +188,7 @@ export const DEFAULT_HOME: HomeLayout = {
     { id: "schedule", kind: "schedule", span: "half", limit: 6 },
     { id: "map", kind: "map", span: "full" },
     { id: "chats", kind: "chats", span: "half", limit: 6 },
+    { id: "standing", kind: "standing", span: "half", limit: 6 },
     { id: "agents", kind: "agents", span: "half" },
     { id: "memory", kind: "memory", span: "half" },
     { id: "modules", kind: "modules", span: "half" },

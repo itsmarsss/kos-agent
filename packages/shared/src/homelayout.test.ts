@@ -29,6 +29,12 @@ describe("the home layout", () => {
     expect(DEFAULT_HOME.panels.map((p) => p.kind)).toContain("memory");
   });
 
+  it("has a panel for the standing agents, apart from the builds", () => {
+    const layout = parseHomeLayout({ panels: [{ kind: "standing", span: "half" }, { kind: "agents", span: "half" }] });
+    expect(layout.panels.map((p) => p.kind)).toEqual(["standing", "agents"]);
+    expect(DEFAULT_HOME.panels.map((p) => p.kind)).toContain("standing");
+  });
+
   it("drops a panel kind it does not have", () => {
     const layout = parseHomeLayout({
       panels: [{ kind: "nonsense" }, { kind: "spend", span: "half" }],

@@ -35,7 +35,7 @@ the whole map:
 | --- | --- |
 | **Chats** | Where you talk to KOS. KOS at the top routes work across your chats; each project has a chat that orchestrates it; the agents a project spawns sit under it. A chip beside the composer says what memory the last turn was given. |
 | **Inbox** | Everything waiting on you, in one list with the buttons to clear it: tool calls that need a yes, memory questions the tidy job could not settle, jobs failing now. The badge in the sidebar counts all three. |
-| **Overview** | A dashboard you arrange: what needs you, what is running, what broke, memory at a glance, modules, projects, activity, recent chats, spend. |
+| **Overview** | A dashboard you arrange: what needs you, what is running, what broke, the standing agents and what each is up to, memory at a glance, modules, projects, activity, recent chats, spend. |
 | **Projects** | What KOS is keeping for you. A card opens the project's details: its tables, pages, sites, schedules, chat, folder and schema history. |
 | **Files** | The workspace, browsed. |
 | **Memory** | Claims, Decisions, Pages, Log, Jobs, Callers. See [docs/memory.md](docs/memory.md). |

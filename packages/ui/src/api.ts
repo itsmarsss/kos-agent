@@ -618,6 +618,8 @@ export interface HomeData {
   layout: import("@kos/shared").HomeLayout;
   approvals: PendingAction[];
   agents: BuildRecord[];
+  /** The standing agents; absent from a host older than the panel that shows them. */
+  standing?: AgentInfo[];
   /** The last runs, newest first. */
   runs: RunRecord[];
   health: HealthReport;
