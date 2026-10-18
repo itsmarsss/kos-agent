@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, m } from "motion/react";
 
 import { hexOfHsv, hsvOfHex, type Hsv } from "./colour.js";
 import { useAnchoredPop } from "./kit.js";
+import { ease } from "./motion.js";
 
 /**
  * A colour picker of KOS's own: a square of saturation and value under a
@@ -162,13 +164,24 @@ export function ColourChoice({ value, swatchHue, fillOfHue, onSwatch, onPick, pi
           <span>Custom</span>
           {picked && <code className="swatch-hex">{value}</code>}
         </button>
-        {at &&
-          createPortal(
-            <div className="kos-pop cpick-pop" ref={pop} style={{ top: at.top, left: at.left }}>
-              <ColourPicker value={value} onChange={onPick} />
-            </div>,
-            document.body,
-          )}
+        {createPortal(
+          <AnimatePresence>
+            {at && (
+              <m.div
+                className="kos-pop cpick-pop"
+                ref={pop}
+                style={{ top: at.top, left: at.left }}
+                initial={{ opacity: 0, scale: 0.96, y: -4 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.97, y: -3 }}
+                transition={ease}
+              >
+                <ColourPicker value={value} onChange={onPick} />
+              </m.div>
+            )}
+          </AnimatePresence>,
+          document.body,
+        )}
       </div>
     </div>
   );

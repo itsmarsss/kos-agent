@@ -307,7 +307,7 @@ export function EntryMenu({ entry, ops, inView = false }: { entry: Entry; ops: F
               role="menuitem"
               className="is-danger"
               label="Delete"
-              text={`Delete ${entry.name}${entry.kind === "dir" ? " and everything in it" : ""}? There is no undo.`}
+              text={`Delete ${entry.name}${entry.kind === "dir" ? " and everything in it" : ""}?`}
               onConfirm={() => {
                 setOpen(false);
                 ops.remove(entry);

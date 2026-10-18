@@ -687,7 +687,7 @@ export function Inspector(props: {
                     label="Delete project"
                     confirmLabel="Delete for good"
                     className="btn btn--sm btn--danger-ghost"
-                    text={`Its tables, pages and files go with it; its chats are kept, archived at the root, and its jobs turned off. There is no undo for ${p.name}.`}
+                    text={`Delete ${p.name}? Its chats are kept; the rest goes.`}
                     disabled={busy}
                     onConfirm={() => void run(() => props.onDeleteProject!(p.slug))}
                   />
