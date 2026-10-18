@@ -115,7 +115,9 @@ export function describeCron(expr: string): string | null {
 
   const everyHours = /^\*\/(\d+)$/.exec(hour);
   if (everyHours && dom === "*" && mon === "*" && dow === "*") {
-    return `Every ${everyHours[1]} hours, at ${min.padStart(2, "0")} past`;
+    const n = Number(everyHours[1]);
+    const each = n === 1 ? "Every hour" : `Every ${n} hours`;
+    return min === "0" ? `${each}, on the hour` : `${each}, at ${min.padStart(2, "0")} past the hour`;
   }
   if (!/^\d+$/.test(hour)) return null;
 
