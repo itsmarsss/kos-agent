@@ -30,6 +30,14 @@ export function composerKeyDown(
 export function useStickToBottom<T extends HTMLElement>(
   ref: RefObject<T | null>,
   deps: unknown[],
+  /**
+   * What opening at the newest message is keyed on: the conversation, and
+   * a message of the owner's going out. Keyed on everything watched, the
+   * reset ran on every streamed delta, turned the following back on and
+   * snapped the view down, so nobody could scroll up while a reply was
+   * being written.
+   */
+  openOn: unknown = deps[0],
 ): void {
   const stick = useRef(true);
 
@@ -100,12 +108,13 @@ export function useStickToBottom<T extends HTMLElement>(
     // Re-observe when the children change, so new turns are watched too.
   }, [ref, ...deps]);
 
-  // A conversation opens at its newest message, not its oldest.
+  // A conversation opens at its newest message, not its oldest; so does a
+  // message the owner just sent.
   useEffect(() => {
     stick.current = true;
     const el = ref.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [ref, ...deps]);
+  }, [ref, openOn]);
 }
 
 /**

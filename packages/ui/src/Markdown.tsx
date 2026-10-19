@@ -80,10 +80,16 @@ function ChannelChip({ name, raw }: { name: string; raw: string }): ReactElement
   const label = names?.resolve("channel", name);
   if (label === undefined) return <>{raw}</>;
   const href = names?.hrefOf?.("channel", name);
-  if (!href) return <span className="chip-ref chip-ref--channel" title={`channel: ${name}`}>{label}</span>;
+  if (!href) {
+    return (
+      <span className="chip-ref chip-ref--channel" title={`channel: ${name}`}>
+        <span className="chip-label">{label}</span>
+      </span>
+    );
+  }
   return (
     <a className="chip-ref chip-ref--channel" href={href} title={`channel: ${name}, on Discord`} target="_blank" rel="noopener noreferrer">
-      {label}
+      <span className="chip-label">{label}</span>
     </a>
   );
 }
@@ -152,7 +158,7 @@ function MentionChip({ kind, id }: { kind: string; id: string }): ReactElement {
     >
       {/* A blob is a face, not a mark. */}
       {kind === "blob" || kind === "agent" ? <Face seed={id} size={12} label={`${id}'s face`} /> : <KindMark kind={kind} />}
-      {label}
+      <span className="chip-label">{label}</span>
     </a>
   );
 }

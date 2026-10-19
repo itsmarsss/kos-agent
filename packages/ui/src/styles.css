@@ -2614,14 +2614,18 @@ li:hover .chats-item-when { opacity: 0; }
   font-size: 0.92em;
   font-weight: 600;
   line-height: 1.35;
-  /* Centred on the line's x-height, so the chip's text sits level with
-     the words around it; aligned by baseline, a chip with a mark first
-     took its baseline from the mark and sat high, and the fixed drop that
-     corrected it put a chip with no mark (a channel) low. */
-  vertical-align: middle;
+  /* Aligned by its label's baseline, so the chip's text sits exactly on
+     the line it is in. A flex box takes its baseline from its first item,
+     which here is the mark, so the chip sat high; a fixed drop corrected
+     that and put a chip with no mark (a channel) low; centring on the
+     x-height left every chip a hair low, since the glyphs' centre sits
+     below the line box's. The label is the only item that aligns by
+     baseline, so the box takes its baseline from the label. */
+  vertical-align: baseline;
   border: 1px solid transparent;
   max-width: 100%;
 }
+.chip-label { align-self: baseline; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chip-ref > svg,
 .chip-ref > .face { flex: none; }
 .chip-ref--project { color: var(--accent); background: var(--accent-dim); }
