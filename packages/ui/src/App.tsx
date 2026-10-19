@@ -773,7 +773,10 @@ export function App(): React.ReactElement {
           {...(editingCron?.job
             ? { subtitle: `Cron #${editingCron.job.id}` }
             : { subtitle: "Runs on its own, on a schedule you set" })}
-          onClose={() => setEditingCron(null)}
+          onClose={() => {
+            setEditingCron(null);
+            if (route.name === "crons" && route.job) window.location.hash = hrefFor({ name: "crons" });
+          }}
         >
           {editingCron && (
             <CronEditor
@@ -1084,8 +1087,11 @@ export function App(): React.ReactElement {
     // Yours at the root, then each project's, then KOS's own. Digits, not
     // punctuation: "~" sorted before "0" under the locale and put the
     // system's first.
-    const groupOf = (c: CronJob): string => (system(c) ? "KOS's own" : (projectName(c.projectSlug) ?? "Yours"));
-    const rank = (c: CronJob): string => (system(c) ? "2" : c.projectSlug ? `1 ${groupOf(c)}` : "0");
+    // A blob's schedule is the blob's, not one of yours to arrange, so the
+    // blobs' jobs stand together as KOS's own do.
+    const blob = (c: CronJob): boolean => c.name.startsWith("blob.");
+    const groupOf = (c: CronJob): string => (system(c) ? "KOS's own" : blob(c) ? "Blobs" : (projectName(c.projectSlug) ?? "Yours"));
+    const rank = (c: CronJob): string => (system(c) ? "3" : blob(c) ? "2" : c.projectSlug ? `1 ${groupOf(c)}` : "0");
     const rows = crons
       .filter((c) => {
         if (cronFilter === "on") return c.enabled;
@@ -1102,7 +1108,13 @@ export function App(): React.ReactElement {
         rowKey={(c) => c.id}
         empty="No crons match"
         groupBy={groupOf}
-        onRowClick={(c) => setEditingCron({ job: c })}
+        collapsible
+        // The address says which job is open, so it can be sent or come
+        // back to; closing the drawer takes it back off.
+        onRowClick={(c) => {
+          setEditingCron({ job: c });
+          window.location.hash = hrefFor({ name: "crons", job: String(c.id) });
+        }}
         toolbar={
           /* Writing one by hand: everything here could be asked for in a
              sentence, but a schedule runs while nobody is watching, so it is

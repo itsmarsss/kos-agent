@@ -31,6 +31,8 @@ export function ListPage<T>(props: {
    * work for free.
    */
   groupBy?: (row: T) => string;
+  /** Group headers fold their rows away, and remember it, per page title. */
+  collapsible?: boolean;
   /**
    * Honour the declared column widths instead of sizing to content.
    *
@@ -42,6 +44,28 @@ export function ListPage<T>(props: {
   fixedLayout?: boolean;
 }): React.ReactElement {
   const [q, setQ] = useState("");
+  const foldKey = `kos.list.${props.title}.folded`;
+  const [folded, setFolded] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(foldKey);
+      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+      return new Set();
+    }
+  });
+  const toggleFold = (group: string): void => {
+    setFolded((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      try {
+        localStorage.setItem(foldKey, JSON.stringify([...next]));
+      } catch {
+        // Remembered for this visit only.
+      }
+      return next;
+    });
+  };
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -106,20 +130,29 @@ export function ListPage<T>(props: {
               return (
                 <Fragment key={props.rowKey(row)}>
                   {group && group !== previous ? (
-                    <tr className="list-group">
+                    <tr className={`list-group ${props.collapsible ? "is-foldable" : ""} ${group && folded.has(group) ? "is-folded" : ""}`}>
                       <th colSpan={props.columns.length} scope="colgroup">
-                        {group}
+                        {props.collapsible ? (
+                          <button type="button" className="list-group-fold" aria-expanded={!folded.has(group)} onClick={() => toggleFold(group)}>
+                            <span className="list-group-caret" aria-hidden="true">{folded.has(group) ? "▸" : "▾"}</span>
+                            {group}
+                          </button>
+                        ) : (
+                          group
+                        )}
                       </th>
                     </tr>
                   ) : null}
-                  <tr
-                    className="ops-row-click"
-                    onClick={() => props.onRowClick(row)}
-                  >
-                    {props.columns.map((c) => (
-                      <td key={c.key}>{c.render(row)}</td>
-                    ))}
-                  </tr>
+                  {!(props.collapsible && group && folded.has(group)) && (
+                    <tr
+                      className="ops-row-click"
+                      onClick={() => props.onRowClick(row)}
+                    >
+                      {props.columns.map((c) => (
+                        <td key={c.key}>{c.render(row)}</td>
+                      ))}
+                    </tr>
+                  )}
                 </Fragment>
               );
             })}

@@ -537,10 +537,13 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const loader = new ModuleLoader(toolRegistryContext(registry, services, bus));
   const loadReport = await loader.load(modules, { skip: parseModuleSettings(settings.get(MODULES_KEY)).disabledBuiltins.filter(isBuiltinFeature) });
 
-  // A blob's job was named agent:<name> when blobs were agents; the name is
-  // what the Schedule page shows, so the old ones take the new one.
+  // A blob's job was named agent:<name> when blobs were agents, then
+  // blob:<name>; it is blob.<name> now, as KOS's own jobs are kos.<name>.
+  // The name is what the Schedule page shows, so the old ones take the new.
   for (const job of crons.list()) {
-    if (job.agent && job.name.startsWith("agent:")) crons.rename(job.id, `blob:${job.name.slice("agent:".length)}`);
+    if (!job.agent) continue;
+    const old = /^(agent|blob):(.+)$/.exec(job.name);
+    if (old?.[2]) crons.rename(job.id, `blob.${old[2]}`);
   }
   ensureDefaultBackupCron(crons);
   ensureDefaultMemoryCron(crons);

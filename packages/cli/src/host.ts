@@ -385,6 +385,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       threadOf: (threadId) => kernel.threadBindings()[threadId],
       threadBindings: () => kernel.threadBindings(),
       timezone: kernel.profile.timezone,
+      labelOf: (kind, id) => kernel.labelFor(kind, id),
       // Who speaks from a chat, so a blob's story in its channel is the blob's.
       senderOf: (conversationId) => kernel.senderFor(conversationId),
     });

@@ -2444,7 +2444,7 @@ export async function handleApiRequest(
     const params = queryParams(req.url);
     const q = params.get("q") ?? "";
     const kind = params.get("kind");
-    const kinds = ["project", "page", "file", "schedule", "chat", "site", "agent", "build", "tab"];
+    const kinds = ["project", "page", "file", "schedule", "chat", "site", "blob", "agent", "build", "tab"];
     // The palette and the @ menu ask the same question of the same index, so
     // a thing reachable by one is reachable by the other. Asked from inside a
     // project, that project's own things come first.
