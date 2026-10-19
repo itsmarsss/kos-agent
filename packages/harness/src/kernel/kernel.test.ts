@@ -325,8 +325,10 @@ describe("Kernel", () => {
     expect(files.at(-1)).toEqual({ conversationId: c.id, files: [{ name: "receipt.png", path: "uploads/receipt.png" }] });
     // The model is told where, as a reference it can hand on.
     expect(JSON.stringify(requests.at(-1))).toContain("@file:uploads/receipt.png");
-    // Sent again under the same name: kept beside, not over, the first.
-    await kernel.handleMessage("and this", { sessionId: c.id, attachments: [{ name: "receipt.png", mediaType: "image/png", data: png }] });
+    // The same bytes sent again are the file already there; a different file under the same name is kept beside it, not over it.
+    await kernel.handleMessage("again", { sessionId: c.id, attachments: [{ name: "receipt.png", mediaType: "image/png", data: png }] });
+    expect(files.at(-1)!.files).toEqual([{ name: "receipt.png", path: "uploads/receipt.png" }]);
+    await kernel.handleMessage("and this", { sessionId: c.id, attachments: [{ name: "receipt.png", mediaType: "image/png", data: Buffer.from("another picture").toString("base64") }] });
     expect(files.at(-1)!.files).toEqual([{ name: "receipt.png", path: "uploads/receipt copy.png" }]);
     // A project's chat keeps them with the project; a blob's thread, in the blob's folder.
     const project = kernel.standUpProject({ name: "Garden", type: "notes" });

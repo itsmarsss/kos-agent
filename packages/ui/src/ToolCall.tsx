@@ -1,8 +1,48 @@
 import { useState, type ReactElement } from "react";
 
+import { pathsIn } from "@kos/shared";
+
 import type { ChatEvent } from "./api.js";
 import { Decision } from "./Decision.js";
 import { ChevronDown, ChevronRight } from "./icons.js";
+import { hrefFor } from "./routes.js";
+
+/**
+ * A step's summary with the file it names openable: "Read blobs/verity/blob.md"
+ * goes to the file, as it does from the Discord story. The head is a button,
+ * so the path is a link in all but markup: it opens on its own click without
+ * toggling the card.
+ */
+function Summary({ text }: { text: string }): ReactElement {
+  return (
+    <>
+      {pathsIn(text).map((run, i) =>
+        run.path ? (
+          <span
+            key={i}
+            role="link"
+            tabIndex={0}
+            className="toolcall-path"
+            title={`Open ${run.path}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              window.location.hash = hrefFor({ name: "files", path: run.path! });
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              e.stopPropagation();
+              window.location.hash = hrefFor({ name: "files", path: run.path! });
+            }}
+          >
+            {run.text}
+          </span>
+        ) : (
+          run.text
+        ),
+      )}
+    </>
+  );
+}
 
 /**
  * A tool call in the transcript. Collapsed it is one line saying what the
@@ -56,7 +96,9 @@ export function ToolCall({
       >
         <span className="toolcall-caret">{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
         <code className="toolcall-name">{event.name}</code>
-        <span className="toolcall-summary">{event.summary}</span>
+        <span className="toolcall-summary">
+          <Summary text={event.summary} />
+        </span>
         <span className="toolcall-state">{state}</span>
       </button>
 
