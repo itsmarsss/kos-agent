@@ -190,7 +190,7 @@ function define(deps: DaemonToolDeps, ctx: ModuleContext): void {
       return JSON.stringify(describe(daemon, deps));
     },
     // Registering one starts it, and it keeps running after the turn ends.
-    { floor: "risky" },
+    { floor: "risky", why: "starts a process that keeps running on its own" },
     { tags: ["daemons"] },
   );
 
@@ -210,7 +210,7 @@ function define(deps: DaemonToolDeps, ctx: ModuleContext): void {
       supervisor.start({ ...daemon, enabled: true });
       return JSON.stringify(describe(required(daemon.id), deps));
     },
-    { floor: "risky" },
+    { floor: "risky", why: "starts a process that keeps running on its own" },
     { tags: ["daemons"] },
   );
 
@@ -254,7 +254,7 @@ function define(deps: DaemonToolDeps, ctx: ModuleContext): void {
       store.remove(daemon.id);
       return `removed ${daemon.project}/${daemon.name}`;
     },
-    { floor: "risky" },
+    { floor: "risky", why: "removes the daemon for good" },
     { tags: ["daemons"] },
   );
 }

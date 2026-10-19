@@ -913,7 +913,7 @@ describe("DiscordAdapter authorization", () => {
     expect((await adapter.sync(plan)).threads).toEqual([]);
     expect(threadsMade).toHaveLength(2);
     // The listing says where each channel sits.
-    expect(await adapter.channels()).toEqual([{ key: "project:garden", name: "garden", audience: "owner", category: "kos" }]);
+    expect(await adapter.channels()).toMatchObject([{ key: "project:garden", name: "garden", audience: "owner", category: "kos" }]);
     // A thread the kernel knows is that chat, whatever its parent says.
     expect(bindingOf({ id: "t1", name: "Seeds", isThread: () => true, parent: { topic: "kos:project:garden" } }, (id) => (id === "t1" ? "chat-a" : undefined))).toEqual({ conversationId: "chat-a" });
     // Where a chat shows: its bound channel, or the thread made for it, or nowhere.
@@ -1011,7 +1011,7 @@ describe("DiscordAdapter authorization", () => {
       guilds: { fetch: async () => ({ id: "g1", channels: { fetch: async () => existing, create: async () => { throw new Error("nothing to make"); } } }) },
     };
     // The list reads each channel's audience off its permissions.
-    expect(await adapter.channels()).toEqual([
+    expect(await adapter.channels()).toMatchObject([
       { key: "project:garden", name: "garden", audience: "owner" },
       { key: "agent:recap", name: "recap", audience: "everyone" },
     ]);

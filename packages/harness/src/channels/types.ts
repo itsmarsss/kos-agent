@@ -273,6 +273,8 @@ export interface ApprovalRequest {
   picture?: string;
   /** What the agent said just before it asked, in its own words. */
   why?: string;
+  /** What to call the ids in the arguments: a channel's name, a chat's title, a job's name. */
+  names?: (kind: string, id: string) => string | undefined;
   /**
    * Who is asking: the chat the action belongs to, by the name the owner
    * knows it by (a blob's title, a project's name, KOS itself). A prompt

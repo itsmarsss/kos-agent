@@ -95,7 +95,7 @@ export function InboxPage({
                   {/* Who is asking, first: a command with no one behind it is a yes to anyone. */}
                   {a.asker && <span className="inbox-asker">{a.asker} asks</span>}
                   {a.why && <span className="inbox-said">{a.why}</span>}
-                  {summarizeAction(a.tool, a.args)}
+                  {a.summary ?? summarizeAction(a.tool, a.args)}
                   <code className="panel-approval-tool">{a.tool}</code>
                   {a.reason && <span className="inbox-why">{a.reason}</span>}
                   {a.picture && <img className="approval-pic" src={`/api/approvals/${a.id}/picture`} alt="The page this would act on" />}

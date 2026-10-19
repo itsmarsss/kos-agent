@@ -335,7 +335,7 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
       return JSON.stringify({ removed: name, note: "Its file and schedule are gone; its thread stays as an ordinary chat." });
     },
     // A file of the owner's goes with it, so it asks.
-    { floor: "risky" },
+    { floor: "risky", why: "removes the blob and its file for good" },
     { restricted: true },
   );
 }

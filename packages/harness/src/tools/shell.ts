@@ -122,7 +122,7 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
         },
         // Risky by floor, as the spec says; a line that provably only reads
         // runs as safe, since asking for every ls teaches the owner to say yes.
-        { floor: "risky", relax: (input) => typeof input["command"] === "string" && isReadOnlyCommand(input["command"]) },
+        { floor: "risky", why: "a command that may write", relax: (input) => typeof input["command"] === "string" && isReadOnlyCommand(input["command"]) },
       );
     },
   };

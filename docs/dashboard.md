@@ -192,6 +192,11 @@ then lapses too. Either way it leaves the Inbox, the prompt for it on
 Discord or iMessage settles as lapsed, and the chat that asked is told
 nothing was done. Each card says when it lapses.
 
+An ask says what it would do in words, with names beside the ids (the
+channel as #leetcode, the project by its name, the job by its name), and
+why it asks: "other people can see #leetcode", "changes or removes rows",
+"deletes the chat for good".
+
 What asks for your yes: money, a message to anyone but you or into a
 place others read, deleting or removing anything, a shell command that
 writes, clicking or typing on a web page, opening a channel or role to

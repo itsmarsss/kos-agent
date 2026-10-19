@@ -30,6 +30,13 @@ describe("classifyRisk", () => {
     });
   });
 
+  it("says why, in the rule's own words or the floor's", () => {
+    const rule: ToolRisk = { floor: "safe", escalate: (i) => (i.open ? "lets Members in" : false) };
+    expect(classifyRisk(rule, { open: true })).toEqual({ tier: "risky", escalated: true, reason: "lets Members in" });
+    expect(classifyRisk(rule, { open: false })).toEqual({ tier: "safe", escalated: false });
+    expect(classifyRisk({ floor: "risky", why: "deletes it for good" }, {})).toEqual({ tier: "risky", escalated: false, reason: "deletes it for good" });
+  });
+
   it("relaxes a risky floor only when the rule proves the call harmless", () => {
     const risk: ToolRisk = { floor: "risky", relax: (i) => i.reads === true };
     expect(classifyRisk(risk, { reads: true })).toEqual({ tier: "safe", escalated: false });

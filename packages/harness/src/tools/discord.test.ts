@@ -23,10 +23,10 @@ describe("the discord tools", () => {
 
   async function harness(connected = true, scope?: string) {
     const channels: ServerChannel[] = [
-      { key: "orchestrator:owner", name: "kos", audience: "owner", fixed: true },
-      { key: "needs-you", name: "needs-you", audience: "owner", fixed: true },
-      { key: "project:garden", name: "my-garden", audience: "owner" },
-      { key: "agent:recap", name: "recap", audience: "owner" },
+      { key: "orchestrator:owner", id: "ch1", name: "kos", audience: "owner", fixed: true },
+      { key: "needs-you", id: "ch2", name: "needs-you", audience: "owner", fixed: true },
+      { key: "project:garden", id: "ch3", name: "my-garden", audience: "owner" },
+      { key: "agent:recap", id: "ch4", name: "recap", audience: "owner" },
     ];
     const synced: number[] = [];
     const places: ServerPlace[] = [
@@ -135,10 +135,12 @@ describe("the discord tools", () => {
 
   it("makes a channel of the owner's a chat's home, asking only when others can see it, and only for a project or a blob", async () => {
     const h = await harness();
-    // Seen by everyone, or not seen by KOS yet: an ask. The owner's alone: none.
-    expect(h.registry.classify("discord.bind", { channel: "#general", to: "project:leetcode_daily" }).tier).toBe("risky");
-    expect(h.registry.classify("discord.bind", { channel: "#leetcode", to: "project:leetcode_daily" }).tier).toBe("risky");
+    // Seen by everyone, or not seen by KOS yet: an ask, and the card says why. The owner's alone: none.
+    expect(h.registry.classify("discord.bind", { channel: "#general", to: "project:leetcode_daily" })).toMatchObject({ tier: "risky", reason: "other people can see #general, and the chat would show there" });
+    expect(String(h.registry.classify("discord.bind", { channel: "#leetcode", to: "project:leetcode_daily" }).reason)).toContain("not looked at yet");
     expect(h.registry.classify("discord.bind", { channel: "diary", to: "project:leetcode_daily" }).tier).toBe("safe");
+    // A channel is found by its id, the one thing about it that does not change.
+    expect(findChannel(h.channels, "ch3")?.key).toBe("project:garden");
     const res = (await h.call("discord.bind", { channel: "#leetcode", to: "project:leetcode_daily" })).json!;
     expect(res).toMatchObject({ key: "project:leetcode_daily", name: "leetcode", audience: "guests" });
     expect(String(res["note"])).toContain("members read and write there, and are heard");

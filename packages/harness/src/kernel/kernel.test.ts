@@ -403,6 +403,10 @@ describe("Kernel", () => {
     expect(prompt).toContain("the home of the project @project:leetcode_daily");
     expect(prompt).toContain("notify to discord:channel:c1 posts there");
     expect(prompt).not.toContain("channel #3");
+    // The same names stand beside ids on an approval card.
+    expect(kernel.labelFor("channel", "c1")).toBe("#leetcode");
+    expect(kernel.labelFor("target", "discord:channel:c1")).toBe("#leetcode on Discord");
+    expect(kernel.labelFor("target", "owner")).toBe("you");
   });
 
   it("keeps what came with a message as files where the chat lives, tells the turn, and tells the mirror", async () => {

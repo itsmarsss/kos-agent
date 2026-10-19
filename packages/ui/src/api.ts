@@ -61,6 +61,8 @@ export interface PendingAction {
   tool: string;
   args: string;
   reason: string | null;
+  /** The action in words, with the ids named by the server; the page's own summary only when absent. */
+  summary?: string;
   /** The conversation that asked, so a decision can be taken where it lives. */
   conversationId: string | null;
   requestedAt: number;

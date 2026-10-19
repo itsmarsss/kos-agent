@@ -68,7 +68,7 @@ describe("summaries for the rest of the toolkit", () => {
     // key=value dump is no longer good enough.
     expect(summarizeAction("chats.archive", { id: "c1" })).toBe("Archive chat c1");
     expect(summarizeAction("chats.archive", { id: "c1", archived: false })).toBe("Bring back chat c1");
-    expect(summarizeAction("chats.delete", { id: "c1" })).toBe("Delete chat c1");
+    expect(summarizeAction("chats.delete", { id: "c1" })).toBe("Delete the chat c1 for good");
     expect(summarizeAction("chats.dispatch", { id: "c1", message: "do it" })).toBe(
       "Hand work to conversation c1",
     );
@@ -98,7 +98,7 @@ describe("the risky tools say what they would do", () => {
   it("names the command, the job, the agent and the daemon", () => {
     expect(summarizeAction("shell.run", { command: "git status", cwd: "projects/site" })).toBe("Run: git status (in projects/site)");
     expect(summarizeAction("shell.run", JSON.stringify({ command: "rm -rf build" }))).toBe("Run: rm -rf build");
-    expect(summarizeAction("cron.run", { id: 11 })).toBe("Run scheduled job #11 now");
+    expect(summarizeAction("cron.run", { id: 11 })).toBe("Run the job #11 now");
     expect(summarizeAction("builds.run", { dir: "projects/site", task: "Add a footer" })).toBe("Start a coding agent in projects/site: Add a footer");
     expect(summarizeAction("blobs.list", {})).toBe("List the blobs");
     expect(summarizeAction("blobs.create", { name: "watch", description: "Watches a listing" })).toBe("Make the blob watch: Watches a listing");
@@ -114,5 +114,25 @@ describe("the risky tools say what they would do", () => {
   it("says whose a server's tool is", () => {
     expect(summarizeAction("mcp.browser.navigate", { url: "https://example.com" })).toBe("navigate on browser: url=https://example.com");
     expect(summarizeAction("mcp.browser.snapshot", {})).toBe("snapshot on browser");
+  });
+});
+
+describe("names beside ids", () => {
+  const names = (kind: string, id: string): string | undefined =>
+    kind === "channel" && id === "1561" ? "#leetcode" : kind === "chat" && id === "project:leetcode_daily" ? "LeetCode Daily" : kind === "target" && id === "discord:channel:1561" ? "#leetcode on Discord" : kind === "schedule" && id === "18" ? "Daily board" : undefined;
+
+  it("says what an ask would do in names where the caller has them, and in ids otherwise", () => {
+    expect(summarizeAction("discord.bind", { channel: "1561", to: "project:leetcode_daily" }, names)).toBe("Make #leetcode the home of LeetCode Daily");
+    expect(summarizeAction("discord.bind", { channel: "1561", to: "project:leetcode_daily" })).toBe("Make #1561 the home of project:leetcode_daily");
+    expect(summarizeAction("discord.audience", { channel: "1561", audience: "guests" }, names)).toBe("Open #leetcode to everyone on the server, reading and writing");
+    expect(summarizeAction("notify", { to: "discord:channel:1561", text: "hi" }, names)).toBe("Post to #leetcode on Discord: hi");
+    expect(summarizeAction("notify", { text: "hi" }, names)).toBe("Tell you: hi");
+    expect(summarizeAction("cron.run", { id: 18 }, names)).toBe("Run the job Daily board now");
+    expect(summarizeAction("discord.make", { name: "picks", kind: "channel", category: "Club", access: [{ who: "Members", view: true, write: true }] })).toBe("Make the channel picks under Club, open to Members");
+  });
+
+  it("keeps the id in the detail lines, with the name beside it", () => {
+    const lines = detailLines("discord.bind", { channel: "1561", to: "project:leetcode_daily" }, names);
+    expect(lines).toEqual(["Make #leetcode the home of LeetCode Daily", "channel: 1561 (#leetcode)", "to: project:leetcode_daily (LeetCode Daily)"]);
   });
 });
