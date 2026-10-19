@@ -159,6 +159,11 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
           task: { type: "string", enum: ["reasoning", "cheap"], description: "which model class answers it; the reasoning route unless the work is routine" },
           schedule: { type: "string", description: "a cron expression, when it should run on its own" },
           prompt: { type: "string", description: "what it is told on each scheduled run; required with a schedule" },
+          report: {
+            type: "string",
+            enum: ["always"],
+            description: "always: after each scheduled run, its answer is sent to the owner on their surface. Omit when the brief says when to tell them.",
+          },
           face: {
             type: "object",
             description: "its face, only if the owner asked for a look: hue 0-359, eyes round|half|sparkle, gait 0-3. Otherwise omit; the name decides.",
@@ -190,6 +195,7 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
         ...(input.task === "cheap" || input.task === "reasoning" ? { task: input.task } : {}),
         ...(schedule ? { schedule } : {}),
         ...(prompt ? { prompt } : {}),
+        ...(input.report === "always" ? { report: "always" as const } : {}),
         ...(Object.keys(face).length ? { face } : {}),
       };
       const record = deps.roles.write(role);

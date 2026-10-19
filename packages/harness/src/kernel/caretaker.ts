@@ -1,3 +1,4 @@
+import type { Sender } from "../channels/types.js";
 import type { ModelMessage } from "../models/types.js";
 import type { NotifyPayload } from "../tools/notify.js";
 import type { HealthNotice } from "../ops/health.js";
@@ -148,9 +149,9 @@ export class Caretaker {
   }
 
   /** Tell the owner on the surface they use, or leave a note where they will look. */
-  tell(text: string): void {
+  tell(text: string, from?: Sender): void {
     if (this.deps.notify) {
-      void this.deps.notify({ text, target: { kind: "owner" } }).catch(() => this.record(text));
+      void this.deps.notify({ text, target: { kind: "owner" }, ...(from ? { from } : {}) }).catch(() => this.record(text));
       return;
     }
     this.record(text);

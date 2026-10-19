@@ -109,6 +109,12 @@ export interface Role {
   schedule?: string;
   /** What it is told on each scheduled run. Required with a schedule. */
   prompt?: string;
+  /**
+   * "always": after each scheduled run, its answer goes to the owner on
+   * their surface, tagged as the blob's. Absent, a run's answer stays in
+   * the blob's thread and the owner hears only what the brief says to tell.
+   */
+  report?: "always";
   /** What the owner set about its face; absent, the name decides. */
   face?: FaceLook;
 }
@@ -137,7 +143,7 @@ export function agentConversationId(name: string): string {
   return `agent:${name}`;
 }
 
-const KEYS = new Set(["name", "description", "tools", "memory", "task", "schedule", "prompt", "face"]);
+const KEYS = new Set(["name", "description", "tools", "memory", "task", "schedule", "prompt", "report", "face"]);
 
 /**
  * The file's head, as `key: value` lines between two `---` lines. Lists are
@@ -196,6 +202,8 @@ export function parseRole(text: string, fileName: string): Role {
   const schedule = head.get("schedule") || undefined;
   const prompt = head.get("prompt") || undefined;
   if (schedule && !prompt) throw new Error("a schedule needs a prompt: what to do on each run");
+  const report = head.get("report") || undefined;
+  if (report !== undefined && report !== "always") throw new Error('report must be "always", or left out');
   const faceText = head.get("face");
   const face = faceText ? parseFaceText(faceText) : undefined;
   return {
@@ -207,6 +215,7 @@ export function parseRole(text: string, fileName: string): Role {
     ...(task ? { task } : {}),
     ...(schedule ? { schedule } : {}),
     ...(prompt ? { prompt } : {}),
+    ...(report ? { report } : {}),
     ...(face && Object.keys(face).length ? { face } : {}),
   };
 }
@@ -221,6 +230,7 @@ export function formatRole(role: Role): string {
     ...(role.task ? [`task: ${role.task}`] : []),
     ...(role.schedule ? [`schedule: ${role.schedule}`] : []),
     ...(role.prompt ? [`prompt: ${oneLine(role.prompt)}`] : []),
+    ...(role.report ? [`report: ${role.report}`] : []),
     ...(role.face && formatFaceText(role.face) ? [`face: ${formatFaceText(role.face)}`] : []),
   ];
   return `---\n${head.join("\n")}\n---\n\n${role.brief.trim()}\n`;

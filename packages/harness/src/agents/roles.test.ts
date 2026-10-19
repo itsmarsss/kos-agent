@@ -28,9 +28,11 @@ describe("roles", () => {
       task: "cheap",
       schedule: "0 */6 * * *",
       prompt: "Look at the listing.",
+      report: "always",
     };
     const text = formatRole(role);
     expect(text.startsWith("---\nname: price-watch\ndescription: Watches a listing\ntools: browser, memory\n")).toBe(true);
+    expect(text).toContain("\nreport: always\n");
     expect(parseRole(text, "price-watch")).toEqual(role);
     // The sparse form reads back sparse: no empty keys invented.
     const plain = parseRole(formatRole({ name: "research", description: "Looks things up", brief: "You look.", memory: "shared" }), "research");
@@ -50,6 +52,7 @@ describe("roles", () => {
     expect(() => parseRole("---\nname: y\ndescription: d\n---\nbody", "x")).toThrow(/does not match its folder/);
     expect(() => parseRole("---\ndescription: d\nschedule: 0 4 * * *\n---\nbody", "x")).toThrow(/needs a prompt/);
     expect(() => parseRole("---\ndescription: d\nmemory: mine\n---\nbody", "x")).toThrow(/memory must be/);
+    expect(() => parseRole("---\ndescription: d\nreport: sometimes\n---\nbody", "x")).toThrow(/report must be/);
     expect(() => parseRole("---\ndescription: d\ntools: browser, Shell!\n---\nbody", "x")).toThrow(/not a tool family/);
     expect(() => parseRole("---\n---\nbody", "Bad Name")).toThrow(/name must match/);
     expect(() => parseRole("---\ndescription: d\nface: eyes googly\n---\nbody", "x")).toThrow(/out of range/);

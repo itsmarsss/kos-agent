@@ -111,7 +111,12 @@ does, so a blob cannot spawn more of itself:
   says what was asked; only the job says whether it fires, so the list
   reads the job.
 - `blobs.create`: the file, its thread, and its schedule if it has one.
-  An existing name is refused unless `replace` is set.
+  An existing name is refused unless `replace` is set. With `report:
+  always` (After each run, Tell me, on its page) every scheduled run's
+  answer is sent to you on your surface, tagged as the blob's; otherwise a
+  run's answer stays in its thread and you hear only what the brief says
+  to tell you. Work you dispatch to a blob is always reported back when it
+  answers.
 - `blobs.dispatch`: a task to a blob, handed over rather than waited on.
   When it answers, the chat that sent it gets the answer as a line of its
   own (after its turn, if it is mid-turn), and you are told.

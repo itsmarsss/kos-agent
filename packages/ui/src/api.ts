@@ -262,6 +262,8 @@ export interface AgentDraft {
   tools?: string[];
   memory: "own" | "shared";
   task?: "reasoning" | "cheap";
+  /** always: each scheduled run's answer is sent to you, tagged as the blob's. */
+  report?: "always";
   schedule?: string;
   prompt?: string;
   face?: FaceLook;
