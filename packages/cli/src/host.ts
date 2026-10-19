@@ -503,8 +503,6 @@ export async function runHost(options: HostOptions): Promise<void> {
       };
       await sync(true);
       setInterval(() => void sync(false), 5 * 60_000).unref();
-    } else {
-      setInterval(() => void wear(), 5 * 60_000).unref();
       /*
        * The server shows every exchange, wherever it happened. A turn taken
        * on the dashboard, by a schedule or by a dispatch lands in the
@@ -522,6 +520,9 @@ export async function runHost(options: HostOptions): Promise<void> {
         }
         if (said.reply.trim()) await adapter.postIn(target, { text: said.reply, ...(from ? { from } : {}) });
       });
+    } else {
+      // No server to lay out: only the face to keep up.
+      setInterval(() => void wear(), 5 * 60_000).unref();
     }
   } else if (wantDiscord && !creds) {
     console.log(
