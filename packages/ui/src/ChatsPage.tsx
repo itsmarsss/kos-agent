@@ -288,6 +288,12 @@ export function ChatsPage({
   // The list is the authority on what is running: a turn that started before
   // this view opened produced no events it could have seen, and one that
   // finished while the connection was down would otherwise stay on screen.
+  // Not, though, for a turn the stream has just announced: the list in hand
+  // was fetched before it began and still says idle, and clearing on that
+  // word wiped every turn started from Discord or another tab the moment it
+  // started, leaving the next poll to seed it back as a resumed fragment
+  // with no words and no streamed text. A fresh entry is given time for the
+  // list to catch up.
   useEffect(() => {
     seedProgress(
       conversations.filter((c) => c.activity === "working").map((c) => c.id),
@@ -295,10 +301,11 @@ export function ChatsPage({
     for (const c of conversations) {
       const live = progress[c.id];
       if (!live || c.activity === "working") continue;
+      const stale = live.resumed || Date.now() - live.since > FRESH_TURN_MS;
       // Nothing left to hand over, or nobody here to hand it to: a turn that
       // ended in a conversation the reader is not looking at has no transcript
       // to be swapped into.
-      if (live.steps.length === 0 || (live.ended && c.id !== activeId)) {
+      if ((stale && live.steps.length === 0) || (live.ended && c.id !== activeId)) {
         clearProgress(c.id);
       }
     }
@@ -2587,6 +2594,9 @@ interface ColumnSpec {
   max: number;
   fallback: number;
 }
+/** How long a turn the stream announced is believed over a list that still says idle: three polls. */
+const FRESH_TURN_MS = 15_000;
+
 const RAIL_W: ColumnSpec = { key: "kos.chats.rail", min: 120, max: 420, fallback: 240 };
 const PANEL_W: ColumnSpec = { key: "kos.project.panel.w", min: 160, max: 640, fallback: 300 };
 /** A project's schedule, as a row under its agents: a height rather than a width. */
