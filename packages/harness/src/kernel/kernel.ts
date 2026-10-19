@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { runAgent, type Inference } from "../agent/loop.js";
@@ -91,7 +92,7 @@ import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import { CHAT_TOOLS } from "../tools/chats.js";
 import { BLOB_TOOLS, type BlobJob } from "../tools/agents.js";
 import { DISCORD_TOOLS, type Audience, type DiscordServices } from "../tools/discord.js";
-import { agentConversationId, agentScope, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
+import { agentConversationId, agentScope, KOS_FACE_KEY, parseFaceLook, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
 import { type NotifyPayload } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
 import type { EventBus } from "../modules/events.js";
@@ -105,7 +106,7 @@ import { ProgressBus } from "./progress.js";
 import { BEHAVIOUR_KEY, parseBehaviour, type Behaviour } from "./behaviour.js";
 import { parseMentions } from "./mentions.js";
 import { readFile as readWorkspaceFile } from "./files.js";
-import { bodyHexOf, faceSvg, lookOf, summarizeAction } from "@kos/shared";
+import { bodyHexOf, faceSvg, KOS_SEED, lookOf, summarizeAction, type FaceSpec } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
 import { attachmentBlocks, isPdfFile, readAttachments, type Attachment } from "./attachments.js";
 import { type Profile } from "./profile.js";
@@ -166,6 +167,8 @@ export const BUILD_SETTINGS_KEY = "builds";
 export const CHANNEL_AUDIENCE_KEY = "discord.audience";
 /** Which Discord thread stands for which chat. */
 export const THREAD_BINDINGS_KEY = "discord.threads";
+/** The face the Discord bot wears, as a hash of the PNG, so it is set again only when the look changes. */
+export const WORN_FACE_KEY = "discord.face";
 
 /** One channel of the server layout. */
 export interface SurfaceChannel {
@@ -1693,18 +1696,44 @@ export class Kernel {
    * anything can reuse it. Redrawn when the look changes; the files follow.
    */
   faceOf(record: RoleRecord): string {
-    const spec = lookOf(record.name, record.face ?? {});
-    const key = `${record.name}|${JSON.stringify(record.face ?? {})}`;
+    return this.drawFace(`${record.name}|${JSON.stringify(record.face ?? {})}`, lookOf(record.name, record.face ?? {}), record.folder);
+  }
+
+  /** KOS's own face as a PNG, base64: the big blob, as set under Settings, Appearance. */
+  face(): string {
+    const look = parseFaceLook(this.settings.get(KOS_FACE_KEY));
+    return this.drawFace(`${KOS_SEED}|${JSON.stringify(look)}`, lookOf(KOS_SEED, look));
+  }
+
+  /**
+   * KOS's face when the Discord bot is not wearing it yet: the PNG and its
+   * hash, for the host to put on the bot and then record with wearFace.
+   * Nothing when the bot already wears this look.
+   */
+  faceToWear(): { png: string; hash: string } | undefined {
+    const png = this.face();
+    const hash = createHash("sha256").update(png).digest("hex").slice(0, 16);
+    return this.settings.get(WORN_FACE_KEY) === hash ? undefined : { png, hash };
+  }
+
+  /** The bot now wears the face with this hash. */
+  wearFace(hash: string): void {
+    this.settings.set(WORN_FACE_KEY, hash);
+  }
+
+  private drawFace(key: string, spec: FaceSpec, folder?: string): string {
     const cached = this.faces.get(key);
     if (cached) return cached;
     const png = facePng(spec);
-    try {
-      const dir = this.workspace.resolve(record.folder);
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, "face.png"), png);
-      writeFileSync(join(dir, "face.svg"), faceSvg(spec));
-    } catch {
-      // The picture still goes out; the file is a convenience.
+    if (folder) {
+      try {
+        const dir = this.workspace.resolve(folder);
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "face.png"), png);
+        writeFileSync(join(dir, "face.svg"), faceSvg(spec));
+      } catch {
+        // The picture still goes out; the file is a convenience.
+      }
     }
     const data = png.toString("base64");
     this.faces.set(key, data);

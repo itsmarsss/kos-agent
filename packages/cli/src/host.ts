@@ -378,6 +378,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       ...(creds.guildId ? { guildId: creds.guildId } : {}),
       // Which thread stands for which chat: the kernel keeps it, the adapter asks.
       threadOf: (threadId) => kernel.threadBindings()[threadId],
+      // Who speaks from a chat, so a blob's story in its channel is the blob's.
+      senderOf: (conversationId) => kernel.senderFor(conversationId),
     });
     /*
      * A button KOS sent comes back as a message.
@@ -461,6 +463,22 @@ export async function runHost(options: HostOptions): Promise<void> {
       discord: true,
     });
     console.log("Discord: listening for DMs");
+    /*
+     * The bot wears KOS's own face, as set under Settings, Appearance, and
+     * is given it again only when the look changes: Discord allows an
+     * avatar to change a few times an hour, not on every check.
+     */
+    const wear = async (): Promise<void> => {
+      const face = kernel.faceToWear();
+      if (!face) return;
+      try {
+        await adapter!.wearFace(face.png);
+        kernel.wearFace(face.hash);
+      } catch (err) {
+        console.warn(`Discord: the bot could not be given KOS's face: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    };
+    await wear();
     if (creds.guildId) {
       /*
        * The server mirrors the dashboard: a channel per project and per
@@ -470,6 +488,7 @@ export async function runHost(options: HostOptions): Promise<void> {
        * are said once, and KOS goes on as a DM.
        */
       const sync = async (first: boolean): Promise<void> => {
+        if (!first) await wear();
         try {
           const made = await layOut();
           if (first || made.created.length || made.threads.length) {
@@ -483,6 +502,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       };
       await sync(true);
       setInterval(() => void sync(false), 5 * 60_000).unref();
+    } else {
+      setInterval(() => void wear(), 5 * 60_000).unref();
       /*
        * The server shows every exchange, wherever it happened. A turn taken
        * on the dashboard, by a schedule or by a dispatch lands in the

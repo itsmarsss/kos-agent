@@ -317,6 +317,20 @@ describe("Kernel", () => {
     expect(file?.text).toContain("kettle 42");
   });
 
+  it("draws KOS's own face for the bot to wear, and again only when the look changes", async () => {
+    kernel = await boot(stubInference([]));
+    const first = kernel.faceToWear()!;
+    expect(Buffer.from(first.png, "base64").subarray(1, 4).toString("ascii")).toBe("PNG");
+    expect(first.hash).toMatch(/^[0-9a-f]{16}$/);
+    // Worn: nothing to do until the look changes.
+    kernel.wearFace(first.hash);
+    expect(kernel.faceToWear()).toBeUndefined();
+    kernel.settings.set("kos.face", { colour: "#8b5cf6" });
+    const next = kernel.faceToWear()!;
+    expect(next.hash).not.toBe(first.hash);
+    expect(next.png).not.toBe(first.png);
+  });
+
   it("sends the owner a reporting blob's answer after each scheduled run, tagged as the blob's", async () => {
     const answer = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
     const seen: NotifyPayload[] = [];
