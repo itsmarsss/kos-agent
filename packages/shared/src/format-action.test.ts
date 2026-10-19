@@ -45,6 +45,8 @@ describe("summaries for the browser", () => {
     expect(summarizeAction("mcp.browser.agent_browser_eval", { script: "document.title" })).toMatch(/^Run script in the page/);
     expect(summarizeAction("mcp.browser.agent_browser_wait_for_text", { text: "Done" })).toBe("wait for text");
     expect(summarizeAction("browser.visit", { url: "https://example.com" })).toBe("Visit https://example.com");
+    // Several pages in one visit used to show as "Visit —".
+    expect(summarizeAction("browser.visit", { urls: ["https://a.example", "https://b.example"] })).toBe("Visit https://a.example, https://b.example");
     expect(summarizeAction("browser.tabs", {})).toBe("List the browser's tabs");
     expect(summarizeAction("browser.use_tab", { tab: "T3" })).toBe("Switch to tab T3");
     expect(summarizeAction("browser.new_tab", { url: "https://example.com" })).toBe("Open a new tab at https://example.com");
