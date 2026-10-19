@@ -672,7 +672,13 @@ export class Kernel {
     // whatever the chat belongs to and before a PDF is turned into text, so
     // the file outlives the turn: a later turn, another chat or a blob can
     // open it by path, and a surface showing the chat elsewhere can show it.
-    if (opts.attachments?.length) opts = { ...opts, kept: this.keepAttachments(sessionId, opts.attachments) };
+    if (opts.attachments?.length) {
+      const kept = this.keepAttachments(sessionId, opts.attachments);
+      // Each attachment learns where it was kept, so the transcript can open
+      // the file itself rather than the words it was read as.
+      const paths = new Map(kept.map((k) => [k.name, k.path]));
+      opts = { ...opts, attachments: opts.attachments.map((a) => (paths.has(a.name) ? { ...a, path: paths.get(a.name)! } : a)), kept };
+    }
     // A document among the attachments (a PDF, a Word, Excel or PowerPoint
     // file) becomes the text it reads as, once, here: every door (dashboard,
     // surface, API) comes through this method, and what is parked, recorded

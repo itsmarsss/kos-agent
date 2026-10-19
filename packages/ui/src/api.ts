@@ -455,7 +455,7 @@ export type ChatEvent =
       role: "you" | "kos" | "system";
       text: string;
       /** What came with this turn: images and text files, with their names. */
-      attachments?: { name: string; src?: string; text?: string }[];
+      attachments?: { name: string; src?: string; text?: string; path?: string }[];
     }
   | {
       kind: "tool";

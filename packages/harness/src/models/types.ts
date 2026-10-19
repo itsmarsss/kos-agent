@@ -55,6 +55,8 @@ export interface ThinkingBlock {
  */
 export interface ImageBlock {
   type: "image";
+  /** Where the picture is kept in the workspace, when it is. */
+  path?: string;
   /** The filename it was attached under, so a reader sees what they sent. */
   name?: string;
   /** Image media type, e.g. "image/png". */
@@ -86,6 +88,8 @@ export interface FileBlock {
   type: "file";
   name: string;
   text: string;
+  /** Where the file itself is kept in the workspace, when it is: the reader can open that rather than the words. */
+  path?: string;
 }
 
 export type ContentBlock =
