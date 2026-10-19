@@ -339,8 +339,17 @@ function defineAdminTools(deps: DiscordServices, ctx: ModuleContext): void {
       const bound = await deps.bind(str(input, "channel"), to);
       return JSON.stringify({ ...bound, note: `#${bound.name} is ${to}'s home now (${bound.audience === "guests" ? "members read and write there, and are heard" : bound.audience === "everyone" ? "members read there" : "the owner's alone"}).` });
     },
-    // The chat will show in the channel: an ask when anyone else can see it.
-    { floor: "safe", escalate: () => true },
+    // The chat will show in the channel: an ask when anyone else can see
+    // it, none for a channel of the owner's alone. A channel KOS has not
+    // seen yet is asked about, since nothing says who reads it.
+    {
+      floor: "safe",
+      escalate: (input) => {
+        const want = String(input["channel"] ?? "").trim().replace(/^#/, "").toLowerCase();
+        const place = deps.known().find((p) => p.id === want || p.name.toLowerCase() === want);
+        return !place || place.audience !== "owner";
+      },
+    },
     { restricted: true },
   );
 
@@ -408,8 +417,9 @@ function defineAdminTools(deps: DiscordServices, ctx: ModuleContext): void {
       const made = await deps.createRole(str(input, "name"), colour);
       return JSON.stringify({ ...made, note: `Made the role ${made.name}. The owner hands it out in Discord; name it in discord.access to let its holders somewhere.` });
     },
-    // A role is a thing other people will hold.
-    { floor: "safe", escalate: () => true },
+    // A role is a thing other people will hold, but it holds nothing until
+    // discord.access lets its holders somewhere, and that is where the ask is.
+    { floor: "safe" },
     { restricted: true },
   );
 

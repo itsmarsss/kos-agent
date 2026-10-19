@@ -33,8 +33,9 @@ describe("cronModule", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("schedules an actions job (risky tier) and persists it", async () => {
-    expect(registry.classify("cron.schedule", {}).tier).toBe("risky");
+  it("schedules an actions job without asking, and persists it", async () => {
+    // A job is the owner's standing instruction; what a run does is gated when it runs.
+    expect(registry.classify("cron.schedule", {}).tier).toBe("safe");
     const res = await registry.execute("cron.schedule", {
       name: "weekly",
       schedule: "0 9 * * 1",

@@ -113,7 +113,7 @@ or for one member by id: `discord.server` (everything on the server, KOS's
 and not, and the roles), `discord.make`, `discord.role` and
 `discord.access`. A place is yours alone until access names someone;
 letting anyone in asks you first, shutting a place back does not, and a
-role always asks. Posting into a place it made is `notify` to
+role asks nothing until access hands it out. Posting into a place it made is `notify` to
 `discord:channel:<id>`, with buttons or a form where something should be
 pressed or filled in, so a board for other people is a category, a role,
 a channel or two and a message with buttons.
@@ -125,7 +125,8 @@ leaves a channel you placed in a category of your own where it is, and
 lets go of the one it had laid out. What the chat says shows there, what
 you say there reaches it, a project's scheduled runs post there under the
 job's name, and the channel's own permissions say who may read and write.
-Binding asks you, since the chat will show in the channel.
+Binding asks you when others can see the channel, since the chat will
+show there; a channel of yours alone binds without asking.
 
 A channel is named in words the way Discord names it, `#general`, on
 every surface: on the server it goes out as the channel itself, on the

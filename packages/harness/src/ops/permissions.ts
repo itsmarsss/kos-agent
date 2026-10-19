@@ -1,6 +1,7 @@
 import type { Db } from "../store/db.js";
 import { hostOf, isSqlWrite, programOf, writtenTables } from "../risk/rules.js";
 import { parseMentions } from "../kernel/mentions.js";
+import { parseTarget } from "../tools/notify.js";
 
 /**
  * Decisions the owner has made before, kept.
@@ -118,6 +119,17 @@ export function scopeOf(tool: string, input: Record<string, unknown>, context?: 
     const ref = parseMentions(to)[0];
     if (ref) return `to:${ref.kind}:${ref.id}`;
     return to ? `to:${to}` : undefined;
+  }
+  if (tool === "notify") {
+    // By destination: a remembered yes for one channel must not let a post
+    // into another, or a message to a person. Sending to the owner never asks.
+    try {
+      const target = parseTarget(input["to"]);
+      if (target.kind === "owner") return null;
+      return `to:${target.surface ? `${target.surface}:` : ""}${target.kind}:${target.id}`;
+    } catch {
+      return undefined;
+    }
   }
   if (tool === "systems.migrate") {
     const spec = input["spec"];

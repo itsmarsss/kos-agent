@@ -14,6 +14,12 @@ describe("naming a call's scope", () => {
   });
 
   it("names a hand-off by its target, as the owner named it", () => {
+    // A post is remembered for its destination alone; a word to the owner never asks.
+    expect(scopeOf("notify", { to: "discord:channel:123", text: "x" })).toBe("to:discord:channel:123");
+    expect(scopeOf("notify", { to: "channel:123", text: "x" })).toBe("to:channel:123");
+    expect(scopeOf("notify", { to: "user:9", text: "x" })).toBe("to:user:9");
+    expect(scopeOf("notify", { text: "x" })).toBeNull();
+    expect(scopeOf("notify", { to: 42, text: "x" })).toBeUndefined();
     expect(scopeOf("chats.handoff", { to: "@project:books", brief: "x" })).toBe("to:project:books");
     expect(scopeOf("chats.handoff", { to: "@chat:[abc:owner]", brief: "x" })).toBe("to:chat:abc:owner");
     expect(scopeOf("chats.handoff", { to: "books", brief: "x" })).toBe("to:books");

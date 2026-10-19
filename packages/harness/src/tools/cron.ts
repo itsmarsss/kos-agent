@@ -9,14 +9,12 @@ import { requireServices } from "../modules/loader.js";
 /**
  * The `cron` tool module: lets the agent schedule, list, run and remove jobs.
  * Jobs are stored data (a schedule plus actions or a self_prompt); the
- * scheduler runs them. Scheduling is risky-tier, so a new job goes to approval
- * before it can fire unattended. Listing and removing are safe.
- *
- * cron.run is risky for a different reason from cron.schedule. Firing a job
- * runs whatever that job holds -- a write, a message to a channel -- and the
- * risk gate cannot see any of it from the arguments to this call, which are
- * only an id. So the decision is put to the owner at the point where the
- * consequences are still knowable: the job, by name.
+ * scheduler runs them. Scheduling and running ask nothing: a job is the
+ * owner's own standing instruction, and what a run does is gated when it
+ * runs, since an unattended run queues anything risky for the owner and
+ * does nothing until they decide. Scheduling used to ask, and so did
+ * running a job by hand, which put an approval in front of "remind me every
+ * Saturday" while the reminder itself would have asked if it needed to.
  */
 
 export interface CronToolDeps {
@@ -167,7 +165,7 @@ function activate(ctx: ModuleContext, deps: CronToolDeps): void {
       const job = store.create(parsed);
       return JSON.stringify({ id: job.id, name: job.name, ...(job.projectSlug ? { projectSlug: job.projectSlug } : {}) });
     },
-    { floor: "risky" },
+    { floor: "safe" },
   );
 
   ctx.registerTool(
@@ -232,7 +230,7 @@ function activate(ctx: ModuleContext, deps: CronToolDeps): void {
         ? `ran ${job.name}`
         : `${job.name} did not succeed: ${result.error ?? "unknown error"}`;
     },
-    { floor: "risky" },
+    { floor: "safe" },
   );
 }
 

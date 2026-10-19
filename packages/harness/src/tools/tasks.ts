@@ -108,7 +108,8 @@ function defineTasksTools(ctx: ModuleContext): void {
       }
       return JSON.stringify(project);
     },
-    { floor: "risky" },
+    // A list of the owner's own, like a project: nothing leaves and nothing is lost.
+    { floor: "safe" },
     { tags: ["tasks", "systems"] },
   );
 

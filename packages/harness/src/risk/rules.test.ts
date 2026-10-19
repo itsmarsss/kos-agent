@@ -3,11 +3,22 @@ import { describe, expect, it } from "vitest";
 import {
   domainAllowlistEscalation,
   isAdditiveMigration,
+  isSqlDestructive,
   isSqlWrite,
   migrationEscalation,
   pathOutsideScratchEscalation,
   sqlWriteEscalation,
 } from "./rules.js";
+
+describe("isSqlDestructive", () => {
+  it("is an update, delete or replace, not an insert or a read", () => {
+    expect(isSqlDestructive("INSERT INTO t VALUES (1)")).toBe(false);
+    expect(isSqlDestructive("SELECT * FROM t")).toBe(false);
+    expect(isSqlDestructive("update t set x=1")).toBe(true);
+    expect(isSqlDestructive("DELETE FROM t WHERE id = 1")).toBe(true);
+    expect(isSqlDestructive("INSERT OR REPLACE INTO t VALUES (1)")).toBe(true);
+  });
+});
 
 describe("isSqlWrite", () => {
   it("detects write and DDL statements", () => {

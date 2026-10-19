@@ -142,7 +142,7 @@ describe("chats.handoff", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("is a risky tool every chat has, and hands the brief to the kernel's door", async () => {
+  it("is a tool every chat has, asking nothing, and hands the brief to the kernel's door", async () => {
     const conversations = new ConversationStore(ws.db);
     const sessions = new SessionStore(ws.db);
     const registry = new ToolRegistry();
@@ -161,7 +161,7 @@ describe("chats.handoff", () => {
       }),
     ]);
     // Not among the restricted delegation tools: offered without a grant.
-    expect(registry.classify("chats.handoff", { to: "@project:books", brief: "x" }).tier).toBe("risky");
+    expect(registry.classify("chats.handoff", { to: "@project:books", brief: "x" }).tier).toBe("safe");
     expect(registry.defs().find((t) => t.name === "chats.handoff")).toBeTruthy();
     const res = await registry.execute("chats.handoff", { to: "@project:books", brief: "Seventeen books restored; the lending table is empty.", ask: " check the lending table " });
     expect(handed).toEqual([{ to: "@project:books", brief: "Seventeen books restored; the lending table is empty.", ask: "check the lending table" }]);

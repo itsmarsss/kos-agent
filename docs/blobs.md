@@ -153,4 +153,5 @@ whichever surface you are on, however the blob was started. The web is
 reachable through KOS's own browser: opening a page, scrolling it and
 waiting for it to render are reads and run unasked, so a watcher can check
 its pages every run on its own; clicking, typing or filling a form asks you
-first, once per blob if you say to remember it.
+first, once per site if you say to remember it: everywhere, when said from
+the blob's own thread, and within the project when said from a project's.
