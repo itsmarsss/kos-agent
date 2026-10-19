@@ -1389,6 +1389,23 @@ describe("KOS end-to-end flows", () => {
     expect(offered.some((n) => n.startsWith("cron"))).toBe(true);
   });
 
+  it("hands a project's orchestrator its tools when KOS dispatches to it, and a sub-agent none", async () => {
+    const offered: string[][] = [];
+    kernel = await boot({
+      async generate(_t, r) {
+        offered.push((r.tools ?? []).map((t) => t.name));
+        return { content: [{ type: "text", text: "ok" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    });
+    const project = kernel.standUpProject({ name: "Club", type: "notes" });
+    await kernel.dispatchTo(project.conversationId, "set the board up");
+    expect(offered.at(-1)).toEqual(expect.arrayContaining(["chats.create", "blobs.list"]));
+    const sub = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Worker", projectSlug: project.slug });
+    await kernel.dispatchTo(sub.id, "do a thing");
+    expect(offered.at(-1)).not.toEqual(expect.arrayContaining(["chats.create"]));
+    expect(offered.at(-1)).not.toEqual(expect.arrayContaining(["blobs.list"]));
+  });
+
   it("keeps the chats tools out of an ordinary conversation", async () => {
     const model = scripted([
       toolCall("c1", "chats.create", { title: "sneaky", brief: "x" }),

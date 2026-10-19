@@ -1873,10 +1873,17 @@ export class Kernel {
   ): Promise<{ reply: string; conversationId: string }> {
     const conversation = this.conversations.get(conversationId);
     if (!conversation) throw new Error(`no such conversation: ${conversationId}`);
-    // The sub-agent is never granted the chats tools, so a dispatched turn
-    // cannot dispatch again and there is no recursion to bound.
+    // A sub-agent is never granted the chats tools, so a dispatched turn
+    // cannot dispatch again and there is no recursion to bound. A project's
+    // own orchestrator is the exception: handed its goal by KOS it is still
+    // the orchestrator, and ran without its tools it could not stand the
+    // project up, which it was dispatched to do.
+    const orchestrates = conversation.id.startsWith("project:") || conversation.id === orchestratorId(this.profile.ownerId);
     const turn = (): Promise<HandleResult> =>
-      this.runTurn(text, conversation.userId, conversation.id, { channel: "dispatch" });
+      this.runTurn(text, conversation.userId, conversation.id, {
+        channel: "dispatch",
+        ...(orchestrates ? { grant: [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOOLS], allow: [...ORCHESTRATOR_SCOPE] } : {}),
+      });
     /*
      * In the target's own lane, behind anything already running there.
      *
