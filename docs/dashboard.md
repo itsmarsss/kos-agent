@@ -7,7 +7,8 @@ The sidebar is the map. `⌘K` opens search and commands from anywhere.
 Opening KOS opens a conversation. With nothing open, the landing is a
 composer: type, press Enter, and a chat is made, your message sent, the turn
 under way. Shift+Enter is a newline. Attach a picture, a text file or a
-PDF: a PDF is read as its text, page by page, on the way in, and the same
+document: a PDF is read as its text, page by page, on the way in, and a
+Word, Excel or PowerPoint file as its paragraphs, rows or slides; the same
 holds for one sent on Discord or found in the workspace or at a url.
 
 The list on the left:

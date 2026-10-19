@@ -1,3 +1,4 @@
+import { officeKindOf, officeNote, officeText } from "../files/office.js";
 import { pdfText } from "../files/pdftext.js";
 import type { ContentBlock } from "../models/types.js";
 
@@ -48,20 +49,31 @@ export function isPdfFile(mediaType: string, name: string): boolean {
   return mediaType === "application/pdf" || /\.pdf$/i.test(name);
 }
 
-/** What a turn can carry: a picture, a text file, or a PDF (read as text on the way in). */
+/** A Word, Excel or PowerPoint file, by type or by name. */
+export function isOfficeFile(mediaType: string, name: string): boolean {
+  return officeKindOf(mediaType, name) !== undefined;
+}
+
+/** A document that is read into text on the way in: a PDF or an Office file. */
+export function isDocument(mediaType: string, name: string): boolean {
+  return isPdfFile(mediaType, name) || isOfficeFile(mediaType, name);
+}
+
+/** What a turn can carry: a picture, a text file, or a document (read as text on the way in). */
 export function isReadable(mediaType: string, name: string): boolean {
-  return isImage(mediaType) || isTextual(mediaType, name) || isPdfFile(mediaType, name);
+  return isImage(mediaType) || isTextual(mediaType, name) || isDocument(mediaType, name);
 }
 
 /**
- * Attachments with every PDF turned into the text file it reads as, so the
- * rest of the path (the blocks, both engines, the transcript) sees only
- * pictures and text. Done once, at the door, rather than in each engine.
+ * Attachments with every document (a PDF, a Word, Excel or PowerPoint file)
+ * turned into the text file it reads as, so the rest of the path (the
+ * blocks, both engines, the transcript) sees only pictures and text. Done
+ * once, at the door, rather than in each engine.
  */
 export async function readAttachments(attachments: Attachment[]): Promise<Attachment[]> {
   const out: Attachment[] = [];
   for (const file of attachments) {
-    if (!isPdfFile(file.mediaType, file.name) || isTextual(file.mediaType, file.name)) {
+    if (!isDocument(file.mediaType, file.name) || isTextual(file.mediaType, file.name)) {
       out.push(file);
       continue;
     }
@@ -69,9 +81,18 @@ export async function readAttachments(attachments: Attachment[]): Promise<Attach
     if (bytes.byteLength > MAX_BYTES) {
       throw new Error(`${file.name} is ${Math.round(bytes.byteLength / 1024 / 1024)}MB; the limit is ${MAX_BYTES / 1024 / 1024}MB`);
     }
-    const read = await pdfText(new Uint8Array(bytes));
-    const head = `[${file.name}: ${read.pages} page${read.pages === 1 ? "" : "s"}${read.truncated ? ", cut at the cap" : ""}]\n`;
-    out.push({ name: file.name, mediaType: "text/plain", data: Buffer.from(`${head}${read.text}`, "utf8").toString("base64") });
+    let note: string;
+    let text: string;
+    if (isPdfFile(file.mediaType, file.name)) {
+      const read = await pdfText(new Uint8Array(bytes));
+      note = `${read.pages} page${read.pages === 1 ? "" : "s"}${read.truncated ? ", cut at the cap" : ""}`;
+      text = read.text;
+    } else {
+      const read = officeText(new Uint8Array(bytes), file.name, file.mediaType);
+      note = officeNote(read);
+      text = read.text;
+    }
+    out.push({ name: file.name, mediaType: "text/plain", data: Buffer.from(`[${file.name}: ${note}]\n${text}`, "utf8").toString("base64") });
   }
   return out;
 }
