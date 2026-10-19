@@ -372,6 +372,20 @@ describe("Kernel", () => {
     expect(kernel.threadBindings()).toEqual({ t2: root.id });
   });
 
+  it("keeps a channel's guests setting, and only writes a change", async () => {
+    kernel = await boot({
+      async generate() {
+        return { content: [{ type: "text", text: "ok" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    });
+    kernel.setChannelAudience("project:club", "guests");
+    expect(kernel.channelAudiences()).toEqual({ "project:club": "guests" });
+    kernel.setChannelAudience("project:club", "everyone");
+    expect(kernel.channelAudiences()).toEqual({ "project:club": "everyone" });
+    kernel.setChannelAudience("project:club", "owner");
+    expect(kernel.channelAudiences()).toEqual({});
+  });
+
   it("finds the kept file behind an attachment stored without its path", async () => {
     kernel = await boot({ async generate() { return { content: [{ type: "text", text: "ok" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" }; } });
     const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Older" });

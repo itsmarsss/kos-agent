@@ -2423,13 +2423,17 @@ export class Kernel {
     const raw = this.settings.get(CHANNEL_AUDIENCE_KEY);
     if (typeof raw !== "object" || raw === null) return {};
     const out: Record<string, Audience> = {};
-    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) if (value === "everyone" || value === "owner") out[key] = value;
+    // "guests" was missing here, so a channel opened to guests read back as
+    // the owner's alone: the next layout shut it, and no guest was ever heard.
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) if (value === "everyone" || value === "guests" || value === "owner") out[key] = value;
     return out;
   }
 
-  /** Set who may see a channel. Kept as a setting, so the next layout applies it; the surface applies it now. */
+  /** Who may see a channel, as last read from the surface or set through it; the guest gate reads this. */
   setChannelAudience(key: string, audience: Audience): void {
-    const next = { ...this.channelAudiences() };
+    const current = this.channelAudiences();
+    if ((current[key] ?? "owner") === audience) return;
+    const next = { ...current };
     if (audience === "owner") delete next[key];
     else next[key] = audience;
     this.settings.set(CHANNEL_AUDIENCE_KEY, next);

@@ -767,7 +767,7 @@ describe("DiscordAdapter authorization", () => {
     ]);
     // The renamed project channel is kept by its binding; the rest are made under their categories,
     // and the one category that was missing is made first, owner-only.
-    expect(result).toEqual({ created: ["kos", "needs-you"], kept: ["my-garden"], threads: [] });
+    expect(result).toMatchObject({ created: ["kos", "needs-you"], kept: ["my-garden"], threads: [] });
     const texts = created.filter((c) => c["type"] === ChannelType.GuildText);
     expect(texts.map((c) => [c["name"], c["parent"], c["topic"]])).toEqual([
       ["kos", "cat", "kos:orchestrator:owner · KOS"],
@@ -795,7 +795,7 @@ describe("DiscordAdapter authorization", () => {
     expect(sent).toHaveLength(1);
     expect(String(sent[0]?.content).split("\n")[0]).toBe("**Nightly needs your OK** · Delete b.txt");
     // No server: nothing to lay out.
-    expect(await new DiscordAdapter({ token: "t" }).sync([])).toEqual({ created: [], kept: [], threads: [] });
+    expect(await new DiscordAdapter({ token: "t" }).sync([])).toEqual({ created: [], kept: [], threads: [], audiences: {} });
   });
 
   it("makes places and roles of the owner's beyond its own layout, and sets who may see and write in them", async () => {
@@ -1019,13 +1019,14 @@ describe("DiscordAdapter authorization", () => {
       { key: "project:garden", name: "garden", audience: "owner" },
       { key: "agent:recap", name: "recap", audience: "everyone" },
     ]);
-    // A sync puts a drifted channel back to what the plan says, and leaves the others alone.
-    await adapter.sync([
+    // A sync leaves a channel's permissions as Discord has them, whatever the plan says, and reports what they are.
+    const synced = await adapter.sync([
       { key: "project:garden", name: "garden", topic: "x", category: "KOS", audience: "owner" },
       { key: "agent:recap", name: "recap", topic: "x", category: "KOS", audience: "owner" },
     ]);
     expect(applied["c1"]).toBeUndefined();
-    expect(applied["c2"]?.[0]?.[0]).toEqual({ id: "g1", type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] });
+    expect(applied["c2"]).toBeUndefined();
+    expect(synced.audiences).toEqual({ "project:garden": "owner", "agent:recap": "everyone" });
     // Opened to everyone: they may read and not write; the owner and the bot keep everything.
     expect(await adapter.setAudience("project:garden", "everyone")).toEqual({ key: "project:garden", name: "garden", audience: "everyone" });
     const opened = applied["c1"]![0]!;
