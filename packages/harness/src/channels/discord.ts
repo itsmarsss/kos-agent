@@ -9,6 +9,7 @@ import {
   GatewayIntentBits,
   MessageFlags,
   ModalBuilder,
+  OverwriteType,
   Partials,
   PermissionFlagsBits,
   TextInputBuilder,
@@ -291,17 +292,26 @@ export interface ServerChannel {
 }
 
 /** The permissions that make a channel what its audience says. */
-function overwritesFor(audience: Audience, ids: { everyone: string; owner?: string; bot?: string }): { id: string; allow?: bigint[]; deny?: bigint[] }[] {
+function overwritesFor(audience: Audience, ids: { everyone: string; owner?: string; bot?: string }): Overwrite[] {
   const P = PermissionFlagsBits;
   const talk = [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.SendMessagesInThreads, P.CreatePublicThreads];
+  // Each id says what it is: a bare snowflake is refused by the library
+  // unless it is already cached, and the owner rarely is.
   return [
     // Everyone else: nothing, or a window in: they read, they do not write.
     audience === "everyone"
-      ? { id: ids.everyone, allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages, P.SendMessagesInThreads, P.CreatePublicThreads, P.CreatePrivateThreads] }
-      : { id: ids.everyone, deny: [P.ViewChannel] },
-    ...(ids.owner ? [{ id: ids.owner, allow: talk }] : []),
-    ...(ids.bot ? [{ id: ids.bot, allow: [...talk, P.ManageWebhooks, P.ManageThreads, P.ManageMessages] }] : []),
+      ? { id: ids.everyone, type: OverwriteType.Role, allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages, P.SendMessagesInThreads, P.CreatePublicThreads, P.CreatePrivateThreads] }
+      : { id: ids.everyone, type: OverwriteType.Role, deny: [P.ViewChannel] },
+    ...(ids.owner ? [{ id: ids.owner, type: OverwriteType.Member, allow: talk }] : []),
+    ...(ids.bot ? [{ id: ids.bot, type: OverwriteType.Member, allow: [...talk, P.ManageWebhooks, P.ManageThreads, P.ManageMessages] }] : []),
   ];
+}
+
+interface Overwrite {
+  id: string;
+  type: OverwriteType;
+  allow?: bigint[];
+  deny?: bigint[];
 }
 
 /** As much of a text channel as the audience code touches. */
@@ -310,7 +320,7 @@ interface OverwritableChannel {
   name: string;
   permissionOverwrites?: {
     cache: Map<string, { deny: { has: (bit: bigint) => boolean } }>;
-    set: (overwrites: { id: string; allow?: bigint[]; deny?: bigint[] }[]) => Promise<unknown>;
+    set: (overwrites: Overwrite[]) => Promise<unknown>;
   };
 }
 
