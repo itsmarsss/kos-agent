@@ -277,6 +277,12 @@ export interface DiscordAdapterOptions {
    * carry no topic, so the binding lives with the kernel and is asked for.
    */
   threadOf?: (threadId: string) => string | undefined;
+  /**
+   * Who speaks from a conversation when it is a blob's: its name and face,
+   * so the story of a turn in its channel is told as the blob, the way the
+   * answer is. KOS's own conversations have no speaker and the bot tells it.
+   */
+  senderOf?: (conversationId: string) => Sender | undefined;
 }
 
 /** A channel the server should have, bound to a conversation by its topic. */
@@ -634,6 +640,7 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly dashboardUrl?: string;
   private readonly guildId?: string;
   private readonly threadOf?: (threadId: string) => string | undefined;
+  private readonly senderOf?: (conversationId: string) => Sender | undefined;
   /** The server's approvals channel, once sync has found or made it. */
   private approvalsChannelId?: string;
   /** One webhook per channel, made on first use, through which a blob speaks as itself. */
@@ -650,6 +657,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (options.dashboardUrl) this.dashboardUrl = options.dashboardUrl;
     if (options.guildId) this.guildId = options.guildId;
     if (options.threadOf) this.threadOf = options.threadOf;
+    if (options.senderOf) this.senderOf = options.senderOf;
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
@@ -844,6 +852,16 @@ export class DiscordAdapter implements ChannelAdapter {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Put KOS's own face on the bot, so what KOS says wears it the way a
+   * blob's words wear theirs. Discord allows an avatar to change a few
+   * times an hour, so the caller does this when the look changes, not often.
+   */
+  async wearFace(png: string): Promise<void> {
+    if (!this.client.user) throw new Error("not logged in");
+    await this.client.user.setAvatar(Buffer.from(png, "base64"));
   }
 
   /** Conversations with a thread already, kept here from what the kernel hands back. */
@@ -1354,34 +1372,39 @@ export class DiscordAdapter implements ChannelAdapter {
      * the eye, and the answer is what should buzz. Its point is order. An
      * approval card used to be the first thing the owner saw of a turn,
      * with nothing before it saying why; now the words that led to it are
-     * on the screen first. When the turn ends the marker goes and the story
-     * stays, as the record of what was done.
+     * on the screen first. When the turn ends the story stays, as the
+     * record of what was done. The reaction on the owner's message is what
+     * says the turn is still going: a marker in the story's first line put
+     * "⏳ -# ›" on the screen, since subtext renders only at a line's start.
+     *
+     * In a blob's channel the story is the blob's, told through its webhook
+     * under its name and face, the way the answer is; with the bot telling
+     * it and the blob answering, one turn read as two speakers.
      */
-    let story: { edit: (payload: { content: string }) => Promise<unknown> } | undefined;
-    let told = "";
-    const settle = async (): Promise<void> => {
-      if (!story || !told) return;
-      try {
-        await story.edit({ content: told });
-      } catch {
-        // Deleted, or too old to edit: the answer still lands.
+    const bound = msg.conversationId ?? msg.conversationKey;
+    const from = message.guild && bound ? this.senderOf?.(bound) : undefined;
+    let story: { edit: (content: string) => Promise<unknown> } | undefined;
+    const tell = async (content: string): Promise<typeof story> => {
+      const silent = { content, flags: MessageFlags.SuppressNotifications as const };
+      const via = from ? await this.webhookFor(message.channel as Parameters<DiscordAdapter["webhookFor"]>[0], from).catch(() => undefined) : undefined;
+      if (via && from) {
+        const thread = via.threadId ? { threadId: via.threadId } : {};
+        const posted = await via.hook.send({ ...silent, username: from.name, ...thread });
+        return { edit: (next) => via.hook.editMessage(posted.id, { content: next, ...thread }) };
       }
+      if (!channel?.send) return undefined;
+      const posted = (await channel.send(silent)) as { edit: (payload: { content: string }) => Promise<unknown> };
+      return { edit: (next) => posted.edit({ content: next }) };
     };
 
     return {
       update: async (status: string) => {
-        told = storyText(status, this.dashboardUrl);
-        const content = `${REACT_WORKING} ${told}`;
-        if (story) {
-          await story.edit({ content });
-          return;
-        }
-        if (!channel?.send) return;
-        story = (await channel.send({ content, flags: MessageFlags.SuppressNotifications })) as typeof story;
+        const content = storyText(status, this.dashboardUrl);
+        if (story) await story.edit(content);
+        else story = await tell(content);
       },
       complete: async (reply: OutboundMessage) => {
         await swapReact(REACT_WORKING, REACT_DONE);
-        await settle();
         // In a server, a blob answers as itself: through the channel's
         // webhook, under its own name, with no tag line needed.
         if (reply.from && message.guild && (await this.sendAs(message.channel as Parameters<DiscordAdapter["sendAs"]>[0], reply))) return;
@@ -1394,7 +1417,6 @@ export class DiscordAdapter implements ChannelAdapter {
       },
       fail: async (err: string) => {
         await swapReact(REACT_WORKING, REACT_FAIL);
-        await settle();
         const text = noPreviews(`❌ ${err.slice(0, 1900)}`);
         try {
           await post({ content: text });

@@ -15,8 +15,9 @@ the dashboard's Inbox carry the same words. While a turn that takes
 steps runs, one silent message tells its story, the words KOS says and
 the steps it takes, redrawn as they happen, so the card for an approval
 never lands first; when the answer comes, as its own message, the story
-stays as the record of what was done. A turn with no steps gets no extra
-message.
+stays as the record of what was done. The hourglass reaction on your
+message is what says the turn is still going; the story carries no marker
+of its own. A turn with no steps gets no extra message.
 
 Blobs, KOS's standing helpers, work from here as from the dashboard: "keep an eye on
 this listing" said in the DM makes one, "ask recap what I got done" sends
@@ -40,7 +41,10 @@ Give KOS a server and it lays the dashboard out in three categories.
 `#needs-you` (every approval, with its buttons, instead of your DM).
 `Blobs` holds a channel per blob, its own thread; a blob answers there
 under its own name and wearing its own face, through a webhook of its own
-in the channel, not as the bot. `Projects` holds a
+in the channel, not as the bot, and the story of its steps is told the
+same way, so a turn reads as one speaker. The bot itself wears KOS's face,
+the one set under Settings, Appearance, and changes it when that does.
+`Projects` holds a
 channel per project, its orchestrator, so "add a tracker for this" said
 there lands in that project; and under each project's channel, a thread
 for every chat in the project, so the agents working in it read as the

@@ -227,13 +227,18 @@ describe("the answer a turn shaped", () => {
     const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "hi", native: message });
     await presence!.update("I'll look at the folder.\n› List projects/x");
     // Silent, so the owner's phone buzzes for the answer and not for this.
-    expect(edits[0]).toEqual({ content: "⏳ I'll look at the folder.\n-# › List projects/x", flags: MessageFlags.SuppressNotifications });
+    // No marker in the words: the reaction says the turn is going, and a
+    // "⏳" before a step line left "⏳ -# ›" on the screen, since subtext
+    // renders only at the start of a line.
+    expect(edits[0]).toEqual({ content: "I'll look at the folder.\n-# › List projects/x", flags: MessageFlags.SuppressNotifications });
     await presence!.update("I'll look at the folder.\n› List projects/x\nTwo stale builds, I'll clear them.\n› Run: rm -rf build");
-    expect(edits[1]).toEqual({ edit: true, content: "⏳ I'll look at the folder.\n-# › List projects/x\nTwo stale builds, I'll clear them.\n-# › Run: rm -rf build" });
+    expect(edits[1]).toEqual({ edit: true, content: "I'll look at the folder.\n-# › List projects/x\nTwo stale builds, I'll clear them.\n-# › Run: rm -rf build" });
+    await presence!.update("› Read config");
+    expect(edits[2]).toEqual({ edit: true, content: "-# › Read config" });
     await presence!.complete({ text: "Cleared two stale builds." });
-    // The marker goes, the story stays, the answer is its own message.
-    expect(edits[2]).toEqual({ edit: true, content: "I'll look at the folder.\n-# › List projects/x\nTwo stale builds, I'll clear them.\n-# › Run: rm -rf build" });
+    // The story stays as it was told, with no closing edit; the answer is its own message.
     expect(edits[3]).toEqual({ content: "Cleared two stale builds." });
+    expect(edits).toHaveLength(4);
     expect(storyText("x".repeat(3000)).length).toBe(1900);
     // A reference in the story links as it does in the answer, so the same
     // name is not a token in one message and a link in the next.
@@ -936,6 +941,51 @@ describe("DiscordAdapter authorization", () => {
     // KOS's own answer in a server channel is the bot's, as before.
     await presence!.complete({ text: "Done." });
     expect(posted).toEqual([{ content: "Done." }]);
+  });
+
+  it("tells a blob's story as the blob in its channel, through its webhook, and edits it there", async () => {
+    const verity = { name: "Verity", colour: "#eab308", avatar: "AAAA" };
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", senderOf: (id) => (id === "agent:verity" ? verity : undefined) });
+    (adapter as unknown as { client: { user: unknown } }).client.user = { id: "bot" };
+    const posted: Record<string, unknown>[] = [];
+    const viaHook: Record<string, unknown>[] = [];
+    const edited: [string, Record<string, unknown>][] = [];
+    const hook = {
+      name: webhookNameFor(verity),
+      token: "wh",
+      send: async (p: Record<string, unknown>) => { viaHook.push(p); return { id: `m${viaHook.length}` }; },
+      editMessage: async (id: string, p: Record<string, unknown>) => { edited.push([id, p]); return {}; },
+    };
+    const channel = {
+      id: "c3",
+      isThread: () => false,
+      send: async (p: Record<string, unknown>) => { posted.push(p); return { edit: async () => undefined }; },
+      fetchWebhooks: async () => new Map([["w1", hook]]),
+      createWebhook: async () => { throw new Error("one exists"); },
+    };
+    (adapter as unknown as { client: { channels: unknown } }).client.channels = { fetch: async (id: string) => (id === "c3" ? channel : undefined) };
+    const message = { author: { id: "owner-id", bot: false }, guild: { id: "g1" }, channel, content: "what time is it", react: async () => undefined, reactions: { cache: { get: () => undefined } } } as unknown as Message;
+    const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "what time is it", conversationKey: "agent:verity", native: message });
+    await presence!.update("› get_current_time on time");
+    await presence!.update("› get_current_time on time\nNearly midnight.");
+    // Told under the blob's name, silently, and edited through the same webhook; the bot posts nothing.
+    expect(viaHook).toEqual([{ content: "-# › get_current_time on time", flags: MessageFlags.SuppressNotifications, username: "Verity" }]);
+    expect(edited).toEqual([["m1", { content: "-# › get_current_time on time\nNearly midnight." }]]);
+    await presence!.complete({ text: "It is 23:42.", from: verity });
+    expect(viaHook[1]).toEqual({ content: "It is 23:42.", username: "Verity" });
+    expect(posted).toEqual([]);
+    // A thread under the blob's channel posts and edits through the parent's webhook, in the thread.
+    const thread = { ...channel, id: "t1", isThread: () => true, parent: channel };
+    const inThread = { ...(message as unknown as Record<string, unknown>), channel: thread } as unknown as Message;
+    const p2 = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "and now", conversationId: "agent:verity", native: inThread });
+    await p2!.update("› Read clock");
+    await p2!.update("› Read clock\n› Read calendar");
+    expect(viaHook[2]).toMatchObject({ username: "Verity", threadId: "t1" });
+    expect(edited[1]).toEqual(["m3", { content: "-# › Read clock\n-# › Read calendar", threadId: "t1" }]);
+    // KOS's own story, in a channel with no speaker, is the bot's.
+    const kos = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "hi", conversationKey: "orchestrator:owner", native: message });
+    await kos!.update("› List projects");
+    expect(posted).toEqual([{ content: "-# › List projects", flags: MessageFlags.SuppressNotifications }]);
   });
 
   it("hands a press on an agent button back with its token", async () => {
