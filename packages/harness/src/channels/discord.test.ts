@@ -282,7 +282,7 @@ describe("the answer a turn shaped", () => {
     expect(sent.content).toBe("> can you access this\n-# you, on the dashboard");
     expect(sent.files.map((f) => [f.name, f.attachment.toString("utf8")])).toEqual([["receipt.png", "png bytes"]]);
     // A file alone is a message too.
-    await presence!.complete({ files: [{ name: "a.txt", mediaType: "text/plain", data: Buffer.from("a").toString("base64") }] });
+    await presence!.complete({ text: "", files: [{ name: "a.txt", mediaType: "text/plain", data: Buffer.from("a").toString("base64") }] });
     expect((edits.at(-1) as { content?: string; files: unknown[] }).content).toBeUndefined();
     expect((edits.at(-1) as { files: unknown[] }).files).toHaveLength(1);
   });

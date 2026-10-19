@@ -314,7 +314,9 @@ describe("Kernel", () => {
       },
     });
     const files: { conversationId: string; files: { name: string; path: string }[] }[] = [];
-    kernel.bus.on("turn:said", (e) => files.push({ conversationId: e.conversationId, files: e.files }));
+    kernel.bus.on("turn:said", (e) => {
+      files.push({ conversationId: e.conversationId, files: e.files });
+    });
     const png = Buffer.from("not really a png").toString("base64");
     // A root chat: the workspace's own uploads folder, as the file came.
     const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Receipts" });
