@@ -2,6 +2,7 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ChannelType,
   Client,
   EmbedBuilder,
   Events,
@@ -15,6 +16,8 @@ import {
   type Interaction,
   type Message,
   type ModalSubmitInteraction,
+  type TextChannel,
+  type Webhook,
 } from "discord.js";
 import { detailLines, summarizeAction } from "@kos/shared";
 
@@ -28,6 +31,7 @@ import type {
   ApprovalRequest,
   ButtonPressHandler,
   ChannelAdapter,
+  ConversationSeed,
   InboundMessage,
   MessageButton,
   MessageCard,
@@ -259,6 +263,65 @@ export interface DiscordAdapterOptions {
    * to. Without it a reference is tidied to its name and links nowhere.
    */
   dashboardUrl?: string;
+  /**
+   * A server of the owner's that KOS lives in: a channel per project, per
+   * blob and for KOS itself, approvals in one of their own, threads as chats.
+   * Without it, KOS is a DM.
+   */
+  guildId?: string;
+}
+
+/** A channel the server should have, bound to a conversation by its topic. */
+export interface ChannelPlan {
+  /** The conversation id, or "needs-you" for the approvals channel. */
+  key: string;
+  name: string;
+  topic: string;
+}
+
+/** What a message's channel is bound to, read from the channel's topic. */
+export interface ChannelBinding {
+  conversationId: string;
+  newIn?: ConversationSeed;
+}
+
+const TOPIC = /^kos:(\S+)/;
+
+/** The `kos:<conversation>` a topic opens with, or nothing. */
+export function boundKeyOf(topic: string | null | undefined): string | undefined {
+  const m = TOPIC.exec(topic ?? "");
+  return m?.[1];
+}
+
+/**
+ * The conversation a server channel belongs to.
+ *
+ * A text channel KOS made carries `kos:<conversation>` in its topic. A thread
+ * in a project's channel is a chat of that project; one under KOS's own
+ * channel is a chat at the root; one under a blob's channel is the blob's
+ * own thread, since a blob has one conversation. A channel with no binding
+ * is someone else's and KOS stays out of it.
+ */
+export function bindingOf(channel: {
+  id: string;
+  name?: string;
+  topic?: string | null;
+  isThread?: () => boolean;
+  parent?: { topic?: string | null } | null;
+}): ChannelBinding | undefined {
+  if (channel.isThread?.()) {
+    const parentKey = boundKeyOf(channel.parent?.topic);
+    if (!parentKey || parentKey === "needs-you") return undefined;
+    if (parentKey.startsWith("agent:")) return { conversationId: parentKey };
+    const seed: ConversationSeed = {
+      ...(parentKey.startsWith("project:") ? { projectSlug: parentKey.slice("project:".length) } : {}),
+      ...(channel.name ? { title: channel.name } : {}),
+    };
+    return { conversationId: `discord:thread:${channel.id}`, newIn: seed };
+  }
+  const key = boundKeyOf(channel.topic);
+  if (!key || key === "needs-you") return undefined;
+  return { conversationId: key };
 }
 
 /**
@@ -467,6 +530,11 @@ export class DiscordAdapter implements ChannelAdapter {
   private commands?: SlashContext;
   private readonly ownerId?: string;
   private readonly dashboardUrl?: string;
+  private readonly guildId?: string;
+  /** The server's approvals channel, once sync has found or made it. */
+  private approvalsChannelId?: string;
+  /** One webhook per channel, made on first use, through which a blob speaks as itself. */
+  private readonly webhooks = new Map<string, Webhook>();
   private isAuthorized: SenderAuthorizer = () => true;
 
   setAuthorizer(isAuthorized: SenderAuthorizer): void {
@@ -477,6 +545,7 @@ export class DiscordAdapter implements ChannelAdapter {
     this.token = options.token;
     if (options.ownerId) this.ownerId = options.ownerId;
     if (options.dashboardUrl) this.dashboardUrl = options.dashboardUrl;
+    if (options.guildId) this.guildId = options.guildId;
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
@@ -533,9 +602,16 @@ export class DiscordAdapter implements ChannelAdapter {
   /** Gateway MessageCreate handler. Internal; separated for tests. */
   async receiveMessage(message: Message): Promise<void> {
     if (message.author.bot) return;
-    // Only DMs for now (personal agent).
-    if (message.guild) return;
-    if (!this.isAuthorized(message.author.id)) {
+    // In a server, only the owner's server, only its bound channels, and
+    // only the owner: anyone else in the channel is read as the room's
+    // own talk, which KOS stays out of.
+    let binding: ChannelBinding | undefined;
+    if (message.guild) {
+      if (!this.guildId || message.guild.id !== this.guildId) return;
+      if (!this.isAuthorized(message.author.id)) return;
+      binding = bindingOf(message.channel as Parameters<typeof bindingOf>[0]);
+      if (!binding) return;
+    } else if (!this.isAuthorized(message.author.id)) {
       // Log for the owner, stay silent to the sender.
       console.warn(`[discord] ignored DM from unknown sender ${message.author.id}`);
       return;
@@ -552,8 +628,73 @@ export class DiscordAdapter implements ChannelAdapter {
       senderId: message.author.id,
       text: message.content + note,
       ...(attachments.length ? { attachments } : {}),
+      ...(binding ? { conversationId: binding.conversationId } : {}),
+      ...(binding?.newIn ? { newIn: binding.newIn } : {}),
       native: message,
     });
+  }
+
+  /**
+   * Make the server match the plan: a KOS category, and under it a text
+   * channel per plan entry, found by the binding in its topic. Channels that
+   * are there are kept as they are, name and all; the approvals channel is
+   * remembered so prompts go there. Nothing is ever deleted here.
+   */
+  async sync(plans: ChannelPlan[]): Promise<{ created: string[]; kept: string[] }> {
+    if (!this.guildId) return { created: [], kept: [] };
+    const guild = await this.client.guilds.fetch(this.guildId);
+    const existing = await guild.channels.fetch();
+    const byKey = new Map<string, { id: string; name: string }>();
+    let category: { id: string } | undefined;
+    for (const channel of existing.values()) {
+      if (!channel) continue;
+      if (channel.type === ChannelType.GuildCategory && channel.name.toLowerCase() === "kos") category = { id: channel.id };
+      if (channel.type === ChannelType.GuildText) {
+        const key = boundKeyOf((channel as { topic?: string | null }).topic);
+        if (key) byKey.set(key, { id: channel.id, name: channel.name });
+      }
+    }
+    if (!category) category = { id: (await guild.channels.create({ name: "KOS", type: ChannelType.GuildCategory })).id };
+    const created: string[] = [];
+    const kept: string[] = [];
+    for (const plan of plans) {
+      const have = byKey.get(plan.key);
+      if (have) {
+        kept.push(have.name);
+        if (plan.key === "needs-you") this.approvalsChannelId = have.id;
+        continue;
+      }
+      const made = await guild.channels.create({ name: plan.name, type: ChannelType.GuildText, topic: plan.topic, parent: category.id });
+      created.push(made.name);
+      if (plan.key === "needs-you") this.approvalsChannelId = made.id;
+    }
+    return { created, kept };
+  }
+
+  /** The approvals channel, when the server has one; prompts go there rather than to a DM. */
+  private async approvalsChannel(): Promise<{ send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> } | undefined> {
+    if (!this.approvalsChannelId) return undefined;
+    const channel = await this.client.channels.fetch(this.approvalsChannelId);
+    return channel && channel.isSendable() ? (channel as unknown as { send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> }) : undefined;
+  }
+
+  /**
+   * The webhook a blob speaks through in a server channel, so its words show
+   * under its own name rather than the bot's. One per channel, named KOS,
+   * reused; a thread posts through its parent's with the thread named.
+   */
+  private async webhookFor(channel: { id: string; isThread?: () => boolean; parent?: { id: string } | null }): Promise<{ hook: Webhook; threadId?: string } | undefined> {
+    const target = channel.isThread?.() && channel.parent ? channel.parent : channel;
+    const threadId = target === channel ? undefined : channel.id;
+    const cached = this.webhooks.get(target.id);
+    if (cached) return { hook: cached, ...(threadId ? { threadId } : {}) };
+    const fetched = await this.client.channels.fetch(target.id);
+    if (!fetched || !("fetchWebhooks" in fetched)) return undefined;
+    const owner = fetched as unknown as { fetchWebhooks: () => Promise<Map<string, Webhook>>; createWebhook: (o: { name: string }) => Promise<Webhook> };
+    const hooks = await owner.fetchWebhooks();
+    const mine = [...hooks.values()].find((h) => h.name === "KOS" && h.token) ?? (await owner.createWebhook({ name: "KOS" }));
+    this.webhooks.set(target.id, mine);
+    return { hook: mine, ...(threadId ? { threadId } : {}) };
   }
 
   /**
@@ -893,11 +1034,13 @@ export class DiscordAdapter implements ChannelAdapter {
       components?: ActionRowBuilder<ButtonBuilder>[];
     }) => Promise<unknown>,
     msg: OutboundMessage,
+    { tagged = true }: { tagged?: boolean } = {},
   ): Promise<void> {
-    // References become links first, so the split sees the longer text.
-    const text = taggedText(msg);
+    // References become links first, so the split sees the longer text. A
+    // message already posted under the speaker's own name carries no tag.
+    const text = tagged ? taggedText(msg) : msg.text;
     const chunks = text ? chunkText(noPreviews(linkMentions(text, this.dashboardUrl))) : [];
-    const embeds = msg.card ? [buildCard(msg.card, { from: msg.from, named: chunks.length === 0, dashboardUrl: this.dashboardUrl })] : [];
+    const embeds = msg.card ? [buildCard(msg.card, { from: msg.from, named: tagged && chunks.length === 0, dashboardUrl: this.dashboardUrl })] : [];
     const components = buildButtons(msg.buttons ?? []);
     if (chunks.length === 0 && embeds.length === 0) {
       throw new Error("nothing to send: no text and no card");
@@ -988,6 +1131,21 @@ export class DiscordAdapter implements ChannelAdapter {
       complete: async (reply: OutboundMessage) => {
         await swapReact(REACT_WORKING, REACT_DONE);
         await settle();
+        // In a server, a blob answers as itself: through the channel's
+        // webhook, under its own name, with no tag line needed.
+        if (reply.from && message.guild) {
+          const via = await this.webhookFor(message.channel as Parameters<DiscordAdapter["webhookFor"]>[0]).catch(() => undefined);
+          if (via) {
+            const { hook, threadId } = via;
+            const username = reply.from.name;
+            try {
+              await this.deliver((payload) => hook.send({ ...payload, username, ...(threadId ? { threadId } : {}) }), reply, { tagged: false });
+              return;
+            } catch {
+              // The ordinary post below, with the tag line, still says who spoke.
+            }
+          }
+        }
         try {
           await this.deliver(post, reply);
         } catch (err) {
@@ -1029,14 +1187,16 @@ export class DiscordAdapter implements ChannelAdapter {
     );
 
     const summary = req.tool !== undefined ? summarizeAction(req.tool, req.args ?? {}) : req.text;
-    const user = await this.client.users.fetch(recipientId);
-    const sent = await user.send({
+    const payload = {
       content: approvalText(req),
       components: [row],
       // The page a browser action is aimed at, when there is one: the thing
       // being approved, rather than a description of it.
       ...(req.picture ? { files: [{ attachment: Buffer.from(req.picture, "base64"), name: "page.jpg" }] } : {}),
-    });
+    };
+    // In a server, every ask lands in the one channel for them; a DM otherwise.
+    const room = await this.approvalsChannel().catch(() => undefined);
+    const sent = room ? await room.send(payload) : await (await this.client.users.fetch(recipientId)).send(payload);
     this.prompts.set(req.id, { message: sent, summary });
   }
 

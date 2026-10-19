@@ -5,7 +5,7 @@ import type {
   Interaction,
   Message,
 } from "discord.js";
-import { MessageFlags } from "discord.js";
+import { ChannelType, MessageFlags } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -14,6 +14,8 @@ import {
   DENY_PREFIX,
   DiscordAdapter,
   PRESS_PREFIX,
+  bindingOf,
+  boundKeyOf,
   approvalCustomIds,
   approvalText,
   noPreviews,
@@ -641,6 +643,128 @@ describe("DiscordAdapter authorization", () => {
     await adapter.receiveMessage(fakeMessage("stranger"));
     expect(messages).toEqual([]);
     vi.restoreAllMocks();
+  });
+
+  it("in its server, takes the owner's words in a bound channel to the conversation the topic names", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1" });
+    const messages: InboundMessage[] = [];
+    adapter.setAuthorizer((senderId) => senderId === "owner-id");
+    adapter.onMessage((msg) => {
+      messages.push(msg);
+    });
+    const inGuild = (authorId: string, guildId: string, channel: Record<string, unknown>, content = "plan the week"): Message =>
+      ({ author: { id: authorId, bot: false }, guild: { id: guildId }, channel, content, attachments: undefined } as unknown as Message);
+    const project = { id: "c1", name: "garden", topic: "kos:project:garden · Garden", isThread: () => false };
+    await adapter.receiveMessage(inGuild("owner-id", "g1", project));
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ senderId: "owner-id", text: "plan the week", conversationId: "project:garden" });
+    expect(messages[0]).not.toHaveProperty("newIn");
+    // A thread under a project's channel is a chat of that project, titled as the thread.
+    await adapter.receiveMessage(inGuild("owner-id", "g1", { id: "t9", name: "Seeds", isThread: () => true, parent: { topic: "kos:project:garden · Garden" } }));
+    expect(messages[1]).toMatchObject({ conversationId: "discord:thread:t9", newIn: { projectSlug: "garden", title: "Seeds" } });
+    // A thread under a blob's channel is the blob's own thread.
+    await adapter.receiveMessage(inGuild("owner-id", "g1", { id: "t10", name: "x", isThread: () => true, parent: { topic: "kos:agent:recap · Recap" } }));
+    expect(messages[2]).toMatchObject({ conversationId: "agent:recap" });
+    // Another server, an unbound channel, the approvals channel, or anyone but the owner: nothing.
+    await adapter.receiveMessage(inGuild("owner-id", "g2", project));
+    await adapter.receiveMessage(inGuild("owner-id", "g1", { id: "c5", name: "general", topic: "chit chat", isThread: () => false }));
+    await adapter.receiveMessage(inGuild("owner-id", "g1", { id: "c6", name: "needs-you", topic: "kos:needs-you · Approvals", isThread: () => false }));
+    await adapter.receiveMessage(inGuild("stranger", "g1", project));
+    expect(messages).toHaveLength(3);
+    // Without a server configured, a server message is ignored whoever sent it.
+    const dmOnly = new DiscordAdapter({ token: "t" });
+    const seen: InboundMessage[] = [];
+    dmOnly.setAuthorizer(() => true);
+    dmOnly.onMessage((msg) => {
+      seen.push(msg);
+    });
+    await dmOnly.receiveMessage(inGuild("owner-id", "g1", project));
+    expect(seen).toEqual([]);
+  });
+
+  it("reads a channel's binding from its topic", () => {
+    expect(boundKeyOf("kos:project:garden · Garden")).toBe("project:garden");
+    expect(boundKeyOf("Garden")).toBeUndefined();
+    expect(bindingOf({ id: "c", topic: "kos:orchestrator:owner · KOS" })).toEqual({ conversationId: "orchestrator:owner" });
+    expect(bindingOf({ id: "t", name: "Ideas", isThread: () => true, parent: { topic: "kos:orchestrator:owner · KOS" } })).toEqual({ conversationId: "discord:thread:t", newIn: { title: "Ideas" } });
+    expect(bindingOf({ id: "t", isThread: () => true, parent: { topic: "kos:needs-you · Approvals" } })).toBeUndefined();
+    expect(bindingOf({ id: "t", isThread: () => true, parent: null })).toBeUndefined();
+  });
+
+  it("lays the plan out as channels under a KOS category, keeping what is there", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1" });
+    const existing = new Map<string, Record<string, unknown>>([
+      ["cat", { id: "cat", type: ChannelType.GuildCategory, name: "kos" }],
+      ["c1", { id: "c1", type: ChannelType.GuildText, name: "my-garden", topic: "kos:project:garden · Garden" }],
+      ["c5", { id: "c5", type: ChannelType.GuildText, name: "general", topic: null }],
+    ]);
+    const created: Record<string, unknown>[] = [];
+    const guild = {
+      channels: {
+        fetch: async () => existing,
+        create: async (opts: Record<string, unknown>) => {
+          const made = { id: `new-${created.length + 1}`, ...opts };
+          created.push(made);
+          return made;
+        },
+      },
+    };
+    const sent: Record<string, unknown>[] = [];
+    (adapter as unknown as { client: unknown }).client = {
+      guilds: { fetch: async (id: string) => (id === "g1" ? guild : undefined) },
+      channels: { fetch: async (id: string) => (id === "new-2" ? { isSendable: () => true, send: async (p: Record<string, unknown>) => { sent.push(p); return { edit: async () => undefined }; } } : undefined) },
+      users: { fetch: async () => ({ send: async () => { throw new Error("the DM must not be used once the server has an approvals channel"); } }) },
+    };
+    const result = await adapter.sync([
+      { key: "orchestrator:owner", name: "kos", topic: "kos:orchestrator:owner · KOS" },
+      { key: "needs-you", name: "needs-you", topic: "kos:needs-you · Approvals" },
+      { key: "project:garden", name: "garden", topic: "kos:project:garden · Garden" },
+    ]);
+    // The renamed project channel is kept by its binding; the rest are made under the category.
+    expect(result).toEqual({ created: ["kos", "needs-you"], kept: ["my-garden"] });
+    expect(created.map((c) => [c["name"], c["type"], c["parent"], c["topic"]])).toEqual([
+      ["kos", ChannelType.GuildText, "cat", "kos:orchestrator:owner · KOS"],
+      ["needs-you", ChannelType.GuildText, "cat", "kos:needs-you · Approvals"],
+    ]);
+    // From now on an ask goes to the approvals channel, buttons and all.
+    await adapter.requestApproval("owner-id", { id: "7", text: "x", tool: "files.rm", args: { path: "a.txt" }, asker: { name: "Garden", conversationId: "project:garden" } });
+    expect(sent).toHaveLength(1);
+    expect(String(sent[0]?.content).split("\n")[0]).toBe("**Garden needs your OK** · Delete a.txt");
+    expect(sent[0]?.components).toHaveLength(1);
+    // No server: nothing to lay out.
+    expect(await new DiscordAdapter({ token: "t" }).sync([])).toEqual({ created: [], kept: [] });
+  });
+
+  it("answers as the blob itself in a server channel, through the channel's webhook", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1" });
+    (adapter as unknown as { client: { user: unknown } }).client.user = { id: "bot" };
+    const posted: Record<string, unknown>[] = [];
+    const viaHook: Record<string, unknown>[] = [];
+    const hook = { name: "KOS", token: "wh", send: async (p: Record<string, unknown>) => { viaHook.push(p); return {}; } };
+    const channel = {
+      id: "c2",
+      isThread: () => false,
+      send: async (p: Record<string, unknown>) => { posted.push(p); return { edit: async () => undefined }; },
+      fetchWebhooks: async () => new Map([["w1", hook]]),
+      createWebhook: async () => { throw new Error("one exists"); },
+    };
+    (adapter as unknown as { client: { channels: unknown } }).client.channels = { fetch: async (id: string) => (id === "c2" ? channel : undefined) };
+    const message = {
+      author: { id: "owner-id", bot: false },
+      guild: { id: "g1" },
+      channel,
+      content: "what did I get done",
+      react: async () => undefined,
+      reactions: { cache: { get: () => undefined } },
+    } as unknown as Message;
+    const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "what did I get done", native: message });
+    await presence!.complete({ text: "Three things, all shipped.", from: { name: "Recap", colour: "#3b82f6" } });
+    // Under the blob's name, with no tag line, and not through the bot's own post.
+    expect(viaHook).toEqual([{ content: "Three things, all shipped.", username: "Recap" }]);
+    expect(posted).toEqual([]);
+    // KOS's own answer in a server channel is the bot's, as before.
+    await presence!.complete({ text: "Done." });
+    expect(posted).toEqual([{ content: "Done." }]);
   });
 
   it("hands a press on an agent button back with its token", async () => {

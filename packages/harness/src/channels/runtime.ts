@@ -7,6 +7,7 @@ import { TurnNarrator } from "./narrate.js";
 import type {
   ApprovalDecision,
   ChannelAdapter,
+  ConversationSeed,
   InboundMessage,
   OutboundMessage,
   TurnPresence,
@@ -20,6 +21,10 @@ export interface TurnContext {
   text: string;
   /** Native thread id, when the surface has threads. */
   conversationKey?: string;
+  /** The exact conversation, when the surface bound this channel to one. */
+  conversationId?: string;
+  /** How to make it when it is not there yet. */
+  newIn?: ConversationSeed;
   /** Images and text files that came with the message. */
   attachments?: Attachment[];
 }
@@ -105,6 +110,8 @@ export interface TurnWatch {
   userId: string;
   channel: string;
   conversationKey?: string;
+  /** The bound conversation, when the surface named one. */
+  conversationId?: string;
   /** What was said, since a message addressed to an agent runs in the agent's thread. */
   text?: string;
 }
@@ -270,7 +277,15 @@ export class ChannelRuntime {
     } catch {
       presence = undefined;
     }
-    const story = presence ? this.narrate(presence, { userId, channel: msg.channel, text: msg.text, ...(msg.conversationKey ? { conversationKey: msg.conversationKey } : {}) }) : undefined;
+    const story = presence
+      ? this.narrate(presence, {
+          userId,
+          channel: msg.channel,
+          text: msg.text,
+          ...(msg.conversationKey ? { conversationKey: msg.conversationKey } : {}),
+          ...(msg.conversationId ? { conversationId: msg.conversationId } : {}),
+        })
+      : undefined;
 
     try {
       const answer = await this.handleTurn({
@@ -279,6 +294,8 @@ export class ChannelRuntime {
         senderId: msg.senderId,
         text: msg.text,
         ...(msg.conversationKey ? { conversationKey: msg.conversationKey } : {}),
+        ...(msg.conversationId ? { conversationId: msg.conversationId } : {}),
+        ...(msg.newIn ? { newIn: msg.newIn } : {}),
         ...(msg.attachments?.length ? { attachments: msg.attachments } : {}),
       });
       const reply: OutboundMessage =

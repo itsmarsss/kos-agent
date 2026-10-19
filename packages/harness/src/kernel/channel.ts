@@ -47,7 +47,8 @@ export function connectChannel(
     // agent runs in the agent's thread, so that is the one to watch.
     watchTurn: (ctx, listener) => {
       const addressed = ctx.text ? kernel.addressedAgent(ctx.text) : undefined;
-      const id = addressed ? agentConversationId(addressed.name) : kernel.conversationFor(ctx.channel, ctx.userId, ctx.conversationKey).id;
+      // A bound channel's turn runs in the conversation it is bound to.
+      const id = addressed ? agentConversationId(addressed.name) : (ctx.conversationId ?? kernel.conversationFor(ctx.channel, ctx.userId, ctx.conversationKey).id);
       return kernel.progress.subscribe((event) => {
         if (event.conversationId === id) listener(event);
       });
@@ -60,6 +61,8 @@ export function connectChannel(
         userId: ctx.userId,
         channel: ctx.channel,
         ...(ctx.conversationKey ? { conversationKey: ctx.conversationKey } : {}),
+        ...(ctx.conversationId ? { conversationId: ctx.conversationId } : {}),
+        ...(ctx.newIn ? { newIn: ctx.newIn } : {}),
         ...(ctx.attachments?.length ? { attachments: ctx.attachments } : {}),
       });
       // The owner asked from this surface and the answer lands on it, so
