@@ -35,6 +35,12 @@ In a chat:
 
 - The header says where it sits: an agent names its project, a project
   chat says it orchestrates the project.
+- In a project, the rail lists the orchestrator, its agents and its
+  schedule. The line above Schedule drags, so the schedule takes the room
+  you give it and the agents the rest; pushed down past its smallest it
+  folds to its heading, and the heading opens it again. Like the column
+  handles, it remembers, moves with the arrow keys, and double-clicks back
+  to its default.
 - **Configure** sets the chat's brief (standing instructions, added to the
   system prompt for this chat only) and which tools it may use. A scoped
   chat is told its own limits so it says "not here" rather than improvising.

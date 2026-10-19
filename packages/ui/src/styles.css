@@ -2343,6 +2343,41 @@ select {
 .chats-gutter:focus-visible::after,
 .chats-gutter.is-active::after { background: var(--accent); }
 .chats-gutter:focus { outline: none; }
+/* The line above a project's schedule: in the flow of the rail rather than
+   in a gap, a row's handle, faint at rest so it reads as a divider. */
+.chats-gutter--sched {
+  position: relative;
+  top: auto;
+  bottom: auto;
+  width: auto;
+  height: 9px;
+  flex: none;
+  margin: 0 -0.5rem;
+  cursor: row-resize;
+}
+.chats-gutter--sched::after {
+  top: 4px;
+  bottom: auto;
+  left: 0;
+  right: 0;
+  width: auto;
+  height: 1px;
+  background: var(--line);
+}
+.chats-sched { display: flex; flex-direction: column; flex: none; min-height: 0; }
+.chats-sched ul { flex: 1; min-height: 0; }
+.chats-sched.is-shut ul { display: none; }
+.chats-group-fold {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.chats-group-fold:hover { color: var(--text); }
 /* The list's border-right is its last pixel, at --rail-w minus one; the
    panel's border-left is its first, at --panel-w from the right. */
 .chats-gutter--rail { left: calc(var(--rail-w, 240px) - 5px); }
