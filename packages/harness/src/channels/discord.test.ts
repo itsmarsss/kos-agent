@@ -289,6 +289,16 @@ describe("the answer a turn shaped", () => {
     await presence!.complete({ text: "", files: [{ name: "a.txt", mediaType: "text/plain", data: Buffer.from("a").toString("base64") }] });
     expect((edits.at(-1) as { content?: string; files: unknown[] }).content).toBeUndefined();
     expect((edits.at(-1) as { files: unknown[] }).files).toHaveLength(1);
+    // Past Discord's limits, the rest are named with where they are kept rather than the message refused.
+    const many = Array.from({ length: 11 }, (_, i) => ({ name: `f${i}.txt`, mediaType: "text/plain", data: Buffer.from("x").toString("base64"), path: `uploads/f${i}.txt` }));
+    const big = { name: "big.bin", mediaType: "application/octet-stream", data: Buffer.alloc(10 * 1024 * 1024 + 1).toString("base64"), path: "uploads/big.bin" };
+    const withUrl = new DiscordAdapter({ token: "t", dashboardUrl: "https://kos.example" });
+    (withUrl as unknown as { client: { user: unknown } }).client.user = { id: "bot" };
+    const p2 = await withUrl.acknowledge({ channel: "discord", senderId: "owner-id", text: "hi", native: message });
+    await p2!.complete({ text: "here", files: [big, ...many] });
+    const capped = edits.at(-1) as { content: string; files: unknown[] };
+    expect(capped.files).toHaveLength(10);
+    expect(capped.content).toBe("here\n-# 2 files not sent here (Discord takes 10 per message, 10 MB each): [big.bin](<https://kos.example/#/files/uploads%2Fbig.bin>), [f10.txt](<https://kos.example/#/files/uploads%2Ff10.txt>)");
   });
 
   it("says a failure in one plain line, marked, with the thinking line taken down", async () => {
@@ -1013,6 +1023,29 @@ describe("DiscordAdapter authorization", () => {
     expect(opened[0]).toEqual({ id: "g1", type: OverwriteType.Role, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: expect.arrayContaining([PermissionFlagsBits.SendMessages]) });
     expect(opened.map((o) => o.id)).toEqual(["g1", "owner-id", "bot"]);
     await expect(adapter.setAudience("project:nope", "owner")).rejects.toThrow(/no channel is bound/);
+  });
+
+  it("speaks as the owner through the plain webhook with their picture by address, and names a channel as itself", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
+    const viaHook: Record<string, unknown>[] = [];
+    const hook = { name: "KOS", token: "wh", send: async (p: Record<string, unknown>) => { viaHook.push(p); return { id: "m1" }; } };
+    const channel = { id: "c2", isThread: () => false, isSendable: () => true, send: async () => ({}), fetchWebhooks: async () => new Map([["w1", hook]]), createWebhook: async () => { throw new Error("one exists"); } };
+    const guild = { id: "g1", channels: { fetch: async () => new Map([["c2", { id: "c2", type: ChannelType.GuildText, name: "garden", topic: "kos:project:garden · Garden" }], ["c5", { id: "c5", type: ChannelType.GuildText, name: "general", topic: null }]]) } };
+    (adapter as unknown as { client: unknown }).client = {
+      user: { id: "bot" },
+      guilds: { fetch: async () => guild },
+      channels: { fetch: async (id: string) => (id === "c2" ? channel : undefined) },
+      users: { fetch: async (id: string) => (id === "owner-id" ? { username: "marsss", globalName: "Marsss", displayAvatarURL: () => "https://cdn.example/marsss.png" } : undefined) },
+    };
+    // The owner, as Discord knows them.
+    expect(await adapter.ownerSender()).toEqual({ name: "Marsss", avatarUrl: "https://cdn.example/marsss.png" });
+    // The channel names are known once the server has been looked at.
+    await adapter.channels();
+    await adapter.postIn("c2", { text: "see #general and #nowhere, not `#general`", from: (await adapter.ownerSender())! });
+    expect(viaHook).toEqual([{ content: "see <#c5> and #nowhere, not `#general`", username: "Marsss", avatarURL: "https://cdn.example/marsss.png" }]);
+    // A table goes out as padded code, since Discord draws none.
+    await adapter.postIn("c2", { text: "| a | b |\n|---|---|\n| 1 | 2 |" });
+    expect(viaHook).toHaveLength(1);
   });
 
   it("answers as the blob itself in a server channel, through the channel's webhook", async () => {

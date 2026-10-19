@@ -531,12 +531,17 @@ export async function runHost(options: HostOptions): Promise<void> {
           // the kernel kept them; one that is gone is simply not shown.
           const files = said.files.flatMap((f) => {
             try {
-              return [{ name: f.name, mediaType: "application/octet-stream", data: readFileSync(kernel.workspace.resolve(f.path)).toString("base64") }];
+              return [{ name: f.name, mediaType: "application/octet-stream", data: readFileSync(kernel.workspace.resolve(f.path)).toString("base64"), path: f.path }];
             } catch {
               return [];
             }
           });
-          await adapter.postIn(target, { text: `${said.text.trim().split("\n").map((l) => `> ${l}`).join("\n")}\n-# you, on the dashboard`, ...(files.length ? { files } : {}) });
+          // As the owner, under their own name and picture, so the thread
+          // reads as the conversation it is; quoted by the bot only when the
+          // owner cannot be looked up.
+          const owner = await adapter.ownerSender();
+          const text = owner ? said.text.trim() : `${said.text.trim().split("\n").map((l) => `> ${l}`).join("\n")}\n-# you, on the dashboard`;
+          await adapter.postIn(target, { text, ...(owner ? { from: owner } : {}), ...(files.length ? { files } : {}) });
         }
         if (said.reply.trim()) await adapter.postIn(target, { text: said.reply, ...(from ? { from } : {}) });
       });

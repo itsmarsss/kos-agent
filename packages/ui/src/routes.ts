@@ -99,7 +99,7 @@ export function hrefFor(route: Route): string {
     case "builds":
       return route.id ? `#/builds/${route.id}` : "#/builds";
     case "crons":
-      return route.job ? `#/schedule/${encodeURIComponent(route.job)}` : "#/crons";
+      return route.job ? `#/schedule/${encodeURIComponent(route.job)}` : "#/schedule";
     case "settings":
       return route.section ? `#/settings/${route.section}` : "#/settings";
     default:

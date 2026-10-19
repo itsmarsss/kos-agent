@@ -156,6 +156,8 @@ export interface Sender {
   colour?: string;
   /** The blob's face as a PNG, base64, for a surface that can show a picture beside the name. */
   avatar?: string;
+  /** A picture by address, for a speaker who already has one somewhere: the owner, as Discord knows them. */
+  avatarUrl?: string;
 }
 
 export interface OutboundMessage {

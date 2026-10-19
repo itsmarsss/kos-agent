@@ -18,6 +18,8 @@ export interface Attachment {
   mediaType: string;
   /** Base64 payload, without the data: prefix. */
   data: string;
+  /** Where it is kept in the workspace, when it is, so a surface that cannot carry it can point at it. */
+  path?: string;
 }
 
 /** A file kept from a message's attachments: what it was called, and where it now lives in the workspace. */

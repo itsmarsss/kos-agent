@@ -64,7 +64,8 @@ with anyone else's messages in its own.
 
 A thread or channel is the chat it stands for, not only a door into it:
 a turn taken on the dashboard, by a schedule or by a dispatch shows there
-too, your words quoted with a note that they came from the dashboard, the
+too, your words under your own name and picture (through a webhook, so
+Discord tags them as the app's), the
 files you attached uploaded under them, and the answer as KOS or as the
 blob under its own name. What you say on Discord is already there and is
 not repeated. In a step line of the story, a workspace path ("Read
