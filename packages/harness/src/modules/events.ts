@@ -35,6 +35,8 @@ export type KernelEvent =
     }
   /** A slash command run in a chat: the line as typed and what it answered, with where it was typed. */
   | { kind: "command:ran"; conversationId: string; text: string; reply: string; channel: string | null }
+  /** A chat deleted for good; whatever stood for it on a surface goes with it. */
+  | { kind: "chat:deleted"; conversationId: string }
   | { kind: "tool:end"; tool: string; isError: boolean; conversationId: string | null }
   | { kind: "approval:requested"; id: number; tool: string; conversationId: string | null }
   | { kind: "approval:decided"; id: number; approved: boolean; decidedBy: string | null }

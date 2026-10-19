@@ -895,6 +895,15 @@ export class DiscordAdapter implements ChannelAdapter {
     return { id: target.id, name: target.name, audience: audienceOf(target, guild.id) };
   }
 
+  /** A chat deleted on the dashboard takes its thread with it: the two are one thing. */
+  async deleteThread(threadId: string): Promise<boolean> {
+    const fetched = await this.client.channels.fetch(threadId).catch(() => null);
+    const thread = fetched as { isThread?: () => boolean; delete?: () => Promise<unknown> } | null;
+    if (!thread || !thread.isThread?.() || typeof thread.delete !== "function") return false;
+    await thread.delete();
+    return true;
+  }
+
   /** The channel or thread, by id or by name, as somewhere messages can be read from. */
   private async room(channel: string): Promise<ReadableChannel> {
     const id = this.known.get(channel.trim().replace(/^#/, "").toLowerCase())?.id ?? channel.trim();

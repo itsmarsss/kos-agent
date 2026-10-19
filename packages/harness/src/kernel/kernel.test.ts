@@ -337,6 +337,33 @@ describe("Kernel", () => {
     expect(kernel.sessions.get(target.id).filter((m) => m.role === "user").at(-1)?.origin).toEqual({ via: "dispatch", from: { kind: "chat", id: projectChat, name: "Club" } });
   });
 
+  it("speaks from a project's chats as Orchestrator and Agent, and announces a deleted chat", async () => {
+    kernel = await boot({
+      async generate() {
+        return { content: [{ type: "text", text: "ok" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    });
+    const club = kernel.standUpProject({ name: "Club", type: "club" });
+    const agent = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Roster", projectSlug: club.slug });
+    const root = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Loose" });
+    expect(kernel.senderFor(`project:${club.slug}`)).toMatchObject({ name: "Orchestrator" });
+    expect(kernel.senderFor(`project:${club.slug}`)?.avatar).toBeTruthy();
+    expect(kernel.senderFor(agent.id)).toMatchObject({ name: "Agent" });
+    expect(kernel.senderFor(root.id)).toBeUndefined();
+    expect(kernel.senderFor(undefined)).toBeUndefined();
+    // Gone for good: the bus says so, and a thread bound to it is let go.
+    const gone: string[] = [];
+    kernel.bus.on("chat:deleted", (e) => {
+      gone.push(e.conversationId);
+    });
+    kernel.bindThread("t1", agent.id);
+    kernel.bindThread("t2", root.id);
+    expect(kernel.conversations.remove(agent.id)).toBe(true);
+    expect(gone).toEqual([agent.id]);
+    kernel.unbindThread("t1");
+    expect(kernel.threadBindings()).toEqual({ t2: root.id });
+  });
+
   it("finds the kept file behind an attachment stored without its path", async () => {
     kernel = await boot({ async generate() { return { content: [{ type: "text", text: "ok" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" }; } });
     const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Older" });

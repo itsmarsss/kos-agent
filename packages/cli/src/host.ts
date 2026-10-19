@@ -578,6 +578,16 @@ export async function runHost(options: HostOptions): Promise<void> {
         const answer = ran.reply.trim().split("\n")[0] ?? "";
         await adapter.postIn(target, { text: `-# \`${ran.text.replace(/`/g, "'")}\` · you, on the dashboard${answer ? `\n-# ${answer.slice(0, 300)}` : ""}` });
       });
+      // A chat deleted on the dashboard takes its thread with it.
+      kernel.bus.on("chat:deleted", async ({ conversationId }) => {
+        if (!adapter) return;
+        const threadId = Object.entries(kernel.threadBindings()).find(([, id]) => id === conversationId)?.[0];
+        if (!threadId) return;
+        await adapter.deleteThread(threadId).catch((err: unknown) => {
+          console.warn(`[discord] thread ${threadId} for ${conversationId} not deleted: ${err instanceof Error ? err.message : String(err)}`);
+        });
+        kernel.unbindThread(threadId);
+      });
     } else {
       // No server to lay out: only the face to keep up.
       setInterval(() => void wear(), 5 * 60_000).unref();
