@@ -24,7 +24,7 @@ import {
 import { detailLines, summarizeAction, withUnixTimes } from "@kos/shared";
 
 import { isReadable, type Attachment } from "../kernel/attachments.js";
-import type { Audience } from "../tools/discord.js";
+import type { Access, Audience, MakePlace, ServerPlace, ServerRole } from "../tools/discord.js";
 import { COMMANDS, completions, runCommand, type SlashContext } from "./commands.js";
 import { linkMentions, linkPaths, outsideCode, plainMentions } from "./mentions.js";
 import { STEP_MARK } from "./narrate.js";
@@ -354,6 +354,26 @@ interface Overwrite {
   type: OverwriteType;
   allow?: bigint[];
   deny?: bigint[];
+}
+
+/** As much of the server as the admin tools touch. */
+interface AdminGuild {
+  id: string;
+  channels: {
+    fetch: () => Promise<Map<string, AdminChannel | undefined>>;
+    create: (options: { name: string; type: ChannelType; topic?: string; parent?: string; permissionOverwrites: Overwrite[] }) => Promise<{ id: string; name: string }>;
+  };
+  roles: {
+    fetch: () => Promise<Map<string, { id: string; name: string; color: number; managed: boolean; members?: { size: number } }>>;
+    create: (options: { name: string; color?: number; reason?: string }) => Promise<{ id: string; name: string }>;
+  };
+}
+
+/** A channel or category as the admin tools see it. */
+interface AdminChannel extends OverwritableChannel {
+  type: ChannelType;
+  topic?: string | null;
+  parentId?: string | null;
 }
 
 /** As much of a text channel as the layout code touches. */
@@ -908,6 +928,128 @@ export class DiscordAdapter implements ChannelAdapter {
     if (!have) throw new Error(`no channel is bound to ${key}`);
     await this.applyAudience(have.channel, audience, guild.id);
     return { key, name: have.name, audience };
+  }
+
+  /** The server, when there is one to work on. */
+  private async guild(): Promise<AdminGuild> {
+    if (!this.guildId) throw new Error("no server is configured");
+    return (await this.client.guilds.fetch(this.guildId)) as unknown as AdminGuild;
+  }
+
+  /** The server's roles, as KOS may hand them out: everyone's and the bots' own left out. */
+  async roles(): Promise<ServerRole[]> {
+    const guild = await this.guild();
+    const roles = await guild.roles.fetch();
+    return [...roles.values()]
+      .filter((r) => r.id !== guild.id && !r.managed)
+      .map((r) => ({ id: r.id, name: r.name, ...(r.color ? { colour: `#${r.color.toString(16).padStart(6, "0")}` } : {}), members: r.members?.size ?? 0 }));
+  }
+
+  /** A role for the owner to hand out, named in discord.access from then on. */
+  async createRole(name: string, colour?: string): Promise<ServerRole> {
+    const guild = await this.guild();
+    const made = await guild.roles.create({ name, ...(colour ? { color: parseInt(colour.slice(1), 16) } : {}), reason: "KOS, for the owner" });
+    return { id: made.id, name: made.name, ...(colour ? { colour } : {}), members: 0 };
+  }
+
+  /** Every category and text channel on the server, with what KOS bound each to when it is KOS's. */
+  async places(): Promise<ServerPlace[]> {
+    const guild = await this.guild();
+    const all = [...(await guild.channels.fetch()).values()].filter((c): c is AdminChannel => !!c && typeof c === "object");
+    const categories = new Map(all.filter((c) => c.type === ChannelType.GuildCategory).map((c) => [c.id, c.name]));
+    return all
+      .filter((c) => c.type === ChannelType.GuildCategory || c.type === ChannelType.GuildText)
+      .map((c) => {
+        const bound = boundKeyOf(c.topic);
+        const category = c.parentId ? categories.get(c.parentId) : undefined;
+        return {
+          id: c.id,
+          name: c.name,
+          kind: c.type === ChannelType.GuildCategory ? ("category" as const) : ("channel" as const),
+          ...(category ? { category } : {}),
+          ...(bound ? { bound } : {}),
+          ...(c.topic && !bound ? { topic: c.topic } : {}),
+        };
+      });
+  }
+
+  /**
+   * A category, or a text channel under one, for a purpose of the owner's
+   * and bound to no chat: KOS's own layout leaves it alone. The owner's
+   * alone until access names someone.
+   */
+  async makePlace(input: MakePlace): Promise<ServerPlace> {
+    const guild = await this.guild();
+    const overwrites = await this.overwritesOf(guild, input.access ?? []);
+    if (input.kind === "category") {
+      const made = await guild.channels.create({ name: input.name, type: ChannelType.GuildCategory, permissionOverwrites: overwrites });
+      return { id: made.id, name: made.name, kind: "category" };
+    }
+    let parent: string | undefined;
+    if (input.category) {
+      const all = [...(await guild.channels.fetch()).values()];
+      const found = all.find((c) => c?.type === ChannelType.GuildCategory && c.name.toLowerCase() === input.category!.toLowerCase());
+      if (!found) throw new Error(`no category called ${input.category}; discord.server lists them, and discord.make makes one`);
+      parent = found.id;
+    }
+    const made = await guild.channels.create({
+      name: input.name,
+      type: ChannelType.GuildText,
+      ...(input.topic ? { topic: input.topic } : {}),
+      ...(parent ? { parent } : {}),
+      permissionOverwrites: overwrites,
+    });
+    return { id: made.id, name: made.name, kind: "channel", ...(input.category ? { category: input.category } : {}), ...(input.topic ? { topic: input.topic } : {}) };
+  }
+
+  /** Who may see and write in a place, replacing what was set; the owner and KOS always may. */
+  async setAccess(place: string, access: Access[]): Promise<ServerPlace> {
+    const guild = await this.guild();
+    const want = place.trim().replace(/^#/, "").toLowerCase();
+    const places = await this.places();
+    const found = places.find((p) => p.id === place.trim()) ?? places.find((p) => p.name.toLowerCase() === want);
+    if (!found) throw new Error(`no channel or category called ${place}; discord.server lists them`);
+    const channel = (await guild.channels.fetch()).get(found.id) as AdminChannel | undefined;
+    if (!channel?.permissionOverwrites) throw new Error(`${found.name} cannot be given permissions`);
+    await channel.permissionOverwrites.set(await this.overwritesOf(guild, access));
+    return found;
+  }
+
+  /**
+   * The permissions for who was named: everyone out and the owner and KOS in,
+   * as for any channel of KOS's, then each party as its entry says. A role
+   * is found by name; "everyone" is the server; a member is named by id,
+   * since looking members up by name needs an intent KOS does not ask for.
+   */
+  private async overwritesOf(guild: AdminGuild, access: Access[]): Promise<Overwrite[]> {
+    const P = PermissionFlagsBits;
+    const out = overwritesFor("owner", this.permissionIds(guild.id));
+    const roles = access.some((a) => !/^(everyone|owner|\d{15,22})$/i.test(a.who.replace(/^@/, ""))) ? [...(await guild.roles.fetch()).values()] : [];
+    for (const entry of access) {
+      const who = entry.who.trim().replace(/^@/, "");
+      if (who.toLowerCase() === "owner") continue;
+      const party: { id: string; type: OverwriteType } =
+        who.toLowerCase() === "everyone"
+          ? { id: guild.id, type: OverwriteType.Role }
+          : /^\d{15,22}$/.test(who)
+            ? { id: who, type: OverwriteType.Member }
+            : (() => {
+                const role = roles.find((r) => r.name.toLowerCase() === who.toLowerCase());
+                if (!role) throw new Error(`no role called ${who}; discord.server lists them, and discord.role makes one`);
+                return { id: role.id, type: OverwriteType.Role };
+              })();
+      const reading = [P.ViewChannel, P.ReadMessageHistory];
+      const writing = [P.SendMessages, P.SendMessagesInThreads, P.CreatePublicThreads];
+      const overwrite: Overwrite = {
+        ...party,
+        allow: [...(entry.view ? reading : []), ...(entry.write ? writing : [])],
+        deny: [...(entry.view ? [] : [P.ViewChannel]), ...(entry.write ? [] : writing)],
+      };
+      const at = out.findIndex((o) => o.id === party.id);
+      if (at >= 0) out[at] = overwrite;
+      else out.push(overwrite);
+    }
+    return out;
   }
 
   /** The channels KOS made, by what each is bound to, and the server's categories by name. */

@@ -94,6 +94,18 @@ tools, `discord.channels` (what there is and who sees it),
 (lay the server out now); the setting is kept, so a layout later keeps
 what you chose.
 
+The server is also somewhere KOS can build. Beyond its own layout it can
+make a category or a channel for a purpose of yours, make a role for you
+to hand out, and say who may see and write where, by role, for everyone,
+or for one member by id: `discord.server` (everything on the server, KOS's
+and not, and the roles), `discord.make`, `discord.role` and
+`discord.access`. A place is yours alone until access names someone;
+letting anyone in asks you first, shutting a place back does not, and a
+role always asks. Posting into a place it made is `notify` to
+`discord:channel:<id>`, with buttons or a form where something should be
+pressed or filled in, so a board for other people is a category, a role,
+a channel or two and a message with buttons.
+
 ```
 KOS_SECRET_DISCORD=   bot token
 KOS_OWNER_DISCORD=    your user id, and the inbound gate
