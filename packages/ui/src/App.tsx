@@ -187,6 +187,15 @@ export function App(): React.ReactElement {
   const [sitesBase, setSitesBase] = useState<string | null>(null);
   const [agents, setAgents] = useState<BuildRecord[]>([]);
   const [editingCron, setEditingCron] = useState<{ job?: CronJob; projectSlug?: string } | null>(null);
+  // A schedule linked to by name (#/schedule/<name>, where an @schedule:
+  // chip points) opens its drawer once the jobs are known, so a chat or a
+  // blob can refer to a job and the owner lands on it rather than the list.
+  useEffect(() => {
+    if (route.name !== "crons" || !route.job) return;
+    const want = route.job.trim().toLowerCase();
+    const job = crons.find((c) => c.name.toLowerCase() === want || String(c.id) === want);
+    if (job) setEditingCron({ job });
+  }, [route, crons]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   /** KOS's own look, from the status: every face of KOS and the tab icon use it. */
   const kosLook = useMemo(() => lookOf(KOS_SEED, status?.face ?? {}), [status?.face]);

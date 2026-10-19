@@ -66,6 +66,9 @@ describe("summaries for the rest of the toolkit", () => {
   it("names the conversation work is handed to", () => {
     // These reach the reader now that each step is streamed, so the raw
     // key=value dump is no longer good enough.
+    expect(summarizeAction("chats.archive", { id: "c1" })).toBe("Archive chat c1");
+    expect(summarizeAction("chats.archive", { id: "c1", archived: false })).toBe("Bring back chat c1");
+    expect(summarizeAction("chats.delete", { id: "c1" })).toBe("Delete chat c1");
     expect(summarizeAction("chats.dispatch", { id: "c1", message: "do it" })).toBe(
       "Hand work to conversation c1",
     );

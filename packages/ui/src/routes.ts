@@ -10,7 +10,7 @@ export type Route =
    * means the orchestrator.
    */
   | { name: "project"; slug: string; id?: string }
-  | { name: "crons" }
+  | { name: "crons"; job?: string }
   | { name: "memory" }
   | { name: "history" }
   | { name: "chats"; id?: string }
@@ -61,6 +61,9 @@ export function parseRoute(hash: string): Route {
   // The label is what a reader sees, so it is what they type or bookmark.
   // Without these, /knowledge silently rendered Home.
   if (path === "/crons" || path === "/schedule") return { name: "crons" };
+  // A job by name opens its drawer, so a schedule can be linked to from a chat.
+  const job = path.match(/^\/(?:crons|schedule)\/([^/]+)$/);
+  if (job?.[1]) return { name: "crons", job: decodeURIComponent(job[1]) };
   if (path === "/memory" || path === "/knowledge") return { name: "memory" };
   // Activity and Runs were two pages of the same thing. Their paths still
   // resolve, because a bookmark should not break when two pages become one.
@@ -95,6 +98,8 @@ export function hrefFor(route: Route): string {
       return route.blob ? `#/blobs/${encodeURIComponent(route.blob)}` : "#/blobs";
     case "builds":
       return route.id ? `#/builds/${route.id}` : "#/builds";
+    case "crons":
+      return route.job ? `#/schedule/${encodeURIComponent(route.job)}` : "#/crons";
     case "settings":
       return route.section ? `#/settings/${route.section}` : "#/settings";
     default:

@@ -285,10 +285,19 @@ describe("KOS end-to-end flows", () => {
       if (event.kind === "turn-end") ended();
     });
 
+    // The answer after the decision is told as resumed: the surface that
+    // took the question answered "waiting on you" and has nothing left to
+    // post it with, so whoever mirrors the chat knows to.
+    const saids: boolean[] = [];
+    kernel.bus.on("turn:said", (e) => {
+      saids.push(e.resumed === true);
+    });
     // Answers straight away rather than holding the caller for as long as the
     // owner takes to decide.
     const first = await kernel.handleMessage("delete the build directory");
     expect(first.reply).toContain("Waiting on you");
+    expect(first.suspended).toBe(true);
+    expect(saids).toEqual([]);
 
     /*
      * The turn is suspended, not finished. turn-end drops the live view, so
@@ -302,6 +311,7 @@ describe("KOS end-to-end flows", () => {
     await kernel.approve(kernel.approvals.pending()[0]!.id);
     await finished;
     expect(seen).toEqual(["turn-start", "turn-end"]);
+    expect(saids).toEqual([true]);
     off();
   });
 

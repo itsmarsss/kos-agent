@@ -1,9 +1,11 @@
+import { m } from "motion/react";
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 
 import { AgentEditor, titleOf } from "./AgentEditor.js";
 import { api, type AgentInfo, type InvalidAgent } from "./api.js";
 import { Face, moodOf } from "./Face.js";
 import { Drawer } from "./Drawer.js";
+import { card, stagger } from "./motion.js";
 import { hrefFor } from "./routes.js";
 
 /**
@@ -117,11 +119,12 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
         />
       </Drawer>
 
-      <ul className="agents-list agents-list--index">
+      {/* The rows come in as the project cards do: staggered, lifting on hover. */}
+      <m.ul className="agents-list agents-list--index" variants={stagger} initial="hidden" animate="show">
         {agents === null && !error && <li className="hint">Loading…</li>}
         {agents?.length === 0 && <li className="hint">None yet. Ask KOS to keep something up for you, or make one with New blob.</li>}
         {agents?.map((a) => (
-          <li key={a.name}>
+          <m.li key={a.name} variants={card} whileHover={{ y: -2 }}>
             <button type="button" className="agents-row" onClick={() => onOpen(a.name)}>
               <span className="agents-row-top">
                 <span className="agents-row-who">
@@ -137,7 +140,7 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
               <span className={`agents-row-upto is-${a.thread?.activity ?? "idle"}`}>{upTo(a)}</span>
               <span className="agents-row-meta">{runsWhen(a)}</span>
             </button>
-          </li>
+          </m.li>
         ))}
         {invalid.map((bad) => (
           <li key={bad.path} className="agents-invalid">
@@ -150,7 +153,7 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
             </span>
           </li>
         ))}
-      </ul>
+      </m.ul>
     </div>
   );
 }

@@ -155,6 +155,8 @@ export interface HandleResult {
   reply: string;
   halted: boolean;
   sessionId?: string;
+  /** The turn is waiting on an approval: the reply says so, and the rest of it runs behind. */
+  suspended?: boolean;
 }
 
 /** How long a button KOS sent stays pressable. */
@@ -965,7 +967,7 @@ export class Kernel {
             // starts and one end, so half of them never stopped running.
           });
 
-          const settleSdk = (sdk: SdkChatResult): string => {
+          const settleSdk = (sdk: SdkChatResult, resumed = false): string => {
             const reply = sdk.text || "I do not have anything to add to that.";
             if (useSession) {
               /*
@@ -1010,7 +1012,7 @@ export class Kernel {
                 sessionId,
                 ...(opts.origin === "system" ? [] : [text]),
               );
-              this.said(sessionId, text, reply, opts.origin ?? "owner", opts.channel, opts.kept ?? []);
+              this.said(sessionId, text, reply, opts.origin ?? "owner", opts.channel, opts.kept ?? [], resumed);
             }
             /*
              * One row per model the call actually used.
@@ -1051,9 +1053,9 @@ export class Kernel {
           // Same bargain as the other engine: the call stays suspended inside
           // the turn, and the caller is answered rather than held for as long
           // as the owner takes to decide.
-          const outcome = await this.raceWithApproval(sdkRun, waiting, (r) => settleSdk(r), { sessionId, runId });
+          const outcome = await this.raceWithApproval(sdkRun, waiting, (r, resumed) => settleSdk(r, resumed), { sessionId, runId });
           suspended = outcome.suspended;
-          return { reply: outcome.reply, halted: false, sessionId };
+          return { reply: outcome.reply, halted: false, sessionId, ...(outcome.suspended ? { suspended: true } : {}) };
         }
 
         const running = runAgent(this.inference, tools, input, {
@@ -1088,11 +1090,22 @@ export class Kernel {
         const outcome = await this.raceWithApproval(
           running,
           waiting,
-          (r) => this.settleTurn(r, { sessionId, userId, text, ...(opts.origin ? { origin: opts.origin } : {}), ...(opts.channel ? { channel: opts.channel } : {}), ...(opts.kept?.length ? { kept: opts.kept } : {}), runId, useSession }),
+          (r, resumed) =>
+            this.settleTurn(r, {
+              sessionId,
+              userId,
+              text,
+              ...(opts.origin ? { origin: opts.origin } : {}),
+              ...(opts.channel ? { channel: opts.channel } : {}),
+              ...(opts.kept?.length ? { kept: opts.kept } : {}),
+              ...(resumed ? { resumed: true } : {}),
+              runId,
+              useSession,
+            }),
           { sessionId, runId },
         );
         suspended = outcome.suspended;
-        return { reply: outcome.reply, halted: false, sessionId };
+        return { reply: outcome.reply, halted: false, sessionId, ...(outcome.suspended ? { suspended: true } : {}) };
       } catch (err) {
         const why = err instanceof Error ? err.message : String(err);
         this.runs.finish(runId, "error", why);
@@ -1137,7 +1150,7 @@ export class Kernel {
   private async raceWithApproval<T>(
     run: Promise<T>,
     waiting: Promise<PendingAction>,
-    settle: (result: T) => Promise<string> | string,
+    settle: (result: T, resumed: boolean) => Promise<string> | string,
     ctx: { sessionId: string; runId: number },
   ): Promise<{ reply: string; suspended: boolean }> {
     const first = await Promise.race([
@@ -1148,7 +1161,9 @@ export class Kernel {
       void run
         .then(async (result) => {
           if (this.closed) return;
-          await settle(result);
+          // Settled as resumed: the surface the words came from answered
+          // "waiting on you" and has nothing left to post this answer with.
+          await settle(result, true);
           this.runs.finish(ctx.runId, "ok");
         })
         .catch((err: unknown) => {
@@ -1163,7 +1178,7 @@ export class Kernel {
         suspended: true,
       };
     }
-    const reply = await settle(first.result);
+    const reply = await settle(first.result, false);
     this.runs.finish(ctx.runId, "ok");
     return { reply, suspended: false };
   }
@@ -2521,6 +2536,8 @@ export class Kernel {
       channel?: string;
       /** The files that came with the words, kept in the workspace. */
       kept?: KeptFile[];
+      /** The turn waited on an approval, and this is the answer after it. */
+      resumed?: boolean;
       runId: number;
       useSession: boolean;
     },
@@ -2595,14 +2612,14 @@ export class Kernel {
       this.maybeExtract();
     }
 
-    if (useSession) this.said(sessionId, text, reply, origin ?? "owner", ctx.channel, ctx.kept ?? []);
+    if (useSession) this.said(sessionId, text, reply, origin ?? "owner", ctx.channel, ctx.kept ?? [], ctx.resumed ?? false);
     this.runs.finish(runId, "ok");
     return reply;
   }
 
   /** A turn's exchange, told to whoever shows the chat elsewhere, with the files that came with it. */
-  private said(conversationId: string, text: string, reply: string, origin: "owner" | "system", channel: string | undefined, files: KeptFile[]): void {
-    this.bus.emit({ kind: "turn:said", conversationId, projectSlug: this.projectOf(conversationId), text, reply, origin, channel: channel ?? null, files });
+  private said(conversationId: string, text: string, reply: string, origin: "owner" | "system", channel: string | undefined, files: KeptFile[], resumed = false): void {
+    this.bus.emit({ kind: "turn:said", conversationId, projectSlug: this.projectOf(conversationId), text, reply, origin, channel: channel ?? null, files, ...(resumed ? { resumed: true } : {}) });
   }
 
   /** Where a chat's uploads go: its project's folder, its blob's, or the root's own. */

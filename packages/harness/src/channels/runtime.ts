@@ -34,7 +34,12 @@ export interface TurnContext {
  * Answers a turn. A string is the ordinary case; a message is a turn that
  * chose a shape for its answer.
  */
-export type TurnHandler = (ctx: TurnContext) => Promise<string | OutboundMessage>;
+/**
+ * What a turn answers with: words, or a message; `suspended` when the turn
+ * is waiting on an approval and will carry on behind the answer, so the
+ * story is kept open until it ends rather than closed with this reply.
+ */
+export type TurnHandler = (ctx: TurnContext) => Promise<string | (OutboundMessage & { suspended?: boolean })>;
 
 export interface DecisionContext {
   /** KOS user the decider resolved to. */
@@ -213,18 +218,28 @@ export class ChannelRuntime {
         }, due);
       }
     };
-    const unwatch = this.watchTurn(ctx, (event) => {
+    let ended = false;
+    let unwatch: () => void = () => undefined;
+    const end = async (): Promise<void> => {
+      if (ended) return;
+      ended = true;
+      unwatch();
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+      if (narrator.worthShowing()) show(narrator.renderSteps());
+      await last;
+    };
+    // The story ends itself when the turn does: a turn that suspended on an
+    // approval answered "waiting on you" long before its last step, and the
+    // steps after the decision are part of the same story.
+    unwatch = this.watchTurn(ctx, (event) => {
+      if (event.kind === "turn-end") {
+        void end();
+        return;
+      }
       if (narrator.take(event)) redraw(event.kind === "tool-start");
     });
-    return {
-      end: async () => {
-        unwatch();
-        if (timer) clearTimeout(timer);
-        timer = undefined;
-        if (narrator.worthShowing()) show(narrator.renderSteps());
-        await last;
-      },
-    };
+    return { end };
   }
 
   private resolve(channel: string, senderId: string): string | null {
@@ -298,12 +313,14 @@ export class ChannelRuntime {
         ...(msg.newIn ? { newIn: msg.newIn } : {}),
         ...(msg.attachments?.length ? { attachments: msg.attachments } : {}),
       });
-      const reply: OutboundMessage =
-        typeof answer === "string" ? { text: answer } : answer;
+      const { suspended = false, ...message } = typeof answer === "string" ? { text: answer } : answer;
+      const reply: OutboundMessage = message;
       // A turn that answered with a card and nothing else still said
       // something; only an empty one needs standing in for.
       if (!reply.text && !reply.card) reply.text = "(no reply)";
-      await story?.end();
+      // Waiting on the owner: the story stays open for the steps that follow
+      // the decision, and closes itself when the turn ends.
+      if (!suspended) await story?.end();
       if (presence) {
         await presence.complete(reply);
       } else {

@@ -17,6 +17,9 @@ describe("parseRoute", () => {
     expect(parseRoute("#/settings/modules")).toEqual({ name: "settings", section: "modules" });
     expect(hrefFor({ name: "settings", section: "modules" })).toBe("#/settings/modules");
     expect(parseRoute("#/schedule")).toEqual({ name: "crons" });
+    // A job by name, as an @schedule: chip links to it; built back the same way.
+    expect(parseRoute("#/schedule/Email%20Amy%20Reminder")).toEqual({ name: "crons", job: "Email Amy Reminder" });
+    expect(hrefFor({ name: "crons", job: "Email Amy Reminder" })).toBe("#/schedule/Email%20Amy%20Reminder");
     expect(parseRoute("#/activity")).toEqual({ name: "history" });
     // Activity and Runs became one page. Their paths still resolve, because a
     // bookmark should not break when two pages merge.
