@@ -191,12 +191,18 @@ describe("the answer a turn shaped", () => {
       },
       reactions: { cache: { get: () => undefined } },
       channel: {
-        // A posted message can be edited later: the story is one of those.
+        // A posted message can be edited later, or taken down: the thinking
+        // line is one of those. Taken down, it leaves the list as it would
+        // leave the channel.
         send: async (payload: Record<string, unknown>) => {
           edits.push(payload);
           return {
             edit: async (next: Record<string, unknown>) => {
               edits.push({ edit: true, ...next });
+            },
+            delete: async () => {
+              const at = edits.indexOf(payload);
+              if (at >= 0) edits.splice(at, 1);
             },
           };
         },
@@ -208,37 +214,35 @@ describe("the answer a turn shaped", () => {
     return { adapter, edits, message, reactions };
   }
 
-  it("posts nothing until the answer: the reaction is the whole presence", async () => {
-    // A "Working on it…" embed used to be posted and edited into the reply.
-    // The owner's phone buzzed for the placeholder and never for the answer,
-    // which arrived as an edit, and every reply sat under a titled box.
+  it("puts up a silent thinking line at once, and takes it down when the answer lands with nothing told", async () => {
+    // A reaction used to be the whole presence; the owner wanted a dialogue.
+    // The line is silent so the phone buzzes for the answer, which is its own
+    // message rather than an edit, and nothing reacts to the question.
     const { adapter, edits, message, reactions } = presenceFor();
     const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "hi", native: message });
-    expect(edits).toEqual([]);
-    expect(reactions).toEqual(["⏳"]);
+    expect(edits).toEqual([{ content: "-# thinking…", flags: MessageFlags.SuppressNotifications }]);
     await presence!.complete({ text: "done" });
-    expect(reactions).toEqual(["⏳", "✅"]);
-    expect(edits).toHaveLength(1);
-    expect(edits[0]).toEqual({ content: "done" });
+    expect(edits).toEqual([{ content: "done" }]);
+    expect(reactions).toEqual([]);
   });
 
   it("tells the turn's story in one silent message, edited as it goes, and leaves it standing when the answer lands", async () => {
     const { adapter, edits, message } = presenceFor();
     const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "hi", native: message });
     await presence!.update("I'll look at the folder.\n› List projects/x");
-    // Silent, so the owner's phone buzzes for the answer and not for this.
-    // No marker in the words: the reaction says the turn is going, and a
-    // "⏳" before a step line left "⏳ -# ›" on the screen, since subtext
-    // renders only at the start of a line.
-    expect(edits[0]).toEqual({ content: "I'll look at the folder.\n-# › List projects/x", flags: MessageFlags.SuppressNotifications });
+    // The thinking line becomes the story by edit, silent throughout. No
+    // marker in the words: a "⏳" before a step line left "⏳ -# ›" on the
+    // screen, since subtext renders only at the start of a line.
+    expect(edits[0]).toEqual({ content: "-# thinking…", flags: MessageFlags.SuppressNotifications });
+    expect(edits[1]).toEqual({ edit: true, content: "I'll look at the folder.\n-# › List projects/x" });
     await presence!.update("I'll look at the folder.\n› List projects/x\nTwo stale builds, I'll clear them.\n› Run: rm -rf build");
-    expect(edits[1]).toEqual({ edit: true, content: "I'll look at the folder.\n-# › List projects/x\nTwo stale builds, I'll clear them.\n-# › Run: rm -rf build" });
+    expect(edits[2]).toEqual({ edit: true, content: "I'll look at the folder.\n-# › List projects/x\nTwo stale builds, I'll clear them.\n-# › Run: rm -rf build" });
     await presence!.update("› Read config");
-    expect(edits[2]).toEqual({ edit: true, content: "-# › Read config" });
+    expect(edits[3]).toEqual({ edit: true, content: "-# › Read config" });
     await presence!.complete({ text: "Cleared two stale builds." });
-    // The story stays as it was told, with no closing edit; the answer is its own message.
-    expect(edits[3]).toEqual({ content: "Cleared two stale builds." });
-    expect(edits).toHaveLength(4);
+    // Told, the story stays with no closing edit and is not taken down; the answer is its own message.
+    expect(edits[4]).toEqual({ content: "Cleared two stale builds." });
+    expect(edits).toHaveLength(5);
     expect(storyText("x".repeat(3000)).length).toBe(1900);
     // A reference in the story links as it does in the answer, so the same
     // name is not a token in one message and a link in the next.
@@ -287,11 +291,11 @@ describe("the answer a turn shaped", () => {
     expect((edits.at(-1) as { files: unknown[] }).files).toHaveLength(1);
   });
 
-  it("says a failure in one plain line, marked", async () => {
+  it("says a failure in one plain line, marked, with the thinking line taken down", async () => {
     const { adapter, edits, message, reactions } = presenceFor();
     const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "hi", native: message });
     await presence!.fail("Something went wrong handling that.");
-    expect(reactions.at(-1)).toBe("❌");
+    expect(reactions).toEqual([]);
     expect(edits).toEqual([{ content: "❌ Something went wrong handling that." }]);
   });
 
@@ -938,7 +942,16 @@ describe("DiscordAdapter authorization", () => {
     const channel = {
       id: "c2",
       isThread: () => false,
-      send: async (p: Record<string, unknown>) => { posted.push(p); return { edit: async () => undefined }; },
+      send: async (p: Record<string, unknown>) => {
+        posted.push(p);
+        return {
+          edit: async (n: Record<string, unknown>) => Object.assign(p, n),
+          delete: async () => {
+            const at = posted.indexOf(p);
+            if (at >= 0) posted.splice(at, 1);
+          },
+        };
+      },
       fetchWebhooks: async () => new Map([["w1", hook]]),
       createWebhook: async () => { throw new Error("one exists"); },
     };
@@ -968,38 +981,59 @@ describe("DiscordAdapter authorization", () => {
     const posted: Record<string, unknown>[] = [];
     const viaHook: Record<string, unknown>[] = [];
     const edited: [string, Record<string, unknown>][] = [];
+    const deleted: string[] = [];
     const hook = {
       name: webhookNameFor(verity),
       token: "wh",
       send: async (p: Record<string, unknown>) => { viaHook.push(p); return { id: `m${viaHook.length}` }; },
       editMessage: async (id: string, p: Record<string, unknown>) => { edited.push([id, p]); return {}; },
+      deleteMessage: async (id: string) => { deleted.push(id); },
     };
     const channel = {
       id: "c3",
       isThread: () => false,
-      send: async (p: Record<string, unknown>) => { posted.push(p); return { edit: async () => undefined }; },
+      send: async (p: Record<string, unknown>) => {
+        posted.push(p);
+        return {
+          edit: async (n: Record<string, unknown>) => Object.assign(p, n),
+          delete: async () => {
+            const at = posted.indexOf(p);
+            if (at >= 0) posted.splice(at, 1);
+          },
+        };
+      },
       fetchWebhooks: async () => new Map([["w1", hook]]),
       createWebhook: async () => { throw new Error("one exists"); },
     };
     (adapter as unknown as { client: { channels: unknown } }).client.channels = { fetch: async (id: string) => (id === "c3" ? channel : undefined) };
     const message = { author: { id: "owner-id", bot: false }, guild: { id: "g1" }, channel, content: "what time is it", react: async () => undefined, reactions: { cache: { get: () => undefined } } } as unknown as Message;
     const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "what time is it", conversationKey: "agent:verity", native: message });
+    // The thinking line goes up as the blob at once, silently, and is edited
+    // into the story through the same webhook; the bot posts nothing.
+    expect(viaHook).toEqual([{ content: "-# thinking…", flags: MessageFlags.SuppressNotifications, username: "Verity" }]);
     await presence!.update("› get_current_time on time");
     await presence!.update("› get_current_time on time\nNearly midnight.");
-    // Told under the blob's name, silently, and edited through the same webhook; the bot posts nothing.
-    expect(viaHook).toEqual([{ content: "-# › get_current_time on time", flags: MessageFlags.SuppressNotifications, username: "Verity" }]);
-    expect(edited).toEqual([["m1", { content: "-# › get_current_time on time\nNearly midnight." }]]);
+    expect(edited).toEqual([
+      ["m1", { content: "-# › get_current_time on time" }],
+      ["m1", { content: "-# › get_current_time on time\nNearly midnight." }],
+    ]);
     await presence!.complete({ text: "It is 23:42.", from: verity });
     expect(viaHook[1]).toEqual({ content: "It is 23:42.", username: "Verity" });
     expect(posted).toEqual([]);
+    // Told, the story stays.
+    expect(deleted).toEqual([]);
     // A thread under the blob's channel posts and edits through the parent's webhook, in the thread.
     const thread = { ...channel, id: "t1", isThread: () => true, parent: channel };
     const inThread = { ...(message as unknown as Record<string, unknown>), channel: thread } as unknown as Message;
     const p2 = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "and now", conversationId: "agent:verity", native: inThread });
     await p2!.update("› Read clock");
     await p2!.update("› Read clock\n› Read calendar");
-    expect(viaHook[2]).toMatchObject({ username: "Verity", threadId: "t1" });
-    expect(edited[1]).toEqual(["m3", { content: "-# › Read clock\n-# › Read calendar", threadId: "t1" }]);
+    expect(viaHook[2]).toMatchObject({ content: "-# thinking…", username: "Verity", threadId: "t1" });
+    expect(edited[3]).toEqual(["m3", { content: "-# › Read clock\n-# › Read calendar", threadId: "t1" }]);
+    // Nothing told by the time the answer lands: the line comes down, through the webhook.
+    const quick = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "yes?", conversationKey: "agent:verity", native: message });
+    await quick!.complete({ text: "Yes.", from: verity });
+    expect(deleted).toEqual(["m4"]);
     // KOS's own story, in a channel with no speaker, is the bot's.
     const kos = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "hi", conversationKey: "orchestrator:owner", native: message });
     await kos!.update("› List projects");
