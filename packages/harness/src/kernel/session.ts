@@ -25,7 +25,27 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
   messages_json TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS chat_session_earlier (
+  id TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  why TEXT NOT NULL,
+  messages_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_session_earlier_id ON chat_session_earlier (id, at);
 `;
+
+/** Why a stretch of a chat was set aside: the owner cleared it, or it was folded into a summary. */
+export type EarlierWhy = "cleared" | "compacted";
+
+/** A stretch of a chat set aside: what was said, when it was set aside, and why. */
+export interface EarlierHistory {
+  at: number;
+  why: EarlierWhy;
+  messages: ModelMessage[];
+}
+
+/** Stretches kept per chat; past this the oldest goes. */
+const EARLIER_MAX = 8;
 
 export interface SessionStoreOptions {
   /**
@@ -301,7 +321,50 @@ export class SessionStore {
     return this.get(sessionId);
   }
 
-  clear(sessionId: string): void {
+  /**
+   * Set the chat aside rather than drop it: the model's history starts
+   * afresh, and what was said stays, under earlier(), for the owner to read
+   * above a line. A /clear used to wipe the chat from the dashboard too, and
+   * the owner wanted to keep seeing what led up to it.
+   */
+  clear(sessionId: string, why: EarlierWhy = "cleared"): void {
+    this.setAside(sessionId, why);
     this.db.prepare(`DELETE FROM chat_sessions WHERE id = ?`).run(sessionId);
+  }
+
+  /** Set the chat aside and put these messages in its place: a compaction's summary. */
+  replace(sessionId: string, messages: ModelMessage[], why: EarlierWhy): void {
+    this.setAside(sessionId, why);
+    this.write(sessionId, this.trim(messages));
+  }
+
+  /** What was set aside, oldest first. */
+  earlier(sessionId: string): EarlierHistory[] {
+    const rows = this.db.prepare(`SELECT at, why, messages_json FROM chat_session_earlier WHERE id = ? ORDER BY at, rowid`).all(sessionId) as {
+      at: number;
+      why: string;
+      messages_json: string;
+    }[];
+    return rows.flatMap((row) => {
+      try {
+        const messages = JSON.parse(row.messages_json) as ModelMessage[];
+        return Array.isArray(messages) ? [{ at: row.at, why: row.why === "compacted" ? ("compacted" as const) : ("cleared" as const), messages }] : [];
+      } catch {
+        return [];
+      }
+    });
+  }
+
+  private setAside(sessionId: string, why: EarlierWhy): void {
+    const current = this.get(sessionId);
+    if (current.length === 0) return;
+    this.db.prepare(`INSERT INTO chat_session_earlier (id, at, why, messages_json) VALUES (?, ?, ?, ?)`).run(sessionId, this.now(), why, JSON.stringify(current));
+    // The oldest stretch goes once there are too many; a chat cleared every
+    // day is not a chat whose every day is worth keeping on the page.
+    this.db
+      .prepare(
+        `DELETE FROM chat_session_earlier WHERE id = ? AND rowid NOT IN (SELECT rowid FROM chat_session_earlier WHERE id = ? ORDER BY at DESC, rowid DESC LIMIT ?)`,
+      )
+      .run(sessionId, sessionId, EARLIER_MAX);
   }
 }

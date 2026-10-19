@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ModelMessage } from "../models/types.js";
-import { conversationEvents, spokenTurns } from "./transcript.js";
+import { conversationEvents, historyEvents, spokenTurns } from "./transcript.js";
 
 const withTool: ModelMessage[] = [
   { role: "user", content: [{ type: "text", text: "what did I spend" }] },
@@ -131,5 +131,19 @@ describe("spokenTurns", () => {
       { role: "kos", text: "Let me check." },
       { role: "kos", text: "$3,410." },
     ]);
+  });
+});
+
+describe("historyEvents", () => {
+  it("shows every stretch set aside under a line saying so, then the chat as it is", () => {
+    const earlier = [
+      { at: 1000, why: "cleared" as const, messages: [{ role: "user" as const, content: [{ type: "text" as const, text: "old" }] }] },
+      { at: 2000, why: "compacted" as const, messages: [{ role: "assistant" as const, content: [{ type: "text" as const, text: "long" }] }] },
+    ];
+    const events = historyEvents(earlier, [{ role: "user", content: [{ type: "text", text: "now" }] }]);
+    expect(events.map((e) => (e.kind === "divider" ? `--- ${e.at}` : e.kind === "message" ? e.text : e.kind))).toEqual(["old", "--- 1000", "long", "--- 2000", "now"]);
+    expect(events[1]).toMatchObject({ kind: "divider", text: expect.stringContaining("Cleared here") });
+    expect(events[3]).toMatchObject({ kind: "divider", text: expect.stringContaining("Compacted here") });
+    expect(historyEvents([], [])).toEqual([]);
   });
 });

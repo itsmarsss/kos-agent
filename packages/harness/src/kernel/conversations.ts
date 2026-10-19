@@ -369,6 +369,10 @@ export class ConversationStore {
     if (this.hasTable("chat_sessions")) {
       this.db.prepare(`DELETE FROM chat_sessions WHERE id = ?`).run(id);
     }
+    // What a clear or a compaction set aside goes with the chat.
+    if (this.hasTable("chat_session_earlier")) {
+      this.db.prepare(`DELETE FROM chat_session_earlier WHERE id = ?`).run(id);
+    }
     this.db.prepare(`DELETE FROM conversation_active WHERE conversation_id = ?`).run(id);
     const info = this.db.prepare(`DELETE FROM conversations WHERE id = ?`).run(id);
     return info.changes > 0;

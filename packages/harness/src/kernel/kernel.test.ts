@@ -342,6 +342,26 @@ describe("Kernel", () => {
     expect(readFileSync(join(root, "blobs", "recap", "uploads", "notes.txt"), "utf8")).toBe("hi");
   });
 
+  it("keeps a cleared chat on the page above a line, and tells the mirror a command ran", async () => {
+    const answer = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    kernel = await boot(stubInference([answer("Three things."), answer("Fresh start.")]));
+    const ran: { conversationId: string; text: string; reply: string; channel: string | null }[] = [];
+    kernel.bus.on("command:ran", (e) => {
+      ran.push({ conversationId: e.conversationId, text: e.text, reply: e.reply, channel: e.channel });
+    });
+    const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Kitchen" });
+    await kernel.handleMessage("what did I do?", { sessionId: c.id });
+    const cleared = await kernel.runCommandIn(c.id, kernel.profile.ownerId, "/clear");
+    expect(cleared?.reply).toContain("stay above the line");
+    expect(ran).toEqual([{ conversationId: c.id, text: "/clear", reply: cleared!.reply, channel: "dashboard" }]);
+    // The model's history is empty; the page still has the exchange, under a line.
+    expect(kernel.sessions.get(c.id)).toEqual([]);
+    expect(kernel.sessions.earlier(c.id)).toHaveLength(1);
+    await kernel.handleMessage("and now?", { sessionId: c.id });
+    expect(kernel.sessions.get(c.id).length).toBeGreaterThan(0);
+    expect(JSON.stringify(kernel.sessions.get(c.id))).not.toContain("Three things.");
+  });
+
   it("reads an attached PDF into the turn as the text it is", async () => {
     kernel = await boot(stubInference([]));
     const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Bills" });

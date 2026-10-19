@@ -32,7 +32,7 @@ import {
   MODEL_SETTINGS_KEY,
   parseModelSettings,
 } from "../models/settings.js";
-import { conversationEvents, type ChatEvent } from "./transcript.js";
+import { historyEvents, type ChatEvent } from "./transcript.js";
 import { DENIED_PREFIX } from "./guarded.js";
 import { copyEntry, deleteEntry, listDirectory, makeDir, readForView, readImage, readBytes, readPdf, renameEntry, type DirEntry } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
@@ -2509,7 +2509,7 @@ export async function handleApiRequest(
     return ok({
       id,
       messages: transcriptOf(kernel, id),
-      events: withFrames(conversationEvents(kernel.sessions.get(id)), kernel.frames.listFor(id)),
+      events: withFrames(historyEvents(kernel.sessions.earlier(id), kernel.sessions.get(id)), kernel.frames.listFor(id)),
       // Sent but not yet run. Shown after the transcript because that is where
       // they will land, and separately because they have not happened yet.
       pending: kernel.pending.forConversation(id).map((m) => ({

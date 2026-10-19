@@ -1939,14 +1939,16 @@ export class Kernel {
       case "clear": {
         if (history.length === 0) return { reply: "Nothing to forget; this chat is empty." };
         this.sessions.clear(conversationId);
-        // Careful about what this actually promises. Clearing drops the
-        // transcript, not anything saved to memory, and saved facts are
-        // recalled into later turns: the first version of this said "I no
-        // longer remember what was in it" and was then able to recite a fact
-        // from the cleared chat, which is a worse answer than saying nothing.
+        // Careful about what this actually promises. Clearing takes the
+        // transcript out of the model's context, not anything saved to
+        // memory, and saved facts are recalled into later turns: the first
+        // version of this said "I no longer remember what was in it" and was
+        // then able to recite a fact from the cleared chat, which is a worse
+        // answer than saying nothing. The words themselves stay on the page,
+        // above a line, for the owner.
         return {
           reply: [
-            `Forgotten ${history.length} message${history.length === 1 ? "" : "s"} of this chat's history.`,
+            `Set aside ${history.length} message${history.length === 1 ? "" : "s"} of this chat's history: they stay above the line for you, and are out of my context.`,
             "My role here, the project this chat belongs to and its tools stay as they were.",
             "Anything saved to memory stays, and I will still recall it. Knowledge lists those.",
           ].join(" "),
@@ -1957,10 +1959,10 @@ export class Kernel {
         if (history.length === 0) return { reply: "Nothing to compact; this chat is empty." };
         const result = await compactHistory(this.inference, history);
         if (!result) return { reply: "Not enough here to be worth compacting yet." };
-        this.sessions.set(conversationId, result.messages);
+        this.sessions.replace(conversationId, result.messages, "compacted");
         return {
           reply: [
-            `Compacted ${result.compacted} messages into a summary. Here is what I kept:`,
+            `Compacted ${result.compacted} messages into a summary; they stay above the line for you. Here is what I kept:`,
             "",
             result.summary,
           ].join("\n"),
@@ -2130,6 +2132,9 @@ export class Kernel {
           userId,
           currentId: conversationId,
         });
+    // Told to whoever shows the chat elsewhere, so a command typed here is a
+    // line there, as the words of a turn are.
+    this.bus.emit({ kind: "command:ran", conversationId, text: text.trim(), reply: result.reply, channel });
     return {
       reply: result.reply,
       halted: false,
