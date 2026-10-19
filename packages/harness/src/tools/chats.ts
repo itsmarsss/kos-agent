@@ -152,8 +152,11 @@ function defineHandoffTool(deps: ChatToolDeps, ctx: ModuleContext): void {
       const done = await deps.handoff({ to: str(input, "to"), brief: str(input, "brief"), ...(ask ? { ask } : {}) });
       return JSON.stringify({ ...done, note: "Handed over. Say so and end your turn; the answer comes back here as a note." });
     },
-    // The brief is the thing being approved: it is what the other chat will act on.
-    { floor: "risky" },
+    // A brief handed to another of the owner's own chats stays inside the
+    // workspace; what that chat then does is gated by its own tiers. Asking
+    // here put an approval between "ask the books project to check" and the
+    // check.
+    { floor: "safe" },
   );
 }
 

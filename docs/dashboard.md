@@ -192,6 +192,16 @@ then lapses too. Either way it leaves the Inbox, the prompt for it on
 Discord or iMessage settles as lapsed, and the chat that asked is told
 nothing was done. Each card says when it lapses.
 
+What asks for your yes: money, a message to anyone but you or into a
+place others read, deleting or removing anything, a shell command that
+writes, clicking or typing on a web page, opening a channel or role to
+others, code that runs unattended (a daemon, a build, a promoted module
+or skill), and a sql update or delete. Everything else runs: reading,
+writing in the workspace, a row added to a table, a schedule made or run,
+a brief handed to another of your chats, a task list, a channel of yours
+bound to a chat, a role made. A yes with Always is remembered for that
+file's folder, host, table, site, command, handoff target or destination.
+
 ## Overview
 
 Panels you arrange with the Arrange button: Needs you, Last 24 hours, Blobs

@@ -1,14 +1,16 @@
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
-import { isSqlWrite } from "../risk/rules.js";
+import { isSqlDestructive } from "../risk/rules.js";
 import type { Db } from "../store/db.js";
 import { fence, isKernelTable, namesKernelTable } from "./fence.js";
 
 /**
- * The `sql` tool module: run DML against the workspace SQLite. SELECT is safe;
- * INSERT/UPDATE/DELETE escalate to risky and go to the approval queue. DDL is
- * rejected here on purpose: schema changes must go through the guarded `migrate`
- * primitive so the manifest and migration history stay under harness control.
+ * The `sql` tool module: run DML against the workspace SQLite. SELECT and
+ * INSERT are safe: a read, and a row added to a table of the owner's own.
+ * UPDATE and DELETE change or remove what is there, so they escalate to
+ * risky and go to the approval queue. DDL is rejected here on purpose:
+ * schema changes must go through the guarded `migrate` primitive so the
+ * manifest and migration history stay under harness control.
  */
 
 const DDL_RE = /\b(create|alter|drop|truncate|attach|detach|vacuum|reindex)\b/i;
@@ -112,7 +114,7 @@ export function defineSqlTool(db: Db, ctx: ModuleContext): void {
     {
       floor: "safe",
       escalate: (input) =>
-        typeof input.sql === "string" && isSqlWrite(input.sql),
+        typeof input.sql === "string" && isSqlDestructive(input.sql),
     },
   );
 }

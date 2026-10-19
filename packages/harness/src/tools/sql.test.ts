@@ -50,8 +50,10 @@ describe("sqlModule", () => {
     expect(JSON.parse(res.content).changes).toBe(1);
   });
 
-  it("classifies SELECT safe and writes risky", () => {
+  it("classifies SELECT and INSERT safe, UPDATE and DELETE risky", () => {
     expect(registry.classify("sql", { sql: "SELECT 1" }).tier).toBe("safe");
+    expect(registry.classify("sql", { sql: "INSERT INTO tx (a) VALUES (1)" }).tier).toBe("safe");
+    expect(registry.classify("sql", { sql: "UPDATE tx SET a = 2" }).tier).toBe("risky");
     expect(registry.classify("sql", { sql: "DELETE FROM tx" }).tier).toBe("risky");
   });
 

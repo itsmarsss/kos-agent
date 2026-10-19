@@ -234,28 +234,33 @@ describe("KOS end-to-end flows", () => {
           ],
         },
       }),
-      // A write escalates to risky and must not execute inline.
+      // A row added to the owner's own table runs at once; removing one
+      // escalates to risky and must not execute inline.
       toolCall("c3", "sql", {
         sql: "INSERT INTO budget_tx (amount) VALUES (?)",
         params: [40],
       }),
+      toolCall("c4", "sql", {
+        sql: "DELETE FROM budget_tx WHERE amount = ?",
+        params: [40],
+      }),
       text("Queued that for your approval."),
-      // Resume turn after approval: the row already exists, so do not repeat it.
-      text("Added the 40 dollar row."),
+      // Resume turn after approval: the row is gone, so do not repeat it.
+      text("Removed the 40 dollar row."),
     ]);
     kernel = await boot(model.inference);
 
-    await kernel.handleMessage("log a forty dollar expense");
+    await kernel.handleMessage("log a forty dollar expense, then take it back");
 
     const pending = kernel.approvals.pending();
     expect(pending).toHaveLength(1);
     expect(pending[0]?.tool).toBe("sql");
 
-    // Nothing was written while the action sat in the queue.
+    // The insert ran; nothing was removed while the delete sat in the queue.
     const before = kernel.workspace.db
       .prepare("SELECT COUNT(*) AS n FROM budget_tx")
       .get() as { n: number };
-    expect(before.n).toBe(0);
+    expect(before.n).toBe(1);
 
     const outcome = await kernel.approve(pending[0]!.id);
     expect(outcome.ok).toBe(true);
@@ -263,7 +268,7 @@ describe("KOS end-to-end flows", () => {
     const after = kernel.workspace.db
       .prepare("SELECT COUNT(*) AS n FROM budget_tx")
       .get() as { n: number };
-    expect(after.n).toBe(1);
+    expect(after.n).toBe(0);
     expect(kernel.approvals.pending()).toHaveLength(0);
   });
 
@@ -391,11 +396,10 @@ describe("KOS end-to-end flows", () => {
     const listed = kernel.crons.list().length;
 
     await kernel.handleMessage("check every minute");
-    await kernel.approve(kernel.approvals.pending()[0]!.id);
+    // Scheduling asks nothing: a job is the owner's standing instruction,
+    // and what a run does is gated when it runs.
+    expect(kernel.approvals.pending()).toHaveLength(0);
 
-    // Awaited: the call runs inside the turn that was suspended on it, so
-    // the job exists once that turn gets going again, not when approve
-    // returns.
     // The scheduler builds its tasks from the table when the host starts. A
     // job scheduled after that was stored and enabled and never fired, so the
     // owner had an unattended job that did nothing until a restart.
@@ -894,7 +898,7 @@ describe("KOS end-to-end flows", () => {
     expect(kernel.conversations.get(`cron:${job.id}`)).toBeDefined();
   });
 
-  it("asks before running a job by hand, then runs it the way it will run", async () => {
+  it("runs a job by hand the way it will run, without asking", async () => {
     const model = scripted([
       // Every workspace is seeded with backup (1), memory (2), dream (3), observe (4), improve (5).
       toolCall("c1", "cron.run", { id: 6 }),
@@ -912,17 +916,16 @@ describe("KOS end-to-end flows", () => {
     expect(job.id).toBe(6);
 
     /*
-     * Firing a job runs whatever it holds -- a write, a message to a channel
-     * -- and the risk gate sees only an id, so it cannot classify any of it.
-     * The decision goes to the owner at the point where the consequences are
-     * still legible: the job, by name.
+     * Firing a job runs whatever it holds, and whatever that is goes
+     * through the same gate it would at 9am: an unattended run queues
+     * anything risky for the owner. So running it by hand asks nothing.
      */
     await kernel.handleMessage("run the morning ping now");
-    expect(kernel.approvals.pending().map((p) => p.tool)).toEqual(["cron.run"]);
-    expect(kernel.runs.recent(10).some((r) => r.kind === "cron")).toBe(false);
+    expect(kernel.approvals.pending()).toHaveLength(0);
+    expect(kernel.runs.recent(10).some((r) => r.kind === "cron")).toBe(true);
 
-    // And what it does once allowed: fire(), so the run log, the kill switch
-    // and the health report see it exactly as they would at 9am.
+    // And what it does: fire(), so the run log, the kill switch and the
+    // health report see it exactly as they would at 9am.
     const ran = await kernel.registry.execute("cron.run", { id: job.id });
     expect(ran.isError).toBe(false);
     expect(ran.content).toContain("ran morning-ping");

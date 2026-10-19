@@ -29,7 +29,10 @@ describe("the discord tools", () => {
       { key: "agent:recap", name: "recap", audience: "owner" },
     ];
     const synced: number[] = [];
-    const places: ServerPlace[] = [{ id: "c0", name: "general", kind: "channel" }];
+    const places: ServerPlace[] = [
+      { id: "c0", name: "general", kind: "channel", audience: "everyone" },
+      { id: "c7", name: "diary", kind: "channel", audience: "owner" },
+    ];
     const roles: ServerRole[] = [{ id: "r0", name: "Members", members: 3 }];
     const made: MakePlace[] = [];
     const accessed: [string, Access[]][] = [];
@@ -130,9 +133,12 @@ describe("the discord tools", () => {
     expect((await h.call("discord.react", { channel: "picks", message: "m1" })).isError).toBe(true);
   });
 
-  it("makes a channel of the owner's a chat's home, with an ask, and only for a project or a blob", async () => {
+  it("makes a channel of the owner's a chat's home, asking only when others can see it, and only for a project or a blob", async () => {
     const h = await harness();
+    // Seen by everyone, or not seen by KOS yet: an ask. The owner's alone: none.
+    expect(h.registry.classify("discord.bind", { channel: "#general", to: "project:leetcode_daily" }).tier).toBe("risky");
     expect(h.registry.classify("discord.bind", { channel: "#leetcode", to: "project:leetcode_daily" }).tier).toBe("risky");
+    expect(h.registry.classify("discord.bind", { channel: "diary", to: "project:leetcode_daily" }).tier).toBe("safe");
     const res = (await h.call("discord.bind", { channel: "#leetcode", to: "project:leetcode_daily" })).json!;
     expect(res).toMatchObject({ key: "project:leetcode_daily", name: "leetcode", audience: "guests" });
     expect(String(res["note"])).toContain("members read and write there, and are heard");
@@ -154,8 +160,8 @@ describe("the discord tools", () => {
     expect(String(channel["note"])).toContain("to: discord:channel:p2");
     expect(h.made[1]).toEqual({ name: "picks", kind: "channel", category: "Book club", topic: "This month's picks", access: [{ who: "Members", view: true, write: true }] });
     expect((await h.call("discord.make", { name: "x", kind: "voice" })).isError).toBe(true);
-    // A role always asks; the owner hands it out.
-    expect(h.registry.classify("discord.role", { name: "Readers" }).tier).toBe("risky");
+    // A role asks nothing: it holds nobody until access hands it out, and that asks.
+    expect(h.registry.classify("discord.role", { name: "Readers" }).tier).toBe("safe");
     expect((await h.call("discord.role", { name: "Readers", colour: "#3B82F6" })).json).toMatchObject({ id: "r2", name: "Readers", colour: "#3b82f6" });
     // Access: letting anyone in asks; shutting a place back to the owner does not.
     expect(h.registry.classify("discord.access", { place: "picks", access: [{ who: "everyone" }] }).tier).toBe("risky");

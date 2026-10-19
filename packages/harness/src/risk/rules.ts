@@ -19,6 +19,17 @@ export function isSqlWrite(sql: string): boolean {
   return SQL_WRITE_RE.test(sql);
 }
 
+const SQL_DESTRUCTIVE_RE = /\b(update|delete|replace|truncate|drop|alter)\b/i;
+
+/**
+ * True if the SQL changes or removes what is there. An INSERT only adds a
+ * row to a table of the owner's own, so it runs; an UPDATE overwrites and a
+ * DELETE removes, so those ask.
+ */
+export function isSqlDestructive(sql: string): boolean {
+  return SQL_DESTRUCTIVE_RE.test(sql);
+}
+
 /** Escalate a sql write that touches any table flagged sensitive. */
 export function sqlWriteEscalation(sensitiveTables: string[]): Escalation {
   const patterns = sensitiveTables.map(
