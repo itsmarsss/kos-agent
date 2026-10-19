@@ -31,6 +31,8 @@ export type ProgressEvent =
       said?: string;
       /** Where they came from, as the transcript will say it. */
       origin?: MessageOrigin;
+      /** The files that came with the words, already kept, so the page can show them at once. */
+      files?: { name: string; path: string }[];
       /** The surface those words came in on. */
       from?: string;
     }

@@ -210,9 +210,19 @@ export class ChannelRuntime {
    * redrawn at most every so often. When the turn ends the story is
    * trimmed to its steps, since the answer is a message of its own.
    */
-  private narrate(presence: TurnPresence, ctx: TurnWatch): { end: () => Promise<void> } | undefined {
+  private narrate(presence: TurnPresence, ctx: TurnWatch, queued = false): { end: () => Promise<void> } | undefined {
     if (!this.watchTurn) return undefined;
     const narrator = new TurnNarrator();
+    /*
+     * A message that waited behind a running turn hears that turn's events
+     * too, since the watch is by conversation: its line was redrawn with the
+     * other turn's steps, and ended when the other turn ended. So a queued
+     * story takes nothing until its own turn starts: the turn-start that
+     * carries its words, or, when a turn carries none, the first start
+     * after an end.
+     */
+    let mine = !queued;
+    let sawEnd = false;
     let shownAt = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let last: Promise<void> = Promise.resolve();
@@ -249,6 +259,11 @@ export class ChannelRuntime {
     // approval answered "waiting on you" long before its last step, and the
     // steps after the decision are part of the same story.
     unwatch = this.watchTurn(ctx, (event) => {
+      if (!mine) {
+        if (event.kind === "turn-end") sawEnd = true;
+        if (event.kind === "turn-start" && (event.said !== undefined ? event.said === ctx.text : sawEnd)) mine = true;
+        return;
+      }
       if (event.kind === "turn-end") {
         void end();
         return;
@@ -320,10 +335,11 @@ export class ChannelRuntime {
     };
     // Behind a turn already running there: said at once, so a message that
     // waits is not a message that was missed.
-    if (presence && this.isBusy?.(watch)) {
+    const queued = !!presence && (this.isBusy?.(watch) ?? false);
+    if (presence && queued) {
       await presence.update("-# queued: a turn is running here, this one is next").catch(() => undefined);
     }
-    const story = presence ? this.narrate(presence, watch) : undefined;
+    const story = presence ? this.narrate(presence, watch, queued) : undefined;
     const guest = msg.guest ? { guest: msg.guest } : {};
 
     try {

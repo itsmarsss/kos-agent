@@ -468,7 +468,13 @@ describe("Kernel", () => {
     const png = Buffer.from("not really a png").toString("base64");
     // A root chat: the workspace's own uploads folder, as the file came.
     const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Receipts" });
+    // The live view is told the kept files as the turn starts, so a page can show them at once.
+    const started: unknown[] = [];
+    kernel.progress.subscribe((e) => {
+      if (e.kind === "turn-start" && e.conversationId === c.id) started.push(e.files);
+    });
     await kernel.handleMessage("can you access this", { sessionId: c.id, attachments: [{ name: "receipt.png", mediaType: "image/png", data: png }] });
+    expect(started[0]).toEqual([{ name: "receipt.png", path: "uploads/receipt.png" }]);
     expect(readFileSync(join(root, "uploads", "receipt.png"), "base64")).toBe(png);
     // The stored block knows where the file is, so the page can open it as itself.
     const user = kernel.sessions.get(c.id).find((m) => m.role === "user")!;

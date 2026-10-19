@@ -22,7 +22,10 @@ its story open: the steps after your decision are added to it, and the
 answer lands under them when the turn ends. Waiting is not working: the
 chat takes your next message meanwhile, and when you decide, the first
 turn finishes and its answer goes on the end. A message sent while a turn
-is still running there says "queued" at once, and runs next.
+is still running there says "queued" at once, and runs next; its line
+tells only its own turn's story once that begins. On the dashboard a
+message that waits shows what came with it by name, and one that has just
+started shows its files at once.
 
 Blobs, KOS's standing helpers, work from here as from the dashboard: "keep an eye on
 this listing" said in the DM makes one, "ask recap what I got done" sends
