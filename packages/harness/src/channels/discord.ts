@@ -18,7 +18,7 @@ import {
 } from "discord.js";
 import { detailLines, summarizeAction } from "@kos/shared";
 
-import { isImage, isTextual, type Attachment } from "../kernel/attachments.js";
+import { isReadable, type Attachment } from "../kernel/attachments.js";
 import { COMMANDS, completions, runCommand, type SlashContext } from "./commands.js";
 import { linkMentions, outsideCode, plainMentions } from "./mentions.js";
 import { STEP_MARK } from "./narrate.js";
@@ -299,7 +299,7 @@ export async function collectAttachments(
       skipped.push(`${name} (too large)`);
       continue;
     }
-    if (!isImage(mediaType) && !isTextual(mediaType, name)) {
+    if (!isReadable(mediaType, name)) {
       skipped.push(`${name} (${mediaType || "unknown type"})`);
       continue;
     }

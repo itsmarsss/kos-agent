@@ -10,6 +10,8 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 
+import { isPdf, pdfText } from "../files/pdftext.js";
+
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { SAFE, type ToolRisk } from "../risk/tiers.js";
@@ -50,14 +52,20 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
   ctx.registerTool(
     {
       name: "files.read",
-      description: "Read a UTF-8 file from the workspace.",
+      description: "Read a file from the workspace: UTF-8 text as it is, a PDF as its text page by page.",
       inputSchema: {
         type: "object",
         properties: { path: { type: "string" } },
         required: ["path"],
       },
     },
-    (input) => readFileSync(ws.resolve(str(input, "path")), "utf8"),
+    async (input) => {
+      const abs = ws.resolve(str(input, "path"));
+      const bytes = readFileSync(abs);
+      if (!isPdf(bytes)) return bytes.toString("utf8");
+      const read = await pdfText(new Uint8Array(bytes));
+      return `[PDF, ${read.pages} page${read.pages === 1 ? "" : "s"}${read.truncated ? ", cut at the cap" : ""}]\n${read.text}`;
+    },
     SAFE,
   );
 

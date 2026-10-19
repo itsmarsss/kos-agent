@@ -1,8 +1,28 @@
 import { describe, expect, it } from "vitest";
 
-import { attachmentBlocks, parseAttachments } from "./attachments.js";
+import { toPdf } from "../tools/pdf.js";
+import { attachmentBlocks, isReadable, parseAttachments, readAttachments } from "./attachments.js";
 
 const b64 = (s: string): string => Buffer.from(s, "utf8").toString("base64");
+
+describe("readAttachments", () => {
+  it("turns a PDF into the text file it reads as, and leaves the rest alone", async () => {
+    // A PDF was refused as a type the model could not read; the owner's bills
+    // and papers are PDFs.
+    const pdf = toPdf([{ item: "kettle", price: "42" }], "Shopping").toString("base64");
+    const picture = { name: "a.png", mediaType: "image/png", data: "AAAA" };
+    const out = await readAttachments([{ name: "bill.pdf", mediaType: "application/pdf", data: pdf }, picture, { name: "scan.PDF", mediaType: "", data: pdf }]);
+    expect(out[1]).toEqual(picture);
+    expect(out[0]).toMatchObject({ name: "bill.pdf", mediaType: "text/plain" });
+    const text = Buffer.from(out[0]!.data, "base64").toString("utf8");
+    expect(text.startsWith("[bill.pdf: 1 page]\n")).toBe(true);
+    expect(text).toContain("kettle 42");
+    expect(out[2]).toMatchObject({ name: "scan.PDF", mediaType: "text/plain" });
+    expect(attachmentBlocks(out)[0]).toMatchObject({ type: "file", name: "bill.pdf" });
+    expect(isReadable("application/pdf", "x.pdf")).toBe(true);
+    expect(isReadable("application/zip", "x.zip")).toBe(false);
+  });
+});
 
 describe("parseAttachments", () => {
   it("keeps well-formed entries", () => {

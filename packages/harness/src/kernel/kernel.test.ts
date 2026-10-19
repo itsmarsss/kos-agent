@@ -9,6 +9,7 @@ import { SecretsRegistry } from "../secrets/secrets.js";
 import { Kernel } from "./kernel.js";
 import { isKernelTable } from "../tools/fence.js";
 import { SurfaceDownError, type NotifyPayload } from "../tools/notify.js";
+import { toPdf } from "../tools/pdf.js";
 import { bodyHexOf } from "@kos/shared";
 import { primarySessionId } from "./session.js";
 
@@ -234,6 +235,19 @@ describe("Kernel", () => {
     expect(kernel.askerOf(`orchestrator:${kernel.profile.ownerId}`)).toEqual({ name: "KOS", conversationId: `orchestrator:${kernel.profile.ownerId}` });
     expect(kernel.askerOf(null)).toBeUndefined();
     expect(kernel.askerOf("nope")).toBeUndefined();
+  });
+
+  it("reads an attached PDF into the turn as the text it is", async () => {
+    kernel = await boot(stubInference([]));
+    const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Bills" });
+    const pdf = toPdf([{ item: "kettle", price: "42" }], "Shopping").toString("base64");
+    await kernel.handleMessage("what did I buy?", { sessionId: c.id, attachments: [{ name: "bill.pdf", mediaType: "application/pdf", data: pdf }] });
+    // Recorded as a text file under its own name, so the model and the
+    // transcript both see words rather than a refused attachment.
+    const user = kernel.sessions.get(c.id).find((m) => m.role === "user")!;
+    const file = (user.content as { type: string; name?: string; text?: string }[]).find((b) => b.type === "file");
+    expect(file?.name).toBe("bill.pdf");
+    expect(file?.text).toContain("kettle 42");
   });
 
   it("sends the owner a reporting blob's answer after each scheduled run, tagged as the blob's", async () => {

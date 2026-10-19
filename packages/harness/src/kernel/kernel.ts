@@ -104,7 +104,7 @@ import { BEHAVIOUR_KEY, parseBehaviour, type Behaviour } from "./behaviour.js";
 import { parseMentions } from "./mentions.js";
 import { readFile as readWorkspaceFile } from "./files.js";
 import { bodyHexOf, summarizeAction } from "@kos/shared";
-import { attachmentBlocks, type Attachment } from "./attachments.js";
+import { attachmentBlocks, isPdfFile, readAttachments, type Attachment } from "./attachments.js";
 import { type Profile } from "./profile.js";
 import { SessionStore, cronSessionId } from "./session.js";
 import { ConversationStore, type Conversation, projectConversationId } from "./conversations.js";
@@ -631,6 +631,12 @@ export class Kernel {
     const userId = opts.userId ?? this.profile.ownerId;
     const sessionId =
       opts.sessionId ?? `chat:${userId}`;
+    // A PDF among the attachments becomes the text it reads as, once, here:
+    // every door (dashboard, surface, API) comes through this method, and
+    // what is parked, recorded and sent is then only pictures and text.
+    if (opts.attachments?.some((a) => isPdfFile(a.mediaType, a.name))) {
+      opts = { ...opts, attachments: await readAttachments(opts.attachments) };
+    }
 
     // A turn runs one at a time, so a second message waits. It is parked
     // where a reload can find it rather than living only in the browser: the
@@ -880,14 +886,19 @@ export class Kernel {
             // asides) rather than its empty session, same as the API path.
             // The turn's own context (the clock, what was recalled, what
             // was mentioned) rides in front of the words here as it does
-            // on the API path. Sent as the bare text, this engine never
-            // saw any of it: no memory, no date.
+            // on the API path, and the text files attached ride behind
+            // them. Sent as the bare text, this engine never saw any of
+            // it: no memory, no date, no file.
             prompt: priorForSdk(
               [
                 ...this.sessions.historyForPrompt(opts.contextFrom ?? sessionId),
                 ...(opts.priorTurns ?? []),
               ],
-              turnContext ? `${turnContext}\n\n${text}` : text,
+              [
+                ...(turnContext ? [turnContext] : []),
+                text,
+                ...userContent.filter((b): b is Extract<ContentBlock, { type: "file" }> => b.type === "file").map((f) => `[${f.name}]\n${f.text}`),
+              ].join("\n\n"),
             ),
             // The turn's own pictures, which a prompt string cannot carry.
             ...(opts.attachments?.length
