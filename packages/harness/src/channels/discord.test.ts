@@ -1030,6 +1030,18 @@ describe("DiscordAdapter authorization", () => {
     await expect(adapter.setAudience("project:nope", "owner")).rejects.toThrow(/no channel is bound/);
   });
 
+  it("deletes a thread for a chat that is gone, and nothing that is not a thread", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1" });
+    const deleted: string[] = [];
+    const thread = { id: "t1", isThread: () => true, delete: async () => { deleted.push("t1"); } };
+    const channel = { id: "c1", isThread: () => false, delete: async () => { deleted.push("c1"); } };
+    (adapter as unknown as { client: unknown }).client = { channels: { fetch: async (id: string) => (id === "t1" ? thread : id === "c1" ? channel : null) } };
+    expect(await adapter.deleteThread("t1")).toBe(true);
+    expect(await adapter.deleteThread("c1")).toBe(false);
+    expect(await adapter.deleteThread("nowhere")).toBe(false);
+    expect(deleted).toEqual(["t1"]);
+  });
+
   it("knows the server's channels by name at once, and reads a channel Discord mentioned as its name", async () => {
     const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
     adapter.setAuthorizer((senderId) => senderId === "owner-id");

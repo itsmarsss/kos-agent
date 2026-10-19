@@ -1759,15 +1759,26 @@ export class Kernel {
   }
 
   /**
-   * Who speaks from a conversation, when it is a blob and not KOS: its title
-   * and the colour the dashboard draws it in, for a surface to show as a
-   * tag. A blob's thread and its chats inside projects both carry its role.
+   * Who speaks from a conversation, when it is not KOS itself: a blob by
+   * its title, colour and face, for a surface to show as a tag; a
+   * project's chats as what they are on the dashboard, the orchestrator in
+   * the project's channel and an agent in its thread, in KOS's own face.
+   * Root chats and KOS's own channel are the bot, which is KOS. A blob's
+   * thread and its chats inside projects both carry its role.
    */
   senderFor(conversationId: string | undefined): Sender | undefined {
-    const role = conversationId ? this.conversations.get(conversationId)?.role : undefined;
-    const record = role ? this.roles.get(role) : undefined;
-    if (!record) return undefined;
-    return { name: roleTitle(record), colour: bodyHexOf(record.name, record.face ?? {}), avatar: this.faceOf(record) };
+    if (!conversationId) return undefined;
+    let conversation: Conversation | undefined;
+    try {
+      conversation = this.conversations.get(conversationId);
+    } catch {
+      conversation = undefined;
+    }
+    const record = conversation?.role ? this.roles.get(conversation.role) : undefined;
+    if (record) return { name: roleTitle(record), colour: bodyHexOf(record.name, record.face ?? {}), avatar: this.faceOf(record) };
+    if (conversationId.startsWith("project:")) return { name: "Orchestrator", avatar: this.face() };
+    if (conversation?.projectSlug) return { name: "Agent", avatar: this.face() };
+    return undefined;
   }
 
   /** What a chat is called where it is shown elsewhere: a project's name, a blob's title, a chat's title. */
@@ -2358,6 +2369,12 @@ export class Kernel {
     const out: Record<string, string> = {};
     for (const [thread, conversation] of Object.entries(raw as Record<string, unknown>)) if (typeof conversation === "string") out[thread] = conversation;
     return out;
+  }
+
+  /** A thread that is gone: its binding goes with it. */
+  unbindThread(threadId: string): void {
+    const { [threadId]: _gone, ...rest } = this.threadBindings();
+    this.settings.set(THREAD_BINDINGS_KEY, rest);
   }
 
   bindThread(threadId: string, conversationId: string): void {

@@ -202,6 +202,12 @@ export function isFixed(
 
 export class ConversationStore {
   private counter = 0;
+  /** Told after a chat is gone, so what stood for it elsewhere (a Discord thread) can go too. */
+  private readonly removedListeners: ((id: string) => void)[] = [];
+
+  onRemoved(listener: (id: string) => void): void {
+    this.removedListeners.push(listener);
+  }
 
   constructor(
     private readonly db: Db,
@@ -366,6 +372,12 @@ export class ConversationStore {
    * an error.
    */
   remove(id: string): boolean {
+    const removed = this.removeRows(id);
+    if (removed) for (const listener of this.removedListeners) listener(id);
+    return removed;
+  }
+
+  private removeRows(id: string): boolean {
     if (this.hasTable("chat_sessions")) {
       this.db.prepare(`DELETE FROM chat_sessions WHERE id = ?`).run(id);
     }
