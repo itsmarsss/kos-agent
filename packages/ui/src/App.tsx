@@ -1259,6 +1259,7 @@ export function App(): React.ReactElement {
     return shell(
       <InboxPage
         data={inbox}
+        {...(route.id !== undefined ? { highlight: route.id } : {})}
         deciding={deciding}
         onDecide={(id, approved, remember) => void decide(id, approved, remember)}
         onOpenChat={(id) => go({ name: "chats", id })}

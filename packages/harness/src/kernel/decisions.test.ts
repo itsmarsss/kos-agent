@@ -41,7 +41,7 @@ describe("approving", () => {
   it("releases a waiting turn and does nothing else", async () => {
     const { d, log } = deps(pending(), true);
     const r = await new Decisions(d).approve(5);
-    expect(r).toEqual({ ok: true, message: "Approved #5. files.rm is running." });
+    expect(r).toEqual({ ok: true, message: "Approved @approval:5. files.rm is running." });
     expect(log).toEqual(["approve:5:owner"]);
   });
 
@@ -104,7 +104,7 @@ describe("approving", () => {
   it("says so when the resume fails rather than swallowing it", async () => {
     const { d } = deps(pending(), false, { handleMessage: async () => { throw new Error("model down"); } });
     const r = await new Decisions(d).approve(5);
-    expect(r.reply).toBe("Approved #5 but resume failed: model down");
+    expect(r.reply).toBe("Approved @approval:5 but resume failed: model down");
   });
 
   it("leaves a build's request to the build itself", async () => {
@@ -131,7 +131,7 @@ describe("denying", () => {
     const { d, log } = deps(pending(), false);
     const r = await new Decisions(d).deny(5);
     expect(log).toContain("resume:c1:system:denied");
-    expect(r).toMatchObject({ ok: true, message: "denied #5", reply: "carried on" });
+    expect(r).toMatchObject({ ok: true, message: "denied @approval:5", reply: "carried on" });
   });
 
   it("tells a build it may not, without a turn", async () => {

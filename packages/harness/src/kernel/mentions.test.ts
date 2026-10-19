@@ -89,6 +89,13 @@ describe("findMentions", () => {
     expect(hits[0]?.label).toBe("Budget");
   });
 
+  it("offers the approvals still waiting, numbered, and writes one as @approval:<id>", () => {
+    const found = findMentions({ ...sources(), approvals: [{ id: 290, summary: "Open #leetcode to everyone on the server" }] }, "290");
+    expect(found).toEqual([{ kind: "approval", id: "290", label: "#290 Open #leetcode to everyone on the server", hint: "waiting on you" }]);
+    expect(writeMention("approval", "290")).toBe("@approval:290");
+    expect(parseMentions("see @approval:290.")).toEqual([{ kind: "approval", id: "290" }]);
+  });
+
   it("offers the server's channels, written as Discord writes them, with whose home each is", () => {
     const found = findMentions(
       { ...sources(), channels: [{ name: "leetcode", category: "Clubs", bound: "project:leetcode_daily", home: "LeetCode Daily", url: "https://discord.com/channels/g/c1" }, { name: "general" }] },

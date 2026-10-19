@@ -2,6 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import { hrefFor, NAV, navActive, parseRoute } from "./routes.js";
 
+describe("an approval's own address", () => {
+  it("opens the inbox on that approval, and writes the link the same way", async () => {
+    const { parseRoute, hrefFor } = await import("./routes.js");
+    expect(parseRoute("#/inbox/290")).toEqual({ name: "inbox", id: 290 });
+    expect(parseRoute("#/inbox")).toEqual({ name: "inbox" });
+    expect(hrefFor({ name: "inbox", id: 290 })).toBe("#/inbox/290");
+    expect(hrefFor({ name: "inbox" })).toBe("#/inbox");
+  });
+});
+
 describe("parseRoute", () => {
   it("round-trips every nav destination", () => {
     for (const item of NAV) {

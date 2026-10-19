@@ -35,7 +35,7 @@ import { hrefFor } from "./routes.js";
 // a blob's job is "blob:briefing", and stopping at the colon made a chip of
 // the first half with the rest left dangling.
 const MENTION =
-  /@(project|page|file|schedule|chat|site|blob|agent|build|tab):(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*(?::[A-Za-z0-9._/-]+)*[A-Za-z0-9_/-]))/;
+  /@(project|page|file|schedule|chat|site|blob|agent|build|tab|approval):(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*(?::[A-Za-z0-9._/-]+)*[A-Za-z0-9_/-]))/;
 /*
  * Built from the shared list rather than spelled out here. The private copy
  * went stale: /compact, /clear and /tools were added to the harness and the
@@ -116,6 +116,8 @@ function KindMark({ kind }: { kind: string }): ReactElement | null {
     build: "M8 4h8v4H8zM5 8h14v9H5zM9 12h.01M15 12h.01M12 4V2",
     // A browser window: a tab on a frame.
     tab: "M3 8h18M3 8V6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v2M3 8v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8",
+    // An approval: a tick in a box.
+    approval: "M4 4h16v16H4zM8 12l3 3 5-6",
   };
   const d = paths[kind];
   if (!d) return null;
@@ -140,7 +142,8 @@ function KindMark({ kind }: { kind: string }): ReactElement | null {
 function MentionChip({ kind, id }: { kind: string; id: string }): ReactElement {
   const names = useContext(Names);
   const openTab = useOpenTab();
-  const label = names?.resolve(kind, id) ?? id;
+  // An approval's own name is its number.
+  const label = names?.resolve(kind, id) ?? (kind === "approval" ? `#${id}` : id);
   // A tab has no page of its own: the chip opens the browser window on it.
   const onClick =
     kind === "tab" && openTab
@@ -173,6 +176,8 @@ function refHref(kind: string, id: string): string {
       return hrefFor({ name: "page", id });
     case "file":
       return hrefFor({ name: "files", path: id });
+    case "approval":
+      return hrefFor({ name: "inbox", id: Number(id) });
     case "schedule":
       return hrefFor({ name: "crons", job: id });
     case "chat":

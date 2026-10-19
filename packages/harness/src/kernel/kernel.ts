@@ -1222,7 +1222,7 @@ export class Kernel {
         })
         .finally(() => this.endTurn(ctx.sessionId));
       return {
-        reply: `Waiting on you: ${first.action.tool} needs approval (#${first.action.id}). I will carry on as soon as you decide.`,
+        reply: `Waiting on you: ${first.action.tool} needs approval (@approval:${first.action.id}). I will carry on as soon as you decide.`,
         suspended: true,
       };
     }
@@ -1825,6 +1825,8 @@ export class Kernel {
         }
         case "project":
           return this.manifest.get(id)?.name;
+        case "approval":
+          return this.approvals.get(Number(id)) ? `approval #${id}` : undefined;
         case "channel": {
           // By Discord's id, the one thing that does not change; by name as a courtesy.
           const want = id.trim().replace(/^#/, "").toLowerCase();
@@ -2228,7 +2230,7 @@ export class Kernel {
         }
         const result =
           command.kind === "approve" ? await this.approve(action.id, userId) : await this.deny(action.id, userId);
-        const what = `#${action.id} ${summarizeAction(action.tool, action.args)}`;
+        const what = `@approval:${action.id} ${summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id))}`;
         return { reply: result.ok ? `${command.kind === "approve" ? "Approved" : "Denied"} ${what}.` : result.message };
       }
 
@@ -2685,7 +2687,8 @@ export class Kernel {
           kind: "tool-start",
           conversationId: opts.conversationId,
           tool,
-          summary: summarizeAction(tool, input),
+          // With the ids named, so a step reads "#leetcode", not a snowflake.
+          summary: summarizeAction(tool, input, (kind, id) => this.labelFor(kind, id)),
           input,
         });
       },
@@ -2995,7 +2998,7 @@ export class Kernel {
     for (const action of lapsed) {
       const id = action.conversationId;
       if (!id) continue;
-      this.noteIn(id, `#${action.id} (${summarizeAction(action.tool, action.args)}) lapsed: nobody decided within ${hours} hour${hours === 1 ? "" : "s"}, so nothing was done. Ask again if it is still wanted.`);
+      this.noteIn(id, `@approval:${action.id} (${summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id))}) lapsed: nobody decided within ${hours} hour${hours === 1 ? "" : "s"}, so nothing was done. Ask again if it is still wanted.`);
     }
     return lapsed;
   }
@@ -3547,6 +3550,21 @@ export class Kernel {
             .filter(Boolean)
             .join("\n"),
         );
+        continue;
+      }
+      if (ref.kind === "approval") {
+        // An approval, waiting or decided: what it would do, and what became of it.
+        const action = this.approvals.get(Number(ref.id));
+        if (!action) {
+          parts.push(`Approval #${ref.id}: not found.`);
+          continue;
+        }
+        const what = summarizeAction(action.tool, action.args, (kind, id) => this.labelFor(kind, id));
+        const fate =
+          action.status === "pending"
+            ? "still waiting on the owner"
+            : `${action.status}${action.decidedBy ? ` by ${action.decidedBy}` : ""}${action.decidedAt ? ` at ${new Date(action.decidedAt).toISOString()}` : ""}`;
+        parts.push(`Approval #${action.id}: ${what}; ${fate}.${action.reason ? ` It asked because: ${action.reason}.` : ""}`);
         continue;
       }
       if (ref.kind === "chat") {

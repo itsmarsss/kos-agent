@@ -181,6 +181,16 @@ export class ApprovalQueue {
     return row ? toAction(row) : undefined;
   }
 
+  /** What was decided, newest first: approved, denied or lapsed, so a reference to an old ask still lands. */
+  recent(limit = 50): PendingAction[] {
+    const rows = this.db
+      .prepare(
+        `SELECT *, (picture IS NOT NULL) AS has_picture FROM pending_actions WHERE status != 'pending' ORDER BY decided_at DESC, id DESC LIMIT ?`,
+      )
+      .all(Math.max(1, Math.min(500, limit))) as Row[];
+    return rows.map(toAction);
+  }
+
   pending(): PendingAction[] {
     const rows = this.db
       .prepare(

@@ -2,7 +2,7 @@
 
 export type Route =
   | { name: "home" }
-  | { name: "inbox" }
+  | { name: "inbox"; id?: number }
   | { name: "projects" }
   /**
    * One project's workspace: its orchestrator and agent threads, with its
@@ -32,6 +32,9 @@ export function parseRoute(hash: string): Route {
   if (path === "/" || path === "") return { name: "chats" };
   if (path === "/home" || path === "/overview") return { name: "home" };
   if (path === "/inbox") return { name: "inbox" };
+  // An approval by its number, waiting or decided, so a chat can link to it.
+  const approval = path.match(/^\/inbox\/(\d+)$/);
+  if (approval?.[1]) return { name: "inbox", id: Number(approval[1]) };
   if (path === "/projects") return { name: "projects" };
   const project = path.match(/^\/project\/([^/]+)(?:\/([^/]+))?$/);
   if (project?.[1]) {
@@ -100,6 +103,8 @@ export function hrefFor(route: Route): string {
       return route.id ? `#/builds/${route.id}` : "#/builds";
     case "crons":
       return route.job ? `#/schedule/${encodeURIComponent(route.job)}` : "#/schedule";
+    case "inbox":
+      return route.id !== undefined ? `#/inbox/${route.id}` : "#/inbox";
     case "settings":
       return route.section ? `#/settings/${route.section}` : "#/settings";
     default:

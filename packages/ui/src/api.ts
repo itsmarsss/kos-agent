@@ -869,6 +869,14 @@ export interface MessageOrigin {
   from?: { kind: "guest" | "chat" | "schedule"; name: string; id?: string };
 }
 
+/** An approval that was decided, or lapsed, kept so a reference to it still shows what it was. */
+export interface DecidedAction extends PendingAction {
+  status: "approved" | "denied" | "expired";
+  decidedAt: number | null;
+  decidedBy: string | null;
+  asker?: string;
+}
+
 /** A text channel on the owner's Discord server, as a thing "#name" in a chat can be. */
 export interface DiscordChannel {
   id: string;
@@ -888,6 +896,8 @@ export const api = {
   requestRestart: () => post<RestartState>("/api/host/restart", {}),
   cancelRestart: () => post<RestartState>("/api/host/restart/cancel", {}),
   approvals: () => get<PendingAction[]>("/api/approvals"),
+  /** Approvals already decided, newest first, so a link to an old one still lands. */
+  approvalHistory: (limit = 50) => get<DecidedAction[]>(`/api/approvals/history?limit=${limit}`),
   modelSettings: () =>
     get<{
       routes: Record<

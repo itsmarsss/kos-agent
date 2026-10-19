@@ -75,6 +75,7 @@ export const MENTION_KINDS = [
   "agent",
   "build",
   "tab",
+  "approval",
 ] as const;
 
 /** Split `file:notes/a` into the kind being narrowed to and the term. */

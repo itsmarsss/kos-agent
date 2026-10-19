@@ -56,6 +56,19 @@ describe("ApprovalQueue", () => {
     expect(older.pending()[0]).toMatchObject({ tool: "shell", rule: null, picture: false, why: null });
   });
 
+  it("keeps what was decided, newest first", () => {
+    const a = queue.enqueue({ tool: "cron.run", args: { id: 1 }, riskTier: "risky", reason: "runs it" });
+    const b = queue.enqueue({ tool: "files.rm", args: { path: "x" }, riskTier: "risky", reason: "outside" });
+    queue.enqueue({ tool: "shell", args: {}, riskTier: "risky", reason: "waits" });
+    queue.deny(a.id, "owner");
+    queue.approve(b.id, "owner");
+    expect(queue.recent().map((r) => [r.id, r.status])).toEqual([
+      [b.id, "approved"],
+      [a.id, "denied"],
+    ]);
+    expect(queue.recent(1).map((r) => r.id)).toEqual([b.id]);
+  });
+
   it("approves and denies, leaving the queue clear", () => {
     const a = queue.enqueue({ tool: "t", args: {}, riskTier: "risky" });
     const approved = queue.approve(a.id, "owner");

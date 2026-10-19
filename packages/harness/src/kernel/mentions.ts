@@ -25,7 +25,9 @@ export type MentionKind =
   | "build"
   | "tab"
   /** A Discord channel, by name; written `#<name>`, as on Discord. */
-  | "channel";
+  | "channel"
+  /** An approval, by its number; opens it on the dashboard, waiting or decided. */
+  | "approval";
 
 export interface Mention {
   kind: MentionKind;
@@ -63,6 +65,8 @@ export interface MentionSources {
   tabs?: { id: string; title: string; url: string; owner?: string }[];
   /** The Discord server's text channels, each with whose home it is, in words. */
   channels?: { name: string; category?: string; bound?: string; home?: string; url?: string }[];
+  /** Approvals still waiting, each said in words. */
+  approvals?: { id: number; summary: string }[];
 }
 
 /** A tab's name in a list: its title, else its host, else blank. */
@@ -244,6 +248,12 @@ export function findMentions(
       label: tabLabel(t),
       hint: [t.owner, t.url !== "about:blank" ? t.url : ""].filter(Boolean).join(" · "),
     })),
+    ...(sources.approvals ?? []).map((a) => ({
+      kind: "approval" as const,
+      id: String(a.id),
+      label: `#${a.id} ${a.summary}`,
+      hint: "waiting on you",
+    })),
     ...(sources.channels ?? []).map((c) => {
       const hint = [c.category, c.home ? `home of ${c.home}` : ""].filter(Boolean).join(" · ");
       return {
@@ -300,7 +310,7 @@ const PLAIN_ID = /^[A-Za-z0-9._/-]*(?::[A-Za-z0-9._/-]+)*[A-Za-z0-9_/-]$/;
  * "kos.backup." and was reported as not existing.
  */
 // "agent" is what a blob was called first; it still reads as one.
-const KINDS = "project|page|file|schedule|chat|site|blob|agent|build|tab";
+const KINDS = "project|page|file|schedule|chat|site|blob|agent|build|tab|approval";
 
 /**
  * Either bracketed, which may hold anything but a bracket, or plain. The

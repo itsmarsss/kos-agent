@@ -59,6 +59,7 @@ const KINDS = [
   "agent",
   "build",
   "channel",
+  "approval",
 ] as const;
 
 /** Split `file:budget` into the kind being narrowed to and the term. */
@@ -230,6 +231,7 @@ const KIND_GROUP: Record<string, string> = {
   blob: "Blobs",
   build: "Builds",
   channel: "Channels",
+  approval: "Approvals",
 };
 
 export function CommandPalette({
@@ -314,6 +316,7 @@ export function CommandPalette({
         else if (m.kind === "project") ctx.go({ name: "project", slug: m.id });
         else if (m.kind === "blob") ctx.go({ name: "blobs", blob: m.id });
         else if (m.kind === "build") ctx.openAgent(Number(m.id));
+        else if (m.kind === "approval") ctx.go({ name: "inbox", id: Number(m.id) });
         // A channel lives on Discord, so it opens there.
         else if (m.kind === "channel" && m.url) window.open(m.url, "_blank", "noreferrer");
         else if (m.kind === "site" && ctx.sitesBase) {

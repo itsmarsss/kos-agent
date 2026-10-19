@@ -421,6 +421,14 @@ describe("Kernel", () => {
     expect(prompt).not.toContain("channel #3");
     // The same names stand beside ids on an approval card.
     expect(kernel.labelFor("channel", "c1")).toBe("#leetcode");
+    expect(kernel.labelFor("approval", "999")).toBeUndefined();
+    // An approval named in a message: what it would do, and what became of it.
+    const ask = kernel.approvals.enqueue({ tool: "discord.audience", args: { channel: "c1", audience: "guests" }, riskTier: "risky", reason: "everyone on the server would read and write there" });
+    expect(kernel.labelFor("approval", String(ask.id))).toBe(`approval #${ask.id}`);
+    await kernel.handleMessage(`what happened with @approval:${ask.id}?`, { sessionId: c.id });
+    const asked = JSON.stringify(requests.at(-1));
+    expect(asked).toContain(`Approval #${ask.id}: Open #leetcode to everyone on the server, reading and writing; still waiting on the owner.`);
+    expect(asked).toContain("It asked because: everyone on the server would read and write there");
     expect(kernel.labelFor("target", "discord:channel:c1")).toBe("#leetcode on Discord");
     expect(kernel.labelFor("target", "owner")).toBe("you");
   });
@@ -676,7 +684,7 @@ describe("Kernel", () => {
     expect(kernel.sweepExpiredApprovals().map((a) => a.id)).toEqual([old.id]);
     expect(kernel.approvals.pending().map((a) => a.id)).toEqual([fresh.id]);
     const said = JSON.stringify(kernel.sessions.get(id));
-    expect(said).toContain(`#${old.id} (Run: rm x) lapsed: nobody decided within 24 hours, so nothing was done.`);
+    expect(said).toContain(`@approval:${old.id} (Run: rm x) lapsed: nobody decided within 24 hours, so nothing was done.`);
     expect(said).not.toContain(`#${fresh.id}`);
   });
 

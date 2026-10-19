@@ -1,7 +1,7 @@
-import type { ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { summarizeAction } from "@kos/shared";
 
-import { api, type FailingJob, type InboxData } from "./api.js";
+import { api, type DecidedAction, type FailingJob, type InboxData } from "./api.js";
 import { Decision } from "./Decision.js";
 import { Empty } from "./kit.js";
 import { MemoryDecision } from "./MemoryPage.js";
@@ -39,6 +39,7 @@ function lapses(ts: number): string {
 
 export function InboxPage({
   data,
+  highlight,
   deciding,
   onDecide,
   onOpenChat,
@@ -49,6 +50,8 @@ export function InboxPage({
   onChanged,
 }: {
   data: InboxData | null;
+  /** An approval to show first, by number: the one a link in a chat pointed at, waiting or decided. */
+  highlight?: number;
   deciding: ReadonlySet<number>;
   onDecide: (id: number, approved: boolean, remember?: boolean) => void;
   onOpenChat: (id: string) => void;
@@ -61,6 +64,24 @@ export function InboxPage({
   onChanged: () => void;
 }): ReactElement {
   const approvals = data?.approvals ?? [];
+  // What was decided, kept, so a reference to an old ask still lands here.
+  const [decided, setDecided] = useState<DecidedAction[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .approvalHistory()
+      .then((rows) => {
+        if (!cancelled) setDecided(rows);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [data]);
+  const highlit = useRef<HTMLLIElement | null>(null);
+  useEffect(() => {
+    highlit.current?.scrollIntoView({ block: "center" });
+  }, [highlight, decided.length, approvals.length]);
   const decisions = data?.decisions ?? [];
   const failures = data?.failures ?? [];
   const suggestions = data?.suggestions ?? [];
@@ -90,7 +111,7 @@ export function InboxPage({
           </h2>
           <ul className="panel-list">
             {approvals.map((a) => (
-              <li key={a.id} className="panel-approval inbox-approval">
+              <li key={a.id} ref={a.id === highlight ? highlit : undefined} className={`panel-approval inbox-approval${a.id === highlight ? " is-highlit" : ""}`}>
                 <span className="panel-row-main">
                   {/* Who is asking, first: a command with no one behind it is a yes to anyone. */}
                   {a.asker && <span className="inbox-asker">{a.asker} asks</span>}
@@ -133,6 +154,36 @@ export function InboxPage({
         </section>
       )}
 
+      {decided.length > 0 && (
+        <section className="inbox-group">
+          <h2 className="inbox-group-title">
+            Decided <span className="panel-count">{decided.length}</span>
+          </h2>
+          <p className="hint">What was approved, denied or lapsed, newest first, so a reference to an old ask still lands here.</p>
+          <ul className="inbox-decided">
+            {decided.map((a) => (
+              <li key={a.id} ref={a.id === highlight ? highlit : undefined} className={`inbox-decided-row${a.id === highlight ? " is-highlit" : ""}`}>
+                <span className={`inbox-outcome inbox-outcome--${a.status}`}>{a.status === "expired" ? "lapsed" : a.status}</span>
+                <code>#{a.id}</code>
+                <span>{a.summary ?? summarizeAction(a.tool, a.args)}</span>
+                <span className="inbox-meta">
+                  {a.asker ? `${a.asker} asked · ` : ""}
+                  {a.decidedBy ? `by ${a.decidedBy} · ` : ""}
+                  {ago(a.decidedAt ?? a.requestedAt)}
+                  {a.conversationId && (
+                    <>
+                      {" · "}
+                      <button type="button" className="link" onClick={() => onOpenChat(a.conversationId!)}>
+                        open the chat
+                      </button>
+                    </>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {decisions.length > 0 && (
         <section className="inbox-group">
           <h2 className="inbox-group-title">
