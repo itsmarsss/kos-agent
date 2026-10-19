@@ -273,18 +273,39 @@ describe("telling the turn's story on a surface with a presence", () => {
     expect(tell).toBeUndefined();
   });
 
-  it("says a message is queued when a turn is already running where it goes", async () => {
+  it("says a message is queued when a turn is already running where it goes, and tells only its own turn's story", async () => {
     const adapter = new InMemoryAdapter();
     adapter.withPresence = true;
+    let tell: ((event: ProgressEvent) => void) | undefined;
     const runtime = new ChannelRuntime({
       adapter,
+      narrateEveryMs: 10,
       isBusy: () => true,
-      watchTurn: () => () => undefined,
-      handleTurn: async () => "Done.",
+      watchTurn: (_ctx, listener) => {
+        tell = listener;
+        return () => {
+          tell = undefined;
+        };
+      },
+      handleTurn: async () => {
+        // The turn already running there: its steps and its end are not this message's.
+        tell!({ kind: "tool-start", conversationId: "c", tool: "blobs.list", summary: "List the blobs" });
+        tell!({ kind: "tool-end", conversationId: "c", tool: "blobs.list", isError: false });
+        tell!({ kind: "turn-end", conversationId: "c" });
+        // Then its own.
+        tell!({ kind: "turn-start", conversationId: "c", said: "and this" });
+        tell!({ kind: "tool-start", conversationId: "c", tool: "files.ls", summary: "List x" });
+        tell!({ kind: "tool-end", conversationId: "c", tool: "files.ls", isError: false });
+        await new Promise((r) => setTimeout(r, 30));
+        tell!({ kind: "turn-end", conversationId: "c" });
+        return "Done.";
+      },
     });
     await runtime.start();
     await adapter.receive({ channel: "memory", senderId: "u1", text: "and this" });
     expect(adapter.shown[0]).toBe("-# queued: a turn is running here, this one is next");
+    expect(adapter.shown.some((s) => s.includes("List the blobs"))).toBe(false);
+    expect(adapter.shown.some((s) => s.includes("List x"))).toBe(true);
     expect(adapter.completed).toEqual([{ text: "Done." }]);
   });
 

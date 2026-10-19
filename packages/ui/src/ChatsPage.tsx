@@ -2153,6 +2153,7 @@ export function ChatsPage({
                     <Markdown text={live.said} />
                   </div>
                   {live.origin ? <OriginLine origin={live.origin} linkFor={channelLink} /> : live.from && live.from !== "dashboard" && <span className="turn-via">via {live.from}</span>}
+                  {live.files && live.files.length > 0 && <AttachmentStrip items={live.files} />}
                 </div>
               )}
               {live ? (
@@ -2353,6 +2354,8 @@ export function ChatsPage({
                         {p.text}
                         <span className="queued-mark">queued</span>
                       </div>
+                      {/* What came with it, by name: the files are kept when the turn runs. */}
+                      {p.attachments.length > 0 && <AttachmentStrip items={p.attachments} />}
                       <div className="queued-actions">
                         <button
                           type="button"

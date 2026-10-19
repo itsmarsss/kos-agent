@@ -14,7 +14,7 @@ import type { MessageOrigin } from "./api.js";
  */
 
 export type ProgressEvent =
-  | { kind: "turn-start"; conversationId: string; said?: string; from?: string; origin?: MessageOrigin }
+  | { kind: "turn-start"; conversationId: string; said?: string; from?: string; origin?: MessageOrigin; files?: { name: string; path: string }[] }
   | {
       kind: "tool-start";
       conversationId: string;
@@ -71,6 +71,8 @@ export interface Live {
   from?: string;
   /** Where they came from, in the words the transcript will use. */
   origin?: MessageOrigin;
+  /** The files that came with them, kept already. */
+  files?: { name: string; path: string }[];
   /**
    * The turn is over, but what it did is still the only copy on screen.
    *
@@ -239,7 +241,14 @@ class ProgressStore {
       } else if (event.kind === "turn-start") {
         this.map = {
           ...this.map,
-          [id]: { steps: [], text: "", since: Date.now(), ...(event.said ? { said: event.said, ...(event.from ? { from: event.from } : {}), ...(event.origin ? { origin: event.origin } : {}) } : {}) },
+          [id]: {
+            steps: [],
+            text: "",
+            since: Date.now(),
+            ...(event.said
+              ? { said: event.said, ...(event.from ? { from: event.from } : {}), ...(event.origin ? { origin: event.origin } : {}), ...(event.files?.length ? { files: event.files } : {}) }
+              : {}),
+          },
         };
       } else {
         const live = this.map[id] ?? { steps: [], text: "", since: Date.now() };

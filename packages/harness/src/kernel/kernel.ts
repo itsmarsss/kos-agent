@@ -791,7 +791,14 @@ export class Kernel {
       this.progress.emit({
         kind: "turn-start",
         conversationId: sessionId,
-        ...(opts.origin !== "system" && text.trim() ? { said: text, ...(opts.channel ? { from: opts.channel } : {}), ...(origin ? { origin } : {}) } : {}),
+        ...(opts.origin !== "system" && text.trim()
+          ? {
+              said: text,
+              ...(opts.channel ? { from: opts.channel } : {}),
+              ...(origin ? { origin } : {}),
+              ...(opts.kept?.length ? { files: opts.kept.map((k) => ({ name: k.name, path: k.path })) } : {}),
+            }
+          : {}),
       });
       this.bus.emit({ kind: "turn:start", conversationId: sessionId, projectSlug: this.projectOf(sessionId) });
       /** Set when the turn hands its ending over to a deferred settle. */
