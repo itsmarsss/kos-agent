@@ -6114,6 +6114,8 @@ a.health {
 .mem-scope { flex: none; font-size: var(--text-xs); color: var(--faint); border: 1px solid var(--line); border-radius: 999px; padding: 0 0.4rem; }
 .mem-claim-value { font-size: var(--text-md); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .mem-claim-value em { color: var(--faint); }
+.mem-more { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+.mem-more:hover { text-decoration: underline; }
 .mem-claim-meta { color: var(--faint); font-size: var(--text-sm); }
 .mem-claim > .btn { flex: none; }
 .mem-lean { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.6rem; max-width: 72ch; font-size: var(--text-md); line-height: 1.45; }

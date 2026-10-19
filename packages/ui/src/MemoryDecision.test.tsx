@@ -33,6 +33,16 @@ function item(over: Partial<ReviewItem> = {}): ReviewItem {
 }
 
 describe("a memory decision", () => {
+  it("shows a long claim short, with the rest a press away", () => {
+    const long = "This claim was written as a report. ".repeat(12).trim();
+    render(<MemoryDecision item={item({ claims: [{ qualified: "global/city", scope: "global", key: "city", value: long }, { qualified: "project:trip/city", scope: "project:trip", key: "city", value: "Lisbon" }] })} onResolved={() => {}} />);
+    expect(screen.queryByText(long)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "more" }));
+    expect(screen.getByText(long)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "less" }));
+    expect(screen.queryByText(long)).toBeNull();
+  });
+
   it("shows each claim's value and use, and keeps the one whose button is pressed", async () => {
     const resolve = vi.spyOn(api, "resolveMemoryReview").mockResolvedValue({ item: item(), archived: [], promoted: [] });
     const onResolved = vi.fn();
