@@ -17,6 +17,14 @@ const MENTION =
 /** Fenced blocks and inline code, which are not rewritten. */
 const CODE = /(```[\s\S]*?```|`[^`\n]*`)/g;
 
+/** The text with `rewrite` applied to every part that is not code; code is quoted, not used. */
+export function outsideCode(text: string, rewrite: (part: string) => string): string {
+  return text
+    .split(CODE)
+    .map((part, i) => (i % 2 === 1 ? part : rewrite(part)))
+    .join("");
+}
+
 /** Where a reference goes on the dashboard, mirroring the chip's own href. */
 export function mentionRoute(kind: string, id: string): string {
   const enc = encodeURIComponent;
@@ -49,26 +57,18 @@ export function mentionRoute(kind: string, id: string): string {
  * a masked link would show as its own brackets.
  */
 export function plainMentions(text: string): string {
-  return text
-    .split(CODE)
-    .map((part, i) => (i % 2 === 1 ? part : part.replace(MENTION, (_whole, _kind: string, bracketed?: string, plain?: string) => bracketed ?? plain ?? "")))
-    .join("");
+  return outsideCode(text, (part) => part.replace(MENTION, (_whole, _kind: string, bracketed?: string, plain?: string) => bracketed ?? plain ?? ""));
 }
 
 /** The text with every reference turned into a link, or a plain name when there is nowhere to link to. */
 export function linkMentions(text: string, dashboardUrl?: string): string {
   const base = dashboardUrl?.replace(/\/+$/, "");
-  return text
-    .split(CODE)
-    .map((part, i) => {
-      // Odd parts are the code captures; they pass through untouched.
-      if (i % 2 === 1) return part;
-      return part.replace(MENTION, (_whole, kind: string, bracketed?: string, plain?: string) => {
-        const id = bracketed ?? plain ?? "";
-        // Brackets in a label would end the link early.
-        const label = id.replace(/[[\]]/g, "");
-        return base ? `[${label}](${base}/${mentionRoute(kind, id)})` : `**${label}**`;
-      });
-    })
-    .join("");
+  return outsideCode(text, (part) =>
+    part.replace(MENTION, (_whole, kind: string, bracketed?: string, plain?: string) => {
+      const id = bracketed ?? plain ?? "";
+      // Brackets in a label would end the link early.
+      const label = id.replace(/[[\]]/g, "");
+      return base ? `[${label}](${base}/${mentionRoute(kind, id)})` : `**${label}**`;
+    }),
+  );
 }

@@ -20,7 +20,7 @@ import { detailLines, summarizeAction } from "@kos/shared";
 
 import { isImage, isTextual, type Attachment } from "../kernel/attachments.js";
 import { COMMANDS, completions, runCommand, type SlashContext } from "./commands.js";
-import { linkMentions, plainMentions } from "./mentions.js";
+import { linkMentions, outsideCode, plainMentions } from "./mentions.js";
 import { STEP_MARK } from "./narrate.js";
 import { MESSAGE_LIMITS } from "./types.js";
 import type {
@@ -77,11 +77,30 @@ const WHY_MAX = 300;
 export function storyText(status: string, dashboardUrl?: string): string {
   // References in the story link where they link in the answer, or the
   // same name reads as a token in one place and a link in the other.
-  return linkMentions(status, dashboardUrl)
+  return noPreviews(linkMentions(status, dashboardUrl))
     .split("\n")
     .map((line) => (line.startsWith(STEP_MARK) ? `-# ${line}` : line))
     .join("\n")
     .slice(0, 1900);
+}
+
+/** A bare url, not already in angle brackets and not the target of a masked link. */
+const BARE_URL = /(?<![<(])https?:\/\/[^\s<>()\]]+/g;
+/** A masked link whose target is not yet in angle brackets. */
+const MASKED_LINK = /\]\((https?:\/\/[^\s<>()]+)\)/g;
+
+/**
+ * Every link in angle brackets, so Discord draws no preview card for it.
+ *
+ * A preview is Discord fetching the page and showing a title, a picture and
+ * a snippet of it under KOS's words: a denied fetch of a wiki page came back
+ * decorated with the wiki's own card. KOS links to pages it was told about
+ * and to pages an agent read, neither of which should get to put a card in
+ * the owner's DM, and Discord's crawler should not be visiting them on
+ * KOS's behalf either. Code is left alone: nothing in it is a link.
+ */
+export function noPreviews(text: string): string {
+  return outsideCode(text, (part) => part.replace(MASKED_LINK, "](<$1>)").replace(BARE_URL, "<$&>"));
 }
 
 /** Discord's formatting characters, made literal. */
@@ -115,7 +134,7 @@ export function approvalText(req: ApprovalRequest): string {
   // Who is asking, in the headline: "Recap needs your OK", not a bare command.
   const asks = req.asker ? `**${escapeMarkdown(req.asker.name)} needs your OK**` : "**Needs your OK**";
   if (req.tool === undefined) {
-    return [...said, `${asks} · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n");
+    return noPreviews([...said, `${asks} · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n"));
   }
   const args = req.args ?? {};
   const { head, body } = splitSummary(summarizeAction(req.tool, args));
@@ -130,12 +149,14 @@ export function approvalText(req: ApprovalRequest): string {
         .slice(0, 3)
         .map((l) => cut(l, DETAIL_MAX));
   const small = [`${req.tool} · #${req.id}`, ...(req.reason ? [req.reason] : [])].join(" · ");
-  return [
-    ...said,
-    `${asks} · ${escapeMarkdown(head)}`,
-    ...(code.length ? [CODE_FENCE, ...code.map((l) => l.split(CODE_FENCE).join("'''")), CODE_FENCE] : []),
-    `-# ${small}`,
-  ].join("\n");
+  return noPreviews(
+    [
+      ...said,
+      `${asks} · ${escapeMarkdown(head)}`,
+      ...(code.length ? [CODE_FENCE, ...code.map((l) => l.split(CODE_FENCE).join("'''")), CODE_FENCE] : []),
+      `-# ${small}`,
+    ].join("\n"),
+  );
 }
 
 /** What a settled prompt becomes: one small line saying how it went. */
@@ -143,7 +164,7 @@ export function settledText(outcome: ApprovalOutcome, summary: string | undefine
   const mark = outcome === "approved" ? "✅ Approved" : outcome === "expired" ? "⌛ Lapsed" : "❌ Denied";
   if (!summary) return `-# ${mark} · #${id}`;
   const { head, body } = splitSummary(summary);
-  return `-# ${mark} · ${escapeMarkdown(head)}${body ? ` \`${cut(body.replace(/`/g, "'"), 80)}\`` : ""}`;
+  return noPreviews(`-# ${mark} · ${escapeMarkdown(head)}${body ? ` \`${cut(body.replace(/`/g, "'"), 80)}\`` : ""}`);
 }
 
 /** Encode the approve/deny button ids for a pending action. */
@@ -713,7 +734,7 @@ export class DiscordAdapter implements ChannelAdapter {
       embeds?: EmbedBuilder[];
       components?: ActionRowBuilder<ButtonBuilder>[];
     } => ({
-      ...(taggedText(msg) ? { content: linkMentions(taggedText(msg), this.dashboardUrl).slice(0, 2000) } : {}),
+      ...(taggedText(msg) ? { content: noPreviews(linkMentions(taggedText(msg), this.dashboardUrl)).slice(0, 2000) } : {}),
       ...(msg.card ? { embeds: [buildCard(msg.card, { from: msg.from, named: !msg.text, dashboardUrl: this.dashboardUrl })] } : {}),
       ...(msg.buttons?.length ? { components: buildButtons(msg.buttons) } : {}),
     });
@@ -875,7 +896,7 @@ export class DiscordAdapter implements ChannelAdapter {
   ): Promise<void> {
     // References become links first, so the split sees the longer text.
     const text = taggedText(msg);
-    const chunks = text ? chunkText(linkMentions(text, this.dashboardUrl)) : [];
+    const chunks = text ? chunkText(noPreviews(linkMentions(text, this.dashboardUrl))) : [];
     const embeds = msg.card ? [buildCard(msg.card, { from: msg.from, named: chunks.length === 0, dashboardUrl: this.dashboardUrl })] : [];
     const components = buildButtons(msg.buttons ?? []);
     if (chunks.length === 0 && embeds.length === 0) {
@@ -977,7 +998,7 @@ export class DiscordAdapter implements ChannelAdapter {
       fail: async (err: string) => {
         await swapReact(REACT_WORKING, REACT_FAIL);
         await settle();
-        const text = `❌ ${err.slice(0, 1900)}`;
+        const text = noPreviews(`❌ ${err.slice(0, 1900)}`);
         try {
           await post({ content: text });
         } catch {

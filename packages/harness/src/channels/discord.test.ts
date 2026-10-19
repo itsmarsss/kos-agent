@@ -16,6 +16,7 @@ import {
   PRESS_PREFIX,
   approvalCustomIds,
   approvalText,
+  noPreviews,
   settledText,
   storyText,
   buildButtons,
@@ -233,7 +234,7 @@ describe("the answer a turn shaped", () => {
     expect(storyText("x".repeat(3000)).length).toBe(1900);
     // A reference in the story links as it does in the answer, so the same
     // name is not a token in one message and a link in the next.
-    expect(storyText("Reading it.\n› Read @page:home", "https://kos.example")).toBe("Reading it.\n-# › Read [home](https://kos.example/#/page/home)");
+    expect(storyText("Reading it.\n› Read @page:home", "https://kos.example")).toBe("Reading it.\n-# › Read [home](<https://kos.example/#/page/home>)");
   });
 
   it("links a reference in the reply to the dashboard, since Discord cannot draw the chip", async () => {
@@ -241,9 +242,23 @@ describe("the answer a turn shaped", () => {
     (adapter as unknown as { dashboardUrl: string }).dashboardUrl = "https://kos.example";
     const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "hi", native: message });
     await presence!.complete({ text: "Done: @page:book_crm_home and @schedule:[Email Amy Reminder]" });
+    // The targets in angle brackets, so Discord draws no preview card.
     expect(edits[0]?.content).toBe(
-      "Done: [book_crm_home](https://kos.example/#/page/book_crm_home) and [Email Amy Reminder](https://kos.example/#/schedule)",
+      "Done: [book_crm_home](<https://kos.example/#/page/book_crm_home>) and [Email Amy Reminder](<https://kos.example/#/schedule>)",
     );
+  });
+
+  it("sends every link in angle brackets, so nothing unfurls into a card", async () => {
+    // A denied fetch of a wiki page came back with the wiki's own preview
+    // card under it: Discord had fetched the page KOS was told not to.
+    expect(noPreviews("see https://a.example/x and https://b.example/y?z=1.")).toBe("see <https://a.example/x> and <https://b.example/y?z=1.>");
+    expect(noPreviews("[home](https://kos.example/#/page/home) and <https://c.example> stay")).toBe("[home](<https://kos.example/#/page/home>) and <https://c.example> stay");
+    expect(noPreviews("`https://in.code` and ```\nhttps://in.block\n```")).toBe("`https://in.code` and ```\nhttps://in.block\n```");
+    expect(settledText("denied", "HTTP fetch https://verityminecraft.fandom.com/wiki/Veritypedia", "219")).toBe("-# ❌ Denied · HTTP fetch <https://verityminecraft.fandom.com/wiki/Veritypedia>");
+    const { adapter, edits, message } = presenceFor();
+    const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "hi", native: message });
+    await presence!.complete({ text: "Read https://news.ycombinator.com/ for you." });
+    expect(edits.at(-1)?.content).toBe("Read <https://news.ycombinator.com/> for you.");
   });
 
   it("says a failure in one plain line, marked", async () => {
