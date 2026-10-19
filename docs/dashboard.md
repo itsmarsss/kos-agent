@@ -64,10 +64,14 @@ In a chat:
   `-# ` is small print, and a time token (`<t:2026-10-19T07:30:R>`) shows
   on your own clock, "in 3 hours" or the date, with the full date on hover.
 - A message that was not typed here says where it came from, in a small
-  line under the bubble: the channel, thread or DM on Discord, iMessage,
-  SMS, the schedule that fired (linked to its job), the chat that sent it
-  (linked), or a guest's name and the channel they wrote in. A message you
-  typed here carries no line; that is the ordinary case, not a label.
+  line under the bubble: the channel, thread or DM on Discord (the channel
+  a link to it), iMessage, SMS, the schedule that fired (linked to its
+  job), the chat that sent it (linked), or a guest's name and the channel
+  they wrote in. The line is there from the moment the turn starts, not
+  only once it ends. A message you typed here carries no line; that is the
+  ordinary case, not a label.
+- While a reply is being written the view follows it only while you are
+  at the bottom: scroll up and it stays where you put it.
 - A file attached to a message is kept, as it came, under `uploads/` in
   the project the chat belongs to (the blob's folder for a blob's thread,
   the root's `uploads/` otherwise), and the turn is told the path, so a

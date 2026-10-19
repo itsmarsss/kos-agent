@@ -756,12 +756,16 @@ export class Kernel {
       this.currentConversationId = sessionId;
       this.working.add(sessionId);
       this.failed.delete(sessionId);
+      // Where the words came from rides on the message, sent and stored
+      // alike: the loop hands its own list back to be kept, so a label
+      // only on the stored copy was gone by the end of the turn.
+      const origin = originOf(opts);
       // The owner's own words ride along, so a page watching this chat can
       // show them at once; a turn the harness started has none to show.
       this.progress.emit({
         kind: "turn-start",
         conversationId: sessionId,
-        ...(opts.origin !== "system" && text.trim() ? { said: text, ...(opts.channel ? { from: opts.channel } : {}) } : {}),
+        ...(opts.origin !== "system" && text.trim() ? { said: text, ...(opts.channel ? { from: opts.channel } : {}), ...(origin ? { origin } : {}) } : {}),
       });
       this.bus.emit({ kind: "turn:start", conversationId: sessionId, projectSlug: this.projectOf(sessionId) });
       /** Set when the turn hands its ending over to a deferred settle. */
@@ -917,10 +921,6 @@ export class Kernel {
           : userContent;
         let input: string | ModelMessage[] = text;
         const useSession = !this.sessionless && !opts.noSession;
-        // Where the words came from rides on the message, sent and stored
-        // alike: the loop hands its own list back to be kept, so a label
-        // only on the stored copy was gone by the end of the turn.
-        const origin = originOf(opts);
         if (useSession) {
           const prior = this.sessions.historyForPrompt(sessionId);
           input = [...prior, { role: "user", content: sentContent, ...(origin ? { origin } : {}) }];

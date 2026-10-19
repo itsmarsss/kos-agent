@@ -41,8 +41,8 @@ describe("progress handover", () => {
 
   it("keeps what the owner said elsewhere, so the page can show it at once", () => {
     const { result } = renderHook(() => useProgress());
-    deliver({ kind: "turn-start", conversationId: "c1", said: "what time is it", from: "discord" });
-    expect(result.current["c1"]).toMatchObject({ said: "what time is it", from: "discord", steps: [] });
+    deliver({ kind: "turn-start", conversationId: "c1", said: "what time is it", from: "discord", origin: { via: "discord", room: { kind: "channel", name: "verity" } } });
+    expect(result.current["c1"]).toMatchObject({ said: "what time is it", from: "discord", origin: { via: "discord", room: { kind: "channel", name: "verity" } }, steps: [] });
     deliver({ kind: "turn-start", conversationId: "c1" });
     expect(result.current["c1"]?.said).toBeUndefined();
   });

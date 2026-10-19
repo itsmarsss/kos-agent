@@ -1,3 +1,5 @@
+import type { MessageOrigin } from "../models/types.js";
+
 /**
  * What a turn is doing, while it does it.
  *
@@ -27,6 +29,8 @@ export type ProgressEvent =
        * spinner with nothing above it until the turn ended.
        */
       said?: string;
+      /** Where they came from, as the transcript will say it. */
+      origin?: MessageOrigin;
       /** The surface those words came in on. */
       from?: string;
     }

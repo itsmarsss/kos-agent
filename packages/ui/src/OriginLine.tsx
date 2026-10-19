@@ -9,32 +9,46 @@ import { hrefFor } from "./routes.js";
  * Workout Tracker". The dashboard itself is never named; a message typed
  * here is the ordinary case and carries no origin at all.
  */
-export function originWords(origin: MessageOrigin): { text: string; href?: string } | null {
+export function originWords(origin: MessageOrigin): { text: string; href?: string; room?: string } | null {
   const { via, room, from } = origin;
   const surface = via === "discord" ? "Discord" : via === "imessage" ? "iMessage" : via === "sms" ? "SMS" : via === "dashboard" ? "" : via;
-  const where = !room
-    ? surface
-    : room.kind === "dm"
-      ? `${surface} DM`.trim()
-      : room.name
-        ? `${room.kind === "thread" ? "thread " : "#"}${room.name}${surface ? ` on ${surface}` : ""}`
-        : surface;
-  if (from?.kind === "guest") return { text: `${from.name}, a guest${where ? ` in ${where}` : ""}` };
+  // The room's own words, kept apart so the line can link them.
+  const roomWords = room && room.kind !== "dm" && room.name ? `${room.kind === "thread" ? "thread " : "#"}${room.name}` : "";
+  const where = !room ? surface : room.kind === "dm" ? `${surface} DM`.trim() : roomWords ? `${roomWords}${surface ? ` on ${surface}` : ""}` : surface;
+  const named = roomWords ? { room: roomWords } : {};
+  if (from?.kind === "guest") return { text: `${from.name}, a guest${where ? ` in ${where}` : ""}`, ...named };
   if (from?.kind === "schedule") return { text: `schedule · ${from.name}`, ...(from.id ? { href: hrefFor({ name: "crons", job: from.id }) } : {}) };
   if (from?.kind === "chat") return { text: `sent by ${from.name}`, ...(from.id ? { href: hrefFor({ name: "chats", id: from.id }) } : {}) };
   if (!where || via === "dispatch") return null;
-  return { text: `via ${where}` };
+  return { text: `via ${where}`, ...named };
 }
 
-/** The line under an owner bubble that says where the words came from. */
-export function OriginLine({ origin }: { origin: MessageOrigin }): ReactElement | null {
+/**
+ * The line under an owner bubble that says where the words came from. A
+ * channel named in it is a link to the channel, when the page knows where
+ * it is.
+ */
+export function OriginLine({ origin, linkFor }: { origin: MessageOrigin; linkFor?: (channel: string) => string | undefined }): ReactElement | null {
   const words = originWords(origin);
   if (!words) return null;
-  return words.href ? (
-    <a className="turn-via" href={words.href}>
-      {words.text}
-    </a>
-  ) : (
-    <span className="turn-via">{words.text}</span>
+  if (words.href) {
+    return (
+      <a className="turn-via" href={words.href}>
+        {words.text}
+      </a>
+    );
+  }
+  const room = origin.room?.kind === "channel" && origin.room.name ? origin.room.name : undefined;
+  const href = room && words.room ? linkFor?.(room) : undefined;
+  if (!href || !words.room) return <span className="turn-via">{words.text}</span>;
+  const at = words.text.indexOf(words.room);
+  return (
+    <span className="turn-via">
+      {words.text.slice(0, at)}
+      <a href={href} target="_blank" rel="noopener noreferrer">
+        {words.room}
+      </a>
+      {words.text.slice(at + words.room.length)}
+    </span>
   );
 }

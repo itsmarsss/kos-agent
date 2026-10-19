@@ -2614,7 +2614,11 @@ li:hover .chats-item-when { opacity: 0; }
   font-size: 0.92em;
   font-weight: 600;
   line-height: 1.35;
-  vertical-align: -0.18em;
+  /* Centred on the line's x-height, so the chip's text sits level with
+     the words around it; aligned by baseline, a chip with a mark first
+     took its baseline from the mark and sat high, and the fixed drop that
+     corrected it put a chip with no mark (a channel) low. */
+  vertical-align: middle;
   border: 1px solid transparent;
   max-width: 100%;
 }

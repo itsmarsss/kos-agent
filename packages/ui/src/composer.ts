@@ -40,13 +40,37 @@ export function useStickToBottom<T extends HTMLElement>(
     const atBottom = (): boolean =>
       el.scrollHeight - el.scrollTop - el.clientHeight < 48;
 
+    /*
+     * Only the reader's own scrolling decides whether to follow. A snap to
+     * the bottom fires a scroll event of its own, which read as "at the
+     * bottom, keep following"; and a streamed reply mutates every few
+     * milliseconds, so a wheel tick upward was undone by the next snap
+     * before the next tick arrived. The owner could not scroll up while a
+     * reply was being written. A snap is marked and its event ignored, and
+     * a wheel or touch upward lets go at once.
+     */
+    let snapping = false;
     const onScroll = (): void => {
+      if (snapping) {
+        snapping = false;
+        return;
+      }
       stick.current = atBottom();
     };
+    const onWheel = (e: WheelEvent): void => {
+      if (e.deltaY < 0) stick.current = false;
+    };
+    const onTouch = (): void => {
+      stick.current = false;
+    };
     el.addEventListener("scroll", onScroll, { passive: true });
+    el.addEventListener("wheel", onWheel, { passive: true });
+    el.addEventListener("touchmove", onTouch, { passive: true });
 
     const follow = (): void => {
-      if (stick.current) el.scrollTop = el.scrollHeight;
+      if (!stick.current || atBottom()) return;
+      snapping = true;
+      el.scrollTop = el.scrollHeight;
     };
     const observer = new ResizeObserver(follow);
     observer.observe(el);
@@ -68,6 +92,8 @@ export function useStickToBottom<T extends HTMLElement>(
 
     return () => {
       el.removeEventListener("scroll", onScroll);
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("touchmove", onTouch);
       observer.disconnect();
       mutations.disconnect();
     };
