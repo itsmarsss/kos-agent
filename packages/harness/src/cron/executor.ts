@@ -50,7 +50,11 @@ export async function runCronJob(
   if (job.type === "actions") {
     const results: CronActionResult[] = [];
     for (const action of job.actions ?? []) {
-      const args = templateArgs(action.args, scope);
+      // The scope is read again for each action, so an action can use what
+      // an earlier one left in a table: a script that writes today's post,
+      // then a notify that says it. Read once up front, the second action
+      // saw yesterday's row.
+      const args = templateArgs(action.args, queryScope(deps.db, job.query));
       const r = await deps.tools.execute(action.tool, args);
       results.push({
         tool: action.tool,

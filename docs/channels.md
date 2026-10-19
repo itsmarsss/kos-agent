@@ -140,7 +140,8 @@ line into an existing channel's topic, so a project's orchestrator, a
 blob, or any chat of yours by its id (an agent inside a project, say, so
 the project's orchestrator keeps its own private channel and the agent
 faces the public one) lives there from then on, wherever you put the
-channel; a chat with a channel of its own gets no thread, and a channel
+channel; KOS is told to do it that way for any channel other people will
+write in; a chat with a channel of its own gets no thread, and a channel
 KOS let go is taken back when its chat returns rather than made again. The layout
 leaves a channel you placed in a category of your own where it is, and
 lets go of the one it had laid out. What the chat says shows there, what

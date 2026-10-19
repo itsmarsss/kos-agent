@@ -183,5 +183,9 @@ tests it in the sandbox and commits it, or asks you first when the code
 reaches for something risky, and from then on `skills.run` of it is free.
 That is how a job that needs no judgment is kept off the model: KOS writes
 the script, you let it through once, and a schedule runs it as an actions
-job calling `skills.run`, with no turn and no ask. Switching the skill off
-in Settings stops it; it stays promoted until it is removed.
+job calling `skills.run`, with no turn and no ask. A script reaches the
+workspace database through `KOS_DB` and leaves what it found in a table;
+the job's query reads that row, fresh before each action, and `{column}`
+in a later action's arguments carries it, so one job can run the script
+and then post what it produced. Switching the skill off in Settings stops
+it; it stays promoted until it is removed.

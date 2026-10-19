@@ -124,10 +124,11 @@ function activate(ctx: ModuleContext, deps: CronToolDeps): void {
     {
       name: "cron.schedule",
       description:
-        "Schedule a job: a cron expression plus either actions (tool calls) or a self_prompt. New jobs require approval before running.\n" +
-        'actions is a list of literal calls: [{"tool":"notify","args":{"text":"..."}}]. They run in order and nothing is substituted into them: an action cannot see what an earlier one returned, and there is no {{placeholder}} syntax.\n' +
-        "So anything that has to read data and then say something about it is a self_prompt job, not an actions job. Use actions only for calls whose arguments are known when you schedule them.\n" +
-        "A job that needs no judgment should not spend a model turn: write a script skill (skills.create), promote it once (skills.promote), and schedule an actions job calling skills.run with its name; a promoted skill runs without asking, so the run costs nothing but the script.",
+        "Schedule a job: a cron expression plus either actions (tool calls) or a self_prompt.\n" +
+        'actions is a list of literal calls: [{"tool":"notify","args":{"text":"..."}}], run in order. An action cannot see what an earlier one returned. What it can see is the job\'s query: SQL whose first row is the scope, and {column} in any string argument (or in a self_prompt) is replaced by that column, read again before each action; the condition\'s test runs over the same row. ' +
+        "So an action can say what an earlier action left in a table.\n" +
+        "Anything that has to read data and reason about it is a self_prompt job. " +
+        "A job that needs no judgment should not spend a model turn: write a script skill (skills.create) that leaves what it found in a table (process.env.KOS_DB is the workspace database; node:sqlite reads and writes it), promote it once (skills.promote), and schedule one actions job: skills.run with its name, then the action that uses the row through the query, such as notify with {text}. A promoted skill runs without asking, so the run costs nothing but the script.",
       inputSchema: {
         type: "object",
         properties: {
