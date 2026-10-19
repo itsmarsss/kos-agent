@@ -82,9 +82,14 @@ export const WRITABLE_SETTINGS: Record<
     hint: "127.0.0.1 keeps KOS on this machine. Anything else exposes it to your network, so set a dashboard token as well.",
     group: "network",
   },
+  KOS_DISCORD_GUILD: {
+    label: "Discord server",
+    hint: "The id of a server of yours. KOS lays the dashboard out in it: a channel per project and per blob, one for itself, one for approvals. Applied when the host next starts.",
+    group: "network",
+  },
   KOS_ALLOWED_HOSTS: {
-    label: "Hosts the agent may fetch",
-    hint: "Listing a host is the permission: reading one of these no longer asks you every time. Writing to one still does. Anything not listed is refused outright, and an empty list means http.fetch can reach nothing.",
+    label: "Hosts the agent reads without asking",
+    hint: "Listing a host is the permission: a read from one of these runs at once. A read from any other host asks you first, and a remembered yes stands for that host. Writing to any host asks.",
     group: "access",
   },
 };
