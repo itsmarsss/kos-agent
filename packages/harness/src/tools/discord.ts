@@ -20,9 +20,13 @@ export interface ServerChannel {
   /** The conversation the channel is bound to, or "needs-you". */
   key: string;
   name: string;
+  /** The category it sits under: KOS, Blobs, or the project's own. */
+  category?: string;
   audience: Audience;
   /** Only the owner may ever see KOS's own channel and the approvals. */
   fixed?: boolean;
+  /** How many of its chats have a thread under it. */
+  threads?: number;
 }
 
 export interface DiscordServices {
@@ -30,7 +34,7 @@ export interface DiscordServices {
   connected: () => boolean;
   channels: () => Promise<ServerChannel[]>;
   setAudience: (key: string, audience: Audience) => Promise<ServerChannel>;
-  sync: () => Promise<{ created: string[]; kept: string[] }>;
+  sync: () => Promise<{ created: string[]; kept: string[]; threads: number }>;
 }
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -54,7 +58,8 @@ function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
     {
       name: "discord.channels",
       description:
-        "The channels KOS keeps on the owner's Discord server, with what each is bound to (a project, a blob, KOS itself, the approvals) and who may see it: owner (the default; only the owner and KOS) or everyone on the server.",
+        "The channels KOS keeps on the owner's Discord server, laid out as the dashboard is: #kos and #needs-you under the KOS category, a channel per blob under Blobs, and a category per project holding its channel (the project's orchestrator) with a thread for each chat in the project. " +
+        "Each is listed with what it is bound to, its category, who may see it (owner, the default, or everyone on the server) and how many chats have threads under it.",
       inputSchema: { type: "object", properties: {} },
     },
     async () => {
@@ -97,13 +102,17 @@ function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
   ctx.registerTool(
     {
       name: "discord.sync",
-      description: "Lay the server out now: a channel for every project and blob that has none yet. Done on its own every few minutes; this is for right away.",
+      description: "Lay the server out now: a category and channel for every project, a channel for every blob, and a thread for every chat that has none yet. Done on its own every few minutes; this is for right away.",
       inputSchema: { type: "object", properties: {} },
     },
     async () => {
       up();
       const made = await deps.sync();
-      return JSON.stringify({ ...made, note: made.created.length ? `Made ${made.created.map((c) => `#${c}`).join(", ")}.` : "Every channel was already there." });
+      const said = [
+        ...(made.created.length ? [`Made ${made.created.map((c) => `#${c}`).join(", ")}.`] : []),
+        ...(made.threads ? [`${made.threads} thread${made.threads === 1 ? "" : "s"} made for chats.`] : []),
+      ];
+      return JSON.stringify({ ...made, note: said.length ? said.join(" ") : "Every channel and thread was already there." });
     },
     { floor: "safe" },
     { restricted: true },

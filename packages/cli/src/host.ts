@@ -194,6 +194,19 @@ export async function runHost(options: HostOptions): Promise<void> {
       : undefined;
 
   let adapter: DiscordAdapter | undefined;
+  /**
+   * Lay the server out from what exists, and keep the thread bindings it
+   * hands back: a thread carries no topic, so which chat it stands for is
+   * the kernel's to remember, and the adapter is told so it does not make
+   * the same thread twice.
+   */
+  const layOut = async (): Promise<Awaited<ReturnType<DiscordAdapter["sync"]>>> => {
+    adapter!.rememberThreads(kernel.threadBindings());
+    const made = await adapter!.sync(kernel.surfaceChannels());
+    for (const t of made.threads) kernel.bindThread(t.threadId, t.conversationId);
+    adapter!.rememberThreads(kernel.threadBindings());
+    return made;
+  };
 
   const kernel = await Kernel.boot({
     rootDir: options.rootDir,
@@ -207,13 +220,21 @@ export async function runHost(options: HostOptions): Promise<void> {
             connected: () => adapter !== undefined,
             channels: async () => {
               const plan = kernel.surfaceChannels();
-              return (await adapter!.channels()).map((c) => ({ ...c, ...(plan.find((p) => p.key === c.key)?.fixed ? { fixed: true } : {}) }));
+              const bound = new Set(Object.values(kernel.threadBindings()));
+              return (await adapter!.channels()).map((c) => {
+                const planned = plan.find((p) => p.key === c.key);
+                const threads = (planned?.threads ?? []).filter((t) => bound.has(t.conversationId)).length;
+                return { ...c, ...(planned?.fixed ? { fixed: true } : {}), ...(threads ? { threads } : {}) };
+              });
             },
             setAudience: async (key, audience) => {
               kernel.setChannelAudience(key, audience);
               return adapter!.setAudience(key, audience);
             },
-            sync: () => adapter!.sync(kernel.surfaceChannels()),
+            sync: async () => {
+              const made = await layOut();
+              return { created: made.created, kept: made.kept, threads: made.threads.length };
+            },
           },
         }
       : {}),
@@ -355,6 +376,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       // one; otherwise this host, which is right on the machine it runs on.
       dashboardUrl: process.env.KOS_PUBLIC_URL?.trim() || `http://${options.host === "0.0.0.0" ? "localhost" : options.host}:${options.port}`,
       ...(creds.guildId ? { guildId: creds.guildId } : {}),
+      // Which thread stands for which chat: the kernel keeps it, the adapter asks.
+      threadOf: (threadId) => kernel.threadBindings()[threadId],
     });
     /*
      * A button KOS sent comes back as a message.
@@ -448,8 +471,12 @@ export async function runHost(options: HostOptions): Promise<void> {
        */
       const sync = async (first: boolean): Promise<void> => {
         try {
-          const made = await adapter!.sync(kernel.surfaceChannels());
-          if (first || made.created.length) console.log(`Discord: server ready, ${made.kept.length} channels kept, ${made.created.length} made${made.created.length ? ` (${made.created.join(", ")})` : ""}`);
+          const made = await layOut();
+          if (first || made.created.length || made.threads.length) {
+            console.log(
+              `Discord: server ready, ${made.kept.length} channels kept, ${made.created.length} made${made.created.length ? ` (${made.created.join(", ")})` : ""}, ${made.threads.length} threads made`,
+            );
+          }
         } catch (err) {
           if (first) console.error(`Discord: could not set the server up: ${err instanceof Error ? err.message : String(err)}`);
         }

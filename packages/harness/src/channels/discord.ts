@@ -272,6 +272,11 @@ export interface DiscordAdapterOptions {
    * Without it, KOS is a DM.
    */
   guildId?: string;
+  /**
+   * The conversation a thread KOS made is for, by the thread's id. Threads
+   * carry no topic, so the binding lives with the kernel and is asked for.
+   */
+  threadOf?: (threadId: string) => string | undefined;
 }
 
 /** A channel the server should have, bound to a conversation by its topic. */
@@ -280,14 +285,31 @@ export interface ChannelPlan {
   key: string;
   name: string;
   topic: string;
+  /** The category it sits under: KOS, Blobs, or the project's own. */
+  category: string;
   /** Who may see it: the owner alone (the default) or everyone on the server, reading. */
   audience?: Audience;
+  /** The chats to show as threads under it, each bound to its conversation. */
+  threads?: ThreadPlan[];
+}
+
+export interface ThreadPlan {
+  conversationId: string;
+  title: string;
+}
+
+/** A thread KOS made for a chat, so the kernel can keep the binding. */
+export interface ThreadMade {
+  threadId: string;
+  conversationId: string;
+  title: string;
 }
 
 /** A channel of KOS's as it is on the server. */
 export interface ServerChannel {
   key: string;
   name: string;
+  category?: string;
   audience: Audience;
 }
 
@@ -314,7 +336,7 @@ interface Overwrite {
   deny?: bigint[];
 }
 
-/** As much of a text channel as the audience code touches. */
+/** As much of a text channel as the layout code touches. */
 interface OverwritableChannel {
   id: string;
   name: string;
@@ -322,6 +344,17 @@ interface OverwritableChannel {
     cache: Map<string, { deny: { has: (bit: bigint) => boolean } }>;
     set: (overwrites: Overwrite[]) => Promise<unknown>;
   };
+  setParent?: (parent: string, options?: { lockPermissions?: boolean }) => Promise<unknown>;
+  threads?: { create: (options: { name: string; autoArchiveDuration: number; reason?: string }) => Promise<{ id: string }> };
+}
+
+/** A channel KOS made, as the layout sees it. */
+interface BoundChannel {
+  id: string;
+  name: string;
+  audience: Audience;
+  parentId: string | null;
+  channel: OverwritableChannel;
 }
 
 /** What a channel's permissions say its audience is: the owner alone when everyone is kept out. */
@@ -348,19 +381,25 @@ export function boundKeyOf(topic: string | null | undefined): string | undefined
  * The conversation a server channel belongs to.
  *
  * A text channel KOS made carries `kos:<conversation>` in its topic. A thread
- * in a project's channel is a chat of that project; one under KOS's own
- * channel is a chat at the root; one under a blob's channel is the blob's
- * own thread, since a blob has one conversation. A channel with no binding
- * is someone else's and KOS stays out of it.
+ * KOS made for a chat is that chat, by the binding the kernel keeps. Any
+ * other thread in a project's channel is a new chat of that project; one
+ * under KOS's own channel is a chat at the root; one under a blob's channel
+ * is the blob's own thread, since a blob has one conversation. A channel
+ * with no binding is someone else's and KOS stays out of it.
  */
-export function bindingOf(channel: {
-  id: string;
-  name?: string;
-  topic?: string | null;
-  isThread?: () => boolean;
-  parent?: { topic?: string | null } | null;
-}): ChannelBinding | undefined {
+export function bindingOf(
+  channel: {
+    id: string;
+    name?: string;
+    topic?: string | null;
+    isThread?: () => boolean;
+    parent?: { topic?: string | null } | null;
+  },
+  threadOf?: (threadId: string) => string | undefined,
+): ChannelBinding | undefined {
   if (channel.isThread?.()) {
+    const known = threadOf?.(channel.id);
+    if (known) return { conversationId: known };
     const parentKey = boundKeyOf(channel.parent?.topic);
     if (!parentKey || parentKey === "needs-you") return undefined;
     if (parentKey.startsWith("agent:")) return { conversationId: parentKey };
@@ -582,6 +621,7 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly ownerId?: string;
   private readonly dashboardUrl?: string;
   private readonly guildId?: string;
+  private readonly threadOf?: (threadId: string) => string | undefined;
   /** The server's approvals channel, once sync has found or made it. */
   private approvalsChannelId?: string;
   /** One webhook per channel, made on first use, through which a blob speaks as itself. */
@@ -597,6 +637,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (options.ownerId) this.ownerId = options.ownerId;
     if (options.dashboardUrl) this.dashboardUrl = options.dashboardUrl;
     if (options.guildId) this.guildId = options.guildId;
+    if (options.threadOf) this.threadOf = options.threadOf;
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
@@ -660,7 +701,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (message.guild) {
       if (!this.guildId || message.guild.id !== this.guildId) return;
       if (!this.isAuthorized(message.author.id)) return;
-      binding = bindingOf(message.channel as Parameters<typeof bindingOf>[0]);
+      binding = bindingOf(message.channel as Parameters<typeof bindingOf>[0], this.threadOf);
       if (!binding) return;
     } else if (!this.isAuthorized(message.author.id)) {
       // Log for the owner, stay silent to the sender.
@@ -691,42 +732,76 @@ export class DiscordAdapter implements ChannelAdapter {
    * are there are kept as they are, name and all; the approvals channel is
    * remembered so prompts go there. Nothing is ever deleted here.
    */
-  async sync(plans: ChannelPlan[]): Promise<{ created: string[]; kept: string[] }> {
-    if (!this.guildId) return { created: [], kept: [] };
+  async sync(plans: ChannelPlan[]): Promise<{ created: string[]; kept: string[]; threads: ThreadMade[] }> {
+    if (!this.guildId) return { created: [], kept: [], threads: [] };
     const guild = await this.client.guilds.fetch(this.guildId);
-    const { bound, category: found } = await this.boundChannels(guild);
-    const category = found ?? { id: (await guild.channels.create({ name: "KOS", type: ChannelType.GuildCategory })).id };
+    const { bound, categories } = await this.boundChannels(guild);
     const created: string[] = [];
     const kept: string[] = [];
+    const threads: ThreadMade[] = [];
+    // A category is found by name and made when missing, owner-only like
+    // everything else; a channel that is under the wrong one is moved.
+    const categoryId = async (name: string): Promise<string> => {
+      const have = categories.get(name.toLowerCase());
+      if (have) return have;
+      const made = await guild.channels.create({ name, type: ChannelType.GuildCategory, permissionOverwrites: overwritesFor("owner", this.permissionIds(guild.id)) });
+      categories.set(name.toLowerCase(), made.id);
+      return made.id;
+    };
     for (const plan of plans) {
       const audience = plan.audience ?? "owner";
-      const have = bound.get(plan.key);
+      const parent = await categoryId(plan.category);
+      let have = bound.get(plan.key);
       if (have) {
         kept.push(have.name);
         // Permissions follow the audience; a channel that drifted is put back.
         if (have.audience !== audience) await this.applyAudience(have.channel, audience, guild.id);
+        if (have.parentId !== parent) await have.channel.setParent?.(parent, { lockPermissions: false });
       } else {
         const made = await guild.channels.create({
           name: plan.name,
           type: ChannelType.GuildText,
           topic: plan.topic,
-          parent: category.id,
+          parent,
           permissionOverwrites: overwritesFor(audience, this.permissionIds(guild.id)),
         });
         created.push(made.name);
-        bound.set(plan.key, { id: made.id, name: made.name, audience, channel: made as unknown as OverwritableChannel });
+        have = { id: made.id, name: made.name, audience, parentId: parent, channel: made as unknown as OverwritableChannel };
+        bound.set(plan.key, have);
       }
-      if (plan.key === "needs-you") this.approvalsChannelId = bound.get(plan.key)!.id;
+      if (plan.key === "needs-you") this.approvalsChannelId = have.id;
+      // A thread per chat, bound to it; the ones already made are known to
+      // the kernel and skipped. Threads auto-archive on their own when a
+      // chat goes quiet, and come back when it is spoken to.
+      for (const thread of plan.threads ?? []) {
+        if (this.threadBound(thread.conversationId)) continue;
+        const made = await have.channel.threads?.create({ name: thread.title.trim().slice(0, 100) || "Chat", autoArchiveDuration: 10080, reason: `KOS: ${thread.conversationId}` });
+        if (made) threads.push({ threadId: made.id, conversationId: thread.conversationId, title: thread.title });
+      }
     }
-    return { created, kept };
+    return { created, kept, threads };
   }
 
-  /** KOS's channels on the server, with who may see each. */
+  /** Whether some thread already stands for a conversation; the kernel's bindings say. */
+  private threadBound(conversationId: string): boolean {
+    return this.boundThreads.has(conversationId);
+  }
+
+  /** Conversations with a thread already, kept here from what the kernel hands back. */
+  private readonly boundThreads = new Set<string>();
+
+  /** Told which threads stand for which chats, so a layout does not make them twice. */
+  rememberThreads(bindings: Record<string, string>): void {
+    for (const conversationId of Object.values(bindings)) this.boundThreads.add(conversationId);
+  }
+
+  /** KOS's channels on the server, with who may see each and where it sits. */
   async channels(): Promise<ServerChannel[]> {
     if (!this.guildId) return [];
     const guild = await this.client.guilds.fetch(this.guildId);
-    const { bound } = await this.boundChannels(guild);
-    return [...bound.entries()].map(([key, c]) => ({ key, name: c.name, audience: c.audience }));
+    const { bound, categories } = await this.boundChannels(guild);
+    const nameOf = new Map([...categories.entries()].map(([name, id]) => [id, name]));
+    return [...bound.entries()].map(([key, c]) => ({ key, name: c.name, audience: c.audience, ...(c.parentId && nameOf.get(c.parentId) ? { category: nameOf.get(c.parentId)! } : {}) }));
   }
 
   /** Who may see one channel, applied now. */
@@ -740,24 +815,24 @@ export class DiscordAdapter implements ChannelAdapter {
     return { key, name: have.name, audience };
   }
 
-  /** The channels KOS made, by what each is bound to, and the KOS category if there is one. */
+  /** The channels KOS made, by what each is bound to, and the server's categories by name. */
   private async boundChannels(guild: { id: string; channels: { fetch: () => Promise<Map<string, unknown>> } }): Promise<{
-    bound: Map<string, { id: string; name: string; audience: Audience; channel: OverwritableChannel }>;
-    category?: { id: string };
+    bound: Map<string, BoundChannel>;
+    categories: Map<string, string>;
   }> {
     const existing = await guild.channels.fetch();
-    const bound = new Map<string, { id: string; name: string; audience: Audience; channel: OverwritableChannel }>();
-    let category: { id: string } | undefined;
+    const bound = new Map<string, BoundChannel>();
+    const categories = new Map<string, string>();
     for (const channel of existing.values()) {
       if (!channel || typeof channel !== "object") continue;
-      const c = channel as OverwritableChannel & { type: ChannelType; name: string; topic?: string | null };
-      if (c.type === ChannelType.GuildCategory && c.name.toLowerCase() === "kos") category = { id: c.id };
+      const c = channel as OverwritableChannel & { type: ChannelType; name: string; topic?: string | null; parentId?: string | null };
+      if (c.type === ChannelType.GuildCategory) categories.set(c.name.toLowerCase(), c.id);
       if (c.type === ChannelType.GuildText) {
         const key = boundKeyOf(c.topic);
-        if (key) bound.set(key, { id: c.id, name: c.name, audience: audienceOf(c, guild.id), channel: c });
+        if (key) bound.set(key, { id: c.id, name: c.name, audience: audienceOf(c, guild.id), parentId: c.parentId ?? null, channel: c });
       }
     }
-    return { bound, ...(category ? { category } : {}) };
+    return { bound, categories };
   }
 
   private permissionIds(guildId: string): { everyone: string; owner?: string; bot?: string } {
