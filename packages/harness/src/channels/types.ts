@@ -50,6 +50,8 @@ export interface InboundMessage {
   guest?: Guest;
   /** Where on the surface it was said, when the surface has rooms, so the transcript can say so. */
   room?: MessageRoom;
+  /** Members named in the words, each as the words now name them and by id, so the turn knows who @name is. */
+  members?: { id: string; name: string }[];
   /**
    * Adapter-private handle (e.g. Discord Message) for reactions/edits.
    * Runtime must not inspect this; only the adapter's acknowledge() may.

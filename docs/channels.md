@@ -146,6 +146,12 @@ on a guest's say-so, and anything risky still asks you. Their button
 presses reach the chat the same way. Nothing a guest says is remembered as
 yours. Opening a channel to guests asks you first.
 
+Someone named in a message (`@name` on Discord) arrives on the dashboard
+as `@name`, and the turn is told the member's id beside it; `discord.member`
+gives who that id is (account name, the name shown, roles, when they
+joined), and a reply that names them pings them. KOS keeps anything about a
+member by id, since names change.
+
 KOS can also read and react: `discord.messages` (the last messages in a
 channel, who said what, with the reactions each carries), `discord.reactions`
 (who reacted with what on a message, by name) and `discord.react` (an emoji

@@ -265,6 +265,7 @@ export async function runHost(options: HostOptions): Promise<void> {
             react: (channel, message, emoji) => adapter!.react(channel, message, emoji),
             reactions: (channel, message) => adapter!.reactions(channel, message),
             messages: (channel, limit) => adapter!.messages(channel, limit),
+            member: (id) => adapter!.member(id),
           },
         }
       : {}),

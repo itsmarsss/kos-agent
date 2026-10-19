@@ -24,6 +24,7 @@ export const DISCORD_TOOLS = [
   "discord.react",
   "discord.reactions",
   "discord.messages",
+  "discord.member",
   "discord.bind",
 ] as const;
 
@@ -134,6 +135,8 @@ export interface DiscordServices {
   reactions: (channel: string, message: string) => Promise<Reaction[]>;
   /** The last messages in a channel, newest last. */
   messages: (channel: string, limit: number) => Promise<ChannelMessage[]>;
+  /** A member of the server by id: who they are, as Discord has it. */
+  member: (id: string) => Promise<MemberInfo>;
 }
 
 /** One emoji on a message and who put it there. */
@@ -141,6 +144,24 @@ export interface Reaction {
   emoji: string;
   count: number;
   users: { id: string; name: string }[];
+}
+
+/** A member of the server, by Discord's id. */
+export interface MemberInfo {
+  id: string;
+  /** The account name. */
+  name: string;
+  /** The name shown on the server, when set apart from the account name. */
+  displayName: string;
+  bot: boolean;
+  joinedAt: string | null;
+  roles: string[];
+}
+
+/** A member named in a message, as the words name them and as Discord knows them. */
+export interface NamedMember {
+  id: string;
+  name: string;
 }
 
 /** A message in a channel as KOS reads it. */
@@ -523,6 +544,22 @@ function defineReadingTools(deps: DiscordServices, ctx: ModuleContext): void {
       up();
       const limit = Math.max(1, Math.min(100, Number(input["limit"]) || 20));
       return JSON.stringify({ messages: await deps.messages(str(input, "channel"), limit) });
+    },
+    { floor: "safe" },
+    { restricted: false },
+  );
+  ctx.registerTool(
+    {
+      name: "discord.member",
+      description:
+        "A member of the server by Discord id, the one thing about them that never changes: account name, the name shown on the server, whether a bot, when they joined, their roles. A message that names someone arrives as @name with the id told to you beside it; discord.messages gives author ids.",
+      inputSchema: { type: "object", properties: { id: { type: "string", description: "the member's Discord id" } }, required: ["id"] },
+    },
+    async (input) => {
+      up();
+      const id = str(input, "id").replace(/^<@!?|>$/g, "");
+      if (!/^\d+$/.test(id)) throw new Error("id must be a Discord member id, the digits; a name is not one, since names change");
+      return JSON.stringify(await deps.member(id));
     },
     { floor: "safe" },
     { restricted: false },

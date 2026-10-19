@@ -24,7 +24,7 @@ import {
 import { CHANNEL_TOKEN, detailLines, summarizeAction, withUnixTimes } from "@kos/shared";
 
 import { isReadable, type Attachment } from "../kernel/attachments.js";
-import type { Access, Audience, ChannelMessage, MakePlace, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
+import type { Access, Audience, ChannelMessage, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
 import type { MessageRoom } from "../models/types.js";
 import type { Guest } from "./types.js";
 import { COMMANDS, completions, runCommand, type SlashContext } from "./commands.js";
@@ -388,6 +388,14 @@ interface AdminGuild {
     fetch: () => Promise<Map<string, { id: string; name: string; color: number; managed: boolean; members?: { size: number } }>>;
     create: (options: { name: string; color?: number; reason?: string }) => Promise<{ id: string; name: string }>;
   };
+  members: {
+    fetch: (id: string) => Promise<{
+      user: { id: string; username: string; globalName?: string | null; bot: boolean };
+      displayName?: string;
+      joinedTimestamp?: number | null;
+      roles: { cache: Map<string, { id: string; name: string }> };
+    }>;
+  };
 }
 
 /** As much of a channel as reading and reacting touch. */
@@ -726,6 +734,8 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly webhooks = new Map<string, Webhook>();
   /** Every text channel on the server by name, from the last look, so "#general" in words can be the channel itself. */
   private readonly known = new Map<string, ServerPlace>();
+  /** Members by the name the words use, from mentions and speakers seen, so "@name" going out can be the member itself. */
+  private readonly membersSeen = new Map<string, string>();
   /** The owner as a speaker, once looked up. */
   private owner?: Sender;
   private isAuthorized: SenderAuthorizer = () => true;
@@ -832,11 +842,17 @@ export class DiscordAdapter implements ChannelAdapter {
     const room: MessageRoom = message.guild
       ? { kind: where.isThread?.() ? "thread" : "channel", id: where.id, ...(where.name ? { name: where.name } : {}) }
       : { kind: "dm" };
+    // Who the words name: Discord writes <@id>; the dashboard and the turn
+    // get @name, with the id told to the turn beside it.
+    const members = this.membersNamed(message);
+    const speaker = message.author.globalName ?? message.author.username;
+    if (speaker) this.membersSeen.set(speaker.toLowerCase(), message.author.id);
     await this.messageHandler?.({
       channel: this.name,
       senderId: message.author.id,
-      text: this.channelsNamed(message.content) + note,
+      text: this.membersInWords(this.channelsNamed(message.content), members) + note,
       room,
+      ...(members.length ? { members } : {}),
       ...(attachments.length ? { attachments } : {}),
       ...(binding ? { conversationId: binding.conversationId } : {}),
       ...(binding?.newIn ? { newIn: binding.newIn } : {}),
@@ -1656,7 +1672,7 @@ export class DiscordAdapter implements ChannelAdapter {
    * itself, no previews.
    */
   private words(text: string): string {
-    return noPreviews(linkMentions(this.channelMentions(tablesToCode(withTimes(text, this.timezone))), this.dashboardUrl, this.labelOf));
+    return noPreviews(linkMentions(this.memberMentions(this.channelMentions(tablesToCode(withTimes(text, this.timezone)))), this.dashboardUrl, this.labelOf));
   }
 
   /** "#general" as `<#id>` when the server has a channel of that name; code and mentions already made are left alone. */
@@ -1668,6 +1684,57 @@ export class DiscordAdapter implements ChannelAdapter {
         return id ? `<#${id}>` : whole;
       }),
     );
+  }
+
+  /** The members a message names, from Discord's own list of them; each remembered by name for the way back. */
+  private membersNamed(message: { mentions?: { users?: Map<string, { id: string; username: string; globalName?: string | null }> } }): NamedMember[] {
+    const users = message.mentions?.users;
+    if (!users) return [];
+    const named: NamedMember[] = [];
+    for (const user of users.values()) {
+      const name = user.globalName ?? user.username;
+      this.membersSeen.set(name.toLowerCase(), user.id);
+      named.push({ id: user.id, name });
+    }
+    return named;
+  }
+
+  /** `<@id>` as "@name" for the members a message names. */
+  private membersInWords(text: string, members: NamedMember[]): string {
+    if (members.length === 0) return text;
+    const names = new Map(members.map((m) => [m.id, m.name]));
+    return text.replace(/<@!?(\d+)>/g, (whole, id: string) => {
+      const name = names.get(id);
+      return name ? `@${name}` : whole;
+    });
+  }
+
+  /** "@name" as `<@id>` for a member seen before, so a reply naming someone pings them; a @kind: reference is not a name. */
+  private memberMentions(text: string): string {
+    if (this.membersSeen.size === 0) return text;
+    return outsideCode(text, (part) =>
+      part.replace(/(?<![\w@])@([A-Za-z0-9_.-]{2,32})(?![\w:])/g, (whole, name: string) => {
+        const id = this.membersSeen.get(name.toLowerCase());
+        return id ? `<@${id}>` : whole;
+      }),
+    );
+  }
+
+  /** A member of the server by id, as Discord has them. */
+  async member(id: string): Promise<MemberInfo> {
+    const guild = await this.guild();
+    const fetched = await guild.members.fetch(id).catch(() => null);
+    if (!fetched) throw new Error(`no member ${id} on the server`);
+    const name = fetched.user.globalName ?? fetched.user.username;
+    this.membersSeen.set(name.toLowerCase(), id);
+    return {
+      id,
+      name: fetched.user.username,
+      displayName: fetched.displayName ?? fetched.user.globalName ?? fetched.user.username,
+      bot: fetched.user.bot,
+      joinedAt: fetched.joinedTimestamp ? new Date(fetched.joinedTimestamp).toISOString() : null,
+      roles: [...fetched.roles.cache.values()].filter((r) => r.id !== guild.id).map((r) => r.name),
+    };
   }
 
   /** `<#id>` as "#name" for a channel KOS knows, so what was said reads the same on the dashboard and the chat sees the name. */

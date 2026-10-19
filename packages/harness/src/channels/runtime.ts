@@ -33,6 +33,8 @@ export interface TurnContext {
   guest?: Guest;
   /** Where on the surface it was said, when the surface has rooms. */
   room?: MessageRoom;
+  /** Members named in the words, by name and id. */
+  members?: { id: string; name: string }[];
 }
 
 /** Handles one user turn and returns the reply text. */
@@ -326,6 +328,7 @@ export class ChannelRuntime {
         ...(msg.conversationId ? { conversationId: msg.conversationId } : {}),
         ...(msg.newIn ? { newIn: msg.newIn } : {}),
         ...(msg.room ? { room: msg.room } : {}),
+        ...(msg.members?.length ? { members: msg.members } : {}),
         ...(msg.attachments?.length ? { attachments: msg.attachments } : {}),
         ...guest,
       });
