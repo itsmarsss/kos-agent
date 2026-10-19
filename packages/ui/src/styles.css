@@ -2172,6 +2172,10 @@ select {
 
 /* An approval resume is plumbing, not something the owner said. It stays in
    the thread because the continuation would otherwise come from nowhere. */
+/* A path in a step's summary: opens the file, without toggling the card. */
+.toolcall-path { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 2px; cursor: pointer; }
+.toolcall-path:hover { color: var(--text); text-decoration-color: var(--accent); }
+
 /* Where a message came in from, when not from here. */
 .turn-via { align-self: flex-end; margin-top: 0.15rem; color: var(--faint); font-size: var(--text-xs); }
 

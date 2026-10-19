@@ -2632,8 +2632,12 @@ export class Kernel {
         const abs = this.workspace.resolve(dir);
         mkdirSync(abs, { recursive: true });
         const name = basename(file.name).replace(/^\.+/, "") || "file";
-        const final = existsSync(join(abs, name)) ? uniqueName(this.workspace, dir, name) : name;
-        writeFileSync(join(abs, final), Buffer.from(file.data, "base64"));
+        const bytes = Buffer.from(file.data, "base64");
+        // The same file sent again (a message replayed after a restart, or
+        // simply sent twice) is the file already there, not a copy of it.
+        const same = existsSync(join(abs, name)) && readFileSync(join(abs, name)).equals(bytes);
+        const final = same ? name : existsSync(join(abs, name)) ? uniqueName(this.workspace, dir, name) : name;
+        if (!same) writeFileSync(join(abs, final), bytes);
         kept.push({ name: file.name, path: `${dir}/${final}` });
       } catch (err) {
         console.warn(`[kernel] could not keep ${file.name}:`, err instanceof Error ? err.message : String(err));

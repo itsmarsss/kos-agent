@@ -2272,7 +2272,10 @@ export function ChatsPage({
               )}
 
               <AnimatePresence initial={false}>
-              {pending.map((p) => (
+              {/* A queued message whose turn has just begun is already on
+                  the screen as the live turn's own words; shown here too it
+                  would read twice until the next fetch. */}
+              {pending.filter((p) => !(live?.said && !live.ended && p.text === live.said)).map((p) => (
                 <m.div
                   className="queued"
                   key={p.id}
