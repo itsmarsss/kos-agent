@@ -54,7 +54,7 @@ import { createSearchModule } from "../tools/search.js";
 import { exportModule } from "../tools/export.js";
 import { createShellModule } from "../tools/shell.js";
 import { createSkillsModule } from "../tools/skills.js";
-import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
+import { SKILLS_KEY, parseSkillSettings, withSkillPromoted } from "../skills/settings.js";
 import { createChatsModule } from "../tools/chats.js";
 import { createMemoryModule } from "../tools/memory.js";
 import { EXTRACTOR_KEY } from "../memory/extractor.js";
@@ -436,6 +436,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       promoter,
       // Read on every call, so a toggle in Settings takes effect at once.
       disabled: () => parseSkillSettings(settings.get(SKILLS_KEY)).disabled,
+      promoted: () => parseSkillSettings(settings.get(SKILLS_KEY)).promoted,
+      markPromoted: (name) => settings.set(SKILLS_KEY, withSkillPromoted(parseSkillSettings(settings.get(SKILLS_KEY)), name)),
     }),
     createImproveModule({ suggestions }),
     createMemoryModule({

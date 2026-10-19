@@ -177,3 +177,11 @@ kos skill list
 The same from Settings, Skills. Installed is off: a script from outside and
 instructions from outside both wait for you to switch them on. A folder that
 is not a skill is removed again, and the reason is said.
+
+A script skill, once promoted, runs without asking: `skills.promote`
+tests it in the sandbox and commits it, or asks you first when the code
+reaches for something risky, and from then on `skills.run` of it is free.
+That is how a job that needs no judgment is kept off the model: KOS writes
+the script, you let it through once, and a schedule runs it as an actions
+job calling `skills.run`, with no turn and no ask. Switching the skill off
+in Settings stops it; it stays promoted until it is removed.

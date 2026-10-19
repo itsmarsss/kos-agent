@@ -34,6 +34,10 @@ export interface SkillsModuleDeps {
   promoter: SkillPromoter;
   /** Names the owner has switched off, read fresh so a toggle takes effect at once. */
   disabled: () => string[];
+  /** Script skills promoted, by the sandbox or an approved commit: these run without asking. */
+  promoted: () => string[];
+  /** A skill just promoted, to be kept as such. */
+  markPromoted: (name: string) => void;
 }
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -232,7 +236,9 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
         async (input) => {
           const skill = script(find(ws, str(input, "name")));
           const args = strings(input, "args");
-          return JSON.stringify(await deps.promoter.promote({ entry: skill.file, ...(args ? { args } : {}) }));
+          const outcome = await deps.promoter.promote({ entry: skill.file, ...(args ? { args } : {}) });
+          if (outcome.status === "promoted") deps.markPromoted(skill.manifest.name);
+          return JSON.stringify(outcome);
         },
         { floor: "safe" },
       );
@@ -246,6 +252,7 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
         async (input) => {
           const skill = script(find(ws, str(input, "name")));
           const sha = await deps.promoter.commit(skill.file);
+          deps.markPromoted(skill.manifest.name);
           return JSON.stringify({ status: "promoted", name: skill.manifest.name, sha });
         },
         { floor: "risky", why: "code of KOS's own writing would be kept to run" },
@@ -255,7 +262,7 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
         {
           name: "skills.run",
           description:
-            "Run a script skill for real, against the live workspace. Only a promoted skill; test first with skills.test.",
+            "Run a script skill for real, against the live workspace. A promoted skill runs without asking, so a schedule can run it unattended (an actions job calling skills.run); one not yet promoted asks the owner each time. Test first with skills.test, promote with skills.promote.",
           inputSchema: {
             type: "object",
             properties: { name: { type: "string" }, args: { type: "array", items: { type: "string" } } },
@@ -269,7 +276,13 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
           const result = await runSkillLive({ workspaceRoot: ws.root, entry: skill.file, ...(args ? { args } : {}) });
           return JSON.stringify(sandboxReport(result));
         },
-        { floor: "risky", why: "runs a skill for real" },
+        // Promoted once, run free: the owner's yes to the code is the yes
+        // to running it, so a daily job of it costs no model turn and no ask.
+        {
+          floor: "risky",
+          why: "runs a skill that was not promoted",
+          relax: (input) => typeof input["name"] === "string" && deps.promoted().includes(input["name"]) && !off().has(input["name"]),
+        },
       );
     },
   };
