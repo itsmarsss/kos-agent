@@ -1,3 +1,4 @@
+import { pdfText } from "../files/pdftext.js";
 import { injectSecrets, injectSecretsInString } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
 import type { KosModule } from "../modules/loader.js";
@@ -23,6 +24,11 @@ export interface HttpModuleOptions {
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 1_000_000;
+
+async function pdfBody(res: Response): Promise<string> {
+  const read = await pdfText(new Uint8Array(await res.arrayBuffer()));
+  return `[PDF, ${read.pages} page${read.pages === 1 ? "" : "s"}${read.truncated ? ", cut at the cap" : ""}]\n${read.text}`;
+}
 
 function hostOf(url: string): string | undefined {
   try {
@@ -64,7 +70,9 @@ async function doFetch(
       body,
       signal: controller.signal,
     });
-    const text = await res.text();
+    // A PDF comes back as its words, not its bytes: a paper or a bill at a
+    // url is as ordinary a thing to read as a page.
+    const text = /^application\/pdf\b/i.test(res.headers.get("content-type") ?? "") ? await pdfBody(res) : await res.text();
     const capped = text.slice(0, opts.maxBytes);
     return JSON.stringify({
       status: res.status,

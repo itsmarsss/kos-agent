@@ -10,6 +10,7 @@ import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { filesModule, outsideScratch } from "./files.js";
+import { toPdf } from "./pdf.js";
 
 describe("outsideScratch", () => {
   it("recognizes the scratch area", () => {
@@ -53,6 +54,14 @@ describe("filesModule", () => {
     const read = await registry.execute("files.read", { path: "a/b.txt" });
     expect(read.content).toBe("hi");
     expect(existsSync(join(ws.root, "a", "b.txt"))).toBe(true);
+  });
+
+  it("reads a PDF as its words", async () => {
+    writeFileSync(join(ws.root, "doc.pdf"), toPdf([{ item: "kettle", price: "42" }], "Shopping"));
+    const read = await registry.execute("files.read", { path: "doc.pdf" });
+    expect(read.isError).toBe(false);
+    expect(read.content.startsWith("[PDF, 1 page]\n")).toBe(true);
+    expect(read.content).toContain("kettle 42");
   });
 
   it("edits a file by string replacement", async () => {

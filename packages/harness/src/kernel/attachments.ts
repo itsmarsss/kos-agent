@@ -1,3 +1,4 @@
+import { pdfText } from "../files/pdftext.js";
 import type { ContentBlock } from "../models/types.js";
 
 /**
@@ -5,8 +6,9 @@ import type { ContentBlock } from "../models/types.js";
  *
  * Two kinds reach a model at all: an image, which travels as bytes, and text,
  * which is inlined with its filename so the model knows what it is looking at.
- * Anything else is refused here rather than sent as something the provider
- * will reject or, worse, silently ignore.
+ * A PDF becomes the text it reads as before it gets that far. Anything else
+ * is refused here rather than sent as something the provider will reject or,
+ * worse, silently ignore.
  */
 
 export interface Attachment {
@@ -32,6 +34,39 @@ const TEXT_EXTENSIONS =
 
 export function isImage(mediaType: string): boolean {
   return mediaType.startsWith("image/");
+}
+
+/** A PDF, by type or by name: browsers and surfaces are not consistent about which they report. */
+export function isPdfFile(mediaType: string, name: string): boolean {
+  return mediaType === "application/pdf" || /\.pdf$/i.test(name);
+}
+
+/** What a turn can carry: a picture, a text file, or a PDF (read as text on the way in). */
+export function isReadable(mediaType: string, name: string): boolean {
+  return isImage(mediaType) || isTextual(mediaType, name) || isPdfFile(mediaType, name);
+}
+
+/**
+ * Attachments with every PDF turned into the text file it reads as, so the
+ * rest of the path (the blocks, both engines, the transcript) sees only
+ * pictures and text. Done once, at the door, rather than in each engine.
+ */
+export async function readAttachments(attachments: Attachment[]): Promise<Attachment[]> {
+  const out: Attachment[] = [];
+  for (const file of attachments) {
+    if (!isPdfFile(file.mediaType, file.name) || isTextual(file.mediaType, file.name)) {
+      out.push(file);
+      continue;
+    }
+    const bytes = Buffer.from(file.data, "base64");
+    if (bytes.byteLength > MAX_BYTES) {
+      throw new Error(`${file.name} is ${Math.round(bytes.byteLength / 1024 / 1024)}MB; the limit is ${MAX_BYTES / 1024 / 1024}MB`);
+    }
+    const read = await pdfText(new Uint8Array(bytes));
+    const head = `[${file.name}: ${read.pages} page${read.pages === 1 ? "" : "s"}${read.truncated ? ", cut at the cap" : ""}]\n`;
+    out.push({ name: file.name, mediaType: "text/plain", data: Buffer.from(`${head}${read.text}`, "utf8").toString("base64") });
+  }
+  return out;
 }
 
 export function isTextual(mediaType: string, name: string): boolean {
@@ -96,7 +131,7 @@ export function attachmentBlocks(attachments: Attachment[]): ContentBlock[] {
       continue;
     }
     throw new Error(
-      `${file.name} (${file.mediaType || "unknown type"}) cannot be read by the model. Attach an image or a text file, or write it into the workspace and point the agent at it.`,
+      `${file.name} (${file.mediaType || "unknown type"}) cannot be read by the model. Attach an image, a text file or a PDF, or write it into the workspace and point the agent at it.`,
     );
   }
   return blocks;

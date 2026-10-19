@@ -8,6 +8,7 @@ import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { createHttpModule, type FetchImpl } from "./http.js";
+import { toPdf } from "./pdf.js";
 
 describe("http.fetch module", () => {
   let root: string;
@@ -67,6 +68,14 @@ describe("http.fetch module", () => {
     expect(res.isError).toBe(false);
     expect(reached).toEqual(["https://new.test/x"]);
     expect((await registry.execute("http.fetch", { url: "not a url" })).content).toMatch(/not a url/);
+  });
+
+  it("hands a PDF back as its words", async () => {
+    const fetchImpl: FetchImpl = async () => new Response(toPdf([{ item: "kettle", price: "42" }], "Shopping"), { status: 200, headers: { "content-type": "application/pdf" } });
+    const registry = await load({ allowedHosts: ["api.example.com"], fetchImpl });
+    const out = JSON.parse((await registry.execute("http.fetch", { url: "https://api.example.com/bill.pdf" })).content);
+    expect(out.body.startsWith("[PDF, 1 page]\n")).toBe(true);
+    expect(out.body).toContain("kettle 42");
   });
 
   it("injects secrets into headers before the request", async () => {
