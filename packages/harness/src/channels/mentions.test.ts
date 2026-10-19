@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { linkMentions, mentionRoute, plainMentions } from "./mentions.js";
+import { linkMentions, linkPaths, mentionRoute, plainMentions } from "./mentions.js";
 
 /**
  * On Discord a reference token is a typo unless it becomes a link. The
@@ -47,5 +47,20 @@ describe("linking references for Discord", () => {
   it("drops a trailing slash on the base and keeps other text as it was", () => {
     expect(linkMentions("@project:garden", "http://localhost:4317/")).toBe("[garden](http://localhost:4317/#/project/garden)");
     expect(linkMentions("nothing here", base)).toBe("nothing here");
+  });
+});
+
+describe("linkPaths", () => {
+  it("links a workspace path a step names to the file on the dashboard, and nothing that is not one", () => {
+    const base = "https://kos.example";
+    expect(linkPaths("Read blobs/verity/blob.md.", base)).toBe("Read [blobs/verity/blob.md](<https://kos.example/#/files/blobs%2Fverity%2Fblob.md>).");
+    expect(linkPaths("List projects/garden", base)).toBe("List [projects/garden](<https://kos.example/#/files/projects%2Fgarden>)");
+    // Not a workspace path: a zone, an absolute path, code, or a reference already linked.
+    expect(linkPaths("timezone=America/Toronto (in /w/projects/x)", base)).toBe("timezone=America/Toronto (in /w/projects/x)");
+    expect(linkPaths("Run `cat projects/x/a.md`", base)).toBe("Run `cat projects/x/a.md`");
+    expect(linkPaths("see @file:projects/x/a.md", base)).toBe("see @file:projects/x/a.md");
+    expect(linkPaths(linkMentions("see @file:projects/x/a.md", base), base)).toBe(linkMentions("see @file:projects/x/a.md", base));
+    // Nowhere to link to: the words as they were.
+    expect(linkPaths("Read blobs/verity/blob.md")).toBe("Read blobs/verity/blob.md");
   });
 });

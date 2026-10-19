@@ -19,6 +19,13 @@ export interface Attachment {
   data: string;
 }
 
+/** A file kept from a message's attachments: what it was called, and where it now lives in the workspace. */
+export interface KeptFile {
+  name: string;
+  /** Workspace-relative path. */
+  path: string;
+}
+
 /** Bytes per attachment. Base64 inflates by a third, and prompts have limits. */
 const MAX_BYTES = 5 * 1024 * 1024;
 

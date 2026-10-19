@@ -11,6 +11,8 @@
  * module reacting to a turn ending must not be able to end the next one.
  */
 
+import type { KeptFile } from "../kernel/attachments.js";
+
 export type KernelEvent =
   | { kind: "turn:start"; conversationId: string; projectSlug: string | null }
   | { kind: "turn:end"; conversationId: string; projectSlug: string | null }
@@ -19,7 +21,7 @@ export type KernelEvent =
    * answered, with where the words came from, so a surface that shows the
    * chat elsewhere can show this exchange too, and skip its own.
    */
-  | { kind: "turn:said"; conversationId: string; projectSlug: string | null; text: string; reply: string; origin: "owner" | "system"; channel: string | null }
+  | { kind: "turn:said"; conversationId: string; projectSlug: string | null; text: string; reply: string; origin: "owner" | "system"; channel: string | null; files: KeptFile[] }
   | { kind: "tool:end"; tool: string; isError: boolean; conversationId: string | null }
   | { kind: "approval:requested"; id: number; tool: string; conversationId: string | null }
   | { kind: "approval:decided"; id: number; approved: boolean; decidedBy: string | null }

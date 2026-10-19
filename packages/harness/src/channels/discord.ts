@@ -26,7 +26,7 @@ import { detailLines, summarizeAction, withUnixTimes } from "@kos/shared";
 import { isReadable, type Attachment } from "../kernel/attachments.js";
 import type { Audience } from "../tools/discord.js";
 import { COMMANDS, completions, runCommand, type SlashContext } from "./commands.js";
-import { linkMentions, outsideCode, plainMentions } from "./mentions.js";
+import { linkMentions, linkPaths, outsideCode, plainMentions } from "./mentions.js";
 import { STEP_MARK } from "./narrate.js";
 import { MESSAGE_LIMITS } from "./types.js";
 import type {
@@ -89,13 +89,13 @@ function withTimes(text: string, timezone?: string): string {
   return outsideCode(text, (part) => withUnixTimes(part, timezone));
 }
 
-/** A turn's story as Discord shows it: the agent's words plain, its steps small. */
+/** A turn's story as Discord shows it: the agent's words plain, its steps small, the files a step names linked. */
 export function storyText(status: string, dashboardUrl?: string, timezone?: string): string {
   // References in the story link where they link in the answer, or the
   // same name reads as a token in one place and a link in the other.
   return noPreviews(linkMentions(withTimes(status, timezone), dashboardUrl))
     .split("\n")
-    .map((line) => (line.startsWith(STEP_MARK) ? `-# ${line}` : line))
+    .map((line) => (line.startsWith(STEP_MARK) ? `-# ${linkPaths(line, dashboardUrl)}` : line))
     .join("\n")
     .slice(0, 1900);
 }
@@ -1325,6 +1325,7 @@ export class DiscordAdapter implements ChannelAdapter {
       content?: string;
       embeds?: EmbedBuilder[];
       components?: ActionRowBuilder<ButtonBuilder>[];
+      files?: { attachment: Buffer; name: string }[];
     }) => Promise<unknown>,
     msg: OutboundMessage,
     { tagged = true }: { tagged?: boolean } = {},
@@ -1335,8 +1336,10 @@ export class DiscordAdapter implements ChannelAdapter {
     const chunks = text ? chunkText(this.words(text)) : [];
     const embeds = msg.card ? [buildCard(msg.card, { from: msg.from, named: tagged && chunks.length === 0, dashboardUrl: this.dashboardUrl, timezone: this.timezone })] : [];
     const components = buildButtons(msg.buttons ?? []);
-    if (chunks.length === 0 && embeds.length === 0) {
-      throw new Error("nothing to send: no text and no card");
+    // The files ride on the last chunk with the card, under the whole message.
+    const files = (msg.files ?? []).map((f) => ({ attachment: Buffer.from(f.data, "base64"), name: f.name }));
+    if (chunks.length === 0 && embeds.length === 0 && files.length === 0) {
+      throw new Error("nothing to send: no text, no card and no file");
     }
     for (let i = 0; i < Math.max(chunks.length, 1); i++) {
       const last = i === Math.max(chunks.length, 1) - 1;
@@ -1344,6 +1347,7 @@ export class DiscordAdapter implements ChannelAdapter {
         ...(chunks[i] ? { content: chunks[i] } : {}),
         ...(last && embeds.length ? { embeds } : {}),
         ...(last && components.length ? { components } : {}),
+        ...(last && files.length ? { files } : {}),
       });
     }
   }
