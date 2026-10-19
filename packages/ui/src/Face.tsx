@@ -1,9 +1,9 @@
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type ReactElement } from "react";
 
-import { FILL_SAT, KOS_SEED, hashName, hueOfName, lightnessOf } from "@kos/shared";
+import { FILL_SAT, KOS_SEED, lightnessOf, lookOf as specOf, type FaceLook } from "@kos/shared";
 
 import { GAITS, eyeAt, mountBlob, outline, smoothPath, type BlobHandle, type BlobShape, type BlobWhim } from "./blob.js";
-import { desaturateHex, hueOfHex, lightnessOfHex } from "./colour.js";
+import { desaturateHex } from "./colour.js";
 
 export { FILL_SAT, KOS_SEED, lightnessOf };
 
@@ -53,16 +53,7 @@ export interface Look {
   whim: BlobWhim;
 }
 
-/** What the owner may set about a face; anything unset comes from the name. */
-export interface FaceLook {
-  hue?: number;
-  /** Any colour, as #rrggbb; it wins over the hue for the body, and lends the hue its accents. */
-  colour?: string;
-  eyes?: Eyes;
-  gait?: Gait;
-}
-
-const HEX = /^#[0-9a-f]{6}$/i;
+export type { FaceLook };
 
 export const EYES: Eyes[] = ["round", "half", "sparkle"];
 
@@ -70,60 +61,29 @@ export const EYES: Eyes[] = ["round", "half", "sparkle"];
 export function fillOf(hue: number, sat = 1): string {
   return `hsl(${hue} ${Math.round(FILL_SAT * sat)}% ${lightnessOf(hue)}%)`;
 }
-function inkOf(hue: number): string {
-  return `hsl(${hue} 35% 12%)`;
-}
-/** Ink for a picked colour: the usual dark ink, or a pale one on a body too dark for it. */
-function inkOn(colour: string, hue: number): string {
-  return (lightnessOfHex(colour) ?? 60) < 38 ? `hsl(${hue} 30% 92%)` : inkOf(hue);
-}
 /** The body as drawn still: a picked colour loses saturation the same way a hue would. */
 function fillFor(look: Look, sat: number): string {
   return look.colour ? (sat < 1 ? desaturateHex(look.colour, sat) : look.colour) : fillOf(look.hue, sat);
 }
 
+/**
+ * The face a name gets, decided in the shared package so the harness draws
+ * the same one; here it gains what only the animation needs.
+ */
 export function lookOf(seed: string, override: FaceLook = {}): Look {
-  const name = seed.trim().toLowerCase() || KOS_SEED;
-  const h = hashName(name);
-  // KOS itself is not left to the hash: a clear blue, tall eyes, a lively gait.
-  const kos = name === KOS_SEED;
-  const wobble = kos ? 1 : (((h >>> 9) % 4) as Gait);
-  // A second number, so the silhouette and the habits are not the hue's twins.
-  const g = hashName(`${name}#`);
-  const hue = hueOfName(name);
-  const base: Look = {
-    hue,
-    fill: fillOf(hue),
-    ink: inkOf(hue),
-    wobble,
-    eyes: kos ? "half" : EYES[(h >>> 12) % 3]!,
-    breath: GAITS[wobble]!.breath,
-    tilt: kos ? 0 : ((h >>> 18) % 7) - 3,
-    seed: h,
-    shape: {
-      aspect: 0.92 + ((g % 100) / 100) * 0.2,
-      squat: ((g >>> 10) % 3) * 0.12,
-      spread: 0.88 + (((g >>> 13) % 100) / 100) * 0.22,
-    },
-    whim: {
-      curiosity: 0.7 + (((g >>> 20) % 50) / 100) * 1,
-      blinkiness: 0.7 + (((g >>> 26) % 60) / 100) * 1,
-    },
-  };
-  const gait = override.gait !== undefined && [0, 1, 2, 3].includes(override.gait) ? override.gait : wobble;
-  const colour = override.colour && HEX.test(override.colour) ? override.colour.toLowerCase() : undefined;
-  // A picked colour is the body; its hue (a grey keeps the name's) is the accent.
-  const setHue = colour ? (hueOfHex(colour) ?? (override.hue !== undefined && Number.isFinite(override.hue) ? override.hue : base.hue)) : override.hue !== undefined && Number.isFinite(override.hue) ? override.hue : base.hue;
-  const finalHue = ((Math.round(setHue) % 360) + 360) % 360;
+  const spec = specOf(seed, override);
   return {
-    ...base,
-    hue: finalHue,
-    fill: colour ?? fillOf(finalHue),
-    ink: colour ? inkOn(colour, finalHue) : inkOf(finalHue),
-    ...(colour ? { colour } : {}),
-    ...(override.eyes && EYES.includes(override.eyes) ? { eyes: override.eyes } : {}),
-    wobble: gait,
-    breath: GAITS[gait]!.breath,
+    hue: spec.hue,
+    fill: spec.fill,
+    ink: spec.ink,
+    ...(spec.colour ? { colour: spec.colour } : {}),
+    wobble: spec.gait,
+    eyes: spec.eyes,
+    breath: GAITS[spec.gait]!.breath,
+    tilt: spec.tilt,
+    seed: spec.seed,
+    shape: spec.shape,
+    whim: spec.whim,
   };
 }
 

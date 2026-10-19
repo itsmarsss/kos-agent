@@ -363,6 +363,18 @@ function audienceOf(channel: { permissionOverwrites?: { cache: Map<string, { den
   return everyone?.deny.has(PermissionFlagsBits.ViewChannel) ? "owner" : "everyone";
 }
 
+/** A blob's webhooks are named for it, so its face can be told from the shared one. */
+export function webhookPrefixFor(from: Sender): string {
+  return `KOS·${from.name.replace(/[·\n]/g, " ").trim().slice(0, 40)}`;
+}
+
+/** The name of the webhook wearing this face: the blob's, plus a short hash of the picture. */
+export function webhookNameFor(from: Sender): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < (from.avatar ?? "").length; i += 1) h = Math.imul(h ^ from.avatar!.charCodeAt(i), 0x01000193) >>> 0;
+  return `${webhookPrefixFor(from)}·${h.toString(16).padStart(8, "0")}`;
+}
+
 /** What a message's channel is bound to, read from the channel's topic. */
 export interface ChannelBinding {
   conversationId: string;
@@ -822,7 +834,7 @@ export class DiscordAdapter implements ChannelAdapter {
    */
   private async sendAs(channel: { id: string; isThread?: () => boolean; parent?: { id: string } | null }, msg: OutboundMessage): Promise<boolean> {
     if (!msg.from) return false;
-    const via = await this.webhookFor(channel).catch(() => undefined);
+    const via = await this.webhookFor(channel, msg.from).catch(() => undefined);
     if (!via) return false;
     const { hook, threadId } = via;
     const username = msg.from.name;
@@ -906,17 +918,33 @@ export class DiscordAdapter implements ChannelAdapter {
    * under its own name rather than the bot's. One per channel, named KOS,
    * reused; a thread posts through its parent's with the thread named.
    */
-  private async webhookFor(channel: { id: string; isThread?: () => boolean; parent?: { id: string } | null }): Promise<{ hook: Webhook; threadId?: string } | undefined> {
+  private async webhookFor(channel: { id: string; isThread?: () => boolean; parent?: { id: string } | null }, from?: Sender): Promise<{ hook: Webhook; threadId?: string } | undefined> {
     const target = channel.isThread?.() && channel.parent ? channel.parent : channel;
     const threadId = target === channel ? undefined : channel.id;
-    const cached = this.webhooks.get(target.id);
+    // A blob with a face gets a webhook of its own in the channel, named
+    // for it and wearing its face, since an avatar is set on the webhook
+    // and not on each message; the rest share one named KOS. The face's
+    // hash rides in the name, so a changed face is redrawn, not kept.
+    const wanted = from?.avatar ? webhookNameFor(from) : "KOS";
+    const key = `${target.id}:${wanted}`;
+    const cached = this.webhooks.get(key);
     if (cached) return { hook: cached, ...(threadId ? { threadId } : {}) };
     const fetched = await this.client.channels.fetch(target.id);
     if (!fetched || !("fetchWebhooks" in fetched)) return undefined;
-    const owner = fetched as unknown as { fetchWebhooks: () => Promise<Map<string, Webhook>>; createWebhook: (o: { name: string }) => Promise<Webhook> };
-    const hooks = await owner.fetchWebhooks();
-    const mine = [...hooks.values()].find((h) => h.name === "KOS" && h.token) ?? (await owner.createWebhook({ name: "KOS" }));
-    this.webhooks.set(target.id, mine);
+    const owner = fetched as unknown as {
+      fetchWebhooks: () => Promise<Map<string, Webhook>>;
+      createWebhook: (o: { name: string; avatar?: string }) => Promise<Webhook>;
+    };
+    const hooks = [...(await owner.fetchWebhooks()).values()].filter((h) => h.token);
+    const avatar = from?.avatar ? `data:image/png;base64,${from.avatar}` : undefined;
+    let mine = hooks.find((h) => h.name === wanted);
+    if (!mine && from?.avatar) {
+      // The blob's earlier face, if any: given the new one rather than left beside it.
+      const stale = hooks.find((h) => h.name.startsWith(`${webhookPrefixFor(from)}·`));
+      if (stale) mine = await (stale as unknown as { edit: (o: { name: string; avatar?: string }) => Promise<Webhook> }).edit({ name: wanted, ...(avatar ? { avatar } : {}) });
+    }
+    mine ??= await owner.createWebhook({ name: wanted, ...(avatar ? { avatar } : {}) });
+    this.webhooks.set(key, mine);
     return { hook: mine, ...(threadId ? { threadId } : {}) };
   }
 

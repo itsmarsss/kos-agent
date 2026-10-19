@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -219,6 +219,10 @@ describe("Kernel", () => {
     kernel.roles.write({ name: "recap", description: "Sums up the day", brief: "You recap.", memory: "own" });
     await kernel.handleMessage("send it", { sessionId: kernel.ensureAgentConversation("recap").id });
     expect(seen[0]).toMatchObject({ text: "the day is done", from: { name: "Recap", colour: bodyHexOf("recap") } });
+    // The blob's face rides along as a picture, and is kept in its folder for anything to reuse.
+    expect(Buffer.from(seen[0]!.from!.avatar!, "base64").subarray(1, 4).toString("ascii")).toBe("PNG");
+    expect(existsSync(join(root, "blobs", "recap", "face.png"))).toBe(true);
+    expect(readFileSync(join(root, "blobs", "recap", "face.svg"), "utf8")).toContain("<svg");
     const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Kitchen" });
     await kernel.handleMessage("say hi", { sessionId: c.id });
     expect(seen[1]).toMatchObject({ text: "hi from kos" });
@@ -324,7 +328,7 @@ describe("Kernel", () => {
     const thread = kernel.ensureAgentConversation("recap");
     const job = kernel.bindAgentSchedule("recap", role)!;
     await kernel.fireCron(job.id);
-    expect(seen).toEqual([{ text: "Nothing changed today.", target: { kind: "owner" }, from: { name: "Recap", colour: bodyHexOf("recap") } }]);
+    expect(seen).toMatchObject([{ text: "Nothing changed today.", target: { kind: "owner" }, from: { name: "Recap", colour: bodyHexOf("recap") } }]);
     expect(JSON.stringify(kernel.sessions.get(thread.id))).toContain("Nothing changed today.");
     // Without report, the answer stays in the thread.
     kernel.roles.write({ ...role, report: undefined });

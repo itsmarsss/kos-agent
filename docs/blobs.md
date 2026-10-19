@@ -69,6 +69,11 @@ and the eyes go pale on a dark body so they still show. The eyes and gait
 are choices; what is left unset still comes from the name. KOS has a face of the same kind, in the sidebar, the
 chat rail, the landing and the tab icon, set under Settings, Appearance.
 
+The face is also a file: `face.png` and `face.svg` sit in the blob's
+folder beside `blob.md`, drawn by KOS from the same numbers the dashboard
+animates and redrawn when the look changes, so anything can reuse them. On
+Discord a blob's messages wear it as their avatar.
+
 ## Where it lives
 
 Each blob has one standing thread, `blob:<name>`, on the blob's own page

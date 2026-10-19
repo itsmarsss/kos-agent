@@ -7,23 +7,8 @@
  * and a hue becomes the hex the picker should show.
  */
 
-/** The hue of a hex colour, or null for a grey, which has none, and for anything that is not a hex colour. */
-export function hueOfHex(hex: string): number | null {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return null;
-  const n = parseInt(m[1]!, 16);
-  const r = ((n >> 16) & 255) / 255;
-  const g = ((n >> 8) & 255) / 255;
-  const b = (n & 255) / 255;
-  const max = Math.max(r, g, b);
-  const d = max - Math.min(r, g, b);
-  if (d === 0) return null;
-  const sector = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
-  return ((Math.round(sector * 60) % 360) + 360) % 360;
-}
-
-/** A hex colour from hue, saturation and lightness: the harness draws with the same one. */
-export { hexOfHsl } from "@kos/shared";
+/** The hue of a hex colour, hsl to hex, and perceived lightness: the harness draws with the same ones. */
+export { hexOfHsl, hueOfHex, lightnessOfHex } from "@kos/shared";
 
 /** Hue 0 to 359, saturation and value 0 to 100: the picker's own model. */
 export interface Hsv {
@@ -62,17 +47,6 @@ export function hexOfHsv({ h, s, v }: Hsv): string {
       .toString(16)
       .padStart(2, "0");
   return `#${to(r!)}${to(g!)}${to(b!)}`;
-}
-
-/** Perceived lightness 0 to 100, for choosing ink that shows on a colour. */
-export function lightnessOfHex(hex: string): number | null {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return null;
-  const n = parseInt(m[1]!, 16);
-  const r = (n >> 16) & 255;
-  const g = (n >> 8) & 255;
-  const b = n & 255;
-  return Math.round(((0.299 * r + 0.587 * g + 0.114 * b) / 255) * 100);
 }
 
 /** A hex colour with its saturation scaled, for a face that is unwell or asleep. */
