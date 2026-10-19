@@ -176,7 +176,11 @@ export function summarizeAction(
       break;
   }
   // KOS's own browser tools: a visit, a run of steps, or the owner's hands.
-  if (tool === "browser.visit") return `Visit ${fmtVal(a.url)}`;
+  if (tool === "browser.visit") {
+    // One visit may take several pages; the card names them all.
+    const urls = [...(typeof a.url === "string" && a.url ? [a.url] : []), ...(Array.isArray(a.urls) ? a.urls.filter((u): u is string => typeof u === "string" && u !== "") : [])];
+    return `Visit ${urls.length ? urls.join(", ") : fmtVal(a.url)}`;
+  }
   if (tool === "browser.handoff") return `Needs your hands: ${fmtVal(a.reason)}`;
   if (tool === "browser.tabs") return "List the browser's tabs";
   if (tool === "browser.use_tab") return `Switch to tab ${fmtVal(a.tab)}`;
