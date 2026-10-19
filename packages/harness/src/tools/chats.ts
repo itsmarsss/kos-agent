@@ -1,7 +1,7 @@
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { tokenize } from "../memory/facts.js";
-import type { ConversationStore } from "../kernel/conversations.js";
+import { conversationKind, isFixed, type Conversation, type ConversationStore } from "../kernel/conversations.js";
 import type { CongregationMember } from "../kernel/progress.js";
 import type { SessionStore } from "../kernel/session.js";
 
@@ -31,6 +31,8 @@ export const CHAT_TOOLS = [
   "chats.read",
   "chats.project",
   "chats.create",
+  "chats.archive",
+  "chats.delete",
   "chats.dispatch",
   "chats.congregate",
 ] as const;
@@ -346,6 +348,69 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
       });
     },
     { floor: "safe" },
+    { restricted: true },
+  );
+
+  /**
+   * A chat the caller may put away: one in its reach, and an ordinary one.
+   * A project's own thread, a blob's thread and the owner's chats with KOS
+   * are fixed, and the dashboard refuses them the same way.
+   */
+  const reachable = (id: string, verb: string): Conversation => {
+    const target = conversations.get(id);
+    if (!target) throw new Error(`no conversation ${id}`);
+    if (isFixed(target, ownerId)) {
+      const kind = conversationKind(target, ownerId);
+      const what = kind === "project" ? "a project's own thread" : kind === "agent" ? "a blob's thread" : kind === "schedule" ? "a schedule's thread" : "a chat of the owner's with KOS";
+      throw new Error(`${target.title} is ${what} and cannot be ${verb}`);
+    }
+    if (!inScopeFor(deps)(target)) throw new Error(`${target.title} is not in your reach: it belongs to another project`);
+    return target;
+  };
+
+  ctx.registerTool(
+    {
+      name: "chats.archive",
+      description:
+        "Archive a conversation, or bring one back with archived: false. An archived chat leaves the list and keeps its history. Only a chat in your reach: a project's orchestrator reaches its own project's chats, KOS at the root reaches any ordinary chat. A project's own thread, a blob's thread and the owner's chats with KOS are fixed.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "the conversation id, as chats.list gives it" },
+          archived: { type: "boolean", description: "false to bring an archived chat back; true (the default) to put it away" },
+        },
+        required: ["id"],
+      },
+    },
+    async (input) => {
+      const target = reachable(str(input, "id"), "archived");
+      const archived = input.archived !== false;
+      conversations.setArchived(target.id, archived);
+      return JSON.stringify({ id: target.id, title: target.title, archived });
+    },
+    { floor: "safe" },
+    { restricted: true },
+  );
+
+  ctx.registerTool(
+    {
+      name: "chats.delete",
+      description:
+        "Delete a conversation for good, history and all. Archive is the reversible way to set one aside; delete only when the owner wants it gone. The same reach as chats.archive, and never the chat you are speaking from. This asks the owner first.",
+      inputSchema: {
+        type: "object",
+        properties: { id: { type: "string", description: "the conversation id, as chats.list gives it" } },
+        required: ["id"],
+      },
+    },
+    async (input) => {
+      const id = str(input, "id");
+      if (id === deps.currentConversationId?.()) throw new Error("that is the chat you are speaking from; it cannot delete itself");
+      const target = reachable(id, "deleted");
+      const removed = conversations.remove(target.id);
+      return JSON.stringify({ id: target.id, title: target.title, removed });
+    },
+    { floor: "risky" },
     { restricted: true },
   );
 

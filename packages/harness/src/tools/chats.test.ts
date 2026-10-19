@@ -82,6 +82,52 @@ async function harness(
   return { registry, conversations, asked, rosters };
 }
 
+describe("chats.archive and chats.delete", () => {
+  let root: string;
+  let ws: Workspace;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "kos-chatput-"));
+    ws = Workspace.open(root);
+  });
+
+  afterEach(() => {
+    ws.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("puts away and brings back a chat in reach, refuses fixed threads and other projects' chats, and deletes only on an ask", async () => {
+    const h = await harness(ws, { scope: "garden" });
+    const mine = h.conversations.create({ userId: OWNER, title: "Beds", projectSlug: "garden" });
+    const theirs = h.conversations.create({ userId: OWNER, title: "Taxes", projectSlug: "money" });
+    const fixed = h.conversations.create({ id: "project:garden", userId: OWNER, title: "Garden", projectSlug: "garden" });
+    // Archived and back, history kept.
+    expect(JSON.parse((await h.registry.execute("chats.archive", { id: mine.id })).content as string)).toEqual({ id: mine.id, title: "Beds", archived: true });
+    expect(h.conversations.get(mine.id)?.archived).toBe(true);
+    expect(JSON.parse((await h.registry.execute("chats.archive", { id: mine.id, archived: false })).content as string)).toMatchObject({ archived: false });
+    expect(h.conversations.get(mine.id)?.archived).toBe(false);
+    // Another project's chat is out of reach; the project's own thread is fixed.
+    const other = await h.registry.execute("chats.archive", { id: theirs.id });
+    expect(other.isError).toBe(true);
+    expect(other.content).toContain("another project");
+    const own = await h.registry.execute("chats.archive", { id: fixed.id });
+    expect(own.isError).toBe(true);
+    expect(own.content).toContain("project's own thread");
+    expect((await h.registry.execute("chats.archive", { id: "nope" })).isError).toBe(true);
+    // Delete is risky (the registry carries the floor), never the speaking chat, and gone for good.
+    expect(h.registry.get("chats.delete")?.risk).toMatchObject({ floor: "risky" });
+    const self = await h.registry.execute("chats.delete", { id: DISPATCHER });
+    expect(self.isError).toBe(true);
+    expect(self.content).toContain("speaking from");
+    expect(JSON.parse((await h.registry.execute("chats.delete", { id: mine.id })).content as string)).toEqual({ id: mine.id, title: "Beds", removed: true });
+    expect(h.conversations.get(mine.id)).toBeUndefined();
+    // At the root everything ordinary is in reach, fixed threads still not.
+    const rootH = await harness(ws);
+    expect((await rootH.registry.execute("chats.archive", { id: theirs.id })).isError).toBe(false);
+    expect((await rootH.registry.execute("chats.delete", { id: fixed.id })).isError).toBe(true);
+  });
+});
+
 describe("chats.handoff", () => {
   let root: string;
   let ws: Workspace;
