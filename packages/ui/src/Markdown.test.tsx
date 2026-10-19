@@ -224,6 +224,16 @@ describe("references are links", () => {
     );
   });
 
+  it("keeps the colons an id may carry: a chat's owner, a blob's job", () => {
+    const { container } = render(<Markdown text="fired by @schedule:blob:briefing at 07:30, see @chat:cmv1:owner." />);
+    const chips = [...container.querySelectorAll("a.chip-ref")].map((a) => [a.textContent, a.getAttribute("href")]);
+    expect(chips).toEqual([
+      ["blob:briefing", "#/schedule/blob%3Abriefing"],
+      ["cmv1:owner", "#/chats/cmv1%3Aowner"],
+    ]);
+    expect(container.textContent).toBe("fired by blob:briefing at 07:30, see cmv1:owner.");
+  });
+
   it("links a schedule to its own drawer on the schedule page", () => {
     const { container } = render(<Markdown text="@schedule:nightly and @schedule:[Email Amy Reminder]" />);
     const hrefs = [...container.querySelectorAll("a.chip-ref--schedule")].map((a) => a.getAttribute("href"));

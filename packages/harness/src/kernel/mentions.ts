@@ -272,7 +272,7 @@ export function writeMention(kind: MentionKind, id: string): string {
 }
 
 /** Ids that need no brackets, matching the unbracketed half of TOKEN. */
-const PLAIN_ID = /^[A-Za-z0-9._/-]*[A-Za-z0-9_/-]$/;
+const PLAIN_ID = /^[A-Za-z0-9._/-]*(?::[A-Za-z0-9._/-]+)*[A-Za-z0-9_/-]$/;
 
 /*
  * The id may contain dots but must not end on one, or a mention finishing a
@@ -287,7 +287,7 @@ const KINDS = "project|page|file|schedule|chat|site|blob|agent|build|tab";
  * bracketed branch is tried first so "[a b]" is not read as the plain id "".
  */
 const TOKEN = new RegExp(
-  `@(${KINDS}):(?:\\[([^\\]]+)\\]|([A-Za-z0-9._/-]*[A-Za-z0-9_/-]))`,
+  `@(${KINDS}):(?:\\[([^\\]]+)\\]|([A-Za-z0-9._/-]*(?::[A-Za-z0-9._/-]+)*[A-Za-z0-9_/-]))`,
   "g",
 );
 
