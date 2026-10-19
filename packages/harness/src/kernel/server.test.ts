@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Inference } from "../agent/loop.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Kernel, orchestratorId } from "./kernel.js";
+import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { handleApiRequest, withFrames } from "./server.js";
 
 const stub: Inference = {
@@ -1610,5 +1611,48 @@ describe("owner-written schedules", () => {
     const job = kernel.crons.list().find((c) => c.id === id);
     expect(job?.name).toBe("After");
     expect(job?.schedule).toBe("0 10 * * *");
+  });
+});
+
+describe("the Discord server's channels", () => {
+  it("lists them with whose home each is, and offers them as things to name", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kos-api-"));
+    const known: ServerPlace[] = [
+      { id: "c1", name: "garden", kind: "channel", category: "Projects", bound: "project:garden", audience: "owner", url: "https://discord.com/channels/g1/c1" },
+      { id: "c5", name: "general", kind: "channel", audience: "everyone", url: "https://discord.com/channels/g1/c5", topic: "Say hi" },
+    ];
+    const k = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: stub,
+      discord: { connected: () => true, known: () => known } as unknown as DiscordServices,
+    });
+    try {
+      const listed = await handleApiRequest(k, { method: "GET", path: "/api/discord/channels" });
+      expect(listed.body).toEqual({
+        channels: [
+          { id: "c1", name: "garden", url: "https://discord.com/channels/g1/c1", category: "Projects", bound: "project:garden", home: "project:garden", audience: "owner" },
+          { id: "c5", name: "general", url: "https://discord.com/channels/g1/c5", audience: "everyone" },
+        ],
+      });
+      const found = await handleApiRequest(k, { method: "GET", path: "/api/mentions", url: "/api/mentions?q=gar&kind=channel" });
+      expect((found.body as { mentions: unknown[] }).mentions).toEqual([
+        { kind: "channel", id: "garden", label: "#garden", hint: "Projects · home of project:garden", url: "https://discord.com/channels/g1/c1" },
+      ]);
+    } finally {
+      k.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("has none to list when KOS lives in no server", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kos-api-"));
+    const k = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: stub });
+    try {
+      expect((await handleApiRequest(k, { method: "GET", path: "/api/discord/channels" })).body).toEqual({ channels: [] });
+    } finally {
+      k.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

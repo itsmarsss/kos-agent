@@ -58,6 +58,7 @@ const KINDS = [
   "site",
   "agent",
   "build",
+  "channel",
 ] as const;
 
 /** Split `file:budget` into the kind being narrowed to and the term. */
@@ -228,6 +229,7 @@ const KIND_GROUP: Record<string, string> = {
   site: "Sites",
   blob: "Blobs",
   build: "Builds",
+  channel: "Channels",
 };
 
 export function CommandPalette({
@@ -242,7 +244,7 @@ export function CommandPalette({
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const [found, setFound] = useState<
-    { kind: string; id: string; label: string; hint?: string }[]
+    { kind: string; id: string; label: string; hint?: string; url?: string }[]
   >([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -312,6 +314,8 @@ export function CommandPalette({
         else if (m.kind === "project") ctx.go({ name: "project", slug: m.id });
         else if (m.kind === "blob") ctx.go({ name: "blobs", blob: m.id });
         else if (m.kind === "build") ctx.openAgent(Number(m.id));
+        // A channel lives on Discord, so it opens there.
+        else if (m.kind === "channel" && m.url) window.open(m.url, "_blank", "noreferrer");
         else if (m.kind === "site" && ctx.sitesBase) {
           // Its own origin, so a new tab rather than in place.
           window.open(`${ctx.sitesBase}/${m.id}/`, "_blank", "noreferrer");

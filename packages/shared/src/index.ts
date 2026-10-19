@@ -100,3 +100,4 @@ export {
 } from "./blob.js";
 export { TIME_TOKEN, formatTime, instantOf, relativeWords, styleOf, timesInWords, withUnixTimes, type TimeStyle } from "./time.js";
 export { pathsIn, type PathPart } from "./workspacepath.js";
+export { CHANNEL_TOKEN, channelNamesIn } from "./channel.js";

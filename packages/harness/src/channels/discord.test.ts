@@ -842,8 +842,8 @@ describe("DiscordAdapter authorization", () => {
     // The server as it is: categories and channels, KOS's marked by what they are bound to; the roles without everyone's and the bots'.
     expect(await adapter.places()).toEqual([
       { id: "cat", name: "Projects", kind: "category" },
-      { id: "c1", name: "garden", kind: "channel", category: "Projects", bound: "project:garden" },
-      { id: "c5", name: "general", kind: "channel", topic: "Say hi" },
+      { id: "c1", name: "garden", kind: "channel", url: "https://discord.com/channels/g1/c1", audience: "everyone", category: "Projects", bound: "project:garden" },
+      { id: "c5", name: "general", kind: "channel", url: "https://discord.com/channels/g1/c5", audience: "everyone", topic: "Say hi" },
     ]);
     expect(await adapter.roles()).toEqual([{ id: "r1", name: "Members", colour: "#3b82f6", members: 3 }]);
     // A category of the owner's alone, then a channel under it for a role: the role reads and writes, everyone else is out, the owner and KOS are in.
@@ -1028,6 +1028,30 @@ describe("DiscordAdapter authorization", () => {
     expect(opened[0]).toEqual({ id: "g1", type: OverwriteType.Role, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: expect.arrayContaining([PermissionFlagsBits.SendMessages]) });
     expect(opened.map((o) => o.id)).toEqual(["g1", "owner-id", "bot"]);
     await expect(adapter.setAudience("project:nope", "owner")).rejects.toThrow(/no channel is bound/);
+  });
+
+  it("knows the server's channels by name at once, and reads a channel Discord mentioned as its name", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
+    adapter.setAuthorizer((senderId) => senderId === "owner-id");
+    const seen: InboundMessage[] = [];
+    adapter.onMessage((m) => {
+      seen.push(m);
+    });
+    const clubs = { id: "cat", type: ChannelType.GuildCategory, name: "Clubs" };
+    const garden = { id: "c2", type: ChannelType.GuildText, name: "garden", topic: "kos:project:garden · Garden", isThread: () => false };
+    const general = { id: "c5", type: ChannelType.GuildText, name: "general", topic: null, parentId: "cat" };
+    const guild = { id: "g1", channels: { fetch: async () => new Map<string, unknown>([["cat", clubs], ["c2", garden], ["c5", general]]) } };
+    (adapter as unknown as { client: unknown }).client = { user: { id: "bot" }, guilds: { fetch: async () => guild }, channels: { fetch: async () => undefined } };
+    // Nothing is known before the server has been looked at; everything is after, without another look.
+    expect(adapter.knownChannels()).toEqual([]);
+    await adapter.channels();
+    expect(adapter.knownChannels()).toEqual([
+      { id: "c2", name: "garden", kind: "channel", url: "https://discord.com/channels/g1/c2", audience: "everyone", bound: "project:garden" },
+      { id: "c5", name: "general", kind: "channel", url: "https://discord.com/channels/g1/c5", audience: "everyone", category: "Clubs" },
+    ]);
+    // The owner's words name a channel Discord's way; the chat reads the name, and what KOS does not know stays as it came.
+    await adapter.receiveMessage({ author: { id: "owner-id", bot: false }, guild: { id: "g1" }, channel: garden, content: "post it in <#c5>, not <#999>", attachments: undefined } as unknown as Message);
+    expect(seen[0]).toMatchObject({ conversationId: "project:garden", text: "post it in #general, not <#999>" });
   });
 
   it("speaks as the owner through the plain webhook with their picture by address, and names a channel as itself", async () => {

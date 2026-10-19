@@ -9,6 +9,7 @@ import { SecretsRegistry } from "../secrets/secrets.js";
 import { Kernel } from "./kernel.js";
 import { isKernelTable } from "../tools/fence.js";
 import { SurfaceDownError, type NotifyPayload } from "../tools/notify.js";
+import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { toPdf } from "../tools/pdf.js";
 import { bodyHexOf } from "@kos/shared";
 import { primarySessionId } from "./session.js";
@@ -302,6 +303,32 @@ describe("Kernel", () => {
     // A turn from a surface names the surface, so a mirror of the chat there does not repeat it.
     await kernel.handleChannelTurn({ text: "and now?", userId: "owner", channel: "discord", conversationId: c.id });
     expect(said[1]).toMatchObject({ conversationId: c.id, text: "and now?", reply: "From Discord.", channel: "discord" });
+  });
+
+  it("tells the turn what a channel named in a message is, and nothing of a # that names none", async () => {
+    const requests: GenerateRequest[] = [];
+    const reply = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    const known: ServerPlace[] = [{ id: "c1", name: "leetcode", kind: "channel", category: "Clubs", bound: "project:leetcode_daily", audience: "guests", url: "https://discord.com/channels/g1/c1" }];
+    root = mkdtempSync(join(tmpdir(), "kos-kernel-"));
+    kernel = await Kernel.boot({
+      rootDir: root,
+      secrets: new SecretsRegistry(),
+      inference: {
+        async generate(_t, r) {
+          requests.push(r);
+          return reply("Posted.");
+        },
+      },
+      profileOverrides: { name: "Kenny", timezone: "UTC" },
+      discord: { connected: () => true, known: () => known } as unknown as DiscordServices,
+    });
+    const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Clubs" });
+    await kernel.handleMessage("post today's problem in #leetcode, then fix #3", { sessionId: c.id });
+    const prompt = JSON.stringify(requests.at(-1));
+    expect(prompt).toContain("Discord channel #leetcode (id c1), under Clubs: open to guests");
+    expect(prompt).toContain("the home of the project @project:leetcode_daily");
+    expect(prompt).toContain("notify to discord:channel:c1 posts there");
+    expect(prompt).not.toContain("channel #3");
   });
 
   it("keeps what came with a message as files where the chat lives, tells the turn, and tells the mirror", async () => {

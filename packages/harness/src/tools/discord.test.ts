@@ -51,6 +51,7 @@ describe("the discord tools", () => {
           return { created: synced.length === 1 ? ["verity"] : [], kept: ["kos"], threads: synced.length === 1 ? 2 : 0 };
         },
         server: async () => ({ places, roles }),
+        known: () => places.filter((p) => p.kind === "channel"),
         make: async (input) => {
           made.push(input);
           const place = { id: `p${made.length}`, name: input.name, kind: input.kind, ...(input.category ? { category: input.category } : {}) };

@@ -91,7 +91,7 @@ import { offeredSkills, readSkills } from "../skills/manifest.js";
 import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import { CHAT_TOOLS } from "../tools/chats.js";
 import { BLOB_TOOLS, type BlobJob } from "../tools/agents.js";
-import { DISCORD_TOOLS, type Audience, type DiscordServices } from "../tools/discord.js";
+import { DISCORD_TOOLS, type Audience, type DiscordServices, type ServerPlace } from "../tools/discord.js";
 import { agentConversationId, agentScope, KOS_FACE_KEY, parseFaceLook, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
 import { type NotifyPayload } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
@@ -106,7 +106,7 @@ import { ProgressBus } from "./progress.js";
 import { BEHAVIOUR_KEY, parseBehaviour, type Behaviour } from "./behaviour.js";
 import { parseMentions } from "./mentions.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
-import { bodyHexOf, faceSvg, KOS_SEED, lookOf, summarizeAction, type FaceSpec } from "@kos/shared";
+import { bodyHexOf, channelNamesIn, faceSvg, KOS_SEED, lookOf, summarizeAction, type FaceSpec } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
 import { attachmentBlocks, isDocument, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
@@ -365,6 +365,8 @@ export class Kernel {
   private readonly saidSince = new Map<string, string>();
   /** The browser KOS drives, watched from the dashboard; made once the workspace is known. */
   readonly browser: BrowserLive;
+  /** The owner's Discord server, when KOS lives in one; what a "#channel" in a message is comes from here. */
+  readonly discord: DiscordServices | undefined;
   /** What the browser showed after each step, for the thread. */
   readonly frames: FrameStore;
   /** Pages watched for change, and what each said last time. */
@@ -425,9 +427,11 @@ export class Kernel {
     notify?: (payload: NotifyPayload) => Promise<{ id?: string } | void>;
     onApprovalRequested?: (action: PendingAction) => void;
     restart?: () => Promise<void>;
+    discord?: DiscordServices;
   }) {
     this.workspace = args.workspace;
     this.restartHost = args.restart;
+    this.discord = args.discord;
     this.progress.subscribe((event) => {
       if (event.kind === "delta" && event.of === "text") {
         const said = `${this.saidSince.get(event.conversationId) ?? ""}${event.text}`;
@@ -3319,9 +3323,13 @@ export class Kernel {
    */
   private resolveMentions(text: string, conversationId?: string): string | null {
     const refs = parseMentions(text);
-    if (refs.length === 0) return null;
+    // A #word that names no channel is a word, not a dead reference.
+    const channels = this.discord
+      ? channelNamesIn(text).flatMap((name) => this.discord!.known().filter((p) => p.name.toLowerCase() === name.toLowerCase()))
+      : [];
+    if (refs.length === 0 && channels.length === 0) return null;
 
-    const parts: string[] = [];
+    const parts: string[] = channels.map((place) => this.channelContext(place));
     for (const ref of refs) {
       if (ref.kind === "tab") {
         // A page someone has open. Named with how to get to it, since the
@@ -3455,6 +3463,28 @@ export class Kernel {
       }
     }
     return ["## Referenced by the owner in this message", ...parts].join("\n\n");
+  }
+
+  /** What a channel named in a message is: where it sits, who reads it, whose home it is, and how to reach it. */
+  private channelContext(place: ServerPlace): string {
+    const audience =
+      place.audience === "guests"
+        ? "open to guests, who read and write there and whose words reach the chat it is the home of"
+        : place.audience === "everyone"
+          ? "read by everyone on the server, written in by the owner and KOS"
+          : "the owner's alone";
+    const key = place.bound ?? "";
+    const home = key.startsWith("project:")
+      ? `the home of the project @project:${key.slice("project:".length)}`
+      : key.startsWith("agent:")
+        ? `the home of the blob @blob:${key.slice("agent:".length)}`
+        : key
+          ? `bound to ${key}`
+          : "the home of no chat";
+    return (
+      `Discord channel #${place.name} (id ${place.id})${place.category ? `, under ${place.category}` : ""}: ${audience}; ${home}. ` +
+      `discord.messages, discord.reactions and discord.react take it by name or id; notify to discord:channel:${place.id} posts there.`
+    );
   }
 
 

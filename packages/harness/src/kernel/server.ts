@@ -368,6 +368,30 @@ function memoryReport(kernel: Kernel): {
   };
 }
 
+/** A channel on the server as a thing to name: with whose home it is, in words, and where it opens. */
+export interface KnownChannel {
+  id: string;
+  name: string;
+  url?: string;
+  category?: string;
+  bound?: string;
+  /** What the chat it is the home of is called. */
+  home?: string;
+  audience?: string;
+}
+
+/** The server's text channels as KOS last saw them; none when KOS lives in no server. */
+function knownChannels(kernel: Kernel): KnownChannel[] {
+  return (kernel.discord?.known() ?? []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    ...(p.url ? { url: p.url } : {}),
+    ...(p.category ? { category: p.category } : {}),
+    ...(p.bound ? { bound: p.bound, home: kernel.titleOf(p.bound) } : {}),
+    ...(p.audience ? { audience: p.audience } : {}),
+  }));
+}
+
 export async function handleApiRequest(
   kernel: Kernel,
   req: ApiRequest,
@@ -2440,11 +2464,16 @@ export async function handleApiRequest(
     return ok({ folders: walkFolders(kernel.workspace) });
   }
 
+  /** The Discord server's text channels as KOS last saw them, so a "#name" in a chat can be the channel. */
+  if (method === "GET" && path === "/api/discord/channels") {
+    return ok({ channels: knownChannels(kernel) });
+  }
+
   if (method === "GET" && path === "/api/mentions") {
     const params = queryParams(req.url);
     const q = params.get("q") ?? "";
     const kind = params.get("kind");
-    const kinds = ["project", "page", "file", "schedule", "chat", "site", "blob", "agent", "build", "tab"];
+    const kinds = ["project", "page", "file", "schedule", "chat", "site", "blob", "agent", "build", "tab", "channel"];
     // The palette and the @ menu ask the same question of the same index, so
     // a thing reachable by one is reachable by the other. Asked from inside a
     // project, that project's own things come first.
@@ -2470,6 +2499,7 @@ export async function handleApiRequest(
             ...t,
             ...(owner ? { owner: kernel.conversations.get(owner)?.title ?? owner } : {}),
           })),
+          channels: knownChannels(kernel),
         },
         q,
         limit,

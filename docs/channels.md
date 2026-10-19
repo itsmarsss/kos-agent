@@ -121,6 +121,13 @@ you say there reaches it, a project's scheduled runs post there under the
 job's name, and the channel's own permissions say who may read and write.
 Binding asks you, since the chat will show in the channel.
 
+A channel is named in words the way Discord names it, `#general`, on
+every surface: on the server it goes out as the channel itself, on the
+dashboard it is a chip that opens the channel on Discord (type `#` to pick
+one), a channel you name from Discord arrives on the dashboard by name,
+and a turn you name one to is told what it is, its id, who reads it and
+whose home it is, so "post that in #leetcode" needs no looking up.
+
 A channel can take guests: `discord.audience` set to `guests` lets
 everyone on the server read and write there, and what a member writes
 reaches the chat the channel is bound to as that guest's words, named
