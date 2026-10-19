@@ -237,6 +237,44 @@ describe("Kernel", () => {
     expect(kernel.askerOf("nope")).toBeUndefined();
   });
 
+  it("runs a server channel's words where the channel is bound, and lays the channels out from what exists", async () => {
+    const answer = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    kernel = await boot(stubInference([answer("In the garden."), answer("In the thread."), answer("Recap here."), answer("KOS here.")]));
+    const garden = kernel.standUpProject({ name: "My Garden", type: "tracker" });
+    kernel.roles.write({ name: "recap", description: "Sums up the day", brief: "You recap.", memory: "own" });
+    // The project's channel runs its orchestrator.
+    const inProject = await kernel.handleChannelTurn({ text: "what's growing", userId: "owner", channel: "discord", conversationId: `project:${garden.slug}` });
+    expect(inProject).toMatchObject({ conversationId: `project:${garden.slug}`, reply: "In the garden." });
+    expect(JSON.stringify(kernel.sessions.get(`project:${garden.slug}`))).toContain("what's growing");
+    // A thread under it is a new chat of the project, titled as the thread, kept for the next message.
+    const inThread = await kernel.handleChannelTurn({ text: "seeds?", userId: "owner", channel: "discord", conversationId: "discord:thread:t9", newIn: { projectSlug: garden.slug, title: "Seeds" } });
+    expect(inThread.conversationId).toBe("discord:thread:t9");
+    expect(kernel.conversations.get("discord:thread:t9")).toMatchObject({ title: "Seeds", projectSlug: garden.slug, channel: "discord" });
+    // A blob's channel runs the blob's own thread, and the answer is tagged as its own.
+    const inBlob = await kernel.handleChannelTurn({ text: "what did I do", userId: "owner", channel: "discord", conversationId: "agent:recap" });
+    expect(inBlob).toMatchObject({ conversationId: "agent:recap", reply: "Recap here.", from: { name: "Recap" } });
+    // KOS's own channel is the root.
+    const atRoot = await kernel.handleChannelTurn({ text: "hello", userId: "owner", channel: "discord", conversationId: "orchestrator:owner" });
+    expect(atRoot).toMatchObject({ conversationId: "orchestrator:owner", reply: "KOS here." });
+    expect(atRoot).not.toHaveProperty("from");
+    // A channel bound to something gone is said so, not answered as nobody.
+    await expect(kernel.handleChannelTurn({ text: "x", userId: "owner", channel: "discord", conversationId: "agent:nobody" })).rejects.toThrow(/no blob called nobody/);
+    await expect(kernel.handleChannelTurn({ text: "x", userId: "owner", channel: "discord", conversationId: "project:gone" })).rejects.toThrow(/no project called gone/);
+    // The plan: KOS, approvals, each project (the workspace's own included), each blob, with the binding in the topic.
+    const plan = kernel.surfaceChannels();
+    expect(plan.slice(0, 2)).toEqual([
+      { key: "orchestrator:owner", name: "kos", topic: "kos:orchestrator:owner · KOS" },
+      { key: "needs-you", name: "needs-you", topic: "kos:needs-you · Approvals" },
+    ]);
+    expect(plan).toEqual(
+      expect.arrayContaining([
+        { key: `project:${garden.slug}`, name: "my-garden", topic: `kos:project:${garden.slug} · My Garden` },
+        { key: "agent:recap", name: "recap", topic: "kos:agent:recap · Recap" },
+      ]),
+    );
+    expect(plan.every((c) => /^[a-z0-9-]+$/.test(c.name))).toBe(true);
+  });
+
   it("reads an attached PDF into the turn as the text it is", async () => {
     kernel = await boot(stubInference([]));
     const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Bills" });

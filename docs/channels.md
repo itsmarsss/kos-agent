@@ -33,9 +33,31 @@ own thread, the same one its page shows, and its reply comes back here as
 would. A name that is not a blob's, or a name with nothing after it, is an
 ordinary message to KOS.
 
+### A server of your own
+
+Give KOS a server and it lays the dashboard out as channels: a `KOS`
+category with `#kos` (KOS itself, as on the dashboard's landing),
+`#needs-you` (every approval, with its buttons, instead of your DM), a
+channel per project (its orchestrator, so "add a tracker for this" said
+there lands in that project) and a channel per blob (its own thread; a
+blob answers there under its own name, through a webhook, not as the
+bot). Each channel is bound to its conversation by the `kos:…` line in
+its topic, so the binding is readable and a channel you rename stays
+bound. A thread you start under a project's channel is a new chat in that
+project, titled as the thread; one under `#kos` is a chat at the root;
+one under a blob's channel is the blob's thread. Channels without a
+`kos:` topic are yours and KOS stays out of them, as it does with anyone
+else's messages in its own.
+
+The channels are made when the host starts and kept in step every few
+minutes, so a new project or blob gets its channel without a restart;
+nothing is ever deleted. The bot needs Manage Channels and Manage Webhooks
+on the server, and the message content intent. DMs keep working as before.
+
 ```
 KOS_SECRET_DISCORD=   bot token
 KOS_OWNER_DISCORD=    your user id, and the inbound gate
+KOS_DISCORD_GUILD=    the server's id, to lay the dashboard out as channels
 ```
 
 ## iMessage (macOS)

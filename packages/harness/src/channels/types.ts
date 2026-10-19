@@ -7,6 +7,12 @@ import type { Attachment } from "../kernel/attachments.js";
  * concrete surface.
  */
 
+/** What a conversation made for a surface's thread starts as. */
+export interface ConversationSeed {
+  projectSlug?: string;
+  title?: string;
+}
+
 export interface InboundMessage {
   /** Adapter name that received the message, e.g. "discord". */
   channel: string;
@@ -20,6 +26,15 @@ export interface InboundMessage {
    * `/switch` instead.
    */
   conversationKey?: string;
+  /**
+   * The conversation this message belongs to, when the surface knows it
+   * exactly: a channel KOS bound to a project, a blob or itself. Where
+   * `conversationKey` says "a stream of this surface's own", this says
+   * "that one", and the turn runs there.
+   */
+  conversationId?: string;
+  /** How to make that conversation when it is not there yet: a thread no chat has been made for. */
+  newIn?: ConversationSeed;
   /**
    * Images and text files sent with the message. A photo of a receipt is a
    * perfectly ordinary way to tell KOS something, so a surface that drops them

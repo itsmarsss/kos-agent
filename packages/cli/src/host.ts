@@ -58,7 +58,7 @@ function defaultUiDist(): string | undefined {
   return existsSync(join(candidate, "index.html")) ? candidate : undefined;
 }
 
-function discordCreds(): { token: string; ownerId: string } | null {
+function discordCreds(): { token: string; ownerId: string; guildId?: string } | null {
   const token =
     process.env.KOS_SECRET_DISCORD ??
     process.env.DISCORD_TOKEN ??
@@ -66,7 +66,10 @@ function discordCreds(): { token: string; ownerId: string } | null {
   const ownerId =
     process.env.KOS_OWNER_DISCORD ?? process.env.DISCORD_OWNER_ID;
   if (!token || !ownerId) return null;
-  return { token, ownerId };
+  // A server of the owner's KOS lives in, with a channel per project and
+  // per blob. Without it, KOS is a DM.
+  const guildId = process.env.KOS_DISCORD_GUILD?.trim();
+  return { token, ownerId, ...(guildId ? { guildId } : {}) };
 }
 
 /**
@@ -333,6 +336,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       // Where a reference in a reply links to. The public URL when there is
       // one; otherwise this host, which is right on the machine it runs on.
       dashboardUrl: process.env.KOS_PUBLIC_URL?.trim() || `http://${options.host === "0.0.0.0" ? "localhost" : options.host}:${options.port}`,
+      ...(creds.guildId ? { guildId: creds.guildId } : {}),
     });
     /*
      * A button KOS sent comes back as a message.
@@ -416,6 +420,25 @@ export async function runHost(options: HostOptions): Promise<void> {
       discord: true,
     });
     console.log("Discord: listening for DMs");
+    if (creds.guildId) {
+      /*
+       * The server mirrors the dashboard: a channel per project and per
+       * blob, one for KOS, one for approvals. Made at start and kept in step
+       * every few minutes, so a project or a blob made today has its channel
+       * without a restart. Missing rights (Manage Channels, Manage Webhooks)
+       * are said once, and KOS goes on as a DM.
+       */
+      const sync = async (first: boolean): Promise<void> => {
+        try {
+          const made = await adapter!.sync(kernel.surfaceChannels());
+          if (first || made.created.length) console.log(`Discord: server ready, ${made.kept.length} channels kept, ${made.created.length} made${made.created.length ? ` (${made.created.join(", ")})` : ""}`);
+        } catch (err) {
+          if (first) console.error(`Discord: could not set the server up: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      };
+      await sync(true);
+      setInterval(() => void sync(false), 5 * 60_000).unref();
+    }
   } else if (wantDiscord && !creds) {
     console.log(
       "Discord: skipped (set DISCORD_TOKEN + KOS_OWNER_DISCORD to enable)",

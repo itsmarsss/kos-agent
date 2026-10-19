@@ -1,7 +1,7 @@
 import { readFileSync, mkdirSync } from "node:fs";
 import { runAgent, type Inference } from "../agent/loop.js";
 import { PressRoutes } from "../channels/presses.js";
-import type { Asker, OutboundMessage, Sender } from "../channels/types.js";
+import type { Asker, ConversationSeed, OutboundMessage, Sender } from "../channels/types.js";
 import { DaemonStore } from "../daemons/store.js";
 import { DaemonSupervisor } from "../daemons/supervisor.js";
 import { ToolRegistry } from "../agent/registry.js";
@@ -2062,18 +2062,75 @@ export class Kernel {
     return rest ? { name, text: rest } : undefined;
   }
 
+  /**
+   * The conversation a surface bound a channel to, made if it is not there:
+   * KOS's own thread, a project's orchestrator, a blob's thread, or a chat
+   * for a thread of the surface's own (seeded with the project and title
+   * the surface gives). A blob that no longer exists is said so, rather than
+   * answered as nobody.
+   */
+  boundConversation(id: string, userId: string, channel: string, seed: ConversationSeed = {}): Conversation {
+    if (id === orchestratorId(this.profile.ownerId)) return this.ensureOrchestratorConversation();
+    if (id.startsWith("project:")) {
+      const slug = id.slice("project:".length);
+      if (!this.manifest.get(slug)) throw new Error(`no project called ${slug}; this channel is bound to one that is gone`);
+      return this.ensureProjectConversation(slug);
+    }
+    if (id.startsWith("agent:")) {
+      const name = id.slice("agent:".length);
+      if (!this.roles.get(name)) throw new Error(`no blob called ${name}; this channel is bound to one that is gone`);
+      return this.ensureAgentConversation(name);
+    }
+    const existing = this.conversations.get(id);
+    if (existing) return existing;
+    return this.conversations.create({
+      id,
+      userId,
+      title: seed.title?.trim() || "Thread",
+      channel,
+      ...(seed.projectSlug ? { projectSlug: seed.projectSlug } : {}),
+    });
+  }
+
+  /**
+   * The channels a server surface should have, one per thing the owner
+   * talks to: KOS itself, a place for approvals, each project, each blob.
+   * The key is the conversation the channel is bound to; the surface keeps
+   * it in the channel's topic, so the binding is readable by hand.
+   */
+  surfaceChannels(): { key: string; name: string; topic: string }[] {
+    const slug = (text: string): string => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 90) || "channel";
+    return [
+      { key: orchestratorId(this.profile.ownerId), name: "kos", topic: `kos:${orchestratorId(this.profile.ownerId)} · KOS` },
+      { key: "needs-you", name: "needs-you", topic: "kos:needs-you · Approvals" },
+      ...this.manifest
+        .list()
+        .filter((p) => p.status === "active")
+        .map((p) => ({ key: `project:${p.slug}`, name: slug(p.name), topic: `kos:project:${p.slug} · ${p.name}` })),
+      ...this.roles.list().roles.map((r) => ({ key: agentConversationId(r.name), name: slug(r.name), topic: `kos:${agentConversationId(r.name)} · ${roleTitle(r)}` })),
+    ];
+  }
+
+  /** A turn in a bound conversation, through the door that gives it its reach. */
+  private boundTurn(conversation: Conversation, input: { text: string; userId: string; channel: string; attachments?: Attachment[] }): Promise<HandleResult> {
+    const opts = { channel: input.channel, ...(input.attachments?.length ? { attachments: input.attachments } : {}) };
+    if (conversation.id === orchestratorId(this.profile.ownerId)) return this.handleOrchestratorTurn(input.text, opts);
+    if (conversation.id.startsWith("project:")) return this.handleProjectTurn(conversation.id.slice("project:".length), input.text, opts);
+    return this.handleMessage(input.text, { userId: input.userId, sessionId: conversation.id, ...opts });
+  }
+
   async handleChannelTurn(input: {
     text: string;
     userId: string;
     channel: string;
     conversationKey?: string;
+    conversationId?: string;
+    newIn?: ConversationSeed;
     attachments?: Attachment[];
   }): Promise<HandleResult & { conversationId: string; isCommand: boolean; from?: Sender }> {
-    const conversation = this.conversationFor(
-      input.channel,
-      input.userId,
-      input.conversationKey,
-    );
+    const conversation = input.conversationId
+      ? this.boundConversation(input.conversationId, input.userId, input.channel, input.newIn)
+      : this.conversationFor(input.channel, input.userId, input.conversationKey);
 
     const command = parseChatCommand(input.text);
     if (command) {
@@ -2107,6 +2164,16 @@ export class Kernel {
       });
       const from = this.senderFor(thread.id);
       return { ...res, ...(from ? { from } : {}), conversationId: thread.id, isCommand: false };
+    }
+
+    // A bound channel's turn runs where it is bound, with the reach that
+    // conversation has: KOS's own tools in its channel, a project's in the
+    // project's, a blob as itself (tagged) in its own, and a thread as an
+    // ordinary chat.
+    if (input.conversationId) {
+      const bound = await this.boundTurn(conversation, input);
+      const from = this.senderFor(conversation.id);
+      return { ...bound, ...(from ? { from } : {}), conversationId: conversation.id, isCommand: false };
     }
 
     const res = await this.handleMessage(input.text, {
