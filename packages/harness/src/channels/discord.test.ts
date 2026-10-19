@@ -5,7 +5,7 @@ import type {
   Interaction,
   Message,
 } from "discord.js";
-import { ChannelType, MessageFlags, PermissionFlagsBits } from "discord.js";
+import { ChannelType, MessageFlags, OverwriteType, PermissionFlagsBits } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -728,8 +728,9 @@ describe("DiscordAdapter authorization", () => {
       ["needs-you", ChannelType.GuildText, "cat", "kos:needs-you · Approvals"],
     ]);
     // Made for the owner's eyes: everyone else is kept out, the owner and the bot let in.
-    const overwrites = created[0]!["permissionOverwrites"] as { id: string; allow?: bigint[]; deny?: bigint[] }[];
-    expect(overwrites[0]).toEqual({ id: "g1", deny: [PermissionFlagsBits.ViewChannel] });
+    const overwrites = created[0]!["permissionOverwrites"] as { id: string; type: OverwriteType; allow?: bigint[]; deny?: bigint[] }[];
+    expect(overwrites[0]).toEqual({ id: "g1", type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] });
+    expect(overwrites.find((o) => o.id === "owner-id")?.type).toBe(OverwriteType.Member);
     expect(overwrites.find((o) => o.id === "owner-id")?.allow).toContain(PermissionFlagsBits.SendMessages);
     // From now on an ask goes to the approvals channel, buttons and all.
     await adapter.requestApproval("owner-id", { id: "7", text: "x", tool: "files.rm", args: { path: "a.txt" }, asker: { name: "Garden", conversationId: "project:garden" } });
@@ -775,11 +776,11 @@ describe("DiscordAdapter authorization", () => {
       { key: "agent:recap", name: "recap", topic: "x", audience: "owner" },
     ]);
     expect(applied["c1"]).toBeUndefined();
-    expect(applied["c2"]?.[0]?.[0]).toEqual({ id: "g1", deny: [PermissionFlagsBits.ViewChannel] });
+    expect(applied["c2"]?.[0]?.[0]).toEqual({ id: "g1", type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] });
     // Opened to everyone: they may read and not write; the owner and the bot keep everything.
     expect(await adapter.setAudience("project:garden", "everyone")).toEqual({ key: "project:garden", name: "garden", audience: "everyone" });
     const opened = applied["c1"]![0]!;
-    expect(opened[0]).toEqual({ id: "g1", allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: expect.arrayContaining([PermissionFlagsBits.SendMessages]) });
+    expect(opened[0]).toEqual({ id: "g1", type: OverwriteType.Role, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: expect.arrayContaining([PermissionFlagsBits.SendMessages]) });
     expect(opened.map((o) => o.id)).toEqual(["g1", "owner-id", "bot"]);
     await expect(adapter.setAudience("project:nope", "owner")).rejects.toThrow(/no channel is bound/);
   });
