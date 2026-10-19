@@ -1,15 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 
 import { m } from "motion/react";
-import { highlights, tokenize } from "./highlight.js";
 import { ease } from "./motion.js";
 import { api, type DirEntry, type FileContent } from "./api.js";
 import { EntryMenu, dragProps, dropProps, useFileOps, type FileChange } from "./FileActions.js";
 import { FileIcon, previewable } from "./FileIcon.js";
-import { isPdfPath, pdfViewUrl } from "./FilePreview.js";
-import { ImageView, Thumb } from "./FileThumb.js";
+import { FileBody, RawBody, RawToggle, hasRawText } from "./FilePreview.js";
+import { Thumb } from "./FileThumb.js";
 import { useHiddenFiles } from "./hiddenfiles.js";
-import { Markdown } from "./Markdown.js";
 import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";
 
@@ -104,6 +102,9 @@ function readStored<T extends string>(key: string, allowed: T[], fallback: T): T
 export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement {
   const [entries, setEntries] = useState<DirEntry[] | null>(null);
   const [file, setFile] = useState<FileContent | null>(null);
+  // The words instead of the document; back to the file when another opens.
+  const [rawView, setRawView] = useState(false);
+  useEffect(() => setRawView(false), [file?.path]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
@@ -398,6 +399,7 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
               {file.modifiedAt ? ` · ${when(file.modifiedAt)}` : ""}
             </span>
             <div className="file-head-acts">
+              {hasRawText(file) && <RawToggle raw={rawView} onChange={setRawView} />}
               {parent && (
                 <a
                   className="btn btn--sm files-up"
@@ -416,48 +418,8 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
               <EntryMenu entry={{ path: file.path, name: file.path.split("/").pop() ?? file.path, kind: "file" }} ops={ops} inView />
             </div>
           </header>
-          {file.omitted === "binary" &&
-            (previewable(file.path) ? (
-              // The reader treats an image as binary because it is not text.
-              // That is right for reading it and wrong for showing it.
-              <ImageView path={file.path} />
-            ) : isPdfPath(file.path) ? (
-              // A PDF is itself, in the browser's own viewer.
-              <iframe className="files-frame" src={pdfViewUrl(file.path)} title={file.path.split("/").pop() ?? file.path} />
-            ) : (
-              <p className="hint">
-                Binary file. Open the workspace folder to view it.
-              </p>
-            ))}
-          {file.extracted && (
-            <p className="hint files-extracted">Text read from the document ({file.extracted}). Download it for the file itself.</p>
-          )}
-          {file.omitted === "too-large" && (
-            <p className="hint">Too large to display here.</p>
-          )}
-          {file.text !== undefined &&
-            (file.language === "markdown" ? (
-              <div className="files-md">
-                <Markdown text={file.text} />
-              </div>
-            ) : (
-              <pre className="files-pre">
-                {/* Coloured where the language is known; where it is not,
-                    every run comes back plain and this is the old wall of
-                    text, which is the right thing to fall back to. */}
-                {highlights(file.language)
-                  ? tokenize(file.text, file.language).map((t, i) =>
-                      t.kind === "plain" ? (
-                        t.text
-                      ) : (
-                        <span key={i} className={`tok tok--${t.kind}`}>
-                          {t.text}
-                        </span>
-                      ),
-                    )
-                  : file.text}
-              </pre>
-            ))}
+          {/* The same body the preview window shows, so a file reads the same wherever it is opened. */}
+          {rawView && hasRawText(file) ? <RawBody path={file.path} /> : <FileBody file={file} />}
         </div>
       )}
 

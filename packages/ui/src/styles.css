@@ -2177,12 +2177,6 @@ select {
 .list-group-fold:hover { color: var(--text); }
 .list-group-caret { display: inline-block; width: 0.8em; font-size: 0.9em; opacity: 0.7; }
 
-/* A kept attachment opened as itself: the mode bar, then the Files page's own body. */
-.viewer-kept { display: flex; flex-direction: column; gap: 0.5rem; width: min(92vw, 64rem); max-height: 82vh; overflow: auto; }
-.viewer-modes { display: flex; gap: 0.35rem; align-items: center; }
-.viewer-kept .preview-frame { height: min(72vh, 56rem); }
-.viewer-kept .preview-pre { max-height: 72vh; overflow: auto; }
-
 /* A path in a step's summary: opens the file, without toggling the card. */
 .toolcall-path { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 2px; cursor: pointer; }
 .toolcall-path:hover { color: var(--text); text-decoration-color: var(--accent); }
@@ -3234,22 +3228,6 @@ li:hover .chats-item-when { opacity: 0; }
 }
 .edit-bar { display: flex; align-items: center; gap: 0.5rem; }
 
-/* Opening a text file shows the file. */
-.viewer-text {
-  margin: 0;
-  max-width: min(88vw, 56rem);
-  max-height: 72vh;
-  overflow: auto;
-  background: var(--panel);
-  border-radius: var(--r-md);
-  padding: 1rem 1.2rem;
-  font-family: var(--mono);
-  font-size: var(--text-base);
-  line-height: 1.5;
-  color: var(--text);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
 
 /* —— attachment strip —— */
 /* The files a message mentions, as cards under it: look, download, open. */
@@ -3348,45 +3326,6 @@ li:hover .chats-item-when { opacity: 0; }
 }
 .strip-x:hover { color: var(--text); border-color: var(--line-strong); }
 
-/* —— attachment viewer —— */
-.viewer {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  background: rgba(4, 6, 10, 0.82);
-  display: grid;
-  place-items: center;
-  padding: 2rem;
-}
-.viewer-inner {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  max-width: min(90vw, 60rem);
-  max-height: 88vh;
-}
-.viewer-image {
-  max-width: 100%;
-  max-height: 76vh;
-  object-fit: contain;
-  border-radius: var(--r-md);
-}
-.viewer-file {
-  padding: 3rem 4rem;
-  background: var(--panel);
-  border-radius: var(--r-md);
-  font-family: var(--mono);
-  color: var(--muted);
-}
-.viewer-bar {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  color: var(--muted);
-  font-size: var(--text-md);
-}
-.viewer-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.viewer-count { color: var(--faint); font-variant-numeric: tabular-nums; }
 
 /* The model swap sits with the send controls, not behind a modal. */
 /* The class is on the Select's wrapper; the chrome is on the button inside
@@ -3963,18 +3902,6 @@ li:hover .chats-item-when { opacity: 0; }
 .files-file-head strong { font-family: var(--mono); font-size: var(--text-md); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .files-file-head > .hint { flex: none; white-space: nowrap; }
 .files-file-head .file-head-acts { margin-left: auto; }
-.files-pre {
-  margin: 0;
-  padding: 0.85rem;
-  font-family: var(--mono);
-  font-size: var(--text-base);
-  white-space: pre;
-  overflow: auto;
-  max-height: 70vh;
-}
-.files-md { padding: 0.85rem; max-height: 70vh; overflow: auto; }
-.files-frame { width: 100%; height: 75vh; border: 0; background: var(--bg); display: block; }
-.files-extracted { margin: 0.6rem 0.85rem 0; color: var(--faint); font-size: var(--text-sm); }
 .files-file .hint { display: block; padding: 0.85rem; }
 
 
@@ -7691,6 +7618,12 @@ a.health {
 .seg-btn { padding: 0.4rem 0.8rem; border: 0; background: transparent; color: var(--muted); cursor: pointer; font: inherit; font-size: var(--text-md); }
 .seg-btn + .seg-btn { border-left: 1px solid var(--line); }
 .seg-btn.is-on { background: var(--panel-2); color: var(--text); }
+/* In a header, beside small buttons. */
+.seg--sm .seg-btn { padding: 0.2rem 0.6rem; font-size: var(--text-sm); }
+/* The Files page shows the preview window's body in place: the page's width, the page's height. */
+.files-file .preview-md { max-width: none; }
+.files-file .preview-frame { height: 75vh; }
+.files-file .preview-body-wrap { width: 100%; }
 .toolpick-wrap { display: flex; flex-direction: column; gap: 0.4rem; }
 .toolpick-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
 @media (max-width: 720px) { .agents-fields, .agents-fields--reach { grid-template-columns: 1fr; } .agent-editor-head { flex-direction: column; } .face-editor-fields { grid-template-columns: 1fr; } }

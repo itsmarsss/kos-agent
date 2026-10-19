@@ -73,9 +73,10 @@ In a chat:
   the root's `uploads/` otherwise), and the turn is told the path, so a
   later turn or another chat can open it. On a Discord server the same
   file is uploaded under the mirrored message. Clicking the attachment in
-  the chat opens the file itself, a PDF in the browser's viewer, an Office
-  file as its text, with Raw text for the words the model was given and
-  Open in Files for the folder.
+  the chat opens it in the same window the Files page opens a file in: the
+  file itself, a PDF in the browser's viewer, an Office file as its text,
+  with Open in Files and Download, and File | Raw to see the words KOS
+  reads out of a document instead of the document.
 - Beside the composer: the model, how full the conversation is, and a chip
   that says what memory the last turn was given. Open it to see each claim
   with its scope and the log moments that came along.
@@ -230,6 +231,11 @@ chat is the usual way. A file under `blobs/` that does not read as a
 blob is listed with the reason. See docs/blobs.md.
 
 ## Files
+
+A PDF or an Office file opened here, or in the preview window from a
+project, a chat or a mention, has File | Raw in its header: the document
+itself, or the words KOS reads out of it, the same words a turn is given
+when the file is attached.
 
 A file opens for what it is: text and code as text, markdown as a page,
 an image as itself, a PDF in the browser's own viewer, and a Word, Excel

@@ -3,12 +3,13 @@ import { createPortal } from "react-dom";
 
 import { AnimatePresence, m } from "motion/react";
 
-import { api, type FileContent } from "./api.js";
+import { api, type FileContent, type FileText } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
 import { ImageView } from "./FileThumb.js";
 import { highlights, tokenize } from "./highlight.js";
 import { Markdown } from "./Markdown.js";
 import { ease, spring } from "./motion.js";
+import { hrefFor } from "./routes.js";
 
 /**
  * A file, looked at in a window over the page.
@@ -92,6 +93,91 @@ export function FileBody({ file }: { file: FileContent }): ReactElement {
   );
 }
 
+/** A file that is not on disk, an attachment still in the composer, shown by the same window under a key of its own. */
+export interface LocalFile {
+  name: string;
+  text?: string;
+  /** A data URI, for an image. */
+  src?: string;
+  size?: number;
+}
+
+/** A document whose words can be shown instead of the file: a PDF, or an Office file read as text. */
+export function hasRawText(file: Pick<FileContent, "path" | "extracted">): boolean {
+  return isPdfPath(file.path) || !!file.extracted;
+}
+
+/** The words of a document, fetched once wanted. */
+export function useRawText(path: string | null, wanted: boolean): { raw: FileText | null; error: string | null } {
+  const [raw, setRaw] = useState<FileText | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setRaw(null);
+    setError(null);
+    if (!path || !wanted) return undefined;
+    let cancelled = false;
+    void api
+      .fileText(path)
+      .then((t) => {
+        if (!cancelled) setRaw(t);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [path, wanted]);
+  return { raw, error };
+}
+
+/** File or Raw: the document itself, or the words KOS reads out of it. */
+export function RawToggle({ raw, onChange }: { raw: boolean; onChange: (raw: boolean) => void }): ReactElement {
+  return (
+    <div className="seg seg--sm" role="group" aria-label="View as">
+      <button type="button" className={`seg-btn ${raw ? "" : "is-on"}`} onClick={() => onChange(false)}>
+        File
+      </button>
+      <button type="button" className={`seg-btn ${raw ? "is-on" : ""}`} title="The words read out of the document, as KOS reads them" onClick={() => onChange(true)}>
+        Raw
+      </button>
+    </div>
+  );
+}
+
+/** The words of a document, as KOS reads them. */
+export function RawBody({ path }: { path: string }): ReactElement {
+  const { raw, error } = useRawText(path, true);
+  if (error) {
+    return (
+      <p className="ops-alert ops-alert--err preview-hint" role="alert">
+        {error}
+      </p>
+    );
+  }
+  if (!raw) return <p className="hint preview-hint">Reading…</p>;
+  return (
+    <div className="preview-extracted">
+      {raw.extracted && <p className="hint preview-extracted-note">The words read out of the document ({raw.extracted}), as KOS reads them.</p>}
+      <pre className="preview-pre">{raw.text}</pre>
+    </div>
+  );
+}
+
+/** Open in Files and Download, for a window opened from anywhere but the Files page. */
+export function PreviewLinks({ path, onOpenInFiles }: { path: string; onOpenInFiles?: () => void }): ReactElement {
+  return (
+    <>
+      <a className="btn btn--sm" href={hrefFor({ name: "files", path })} onClick={onOpenInFiles}>
+        Open in Files
+      </a>
+      <button type="button" className="btn btn--sm" onClick={() => void api.downloadFile(path).catch(() => {})}>
+        Download
+      </button>
+    </>
+  );
+}
+
 export interface FilePreviewProps {
   /** The file being looked at; nothing open when absent. */
   path: string | null;
@@ -103,18 +189,25 @@ export interface FilePreviewProps {
   actions?: ReactNode;
   /** Off screen: the file is kept but not re-read. */
   paused?: boolean;
+  /** Files that are not on disk, by the key they are opened under; shown without a fetch. */
+  locals?: Record<string, LocalFile>;
 }
 
-export function FilePreview({ path, siblings = [], onStep, onClose, actions, paused = false }: FilePreviewProps): ReactElement | null {
+export function FilePreview({ path, siblings = [], onStep, onClose, actions, paused = false, locals }: FilePreviewProps): ReactElement | null {
   const [file, setFile] = useState<FileContent | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The words instead of the document; back to the file on every step.
+  const [raw, setRaw] = useState(false);
+  useEffect(() => setRaw(false), [path]);
 
+  const local = path ? locals?.[path] : undefined;
+  const isLocal = local !== undefined;
   const at = path ? siblings.indexOf(path) : -1;
   const prev = at > 0 ? siblings[at - 1] : undefined;
   const next = at >= 0 && at < siblings.length - 1 ? siblings[at + 1] : undefined;
 
   useEffect(() => {
-    if (!path) {
+    if (!path || isLocal) {
       setFile(null);
       setError(null);
       return;
@@ -141,7 +234,7 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
       cancelled = true;
       clearInterval(t);
     };
-  }, [path, paused]);
+  }, [path, paused, isLocal]);
 
   useEffect(() => {
     if (!path) return;
@@ -155,10 +248,22 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
     return () => window.removeEventListener("keydown", onKey);
   }, [path, prev, next, onStep, onClose]);
 
-  const name = path ? (path.split("/").pop() ?? path) : "";
+  const name = local?.name ?? (path ? (path.split("/").pop() ?? path) : "");
   // The file in hand may still be the previous one for a beat after stepping.
-  const shown = file && path && file.path === path ? file : null;
-  const image = !!path && previewable(path);
+  const shown: FileContent | null =
+    local && path
+      ? {
+          path,
+          size: local.size ?? local.text?.length ?? 0,
+          modifiedAt: 0,
+          language: local.name.endsWith(".md") ? "markdown" : "text",
+          ...(local.text !== undefined ? { text: local.text } : { omitted: "binary" as const }),
+        }
+      : file && path && file.path === path
+        ? file
+        : null;
+  const image = !!path && (local ? !!local.src : previewable(path));
+  const rawable = !!shown && !local && hasRawText(shown);
 
   return createPortal(
     <AnimatePresence>
@@ -206,6 +311,7 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
                       </button>
                     </span>
                   )}
+                  {rawable && <RawToggle raw={raw} onChange={setRaw} />}
                   {actions}
                   <button type="button" className="icon-btn preview-close" aria-label="Close" onClick={onClose}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
@@ -221,7 +327,11 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
                   </p>
                 )}
                 {!shown && !error && <p className="hint preview-hint">Loading…</p>}
-                {shown && <FileBody file={shown} />}
+                {shown && local?.src && <img className="files-image" src={local.src} alt={name} />}
+                {shown && local && !local.src && local.text === undefined && (
+                  <p className="hint preview-hint">Attached. Once sent it is kept in the workspace and shown here as the file.</p>
+                )}
+                {shown && (!local || (!local.src && local.text !== undefined)) && (raw && rawable && path ? <RawBody path={path} /> : <FileBody file={shown} />)}
               </div>
             </m.div>
           </div>

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
 import { zipOf } from "../files/zipfixture.js";
-import { copyEntry, deleteEntry, isImage, listDirectory, makeDir, readFile, readForView, readImage, readBytes, readPdf, renameEntry, uniqueName } from "./files.js";
+import { copyEntry, deleteEntry, isImage, listDirectory, makeDir, readFile, readForText, readForView, readImage, readBytes, readPdf, renameEntry, uniqueName } from "./files.js";
 
 describe("workspace file browsing", () => {
   let root: string;
@@ -41,6 +41,11 @@ describe("workspace file browsing", () => {
   it("treats an empty or root path as the workspace root", () => {
     expect(listDirectory(ws, "").length).toBeGreaterThan(0);
     expect(listDirectory(ws, "/").length).toBeGreaterThan(0);
+  });
+
+  it("reads a file as words, and nothing out of an image", async () => {
+    expect(await readForText(ws, "notes.md")).toEqual({ path: "notes.md", text: "# Notes\n\nhello" });
+    await expect(readForText(ws, "photo.png")).rejects.toThrow(/nothing to read/);
   });
 
   it("reads a document's text for the page, and serves a PDF as itself", () => {

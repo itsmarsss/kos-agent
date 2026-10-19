@@ -2,7 +2,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, r
 import { basename, dirname, extname, join } from "node:path";
 
 import { isOffice, officeNote, officeText } from "../files/office.js";
-import { isPdf } from "../files/pdftext.js";
+import { isPdf, pdfText } from "../files/pdftext.js";
 import type { Workspace } from "../store/workspace.js";
 
 /**
@@ -171,6 +171,35 @@ export function readForView(ws: Workspace, requestPath: unknown): FileContent {
   const { omitted: _omitted, ...rest } = file;
   const read = officeText(new Uint8Array(bytes), file.path);
   return { ...rest, text: read.text, extracted: officeNote(read) };
+}
+
+/** A file as words, for a reader who wants them rather than the file. */
+export interface FileText {
+  path: string;
+  text: string;
+  /** What was read, when read out of a document: "pdf, 3 pages". */
+  extracted?: string;
+}
+
+/**
+ * A file as words: a text file as it is; a PDF or an Office file read the
+ * way an attachment is read for the model, so the owner sees what KOS
+ * sees. Nothing for an image or any other binary.
+ */
+export async function readForText(ws: Workspace, requestPath: unknown): Promise<FileText> {
+  const file = readFile(ws, requestPath);
+  if (file.text !== undefined) return { path: file.path, text: file.text };
+  if (file.omitted === "too-large" || file.size > MAX_DOCUMENT_BYTES) throw new Error(`too large to read: ${file.path}`);
+  const bytes = readFileSync(ws.resolve(file.path));
+  if (isPdf(bytes)) {
+    const read = await pdfText(new Uint8Array(bytes));
+    return { path: file.path, text: read.text, extracted: `pdf, ${read.pages} page${read.pages === 1 ? "" : "s"}${read.truncated ? ", cut at the cap" : ""}` };
+  }
+  if (isOffice(bytes, file.path)) {
+    const read = officeText(new Uint8Array(bytes), file.path);
+    return { path: file.path, text: read.text, extracted: officeNote(read) };
+  }
+  throw new Error(`nothing to read out of ${file.path}`);
 }
 
 /** A PDF's bytes for the browser's own viewer; nothing else is served inline. */

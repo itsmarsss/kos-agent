@@ -10,29 +10,37 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("an attachment that was kept as a file", () => {
-  it("opens as the file itself, with the words the model saw as the other view", async () => {
+describe("an attachment opens in the same window as a file", () => {
+  it("shows a kept PDF as the file, with Raw for the words KOS reads out of it", async () => {
     const file = vi.spyOn(api, "file").mockResolvedValue({ path: "uploads/wout.pdf", size: 9, modifiedAt: 0, omitted: "binary", language: "" });
-    render(<AttachmentStrip items={[{ name: "wout.pdf", text: "[wout.pdf: 3 pages]\nWEEKLY SCHEDULE", path: "uploads/wout.pdf" }]} />);
+    const text = vi.spyOn(api, "fileText").mockResolvedValue({ path: "uploads/wout.pdf", text: "WEEKLY SCHEDULE", extracted: "pdf, 3 pages" });
+    render(<AttachmentStrip items={[{ name: "wout.pdf", text: "[wout.pdf: 3 pages]", path: "uploads/wout.pdf" }]} />);
     fireEvent.click(screen.getByTitle("wout.pdf"));
-    // The file: a PDF in the browser's viewer, fetched by its kept path.
-    const frame = await waitFor(() => {
-      const el = document.querySelector("iframe.preview-frame");
-      if (!el) throw new Error("no viewer yet");
-      return el;
+    // The Files page's own window: framed, named, with its links.
+    expect(screen.getByRole("dialog", { name: "wout.pdf" })).toBeTruthy();
+    await waitFor(() => {
+      if (!document.querySelector("iframe.preview-frame")) throw new Error("no viewer yet");
     });
-    expect(frame.getAttribute("src")).toContain("wout.pdf");
     expect(file).toHaveBeenCalledWith("uploads/wout.pdf");
     expect(screen.getByText("Open in Files").getAttribute("href")).toBe("#/files/uploads%2Fwout.pdf");
-    // The other view: what the model was given.
-    fireEvent.click(screen.getByText("Raw text"));
-    expect(screen.getByText(/WEEKLY SCHEDULE/)).toBeTruthy();
+    expect(screen.getByText("Download")).toBeTruthy();
+    // Raw: the words, read out of the file itself rather than taken from the message.
+    fireEvent.click(screen.getByRole("button", { name: "Raw" }));
+    expect(await screen.findByText("WEEKLY SCHEDULE")).toBeTruthy();
+    expect(text).toHaveBeenCalledWith("uploads/wout.pdf");
+    expect(screen.getByText(/pdf, 3 pages/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "File" }));
+    expect(document.querySelector("iframe.preview-frame")).toBeTruthy();
   });
 
-  it("shows the words alone when nothing was kept", () => {
-    render(<AttachmentStrip items={[{ name: "notes.txt", text: "just words" }]} />);
+  it("shows a file that is only in the composer by its words, with nothing to fetch and no Raw", () => {
+    const file = vi.spyOn(api, "file");
+    render(<AttachmentStrip items={[{ name: "notes.txt", text: "just words" }]} onRemove={() => {}} />);
     fireEvent.click(screen.getByTitle("notes.txt"));
+    expect(screen.getByRole("dialog", { name: "notes.txt" })).toBeTruthy();
     expect(screen.getByText("just words")).toBeTruthy();
-    expect(screen.queryByText("Raw text")).toBeNull();
+    expect(file).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Raw" })).toBeNull();
+    expect(screen.queryByText("Open in Files")).toBeNull();
   });
 });
