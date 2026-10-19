@@ -304,6 +304,9 @@ describe("answering a press", () => {
     expect(mine).toContain("note: coffee");
 
     // Someone else is named rather than read as the owner.
+    const guest = pressMessage({ buttonId: "go", label: "Go", token: "t", pressedBy: "u1", guest: { id: "u1", name: "Ana" } }, { label: "Go", buttonId: "go" }, undefined, "owner-id");
+    // A guest's press is only what was pressed: the turn names them and marks it as a guest's.
+    expect(guest).toBe('pressed "Go" (go)');
     const theirs = pressMessage(
       { buttonId: "", label: "x", token: "t", pressedBy: "stranger" },
       route,

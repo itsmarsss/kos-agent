@@ -11,10 +11,25 @@ import type { KosModule, ModuleContext } from "../modules/loader.js";
  * otherwise, one channel at a time.
  */
 
-export const DISCORD_TOOLS = ["discord.channels", "discord.audience", "discord.sync", "discord.server", "discord.make", "discord.role", "discord.access"] as const;
+export const DISCORD_TOOLS = [
+  "discord.channels",
+  "discord.audience",
+  "discord.sync",
+  "discord.server",
+  "discord.make",
+  "discord.role",
+  "discord.access",
+  "discord.react",
+  "discord.reactions",
+  "discord.messages",
+] as const;
 
-/** Who may see a channel: the owner alone, or everyone on the server. */
-export type Audience = "owner" | "everyone";
+/**
+ * Who may see a channel: the owner alone; everyone on the server, reading;
+ * or guests, everyone reading and writing, with what they write reaching
+ * the chat as a guest's words.
+ */
+export type Audience = "owner" | "everyone" | "guests";
 
 export interface ServerChannel {
   /** The conversation the channel is bound to, or "needs-you". */
@@ -80,6 +95,28 @@ export interface DiscordServices {
   createRole: (name: string, colour?: string) => Promise<ServerRole>;
   /** Who may see and write in a channel or category, replacing what was set. */
   setAccess: (place: string, access: Access[]) => Promise<ServerPlace>;
+  /** An emoji on a message, from KOS. */
+  react: (channel: string, message: string, emoji: string) => Promise<void>;
+  /** Who reacted with what on a message. */
+  reactions: (channel: string, message: string) => Promise<Reaction[]>;
+  /** The last messages in a channel, newest last. */
+  messages: (channel: string, limit: number) => Promise<ChannelMessage[]>;
+}
+
+/** One emoji on a message and who put it there. */
+export interface Reaction {
+  emoji: string;
+  count: number;
+  users: { id: string; name: string }[];
+}
+
+/** A message in a channel as KOS reads it. */
+export interface ChannelMessage {
+  id: string;
+  author: { id: string; name: string; bot: boolean };
+  text: string;
+  at: string;
+  reactions: { emoji: string; count: number }[];
 }
 
 /** Access entries as the tool takes them, checked. */
@@ -135,12 +172,12 @@ function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
     {
       name: "discord.audience",
       description:
-        "Who may see one of KOS's channels on the server: owner (only the owner and KOS) or everyone on it. Opening a channel to everyone shows them what is said there from then on, so it asks the owner first; closing one does not. KOS's own channel and the approvals stay the owner's.",
+        "Who may see one of KOS's channels on the server: owner (only the owner and KOS), everyone (the server reads, nobody else writes), or guests (the server reads and writes, and what a member writes there reaches this chat as that guest's words, named and treated as untrusted; their button presses reach it too). Opening a channel shows people what is said there from then on, so it asks the owner first; closing one does not. KOS's own channel and the approvals stay the owner's.",
       inputSchema: {
         type: "object",
         properties: {
           channel: { type: "string", description: "the channel's name, or what it is bound to (project:<slug>, agent:<name>)" },
-          audience: { type: "string", enum: ["owner", "everyone"] },
+          audience: { type: "string", enum: ["owner", "everyone", "guests"] },
         },
         required: ["channel", "audience"],
       },
@@ -148,15 +185,23 @@ function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
     async (input) => {
       up();
       const audience = input["audience"];
-      if (audience !== "owner" && audience !== "everyone") throw new Error('audience must be "owner" or "everyone"');
+      if (audience !== "owner" && audience !== "everyone" && audience !== "guests") throw new Error('audience must be "owner", "everyone" or "guests"');
       const found = findChannel(await deps.channels(), str(input, "channel"));
       if (!found) throw new Error(`no channel of KOS's called ${str(input, "channel")}; discord.channels lists them`);
       if (found.fixed) throw new Error(`${found.name} is the owner's alone, always`);
       const now = await deps.setAudience(found.key, audience);
-      return JSON.stringify({ ...now, note: audience === "everyone" ? `#${now.name} is open to everyone on the server now.` : `#${now.name} is the owner's alone now.` });
+      return JSON.stringify({
+        ...now,
+        note:
+          audience === "everyone"
+            ? `#${now.name} is open to everyone on the server now.`
+            : audience === "guests"
+              ? `#${now.name} takes guests now: what members write there reaches this chat as theirs.`
+              : `#${now.name} is the owner's alone now.`,
+      });
     },
     // Opening a channel shows other people the owner's chat; closing one shows nobody anything.
-    { floor: "safe", escalate: (input) => input["audience"] === "everyone" },
+    { floor: "safe", escalate: (input) => input["audience"] === "everyone" || input["audience"] === "guests" },
     { restricted: true },
   );
 
@@ -286,6 +331,72 @@ function defineAdminTools(deps: DiscordServices, ctx: ModuleContext): void {
   );
 }
 
+function defineReadingTools(deps: DiscordServices, ctx: ModuleContext): void {
+  const up = (): void => {
+    if (!deps.connected()) throw new Error("the Discord server is not set up here: KOS_DISCORD_GUILD names it, under Settings, Network.");
+  };
+
+  ctx.registerTool(
+    {
+      name: "discord.react",
+      description: "Put an emoji on a message in a channel on the server: a thumbs up on what someone posted, a tick on a submission. The message is named by id, as discord.messages gives it or as notify returned it.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          channel: { type: "string", description: "the channel, by name or id" },
+          message: { type: "string", description: "the message id" },
+          emoji: { type: "string", description: "the emoji itself, like 👍, or a custom one by name" },
+        },
+        required: ["channel", "message", "emoji"],
+      },
+    },
+    async (input) => {
+      up();
+      await deps.react(str(input, "channel"), str(input, "message"), str(input, "emoji"));
+      return JSON.stringify({ reacted: str(input, "emoji"), message: str(input, "message") });
+    },
+    { floor: "safe" },
+    { restricted: true },
+  );
+
+  ctx.registerTool(
+    {
+      name: "discord.reactions",
+      description: "Who reacted with what on a message in a channel on the server: each emoji with its count and the members behind it, by name. For counting who did something, or who voted.",
+      inputSchema: {
+        type: "object",
+        properties: { channel: { type: "string", description: "the channel, by name or id" }, message: { type: "string", description: "the message id" } },
+        required: ["channel", "message"],
+      },
+    },
+    async (input) => {
+      up();
+      return JSON.stringify({ reactions: await deps.reactions(str(input, "channel"), str(input, "message")) });
+    },
+    { floor: "safe" },
+    { restricted: true },
+  );
+
+  ctx.registerTool(
+    {
+      name: "discord.messages",
+      description: "The last messages in a channel on the server, oldest first: who said what and when, with the reactions each carries. What a guest said in a channel that takes guests reaches you as a turn anyway; this is for looking back, or at a channel of yours that does not.",
+      inputSchema: {
+        type: "object",
+        properties: { channel: { type: "string", description: "the channel, by name or id" }, limit: { type: "number", description: "how many, up to 100; 20 unless said" } },
+        required: ["channel"],
+      },
+    },
+    async (input) => {
+      up();
+      const limit = Math.max(1, Math.min(100, Number(input["limit"]) || 20));
+      return JSON.stringify({ messages: await deps.messages(str(input, "channel"), limit) });
+    },
+    { floor: "safe" },
+    { restricted: true },
+  );
+}
+
 export function createDiscordModule(deps: DiscordServices): KosModule {
   return {
     manifest: {
@@ -297,6 +408,7 @@ export function createDiscordModule(deps: DiscordServices): KosModule {
     activate(ctx) {
       defineDiscordTools(deps, ctx);
       defineAdminTools(deps, ctx);
+      defineReadingTools(deps, ctx);
     },
   };
 }

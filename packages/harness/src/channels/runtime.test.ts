@@ -132,6 +132,24 @@ describe("ChannelRuntime", () => {
     ]);
   });
 
+  it("runs a guest's words in the owner's chat, marked as a guest's, and still drops a stranger", async () => {
+    const adapter = new InMemoryAdapter();
+    const seen: Array<{ userId: string; guest?: { id: string; name: string } }> = [];
+    const runtime = new ChannelRuntime({
+      adapter,
+      ownerRecipientId: "owner-id",
+      identity: new AllowlistMapping([{ channel: "memory", senderId: "owner-id" }]),
+      handleTurn: async (ctx) => {
+        seen.push({ userId: ctx.userId, ...(ctx.guest ? { guest: ctx.guest } : {}) });
+        return "ok";
+      },
+    });
+    await runtime.start();
+    await adapter.receive({ channel: "memory", senderId: "u9", text: "hi", guest: { id: "u9", name: "Ana" } });
+    await adapter.receive({ channel: "memory", senderId: "u9", text: "hi again" });
+    expect(seen).toEqual([{ userId: "owner", guest: { id: "u9", name: "Ana" } }]);
+  });
+
   it("drops a message from an unmapped sender without running the turn", async () => {
     const adapter = new InMemoryAdapter();
     const rejected: RejectedInbound[] = [];

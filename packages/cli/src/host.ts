@@ -184,12 +184,14 @@ export async function runHost(options: HostOptions): Promise<void> {
             ...(payload.from ? { from: payload.from } : {}),
           };
           // An addressed message goes through sendTo; the owner's DM is the
-          // path everything took before and still takes.
+          // path everything took before and still takes. What a channel
+          // post was given as an id comes back, so it can be reacted to.
           if (payload.target.kind === "owner") {
             await send.send(ownerOn(surface), msg);
-            return;
+            return undefined;
           }
-          await send.sendTo?.(payload.target, msg);
+          const posted = await send.sendTo?.(payload.target, msg);
+          return posted && typeof posted === "object" && typeof posted.id === "string" ? { id: posted.id } : undefined;
         }
       : undefined;
 
@@ -240,6 +242,9 @@ export async function runHost(options: HostOptions): Promise<void> {
             make: (input) => adapter!.makePlace(input),
             createRole: (name, colour) => adapter!.createRole(name, colour),
             setAccess: (place, access) => adapter!.setAccess(place, access),
+            react: (channel, message, emoji) => adapter!.react(channel, message, emoji),
+            reactions: (channel, message) => adapter!.reactions(channel, message),
+            messages: (channel, limit) => adapter!.messages(channel, limit),
           },
         }
       : {}),
@@ -386,6 +391,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       threadBindings: () => kernel.threadBindings(),
       timezone: kernel.profile.timezone,
       labelOf: (kind, id) => kernel.labelFor(kind, id),
+      // A channel the owner opened to guests takes what its members say.
+      guestsAllowed: (key) => kernel.channelAudiences()[key] === "guests",
       // Who speaks from a chat, so a blob's story in its channel is the blob's.
       senderOf: (conversationId) => kernel.senderFor(conversationId),
     });

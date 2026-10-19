@@ -364,6 +364,29 @@ describe("Kernel", () => {
     expect(JSON.stringify(kernel.sessions.get(c.id))).not.toContain("Three things.");
   });
 
+  it("runs a guest's turn under their name, as the harness's, with the turn told whose words they are", async () => {
+    const requests: GenerateRequest[] = [];
+    kernel = await boot({
+      async generate(_t, r) {
+        requests.push(r);
+        return { content: [{ type: "text", text: "Nice one, Ana." }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    });
+    const saids: string[] = [];
+    kernel.bus.on("turn:said", (e) => {
+      saids.push(e.origin);
+    });
+    const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Club" });
+    const res = await kernel.handleChannelTurn({ text: "my solution is O(n)", userId: kernel.profile.ownerId, channel: "discord", conversationId: c.id, guest: { id: "u1", name: "Ana" } });
+    expect(res.reply).toBe("Nice one, Ana.");
+    // Named in the transcript, so the chat reads as what it was; told to the model as a guest's, untrusted.
+    const user = kernel.sessions.get(c.id).find((m) => m.role === "user")!;
+    expect(JSON.stringify(user.content)).toContain("[Ana, a guest in the channel] my solution is O(n)");
+    expect(JSON.stringify(requests.at(-1))).toContain("from Ana, a member of the channel, not the owner");
+    // Not the owner's words: not remembered or quoted as theirs.
+    expect(saids).toEqual(["system"]);
+  });
+
   it("tells the page what the owner said and where, as the turn starts", async () => {
     kernel = await boot(stubInference([]));
     const starts: { conversationId: string; said?: string; from?: string }[] = [];
