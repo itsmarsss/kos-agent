@@ -483,6 +483,23 @@ export async function runHost(options: HostOptions): Promise<void> {
       };
       await sync(true);
       setInterval(() => void sync(false), 5 * 60_000).unref();
+      /*
+       * The server shows every exchange, wherever it happened. A turn taken
+       * on the dashboard, by a schedule or by a dispatch lands in the
+       * channel or thread for that chat: the owner's words quoted, the
+       * answer as KOS or as the blob. A turn that came in from Discord is
+       * already there, so it is skipped.
+       */
+      kernel.bus.on("turn:said", async (said) => {
+        if (said.channel === "discord" || !adapter) return;
+        const target = adapter.mirrorTarget(said.conversationId, kernel.threadBindings());
+        if (!target) return;
+        const from = kernel.senderFor(said.conversationId);
+        if (said.origin === "owner" && said.text.trim()) {
+          await adapter.postIn(target, { text: `${said.text.trim().split("\n").map((l) => `> ${l}`).join("\n")}\n-# you, on the dashboard` });
+        }
+        if (said.reply.trim()) await adapter.postIn(target, { text: said.reply, ...(from ? { from } : {}) });
+      });
     }
   } else if (wantDiscord && !creds) {
     console.log(

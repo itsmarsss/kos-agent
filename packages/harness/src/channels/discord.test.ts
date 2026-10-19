@@ -791,6 +791,26 @@ describe("DiscordAdapter authorization", () => {
     expect(await adapter.channels()).toEqual([{ key: "project:garden", name: "garden", audience: "owner", category: "kos" }]);
     // A thread the kernel knows is that chat, whatever its parent says.
     expect(bindingOf({ id: "t1", name: "Seeds", isThread: () => true, parent: { topic: "kos:project:garden" } }, (id) => (id === "t1" ? "chat-a" : undefined))).toEqual({ conversationId: "chat-a" });
+    // Where a chat shows: its bound channel, or the thread made for it, or nowhere.
+    expect(adapter.mirrorTarget("project:garden", {})).toBe("c1");
+    expect(adapter.mirrorTarget("chat-a", { t1: "chat-a" })).toBe("t1");
+    expect(adapter.mirrorTarget("chat-z", { t1: "chat-a" })).toBeUndefined();
+  });
+
+  it("shows a turn taken elsewhere in the chat's thread, as KOS or as the blob", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1" });
+    const posted: Record<string, unknown>[] = [];
+    const viaHook: Record<string, unknown>[] = [];
+    const hook = { name: "KOS", token: "wh", send: async (p: Record<string, unknown>) => { viaHook.push(p); return {}; } };
+    const parent = { id: "c2", fetchWebhooks: async () => new Map([["w1", hook]]), createWebhook: async () => { throw new Error("one exists"); } };
+    const thread = { id: "t1", isThread: () => true, parent, isSendable: () => true, send: async (p: Record<string, unknown>) => { posted.push(p); return {}; } };
+    (adapter as unknown as { client: unknown }).client = { channels: { fetch: async (id: string) => (id === "t1" ? thread : id === "c2" ? parent : undefined) } };
+    // The owner's words from the dashboard, as the bot; the blob's answer under its own name, into the thread through its parent's webhook.
+    await adapter.postIn("t1", { text: "> what did I do?\n-# you, on the dashboard" });
+    await adapter.postIn("t1", { text: "Three things.", from: { name: "Recap", colour: "#3b82f6" } });
+    expect(posted).toEqual([{ content: "> what did I do?\n-# you, on the dashboard" }]);
+    expect(viaHook).toEqual([{ content: "Three things.", username: "Recap", threadId: "t1" }]);
+    await expect(adapter.postIn("nope", { text: "x" })).rejects.toThrow(/not somewhere this bot can post/);
   });
 
   it("keeps a channel's permissions to its audience, and opens or closes one on request", async () => {

@@ -52,6 +52,12 @@ the root; one under a blob's channel is the blob's thread. Channels
 without a `kos:` topic are yours and KOS stays out of them, as it does
 with anyone else's messages in its own.
 
+A thread or channel is the chat it stands for, not only a door into it:
+a turn taken on the dashboard, by a schedule or by a dispatch shows there
+too, your words quoted with a note that they came from the dashboard and
+the answer as KOS or as the blob under its own name. What you say on
+Discord is already there and is not repeated.
+
 The categories, channels and threads are made when the host starts and
 kept in step every few minutes, so a new project, blob or chat appears
 without a restart; a channel under the wrong category is moved; nothing

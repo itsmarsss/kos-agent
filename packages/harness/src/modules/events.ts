@@ -14,6 +14,12 @@
 export type KernelEvent =
   | { kind: "turn:start"; conversationId: string; projectSlug: string | null }
   | { kind: "turn:end"; conversationId: string; projectSlug: string | null }
+  /**
+   * A turn that ended with words: what was said to the chat and what it
+   * answered, with where the words came from, so a surface that shows the
+   * chat elsewhere can show this exchange too, and skip its own.
+   */
+  | { kind: "turn:said"; conversationId: string; projectSlug: string | null; text: string; reply: string; origin: "owner" | "system"; channel: string | null }
   | { kind: "tool:end"; tool: string; isError: boolean; conversationId: string | null }
   | { kind: "approval:requested"; id: number; tool: string; conversationId: string | null }
   | { kind: "approval:decided"; id: number; approved: boolean; decidedBy: string | null }

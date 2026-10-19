@@ -768,6 +768,7 @@ export class DiscordAdapter implements ChannelAdapter {
         created.push(made.name);
         have = { id: made.id, name: made.name, audience, parentId: parent, channel: made as unknown as OverwritableChannel };
         bound.set(plan.key, have);
+        this.boundIds.set(plan.key, made.id);
       }
       if (plan.key === "needs-you") this.approvalsChannelId = have.id;
       // A thread per chat, bound to it; the ones already made are known to
@@ -785,6 +786,52 @@ export class DiscordAdapter implements ChannelAdapter {
   /** Whether some thread already stands for a conversation; the kernel's bindings say. */
   private threadBound(conversationId: string): boolean {
     return this.boundThreads.has(conversationId);
+  }
+
+  /** Channel ids by what each is bound to, from the last look at the server. */
+  private readonly boundIds = new Map<string, string>();
+
+  /**
+   * Where a conversation shows on the server: the channel bound to it, or
+   * the thread KOS made for it, or nowhere.
+   */
+  mirrorTarget(conversationId: string, threads: Record<string, string>): string | undefined {
+    const channel = this.boundIds.get(conversationId);
+    if (channel) return channel;
+    for (const [threadId, bound] of Object.entries(threads)) if (bound === conversationId) return threadId;
+    return undefined;
+  }
+
+  /**
+   * Say something in a channel or thread of the server, as the blob when
+   * the message is a blob's, as KOS otherwise. A turn taken on the
+   * dashboard is shown here through this, so a thread is the chat it stands
+   * for and not only a door into it.
+   */
+  async postIn(channelId: string, msg: OutboundMessage): Promise<void> {
+    const channel = await this.client.channels.fetch(channelId);
+    if (!channel || !channel.isSendable()) throw new Error(`channel ${channelId} is not somewhere this bot can post`);
+    if (msg.from && (await this.sendAs(channel as unknown as Parameters<DiscordAdapter["sendAs"]>[0], msg))) return;
+    await this.deliver((payload) => (channel as unknown as { send: (p: unknown) => Promise<unknown> }).send(payload), msg);
+  }
+
+  /**
+   * A blob's words under its own name, through the channel's webhook, with
+   * no tag line. False when there is no webhook to be had, and the caller
+   * posts the ordinary way, tag and all.
+   */
+  private async sendAs(channel: { id: string; isThread?: () => boolean; parent?: { id: string } | null }, msg: OutboundMessage): Promise<boolean> {
+    if (!msg.from) return false;
+    const via = await this.webhookFor(channel).catch(() => undefined);
+    if (!via) return false;
+    const { hook, threadId } = via;
+    const username = msg.from.name;
+    try {
+      await this.deliver((payload) => hook.send({ ...payload, username, ...(threadId ? { threadId } : {}) }), msg, { tagged: false });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** Conversations with a thread already, kept here from what the kernel hands back. */
@@ -829,7 +876,10 @@ export class DiscordAdapter implements ChannelAdapter {
       if (c.type === ChannelType.GuildCategory) categories.set(c.name.toLowerCase(), c.id);
       if (c.type === ChannelType.GuildText) {
         const key = boundKeyOf(c.topic);
-        if (key) bound.set(key, { id: c.id, name: c.name, audience: audienceOf(c, guild.id), parentId: c.parentId ?? null, channel: c });
+        if (key) {
+          bound.set(key, { id: c.id, name: c.name, audience: audienceOf(c, guild.id), parentId: c.parentId ?? null, channel: c });
+          this.boundIds.set(key, c.id);
+        }
       }
     }
     return { bound, categories };
@@ -1306,19 +1356,7 @@ export class DiscordAdapter implements ChannelAdapter {
         await settle();
         // In a server, a blob answers as itself: through the channel's
         // webhook, under its own name, with no tag line needed.
-        if (reply.from && message.guild) {
-          const via = await this.webhookFor(message.channel as Parameters<DiscordAdapter["webhookFor"]>[0]).catch(() => undefined);
-          if (via) {
-            const { hook, threadId } = via;
-            const username = reply.from.name;
-            try {
-              await this.deliver((payload) => hook.send({ ...payload, username, ...(threadId ? { threadId } : {}) }), reply, { tagged: false });
-              return;
-            } catch {
-              // The ordinary post below, with the tag line, still says who spoke.
-            }
-          }
-        }
+        if (reply.from && message.guild && (await this.sendAs(message.channel as Parameters<DiscordAdapter["sendAs"]>[0], reply))) return;
         try {
           await this.deliver(post, reply);
         } catch (err) {

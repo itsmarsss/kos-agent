@@ -285,6 +285,21 @@ describe("Kernel", () => {
     expect(kernel.channelAudiences()).toEqual({});
   });
 
+  it("tells the bus what each turn said, and where the words came in", async () => {
+    const answer = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    kernel = await boot(stubInference([answer("Three things."), answer("From Discord.")]));
+    const said: { conversationId: string; text: string; reply: string; origin: string; channel: string | null }[] = [];
+    kernel.bus.on("turn:said", (e) => {
+      said.push({ conversationId: e.conversationId, text: e.text, reply: e.reply, origin: e.origin, channel: e.channel });
+    });
+    const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Kitchen" });
+    await kernel.handleMessage("what did I do?", { sessionId: c.id });
+    expect(said).toEqual([{ conversationId: c.id, text: "what did I do?", reply: "Three things.", origin: "owner", channel: null }]);
+    // A turn from a surface names the surface, so a mirror of the chat there does not repeat it.
+    await kernel.handleChannelTurn({ text: "and now?", userId: "owner", channel: "discord", conversationId: c.id });
+    expect(said[1]).toMatchObject({ conversationId: c.id, text: "and now?", reply: "From Discord.", channel: "discord" });
+  });
+
   it("reads an attached PDF into the turn as the text it is", async () => {
     kernel = await boot(stubInference([]));
     const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Bills" });
