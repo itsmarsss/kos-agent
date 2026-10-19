@@ -3180,6 +3180,8 @@ function parseRoleInput(body: Record<string, unknown>): Role | string {
     ...(prompt ? { prompt } : {}),
     ...(body.report === "always" ? { report: "always" as const } : {}),
     ...(Object.keys(face).length ? { face } : {}),
+    // Whose it is stays as it was: the editor carries it back unchanged.
+    ...(typeof body.project === "string" && body.project.trim() ? { project: body.project.trim() } : {}),
   };
 }
 

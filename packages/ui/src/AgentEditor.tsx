@@ -48,6 +48,8 @@ function toDraft(a: AgentInfo): Draft {
     brief: a.brief,
     tools: a.tools?.length ? a.tools : null,
     memory: a.memory,
+    // Whose it is rides along, so an edit does not hand a project's blob to the root.
+    ...(a.project ? { project: a.project } : {}),
     task: a.task ?? "reasoning",
     schedule: a.schedule ?? "",
     prompt: a.prompt ?? "",

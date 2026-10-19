@@ -267,6 +267,8 @@ export interface AgentDraft {
   schedule?: string;
   prompt?: string;
   face?: FaceLook;
+  /** The project that made it and alone may change it; absent, KOS's own. */
+  project?: string;
 }
 
 export interface AgentInfo extends AgentDraft {

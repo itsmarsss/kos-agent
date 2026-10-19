@@ -42,6 +42,11 @@ describe("roles", () => {
     expect(formatRole(faced)).toContain("face: hue 210, eyes sparkle\n");
     expect(parseRole(formatRole(faced), "research")).toEqual(faced);
     expect(parseRole("---\ndescription: d\nface: gait=3, hue:400\n---\nbody", "x").face).toEqual({ gait: 3, hue: 40 });
+    // Whose it is rides along as a project's slug, and nothing else passes for one.
+    const owned = { ...plain, project: "garden" };
+    expect(formatRole(owned)).toContain("\nproject: garden\n");
+    expect(parseRole(formatRole(owned), "research")).toEqual(owned);
+    expect(() => parseRole("---\ndescription: d\nproject: Not A Slug\n---\nbody", "x")).toThrow(/project must be a project's slug/);
   });
 
   it("refuses what it could not read back", () => {

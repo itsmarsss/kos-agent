@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -134,7 +134,7 @@ describe("blobs tools", () => {
     await h.call("blobs.create", { name: "research", description: "Looks things up", brief: "You look." });
     const listed = (await h.call("blobs.list")).json!;
     expect(listed).toEqual({
-      blobs: [{ name: "research", description: "Looks things up", tools: "all", memory: "own", state: "on request", conversationId: "agent:research", path: "blobs/research/blob.md", folder: "blobs/research" }],
+      blobs: [{ name: "research", description: "Looks things up", tools: "all", memory: "own", owner: "kos", yours: true, state: "on request", conversationId: "agent:research", path: "blobs/research/blob.md", folder: "blobs/research" }],
     });
 
     await h.call("blobs.create", { name: "recap", description: "Sums up the day", brief: "You recap.", schedule: "0 18 * * *", prompt: "Recap." });
@@ -148,6 +148,40 @@ describe("blobs tools", () => {
       lastRun: { words: expect.stringMatching(/ 12:00$/), at: "2026-10-17T12:00:00.000Z" },
       nextRun: { words: expect.stringMatching(/ 12:00$/), at: "2026-10-18T12:00:00.000Z" },
     });
+  });
+
+  it("belongs to the project that made it: all may see and dispatch, only the owner and the root may change", async () => {
+    const garden = await harness(ws, { scope: "garden" });
+    const money = await harness(ws, { scope: "money" });
+    const kos = await harness(ws);
+    expect((await garden.call("blobs.create", { name: "beds", description: "Plans the beds", brief: "You plan.", schedule: "0 7 * * *", prompt: "Plan." })).isError).toBe(false);
+    expect(garden.roles.get("beds")).toMatchObject({ project: "garden" });
+    expect(readFileSync(join(root, "blobs", "beds", "blob.md"), "utf8")).toContain("\nproject: garden\n");
+    await kos.call("blobs.create", { name: "recap", description: "Sums up", brief: "You recap." });
+    // Everyone sees both, each marked with whose it is and whether it is theirs.
+    const seenByMoney = ((await money.call("blobs.list")).json!["blobs"] as Record<string, unknown>[]).map((b) => [b["name"], b["owner"], b["yours"]]);
+    expect(seenByMoney).toEqual([["beds", "garden", false], ["recap", "kos", false]]);
+    const seenByGarden = ((await garden.call("blobs.list")).json!["blobs"] as Record<string, unknown>[]).map((b) => [b["name"], b["yours"]]);
+    expect(seenByGarden).toEqual([["beds", true], ["recap", false]]);
+    // Another project may dispatch to it, not pause, rewrite or remove it.
+    expect((await money.call("blobs.dispatch", { agent: "beds", task: "plan the north bed" })).isError).toBe(false);
+    for (const [tool, input] of [
+      ["blobs.pause", { name: "beds" }],
+      ["blobs.resume", { name: "beds" }],
+      ["blobs.remove", { name: "beds" }],
+      ["blobs.create", { name: "beds", description: "x", brief: "y", replace: true }],
+    ] as const) {
+      const refused = await money.call(tool, input);
+      expect(refused.isError).toBe(true);
+      expect(refused.content).toContain("the garden project's blob, not yours");
+    }
+    expect((await garden.call("blobs.pause", { name: "recap" })).content).toContain("KOS's own blob, not yours");
+    expect(garden.roles.exists("beds")).toBe(true);
+    // The owner may; so may the root (each harness holds its own jobs, so the schedule is the owner's to toggle here).
+    expect((await garden.call("blobs.pause", { name: "beds" })).isError).toBe(false);
+    expect((await garden.call("blobs.resume", { name: "beds" })).isError).toBe(false);
+    expect((await kos.call("blobs.remove", { name: "beds" })).isError).toBe(false);
+    expect(garden.roles.exists("beds")).toBe(false);
   });
 
   it("pauses and resumes a schedule, and says so when there is none", async () => {
