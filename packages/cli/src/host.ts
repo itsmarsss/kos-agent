@@ -251,6 +251,17 @@ export async function runHost(options: HostOptions): Promise<void> {
               return { key: to, name: bound.name, audience: bound.audience };
             },
             known: () => adapter?.knownChannels() ?? [],
+            threads: () => kernel.threadsBound(),
+            prune: async (ids) => {
+              const deleted: string[] = [];
+              for (const id of ids) {
+                if (await adapter!.deleteThread(id)) {
+                  kernel.unbindThread(id);
+                  deleted.push(id);
+                }
+              }
+              return deleted;
+            },
             react: (channel, message, emoji) => adapter!.react(channel, message, emoji),
             reactions: (channel, message) => adapter!.reactions(channel, message),
             messages: (channel, limit) => adapter!.messages(channel, limit),

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Inference } from "../agent/loop.js";
 import type { GenerateRequest, ModelResponse } from "../models/types.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
-import { Kernel } from "./kernel.js";
+import { Kernel, orchestratorId } from "./kernel.js";
 import { isKernelTable } from "../tools/fence.js";
 import { SurfaceDownError, type NotifyPayload } from "../tools/notify.js";
 import type { DiscordServices, ServerPlace } from "../tools/discord.js";
@@ -358,8 +358,14 @@ describe("Kernel", () => {
     });
     kernel.bindThread("t1", agent.id);
     kernel.bindThread("t2", root.id);
+    expect(kernel.threadsBound()).toEqual([
+      { id: "t1", name: "Roster", channel: `project:${club.slug}`, conversationId: agent.id, projectSlug: club.slug, gone: false },
+      { id: "t2", name: "Loose", channel: orchestratorId(kernel.profile.ownerId), conversationId: root.id, projectSlug: null, gone: false },
+    ]);
     expect(kernel.conversations.remove(agent.id)).toBe(true);
     expect(gone).toEqual([agent.id]);
+    // Until the thread goes, the binding marks it as a thread whose chat is gone.
+    expect(kernel.threadsBound()[0]).toMatchObject({ id: "t1", gone: true, name: "(chat deleted)" });
     kernel.unbindThread("t1");
     expect(kernel.threadBindings()).toEqual({ t2: root.id });
   });

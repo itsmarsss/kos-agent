@@ -13,6 +13,8 @@ import type { KosModule, ModuleContext } from "../modules/loader.js";
 
 export const DISCORD_TOOLS = [
   "discord.channels",
+  "discord.threads",
+  "discord.prune",
   "discord.audience",
   "discord.sync",
   "discord.server",
@@ -43,6 +45,18 @@ export interface ServerChannel {
   fixed?: boolean;
   /** How many of its chats have a thread under it. */
   threads?: number;
+}
+
+/** A thread KOS made for a chat, as the bindings know it; `gone` when the chat no longer exists. */
+export interface BoundThread {
+  id: string;
+  /** The chat's title, or what is left when it is gone. */
+  name: string;
+  /** The channel it sits under, by what that is bound to. */
+  channel: string;
+  conversationId: string;
+  projectSlug: string | null;
+  gone: boolean;
 }
 
 /** A role on the server, as KOS may hand it out. */
@@ -91,6 +105,10 @@ export interface DiscordServices {
   /** True while the server surface is up; the tools say so plainly when it is not. */
   connected: () => boolean;
   channels: () => Promise<ServerChannel[]>;
+  /** The threads KOS made for chats, from the bindings it keeps; at once, since nothing on Discord need be asked. */
+  threads: () => BoundThread[];
+  /** Delete these threads on Discord and let their bindings go; the ids actually deleted. */
+  prune: (ids: string[]) => Promise<string[]>;
   setAudience: (key: string, audience: Audience) => Promise<ServerChannel>;
   sync: () => Promise<{ created: string[]; kept: string[]; threads: number }>;
   /** Everything on the server: every category and channel, and the roles. */
@@ -164,23 +182,70 @@ function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
   const up = (): void => {
     if (!deps.connected()) throw new Error("the Discord server is not set up here: KOS_DISCORD_GUILD names it, under Settings, Network.");
   };
+  // The reach of the chat asking, as chats.list has it: a project's chat
+  // sees its own channel and threads and no other project's, and cannot
+  // look outside; KOS at the root sees them all. discord.server is the
+  // one window on the rest of the server.
+  const scope = (): string | undefined => ctx.services?.callerProject?.();
+  const ownChannel = (c: ServerChannel): boolean => scope() === undefined || c.key === `project:${scope()}`;
+  const ownThread = (t: BoundThread): boolean => scope() === undefined || t.projectSlug === scope();
 
   ctx.registerTool(
     {
       name: "discord.channels",
       description:
         "The channels KOS keeps on the owner's Discord server, laid out as the dashboard is: #kos and #needs-you under the KOS category, a channel per blob under Blobs, and a category per project holding its channel (the project's orchestrator) with a thread for each chat in the project. " +
-        "Each is listed with what it is bound to, its category, who may see it (owner, the default, or everyone on the server) and how many chats have threads under it.",
+        "Each is listed with what it is bound to, its category, who may see it (owner, the default, or everyone on the server) and how many chats have threads under it. " +
+        "From a project's chat, only the project's own channel, as chats.list shows only the project's chats; KOS at the root sees them all.",
       inputSchema: { type: "object", properties: {} },
     },
     async () => {
       up();
-      return JSON.stringify({ channels: await deps.channels() });
+      return JSON.stringify({ channels: (await deps.channels()).filter(ownChannel) });
     },
     { floor: "safe" },
     { restricted: true },
   );
 
+  ctx.registerTool(
+    {
+      name: "discord.threads",
+      description:
+        "The threads KOS made for chats on the server, each with the chat it stands for and the channel it sits under. One whose chat has since been deleted is marked gone; discord.prune removes those. From a project's chat, only the project's own threads.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    () => {
+      up();
+      const threads = deps.threads().filter(ownThread);
+      return JSON.stringify({ threads, gone: threads.filter((t) => t.gone).length });
+    },
+    { floor: "safe" },
+    { restricted: true },
+  );
+  ctx.registerTool(
+    {
+      name: "discord.prune",
+      description:
+        "Delete the threads whose chats are gone, so Discord shows what the dashboard shows. A chat deleted now takes its thread with it; this is for threads left behind before that. Asks the owner first. From a project's chat, only the project's own.",
+      inputSchema: {
+        type: "object",
+        properties: { channel: { type: "string", description: "only the threads under this channel, named any way: by name, or by what it is bound to (project:<slug>)" } },
+      },
+    },
+    async (input) => {
+      up();
+      const channel = typeof input["channel"] === "string" && input["channel"].trim() ? str(input, "channel") : undefined;
+      const under = channel ? findChannel((await deps.channels()).filter(ownChannel), channel) : undefined;
+      if (channel && !under) throw new Error(`no channel of KOS's called ${channel}; discord.channels lists them`);
+      const gone = deps.threads().filter(ownThread).filter((t) => t.gone && (!under || t.channel === under.key));
+      if (gone.length === 0) return JSON.stringify({ deleted: [], note: "Nothing to prune: every thread's chat is still there." });
+      const deleted = await deps.prune(gone.map((t) => t.id));
+      return JSON.stringify({ deleted, note: `Deleted ${deleted.length} thread${deleted.length === 1 ? "" : "s"} whose chat was gone.` });
+    },
+    // Deleting is for good, so the owner says so.
+    { floor: "risky" },
+    { restricted: true },
+  );
   ctx.registerTool(
     {
       name: "discord.audience",
@@ -199,7 +264,7 @@ function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
       up();
       const audience = input["audience"];
       if (audience !== "owner" && audience !== "everyone" && audience !== "guests") throw new Error('audience must be "owner", "everyone" or "guests"');
-      const found = findChannel(await deps.channels(), str(input, "channel"));
+      const found = findChannel((await deps.channels()).filter(ownChannel), str(input, "channel"));
       if (!found) throw new Error(`no channel of KOS's called ${str(input, "channel")}; discord.channels lists them`);
       if (found.fixed) throw new Error(`${found.name} is the owner's alone, always`);
       const now = await deps.setAudience(found.key, audience);

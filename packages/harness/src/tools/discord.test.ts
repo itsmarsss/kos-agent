@@ -7,7 +7,7 @@ import { ToolRegistry } from "../agent/registry.js";
 import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
-import { createDiscordModule, findChannel, type Access, type MakePlace, type ServerChannel, type ServerPlace, type ServerRole } from "./discord.js";
+import { createDiscordModule, findChannel, type Access, type BoundThread, type MakePlace, type ServerChannel, type ServerPlace, type ServerRole } from "./discord.js";
 
 describe("the discord tools", () => {
   let root: string;
@@ -21,7 +21,7 @@ describe("the discord tools", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  async function harness(connected = true) {
+  async function harness(connected = true, scope?: string) {
     const channels: ServerChannel[] = [
       { key: "orchestrator:owner", name: "kos", audience: "owner", fixed: true },
       { key: "needs-you", name: "needs-you", audience: "owner", fixed: true },
@@ -35,8 +35,15 @@ describe("the discord tools", () => {
     const accessed: [string, Access[]][] = [];
     const reacted: [string, string, string][] = [];
     const bound: [string, string][] = [];
+    const threads: BoundThread[] = [
+      { id: "t1", name: "Seeds", channel: "project:garden", conversationId: "c1", projectSlug: "garden", gone: false },
+      { id: "t2", name: "(chat deleted)", channel: "project:garden", conversationId: "c2", projectSlug: "garden", gone: true },
+      { id: "t3", name: "Loose", channel: "orchestrator:owner", conversationId: "c3", projectSlug: null, gone: false },
+      { id: "t4", name: "(chat deleted)", channel: "project:pantry", conversationId: "c4", projectSlug: "pantry", gone: true },
+    ];
+    const pruned: string[] = [];
     const registry = new ToolRegistry();
-    const ctx = toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() });
+    const ctx = toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), ...(scope ? { callerProject: () => scope } : {}) });
     await new ModuleLoader(ctx).load([
       createDiscordModule({
         connected: () => connected,
@@ -52,6 +59,11 @@ describe("the discord tools", () => {
         },
         server: async () => ({ places, roles }),
         known: () => places.filter((p) => p.kind === "channel"),
+        threads: () => threads,
+        prune: async (ids) => {
+          pruned.push(...ids);
+          return ids;
+        },
         make: async (input) => {
           made.push(input);
           const place = { id: `p${made.length}`, name: input.name, kind: input.kind, ...(input.category ? { category: input.category } : {}) };
@@ -84,8 +96,26 @@ describe("the discord tools", () => {
       const res = await registry.execute(name, input);
       return { ...res, json: res.isError ? undefined : (JSON.parse(res.content) as Record<string, unknown>) };
     };
-    return { registry, channels, call, places, roles, made, accessed, reacted, bound };
+    return { registry, channels, call, places, roles, made, accessed, reacted, bound, pruned };
   }
+
+  it("lists threads with the gone ones marked, prunes only those with the owner's yes, and shows a project only its own", async () => {
+    const root = await harness();
+    const listed = (await root.call("discord.threads")).json!;
+    expect(listed).toMatchObject({ gone: 2 });
+    expect((listed["threads"] as { id: string }[]).map((t) => t.id)).toEqual(["t1", "t2", "t3", "t4"]);
+    expect(root.registry.classify("discord.prune", {}).tier).toBe("risky");
+    expect((await root.call("discord.prune", { channel: "my-garden" })).json).toMatchObject({ deleted: ["t2"] });
+    expect(root.pruned).toEqual(["t2"]);
+    expect((await root.call("discord.prune", { channel: "nowhere" })).isError).toBe(true);
+    // From a project's chat: its own channel and threads and nothing of another project's, as chats.list has it.
+    const garden = await harness(true, "garden");
+    expect(((await garden.call("discord.channels")).json!["channels"] as { key: string }[]).map((c) => c.key)).toEqual(["project:garden"]);
+    expect(((await garden.call("discord.threads")).json!["threads"] as { id: string }[]).map((t) => t.id)).toEqual(["t1", "t2"]);
+    expect((await garden.call("discord.prune")).json).toMatchObject({ deleted: ["t2"] });
+    expect(garden.pruned).toEqual(["t2"]);
+    expect((await garden.call("discord.audience", { channel: "recap", audience: "owner" })).isError).toBe(true);
+  });
 
   it("opens a channel to guests only with the owner's yes, reacts, and reads reactions and messages", async () => {
     const h = await harness();
