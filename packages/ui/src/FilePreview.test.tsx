@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "./api.js";
@@ -60,6 +60,42 @@ describe("the file preview", () => {
     render(<FileBody file={{ path: "cv.docx", size: 9, modifiedAt: 0, text: "Resume of Kenny", language: "", extracted: "docx, 1 paragraph" }} />);
     expect(screen.getByText(/Text read from the document \(docx, 1 paragraph\)/)).toBeTruthy();
     expect(screen.getByText("Resume of Kenny")).toBeTruthy();
+  });
+
+  it("shows a file that is not on disk under its own key, and steps among keys", () => {
+    const file = vi.spyOn(api, "file");
+    const onStep = vi.fn();
+    const keys = ["attached:0:a.txt", "uploads/b.md"];
+    render(
+      <FilePreview path="attached:0:a.txt" siblings={keys} locals={{ "attached:0:a.txt": { name: "a.txt", text: "only here" } }} onStep={onStep} onClose={() => {}} />,
+    );
+    expect(screen.getByRole("dialog", { name: "a.txt" })).toBeTruthy();
+    expect(screen.getByText("only here")).toBeTruthy();
+    expect(screen.getByText("1 of 2")).toBeTruthy();
+    expect(file).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByLabelText("Next file"));
+    expect(onStep).toHaveBeenCalledWith("uploads/b.md");
+  });
+
+  it("offers Raw for a document, shows the words, and comes back to the file", async () => {
+    vi.spyOn(api, "file").mockResolvedValue({ path: "docs/paper.pdf", size: 9, modifiedAt: 0, omitted: "binary", language: "" });
+    const text = vi.spyOn(api, "fileText").mockResolvedValue({ path: "docs/paper.pdf", text: "the words", extracted: "pdf, 2 pages" });
+    render(<FilePreview path="docs/paper.pdf" onClose={() => {}} />);
+    await waitFor(() => {
+      if (!document.querySelector("iframe.preview-frame")) throw new Error("no viewer yet");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Raw" }));
+    expect(await screen.findByText("the words")).toBeTruthy();
+    expect(text).toHaveBeenCalledWith("docs/paper.pdf");
+    expect(document.querySelector("iframe.preview-frame")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "File" }));
+    expect(document.querySelector("iframe.preview-frame")).toBeTruthy();
+    // A plain text file has no other view.
+    cleanup();
+    vi.spyOn(api, "file").mockResolvedValue({ path: "notes.txt", size: 9, modifiedAt: 0, text: "plain", language: "text" });
+    render(<FilePreview path="notes.txt" onClose={() => {}} />);
+    expect(await screen.findByText("plain")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Raw" })).toBeNull();
   });
 
   it("shows nothing when no file is open", () => {

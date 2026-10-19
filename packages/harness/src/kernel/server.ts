@@ -34,7 +34,7 @@ import {
 } from "../models/settings.js";
 import { historyEvents, type ChatEvent } from "./transcript.js";
 import { DENIED_PREFIX } from "./guarded.js";
-import { copyEntry, deleteEntry, listDirectory, makeDir, readForView, readImage, readBytes, readPdf, renameEntry, type DirEntry } from "./files.js";
+import { copyEntry, deleteEntry, listDirectory, makeDir, readForText, readForView, readImage, readBytes, readPdf, renameEntry, type DirEntry } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
 import type { FailingJob } from "../ops/health.js";
@@ -1550,6 +1550,17 @@ export async function handleApiRequest(
         status: 400,
         body: { error: err instanceof Error ? err.message : String(err) },
       };
+    }
+  }
+
+  /** A document's words, as KOS reads them: the Raw view of a PDF or an Office file. */
+  if (method === "GET" && path === "/api/file/text") {
+    const target = queryParams(req.url).get("path") ?? "";
+    if (!target) return { status: 400, body: { error: "path required" } };
+    try {
+      return ok(await readForText(kernel.workspace, target));
+    } catch (err) {
+      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
     }
   }
 

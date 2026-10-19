@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactElement } from "react";
 
 import { api } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
-import { FilePreview, bytes } from "./FilePreview.js";
+import { FilePreview, PreviewLinks, bytes } from "./FilePreview.js";
 import { Thumb } from "./FileThumb.js";
 import { hrefFor } from "./routes.js";
 
@@ -149,18 +149,7 @@ export function MentionedFiles({ text }: { text: string }): ReactElement | null 
         siblings={files}
         onStep={setOpen}
         onClose={() => setOpen(null)}
-        actions={
-          open && (
-            <>
-              <a className="btn btn--sm" href={hrefFor({ name: "files", path: open })} onClick={() => setOpen(null)}>
-                Open in Files
-              </a>
-              <button type="button" className="btn btn--sm" onClick={() => void api.downloadFile(open).catch(() => {})}>
-                Download
-              </button>
-            </>
-          )
-        }
+        actions={open && <PreviewLinks path={open} onOpenInFiles={() => setOpen(null)} />}
       />
     </div>
   );

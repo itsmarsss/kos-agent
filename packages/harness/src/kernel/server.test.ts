@@ -1656,3 +1656,22 @@ describe("the Discord server's channels", () => {
     }
   });
 });
+
+describe("a file as words", () => {
+  it("serves a text file's words, and says when there are none to read", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kos-api-"));
+    writeFileSync(join(root, "notes.txt"), "hello there");
+    writeFileSync(join(root, "photo.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const k = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: stub });
+    try {
+      const words = await handleApiRequest(k, { method: "GET", path: "/api/file/text", url: "/api/file/text?path=notes.txt" });
+      expect(words.body).toEqual({ path: "notes.txt", text: "hello there" });
+      const none = await handleApiRequest(k, { method: "GET", path: "/api/file/text", url: "/api/file/text?path=photo.png" });
+      expect(none.status).toBe(400);
+      expect((await handleApiRequest(k, { method: "GET", path: "/api/file/text" })).status).toBe(400);
+    } finally {
+      k.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

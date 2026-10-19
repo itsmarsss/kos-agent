@@ -1,8 +1,6 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 
-import { api, type FileContent } from "./api.js";
-import { FileBody } from "./FilePreview.js";
-import { hrefFor } from "./routes.js";
+import { FilePreview, PreviewLinks, type LocalFile } from "./FilePreview.js";
 
 /**
  * Attachments as a row of small squares, in the composer and in the message.
@@ -10,7 +8,9 @@ import { hrefFor } from "./routes.js";
  * A full-width image inside a bubble pushes the sentence it belongs to off the
  * screen, and a stack of them turns a short message into a scroll. Squares of
  * a fixed size read as "things attached to this", and the one that matters is
- * opened rather than always shown large.
+ * opened rather than always shown large: in the same window the Files page
+ * opens a file in, so a kept file is itself (a PDF in the browser's viewer,
+ * an Office file as its text) with Raw for the words KOS reads out of it.
  */
 
 export interface StripItem {
@@ -19,139 +19,16 @@ export interface StripItem {
   src?: string;
   /** Contents of a text file, so opening one shows the file. */
   text?: string;
-  /** Where the file itself is kept in the workspace: opened as itself, with the text as the other view. */
+  /** Where the file itself is kept in the workspace: opened as itself. */
   path?: string;
-}
-
-/**
- * A kept file, as the Files page shows it: a PDF in the browser's viewer,
- * a Word or Excel file as its text, an image as itself. The words the
- * model was given (a PDF read as text) are the other view, since what was
- * attached and what was read are not the same thing.
- */
-function KeptFile({ item }: { item: StripItem }): ReactElement {
-  const [file, setFile] = useState<FileContent | null>(null);
-  const [raw, setRaw] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    setFile(null);
-    setError(null);
-    setRaw(false);
-    if (!item.path) return undefined;
-    void api
-      .file(item.path)
-      .then((f) => {
-        if (!cancelled) setFile(f);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [item.path]);
-  return (
-    <div className="viewer-kept">
-      <div className="viewer-modes">
-        <button type="button" className={`btn btn--sm ${raw ? "btn--ghost" : ""}`} onClick={() => setRaw(false)}>
-          File
-        </button>
-        {item.text !== undefined && (
-          <button type="button" className={`btn btn--sm ${raw ? "" : "btn--ghost"}`} onClick={() => setRaw(true)} title="The words the model was given">
-            Raw text
-          </button>
-        )}
-        {item.path && (
-          <a className="btn btn--sm btn--ghost" href={hrefFor({ name: "files", path: item.path })}>
-            Open in Files
-          </a>
-        )}
-      </div>
-      {raw ? (
-        <pre className="viewer-text">{item.text}</pre>
-      ) : error ? (
-        <p className="hint preview-hint">The file is no longer there: {error}</p>
-      ) : file ? (
-        <FileBody file={file} />
-      ) : (
-        <p className="hint preview-hint">Opening…</p>
-      )}
-    </div>
-  );
 }
 
 /** More than this in one message is a folder, not an attachment. */
 export const MAX_ATTACHMENTS = 10;
 
-function Viewer({
-  items,
-  index,
-  onClose,
-  onMove,
-}: {
-  items: StripItem[];
-  index: number;
-  onClose: () => void;
-  onMove: (next: number) => void;
-}): ReactElement {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") onClose();
-      if (e.key === "ArrowRight") onMove((index + 1) % items.length);
-      if (e.key === "ArrowLeft") onMove((index - 1 + items.length) % items.length);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [index, items.length, onClose, onMove]);
-
-  const item = items[index];
-  if (!item) return <></>;
-
-  return (
-    <div className="viewer" role="dialog" aria-label={item.name} onClick={onClose}>
-      <div className="viewer-inner" onClick={(e) => e.stopPropagation()}>
-        {item.path && !item.src ? (
-          <KeptFile item={item} />
-        ) : item.src ? (
-          <img className="viewer-image" src={item.src} alt={item.name} />
-        ) : (
-          // The point of opening a text file is reading it, not being told
-          // its extension again.
-          <pre className="viewer-text">{item.text ?? "(no preview)"}</pre>
-        )}
-        <div className="viewer-bar">
-          {items.length > 1 && (
-            <button
-              type="button"
-              className="btn btn--ghost"
-              onClick={() => onMove((index - 1 + items.length) % items.length)}
-            >
-              ‹
-            </button>
-          )}
-          <span className="viewer-name">{item.name}</span>
-          {items.length > 1 && (
-            <span className="viewer-count">
-              {index + 1} of {items.length}
-            </span>
-          )}
-          {items.length > 1 && (
-            <button
-              type="button"
-              className="btn btn--ghost"
-              onClick={() => onMove((index + 1) % items.length)}
-            >
-              ›
-            </button>
-          )}
-          <button type="button" className="btn btn--ghost" onClick={onClose}>
-            ✕
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+/** The window's key for an item: its path when the file is kept, one of its own while it is only here. */
+function keyOf(item: StripItem, i: number): string {
+  return item.path ?? `attached:${i}:${item.name}`;
 }
 
 export function AttachmentStrip({
@@ -164,6 +41,15 @@ export function AttachmentStrip({
 }): ReactElement | null {
   const [open, setOpen] = useState<number | null>(null);
   if (items.length === 0) return null;
+
+  const keys = items.map(keyOf);
+  const locals: Record<string, LocalFile> = {};
+  items.forEach((item, i) => {
+    if (item.path) return;
+    locals[keys[i]!] = { name: item.name, ...(item.text !== undefined ? { text: item.text } : {}), ...(item.src ? { src: item.src } : {}) };
+  });
+  const openKey = open === null ? null : (keys[open] ?? null);
+  const kept = open === null ? undefined : items[open]?.path;
 
   return (
     <>
@@ -198,14 +84,14 @@ export function AttachmentStrip({
           </div>
         ))}
       </div>
-      {open !== null && (
-        <Viewer
-          items={items}
-          index={open}
-          onClose={() => setOpen(null)}
-          onMove={setOpen}
-        />
-      )}
+      <FilePreview
+        path={openKey}
+        siblings={keys}
+        locals={locals}
+        onStep={(key) => setOpen(keys.indexOf(key))}
+        onClose={() => setOpen(null)}
+        actions={kept ? <PreviewLinks path={kept} onOpenInFiles={() => setOpen(null)} /> : undefined}
+      />
     </>
   );
 }

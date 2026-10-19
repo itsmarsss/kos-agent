@@ -497,6 +497,13 @@ export interface FileContent {
   extracted?: string;
 }
 
+/** A file as words: a PDF or an Office file read the way KOS reads it, a text file as it is. */
+export interface FileText {
+  path: string;
+  text: string;
+  extracted?: string;
+}
+
 export interface ModelRate {
   inputPerMillion: number;
   outputPerMillion: number;
@@ -1033,6 +1040,8 @@ export const api = {
     ),
   file: (path: string) =>
     get<FileContent>(`/api/file?path=${encodeURIComponent(path)}`),
+  /** A document's words, as KOS reads them: the Raw view of a PDF or an Office file. */
+  fileText: (path: string) => get<FileText>(`/api/file/text?path=${encodeURIComponent(path)}`),
   /**
    * Image bytes as an object URL. Fetched rather than pointed at with a src so
    * the request carries whatever the rest of the client carries; the caller
