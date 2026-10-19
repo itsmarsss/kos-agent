@@ -1,6 +1,8 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 
+import { isOffice, officeNote, officeText } from "../files/office.js";
+import { isPdf } from "../files/pdftext.js";
 import type { Workspace } from "../store/workspace.js";
 
 /**
@@ -30,7 +32,12 @@ export interface FileContent {
   /** Why the text is absent, when it is. */
   omitted?: "binary" | "too-large";
   language: string;
+  /** Set when `text` is what was read out of a document rather than the file's own bytes: "docx, 12 paragraphs". */
+  extracted?: string;
 }
+
+/** Past this a document is not read for the page; it can still be downloaded. */
+const MAX_DOCUMENT_BYTES = 20_000_000;
 
 const MAX_TEXT_BYTES = 512_000;
 
@@ -148,6 +155,29 @@ export function readFile(ws: Workspace, requestPath: unknown): FileContent {
   if (!TEXT_EXTENSIONS.has(ext)) return { ...base, omitted: "binary" };
   if (st.size > MAX_TEXT_BYTES) return { ...base, omitted: "too-large" };
   return { ...base, text: readFileSync(abs, "utf8") };
+}
+
+/**
+ * A file for the page: as readFile has it, except that a Word, Excel or
+ * PowerPoint file comes back as the text read out of it, marked as such. A
+ * PDF stays binary here: the page shows it in the browser's own viewer,
+ * which is the PDF itself rather than its words.
+ */
+export function readForView(ws: Workspace, requestPath: unknown): FileContent {
+  const file = readFile(ws, requestPath);
+  if (file.omitted !== "binary" || file.size > MAX_DOCUMENT_BYTES) return file;
+  const bytes = readFileSync(ws.resolve(file.path));
+  if (!isOffice(bytes, file.path)) return file;
+  const { omitted: _omitted, ...rest } = file;
+  const read = officeText(new Uint8Array(bytes), file.path);
+  return { ...rest, text: read.text, extracted: officeNote(read) };
+}
+
+/** A PDF's bytes for the browser's own viewer; nothing else is served inline. */
+export function readPdf(ws: Workspace, requestPath: unknown): RawFile & { name: string } {
+  const raw = readBytes(ws, requestPath);
+  if (!isPdf(raw.bytes)) throw new Error(`not a PDF: ${raw.name}`);
+  return { ...raw, contentType: "application/pdf" };
 }
 
 /**

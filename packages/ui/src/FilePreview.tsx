@@ -39,14 +39,22 @@ export function ago(ms: number): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
+/** A PDF, by name: shown as itself in the browser's own viewer. */
+export function isPdfPath(path: string): boolean {
+  return /\.pdf$/i.test(path);
+}
+
+/** Where the browser's viewer gets a PDF from. */
+export function pdfViewUrl(path: string): string {
+  return `/api/file/view?path=${encodeURIComponent(path)}`;
+}
+
 /** The file's contents, shown for what they are. */
 export function FileBody({ file }: { file: FileContent }): ReactElement {
   if (file.omitted === "binary") {
-    return previewable(file.path) ? (
-      <ImageView path={file.path} />
-    ) : (
-      <p className="hint preview-hint">Binary file. Download it, or open the workspace folder.</p>
-    );
+    if (previewable(file.path)) return <ImageView path={file.path} />;
+    if (isPdfPath(file.path)) return <iframe className="preview-frame" src={pdfViewUrl(file.path)} title={file.path.split("/").pop() ?? file.path} />;
+    return <p className="hint preview-hint">Binary file. Download it, or open the workspace folder.</p>;
   }
   if (file.omitted === "too-large") return <p className="hint preview-hint">Too large to show here. Download it instead.</p>;
   if (file.text === undefined) return <p className="hint preview-hint">Nothing to show.</p>;
@@ -54,6 +62,16 @@ export function FileBody({ file }: { file: FileContent }): ReactElement {
     return (
       <div className="preview-md">
         <Markdown text={file.text} />
+      </div>
+    );
+  }
+  // Text read out of a Word, Excel or PowerPoint file: said so, since it is
+  // the document's words and not the document.
+  if (file.extracted) {
+    return (
+      <div className="preview-extracted">
+        <p className="hint preview-extracted-note">Text read from the document ({file.extracted}). Download it for the file itself.</p>
+        <pre className="preview-pre">{file.text}</pre>
       </div>
     );
   }

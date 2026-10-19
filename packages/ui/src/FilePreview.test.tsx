@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "./api.js";
-import { FilePreview } from "./FilePreview.js";
+import { FileBody, FilePreview } from "./FilePreview.js";
 
 afterEach(() => {
   cleanup();
@@ -49,6 +49,17 @@ describe("the file preview", () => {
     expect(h.onStep).toHaveBeenCalledWith(siblings[0]);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(h.onClose).toHaveBeenCalled();
+  });
+
+  it("frames a PDF in the browser's viewer, and marks text read out of a document", () => {
+    const { container, unmount } = render(<FileBody file={{ path: "docs/paper.pdf", size: 9, modifiedAt: 0, omitted: "binary", language: "" }} />);
+    const frame = container.querySelector("iframe.preview-frame") as HTMLIFrameElement;
+    expect(frame.getAttribute("src")).toBe("/api/file/view?path=docs%2Fpaper.pdf");
+    expect(frame.title).toBe("paper.pdf");
+    unmount();
+    render(<FileBody file={{ path: "cv.docx", size: 9, modifiedAt: 0, text: "Resume of Kenny", language: "", extracted: "docx, 1 paragraph" }} />);
+    expect(screen.getByText(/Text read from the document \(docx, 1 paragraph\)/)).toBeTruthy();
+    expect(screen.getByText("Resume of Kenny")).toBeTruthy();
   });
 
   it("shows nothing when no file is open", () => {

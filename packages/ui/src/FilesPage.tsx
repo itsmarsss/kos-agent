@@ -6,6 +6,7 @@ import { ease } from "./motion.js";
 import { api, type DirEntry, type FileContent } from "./api.js";
 import { EntryMenu, dragProps, dropProps, useFileOps, type FileChange } from "./FileActions.js";
 import { FileIcon, previewable } from "./FileIcon.js";
+import { isPdfPath, pdfViewUrl } from "./FilePreview.js";
 import { ImageView, Thumb } from "./FileThumb.js";
 import { useHiddenFiles } from "./hiddenfiles.js";
 import { Markdown } from "./Markdown.js";
@@ -420,11 +421,17 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
               // The reader treats an image as binary because it is not text.
               // That is right for reading it and wrong for showing it.
               <ImageView path={file.path} />
+            ) : isPdfPath(file.path) ? (
+              // A PDF is itself, in the browser's own viewer.
+              <iframe className="files-frame" src={pdfViewUrl(file.path)} title={file.path.split("/").pop() ?? file.path} />
             ) : (
               <p className="hint">
                 Binary file. Open the workspace folder to view it.
               </p>
             ))}
+          {file.extracted && (
+            <p className="hint files-extracted">Text read from the document ({file.extracted}). Download it for the file itself.</p>
+          )}
           {file.omitted === "too-large" && (
             <p className="hint">Too large to display here.</p>
           )}
