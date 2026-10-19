@@ -34,6 +34,13 @@ function whoOf(access: unknown): string {
   return who.length ? `, open to ${who.join(", ")}` : "";
 }
 
+/** The skill a script entry belongs to: skills/<name>/index.js is <name>. */
+function skillNameOf(entry: unknown): string | undefined {
+  if (typeof entry !== "string") return undefined;
+  const m = /^skills\/([^/]+)\//.exec(entry);
+  return m?.[1] ?? entry;
+}
+
 function fmtVal(v: unknown): string {
   if (v === null || v === undefined) return "—";
   if (typeof v === "string") return truncate(v);
@@ -222,7 +229,8 @@ export function summarizeAction(
     case "skills.use":
       return `Load skill ${fmtVal(a.name)}`;
     case "skills.commit":
-      return `Commit skill ${fmtVal(a.name)}`;
+      // Queued by the promoter with the entry path, not the name: the card said "Commit skill —".
+      return `Commit skill ${fmtVal(a.name ?? skillNameOf(a.entry))}`;
     default:
       break;
   }
