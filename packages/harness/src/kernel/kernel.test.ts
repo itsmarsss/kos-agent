@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -303,6 +303,15 @@ describe("Kernel", () => {
     // A turn from a surface names the surface, so a mirror of the chat there does not repeat it.
     await kernel.handleChannelTurn({ text: "and now?", userId: "owner", channel: "discord", conversationId: c.id });
     expect(said[1]).toMatchObject({ conversationId: c.id, text: "and now?", reply: "From Discord.", channel: "discord" });
+  });
+
+  it("finds the kept file behind an attachment stored without its path", async () => {
+    kernel = await boot({ async generate() { return { content: [{ type: "text", text: "ok" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" }; } });
+    const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Older" });
+    mkdirSync(join(root, "uploads"), { recursive: true });
+    writeFileSync(join(root, "uploads", "wout.pdf"), "pdf");
+    expect(kernel.keptPathOf(c.id, "wout.pdf")).toBe("uploads/wout.pdf");
+    expect(kernel.keptPathOf(c.id, "never.pdf")).toBeUndefined();
   });
 
   it("tells the turn what a channel named in a message is, and nothing of a # that names none", async () => {
