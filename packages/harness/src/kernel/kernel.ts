@@ -1224,6 +1224,11 @@ export class Kernel {
       origin: "system",
       task: job.task,
     });
+    // A blob that reports hands each run's answer to the owner, tagged as
+    // its own; otherwise the answer stays in its thread and the brief says
+    // what to tell.
+    const role = job.agent ? this.roles.get(job.agent) : undefined;
+    if (role?.report === "always" && res.reply.trim()) this.caretaker.tell(res.reply, this.senderFor(id));
     return res.reply;
   }
 

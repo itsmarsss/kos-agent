@@ -236,6 +236,26 @@ describe("Kernel", () => {
     expect(kernel.askerOf("nope")).toBeUndefined();
   });
 
+  it("sends the owner a reporting blob's answer after each scheduled run, tagged as the blob's", async () => {
+    const answer = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    const seen: NotifyPayload[] = [];
+    kernel = await boot(stubInference([answer("Nothing changed today."), answer("Quiet again.")]), async (payload) => {
+      seen.push(payload as NotifyPayload);
+    });
+    const role = { name: "recap", description: "Sums up the day", brief: "You recap.", memory: "own" as const, schedule: "0 18 * * *", prompt: "Recap.", report: "always" as const };
+    kernel.roles.write(role);
+    const thread = kernel.ensureAgentConversation("recap");
+    const job = kernel.bindAgentSchedule("recap", role)!;
+    await kernel.fireCron(job.id);
+    expect(seen).toEqual([{ text: "Nothing changed today.", target: { kind: "owner" }, from: { name: "Recap", colour: bodyHexOf("recap") } }]);
+    expect(JSON.stringify(kernel.sessions.get(thread.id))).toContain("Nothing changed today.");
+    // Without report, the answer stays in the thread.
+    kernel.roles.write({ ...role, report: undefined });
+    await kernel.fireCron(job.id);
+    expect(seen).toHaveLength(1);
+    expect(JSON.stringify(kernel.sessions.get(thread.id))).toContain("Quiet again.");
+  });
+
   it("queues a risky tool call instead of executing it", async () => {
     kernel = await boot(
       stubInference([

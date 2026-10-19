@@ -3151,6 +3151,7 @@ function parseRoleInput(body: Record<string, unknown>): Role | string {
     ...(body.task === "cheap" || body.task === "reasoning" ? { task: body.task } : {}),
     ...(schedule ? { schedule } : {}),
     ...(prompt ? { prompt } : {}),
+    ...(body.report === "always" ? { report: "always" as const } : {}),
     ...(Object.keys(face).length ? { face } : {}),
   };
 }

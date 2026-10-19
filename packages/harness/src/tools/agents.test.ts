@@ -103,12 +103,13 @@ describe("blobs tools", () => {
       schedule: "0 */6 * * *",
       prompt: "Look at the listing.",
       task: "cheap",
+      report: "always",
       face: { hue: 210, eyes: "sparkle", gait: 7 },
     })).json!;
     expect(made).toMatchObject({ name: "price-watch", path: "blobs/price-watch/blob.md", conversationId: "agent:price-watch", job: { id: 7, schedule: "0 */6 * * *" } });
     expect(existsSync(join(root, "blobs", "price-watch", "blob.md"))).toBe(true);
-    // The face the owner asked for, less the part that was out of range.
-    expect(h.roles.get("price-watch")).toMatchObject({ schedule: "0 */6 * * *", prompt: "Look at the listing.", task: "cheap", memory: "own", face: { hue: 210, eyes: "sparkle" } });
+    // The face the owner asked for, less the part that was out of range; and that each run reports.
+    expect(h.roles.get("price-watch")).toMatchObject({ schedule: "0 */6 * * *", prompt: "Look at the listing.", task: "cheap", memory: "own", report: "always", face: { hue: 210, eyes: "sparkle" } });
     expect(h.roles.get("price-watch")!.face).not.toHaveProperty("gait");
     expect(h.conversations.get("agent:price-watch")).toMatchObject({ role: "price-watch" });
     expect(h.bound).toEqual([{ name: "price-watch", schedule: "0 */6 * * *" }]);

@@ -194,6 +194,7 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
           )}
           <Tag title={agent.memory === "own" ? "What it remembers is its own" : "It shares memory with the project it is in, or the global pool"}>{agent.memory === "own" ? "Own memory" : "Shared memory"}</Tag>
           <Tag title="Which model class answers">{agent.task === "cheap" ? "Cheap model" : "Reasoning model"}</Tag>
+          {agent.report === "always" && <Tag title="Each scheduled run's answer is sent to you, tagged as its own">Reports each run</Tag>}
         </div>
       </Card>
 

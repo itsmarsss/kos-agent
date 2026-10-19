@@ -32,10 +32,12 @@ interface Draft {
   task: "reasoning" | "cheap";
   schedule: string;
   prompt: string;
+  /** Whether each run's answer is sent to the owner, or only what the brief says. */
+  report: "always" | "brief";
   face: FaceLook;
 }
 
-const BLANK: Draft = { name: "", description: "", brief: "", tools: null, memory: "own", task: "reasoning", schedule: "", prompt: "", face: {} };
+const BLANK: Draft = { name: "", description: "", brief: "", tools: null, memory: "own", task: "reasoning", schedule: "", prompt: "", report: "brief", face: {} };
 /** What the harness accepts as a name: it is a folder name and a thread id. */
 const NAME_SHAPE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
@@ -49,6 +51,7 @@ function toDraft(a: AgentInfo): Draft {
     task: a.task ?? "reasoning",
     schedule: a.schedule ?? "",
     prompt: a.prompt ?? "",
+    report: a.report ?? "brief",
     face: a.face ?? {},
   };
 }
@@ -63,6 +66,7 @@ function fromDraft(d: Draft): AgentDraft {
     ...(d.tools && d.tools.length ? { tools: d.tools } : {}),
     ...(d.schedule.trim() ? { schedule: d.schedule.trim() } : {}),
     ...(d.prompt.trim() ? { prompt: d.prompt.trim() } : {}),
+    ...(d.report === "always" ? { report: "always" as const } : {}),
     ...(Object.keys(d.face).length ? { face: d.face } : {}),
   };
 }
@@ -209,6 +213,17 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
             <Field label="On each run" required hint="What it is told each time, in its own thread.">
               <textarea className="kos-input" rows={3} value={draft.prompt} placeholder="Look at the listing and compare with what you remember." onChange={(e) => setDraft({ ...draft, prompt: e.target.value })} />
             </Field>
+          )}
+          {draft.schedule.trim() !== "" && (
+            <Choice
+              label="After each run"
+              value={draft.report}
+              options={[
+                ["brief", "As the brief says", "You hear from it only when its instructions say to tell you."],
+                ["always", "Tell me", "Its answer is sent to you every time, tagged as the blob's."],
+              ]}
+              onChange={(report) => setDraft({ ...draft, report })}
+            />
           )}
         </div>
       </section>
