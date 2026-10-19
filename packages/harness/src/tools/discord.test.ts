@@ -149,11 +149,16 @@ describe("the discord tools", () => {
     expect(h.registry.classify("discord.bind", { channel: "diary", to: "project:leetcode_daily" }).tier).toBe("safe");
     // A channel is found by its id, the one thing about it that does not change.
     expect(findChannel(h.channels, "ch3")?.key).toBe("project:garden");
+    // A chat by its id too, written as a reference or bare.
+    expect((await h.call("discord.bind", { channel: "#leetcode", to: "@chat:[cmv1:owner]" })).json).toMatchObject({ key: "cmv1:owner" });
+    expect(h.bound.at(-1)).toEqual(["#leetcode", "cmv1:owner"]);
+    expect((await h.call("discord.bind", { channel: "#leetcode", to: "not a chat id!" })).isError).toBe(true);
     const res = (await h.call("discord.bind", { channel: "#leetcode", to: "project:leetcode_daily" })).json!;
     expect(res).toMatchObject({ key: "project:leetcode_daily", name: "leetcode", audience: "guests" });
     expect(String(res["note"])).toContain("members read and write there, and are heard");
-    expect(h.bound).toEqual([["#leetcode", "project:leetcode_daily"]]);
-    expect((await h.call("discord.bind", { channel: "#leetcode", to: "cron:3" })).isError).toBe(true);
+    expect(h.bound.at(-1)).toEqual(["#leetcode", "project:leetcode_daily"]);
+    // Whether an id names a chat that exists is the host's check; the tool refuses only what cannot be an id.
+    expect((await h.call("discord.bind", { channel: "#leetcode", to: "no such thing" })).isError).toBe(true);
   });
 
   it("makes places and roles for a purpose of the owner's, and asks only when someone else is let in", async () => {
