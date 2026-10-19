@@ -34,6 +34,7 @@ export function connectChannel(
 ): ChannelRuntime {
   return new ChannelRuntime({
     adapter,
+    ownerRecipientId: options.ownerRecipientId,
     ...(options.identity ? { identity: options.identity } : {}),
     // So a prompt sent here is settled when the owner answers it in the
     // dashboard instead, rather than sitting there offering a choice that
@@ -64,6 +65,7 @@ export function connectChannel(
         ...(ctx.conversationId ? { conversationId: ctx.conversationId } : {}),
         ...(ctx.newIn ? { newIn: ctx.newIn } : {}),
         ...(ctx.attachments?.length ? { attachments: ctx.attachments } : {}),
+        ...(ctx.guest ? { guest: ctx.guest } : {}),
       });
       // The owner asked from this surface and the answer lands on it, so
       // the thread is read as far as they are concerned.

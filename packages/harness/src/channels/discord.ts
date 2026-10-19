@@ -24,7 +24,8 @@ import {
 import { detailLines, summarizeAction, withUnixTimes } from "@kos/shared";
 
 import { isReadable, type Attachment } from "../kernel/attachments.js";
-import type { Access, Audience, MakePlace, ServerPlace, ServerRole } from "../tools/discord.js";
+import type { Access, Audience, ChannelMessage, MakePlace, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
+import type { Guest } from "./types.js";
 import { COMMANDS, completions, runCommand, type SlashContext } from "./commands.js";
 import { linkMentions, linkPaths, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
 import { tablesToCode } from "./tables.js";
@@ -298,6 +299,11 @@ export interface DiscordAdapterOptions {
   /** What a reference is called: a chat's title for its id, a job's name for its number. */
   labelOf?: LabelOf;
   /**
+   * Whether a channel takes guests, by what it is bound to: then what a
+   * member writes or presses there reaches the chat as that guest's.
+   */
+  guestsAllowed?: (key: string) => boolean;
+  /**
    * Which thread stands for which chat, all of them, so an ask from a chat
    * can be put where the chat is read rather than in the approvals channel.
    */
@@ -351,10 +357,13 @@ function overwritesFor(audience: Audience, ids: { everyone: string; owner?: stri
   // Each id says what it is: a bare snowflake is refused by the library
   // unless it is already cached, and the owner rarely is.
   return [
-    // Everyone else: nothing, or a window in: they read, they do not write.
-    audience === "everyone"
-      ? { id: ids.everyone, type: OverwriteType.Role, allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages, P.SendMessagesInThreads, P.CreatePublicThreads, P.CreatePrivateThreads] }
-      : { id: ids.everyone, type: OverwriteType.Role, deny: [P.ViewChannel] },
+    // Everyone else: nothing; a window in, reading only; or the room, to
+    // guests who read and write, their words reaching the chat.
+    audience === "guests"
+      ? { id: ids.everyone, type: OverwriteType.Role, allow: talk, deny: [P.CreatePrivateThreads] }
+      : audience === "everyone"
+        ? { id: ids.everyone, type: OverwriteType.Role, allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages, P.SendMessagesInThreads, P.CreatePublicThreads, P.CreatePrivateThreads] }
+        : { id: ids.everyone, type: OverwriteType.Role, deny: [P.ViewChannel] },
     ...(ids.owner ? [{ id: ids.owner, type: OverwriteType.Member, allow: talk }] : []),
     ...(ids.bot ? [{ id: ids.bot, type: OverwriteType.Member, allow: [...talk, P.ManageWebhooks, P.ManageThreads, P.ManageMessages] }] : []),
   ];
@@ -380,6 +389,22 @@ interface AdminGuild {
   };
 }
 
+/** As much of a channel as reading and reacting touch. */
+interface ReadableChannel {
+  messages: {
+    fetch: ((id: string) => Promise<ReadableMessage>) & ((options: { limit: number }) => Promise<Map<string, ReadableMessage>>);
+  };
+}
+
+interface ReadableMessage {
+  id: string;
+  content: string;
+  createdTimestamp: number;
+  author: { id: string; username: string; globalName?: string | null; bot: boolean };
+  reactions: { cache: Map<string, { count: number; emoji: { name: string | null; toString(): string }; users: { fetch: () => Promise<Map<string, { id: string; username: string; globalName?: string | null }>> } }> };
+  react: (emoji: string) => Promise<unknown>;
+}
+
 /** A channel or category as the admin tools see it. */
 interface AdminChannel extends OverwritableChannel {
   type: ChannelType;
@@ -392,7 +417,7 @@ interface OverwritableChannel {
   id: string;
   name: string;
   permissionOverwrites?: {
-    cache: Map<string, { deny: { has: (bit: bigint) => boolean } }>;
+    cache: Map<string, { deny: { has: (bit: bigint) => boolean }; allow?: { has: (bit: bigint) => boolean } }>;
     set: (overwrites: Overwrite[]) => Promise<unknown>;
   };
   setParent?: (parent: string, options?: { lockPermissions?: boolean }) => Promise<unknown>;
@@ -408,10 +433,11 @@ interface BoundChannel {
   channel: OverwritableChannel;
 }
 
-/** What a channel's permissions say its audience is: the owner alone when everyone is kept out. */
-function audienceOf(channel: { permissionOverwrites?: { cache: Map<string, { deny: { has: (bit: bigint) => boolean } }> } }, everyoneId: string): Audience {
+/** What a channel's permissions say its audience is: the owner alone when everyone is kept out; guests when everyone may write. */
+function audienceOf(channel: { permissionOverwrites?: { cache: Map<string, { deny: { has: (bit: bigint) => boolean }; allow?: { has: (bit: bigint) => boolean } }> } }, everyoneId: string): Audience {
   const everyone = channel.permissionOverwrites?.cache.get(everyoneId);
-  return everyone?.deny.has(PermissionFlagsBits.ViewChannel) ? "owner" : "everyone";
+  if (everyone?.deny.has(PermissionFlagsBits.ViewChannel)) return "owner";
+  return everyone?.allow?.has(PermissionFlagsBits.SendMessages) ? "guests" : "everyone";
 }
 
 /** A blob's webhooks are named for it, so its face can be told from the shared one. */
@@ -692,6 +718,7 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly threadBindings?: () => Record<string, string>;
   private readonly timezone?: string;
   private readonly labelOf?: LabelOf;
+  private readonly guestsAllowed?: (key: string) => boolean;
   /** The server's approvals channel, once sync has found or made it. */
   private approvalsChannelId?: string;
   /** One webhook per channel, made on first use, through which a blob speaks as itself. */
@@ -716,6 +743,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (options.threadBindings) this.threadBindings = options.threadBindings;
     if (options.timezone) this.timezone = options.timezone;
     if (options.labelOf) this.labelOf = options.labelOf;
+    if (options.guestsAllowed) this.guestsAllowed = options.guestsAllowed;
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
@@ -776,9 +804,14 @@ export class DiscordAdapter implements ChannelAdapter {
     // only the owner: anyone else in the channel is read as the room's
     // own talk, which KOS stays out of.
     let binding: ChannelBinding | undefined;
+    let guest: Guest | undefined;
     if (message.guild) {
       if (!this.guildId || message.guild.id !== this.guildId) return;
-      if (!this.isAuthorized(message.author.id)) return;
+      // Not the owner: a guest's words, in a room opened to guests; silence anywhere else.
+      if (!this.isAuthorized(message.author.id)) {
+        guest = this.guestIn(message);
+        if (!guest) return;
+      }
       binding = bindingOf(message.channel as Parameters<typeof bindingOf>[0], this.threadOf);
       if (!binding) return;
     } else if (!this.isAuthorized(message.author.id)) {
@@ -800,8 +833,65 @@ export class DiscordAdapter implements ChannelAdapter {
       ...(attachments.length ? { attachments } : {}),
       ...(binding ? { conversationId: binding.conversationId } : {}),
       ...(binding?.newIn ? { newIn: binding.newIn } : {}),
+      ...(guest ? { guest } : {}),
       native: message,
     });
+  }
+
+  /**
+   * The member who wrote or pressed, as a guest, when the room (the channel,
+   * or a thread's parent) is one KOS opened to guests; nobody otherwise.
+   */
+  private guestIn(from: { author?: { id: string; username: string; globalName?: string | null }; user?: { id: string; username: string; globalName?: string | null }; member?: { displayName?: string } | null; channel: unknown }): Guest | undefined {
+    const who = from.author ?? from.user;
+    if (!who) return undefined;
+    const channel = from.channel as { isThread?: () => boolean; parent?: { topic?: string | null } | null; topic?: string | null } | null;
+    const room = channel?.isThread?.() ? channel.parent : channel;
+    const key = boundKeyOf(room?.topic ?? null);
+    if (!key || !this.guestsAllowed?.(key)) return undefined;
+    return { id: who.id, name: from.member?.displayName ?? who.globalName ?? who.username };
+  }
+
+  /** The channel or thread, by id or by name, as somewhere messages can be read from. */
+  private async room(channel: string): Promise<ReadableChannel> {
+    const id = this.channelIds.get(channel.trim().replace(/^#/, "").toLowerCase()) ?? channel.trim();
+    const fetched = await this.client.channels.fetch(id).catch(() => null);
+    if (!fetched || !("messages" in fetched)) throw new Error(`no channel called ${channel} that KOS can read; discord.server lists them`);
+    return fetched as unknown as ReadableChannel;
+  }
+
+  /** An emoji on a message, from KOS. */
+  async react(channel: string, message: string, emoji: string): Promise<void> {
+    const room = await this.room(channel);
+    const found = await room.messages.fetch(message);
+    await found.react(emoji);
+  }
+
+  /** Who reacted with what on a message, each emoji with the members behind it. */
+  async reactions(channel: string, message: string): Promise<Reaction[]> {
+    const room = await this.room(channel);
+    const found = await room.messages.fetch(message);
+    const out: Reaction[] = [];
+    for (const reaction of found.reactions.cache.values()) {
+      const users = [...(await reaction.users.fetch()).values()].map((u) => ({ id: u.id, name: u.globalName ?? u.username }));
+      out.push({ emoji: reaction.emoji.name ?? String(reaction.emoji), count: reaction.count, users });
+    }
+    return out;
+  }
+
+  /** The last messages in a channel, oldest first. */
+  async messages(channel: string, limit: number): Promise<ChannelMessage[]> {
+    const room = await this.room(channel);
+    const fetched = await room.messages.fetch({ limit: Math.max(1, Math.min(100, limit)) });
+    return [...fetched.values()]
+      .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+      .map((m) => ({
+        id: m.id,
+        author: { id: m.author.id, name: m.author.globalName ?? m.author.username, bot: m.author.bot },
+        text: m.content,
+        at: new Date(m.createdTimestamp).toISOString(),
+        reactions: [...m.reactions.cache.values()].map((r) => ({ emoji: r.emoji.name ?? String(r.emoji), count: r.count })),
+      }));
   }
 
   /**
@@ -1249,7 +1339,9 @@ export class DiscordAdapter implements ChannelAdapter {
     // gate put on an approval prompt.
     if (interaction.customId.startsWith(PRESS_PREFIX)) {
       const token = interaction.customId.slice(PRESS_PREFIX.length);
-      if (!this.isAuthorized(interaction.user.id)) {
+      // A guest may press in a room opened to guests; the press is marked as theirs.
+      const guest = this.isAuthorized(interaction.user.id) ? undefined : this.guestIn(interaction as unknown as Parameters<DiscordAdapter["guestIn"]>[0]);
+      if (!this.isAuthorized(interaction.user.id) && !guest) {
         try {
           await interaction.reply({
             content: "Not authorized.",
@@ -1264,7 +1356,7 @@ export class DiscordAdapter implements ChannelAdapter {
       // reading it defensively is cheaper than narrowing a wire shape.
       const label =
         (interaction.component as { label?: string | null }).label ?? "";
-      await this.handlePress(interaction, token, label);
+      await this.handlePress(interaction, token, label, guest);
       return;
     }
 
@@ -1322,6 +1414,7 @@ export class DiscordAdapter implements ChannelAdapter {
     interaction: ButtonInteraction,
     token: string,
     label: string,
+    guest?: Guest,
   ): Promise<void> {
     // Where the answer goes once a form has moved the conversation onto the
     // submission: the button's own interaction can no longer be replied to.
@@ -1423,7 +1516,7 @@ export class DiscordAdapter implements ChannelAdapter {
     }
 
     await this.buttonHandler(
-      { buttonId: "", label, token, pressedBy: interaction.user.id },
+      { buttonId: "", label, token, pressedBy: interaction.user.id, ...(guest ? { guest } : {}) },
       respond,
     );
 
@@ -1465,7 +1558,7 @@ export class DiscordAdapter implements ChannelAdapter {
    * the surface already has the notion of a place to post in. Owner still
    * means the DM, so the ordinary path is unchanged.
    */
-  async sendTo(target: MessageTarget, msg: OutboundMessage): Promise<void> {
+  async sendTo(target: MessageTarget, msg: OutboundMessage): Promise<{ id?: string } | void> {
     if (target.kind === "channel") {
       if (!target.id) throw new Error("a channel needs an id");
       const channel = await this.client.channels.fetch(target.id);
@@ -1474,8 +1567,10 @@ export class DiscordAdapter implements ChannelAdapter {
           `discord channel ${target.id} is not somewhere this bot can post`,
         );
       }
-      await this.deliver((payload) => channel.send(payload), msg);
-      return;
+      // The message's id comes back, so what was posted can be reacted to
+      // or counted later.
+      const id = await this.deliver((payload) => channel.send(payload), msg);
+      return id ? { id } : undefined;
     }
     const id = target.kind === "user" ? target.id : this.ownerId;
     if (!id) throw new Error("no owner is configured to send to");
@@ -1535,7 +1630,7 @@ export class DiscordAdapter implements ChannelAdapter {
     }) => Promise<unknown>,
     msg: OutboundMessage,
     { tagged = true }: { tagged?: boolean } = {},
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     // References become links first, so the split sees the longer text. A
     // message already posted under the speaker's own name carries no tag.
     const text = tagged ? taggedText(msg) : msg.text;
@@ -1559,15 +1654,18 @@ export class DiscordAdapter implements ChannelAdapter {
     if (chunks.length === 0 && embeds.length === 0 && files.length === 0) {
       throw new Error("nothing to send: no text, no card and no file");
     }
+    let posted: unknown;
     for (let i = 0; i < Math.max(chunks.length, 1); i++) {
       const last = i === Math.max(chunks.length, 1) - 1;
-      await post({
+      posted = await post({
         ...(chunks[i] ? { content: chunks[i] } : {}),
         ...(last && embeds.length ? { embeds } : {}),
         ...(last && components.length ? { components } : {}),
         ...(last && files.length ? { files: files.map((f) => ({ attachment: f.attachment, name: f.name })) } : {}),
       });
     }
+    const id = (posted as { id?: unknown } | undefined)?.id;
+    return typeof id === "string" ? id : undefined;
   }
 
   /**

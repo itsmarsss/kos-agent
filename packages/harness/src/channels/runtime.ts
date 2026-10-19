@@ -6,12 +6,13 @@ import { SingleOwnerMapping, type UserMapping } from "./identity.js";
 import { TurnNarrator } from "./narrate.js";
 import type {
   ApprovalDecision,
+  ApprovalOutcome,
   ChannelAdapter,
   ConversationSeed,
+  Guest,
   InboundMessage,
   OutboundMessage,
   TurnPresence,
-  ApprovalOutcome,
 } from "./types.js";
 
 export interface TurnContext {
@@ -27,6 +28,8 @@ export interface TurnContext {
   newIn?: ConversationSeed;
   /** Images and text files that came with the message. */
   attachments?: Attachment[];
+  /** A guest of the channel spoke, not the owner. */
+  guest?: Guest;
 }
 
 /** Handles one user turn and returns the reply text. */
@@ -77,6 +80,8 @@ export function logRejectedInbound(event: RejectedInbound): void {
 export interface ChannelRuntimeOptions {
   adapter: ChannelAdapter;
   handleTurn: TurnHandler;
+  /** The owner's id on this surface, whose chat a guest's words run in. */
+  ownerRecipientId?: string;
   /** Approve/deny sink. Omit to leave the adapter's approval path unwired. */
   handleDecision?: DecisionHandler;
   /**
@@ -134,6 +139,7 @@ const NARRATE_EVERY_MS = 1_500;
 export class ChannelRuntime {
   private readonly adapter: ChannelAdapter;
   private readonly handleTurn: TurnHandler;
+  private readonly ownerRecipientId: string | undefined;
   private readonly handleDecision: DecisionHandler | undefined;
   private readonly identity: UserMapping;
   private readonly errorReply: string;
@@ -146,6 +152,7 @@ export class ChannelRuntime {
   constructor(options: ChannelRuntimeOptions) {
     this.adapter = options.adapter;
     this.handleTurn = options.handleTurn;
+    this.ownerRecipientId = options.ownerRecipientId;
     this.handleDecision = options.handleDecision;
     this.identity = options.identity ?? new SingleOwnerMapping();
     this.errorReply =
@@ -275,7 +282,10 @@ export class ChannelRuntime {
   }
 
   private async dispatch(msg: InboundMessage): Promise<void> {
-    const userId = this.resolve(msg.channel, msg.senderId);
+    // A guest's words run in the owner's chat, as the owner's user and
+    // marked as a guest's; the adapter has already checked the channel
+    // was opened to guests.
+    const userId = this.resolve(msg.channel, msg.senderId) ?? (msg.guest ? (this.ownerRecipientId ? this.resolve(msg.channel, this.ownerRecipientId) : null) : null);
     if (userId === null) {
       // Unknown sender: drop before anything is acknowledged, so no agent run,
       // no memory write, no session history, and no workspace state echoed back.
@@ -301,6 +311,7 @@ export class ChannelRuntime {
           ...(msg.conversationId ? { conversationId: msg.conversationId } : {}),
         })
       : undefined;
+    const guest = msg.guest ? { guest: msg.guest } : {};
 
     try {
       const answer = await this.handleTurn({
@@ -312,6 +323,7 @@ export class ChannelRuntime {
         ...(msg.conversationId ? { conversationId: msg.conversationId } : {}),
         ...(msg.newIn ? { newIn: msg.newIn } : {}),
         ...(msg.attachments?.length ? { attachments: msg.attachments } : {}),
+        ...guest,
       });
       const { suspended = false, ...message } = typeof answer === "string" ? { text: answer } : answer;
       const reply: OutboundMessage = message;

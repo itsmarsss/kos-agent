@@ -45,15 +45,17 @@ export function pressMessage(
   values: Record<string, string> | undefined,
   ownerRecipientId?: string,
 ): string {
+  const named =
+    route.buttonId && route.buttonId !== route.label ? ` (${route.buttonId})` : "";
+  const typed = Object.entries(values ?? {}).filter(([, v]) => v !== "");
+  // A guest's press is named by the turn itself, which marks it as a
+  // guest's; here it is only what was pressed.
   const who =
     ownerRecipientId && press.pressedBy === ownerRecipientId
       ? "you"
       : press.pressedBy;
-  const named =
-    route.buttonId && route.buttonId !== route.label ? ` (${route.buttonId})` : "";
-  const typed = Object.entries(values ?? {}).filter(([, v]) => v !== "");
   return [
-    `[${who} pressed "${route.label}"${named}]`,
+    press.guest ? `pressed "${route.label}"${named}` : `[${who} pressed "${route.label}"${named}]`,
     ...typed.map(([name, value]) => `${name}: ${value}`),
   ].join("\n");
 }
@@ -101,6 +103,7 @@ export function createPressHandler(deps: PressHandlerDeps): ButtonPressHandler {
         {
           sessionId: route.conversationId,
           origin: "system",
+          ...(press.guest ? { guest: press.guest } : {}),
           // Which surface the answer is for. Without it the turn cannot know
           // a card will be rendered, so it sends the words instead.
           channel: deps.channel,

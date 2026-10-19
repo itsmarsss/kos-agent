@@ -42,6 +42,12 @@ export interface InboundMessage {
    */
   attachments?: Attachment[];
   /**
+   * Not the owner: a member of a channel the owner opened to guests. The
+   * turn runs in the owner's chat, told whose words these are and to treat
+   * them as a guest's.
+   */
+  guest?: Guest;
+  /**
    * Adapter-private handle (e.g. Discord Message) for reactions/edits.
    * Runtime must not inspect this; only the adapter's acknowledge() may.
    */
@@ -208,6 +214,14 @@ export interface ButtonPress {
   token: string;
   /** Channel-native id of whoever pressed it. */
   pressedBy: string;
+  /** Set when the presser is a guest of the channel rather than the owner. */
+  guest?: Guest;
+}
+
+/** Someone in a channel who is not the owner, as the surface names them. */
+export interface Guest {
+  id: string;
+  name: string;
 }
 
 /**
@@ -329,7 +343,7 @@ export interface ChannelAdapter {
    * without the notion refuses, and the caller is told rather than the message
    * being delivered somewhere it did not ask for.
    */
-  sendTo?(target: MessageTarget, msg: OutboundMessage): Promise<void>;
+  sendTo?(target: MessageTarget, msg: OutboundMessage): Promise<{ id?: string } | void>;
   /** Optional: told when a button KOS sent was pressed. */
   onButton?(handler: ButtonPressHandler): void;
   requestApproval(recipientId: string, req: ApprovalRequest): Promise<void>;

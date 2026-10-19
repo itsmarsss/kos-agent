@@ -112,6 +112,23 @@ role always asks. Posting into a place it made is `notify` to
 pressed or filled in, so a board for other people is a category, a role,
 a channel or two and a message with buttons.
 
+A channel can take guests: `discord.audience` set to `guests` lets
+everyone on the server read and write there, and what a member writes
+reaches the chat the channel is bound to as that guest's words, named
+("[Ana, a guest in the channel] …") and told to the turn as untrusted:
+the brief and your standing instructions govern, nothing of yours changes
+on a guest's say-so, and anything risky still asks you. Their button
+presses reach the chat the same way. Nothing a guest says is remembered as
+yours. Opening a channel to guests asks you first.
+
+KOS can also read and react: `discord.messages` (the last messages in a
+channel, who said what, with the reactions each carries), `discord.reactions`
+(who reacted with what on a message, by name) and `discord.react` (an emoji
+on a message). `notify` hands back the id of what it posted, so a post can
+be reacted to or counted later. A daily board for a group is then a
+channel that takes guests, a schedule that posts into it, and a run that
+counts the ticks.
+
 ```
 KOS_SECRET_DISCORD=   bot token
 KOS_OWNER_DISCORD=    your user id, and the inbound gate

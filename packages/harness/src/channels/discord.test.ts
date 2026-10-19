@@ -770,6 +770,11 @@ describe("DiscordAdapter authorization", () => {
       ["needs-you", "cat", "kos:needs-you · Approvals"],
     ]);
     expect(created.filter((c) => c["type"] === ChannelType.GuildCategory).map((c) => c["name"])).toEqual(["Projects"]);
+    // Guests: everyone may read and write, so what they say reaches the chat.
+    await adapter.sync([{ key: "project:club", name: "club", topic: "kos:project:club · Club", category: "Projects", audience: "guests" }]);
+    const club = created.find((c) => c["name"] === "club") as { permissionOverwrites: { id: string; allow?: bigint[] }[] } | undefined;
+    expect(club?.permissionOverwrites[0]).toMatchObject({ id: "g1" });
+    expect(club?.permissionOverwrites[0]?.allow).toContain(PermissionFlagsBits.SendMessages);
     // Made for the owner's eyes: everyone else is kept out, the owner and the bot let in.
     const overwrites = texts[0]!["permissionOverwrites"] as { id: string; type: OverwriteType; allow?: bigint[]; deny?: bigint[] }[];
     expect(overwrites[0]).toEqual({ id: "g1", type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] });
@@ -1153,6 +1158,91 @@ describe("DiscordAdapter authorization", () => {
     const kos = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "hi", conversationKey: "orchestrator:owner", native: message });
     await kos!.update("› List projects");
     expect(posted).toEqual([{ content: "-# › List projects", flags: MessageFlags.SuppressNotifications }]);
+  });
+
+  it("takes a guest's words and presses in a room opened to guests, as the guest's, and nobody else's anywhere else", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id", guestsAllowed: (key) => key === "project:club" });
+    adapter.setAuthorizer((senderId) => senderId === "owner-id");
+    const seen: InboundMessage[] = [];
+    adapter.onMessage((m) => {
+      seen.push(m);
+    });
+    const presses: ButtonPress[] = [];
+    adapter.onButton((press) => {
+      presses.push(press);
+    });
+    const open = { id: "c1", isThread: () => false, topic: "kos:project:club · Club", isSendable: () => true };
+    const shut = { id: "c2", isThread: () => false, topic: "kos:project:garden · Garden", isSendable: () => true };
+    const thread = { id: "t1", isThread: () => true, parent: open, isSendable: () => true };
+    const guild = { id: "g1" };
+    const from = (channel: unknown, author: { id: string; username: string; globalName?: string }, content: string, member?: { displayName: string }) =>
+      ({ guild, channel, author: { ...author, bot: false }, member: member ?? null, content, attachments: new Map() }) as unknown as Message;
+    // A member in the open room: a guest, named as the server names them.
+    await adapter.receiveMessage(from(open, { id: "u1", username: "ana_b", globalName: "Ana" }, "my solution", { displayName: "Ana B" }));
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ senderId: "u1", text: "my solution", conversationId: "project:club", guest: { id: "u1", name: "Ana B" } });
+    // In a thread under it: still a guest. In a room not opened: silence.
+    await adapter.receiveMessage(from(thread, { id: "u2", username: "bo" }, "me too"));
+    expect(seen[1]).toMatchObject({ guest: { id: "u2", name: "bo" } });
+    await adapter.receiveMessage(from(shut, { id: "u1", username: "ana_b" }, "psst"));
+    expect(seen).toHaveLength(2);
+    // The owner is never a guest.
+    await adapter.receiveMessage(from(open, { id: "owner-id", username: "marsss" }, "hi all"));
+    expect(seen[2]?.guest).toBeUndefined();
+    // A guest's press in the open room comes through marked; a stranger's elsewhere is refused.
+    const pressed = { ...fakeButton("u1", `${PRESS_PREFIX}tok9`), channel: open, member: { displayName: "Ana B" } } as unknown as Interaction;
+    await adapter.receiveInteraction(pressed);
+    expect(presses).toEqual([{ buttonId: "", label: "Ship it", token: "tok9", pressedBy: "u1", guest: { id: "u1", name: "Ana B" } }]);
+    const refused = { ...fakeButton("u1", `${PRESS_PREFIX}tok9`), channel: shut } as unknown as Interaction;
+    await adapter.receiveInteraction(refused);
+    expect(presses).toHaveLength(1);
+  });
+
+  it("reads a channel's messages and reactions, reacts, and hands back what it posted", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
+    const reacted: string[] = [];
+    const user = (id: string, username: string, globalName?: string) => ({ id, username, globalName, bot: false });
+    const message = (id: string, author: ReturnType<typeof user>, content: string, at: number, reactions: [string, number, ReturnType<typeof user>[]][] = []) => ({
+      id,
+      content,
+      author,
+      createdTimestamp: at,
+      reactions: { cache: new Map(reactions.map(([emoji, count, users]) => [emoji, { count, emoji: { name: emoji, toString: () => emoji }, users: { fetch: async () => new Map(users.map((u) => [u.id, u])) } }])) },
+      react: async (emoji: string) => {
+        reacted.push(`${id}:${emoji}`);
+      },
+    });
+    const ana = user("u1", "ana_b", "Ana");
+    const bo = user("u2", "bo");
+    const kos = { ...user("bot", "KOS"), bot: true };
+    const posts = new Map([
+      ["m1", message("m1", kos, "Today's problem: Two Sum", 1000, [["✅", 2, [ana, bo]], ["👀", 1, [ana]]])],
+      ["m2", message("m2", ana, "done!", 2000)],
+    ]);
+    const sent: Record<string, unknown>[] = [];
+    const channel = {
+      id: "c9",
+      isSendable: () => true,
+      send: async (p: Record<string, unknown>) => {
+        sent.push(p);
+        return { id: "m3" };
+      },
+      messages: { fetch: async (q: string | { limit: number }) => (typeof q === "string" ? posts.get(q) : posts) },
+    };
+    (adapter as unknown as { client: unknown }).client = { user: { id: "bot" }, channels: { fetch: async (id: string) => (id === "c9" ? channel : null) } };
+    expect(await adapter.messages("c9", 20)).toEqual([
+      { id: "m1", author: { id: "bot", name: "KOS", bot: true }, text: "Today's problem: Two Sum", at: "1970-01-01T00:00:01.000Z", reactions: [{ emoji: "✅", count: 2 }, { emoji: "👀", count: 1 }] },
+      { id: "m2", author: { id: "u1", name: "Ana", bot: false }, text: "done!", at: "1970-01-01T00:00:02.000Z", reactions: [] },
+    ]);
+    expect(await adapter.reactions("c9", "m1")).toEqual([
+      { emoji: "✅", count: 2, users: [{ id: "u1", name: "Ana" }, { id: "u2", name: "bo" }] },
+      { emoji: "👀", count: 1, users: [{ id: "u1", name: "Ana" }] },
+    ]);
+    await adapter.react("c9", "m2", "🎉");
+    expect(reacted).toEqual(["m2:🎉"]);
+    await expect(adapter.react("nowhere", "m2", "🎉")).rejects.toThrow(/no channel called nowhere/);
+    // Posting into a channel says which message it made.
+    expect(await adapter.sendTo({ kind: "channel", id: "c9" }, { text: "Tomorrow's problem" })).toEqual({ id: "m3" });
   });
 
   it("hands a press on an agent button back with its token", async () => {
