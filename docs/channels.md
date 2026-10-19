@@ -89,6 +89,10 @@ you is left in the primary chat on the dashboard and the turn is told so.
 A message for a channel or another person has nowhere else to go, so that
 one fails.
 
+No link KOS sends on Discord unfurls: every URL goes out in angle
+brackets, so Discord draws no preview card for it and its crawler does not
+visit the page. A card you see under a message is one KOS sent on purpose.
+
 A blob's message is tagged as the blob's, since the bot is KOS and the
 speaker is not. On Discord the words open with its name in bold; a card
 takes the blob's colour as its stripe and, when there are no words above
