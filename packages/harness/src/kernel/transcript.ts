@@ -1,6 +1,6 @@
 import { summarizeAction } from "@kos/shared";
 
-import type { ModelMessage } from "../models/types.js";
+import type { MessageOrigin, ModelMessage } from "../models/types.js";
 import { parseQueuedApproval } from "./guarded.js";
 import type { EarlierHistory } from "./session.js";
 
@@ -40,6 +40,8 @@ export type ChatEvent =
        * open it.
        */
       attachments?: Attachment[];
+      /** Where it came from, when not typed here by the owner: the surface and room, a guest, a schedule, the chat that sent it. */
+      origin?: MessageOrigin;
     }
   | {
       kind: "tool";
@@ -131,6 +133,7 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
             role: "you",
             text: "",
             attachments: [attachment],
+            ...(message.origin ? { origin: message.origin } : {}),
           });
         }
         continue;
@@ -147,6 +150,7 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
                   kind: "message",
                   role: message.role === "user" ? "you" : "kos",
                   text,
+                  ...(message.role === "user" && message.origin ? { origin: message.origin } : {}),
                 },
           );
         }

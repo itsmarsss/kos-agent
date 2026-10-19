@@ -39,6 +39,7 @@ import {
 import { tabName } from "./address.js";
 import { AttachButton, useAttachments, useDropZone } from "./Attachments.js";
 import { AttachmentStrip } from "./AttachmentStrip.js";
+import { OriginLine } from "./OriginLine.js";
 import { MentionedFiles } from "./MentionedFiles.js";
 import { ModelPicker } from "./ModelPicker.js";
 import { HighlightedInput } from "./HighlightedInput.js";
@@ -1165,6 +1166,7 @@ export function ChatsPage({
             <Markdown text={e.text} />
           </div>
         )}
+        {e.origin && <OriginLine origin={e.origin} />}
         {/* Outside the bubble, under it: an attachment is a thing that came
             with the message, not part of the sentence. The files the message
             mentions sit there too, for the same reason. */}

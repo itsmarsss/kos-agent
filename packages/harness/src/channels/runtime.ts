@@ -1,4 +1,5 @@
 import { runAgent, type Inference } from "../agent/loop.js";
+import type { MessageRoom } from "../models/types.js";
 import type { Attachment } from "../kernel/attachments.js";
 import type { ProgressEvent } from "../kernel/progress.js";
 import type { ToolRegistry } from "../agent/registry.js";
@@ -30,6 +31,8 @@ export interface TurnContext {
   attachments?: Attachment[];
   /** A guest of the channel spoke, not the owner. */
   guest?: Guest;
+  /** Where on the surface it was said, when the surface has rooms. */
+  room?: MessageRoom;
 }
 
 /** Handles one user turn and returns the reply text. */
@@ -322,6 +325,7 @@ export class ChannelRuntime {
         ...(msg.conversationKey ? { conversationKey: msg.conversationKey } : {}),
         ...(msg.conversationId ? { conversationId: msg.conversationId } : {}),
         ...(msg.newIn ? { newIn: msg.newIn } : {}),
+        ...(msg.room ? { room: msg.room } : {}),
         ...(msg.attachments?.length ? { attachments: msg.attachments } : {}),
         ...guest,
       });

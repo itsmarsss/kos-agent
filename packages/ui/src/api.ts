@@ -456,6 +456,8 @@ export type ChatEvent =
       text: string;
       /** What came with this turn: images and text files, with their names. */
       attachments?: { name: string; src?: string; text?: string; path?: string }[];
+      /** Where it came from, when not typed here by the owner. */
+      origin?: MessageOrigin;
     }
   | {
       kind: "tool";
@@ -845,6 +847,17 @@ async function post<T>(path: string, body: unknown = {}): Promise<T> {
     throw new Error(await readError(res, path));
   }
   return (await res.json()) as T;
+}
+
+/**
+ * Where a message came from: the surface (discord, imessage, sms) or how it
+ * arrived with none (schedule, dispatch), the room on the surface, and who
+ * sent it when not the owner at the keyboard.
+ */
+export interface MessageOrigin {
+  via: string;
+  room?: { kind: "channel" | "thread" | "dm"; id?: string; name?: string };
+  from?: { kind: "guest" | "chat" | "schedule"; name: string; id?: string };
 }
 
 /** A text channel on the owner's Discord server, as a thing "#name" in a chat can be. */

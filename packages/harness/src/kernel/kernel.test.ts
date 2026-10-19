@@ -301,8 +301,34 @@ describe("Kernel", () => {
     await kernel.handleMessage("what did I do?", { sessionId: c.id });
     expect(said).toEqual([{ conversationId: c.id, text: "what did I do?", reply: "Three things.", origin: "owner", channel: null }]);
     // A turn from a surface names the surface, so a mirror of the chat there does not repeat it.
-    await kernel.handleChannelTurn({ text: "and now?", userId: "owner", channel: "discord", conversationId: c.id });
+    await kernel.handleChannelTurn({ text: "and now?", userId: "owner", channel: "discord", conversationId: c.id, room: { kind: "channel", id: "c9", name: "kitchen" } });
     expect(said[1]).toMatchObject({ conversationId: c.id, text: "and now?", reply: "From Discord.", channel: "discord" });
+    // Where each came from is kept with the words: nothing for the dashboard, the surface and room for Discord.
+    const users = kernel.sessions.get(c.id).filter((m) => m.role === "user");
+    expect(users[0]).not.toHaveProperty("origin");
+    expect(users[1]?.origin).toEqual({ via: "discord", room: { kind: "channel", id: "c9", name: "kitchen" } });
+  });
+
+  it("keeps a guest a guest in a project's own channel, and says who dispatched a turn", async () => {
+    const requests: GenerateRequest[] = [];
+    const reply = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    kernel = await boot({
+      async generate(_t, r) {
+        requests.push(r);
+        return reply("Noted.");
+      },
+    });
+    const club = kernel.standUpProject({ name: "Club", type: "club" });
+    const projectChat = `project:${club.slug}`;
+    // A guest's words in the project's channel used to lose the guest on the way to the project's chat.
+    await kernel.handleChannelTurn({ text: "add me", userId: kernel.profile.ownerId, channel: "discord", conversationId: projectChat, guest: { id: "u2", name: "Ana" }, room: { kind: "channel", id: "c3", name: "club" } });
+    expect(JSON.stringify(requests.at(-1))).toContain("from Ana, a member of the channel, not the owner");
+    const guestTurn = kernel.sessions.get(projectChat).filter((m) => m.role === "user").at(-1);
+    expect(guestTurn?.origin).toEqual({ via: "discord", room: { kind: "channel", id: "c3", name: "club" }, from: { kind: "guest", name: "Ana", id: "u2" } });
+    // Dispatched from a chat: the turn knows which.
+    const target = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Helper" });
+    await kernel.dispatchTo(target.id, "do the thing", projectChat);
+    expect(kernel.sessions.get(target.id).filter((m) => m.role === "user").at(-1)?.origin).toEqual({ via: "dispatch", from: { kind: "chat", id: projectChat, name: "Club" } });
   });
 
   it("finds the kept file behind an attachment stored without its path", async () => {

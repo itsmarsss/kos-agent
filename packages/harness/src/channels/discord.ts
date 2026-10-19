@@ -25,6 +25,7 @@ import { CHANNEL_TOKEN, detailLines, summarizeAction, withUnixTimes } from "@kos
 
 import { isReadable, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, MakePlace, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
+import type { MessageRoom } from "../models/types.js";
 import type { Guest } from "./types.js";
 import { COMMANDS, completions, runCommand, type SlashContext } from "./commands.js";
 import { linkMentions, linkPaths, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
@@ -826,10 +827,16 @@ export class DiscordAdapter implements ChannelAdapter {
       ? `\n\n(not read: ${skipped.join(", ")})`
       : "";
 
+    // Where it was said, for the dashboard to say so under the words.
+    const where = message.channel as { id: string; name?: string | null; isThread?: () => boolean };
+    const room: MessageRoom = message.guild
+      ? { kind: where.isThread?.() ? "thread" : "channel", id: where.id, ...(where.name ? { name: where.name } : {}) }
+      : { kind: "dm" };
     await this.messageHandler?.({
       channel: this.name,
       senderId: message.author.id,
       text: this.channelsNamed(message.content) + note,
+      room,
       ...(attachments.length ? { attachments } : {}),
       ...(binding ? { conversationId: binding.conversationId } : {}),
       ...(binding?.newIn ? { newIn: binding.newIn } : {}),
