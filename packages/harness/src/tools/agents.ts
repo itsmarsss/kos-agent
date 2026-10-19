@@ -97,12 +97,16 @@ function runs(job: BlobJob | undefined, timezone: string): Record<string, unknow
 }
 
 /** What a role looks like in a list: enough to choose one, not its whole brief. */
-function summary(r: RoleRecord, job: BlobJob | undefined, timezone: string): Record<string, unknown> {
+function summary(r: RoleRecord, job: BlobJob | undefined, timezone: string, scope: string | undefined): Record<string, unknown> {
   return {
     name: r.name,
     description: r.description,
     tools: r.tools ?? "all",
     memory: r.memory,
+    // Whose it is: the project that made it, or KOS's at the root; and
+    // whether the caller may change it, so a refusal is never a surprise.
+    owner: r.project ?? "kos",
+    yours: scope === undefined || r.project === scope,
     ...(r.task ? { task: r.task } : {}),
     state: stateOf(job),
     ...runs(job, timezone),
@@ -115,18 +119,34 @@ function summary(r: RoleRecord, job: BlobJob | undefined, timezone: string): Rec
 function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
   const from = (): string | undefined => deps.currentConversationId?.();
 
+  /**
+   * The blob, when the caller may change it: its owner is the project that
+   * made it, or KOS at the root, which may change any. Seeing and dispatching
+   * are everyone's; this guards the rest.
+   */
+  const owned = (name: string, verb: string): RoleRecord => {
+    const record = deps.roles.get(name);
+    if (!record) throw new Error(`no blob called ${name}; blobs.list says which exist`);
+    const scope = deps.scope?.();
+    if (scope !== undefined && record.project !== scope) {
+      throw new Error(`${name} is ${record.project ? `the ${record.project} project's` : "KOS's own"} blob, not yours to ${verb}; you can still dispatch to it, or ask the owner`);
+    }
+    return record;
+  };
+
   ctx.registerTool(
     {
       name: "blobs.list",
       description:
-        "The blobs that exist: name, what each is for, what it may reach, and its state: scheduled (it runs on its own, with when it last ran and next will, in the owner's timezone as words to quote), paused (its schedule is off until resumed), or on request (no schedule; it works when dispatched or spoken to). " +
-        "Read this before making one, since the responsibility may already have a home.",
+        "The blobs that exist: name, what each is for, what it may reach, whose it is (owner: the project that made it, or kos at the root) and its state: scheduled (it runs on its own, with when it last ran and next will, in the owner's timezone as words to quote), paused (its schedule is off until resumed), or on request (no schedule; it works when dispatched or spoken to). " +
+        "Every blob can be seen and dispatched to; only its owner (and KOS at the root) may rewrite, pause, resume or remove it, and yours says whether that is you. Read this before making one, since the responsibility may already have a home.",
       inputSchema: { type: "object", properties: {} },
     },
     () => {
       const { roles, invalid } = deps.roles.list();
       const timezone = deps.timezone();
-      return JSON.stringify({ blobs: roles.map((r) => summary(r, deps.jobOf(r.name), timezone)), ...(invalid.length ? { invalid } : {}) });
+      const scope = deps.scope?.();
+      return JSON.stringify({ blobs: roles.map((r) => summary(r, deps.jobOf(r.name), timezone, scope)), ...(invalid.length ? { invalid } : {}) });
     },
     { floor: "safe" },
     { restricted: true },
@@ -180,6 +200,9 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
       if (deps.roles.exists(name) && input.replace !== true) {
         throw new Error(`there is already a blob called ${name}. Read it with blobs.list; pass replace: true to rewrite it.`);
       }
+      // Rewriting is changing: only the owner's to do.
+      if (deps.roles.exists(name)) owned(name, "rewrite");
+      const scope = deps.scope?.();
       const schedule = optional(input, "schedule");
       if (schedule && !cron.validate(schedule)) throw new Error(`not a cron schedule: ${schedule}`);
       const prompt = optional(input, "prompt");
@@ -197,6 +220,8 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
         ...(prompt ? { prompt } : {}),
         ...(input.report === "always" ? { report: "always" as const } : {}),
         ...(Object.keys(face).length ? { face } : {}),
+        // Made from inside a project, it is that project's.
+        ...(scope ? { project: scope } : {}),
       };
       const record = deps.roles.write(role);
       const thread = deps.ensureAgent(name);
@@ -273,7 +298,7 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
       },
       (input) => {
         const name = str(input, "name").toLowerCase();
-        if (!deps.roles.get(name)) throw new Error(`no blob called ${name}; blobs.list says which exist`);
+        owned(name, enabled ? "resume" : "pause");
         const job = deps.setJobEnabled(name, enabled);
         if (!job) {
           throw new Error(
@@ -304,6 +329,7 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
     },
     (input) => {
       const name = str(input, "name").toLowerCase();
+      owned(name, "remove");
       if (!deps.roles.remove(name)) throw new Error(`no blob called ${name}`);
       deps.bindSchedule(name, undefined);
       return JSON.stringify({ removed: name, note: "Its file and schedule are gone; its thread stays as an ordinary chat." });

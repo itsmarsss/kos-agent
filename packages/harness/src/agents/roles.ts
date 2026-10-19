@@ -117,6 +117,12 @@ export interface Role {
   report?: "always";
   /** What the owner set about its face; absent, the name decides. */
   face?: FaceLook;
+  /**
+   * The project that made it, which alone (with KOS at the root) may change,
+   * pause or remove it; every orchestrator may still see and dispatch to it.
+   * Absent, it is the root's.
+   */
+  project?: string;
 }
 
 export interface RoleRecord extends Role {
@@ -143,7 +149,7 @@ export function agentConversationId(name: string): string {
   return `agent:${name}`;
 }
 
-const KEYS = new Set(["name", "description", "tools", "memory", "task", "schedule", "prompt", "report", "face"]);
+const KEYS = new Set(["name", "description", "tools", "memory", "task", "schedule", "prompt", "report", "face", "project"]);
 
 /**
  * The file's head, as `key: value` lines between two `---` lines. Lists are
@@ -206,6 +212,8 @@ export function parseRole(text: string, fileName: string): Role {
   if (report !== undefined && report !== "always") throw new Error('report must be "always", or left out');
   const faceText = head.get("face");
   const face = faceText ? parseFaceText(faceText) : undefined;
+  const project = head.get("project") || undefined;
+  if (project !== undefined && !PROJECT_SLUG.test(project)) throw new Error(`project must be a project's slug, not "${project}"`);
   return {
     name,
     description,
@@ -217,8 +225,12 @@ export function parseRole(text: string, fileName: string): Role {
     ...(prompt ? { prompt } : {}),
     ...(report ? { report } : {}),
     ...(face && Object.keys(face).length ? { face } : {}),
+    ...(project ? { project } : {}),
   };
 }
+
+/** A project's slug, as the manifest makes them. */
+const PROJECT_SLUG = /^[a-z0-9][a-z0-9_-]*$/;
 
 /** The file for a role, in the shape parseRole reads back. */
 export function formatRole(role: Role): string {
@@ -232,6 +244,7 @@ export function formatRole(role: Role): string {
     ...(role.prompt ? [`prompt: ${oneLine(role.prompt)}`] : []),
     ...(role.report ? [`report: ${role.report}`] : []),
     ...(role.face && formatFaceText(role.face) ? [`face: ${formatFaceText(role.face)}`] : []),
+    ...(role.project ? [`project: ${role.project}`] : []),
   ];
   return `---\n${head.join("\n")}\n---\n\n${role.brief.trim()}\n`;
 }

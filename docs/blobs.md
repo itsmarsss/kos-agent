@@ -132,6 +132,13 @@ does, so a blob cannot spawn more of itself:
 - `blobs.remove`: the file and the schedule go; the thread stays as an
   ordinary chat you can keep or delete. This one asks first.
 
+A blob made from inside a project is that project's: `project: <slug>` in
+its file. Every orchestrator sees every blob and may dispatch to any; only
+the project that owns one, or KOS at the root, may rewrite, pause, resume
+or remove it, and the list says whose each is (`owner`) and whether it is
+yours. A blob KOS makes at the root is KOS's own, and a project's
+orchestrator is told to ask rather than change it.
+
 KOS is told to tell a responsibility from a task: a question gets an answer,
 an ongoing piece of your life gets a project, and something you want kept
 up over time gets a blob. A blob keeps no tables or pages of its own;
