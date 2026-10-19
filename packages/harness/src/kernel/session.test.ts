@@ -131,6 +131,31 @@ describe("SessionStore", () => {
     sessions.clear("x");
     expect(sessions.get("x")).toEqual([]);
   });
+
+  it("sets a cleared chat aside rather than dropping it, and keeps only a few stretches", () => {
+    sessions.record("s1", toolExchange("first", "sql"));
+    sessions.clear("s1");
+    // The model starts afresh; the owner's page keeps what was said, marked as cleared.
+    expect(sessions.get("s1")).toEqual([]);
+    expect(sessions.earlier("s1")).toMatchObject([{ why: "cleared", messages: [{ role: "user" }, { role: "assistant" }, { role: "user" }, { role: "assistant" }] }]);
+    // Clearing an empty chat sets nothing aside.
+    sessions.clear("s1");
+    expect(sessions.earlier("s1")).toHaveLength(1);
+    // A compaction sets the long version aside and keeps the summary as the chat.
+    sessions.record("s1", toolExchange("second", "sql"));
+    sessions.replace("s1", [{ role: "user", content: [{ type: "text", text: "summary" }] }], "compacted");
+    expect(sessions.get("s1")).toHaveLength(1);
+    expect(sessions.earlier("s1").map((e) => e.why)).toEqual(["cleared", "compacted"]);
+    // Only so many stretches are kept: the oldest goes.
+    for (let n = 0; n < 9; n += 1) {
+      sessions.record("s1", toolExchange(`round ${n}`, "sql"));
+      sessions.clear("s1");
+    }
+    const kept = sessions.earlier("s1");
+    expect(kept).toHaveLength(8);
+    expect(kept[0]!.why).toBe("cleared");
+    expect(JSON.stringify(kept[0])).toContain("round 1");
+  });
 });
 
 describe("saying so when it trims", () => {

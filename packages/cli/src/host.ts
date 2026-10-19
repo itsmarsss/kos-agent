@@ -529,6 +529,15 @@ export async function runHost(options: HostOptions): Promise<void> {
         }
         if (said.reply.trim()) await adapter.postIn(target, { text: said.reply, ...(from ? { from } : {}) });
       });
+      // A slash command typed on the dashboard is a small line in the chat's
+      // channel or thread, with the first line of what it answered.
+      kernel.bus.on("command:ran", async (ran) => {
+        if (ran.channel === "discord" || !adapter) return;
+        const target = adapter.mirrorTarget(ran.conversationId, kernel.threadBindings());
+        if (!target) return;
+        const answer = ran.reply.trim().split("\n")[0] ?? "";
+        await adapter.postIn(target, { text: `-# \`${ran.text.replace(/`/g, "'")}\` · you, on the dashboard${answer ? `\n-# ${answer.slice(0, 300)}` : ""}` });
+      });
     } else {
       // No server to lay out: only the face to keep up.
       setInterval(() => void wear(), 5 * 60_000).unref();

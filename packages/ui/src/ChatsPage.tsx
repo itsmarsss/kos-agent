@@ -1106,6 +1106,15 @@ export function ChatsPage({
       );
     }
     if (e.kind === "reasoning") return <Thinking key={i} text={e.text} />;
+    // Where the chat was cleared or compacted: a line, so what is above reads
+    // as kept for the owner and not as what KOS still has in mind.
+    if (e.kind === "divider") {
+      return (
+        <div key={i} className="chat-divider" role="separator" title={new Date(e.at).toLocaleString()}>
+          <span>{e.text}</span>
+        </div>
+      );
+    }
 
     if (editingIndex === turn && turn >= 0) {
       return (

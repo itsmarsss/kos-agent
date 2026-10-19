@@ -2,6 +2,7 @@ import { summarizeAction } from "@kos/shared";
 
 import type { ModelMessage } from "../models/types.js";
 import { parseQueuedApproval } from "./guarded.js";
+import type { EarlierHistory } from "./session.js";
 
 /**
  * A conversation rendered for a reader rather than for the model.
@@ -57,6 +58,12 @@ export type ChatEvent =
       toolUseId?: string;
       /** A picture of the browser after this step, at /api/frames/:id. */
       frameId?: number;
+    }
+  | {
+      /** A line across the chat where it was cleared or compacted: what is above is kept for the reader, not for the model. */
+      kind: "divider";
+      text: string;
+      at: number;
     };
 
 const MAX_RESULT = 2000;
@@ -184,4 +191,23 @@ export function spokenTurns(
       text: textOf(m.content),
     }))
     .filter((t) => t.text !== "");
+}
+
+/**
+ * The whole chat as a reader sees it: every stretch set aside by a clear or
+ * a compaction, each under a line saying so, then the chat as the model has
+ * it now.
+ */
+export function historyEvents(earlier: EarlierHistory[], current: ModelMessage[]): ChatEvent[] {
+  const out: ChatEvent[] = [];
+  for (const stretch of earlier) {
+    out.push(...conversationEvents(stretch.messages));
+    out.push({
+      kind: "divider",
+      at: stretch.at,
+      text: stretch.why === "compacted" ? "Compacted here: what is above was folded into the summary below" : "Cleared here: what is above is kept for you, not for KOS",
+    });
+  }
+  out.push(...conversationEvents(current));
+  return out;
 }

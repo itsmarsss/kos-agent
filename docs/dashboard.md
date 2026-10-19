@@ -47,7 +47,10 @@ In a chat:
   chat is told its own limits so it says "not here" rather than improvising.
 - `@` references a project, page, file, schedule, chat, site or blob.
   `/` opens commands: `/new`, `/chats`, `/switch`, `/rename`, `/archive`,
-  `/compact`, `/clear`, `/tools`, `/help`.
+  `/compact`, `/clear`, `/tools`, `/help`. `/clear` and `/compact` take the
+  chat out of KOS's context without taking it off your screen: what was
+  said stays above a dashed line saying so, and KOS starts afresh below it.
+  A chat deleted outright takes that with it.
 - A reply renders as markdown: emphasis, code, lists, quotes, tables, and
   two things Discord has that a chat wants too: a line starting with
   `-# ` is small print, and a time token (`<t:2026-10-19T07:30:R>`) shows

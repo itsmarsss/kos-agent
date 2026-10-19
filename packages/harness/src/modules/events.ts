@@ -22,6 +22,8 @@ export type KernelEvent =
    * chat elsewhere can show this exchange too, and skip its own.
    */
   | { kind: "turn:said"; conversationId: string; projectSlug: string | null; text: string; reply: string; origin: "owner" | "system"; channel: string | null; files: KeptFile[] }
+  /** A slash command run in a chat: the line as typed and what it answered, with where it was typed. */
+  | { kind: "command:ran"; conversationId: string; text: string; reply: string; channel: string | null }
   | { kind: "tool:end"; tool: string; isError: boolean; conversationId: string | null }
   | { kind: "approval:requested"; id: number; tool: string; conversationId: string | null }
   | { kind: "approval:decided"; id: number; approved: boolean; decidedBy: string | null }

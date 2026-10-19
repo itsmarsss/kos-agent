@@ -466,6 +466,12 @@ export type ChatEvent =
       pendingId?: string;
       /** A picture of the browser after this step, at /api/frames/:id. */
       frameId?: number;
+    }
+  | {
+      /** A line across the chat where it was cleared or compacted: what is above is kept for the reader, not for the model. */
+      kind: "divider";
+      text: string;
+      at: number;
     };
 
 export interface DirEntry {

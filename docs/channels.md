@@ -63,7 +63,9 @@ too, your words quoted with a note that they came from the dashboard, the
 files you attached uploaded under them, and the answer as KOS or as the
 blob under its own name. What you say on Discord is already there and is
 not repeated. In a step line of the story, a workspace path ("Read
-blobs/verity/blob.md") links to the file on the dashboard.
+blobs/verity/blob.md") links to the file on the dashboard. A slash
+command you run on the dashboard (`/clear`, `/rename`, `/compact`) shows
+there as a small line with what it answered.
 
 A file sent with a message, here or on the dashboard, is kept in the
 workspace as it came: under `uploads/` in the project the chat belongs

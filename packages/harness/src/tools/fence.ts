@@ -26,6 +26,7 @@ export const KERNEL_TABLES = new Set([
   "browser_frames",
   "button_routes",
   "chat_sessions",
+  "chat_session_earlier",
   "conversation_active",
   "conversations",
   "crons",
