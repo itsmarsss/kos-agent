@@ -93,6 +93,10 @@ describe("the discord tools", () => {
         },
         reactions: async () => [{ emoji: "👍", count: 2, users: [{ id: "u1", name: "Ana" }, { id: "u2", name: "Bo" }] }],
         messages: async (_channel, limit) => [{ id: "m1", author: { id: "u1", name: "Ana", bot: false }, text: "done", at: "2026-10-19T09:00:00.000Z", reactions: [] }].slice(0, limit),
+        member: async (id) => {
+          if (id !== "306") throw new Error(`no member ${id} on the server`);
+          return { id, name: "splattertron", displayName: "Splat", bot: false, joinedAt: null, roles: ["Members"] };
+        },
       }),
     ]);
     const call = async (name: string, input: Record<string, unknown> = {}) => {
@@ -131,6 +135,10 @@ describe("the discord tools", () => {
     expect((await h.call("discord.reactions", { channel: "picks", message: "m1" })).json).toEqual({ reactions: [{ emoji: "👍", count: 2, users: [{ id: "u1", name: "Ana" }, { id: "u2", name: "Bo" }] }] });
     expect((await h.call("discord.messages", { channel: "picks", limit: 1 })).json).toMatchObject({ messages: [{ id: "m1", text: "done" }] });
     expect((await h.call("discord.react", { channel: "picks", message: "m1" })).isError).toBe(true);
+    // A member by id, the digits or the mention; never by name.
+    expect((await h.call("discord.member", { id: "<@306>" })).json).toMatchObject({ id: "306", name: "splattertron", roles: ["Members"] });
+    expect((await h.call("discord.member", { id: "splattertron" })).isError).toBe(true);
+    expect(h.registry.classify("discord.member", { id: "306" }).tier).toBe("safe");
   });
 
   it("makes a channel of the owner's a chat's home, asking only when others can see it, and only for a project or a blob", async () => {

@@ -120,6 +120,11 @@ export class GuardedTools implements ToolBox {
   private permitted(name: string): boolean {
     const { allow, grant, registry } = this.deps;
     if (registry.isRestricted(name)) return (grant ?? []).includes(name);
+    // A grant is a grant whether or not the tool is restricted: the
+    // orchestrator's allow-list is "memory" plus what it is handed, and the
+    // Discord reading tools, unrestricted so a blob may use them, were
+    // falling through to the allow-list and vanishing from its channel turns.
+    if (grant?.includes(name)) return true;
     // A module may be for certain projects. Its tools exist only in those
     // projects' conversations: withheld, not hidden, so the model is never
     // offered a tool it cannot call.

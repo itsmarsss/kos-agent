@@ -39,6 +39,17 @@ describe("GuardedTools", () => {
     return new GuardedTools({ registry, secrets, audit, approvals, ...over });
   }
 
+  it("offers a granted tool past the allow-list, restricted or not", () => {
+    registry.register({ name: "memory.recall", description: "m", inputSchema: { type: "object" } }, () => "ok");
+    registry.register({ name: "discord.messages", description: "d", inputSchema: { type: "object" } }, () => "ok", { floor: "safe" }, { restricted: false });
+    registry.register({ name: "chats.list", description: "c", inputSchema: { type: "object" } }, () => "ok", { floor: "safe" }, { restricted: true });
+    const names = (tools: GuardedTools): string[] => tools.defs().map((d) => d.name).sort();
+    // The orchestrator's shape: memory, plus what it is handed.
+    expect(names(guarded({ allow: ["memory"], grant: ["discord.messages", "chats.list"] }))).toEqual(["chats.list", "discord.messages", "memory.recall"]);
+    expect(names(guarded({ allow: ["memory"] }))).toEqual(["memory.recall"]);
+    expect(names(guarded({ grant: ["chats.list"] }))).toEqual(["chats.list", "discord.messages", "memory.recall"]);
+  });
+
   it("queues an ask with what the caller was saying, so the prompt reads as a sentence", async () => {
     registry.register({ name: "danger", description: "d", inputSchema: { type: "object" } }, () => "done", { floor: "risky" });
     const tools = guarded({ conversationId: "c1", whyFor: (id) => (id === "c1" ? "I'll clear the build folder so the rebuild is clean. " : undefined), waitForApproval: false });

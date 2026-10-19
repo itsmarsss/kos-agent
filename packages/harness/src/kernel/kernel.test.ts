@@ -327,8 +327,10 @@ describe("Kernel", () => {
     const club = kernel.standUpProject({ name: "Club", type: "club" });
     const projectChat = `project:${club.slug}`;
     // A guest's words in the project's channel used to lose the guest on the way to the project's chat.
-    await kernel.handleChannelTurn({ text: "add me", userId: kernel.profile.ownerId, channel: "discord", conversationId: projectChat, guest: { id: "u2", name: "Ana" }, room: { kind: "channel", id: "c3", name: "club" } });
+    await kernel.handleChannelTurn({ text: "add me and @Splat", userId: kernel.profile.ownerId, channel: "discord", conversationId: projectChat, guest: { id: "u2", name: "Ana" }, room: { kind: "channel", id: "c3", name: "club" }, members: [{ id: "306", name: "Splat" }] });
     expect(JSON.stringify(requests.at(-1))).toContain("from Ana, a member of the channel, not the owner");
+    // Who the words name, by id, so a name is never what the chat keeps.
+    expect(JSON.stringify(requests.at(-1))).toContain("@Splat is Discord member 306");
     const guestTurn = kernel.sessions.get(projectChat).filter((m) => m.role === "user").at(-1);
     expect(guestTurn?.origin).toEqual({ via: "discord", room: { kind: "channel", id: "c3", name: "club" }, from: { kind: "guest", name: "Ana", id: "u2" } });
     // Dispatched from a chat: the turn knows which.

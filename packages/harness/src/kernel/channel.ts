@@ -67,6 +67,7 @@ export function connectChannel(
         ...(ctx.attachments?.length ? { attachments: ctx.attachments } : {}),
         ...(ctx.guest ? { guest: ctx.guest } : {}),
         ...(ctx.room ? { room: ctx.room } : {}),
+        ...(ctx.members?.length ? { members: ctx.members } : {}),
       });
       // The owner asked from this surface and the answer lands on it, so
       // the thread is read as far as they are concerned.

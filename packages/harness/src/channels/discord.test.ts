@@ -697,18 +697,22 @@ describe("DiscordAdapter authorization", () => {
     expect(messages).toHaveLength(1);
     expect(messages[0]).toMatchObject({ senderId: "owner-id", text: "plan the week", conversationId: "project:garden", room: { kind: "channel", id: "c1", name: "garden" } });
     expect(messages[0]).not.toHaveProperty("newIn");
+    // Someone named in the words: Discord's <@id> becomes @name, and the id rides beside it for the turn.
+    const naming = { ...inGuild("owner-id", "g1", project, "tell me about <@306> and <@999>"), mentions: { users: new Map([["306", { id: "306", username: "splattertron", globalName: null }]]) } } as unknown as Message;
+    await adapter.receiveMessage(naming);
+    expect(messages[1]).toMatchObject({ text: "tell me about @splattertron and <@999>", members: [{ id: "306", name: "splattertron" }] });
     // A thread under a project's channel is a chat of that project, titled as the thread.
     await adapter.receiveMessage(inGuild("owner-id", "g1", { id: "t9", name: "Seeds", isThread: () => true, parent: { topic: "kos:project:garden · Garden" } }));
-    expect(messages[1]).toMatchObject({ conversationId: "discord:thread:t9", newIn: { projectSlug: "garden", title: "Seeds" }, room: { kind: "thread", id: "t9", name: "Seeds" } });
+    expect(messages[2]).toMatchObject({ conversationId: "discord:thread:t9", newIn: { projectSlug: "garden", title: "Seeds" }, room: { kind: "thread", id: "t9", name: "Seeds" } });
     // A thread under a blob's channel is the blob's own thread.
     await adapter.receiveMessage(inGuild("owner-id", "g1", { id: "t10", name: "x", isThread: () => true, parent: { topic: "kos:agent:recap · Recap" } }));
-    expect(messages[2]).toMatchObject({ conversationId: "agent:recap" });
+    expect(messages[3]).toMatchObject({ conversationId: "agent:recap" });
     // Another server, an unbound channel, the approvals channel, or anyone but the owner: nothing.
     await adapter.receiveMessage(inGuild("owner-id", "g2", project));
     await adapter.receiveMessage(inGuild("owner-id", "g1", { id: "c5", name: "general", topic: "chit chat", isThread: () => false }));
     await adapter.receiveMessage(inGuild("owner-id", "g1", { id: "c6", name: "needs-you", topic: "kos:needs-you · Approvals", isThread: () => false }));
     await adapter.receiveMessage(inGuild("stranger", "g1", project));
-    expect(messages).toHaveLength(3);
+    expect(messages).toHaveLength(4);
     // Without a server configured, a server message is ignored whoever sent it.
     const dmOnly = new DiscordAdapter({ token: "t" });
     const seen: InboundMessage[] = [];
@@ -1028,6 +1032,18 @@ describe("DiscordAdapter authorization", () => {
     expect(opened[0]).toEqual({ id: "g1", type: OverwriteType.Role, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: expect.arrayContaining([PermissionFlagsBits.SendMessages]) });
     expect(opened.map((o) => o.id)).toEqual(["g1", "owner-id", "bot"]);
     await expect(adapter.setAudience("project:nope", "owner")).rejects.toThrow(/no channel is bound/);
+  });
+
+  it("tells who a member is by id, and pings a member named in a reply", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
+    const member = { user: { id: "306", username: "splattertron", globalName: "Splat", bot: false }, displayName: "Splat", joinedTimestamp: 1_700_000_000_000, roles: { cache: new Map([["g1", { id: "g1", name: "@everyone" }], ["r1", { id: "r1", name: "Members" }]]) } };
+    const guild = { id: "g1", members: { fetch: async (id: string) => (id === "306" ? member : Promise.reject(new Error("unknown"))) } };
+    (adapter as unknown as { client: unknown }).client = { user: { id: "bot" }, guilds: { fetch: async () => guild }, channels: { fetch: async () => undefined } };
+    expect(await adapter.member("306")).toEqual({ id: "306", name: "splattertron", displayName: "Splat", bot: false, joinedAt: "2023-11-14T22:13:20.000Z", roles: ["Members"] });
+    await expect(adapter.member("1")).rejects.toThrow(/no member 1/);
+    // Seen once, the name going out is the member; a @kind: reference and an unknown name are left alone.
+    const words = (adapter as unknown as { words: (t: string) => string }).words("Splat is @Splat, see @blob:recap and @nobody");
+    expect(words).toBe("Splat is <@306>, see **recap** and @nobody");
   });
 
   it("deletes a thread for a chat that is gone, and nothing that is not a thread", async () => {
