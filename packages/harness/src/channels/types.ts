@@ -154,6 +154,8 @@ export interface Sender {
   name: string;
   /** #rrggbb, the blob's body as the dashboard draws it. */
   colour?: string;
+  /** The blob's face as a PNG, base64, for a surface that can show a picture beside the name. */
+  avatar?: string;
 }
 
 export interface OutboundMessage {

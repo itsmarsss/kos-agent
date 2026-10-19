@@ -39,7 +39,8 @@ Give KOS a server and it lays the dashboard out in three categories.
 `KOS` holds `#kos` (KOS itself, as on the dashboard's landing) and
 `#needs-you` (every approval, with its buttons, instead of your DM).
 `Blobs` holds a channel per blob, its own thread; a blob answers there
-under its own name, through a webhook, not as the bot. `Projects` holds a
+under its own name and wearing its own face, through a webhook of its own
+in the channel, not as the bot. `Projects` holds a
 channel per project, its orchestrator, so "add a tracker for this" said
 there lands in that project; and under each project's channel, a thread
 for every chat in the project, so the agents working in it read as the

@@ -1,4 +1,5 @@
-import { readFileSync, mkdirSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { runAgent, type Inference } from "../agent/loop.js";
 import { PressRoutes } from "../channels/presses.js";
 import type { Asker, ConversationSeed, OutboundMessage, Sender } from "../channels/types.js";
@@ -90,7 +91,7 @@ import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import { CHAT_TOOLS } from "../tools/chats.js";
 import { BLOB_TOOLS, type BlobJob } from "../tools/agents.js";
 import { DISCORD_TOOLS, type Audience, type DiscordServices } from "../tools/discord.js";
-import { agentConversationId, agentScope, type Role, type RoleStore } from "../agents/roles.js";
+import { agentConversationId, agentScope, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
 import { type NotifyPayload } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
 import type { EventBus } from "../modules/events.js";
@@ -104,7 +105,8 @@ import { ProgressBus } from "./progress.js";
 import { BEHAVIOUR_KEY, parseBehaviour, type Behaviour } from "./behaviour.js";
 import { parseMentions } from "./mentions.js";
 import { readFile as readWorkspaceFile } from "./files.js";
-import { bodyHexOf, summarizeAction } from "@kos/shared";
+import { bodyHexOf, faceSvg, lookOf, summarizeAction } from "@kos/shared";
+import { facePng } from "../files/facepng.js";
 import { attachmentBlocks, isPdfFile, readAttachments, type Attachment } from "./attachments.js";
 import { type Profile } from "./profile.js";
 import { SessionStore, cronSessionId } from "./session.js";
@@ -1679,7 +1681,34 @@ export class Kernel {
     const role = conversationId ? this.conversations.get(conversationId)?.role : undefined;
     const record = role ? this.roles.get(role) : undefined;
     if (!record) return undefined;
-    return { name: roleTitle(record), colour: bodyHexOf(record.name, record.face ?? {}) };
+    return { name: roleTitle(record), colour: bodyHexOf(record.name, record.face ?? {}), avatar: this.faceOf(record) };
+  }
+
+  /** Faces drawn this boot, by name and look, so a message does not redraw one. */
+  private readonly faces = new Map<string, string>();
+
+  /**
+   * A blob's face as a PNG, base64, drawn from its name and what the owner
+   * set, and kept in its folder as face.png and face.svg beside blob.md so
+   * anything can reuse it. Redrawn when the look changes; the files follow.
+   */
+  faceOf(record: RoleRecord): string {
+    const spec = lookOf(record.name, record.face ?? {});
+    const key = `${record.name}|${JSON.stringify(record.face ?? {})}`;
+    const cached = this.faces.get(key);
+    if (cached) return cached;
+    const png = facePng(spec);
+    try {
+      const dir = this.workspace.resolve(record.folder);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "face.png"), png);
+      writeFileSync(join(dir, "face.svg"), faceSvg(spec));
+    } catch {
+      // The picture still goes out; the file is a convenience.
+    }
+    const data = png.toString("base64");
+    this.faces.set(key, data);
+    return data;
   }
 
   /**

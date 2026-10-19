@@ -16,6 +16,7 @@ import {
   PRESS_PREFIX,
   bindingOf,
   boundKeyOf,
+  webhookNameFor,
   approvalCustomIds,
   approvalText,
   noPreviews,
@@ -795,6 +796,54 @@ describe("DiscordAdapter authorization", () => {
     expect(adapter.mirrorTarget("project:garden", {})).toBe("c1");
     expect(adapter.mirrorTarget("chat-a", { t1: "chat-a" })).toBe("t1");
     expect(adapter.mirrorTarget("chat-z", { t1: "chat-a" })).toBeUndefined();
+  });
+
+  it("gives a blob with a face a webhook of its own, wearing it, and redraws it when the face changes", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1" });
+    const made: { name: string; avatar?: string }[] = [];
+    const edited: { name: string; avatar?: string }[] = [];
+    const hooks = new Map<string, { name: string; token: string; send: (p: unknown) => Promise<unknown>; edit: (o: { name: string; avatar?: string }) => Promise<unknown> }>();
+    const hookNamed = (name: string) => {
+      const h = {
+        name,
+        token: "wh",
+        send: async () => ({}),
+        edit: async (o: { name: string; avatar?: string }) => {
+          edited.push(o);
+          h.name = o.name;
+          return h;
+        },
+      };
+      return h;
+    };
+    const channel = {
+      id: "c2",
+      isThread: () => false,
+      isSendable: () => true,
+      send: async () => ({}),
+      fetchWebhooks: async () => hooks,
+      createWebhook: async (o: { name: string; avatar?: string }) => {
+        made.push(o);
+        const h = hookNamed(o.name);
+        hooks.set(`w${hooks.size + 1}`, h);
+        return h;
+      },
+    };
+    (adapter as unknown as { client: { channels: unknown } }).client = { channels: { fetch: async () => channel } };
+    const recap = { name: "Recap", colour: "#3b82f6", avatar: "AAAA" };
+    // Made once, named for the blob with a hash of its face, wearing the face.
+    await adapter.postIn("c2", { text: "one", from: recap });
+    await adapter.postIn("c2", { text: "two", from: recap });
+    expect(made).toEqual([{ name: webhookNameFor(recap), avatar: "data:image/png;base64,AAAA" }]);
+    expect(made[0]!.name.startsWith("KOS·Recap·")).toBe(true);
+    // A new face: the blob's webhook is given it rather than a second one made.
+    const newFace = { ...recap, avatar: "BBBB" };
+    await adapter.postIn("c2", { text: "three", from: newFace });
+    expect(made).toHaveLength(1);
+    expect(edited).toEqual([{ name: webhookNameFor(newFace), avatar: "data:image/png;base64,BBBB" }]);
+    // A blob with no face shares the plain KOS webhook.
+    await adapter.postIn("c2", { text: "four", from: { name: "Watch" } });
+    expect(made.at(-1)).toEqual({ name: "KOS" });
   });
 
   it("shows a turn taken elsewhere in the chat's thread, as KOS or as the blob", async () => {

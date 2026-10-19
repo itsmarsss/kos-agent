@@ -582,7 +582,7 @@ describe("KOS end-to-end flows", () => {
     const direct = await kernel.handleChannelTurn({ text: "@agent:price-watch what was the target price again", userId: "owner", channel: "discord" });
     expect(direct.conversationId).toBe("agent:price-watch");
     expect(direct.reply).toBe("Still under 40.");
-    expect(direct.from).toEqual({ name: "Price watch", colour: bodyHexOf("price-watch") });
+    expect(direct.from).toMatchObject({ name: "Price watch", colour: bodyHexOf("price-watch") });
     expect(model.prompts.at(-1)!).toContain("what was the target price again");
     expect(JSON.stringify(kernel.sessions.get("discord:owner"))).not.toContain("target price again");
     const bare = await kernel.handleChannelTurn({ text: "@price-watch: and now?", userId: "owner", channel: "discord" });

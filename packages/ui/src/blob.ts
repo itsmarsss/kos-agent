@@ -13,31 +13,11 @@
  */
 
 export type BlobMood = "idle" | "working" | "needs-you" | "error" | "asleep";
-export type BlobEyes = "round" | "half" | "sparkle";
-export type BlobGait = 0 | 1 | 2 | 3;
+import { CENTER, PLAIN_SHAPE, PLAIN_WHIM, eyeAt, outline, smoothPath, type BlobEyes, type BlobGait, type BlobShape, type BlobWhim } from "@kos/shared";
 
-/**
- * The silhouette: what makes one blob a different creature from the next
- * before it moves. A little wider or taller, sitting squat or standing
- * round, eyes close-set or wide. From the name, not set.
- */
-export interface BlobShape {
-  /** Width over height, 0.92 to 1.12. */
-  aspect: number;
-  /** How much the bottom flattens, as if sat down, 0 to 0.24. */
-  squat: number;
-  /** How far apart the eyes sit, 0.88 to 1.1 of the usual. */
-  spread: number;
-}
+export { CENTER, EYE_L, EYE_R, PLAIN_SHAPE, PLAIN_WHIM, POINTS, RADIUS, eyeAt, outline, smoothPath, type BlobEyes, type BlobGait, type BlobShape, type BlobWhim } from "@kos/shared";
 
-/** Its habits: how much it cares about the cursor, and how often it blinks. */
-export interface BlobWhim {
-  curiosity: number;
-  blinkiness: number;
-}
-
-export const PLAIN_SHAPE: BlobShape = { aspect: 1, squat: 0.1, spread: 1 };
-export const PLAIN_WHIM: BlobWhim = { curiosity: 1, blinkiness: 1 };
+const f = (n: number): string => n.toFixed(2);
 
 export interface BlobParams {
   /** A number from the name: the timing of its whims, so two blobs never move in step. */
@@ -71,20 +51,6 @@ export const GAITS: readonly GaitSpec[] = [
   { breath: 3.4, spring: 520, settle: 3.5, fidget: 2.5 }, // restless
 ];
 
-export const POINTS = 16;
-export const CENTER = { x: 50, y: 52 } as const;
-export const RADIUS = 38;
-
-/** The eyes' resting places, in the 100-unit box, before the spread: a little high, which reads young. */
-export const EYE_L = { x: 41, y: 48 } as const;
-export const EYE_R = { x: 59, y: 48 } as const;
-
-/** Where an eye sits for a shape: spread from the middle. */
-export function eyeAt(side: "l" | "r", shape: BlobShape): { x: number; y: number } {
-  const base = side === "l" ? EYE_L : EYE_R;
-  return { x: CENTER.x + (base.x - CENTER.x) * shape.spread, y: base.y };
-}
-
 interface MoodSpec {
   speed: number;
   /** How open the eyes are, before blinks. */
@@ -106,47 +72,6 @@ const MOODS: Record<BlobMood, MoodSpec> = {
   error: { speed: 0.6, open: 0.16, wide: 1, look: "straight", hop: false, sway: 0, droop: 4 },
   asleep: { speed: 0.45, open: 0.08, wide: 1, look: "straight", hop: false, sway: 0, droop: 1 },
 };
-
-/**
- * The outline: one smooth gumdrop, a little wider low down where it sits,
- * flattened underneath as much as its shape says, and bent by a wobble, a
- * two-lobed deformation the jelly spring drives. Pure, so a test can hold
- * it still.
- */
-export function outline(shape: BlobShape = PLAIN_SHAPE, wobble = 0, phase = 0): Array<[number, number]> {
-  const pts: Array<[number, number]> = [];
-  for (let i = 0; i < POINTS; i += 1) {
-    const a = (i / POINTS) * Math.PI * 2;
-    const down = Math.max(0, Math.sin(a));
-    // A gumdrop: the lower half spreads a touch; a wobble pulls two sides out and two in.
-    const r = RADIUS * (1 + wobble * Math.cos(2 * (a - phase)));
-    const x = CENTER.x + Math.cos(a) * r * shape.aspect * (1 + 0.07 * down);
-    const y = CENTER.y + Math.sin(a) * r * (1 - shape.squat * 0.45 * down);
-    pts.push([x, y]);
-  }
-  return pts;
-}
-
-const f = (n: number): string => n.toFixed(2);
-
-/** A closed, smooth path through the points: Catmull-Rom as cubic Béziers, so no corner ever shows. */
-export function smoothPath(pts: ReadonlyArray<readonly [number, number]>): string {
-  const n = pts.length;
-  if (n < 3) return "";
-  let d = `M${f(pts[0]![0])} ${f(pts[0]![1])}`;
-  for (let i = 0; i < n; i += 1) {
-    const p0 = pts[(i - 1 + n) % n]!;
-    const p1 = pts[i]!;
-    const p2 = pts[(i + 1) % n]!;
-    const p3 = pts[(i + 2) % n]!;
-    const c1x = p1[0] + (p2[0] - p0[0]) / 6;
-    const c1y = p1[1] + (p2[1] - p0[1]) / 6;
-    const c2x = p2[0] - (p3[0] - p1[0]) / 6;
-    const c2y = p2[1] - (p3[1] - p1[1]) / 6;
-    d += ` C${f(c1x)} ${f(c1y)} ${f(c2x)} ${f(c2y)} ${f(p2[0])} ${f(p2[1])}`;
-  }
-  return `${d} Z`;
-}
 
 /** The pointer, shared by every blob on the page. */
 const pointer = { x: 0, y: 0, at: -Infinity, seen: false };

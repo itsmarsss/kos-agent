@@ -3,7 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { outline, smoothPath } from "./blob.js";
-import { hueOfHex } from "./colour.js";
+import { hexOfHsl, hueOfHex } from "./colour.js";
 import { AgentFaces, Face, faceLookOf, faceSvg, fillOf, lookOf, moodOf } from "./Face.js";
 
 afterEach(cleanup);
@@ -110,14 +110,14 @@ describe("an agent's face", () => {
     expect(violet.fill).toBe("#8b5cf6");
     expect(violet.colour).toBe("#8b5cf6");
     expect(violet.hue).toBe(hueOfHex("#8b5cf6"));
-    expect(violet.ink).toBe(`hsl(${violet.hue} 35% 12%)`);
+    expect(violet.ink).toBe(hexOfHsl(violet.hue, 35, 12));
     const night = lookOf("kos", { colour: "#1b1f3a" });
-    expect(night.ink).toContain("92%");
+    expect(night.ink).toBe(hexOfHsl(night.hue, 30, 92));
     // A grey has no hue of its own, so the name's (or the set hue) stays for the accents.
     expect(lookOf("kos", { colour: "#808080" }).hue).toBe(214);
     expect(lookOf("kos", { colour: "#808080", hue: 30 }).hue).toBe(30);
     // Not a hex colour: ignored, and the hue's fill stands.
-    expect(lookOf("kos", { colour: "blue" }).fill).toBe(fillOf(214));
+    expect(lookOf("kos", { colour: "blue" }).fill).toBe(lookOf("kos").fill);
     // The still icon draws the picked colour, desaturated when unwell.
     expect(faceSvg(violet)).toContain('fill="#8b5cf6"');
     expect(faceSvg(violet, "error")).not.toContain('fill="#8b5cf6"');
