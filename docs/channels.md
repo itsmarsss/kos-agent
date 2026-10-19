@@ -99,8 +99,10 @@ anywhere reaches KOS. "That one is mine only" closes it again, with no
 ask. `#kos` and `#needs-you` are yours always. KOS does this with its own
 tools, `discord.channels` (what there is and who sees it),
 `discord.audience` (owner or everyone, per channel) and `discord.sync`
-(lay the server out now); the setting is kept, so a layout later keeps
-what you chose. Every listing carries Discord's own id beside the name, and every tool
+(lay the server out now). Who may see a channel is what Discord's own
+permissions say: change them there by hand, or through KOS, and the
+layout follows at its next look rather than putting them back; the guest
+gate reads the same answer. Every listing carries Discord's own id beside the name, and every tool
 takes the id; a name works too, resolved to the id at once, since names
 change. `discord.threads` lists the threads it made for chats,
 marking any whose chat is gone, and `discord.prune` deletes those, with

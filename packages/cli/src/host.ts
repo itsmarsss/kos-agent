@@ -206,6 +206,8 @@ export async function runHost(options: HostOptions): Promise<void> {
     adapter!.rememberThreads(kernel.threadBindings());
     const made = await adapter!.sync(kernel.surfaceChannels());
     for (const t of made.threads) kernel.bindThread(t.threadId, t.conversationId);
+    // Discord's permissions are the truth for who reads a channel; the kernel follows, so the guest gate agrees.
+    for (const [key, audience] of Object.entries(made.audiences)) kernel.setChannelAudience(key, audience);
     adapter!.rememberThreads(kernel.threadBindings());
     return made;
   };

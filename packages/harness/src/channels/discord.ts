@@ -968,12 +968,17 @@ export class DiscordAdapter implements ChannelAdapter {
    * are there are kept as they are, name and all; the approvals channel is
    * remembered so prompts go there. Nothing is ever deleted here.
    */
-  async sync(plans: ChannelPlan[]): Promise<{ created: string[]; kept: string[]; threads: ThreadMade[] }> {
-    if (!this.guildId) return { created: [], kept: [], threads: [] };
+  async sync(plans: ChannelPlan[]): Promise<{ created: string[]; kept: string[]; threads: ThreadMade[]; audiences: Record<string, Audience> }> {
+    if (!this.guildId) return { created: [], kept: [], threads: [], audiences: {} };
     const guild = await this.client.guilds.fetch(this.guildId);
     const { bound, categories } = await this.boundChannels(guild);
     const created: string[] = [];
     const kept: string[] = [];
+    // Who may see each channel, as Discord has it now: the layout reports
+    // it and never puts it back. It used to re-apply the kernel's stored
+    // audience on every look, so a channel opened by hand, or through
+    // discord.access, was shut again minutes later.
+    const audiences: Record<string, Audience> = {};
     const threads: ThreadMade[] = [];
     // KOS's own categories, by id: a channel the owner put elsewhere (a
     // project living in a club's category) stays where they put it.
@@ -993,8 +998,6 @@ export class DiscordAdapter implements ChannelAdapter {
       let have = bound.get(plan.key);
       if (have) {
         kept.push(have.name);
-        // Permissions follow the audience; a channel that drifted is put back.
-        if (have.audience !== audience) await this.applyAudience(have.channel, audience, guild.id);
         if (have.parentId !== parent && (!have.parentId || own.has(have.parentId))) await have.channel.setParent?.(parent, { lockPermissions: false });
       } else {
         const made = await guild.channels.create({
@@ -1009,6 +1012,7 @@ export class DiscordAdapter implements ChannelAdapter {
         bound.set(plan.key, have);
         this.boundIds.set(plan.key, made.id);
       }
+      audiences[plan.key] = have.audience;
       if (plan.key === "needs-you") this.approvalsChannelId = have.id;
       // A thread per chat, bound to it; the ones already made are known to
       // the kernel and skipped. Threads auto-archive on their own when a
@@ -1019,7 +1023,7 @@ export class DiscordAdapter implements ChannelAdapter {
         if (made) threads.push({ threadId: made.id, conversationId: thread.conversationId, title: thread.title });
       }
     }
-    return { created, kept, threads };
+    return { created, kept, threads, audiences };
   }
 
   /** Whether some thread already stands for a conversation; the kernel's bindings say. */
