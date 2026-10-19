@@ -723,6 +723,18 @@ export async function handleApiRequest(
     }
   }
 
+  /** Approvals already decided, newest first, so a link to one still lands on the dashboard. */
+  if (method === "GET" && path === "/api/approvals/history") {
+    const limit = clampLimit(queryParams(req.url).get("limit"), 50);
+    return ok(
+      kernel.approvals.recent(limit).map((a) => ({
+        ...a,
+        asker: kernel.askerOf(a.conversationId)?.name,
+        summary: summarizeAction(a.tool, a.args, (kind, id) => kernel.labelFor(kind, id)),
+      })),
+    );
+  }
+
   if (method === "GET" && path === "/api/approvals") {
     // When each lapses if nobody decides, so the inbox can say so.
     const keep = kernel.behaviour().approvalExpiryHours * 3_600_000;
@@ -2512,7 +2524,7 @@ export async function handleApiRequest(
     const params = queryParams(req.url);
     const q = params.get("q") ?? "";
     const kind = params.get("kind");
-    const kinds = ["project", "page", "file", "schedule", "chat", "site", "blob", "agent", "build", "tab", "channel"];
+    const kinds = ["project", "page", "file", "schedule", "chat", "site", "blob", "agent", "build", "tab", "channel", "approval"];
     // The palette and the @ menu ask the same question of the same index, so
     // a thing reachable by one is reachable by the other. Asked from inside a
     // project, that project's own things come first.
@@ -2539,6 +2551,7 @@ export async function handleApiRequest(
             ...(owner ? { owner: kernel.conversations.get(owner)?.title ?? owner } : {}),
           })),
           channels: knownChannels(kernel),
+          approvals: kernel.approvals.pending().map((a) => ({ id: a.id, summary: summarizeAction(a.tool, a.args, (kind, id) => kernel.labelFor(kind, id)) })),
         },
         q,
         limit,

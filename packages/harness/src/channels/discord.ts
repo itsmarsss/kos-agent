@@ -425,6 +425,8 @@ interface AdminChannel extends OverwritableChannel {
 interface OverwritableChannel {
   id: string;
   name: string;
+  topic?: string | null;
+  setTopic?: (topic: string) => Promise<unknown>;
   permissionOverwrites?: {
     cache: Map<string, { deny: { has: (bit: bigint) => boolean }; allow?: { has: (bit: bigint) => boolean } }>;
     set: (overwrites: Overwrite[]) => Promise<unknown>;
@@ -717,7 +719,7 @@ export class DiscordAdapter implements ChannelAdapter {
    * costs a stale prompt rather than a wrong decision -- pressing it answers
    * that the action does not exist, which is true.
    */
-  private readonly prompts = new Map<string, { message: Message; summary: string }>();
+  private readonly prompts = new Map<string, { edit: (payload: { content: string; embeds: never[]; components: never[] }) => Promise<unknown>; summary: string }>();
   private commands?: SlashContext;
   private readonly ownerId?: string;
   private readonly dashboardUrl?: string;
@@ -894,10 +896,10 @@ export class DiscordAdapter implements ChannelAdapter {
     };
     for (const other of all) {
       if (other.id !== target.id && boundKeyOf(other.topic) === key) {
-        await setTopic(other, (other.topic ?? "").replace(/^kos:[^·\n]*·?\s*/, "").trim());
+        await setTopic(other, (other.topic ?? "").replace(/^kos:[^·\n]*·?\s*/, "").replace(/\s*·\s*https?:\/\/\S+\s*$/, "").trim());
       }
     }
-    await setTopic(target, `kos:${key} · ${title}`);
+    await setTopic(target, this.topicWithLink(`kos:${key} · ${title}`, key));
     this.boundIds.set(key, target.id);
     // What is known of the channels follows the topics as they are now.
     for (const other of all) {
@@ -998,12 +1000,17 @@ export class DiscordAdapter implements ChannelAdapter {
       let have = bound.get(plan.key);
       if (have) {
         kept.push(have.name);
+        // The link to the chat, added once to a channel from before it was in the topic.
+        const wanted = this.topicWithLink(plan.topic, plan.key);
+        if (wanted !== plan.topic && have.channel.setTopic && boundKeyOf(have.channel.topic) === plan.key && !(have.channel.topic ?? "").includes("/#/chats/")) {
+          await have.channel.setTopic(wanted);
+        }
         if (have.parentId !== parent && (!have.parentId || own.has(have.parentId))) await have.channel.setParent?.(parent, { lockPermissions: false });
       } else {
         const made = await guild.channels.create({
           name: plan.name,
           type: ChannelType.GuildText,
-          topic: plan.topic,
+          topic: this.topicWithLink(plan.topic, plan.key),
           parent,
           permissionOverwrites: overwritesFor(audience, this.permissionIds(guild.id)),
         });
@@ -1292,12 +1299,27 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   /** The channel or thread a conversation is read in on the server, when it has one. */
-  private async askingRoom(conversationId: string | undefined): Promise<{ send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> } | undefined> {
+  private async askingRoom(
+    conversationId: string | undefined,
+  ): Promise<{ id: string; isThread?: () => boolean; parent?: { id: string } | null; send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> } | undefined> {
     if (!conversationId || !this.guildId) return undefined;
     const target = this.mirrorTarget(conversationId, this.threadBindings?.() ?? {});
     if (!target) return undefined;
     const channel = await this.client.channels.fetch(target);
-    return channel && channel.isSendable() ? (channel as unknown as { send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> }) : undefined;
+    return channel && channel.isSendable()
+      ? (channel as unknown as { id: string; isThread?: () => boolean; parent?: { id: string } | null; send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> })
+      : undefined;
+  }
+
+  /**
+   * A bound channel's topic carries a link to the chat on the dashboard,
+   * since a webhook's profile can carry none: the one place a reader of the
+   * channel can click through to the thread it stands for.
+   */
+  private topicWithLink(topic: string, key: string): string {
+    const base = this.dashboardUrl?.replace(/\/+$/, "");
+    if (!base || !key.includes(":")) return topic;
+    return `${topic} · ${base}/#/chats/${encodeURIComponent(key)}`;
   }
 
   /** The approvals channel, when the server has one; prompts go there rather than to a DM. */
@@ -1953,9 +1975,22 @@ export class DiscordAdapter implements ChannelAdapter {
     // from #needs-you read as two conversations. The approvals channel takes
     // the rest: a schedule's run, a dashboard turn, a blob with no channel
     // yet. A DM without a server.
-    const room = (await this.askingRoom(req.asker?.conversationId).catch(() => undefined)) ?? (await this.approvalsChannel().catch(() => undefined));
+    const asking = await this.askingRoom(req.asker?.conversationId).catch(() => undefined);
+    const room = asking ?? (await this.approvalsChannel().catch(() => undefined));
+    // Asked by whoever the owner is talking to there: the orchestrator, an
+    // agent, a blob, through its own webhook, the way its answers come. An
+    // ask from "KOS" in a channel where everything else said Orchestrator
+    // read as a third party stepping in. In #needs-you, KOS asks as itself.
+    const from = asking && req.asker ? this.senderOf?.(req.asker.conversationId) : undefined;
+    const via = asking && from ? await this.webhookFor(asking, from).catch(() => undefined) : undefined;
+    if (via && from) {
+      const thread = via.threadId ? { threadId: via.threadId } : {};
+      const posted = await via.hook.send({ ...payload, username: from.name, ...thread });
+      this.prompts.set(req.id, { edit: (edited) => via.hook.editMessage(posted.id, { ...edited, ...thread }), summary });
+      return;
+    }
     const sent = room ? await room.send(payload) : await (await this.client.users.fetch(recipientId)).send(payload);
-    this.prompts.set(req.id, { message: sent, summary });
+    this.prompts.set(req.id, { edit: (edited) => sent.edit(edited), summary });
   }
 
   /**
@@ -1969,7 +2004,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (!prompt) return;
     this.prompts.delete(id);
     try {
-      await prompt.message.edit({
+      await prompt.edit({
         content: settledText(outcome, prompt.summary, id),
         embeds: [],
         components: [],

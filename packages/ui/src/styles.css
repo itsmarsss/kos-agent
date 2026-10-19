@@ -2644,6 +2644,7 @@ li:hover .chats-item-when { opacity: 0; }
 .chip-ref--build { color: var(--muted); background: var(--panel-2); border-color: var(--line); }
 /* A Discord channel, in Discord's own blue, so it reads as the place it is. */
 .chip-ref--channel { color: #5865f2; background: color-mix(in srgb, #5865f2 12%, transparent); border-color: color-mix(in srgb, #5865f2 30%, transparent); }
+.chip-ref--approval { color: var(--warn); background: var(--warn-dim); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
 /* On the owner's own bubble the accent is the background, so the chips need
    to sit against it rather than disappear into it. */
 .bubble--you .chip-ref {
@@ -2731,6 +2732,15 @@ li:hover .chats-item-when { opacity: 0; }
 .hl-ref--build { color: var(--muted); background: var(--panel-2); }
 .hl-ref--tab { color: var(--accent); background: var(--accent-dim); }
 .hl-ref--channel { color: #5865f2; background: color-mix(in srgb, #5865f2 12%, transparent); }
+.hl-ref--approval { color: var(--warn); background: var(--warn-dim); }
+/* The approval a link pointed at, waiting or decided. */
+.inbox-approval.is-highlit, .inbox-decided-row.is-highlit { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-md); }
+.inbox-decided { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.inbox-decided-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem 0.6rem; padding: 0.4rem 0.5rem; font-size: var(--text-md); }
+.inbox-decided-row code { font-family: var(--mono); font-size: var(--text-sm); color: var(--muted); }
+.inbox-outcome { font-size: var(--text-sm); padding: 0.05rem 0.45rem; border-radius: 999px; background: var(--panel-2); color: var(--muted); }
+.inbox-outcome--approved { color: var(--ok); background: var(--ok-dim); }
+.inbox-outcome--denied { color: var(--danger); background: var(--danger-dim); }
 
 /* —— autocomplete —— */
 .composer-input { position: relative; }

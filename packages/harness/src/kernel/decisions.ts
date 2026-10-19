@@ -109,7 +109,7 @@ export class Decisions {
     }
 
     // A turn suspended on this decision does the rest itself.
-    if (awaited) return { ok: true, message: `Approved #${id}. ${action.tool} is running.` };
+    if (awaited) return { ok: true, message: `Approved @approval:${id}. ${action.tool} is running.` };
 
     const stored = JSON.parse(action.args) as Record<string, unknown>;
     const by = decidedBy ?? d.ownerId;
@@ -137,7 +137,7 @@ export class Decisions {
     try {
       reply = (await d.handleMessage(this.resumeText(sessionId, outcome), { sessionId, userId: by, origin: "system" })).reply;
     } catch (err) {
-      reply = `Approved #${id} but resume failed: ${err instanceof Error ? err.message : String(err)}`;
+      reply = `Approved @approval:${id} but resume failed: ${err instanceof Error ? err.message : String(err)}`;
     }
     return { ok: true, message: result.content, isError: result.isError, ...(reply !== undefined ? { reply } : {}) };
   }
@@ -156,14 +156,14 @@ export class Decisions {
     const waiting = this.siblingsWaiting(denied.conversationId, id);
     if (waiting.length > 0) {
       this.held.set(sessionId, [...(this.held.get(sessionId) ?? []), outcome]);
-      return { ok: true, message: `Denied #${id}. ${this.stillWaiting(waiting)}` };
+      return { ok: true, message: `Denied @approval:${id}. ${this.stillWaiting(waiting)}` };
     }
     let reply: string | undefined;
     try {
       reply = (await d.handleMessage(this.resumeText(sessionId, outcome), { sessionId, userId: decidedBy ?? d.ownerId, origin: "system" })).reply;
     } catch {
-      reply = `Denied #${id}.`;
+      reply = `Denied @approval:${id}.`;
     }
-    return { ok: true, message: `denied #${id}`, ...(reply !== undefined ? { reply } : {}) };
+    return { ok: true, message: `denied @approval:${id}`, ...(reply !== undefined ? { reply } : {}) };
   }
 }

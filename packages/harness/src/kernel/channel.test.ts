@@ -112,7 +112,7 @@ describe("connectChannel", () => {
     expect(adapter.sent.at(-1)?.msg.text).toMatch(/Waiting on you: 1 action \(1 in this chat/);
 
     await adapter.receive({ channel: "memory", senderId: "u1", text: "/approve" });
-    expect(adapter.sent.at(-1)?.msg.text).toMatch(/^Approved #\d+ /);
+    expect(adapter.sent.at(-1)?.msg.text).toMatch(/^Approved @approval:\d+ /);
     expect(kernel.approvals.pending()).toHaveLength(0);
 
     await adapter.receive({ channel: "memory", senderId: "u1", text: "/deny" });
@@ -175,7 +175,7 @@ describe("connectChannel", () => {
 
     expect(kernel.approvals.pending()).toHaveLength(0);
     const after = adapter.sent.slice(before).map((m) => m.msg.text ?? "");
-    expect(after.filter((t) => /^Approved #\d+\.$/.test(t))).toEqual([]);
+    expect(after.filter((t) => /^Approved @approval:\d+\.$/.test(t))).toEqual([]);
   });
 
   it("still speaks up when the decision could not be applied", async () => {

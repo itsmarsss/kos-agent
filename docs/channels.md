@@ -64,6 +64,13 @@ the root; one under a blob's channel is the blob's thread. Channels
 without a `kos:` topic are yours and KOS stays out of them, as it does
 with anyone else's messages in its own.
 
+An ask in a channel or thread comes from whoever you are talking to there,
+the orchestrator, an agent or a blob, through its own webhook, the way its
+answers come; in `#needs-you` KOS asks as itself. An approval named in a
+reply, `@approval:290`, links to it on the dashboard, waiting or decided.
+A bound channel's topic carries a link to its chat on the dashboard, since
+a webhook's profile can carry none.
+
 A thread or channel is the chat it stands for, not only a door into it:
 a turn taken on the dashboard, by a schedule or by a dispatch shows there
 too, your words under your own name and picture (through a webhook, so

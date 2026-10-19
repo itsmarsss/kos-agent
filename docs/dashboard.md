@@ -192,6 +192,11 @@ then lapses too. Either way it leaves the Inbox, the prompt for it on
 Discord or iMessage settles as lapsed, and the chat that asked is told
 nothing was done. Each card says when it lapses.
 
+An approval is a reference like anything else: `@approval:290` in a chat
+is a chip that opens it here, and the Inbox keeps every approval after it
+is decided, approved, denied or lapsed, with who decided and when, so the
+link still lands.
+
 An ask says what it would do in words, with names beside the ids (the
 channel as #leetcode, the project by its name, the job by its name), and
 why it asks: "other people can see #leetcode", "changes or removes rows",

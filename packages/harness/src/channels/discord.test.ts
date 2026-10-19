@@ -1035,6 +1035,36 @@ describe("DiscordAdapter authorization", () => {
     await expect(adapter.setAudience("project:nope", "owner")).rejects.toThrow(/no channel is bound/);
   });
 
+  it("asks as whoever the owner is talking to, through its webhook, and settles the card there", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id", senderOf: (id) => (id === "project:garden" ? { name: "Orchestrator", avatar: "cGZn" } : undefined) });
+    const posted: Record<string, unknown>[] = [];
+    const edits: [string, Record<string, unknown>][] = [];
+    const mine = { name: "KOS·Orchestrator·x", token: "wh", send: async (p: Record<string, unknown>) => { posted.push(p); return { id: "m9" }; }, editMessage: async (id: string, p: Record<string, unknown>) => { edits.push([id, p]); } };
+    const channel = { id: "c2", isThread: () => false, isSendable: () => true, send: async () => { throw new Error("not as the bot"); }, fetchWebhooks: async () => new Map(), createWebhook: async (o: { name: string }) => ({ ...mine, name: o.name }) };
+    const guild = { id: "g1", channels: { fetch: async () => new Map([["c2", { id: "c2", type: ChannelType.GuildText, name: "garden", topic: "kos:project:garden · Garden" }]]) } };
+    (adapter as unknown as { client: unknown }).client = { user: { id: "bot" }, guilds: { fetch: async () => guild }, channels: { fetch: async (id: string) => (id === "c2" ? channel : undefined) } };
+    await adapter.channels();
+    await adapter.requestApproval("owner-id", { id: "7", text: "Approve discord.audience?", tool: "discord.audience", args: { channel: "c5", audience: "guests" }, asker: { name: "Orchestrator", conversationId: "project:garden" } });
+    expect(posted[0]).toMatchObject({ username: "Orchestrator" });
+    expect(Array.isArray(posted[0]?.["components"])).toBe(true);
+    await adapter.settleApproval("7", "approved");
+    expect(edits[0]?.[0]).toBe("m9");
+    expect(String(edits[0]?.[1]["content"])).toContain("Approved");
+    expect(edits[0]?.[1]["components"]).toEqual([]);
+  });
+
+  it("writes a link to the chat into a bound channel's topic, and takes it out when the channel is let go", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", dashboardUrl: "http://kos.test/" });
+    const topics: Record<string, string> = {};
+    const club = { id: "c7", type: ChannelType.GuildText, name: "club", topic: null, setTopic: async (t: string) => { topics["c7"] = t; } };
+    const old = { id: "c8", type: ChannelType.GuildText, name: "old-club", topic: "kos:project:club · Club · http://kos.test/#/chats/project%3Aclub", setTopic: async (t: string) => { topics["c8"] = t; } };
+    const guild = { id: "g1", channels: { fetch: async () => new Map<string, unknown>([["c7", club], ["c8", old]]) } };
+    (adapter as unknown as { client: unknown }).client = { user: { id: "bot" }, guilds: { fetch: async () => guild }, channels: { fetch: async () => undefined } };
+    await adapter.bind("club", "project:club", "Club");
+    expect(topics["c7"]).toBe("kos:project:club · Club · http://kos.test/#/chats/project%3Aclub");
+    expect(topics["c8"]).toBe("Club");
+  });
+
   it("tells who a member is by id, and pings a member named in a reply", async () => {
     const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
     const member = { user: { id: "306", username: "splattertron", globalName: "Splat", bot: false }, displayName: "Splat", joinedTimestamp: 1_700_000_000_000, roles: { cache: new Map([["g1", { id: "g1", name: "@everyone" }], ["r1", { id: "r1", name: "Members" }]]) } };
@@ -1467,8 +1497,8 @@ describe("settling a prompt decided somewhere else", () => {
   /** Reach the prompt registry without sending a real Discord message. */
   function seed(adapter: DiscordAdapter, id: string, edit: () => Promise<void>) {
     (
-      adapter as unknown as { prompts: Map<string, { message: { edit: () => Promise<void> }; summary: string }> }
-    ).prompts.set(id, { message: { edit }, summary: "x" });
+      adapter as unknown as { prompts: Map<string, { edit: () => Promise<void>; summary: string }> }
+    ).prompts.set(id, { edit, summary: "x" });
   }
 
   it("edits the prompt once, then leaves it alone", async () => {

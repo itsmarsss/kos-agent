@@ -1675,3 +1675,26 @@ describe("a file as words", () => {
     }
   });
 });
+
+describe("approvals already decided", () => {
+  it("are kept, newest first, said in words, so a link to one still lands", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kos-api-"));
+    const k = await Kernel.boot({ rootDir: root, secrets: new SecretsRegistry(), inference: stub });
+    try {
+      const a = k.approvals.enqueue({ tool: "cron.run", args: { id: 1 }, riskTier: "risky", reason: "runs it" });
+      const b = k.approvals.enqueue({ tool: "files.rm", args: { path: "x.txt" }, riskTier: "risky", reason: "outside the scratch folder" });
+      k.approvals.deny(a.id, "owner");
+      k.approvals.approve(b.id, "owner");
+      const history = (await handleApiRequest(k, { method: "GET", path: "/api/approvals/history", url: "/api/approvals/history?limit=10" })).body as { id: number; status: string; summary: string; decidedBy: string | null }[];
+      expect(history.map((h) => [h.id, h.status, h.decidedBy])).toEqual([
+        [b.id, "approved", "owner"],
+        [a.id, "denied", "owner"],
+      ]);
+      expect(history[0]?.summary).toBe("Delete x.txt");
+      expect((await handleApiRequest(k, { method: "GET", path: "/api/approvals" })).body).toEqual([]);
+    } finally {
+      k.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

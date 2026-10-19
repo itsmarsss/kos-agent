@@ -300,6 +300,13 @@ describe("every kind of reference", () => {
     expect(html("in #leetcode")).not.toContain("chip-ref");
   });
 
+  it("draws an approval as a chip that opens it in the inbox, numbered", () => {
+    const { container } = render(<Markdown text="Waiting on you: discord.audience needs approval (@approval:290)." />);
+    const chip = container.querySelector<HTMLAnchorElement>("a.chip-ref--approval");
+    expect(chip?.textContent).toBe("#290");
+    expect(chip?.getAttribute("href")).toBe("#/inbox/290");
+  });
+
   it("falls back to the id when nothing knows better", () => {
     const { container } = render(<Markdown text="see @chat:[abc123:owner]" />);
     expect(container.querySelector(".chip-ref--chat")?.textContent).toBe(
