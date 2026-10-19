@@ -27,6 +27,7 @@ import { isReadable, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, MakePlace, ServerPlace, ServerRole } from "../tools/discord.js";
 import { COMMANDS, completions, runCommand, type SlashContext } from "./commands.js";
 import { linkMentions, linkPaths, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
+import { tablesToCode } from "./tables.js";
 import { STEP_MARK } from "./narrate.js";
 import { MESSAGE_LIMITS } from "./types.js";
 import type {
@@ -62,6 +63,9 @@ const MODAL_WAIT_MS = 5 * 60 * 1000;
 
 /** What stands in for the turn until it has words or steps of its own. */
 const THINKING = "-# thinking…";
+/** Discord's limits on uploads: files per message, bytes per file. */
+const DISCORD_FILES = 10;
+const DISCORD_FILE_BYTES = 10 * 1024 * 1024;
 /** Subtext lines may not be longer than this and still read as a glance. */
 const DETAIL_MAX = 160;
 
@@ -692,6 +696,10 @@ export class DiscordAdapter implements ChannelAdapter {
   private approvalsChannelId?: string;
   /** One webhook per channel, made on first use, through which a blob speaks as itself. */
   private readonly webhooks = new Map<string, Webhook>();
+  /** Every text channel on the server by name, from the last look, so "#general" in words can be the channel itself. */
+  private readonly channelIds = new Map<string, string>();
+  /** The owner as a speaker, once looked up. */
+  private owner?: Sender;
   private isAuthorized: SenderAuthorizer = () => true;
 
   setAuthorizer(isAuthorized: SenderAuthorizer): void {
@@ -896,8 +904,11 @@ export class DiscordAdapter implements ChannelAdapter {
     if (!via) return false;
     const { hook, threadId } = via;
     const username = msg.from.name;
+    // A speaker with a picture by address (the owner) wears it per message;
+    // a blob's is on its own webhook.
+    const look = msg.from.avatarUrl ? { avatarURL: msg.from.avatarUrl } : {};
     try {
-      await this.deliver((payload) => hook.send({ ...payload, username, ...(threadId ? { threadId } : {}) }), msg, { tagged: false });
+      await this.deliver((payload) => hook.send({ ...payload, username, ...look, ...(threadId ? { threadId } : {}) }), msg, { tagged: false });
       return true;
     } catch {
       return false;
@@ -1076,6 +1087,7 @@ export class DiscordAdapter implements ChannelAdapter {
       if (!channel || typeof channel !== "object") continue;
       const c = channel as OverwritableChannel & { type: ChannelType; name: string; topic?: string | null; parentId?: string | null };
       if (c.type === ChannelType.GuildCategory) categories.set(c.name.toLowerCase(), c.id);
+      if (c.type === ChannelType.GuildText) this.channelIds.set(c.name.toLowerCase(), c.id);
       if (c.type === ChannelType.GuildText) {
         const key = boundKeyOf(c.topic);
         if (key) {
@@ -1470,9 +1482,41 @@ export class DiscordAdapter implements ChannelAdapter {
     await this.send(id, msg);
   }
 
-  /** Words as Discord takes them: times on the reader's clock, references as links, no previews. */
+  /**
+   * Words as Discord takes them: times on the reader's clock, references as
+   * links, tables as padded code, a channel named by name as the channel
+   * itself, no previews.
+   */
   private words(text: string): string {
-    return noPreviews(linkMentions(withTimes(text, this.timezone), this.dashboardUrl, this.labelOf));
+    return noPreviews(linkMentions(this.channelMentions(tablesToCode(withTimes(text, this.timezone))), this.dashboardUrl, this.labelOf));
+  }
+
+  /** "#general" as `<#id>` when the server has a channel of that name; code and mentions already made are left alone. */
+  private channelMentions(text: string): string {
+    if (this.channelIds.size === 0) return text;
+    return outsideCode(text, (part) =>
+      part.replace(/(?<![\w<#/])#([A-Za-z0-9][\w-]{0,99})(?![\w-])/g, (whole, name: string) => {
+        const id = this.channelIds.get(name.toLowerCase());
+        return id ? `<#${id}>` : whole;
+      }),
+    );
+  }
+
+  /**
+   * The owner as a speaker: their name and picture as Discord has them, so
+   * words of theirs said on the dashboard show here as theirs, under their
+   * own name through a webhook, rather than quoted by the bot.
+   */
+  async ownerSender(): Promise<Sender | undefined> {
+    if (!this.ownerId) return undefined;
+    if (this.owner) return this.owner;
+    try {
+      const user = await this.client.users.fetch(this.ownerId);
+      this.owner = { name: user.globalName ?? user.username, avatarUrl: user.displayAvatarURL({ size: 128, extension: "png" }) };
+      return this.owner;
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -1498,8 +1542,20 @@ export class DiscordAdapter implements ChannelAdapter {
     const chunks = text ? chunkText(this.words(text)) : [];
     const embeds = msg.card ? [buildCard(msg.card, { from: msg.from, named: tagged && chunks.length === 0, dashboardUrl: this.dashboardUrl, timezone: this.timezone, labelOf: this.labelOf })] : [];
     const components = buildButtons(msg.buttons ?? []);
-    // The files ride on the last chunk with the card, under the whole message.
-    const files = (msg.files ?? []).map((f) => ({ attachment: Buffer.from(f.data, "base64"), name: f.name }));
+    // The files ride on the last chunk with the card, under the whole
+    // message. Discord takes ten per message and so many bytes each; what
+    // does not fit is named instead, with where it is kept, rather than the
+    // whole message being refused for one file too many.
+    const all = (msg.files ?? []).map((f) => ({ attachment: Buffer.from(f.data, "base64"), name: f.name, path: f.path }));
+    const files = all.filter((f) => f.attachment.byteLength <= DISCORD_FILE_BYTES).slice(0, DISCORD_FILES);
+    const left = all.filter((f) => !files.includes(f));
+    if (left.length) {
+      const base = this.dashboardUrl?.replace(/\/+$/, "");
+      const named = left.map((f) => (f.path && base ? `[${f.name}](<${base}/#/files/${encodeURIComponent(f.path)}>)` : f.name)).join(", ");
+      const note = `-# ${left.length} file${left.length === 1 ? "" : "s"} not sent here (Discord takes ${DISCORD_FILES} per message, ${Math.round(DISCORD_FILE_BYTES / 1024 / 1024)} MB each): ${named}`;
+      if (chunks.length) chunks[chunks.length - 1] = `${chunks[chunks.length - 1]}\n${note}`.slice(0, 2000);
+      else chunks.push(note.slice(0, 2000));
+    }
     if (chunks.length === 0 && embeds.length === 0 && files.length === 0) {
       throw new Error("nothing to send: no text, no card and no file");
     }
@@ -1509,7 +1565,7 @@ export class DiscordAdapter implements ChannelAdapter {
         ...(chunks[i] ? { content: chunks[i] } : {}),
         ...(last && embeds.length ? { embeds } : {}),
         ...(last && components.length ? { components } : {}),
-        ...(last && files.length ? { files } : {}),
+        ...(last && files.length ? { files: files.map((f) => ({ attachment: f.attachment, name: f.name })) } : {}),
       });
     }
   }
