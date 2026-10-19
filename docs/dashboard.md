@@ -212,6 +212,11 @@ blob is listed with the reason. See docs/blobs.md.
 
 ## Files
 
+A file opens for what it is: text and code as text, markdown as a page,
+an image as itself, a PDF in the browser's own viewer, and a Word, Excel
+or PowerPoint file as the text read out of it, with a line saying so and
+Download for the file itself.
+
 The workspace as a browser. Folders, files with a preview, filter and sort.
 
 ## Memory

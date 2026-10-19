@@ -34,7 +34,7 @@ import {
 } from "../models/settings.js";
 import { conversationEvents, type ChatEvent } from "./transcript.js";
 import { DENIED_PREFIX } from "./guarded.js";
-import { copyEntry, deleteEntry, listDirectory, makeDir, readFile, readImage, readBytes, renameEntry, type DirEntry } from "./files.js";
+import { copyEntry, deleteEntry, listDirectory, makeDir, readForView, readImage, readBytes, readPdf, renameEntry, type DirEntry } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
 import type { FailingJob } from "../ops/health.js";
@@ -1514,7 +1514,7 @@ export async function handleApiRequest(
     const target = queryParams(req.url).get("path") ?? "";
     if (!target) return { status: 400, body: { error: "path required" } };
     try {
-      return ok(readFile(kernel.workspace, target));
+      return ok(readForView(kernel.workspace, target));
     } catch (err) {
       return {
         status: 400,
@@ -2304,6 +2304,33 @@ export async function handleApiRequest(
     // origin from this one on purpose. The dashboard links out to it rather
     // than embedding it.
     return ok({ base: sitesBaseUrl() ?? null, sites: listSites(kernel.workspace) });
+  }
+
+  if (method === "GET" && path === "/api/file/view") {
+    // A PDF for the browser's own viewer, framed on the Files page. Only a
+    // PDF: anything else served inline on this origin could be a page that
+    // scripts the dashboard. Same-origin frames only, and never sniffed.
+    const target = queryParams(req.url).get("path") ?? "";
+    if (!target) return { status: 400, body: { error: "path required" } };
+    try {
+      const raw = readPdf(kernel.workspace, target);
+      return {
+        status: 200,
+        body: raw.bytes,
+        headers: {
+          "content-type": raw.contentType,
+          "content-length": String(raw.bytes.byteLength),
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "SAMEORIGIN",
+          "content-disposition": "inline",
+        },
+      };
+    } catch (err) {
+      return {
+        status: 400,
+        body: { error: err instanceof Error ? err.message : String(err) },
+      };
+    }
   }
 
   if (method === "GET" && path === "/api/file/raw") {

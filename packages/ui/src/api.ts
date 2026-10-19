@@ -483,6 +483,8 @@ export interface FileContent {
   text?: string;
   omitted?: "binary" | "too-large";
   language: string;
+  /** Set when the text was read out of a document (Word, Excel, PowerPoint): what was read, "docx, 12 paragraphs". */
+  extracted?: string;
 }
 
 export interface ModelRate {

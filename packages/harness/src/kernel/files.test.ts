@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
-import { copyEntry, deleteEntry, isImage, listDirectory, makeDir, readFile, readImage, readBytes, renameEntry, uniqueName } from "./files.js";
+import { zipOf } from "../files/zipfixture.js";
+import { copyEntry, deleteEntry, isImage, listDirectory, makeDir, readFile, readForView, readImage, readBytes, readPdf, renameEntry, uniqueName } from "./files.js";
 
 describe("workspace file browsing", () => {
   let root: string;
@@ -40,6 +41,28 @@ describe("workspace file browsing", () => {
   it("treats an empty or root path as the workspace root", () => {
     expect(listDirectory(ws, "").length).toBeGreaterThan(0);
     expect(listDirectory(ws, "/").length).toBeGreaterThan(0);
+  });
+
+  it("reads a document's text for the page, and serves a PDF as itself", () => {
+    writeFileSync(
+      join(ws.root, "projects", "budget", "spend.xlsx"),
+      zipOf({
+        "xl/workbook.xml": '<workbook><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>',
+        "xl/_rels/workbook.xml.rels": '<Relationships><Relationship Id="rId1" Type="x" Target="worksheets/sheet1.xml"/></Relationships>',
+        "xl/worksheets/sheet1.xml": '<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Kettle</t></is></c><c r="B1"><v>42</v></c></row></sheetData></worksheet>',
+      }),
+    );
+    writeFileSync(join(ws.root, "paper.pdf"), Buffer.from("%PDF-1.4 not really"));
+    // An Office file comes back as its words, and says so; anything else as readFile has it.
+    const sheet = readForView(ws, "projects/budget/spend.xlsx");
+    expect(sheet).toMatchObject({ path: "projects/budget/spend.xlsx", text: "Kettle | 42", extracted: "xlsx, 1 row" });
+    expect(sheet.omitted).toBeUndefined();
+    expect(readForView(ws, "photo.png")).toMatchObject({ omitted: "binary" });
+    expect(readForView(ws, "notes.md")).toMatchObject({ text: "# Notes\n\nhello" });
+    // The PDF stays binary on the page, since the viewer shows it; its bytes are served as a PDF and nothing else is.
+    expect(readForView(ws, "paper.pdf")).toMatchObject({ omitted: "binary" });
+    expect(readPdf(ws, "paper.pdf")).toMatchObject({ contentType: "application/pdf", name: "paper.pdf" });
+    expect(() => readPdf(ws, "photo.png")).toThrow(/not a PDF/);
   });
 
   it("reads a text file with its language", () => {
