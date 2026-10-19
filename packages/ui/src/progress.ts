@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { MessageOrigin } from "./api.js";
 
 /**
  * What each conversation is doing, streamed from the host.
@@ -13,7 +14,7 @@ import { useEffect, useState } from "react";
  */
 
 export type ProgressEvent =
-  | { kind: "turn-start"; conversationId: string; said?: string; from?: string }
+  | { kind: "turn-start"; conversationId: string; said?: string; from?: string; origin?: MessageOrigin }
   | {
       kind: "tool-start";
       conversationId: string;
@@ -68,6 +69,8 @@ export interface Live {
    */
   said?: string;
   from?: string;
+  /** Where they came from, in the words the transcript will use. */
+  origin?: MessageOrigin;
   /**
    * The turn is over, but what it did is still the only copy on screen.
    *
@@ -234,7 +237,10 @@ class ProgressStore {
         // what turns its dot green, and the next poll was up to five seconds off.
         for (const listener of endListeners) listener(id);
       } else if (event.kind === "turn-start") {
-        this.map = { ...this.map, [id]: { steps: [], text: "", since: Date.now(), ...(event.said ? { said: event.said, ...(event.from ? { from: event.from } : {}) } : {}) } };
+        this.map = {
+          ...this.map,
+          [id]: { steps: [], text: "", since: Date.now(), ...(event.said ? { said: event.said, ...(event.from ? { from: event.from } : {}), ...(event.origin ? { origin: event.origin } : {}) } : {}) },
+        };
       } else {
         const live = this.map[id] ?? { steps: [], text: "", since: Date.now() };
         this.map = { ...this.map, [id]: reduce(live, event) };

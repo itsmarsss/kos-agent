@@ -506,8 +506,8 @@ export function ChatsPage({
     return undefined;
   };
   /** A channel opens on Discord; everything else has a page here. */
-  const channelHref = (kind: string, id: string): string | undefined =>
-    kind === "channel" ? channels.find((c) => c.name.toLowerCase() === id.toLowerCase())?.url : undefined;
+  const channelLink = (name: string): string | undefined => channels.find((c) => c.name.toLowerCase() === name.toLowerCase())?.url;
+  const channelHref = (kind: string, id: string): string | undefined => (kind === "channel" ? channelLink(id) : undefined);
 
   /**
    * Reload on the conversation changing, and again whenever it has moved on
@@ -1166,7 +1166,7 @@ export function ChatsPage({
             <Markdown text={e.text} />
           </div>
         )}
-        {e.origin && <OriginLine origin={e.origin} />}
+        {e.origin && <OriginLine origin={e.origin} linkFor={channelLink} />}
         {/* Outside the bubble, under it: an attachment is a thing that came
             with the message, not part of the sentence. The files the message
             mentions sit there too, for the same reason. */}
@@ -2152,7 +2152,7 @@ export function ChatsPage({
                   <div className="bubble bubble--you">
                     <Markdown text={live.said} />
                   </div>
-                  {live.from && live.from !== "dashboard" && <span className="turn-via">via {live.from}</span>}
+                  {live.origin ? <OriginLine origin={live.origin} linkFor={channelLink} /> : live.from && live.from !== "dashboard" && <span className="turn-via">via {live.from}</span>}
                 </div>
               )}
               {live ? (

@@ -301,7 +301,13 @@ describe("Kernel", () => {
     await kernel.handleMessage("what did I do?", { sessionId: c.id });
     expect(said).toEqual([{ conversationId: c.id, text: "what did I do?", reply: "Three things.", origin: "owner", channel: null }]);
     // A turn from a surface names the surface, so a mirror of the chat there does not repeat it.
+    // The live view is told where the words came from as the turn starts, not only when it ends.
+    const starts: { said?: string; origin?: unknown }[] = [];
+    kernel.progress.subscribe((e) => {
+      if (e.kind === "turn-start" && e.conversationId === c.id) starts.push({ said: e.said, origin: e.origin });
+    });
     await kernel.handleChannelTurn({ text: "and now?", userId: "owner", channel: "discord", conversationId: c.id, room: { kind: "channel", id: "c9", name: "kitchen" } });
+    expect(starts).toEqual([{ said: "and now?", origin: { via: "discord", room: { kind: "channel", id: "c9", name: "kitchen" } } }]);
     expect(said[1]).toMatchObject({ conversationId: c.id, text: "and now?", reply: "From Discord.", channel: "discord" });
     // Where each came from is kept with the words: nothing for the dashboard, the surface and room for Discord.
     const users = kernel.sessions.get(c.id).filter((m) => m.role === "user");
