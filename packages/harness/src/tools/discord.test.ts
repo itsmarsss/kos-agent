@@ -42,7 +42,7 @@ describe("the discord tools", () => {
         },
         sync: async () => {
           synced.push(1);
-          return { created: synced.length === 1 ? ["verity"] : [], kept: ["kos"] };
+          return { created: synced.length === 1 ? ["verity"] : [], kept: ["kos"], threads: synced.length === 1 ? 2 : 0 };
         },
       }),
     ]);
@@ -78,8 +78,8 @@ describe("the discord tools", () => {
 
   it("lays the server out on request, and says so when there is no server", async () => {
     const h = await harness();
-    expect((await h.call("discord.sync")).json).toMatchObject({ created: ["verity"], note: "Made #verity." });
-    expect((await h.call("discord.sync")).json).toMatchObject({ created: [], note: "Every channel was already there." });
+    expect((await h.call("discord.sync")).json).toMatchObject({ created: ["verity"], threads: 2, note: "Made #verity. 2 threads made for chats." });
+    expect((await h.call("discord.sync")).json).toMatchObject({ created: [], note: "Every channel and thread was already there." });
     expect(h.registry.classify("discord.sync", {}).tier).toBe("safe");
     const down = await harness(false);
     for (const name of ["discord.channels", "discord.sync"]) expect((await down.call(name)).content).toMatch(/not set up here/);

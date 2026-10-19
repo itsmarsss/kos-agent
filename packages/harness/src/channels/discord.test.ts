@@ -717,18 +717,21 @@ describe("DiscordAdapter authorization", () => {
       users: { fetch: async () => ({ send: async () => { throw new Error("the DM must not be used once the server has an approvals channel"); } }) },
     };
     const result = await adapter.sync([
-      { key: "orchestrator:owner", name: "kos", topic: "kos:orchestrator:owner · KOS" },
-      { key: "needs-you", name: "needs-you", topic: "kos:needs-you · Approvals" },
-      { key: "project:garden", name: "garden", topic: "kos:project:garden · Garden" },
+      { key: "orchestrator:owner", name: "kos", topic: "kos:orchestrator:owner · KOS", category: "KOS" },
+      { key: "needs-you", name: "needs-you", topic: "kos:needs-you · Approvals", category: "KOS" },
+      { key: "project:garden", name: "garden", topic: "kos:project:garden · Garden", category: "Projects" },
     ]);
-    // The renamed project channel is kept by its binding; the rest are made under the category.
-    expect(result).toEqual({ created: ["kos", "needs-you"], kept: ["my-garden"] });
-    expect(created.map((c) => [c["name"], c["type"], c["parent"], c["topic"]])).toEqual([
-      ["kos", ChannelType.GuildText, "cat", "kos:orchestrator:owner · KOS"],
-      ["needs-you", ChannelType.GuildText, "cat", "kos:needs-you · Approvals"],
+    // The renamed project channel is kept by its binding; the rest are made under their categories,
+    // and the one category that was missing is made first, owner-only.
+    expect(result).toEqual({ created: ["kos", "needs-you"], kept: ["my-garden"], threads: [] });
+    const texts = created.filter((c) => c["type"] === ChannelType.GuildText);
+    expect(texts.map((c) => [c["name"], c["parent"], c["topic"]])).toEqual([
+      ["kos", "cat", "kos:orchestrator:owner · KOS"],
+      ["needs-you", "cat", "kos:needs-you · Approvals"],
     ]);
+    expect(created.filter((c) => c["type"] === ChannelType.GuildCategory).map((c) => c["name"])).toEqual(["Projects"]);
     // Made for the owner's eyes: everyone else is kept out, the owner and the bot let in.
-    const overwrites = created[0]!["permissionOverwrites"] as { id: string; type: OverwriteType; allow?: bigint[]; deny?: bigint[] }[];
+    const overwrites = texts[0]!["permissionOverwrites"] as { id: string; type: OverwriteType; allow?: bigint[]; deny?: bigint[] }[];
     expect(overwrites[0]).toEqual({ id: "g1", type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] });
     expect(overwrites.find((o) => o.id === "owner-id")?.type).toBe(OverwriteType.Member);
     expect(overwrites.find((o) => o.id === "owner-id")?.allow).toContain(PermissionFlagsBits.SendMessages);
@@ -738,7 +741,56 @@ describe("DiscordAdapter authorization", () => {
     expect(String(sent[0]?.content).split("\n")[0]).toBe("**Garden needs your OK** · Delete a.txt");
     expect(sent[0]?.components).toHaveLength(1);
     // No server: nothing to lay out.
-    expect(await new DiscordAdapter({ token: "t" }).sync([])).toEqual({ created: [], kept: [] });
+    expect(await new DiscordAdapter({ token: "t" }).sync([])).toEqual({ created: [], kept: [], threads: [] });
+  });
+
+  it("moves a channel under its category and makes a thread per chat, once", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
+    const moved: string[] = [];
+    const threadsMade: { name: string; reason?: string }[] = [];
+    const garden = {
+      id: "c1",
+      name: "garden",
+      topic: "kos:project:garden · Garden",
+      type: ChannelType.GuildText,
+      parentId: "kos-cat",
+      permissionOverwrites: { cache: new Map([["g1", { deny: { has: () => true } }]]), set: async () => undefined },
+      setParent: async (parent: string) => {
+        moved.push(parent);
+      },
+      threads: {
+        create: async (o: { name: string; reason?: string }) => {
+          threadsMade.push(o);
+          return { id: `t${threadsMade.length}` };
+        },
+      },
+    };
+    const existing = new Map<string, Record<string, unknown>>([
+      ["kos-cat", { id: "kos-cat", type: ChannelType.GuildCategory, name: "KOS" }],
+      ["proj-cat", { id: "proj-cat", type: ChannelType.GuildCategory, name: "Projects" }],
+      ["c1", garden],
+    ]);
+    (adapter as unknown as { client: unknown }).client = {
+      user: { id: "bot" },
+      guilds: { fetch: async () => ({ id: "g1", channels: { fetch: async () => existing, create: async () => { throw new Error("nothing to make"); } } }) },
+    };
+    const plan = [{ key: "project:garden", name: "garden", topic: "x", category: "Projects", threads: [{ conversationId: "chat-a", title: "Seeds" }, { conversationId: "chat-b", title: "Soil" }] }];
+    const first = await adapter.sync(plan);
+    // From the KOS category to Projects, keeping its own permissions; a thread for each chat.
+    expect(moved).toEqual(["proj-cat"]);
+    expect(first.threads).toEqual([
+      { threadId: "t1", conversationId: "chat-a", title: "Seeds" },
+      { threadId: "t2", conversationId: "chat-b", title: "Soil" },
+    ]);
+    expect(threadsMade.map((t) => t.reason)).toEqual(["KOS: chat-a", "KOS: chat-b"]);
+    // Told what the kernel kept, the next layout makes no thread twice.
+    adapter.rememberThreads({ t1: "chat-a", t2: "chat-b" });
+    expect((await adapter.sync(plan)).threads).toEqual([]);
+    expect(threadsMade).toHaveLength(2);
+    // The listing says where each channel sits.
+    expect(await adapter.channels()).toEqual([{ key: "project:garden", name: "garden", audience: "owner", category: "kos" }]);
+    // A thread the kernel knows is that chat, whatever its parent says.
+    expect(bindingOf({ id: "t1", name: "Seeds", isThread: () => true, parent: { topic: "kos:project:garden" } }, (id) => (id === "t1" ? "chat-a" : undefined))).toEqual({ conversationId: "chat-a" });
   });
 
   it("keeps a channel's permissions to its audience, and opens or closes one on request", async () => {
@@ -772,8 +824,8 @@ describe("DiscordAdapter authorization", () => {
     ]);
     // A sync puts a drifted channel back to what the plan says, and leaves the others alone.
     await adapter.sync([
-      { key: "project:garden", name: "garden", topic: "x", audience: "owner" },
-      { key: "agent:recap", name: "recap", topic: "x", audience: "owner" },
+      { key: "project:garden", name: "garden", topic: "x", category: "KOS", audience: "owner" },
+      { key: "agent:recap", name: "recap", topic: "x", category: "KOS", audience: "owner" },
     ]);
     expect(applied["c1"]).toBeUndefined();
     expect(applied["c2"]?.[0]?.[0]).toEqual({ id: "g1", type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] });

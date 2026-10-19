@@ -35,24 +35,30 @@ ordinary message to KOS.
 
 ### A server of your own
 
-Give KOS a server and it lays the dashboard out as channels: a `KOS`
-category with `#kos` (KOS itself, as on the dashboard's landing),
-`#needs-you` (every approval, with its buttons, instead of your DM), a
-channel per project (its orchestrator, so "add a tracker for this" said
-there lands in that project) and a channel per blob (its own thread; a
-blob answers there under its own name, through a webhook, not as the
-bot). Each channel is bound to its conversation by the `kos:…` line in
-its topic, so the binding is readable and a channel you rename stays
-bound. A thread you start under a project's channel is a new chat in that
-project, titled as the thread; one under `#kos` is a chat at the root;
-one under a blob's channel is the blob's thread. Channels without a
-`kos:` topic are yours and KOS stays out of them, as it does with anyone
-else's messages in its own.
+Give KOS a server and it lays the dashboard out in three categories.
+`KOS` holds `#kos` (KOS itself, as on the dashboard's landing) and
+`#needs-you` (every approval, with its buttons, instead of your DM).
+`Blobs` holds a channel per blob, its own thread; a blob answers there
+under its own name, through a webhook, not as the bot. `Projects` holds a
+channel per project, its orchestrator, so "add a tracker for this" said
+there lands in that project; and under each project's channel, a thread
+for every chat in the project, so the agents working in it read as the
+threads they are. Each channel is bound to its conversation by the
+`kos:…` line in its topic, so the binding is readable and a channel you
+rename stays bound; a thread KOS made is bound by id, since threads have
+no topic. A thread you start yourself under a project's channel is a new
+chat in that project, titled as the thread; one under `#kos` is a chat at
+the root; one under a blob's channel is the blob's thread. Channels
+without a `kos:` topic are yours and KOS stays out of them, as it does
+with anyone else's messages in its own.
 
-The channels are made when the host starts and kept in step every few
-minutes, so a new project or blob gets its channel without a restart;
-nothing is ever deleted. The bot needs Manage Channels and Manage Webhooks
-on the server, and the message content intent. DMs keep working as before.
+The categories, channels and threads are made when the host starts and
+kept in step every few minutes, so a new project, blob or chat appears
+without a restart; a channel under the wrong category is moved; nothing
+is ever deleted, and a thread archives itself when its chat goes quiet
+and comes back when spoken to. The bot needs Manage Channels and Manage
+Webhooks on the server, and the message content intent. DMs keep working
+as before.
 
 Every channel is for your eyes alone: everyone else on the server is kept
 out of it, and you and KOS are let in. When something you built is for

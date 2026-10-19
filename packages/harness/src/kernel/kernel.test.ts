@@ -263,15 +263,17 @@ describe("Kernel", () => {
     // The plan: KOS, approvals, each project (the workspace's own included), each blob, with the binding in the topic.
     const plan = kernel.surfaceChannels();
     expect(plan.slice(0, 2)).toEqual([
-      { key: "orchestrator:owner", name: "kos", topic: "kos:orchestrator:owner · KOS", audience: "owner", fixed: true },
-      { key: "needs-you", name: "needs-you", topic: "kos:needs-you · Approvals", audience: "owner", fixed: true },
+      { key: "orchestrator:owner", name: "kos", topic: "kos:orchestrator:owner · KOS", category: "KOS", audience: "owner", fixed: true },
+      { key: "needs-you", name: "needs-you", topic: "kos:needs-you · Approvals", category: "KOS", audience: "owner", fixed: true },
     ]);
-    expect(plan).toEqual(
-      expect.arrayContaining([
-        { key: `project:${garden.slug}`, name: "my-garden", topic: `kos:project:${garden.slug} · My Garden`, audience: "owner" },
-        { key: "agent:recap", name: "recap", topic: "kos:agent:recap · Recap", audience: "owner" },
-      ]),
-    );
+    // Blobs under Blobs; projects under Projects, each with a thread per chat in it (the thread chat made above).
+    expect(plan).toEqual(expect.arrayContaining([{ key: "agent:recap", name: "recap", topic: "kos:agent:recap · Recap", category: "Blobs", audience: "owner" }]));
+    const gardenPlan = plan.find((c) => c.key === `project:${garden.slug}`)!;
+    expect(gardenPlan).toMatchObject({ name: "my-garden", topic: `kos:project:${garden.slug} · My Garden`, category: "Projects", audience: "owner" });
+    expect(gardenPlan.threads).toEqual([{ conversationId: "discord:thread:t9", title: "Seeds" }]);
+    // A thread KOS made is remembered as its chat.
+    kernel.bindThread("t42", "discord:thread:t9");
+    expect(kernel.threadBindings()).toEqual({ t42: "discord:thread:t9" });
     expect(plan.every((c) => /^[a-z0-9-]+$/.test(c.name))).toBe(true);
     // Everything is the owner's alone until they say otherwise, one channel at a time; KOS's own and the approvals always.
     expect(plan.every((c) => c.audience === "owner")).toBe(true);

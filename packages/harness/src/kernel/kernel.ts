@@ -162,6 +162,19 @@ export const BUILD_SETTINGS_KEY = "builds";
 
 /** Who may see each Discord server channel, by binding; absent means the owner alone. */
 export const CHANNEL_AUDIENCE_KEY = "discord.audience";
+/** Which Discord thread stands for which chat. */
+export const THREAD_BINDINGS_KEY = "discord.threads";
+
+/** One channel of the server layout. */
+export interface SurfaceChannel {
+  key: string;
+  name: string;
+  topic: string;
+  category: string;
+  audience: Audience;
+  fixed?: boolean;
+  threads?: { conversationId: string; title: string }[];
+}
 
 /** The orchestrator's own conversation id. */
 export function orchestratorId(ownerId = "owner"): string {
@@ -2099,24 +2112,49 @@ export class Kernel {
   }
 
   /**
-   * The channels a server surface should have, one per thing the owner
-   * talks to: KOS itself, a place for approvals, each project, each blob.
-   * The key is the conversation the channel is bound to; the surface keeps
-   * it in the channel's topic, so the binding is readable by hand.
+   * The channels a server surface should have, laid out as the dashboard
+   * is, in three categories: "KOS" holds KOS and the approvals; "Blobs" a
+   * channel per blob; "Projects" a channel per project (its orchestrator)
+   * with a thread for each chat in the project. The key is the conversation
+   * the channel is bound to; the surface keeps it in the channel's topic, so
+   * the binding is readable by hand. A thread's binding lives here
+   * (threadBindings), since threads carry no topic.
    */
-  surfaceChannels(): { key: string; name: string; topic: string; audience: Audience; fixed?: boolean }[] {
+  surfaceChannels(): SurfaceChannel[] {
     const slug = (text: string): string => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 90) || "channel";
     const audiences = this.channelAudiences();
     const of = (key: string): Audience => audiences[key] ?? "owner";
+    const chats = this.conversations.list(this.profile.ownerId);
     return [
-      { key: orchestratorId(this.profile.ownerId), name: "kos", topic: `kos:${orchestratorId(this.profile.ownerId)} · KOS`, audience: "owner", fixed: true },
-      { key: "needs-you", name: "needs-you", topic: "kos:needs-you · Approvals", audience: "owner", fixed: true },
+      { key: orchestratorId(this.profile.ownerId), name: "kos", topic: `kos:${orchestratorId(this.profile.ownerId)} · KOS`, category: "KOS", audience: "owner", fixed: true },
+      { key: "needs-you", name: "needs-you", topic: "kos:needs-you · Approvals", category: "KOS", audience: "owner", fixed: true },
+      ...this.roles.list().roles.map((r) => ({ key: agentConversationId(r.name), name: slug(r.name), topic: `kos:${agentConversationId(r.name)} · ${roleTitle(r)}`, category: "Blobs", audience: of(agentConversationId(r.name)) })),
       ...this.manifest
         .list()
         .filter((p) => p.status === "active")
-        .map((p) => ({ key: `project:${p.slug}`, name: slug(p.name), topic: `kos:project:${p.slug} · ${p.name}`, audience: of(`project:${p.slug}`) })),
-      ...this.roles.list().roles.map((r) => ({ key: agentConversationId(r.name), name: slug(r.name), topic: `kos:${agentConversationId(r.name)} · ${roleTitle(r)}`, audience: of(agentConversationId(r.name)) })),
+        .map((p) => ({
+          key: `project:${p.slug}`,
+          name: slug(p.name),
+          topic: `kos:project:${p.slug} · ${p.name}`,
+          category: "Projects",
+          audience: of(`project:${p.slug}`),
+          // Every open chat of the project, the orchestrator's own aside.
+          threads: chats.filter((c) => c.projectSlug === p.slug && c.id !== `project:${p.slug}`).map((c) => ({ conversationId: c.id, title: c.title })),
+        })),
     ];
+  }
+
+  /** Which server thread stands for which chat; absent threads are new chats when spoken in. */
+  threadBindings(): Record<string, string> {
+    const raw = this.settings.get(THREAD_BINDINGS_KEY);
+    if (typeof raw !== "object" || raw === null) return {};
+    const out: Record<string, string> = {};
+    for (const [thread, conversation] of Object.entries(raw as Record<string, unknown>)) if (typeof conversation === "string") out[thread] = conversation;
+    return out;
+  }
+
+  bindThread(threadId: string, conversationId: string): void {
+    this.settings.set(THREAD_BINDINGS_KEY, { ...this.threadBindings(), [threadId]: conversationId });
   }
 
   /** Who may see each server channel, by what it is bound to; absent means the owner alone. */
