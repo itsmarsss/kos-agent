@@ -10,6 +10,7 @@ import {
   MessageFlags,
   ModalBuilder,
   Partials,
+  PermissionFlagsBits,
   TextInputBuilder,
   TextInputStyle,
   type ButtonInteraction,
@@ -22,6 +23,7 @@ import {
 import { detailLines, summarizeAction } from "@kos/shared";
 
 import { isReadable, type Attachment } from "../kernel/attachments.js";
+import type { Audience } from "../tools/discord.js";
 import { COMMANDS, completions, runCommand, type SlashContext } from "./commands.js";
 import { linkMentions, outsideCode, plainMentions } from "./mentions.js";
 import { STEP_MARK } from "./narrate.js";
@@ -277,6 +279,45 @@ export interface ChannelPlan {
   key: string;
   name: string;
   topic: string;
+  /** Who may see it: the owner alone (the default) or everyone on the server, reading. */
+  audience?: Audience;
+}
+
+/** A channel of KOS's as it is on the server. */
+export interface ServerChannel {
+  key: string;
+  name: string;
+  audience: Audience;
+}
+
+/** The permissions that make a channel what its audience says. */
+function overwritesFor(audience: Audience, ids: { everyone: string; owner?: string; bot?: string }): { id: string; allow?: bigint[]; deny?: bigint[] }[] {
+  const P = PermissionFlagsBits;
+  const talk = [P.ViewChannel, P.ReadMessageHistory, P.SendMessages, P.SendMessagesInThreads, P.CreatePublicThreads];
+  return [
+    // Everyone else: nothing, or a window in: they read, they do not write.
+    audience === "everyone"
+      ? { id: ids.everyone, allow: [P.ViewChannel, P.ReadMessageHistory], deny: [P.SendMessages, P.SendMessagesInThreads, P.CreatePublicThreads, P.CreatePrivateThreads] }
+      : { id: ids.everyone, deny: [P.ViewChannel] },
+    ...(ids.owner ? [{ id: ids.owner, allow: talk }] : []),
+    ...(ids.bot ? [{ id: ids.bot, allow: [...talk, P.ManageWebhooks, P.ManageThreads, P.ManageMessages] }] : []),
+  ];
+}
+
+/** As much of a text channel as the audience code touches. */
+interface OverwritableChannel {
+  id: string;
+  name: string;
+  permissionOverwrites?: {
+    cache: Map<string, { deny: { has: (bit: bigint) => boolean } }>;
+    set: (overwrites: { id: string; allow?: bigint[]; deny?: bigint[] }[]) => Promise<unknown>;
+  };
+}
+
+/** What a channel's permissions say its audience is: the owner alone when everyone is kept out. */
+function audienceOf(channel: { permissionOverwrites?: { cache: Map<string, { deny: { has: (bit: bigint) => boolean } }> } }, everyoneId: string): Audience {
+  const everyone = channel.permissionOverwrites?.cache.get(everyoneId);
+  return everyone?.deny.has(PermissionFlagsBits.ViewChannel) ? "owner" : "everyone";
 }
 
 /** What a message's channel is bound to, read from the channel's topic. */
@@ -643,32 +684,79 @@ export class DiscordAdapter implements ChannelAdapter {
   async sync(plans: ChannelPlan[]): Promise<{ created: string[]; kept: string[] }> {
     if (!this.guildId) return { created: [], kept: [] };
     const guild = await this.client.guilds.fetch(this.guildId);
-    const existing = await guild.channels.fetch();
-    const byKey = new Map<string, { id: string; name: string }>();
-    let category: { id: string } | undefined;
-    for (const channel of existing.values()) {
-      if (!channel) continue;
-      if (channel.type === ChannelType.GuildCategory && channel.name.toLowerCase() === "kos") category = { id: channel.id };
-      if (channel.type === ChannelType.GuildText) {
-        const key = boundKeyOf((channel as { topic?: string | null }).topic);
-        if (key) byKey.set(key, { id: channel.id, name: channel.name });
-      }
-    }
-    if (!category) category = { id: (await guild.channels.create({ name: "KOS", type: ChannelType.GuildCategory })).id };
+    const { bound, category: found } = await this.boundChannels(guild);
+    const category = found ?? { id: (await guild.channels.create({ name: "KOS", type: ChannelType.GuildCategory })).id };
     const created: string[] = [];
     const kept: string[] = [];
     for (const plan of plans) {
-      const have = byKey.get(plan.key);
+      const audience = plan.audience ?? "owner";
+      const have = bound.get(plan.key);
       if (have) {
         kept.push(have.name);
-        if (plan.key === "needs-you") this.approvalsChannelId = have.id;
-        continue;
+        // Permissions follow the audience; a channel that drifted is put back.
+        if (have.audience !== audience) await this.applyAudience(have.channel, audience, guild.id);
+      } else {
+        const made = await guild.channels.create({
+          name: plan.name,
+          type: ChannelType.GuildText,
+          topic: plan.topic,
+          parent: category.id,
+          permissionOverwrites: overwritesFor(audience, this.permissionIds(guild.id)),
+        });
+        created.push(made.name);
+        bound.set(plan.key, { id: made.id, name: made.name, audience, channel: made as unknown as OverwritableChannel });
       }
-      const made = await guild.channels.create({ name: plan.name, type: ChannelType.GuildText, topic: plan.topic, parent: category.id });
-      created.push(made.name);
-      if (plan.key === "needs-you") this.approvalsChannelId = made.id;
+      if (plan.key === "needs-you") this.approvalsChannelId = bound.get(plan.key)!.id;
     }
     return { created, kept };
+  }
+
+  /** KOS's channels on the server, with who may see each. */
+  async channels(): Promise<ServerChannel[]> {
+    if (!this.guildId) return [];
+    const guild = await this.client.guilds.fetch(this.guildId);
+    const { bound } = await this.boundChannels(guild);
+    return [...bound.entries()].map(([key, c]) => ({ key, name: c.name, audience: c.audience }));
+  }
+
+  /** Who may see one channel, applied now. */
+  async setAudience(key: string, audience: Audience): Promise<ServerChannel> {
+    if (!this.guildId) throw new Error("no server is configured");
+    const guild = await this.client.guilds.fetch(this.guildId);
+    const { bound } = await this.boundChannels(guild);
+    const have = bound.get(key);
+    if (!have) throw new Error(`no channel is bound to ${key}`);
+    await this.applyAudience(have.channel, audience, guild.id);
+    return { key, name: have.name, audience };
+  }
+
+  /** The channels KOS made, by what each is bound to, and the KOS category if there is one. */
+  private async boundChannels(guild: { id: string; channels: { fetch: () => Promise<Map<string, unknown>> } }): Promise<{
+    bound: Map<string, { id: string; name: string; audience: Audience; channel: OverwritableChannel }>;
+    category?: { id: string };
+  }> {
+    const existing = await guild.channels.fetch();
+    const bound = new Map<string, { id: string; name: string; audience: Audience; channel: OverwritableChannel }>();
+    let category: { id: string } | undefined;
+    for (const channel of existing.values()) {
+      if (!channel || typeof channel !== "object") continue;
+      const c = channel as OverwritableChannel & { type: ChannelType; name: string; topic?: string | null };
+      if (c.type === ChannelType.GuildCategory && c.name.toLowerCase() === "kos") category = { id: c.id };
+      if (c.type === ChannelType.GuildText) {
+        const key = boundKeyOf(c.topic);
+        if (key) bound.set(key, { id: c.id, name: c.name, audience: audienceOf(c, guild.id), channel: c });
+      }
+    }
+    return { bound, ...(category ? { category } : {}) };
+  }
+
+  private permissionIds(guildId: string): { everyone: string; owner?: string; bot?: string } {
+    const bot = this.client.user?.id;
+    return { everyone: guildId, ...(this.ownerId ? { owner: this.ownerId } : {}), ...(bot ? { bot } : {}) };
+  }
+
+  private async applyAudience(channel: OverwritableChannel, audience: Audience, guildId: string): Promise<void> {
+    await channel.permissionOverwrites?.set(overwritesFor(audience, this.permissionIds(guildId)));
   }
 
   /** The approvals channel, when the server has one; prompts go there rather than to a DM. */

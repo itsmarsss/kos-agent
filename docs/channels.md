@@ -54,6 +54,18 @@ minutes, so a new project or blob gets its channel without a restart;
 nothing is ever deleted. The bot needs Manage Channels and Manage Webhooks
 on the server, and the message content intent. DMs keep working as before.
 
+Every channel is for your eyes alone: everyone else on the server is kept
+out of it, and you and KOS are let in. When something you built is for
+other people too, open its channel: say so to KOS ("open the workout
+tracker channel up"), and it asks you once, since from then on they read
+what is said there. They read; they do not write, and nothing they say
+anywhere reaches KOS. "That one is mine only" closes it again, with no
+ask. `#kos` and `#needs-you` are yours always. KOS does this with its own
+tools, `discord.channels` (what there is and who sees it),
+`discord.audience` (owner or everyone, per channel) and `discord.sync`
+(lay the server out now); the setting is kept, so a layout later keeps
+what you chose.
+
 ```
 KOS_SECRET_DISCORD=   bot token
 KOS_OWNER_DISCORD=    your user id, and the inbound gate

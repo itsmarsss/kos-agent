@@ -5,7 +5,7 @@ import type {
   Interaction,
   Message,
 } from "discord.js";
-import { ChannelType, MessageFlags } from "discord.js";
+import { ChannelType, MessageFlags, PermissionFlagsBits } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -726,6 +726,10 @@ describe("DiscordAdapter authorization", () => {
       ["kos", ChannelType.GuildText, "cat", "kos:orchestrator:owner · KOS"],
       ["needs-you", ChannelType.GuildText, "cat", "kos:needs-you · Approvals"],
     ]);
+    // Made for the owner's eyes: everyone else is kept out, the owner and the bot let in.
+    const overwrites = created[0]!["permissionOverwrites"] as { id: string; allow?: bigint[]; deny?: bigint[] }[];
+    expect(overwrites[0]).toEqual({ id: "g1", deny: [PermissionFlagsBits.ViewChannel] });
+    expect(overwrites.find((o) => o.id === "owner-id")?.allow).toContain(PermissionFlagsBits.SendMessages);
     // From now on an ask goes to the approvals channel, buttons and all.
     await adapter.requestApproval("owner-id", { id: "7", text: "x", tool: "files.rm", args: { path: "a.txt" }, asker: { name: "Garden", conversationId: "project:garden" } });
     expect(sent).toHaveLength(1);
@@ -733,6 +737,50 @@ describe("DiscordAdapter authorization", () => {
     expect(sent[0]?.components).toHaveLength(1);
     // No server: nothing to lay out.
     expect(await new DiscordAdapter({ token: "t" }).sync([])).toEqual({ created: [], kept: [] });
+  });
+
+  it("keeps a channel's permissions to its audience, and opens or closes one on request", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
+    const applied: Record<string, { id: string; allow?: bigint[]; deny?: bigint[] }[][]> = {};
+    const text = (id: string, name: string, topic: string, denyEveryone: boolean) => ({
+      id,
+      name,
+      topic,
+      type: ChannelType.GuildText,
+      permissionOverwrites: {
+        cache: new Map(denyEveryone ? [["g1", { deny: { has: (bit: bigint) => bit === PermissionFlagsBits.ViewChannel } }]] : []),
+        set: async (o: { id: string; allow?: bigint[]; deny?: bigint[] }[]) => {
+          (applied[id] ??= []).push(o);
+        },
+      },
+    });
+    const existing = new Map<string, Record<string, unknown>>([
+      ["cat", { id: "cat", type: ChannelType.GuildCategory, name: "KOS" }],
+      ["c1", text("c1", "garden", "kos:project:garden · Garden", true)],
+      ["c2", text("c2", "recap", "kos:agent:recap · Recap", false)],
+    ]);
+    (adapter as unknown as { client: unknown }).client = {
+      user: { id: "bot" },
+      guilds: { fetch: async () => ({ id: "g1", channels: { fetch: async () => existing, create: async () => { throw new Error("nothing to make"); } } }) },
+    };
+    // The list reads each channel's audience off its permissions.
+    expect(await adapter.channels()).toEqual([
+      { key: "project:garden", name: "garden", audience: "owner" },
+      { key: "agent:recap", name: "recap", audience: "everyone" },
+    ]);
+    // A sync puts a drifted channel back to what the plan says, and leaves the others alone.
+    await adapter.sync([
+      { key: "project:garden", name: "garden", topic: "x", audience: "owner" },
+      { key: "agent:recap", name: "recap", topic: "x", audience: "owner" },
+    ]);
+    expect(applied["c1"]).toBeUndefined();
+    expect(applied["c2"]?.[0]?.[0]).toEqual({ id: "g1", deny: [PermissionFlagsBits.ViewChannel] });
+    // Opened to everyone: they may read and not write; the owner and the bot keep everything.
+    expect(await adapter.setAudience("project:garden", "everyone")).toEqual({ key: "project:garden", name: "garden", audience: "everyone" });
+    const opened = applied["c1"]![0]!;
+    expect(opened[0]).toEqual({ id: "g1", allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: expect.arrayContaining([PermissionFlagsBits.SendMessages]) });
+    expect(opened.map((o) => o.id)).toEqual(["g1", "owner-id", "bot"]);
+    await expect(adapter.setAudience("project:nope", "owner")).rejects.toThrow(/no channel is bound/);
   });
 
   it("answers as the blob itself in a server channel, through the channel's webhook", async () => {
