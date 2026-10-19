@@ -32,6 +32,13 @@ export function connectChannel(
   kernel: Kernel,
   options: ConnectChannelOptions,
 ): ChannelRuntime {
+  // The turn's own conversation is known before it runs. A message addressed
+  // to an agent runs in the agent's thread; a bound channel's turn runs in
+  // the conversation it is bound to.
+  const conversationOf = (ctx: { text?: string; conversationId?: string; channel: string; userId: string; conversationKey?: string }): string => {
+    const addressed = ctx.text ? kernel.addressedAgent(ctx.text) : undefined;
+    return addressed ? agentConversationId(addressed.name) : (ctx.conversationId ?? kernel.conversationFor(ctx.channel, ctx.userId, ctx.conversationKey).id);
+  };
   return new ChannelRuntime({
     adapter,
     ownerRecipientId: options.ownerRecipientId,
@@ -47,13 +54,13 @@ export function connectChannel(
     // can be told on the surface as it happens. A message addressed to an
     // agent runs in the agent's thread, so that is the one to watch.
     watchTurn: (ctx, listener) => {
-      const addressed = ctx.text ? kernel.addressedAgent(ctx.text) : undefined;
-      // A bound channel's turn runs in the conversation it is bound to.
-      const id = addressed ? agentConversationId(addressed.name) : (ctx.conversationId ?? kernel.conversationFor(ctx.channel, ctx.userId, ctx.conversationKey).id);
+      const id = conversationOf(ctx);
       return kernel.progress.subscribe((event) => {
         if (event.conversationId === id) listener(event);
       });
     },
+    // A turn running or queued where the message is going: the surface says "queued".
+    isBusy: (ctx) => kernel.laneDepth(conversationOf(ctx)) > 0,
     handleTurn: async (ctx) => {
       // The kernel owns conversation resolution and the /new, /chats, /switch
       // verbs, so every adapter behaves the same without implementing any of it.

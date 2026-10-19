@@ -118,6 +118,8 @@ export interface ChannelRuntimeOptions {
   watchTurn?: (ctx: TurnWatch, listener: (event: ProgressEvent) => void) => () => void;
   /** How often the story may be redrawn on the surface. */
   narrateEveryMs?: number;
+  /** Whether a turn is already running or queued where this message is going, so the surface can say "queued". */
+  isBusy?: (ctx: TurnWatch) => boolean;
 }
 
 /** Enough to find the conversation a turn will run in, before it does. */
@@ -152,6 +154,7 @@ export class ChannelRuntime {
   private readonly watchDecisions: ChannelRuntimeOptions["watchDecisions"];
   private readonly watchTurn: ChannelRuntimeOptions["watchTurn"];
   private readonly narrateEveryMs: number;
+  private readonly isBusy: ChannelRuntimeOptions["isBusy"];
   private unwatch: (() => void) | undefined;
 
   constructor(options: ChannelRuntimeOptions) {
@@ -166,6 +169,7 @@ export class ChannelRuntime {
     this.watchDecisions = options.watchDecisions;
     this.watchTurn = options.watchTurn;
     this.narrateEveryMs = options.narrateEveryMs ?? NARRATE_EVERY_MS;
+    this.isBusy = options.isBusy;
   }
 
   async start(): Promise<void> {
@@ -307,15 +311,19 @@ export class ChannelRuntime {
     } catch {
       presence = undefined;
     }
-    const story = presence
-      ? this.narrate(presence, {
-          userId,
-          channel: msg.channel,
-          text: msg.text,
-          ...(msg.conversationKey ? { conversationKey: msg.conversationKey } : {}),
-          ...(msg.conversationId ? { conversationId: msg.conversationId } : {}),
-        })
-      : undefined;
+    const watch: TurnWatch = {
+      userId,
+      channel: msg.channel,
+      text: msg.text,
+      ...(msg.conversationKey ? { conversationKey: msg.conversationKey } : {}),
+      ...(msg.conversationId ? { conversationId: msg.conversationId } : {}),
+    };
+    // Behind a turn already running there: said at once, so a message that
+    // waits is not a message that was missed.
+    if (presence && this.isBusy?.(watch)) {
+      await presence.update("-# queued: a turn is running here, this one is next").catch(() => undefined);
+    }
+    const story = presence ? this.narrate(presence, watch) : undefined;
     const guest = msg.guest ? { guest: msg.guest } : {};
 
     try {

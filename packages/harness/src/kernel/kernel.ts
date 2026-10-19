@@ -231,6 +231,12 @@ const SURFACE_BRIEF = [
  */
 const ORCHESTRATOR_SCOPE = ["memory"];
 
+/** The same message said twice: the words of two stored copies agree, whatever else rides on them. */
+function sameWords(a: ModelMessage, b: ModelMessage): boolean {
+  const words = (m: ModelMessage): string => JSON.stringify(m.content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text));
+  return words(a) === words(b);
+}
+
 
 
 /**
@@ -929,8 +935,11 @@ export class Kernel {
           : userContent;
         let input: string | ModelMessage[] = text;
         const useSession = !this.sessionless && !opts.noSession;
+        // How long the history was before this turn: what the loop adds past it is the turn's own.
+        let before = 0;
         if (useSession) {
           const prior = this.sessions.historyForPrompt(sessionId);
+          before = prior.length;
           input = [...prior, { role: "user", content: sentContent, ...(origin ? { origin } : {}) }];
           // Written before the model is asked anything.
           //
@@ -1149,6 +1158,7 @@ export class Kernel {
               ...(resumed ? { resumed: true } : {}),
               runId,
               useSession,
+              before,
             }),
           { sessionId, runId },
         );
@@ -1206,6 +1216,16 @@ export class Kernel {
       waiting.then((action) => ({ kind: "waiting" as const, action })),
     ]);
     if (first.kind === "waiting") {
+      // Waiting on the owner is not working: the chat takes its next
+      // message now, and is working again from the moment the decision
+      // lands and the turn carries on. Marked working throughout, the
+      // orchestrator read as busy for as long as an ask sat unanswered.
+      this.working.delete(ctx.sessionId);
+      const resumedAt = this.approvals.onDecided((action) => {
+        if (action.id !== first.action.id) return;
+        resumedAt();
+        this.working.add(ctx.sessionId);
+      });
       void run
         .then(async (result) => {
           if (this.closed) return;
@@ -2724,6 +2744,8 @@ export class Kernel {
       resumed?: boolean;
       runId: number;
       useSession: boolean;
+      /** How long the history was when the turn began; what follows is the turn's own. */
+      before?: number;
     },
   ): Promise<string> {
     const { sessionId, userId, text, origin, runId, useSession } = ctx;
@@ -2759,17 +2781,31 @@ export class Kernel {
       // Without what this turn recalled: it was sent so the model had it, and
       // keeping it would write the transcript's own summary back into the
       // transcript on every turn.
-      this.sessions.record(
-        sessionId,
-        withoutTurnContext(
-          spoke
-            ? result.messages
-            : [
-                ...result.messages,
-                { role: "assistant", content: [{ type: "text", text: reply }] },
-              ],
-        ),
+      const whole = withoutTurnContext(
+        spoke
+          ? result.messages
+          : [
+              ...result.messages,
+              { role: "assistant", content: [{ type: "text", text: reply }] },
+            ],
       );
+      /*
+       * The turn's own messages, after whatever the chat holds now.
+       *
+       * A turn used to write its whole list back, prior history and all.
+       * One that had waited on the owner then took with it anything said
+       * in the chat while it waited: the lane was free, the second turn
+       * ran and was answered, and the first turn's settle erased it. So
+       * the stored copy of this turn's opening message (written before
+       * the model was asked anything) is taken out and the turn's own
+       * messages go on the end, where they belong by the time they ended.
+       */
+      const mine = whole.slice(ctx.before ?? 0);
+      const current = this.sessions.get(sessionId);
+      const opening = mine[0];
+      const at = opening ? current.findIndex((m, i) => i >= (ctx.before ?? 0) && m.role === "user" && sameWords(m, opening)) : -1;
+      const base = at >= 0 ? [...current.slice(0, at), ...current.slice(at + 1)] : current;
+      this.sessions.record(sessionId, [...base, ...mine]);
       // Only the auto-title is withheld from a resume prompt, which is
       // harness plumbing and must not rename anything.
       this.conversations.touch(
@@ -3417,6 +3453,16 @@ export class Kernel {
    * has to finish or its result is lost, and the model's own reply arrives in
    * one piece.
    */
+  /** Whether a turn is running in a chat now; one waiting on the owner is not. */
+  isWorking(sessionId: string): boolean {
+    return this.working.has(sessionId);
+  }
+
+  /** How many turns are queued or running in a chat's lane; a message sent now waits behind them. */
+  laneDepth(sessionId: string): number {
+    return this.queue.depthOf(sessionId);
+  }
+
   stop(sessionId: string): boolean {
     if (!this.working.has(sessionId)) return false;
     this.stopping.add(sessionId);

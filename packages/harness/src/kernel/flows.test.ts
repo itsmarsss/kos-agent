@@ -272,6 +272,39 @@ describe("KOS end-to-end flows", () => {
     expect(kernel.approvals.pending()).toHaveLength(0);
   });
 
+  it("takes a second message while a turn waits on the owner, and keeps both exchanges when the wait ends", async () => {
+    const model = scripted([
+      toolCall("c1", "shell", { command: "rm -rf build" }),
+      text("Second answer."),
+      text("Removed it."),
+    ]);
+    kernel = await boot(model.inference);
+    const c = kernel.conversations.create({ userId: "owner", title: "Lane" });
+    const first = await kernel.handleMessage("remove the build folder", { sessionId: c.id });
+    expect(first.suspended).toBe(true);
+    const ask = kernel.approvals.pending()[0]!;
+    // Waiting on the owner is not working: the next message runs at once, and says so.
+    expect(kernel.isWorking(c.id)).toBe(false);
+    const second = await kernel.handleMessage("and what day is it?", { sessionId: c.id });
+    expect(second.reply).toBe("Second answer.");
+    const texts = (): string[] =>
+      kernel.sessions
+        .get(c.id)
+        .flatMap((m) => m.content)
+        .flatMap((b) => (b.type === "text" ? [b.text] : []));
+    expect(texts()).toContain("Second answer.");
+    // Decided: the first turn finishes, and the transcript keeps both, in the order they ended.
+    expect((await kernel.approve(ask.id)).ok).toBe(true);
+    await vi.waitFor(() => {
+      expect(texts()).toContain("Removed it.");
+    });
+    const after = texts();
+    expect(after.indexOf("Second answer.")).toBeLessThan(after.indexOf("Removed it."));
+    expect(after.filter((t) => t === "and what day is it?")).toHaveLength(1);
+    expect(after.filter((t) => t === "remove the build folder")).toHaveLength(1);
+    expect(kernel.isWorking(c.id)).toBe(false);
+  });
+
   it("keeps the turn alive while it waits on the owner", async () => {
     const model = scripted([
       toolCall("c1", "shell", { command: "rm -rf build" }),
