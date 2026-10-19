@@ -22,6 +22,7 @@ export const DISCORD_TOOLS = [
   "discord.react",
   "discord.reactions",
   "discord.messages",
+  "discord.bind",
 ] as const;
 
 /**
@@ -95,6 +96,8 @@ export interface DiscordServices {
   createRole: (name: string, colour?: string) => Promise<ServerRole>;
   /** Who may see and write in a channel or category, replacing what was set. */
   setAccess: (place: string, access: Access[]) => Promise<ServerPlace>;
+  /** A channel of the owner's made the home of a chat: the chat is read and answered there from then on. */
+  bind: (channel: string, to: string) => Promise<ServerChannel>;
   /** An emoji on a message, from KOS. */
   react: (channel: string, message: string, emoji: string) => Promise<void>;
   /** Who reacted with what on a message. */
@@ -239,6 +242,32 @@ function defineAdminTools(deps: DiscordServices, ctx: ModuleContext): void {
       required: ["who"],
     },
   };
+
+  ctx.registerTool(
+    {
+      name: "discord.bind",
+      description:
+        "Make a channel the home of a chat: a project's orchestrator or a blob lives in that channel from then on, wherever the owner put it. What the chat says shows there, what the owner says there reaches it, its scheduled runs post there, and if the channel takes guests (discord.access or discord.audience), what members write reaches it as theirs. The channel KOS had laid out for the chat is let go. Asks the owner when the channel is open to other people, since the chat will show there.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          channel: { type: "string", description: "the channel, by name or id, as discord.server lists it" },
+          to: { type: "string", description: "the chat: project:<slug> for a project's orchestrator, agent:<name> for a blob" },
+        },
+        required: ["channel", "to"],
+      },
+    },
+    async (input) => {
+      up();
+      const to = str(input, "to");
+      if (!/^(project|agent):[a-z0-9][a-z0-9_-]*$/i.test(to)) throw new Error("to must be project:<slug> or agent:<name>");
+      const bound = await deps.bind(str(input, "channel"), to);
+      return JSON.stringify({ ...bound, note: `#${bound.name} is ${to}'s home now (${bound.audience === "guests" ? "members read and write there, and are heard" : bound.audience === "everyone" ? "members read there" : "the owner's alone"}).` });
+    },
+    // The chat will show in the channel: an ask when anyone else can see it.
+    { floor: "safe", escalate: () => true },
+    { restricted: true },
+  );
 
   ctx.registerTool(
     {

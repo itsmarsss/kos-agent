@@ -34,6 +34,7 @@ describe("the discord tools", () => {
     const made: MakePlace[] = [];
     const accessed: [string, Access[]][] = [];
     const reacted: [string, string, string][] = [];
+    const bound: [string, string][] = [];
     const registry = new ToolRegistry();
     const ctx = toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() });
     await new ModuleLoader(ctx).load([
@@ -67,6 +68,10 @@ describe("the discord tools", () => {
           accessed.push([place, access]);
           return found;
         },
+        bind: async (channel, to) => {
+          bound.push([channel, to]);
+          return { key: to, name: channel.replace(/^#/, ""), audience: "guests" };
+        },
         react: async (channel, message, emoji) => {
           reacted.push([channel, message, emoji]);
         },
@@ -78,7 +83,7 @@ describe("the discord tools", () => {
       const res = await registry.execute(name, input);
       return { ...res, json: res.isError ? undefined : (JSON.parse(res.content) as Record<string, unknown>) };
     };
-    return { registry, channels, call, places, roles, made, accessed, reacted };
+    return { registry, channels, call, places, roles, made, accessed, reacted, bound };
   }
 
   it("opens a channel to guests only with the owner's yes, reacts, and reads reactions and messages", async () => {
@@ -92,6 +97,16 @@ describe("the discord tools", () => {
     expect((await h.call("discord.reactions", { channel: "picks", message: "m1" })).json).toEqual({ reactions: [{ emoji: "👍", count: 2, users: [{ id: "u1", name: "Ana" }, { id: "u2", name: "Bo" }] }] });
     expect((await h.call("discord.messages", { channel: "picks", limit: 1 })).json).toMatchObject({ messages: [{ id: "m1", text: "done" }] });
     expect((await h.call("discord.react", { channel: "picks", message: "m1" })).isError).toBe(true);
+  });
+
+  it("makes a channel of the owner's a chat's home, with an ask, and only for a project or a blob", async () => {
+    const h = await harness();
+    expect(h.registry.classify("discord.bind", { channel: "#leetcode", to: "project:leetcode_daily" }).tier).toBe("risky");
+    const res = (await h.call("discord.bind", { channel: "#leetcode", to: "project:leetcode_daily" })).json!;
+    expect(res).toMatchObject({ key: "project:leetcode_daily", name: "leetcode", audience: "guests" });
+    expect(String(res["note"])).toContain("members read and write there, and are heard");
+    expect(h.bound).toEqual([["#leetcode", "project:leetcode_daily"]]);
+    expect((await h.call("discord.bind", { channel: "#leetcode", to: "cron:3" })).isError).toBe(true);
   });
 
   it("makes places and roles for a purpose of the owner's, and asks only when someone else is let in", async () => {
