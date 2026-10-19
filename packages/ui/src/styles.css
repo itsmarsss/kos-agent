@@ -2189,6 +2189,8 @@ select {
 
 /* Where a message came in from, when not from here. */
 .turn-via { align-self: flex-end; margin-top: 0.15rem; color: var(--faint); font-size: var(--text-xs); }
+a.turn-via { text-decoration: none; }
+a.turn-via:hover { text-decoration: underline; color: var(--muted); }
 
 /* A line across the chat where it was cleared or compacted. */
 .chat-divider {

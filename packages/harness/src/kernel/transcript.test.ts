@@ -124,6 +124,21 @@ describe("conversationEvents", () => {
   });
 });
 
+describe("where a message came from", () => {
+  it("rides on the owner's event, and on a message that was only a file", () => {
+    const origin = { via: "discord", room: { kind: "channel" as const, id: "c1", name: "leetcode" }, from: { kind: "guest" as const, name: "Ana" } };
+    const messages: ModelMessage[] = [
+      { role: "user", content: [{ type: "text", text: "hi" }], origin },
+      { role: "assistant", content: [{ type: "text", text: "hello" }] },
+      { role: "user", content: [{ type: "file", name: "a.txt", text: "x" }], origin: { via: "imessage" } },
+    ];
+    const events = conversationEvents(messages);
+    expect(events[0]).toMatchObject({ kind: "message", role: "you", text: "hi", origin });
+    expect(events[1]).not.toHaveProperty("origin");
+    expect(events[2]).toMatchObject({ kind: "message", role: "you", attachments: [{ name: "a.txt" }], origin: { via: "imessage" } });
+  });
+});
+
 describe("spokenTurns", () => {
   it("returns only what was said", () => {
     expect(spokenTurns(withTool)).toEqual([

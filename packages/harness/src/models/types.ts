@@ -104,6 +104,38 @@ export type ContentBlock =
 export interface ModelMessage {
   role: Role;
   content: ContentBlock[];
+  /**
+   * Where the message came in from, kept with it so the transcript can say
+   * so. Never sent to the model: every provider copies role and content and
+   * nothing else, and what the model needs to know (a guest's name, a
+   * handoff's brief) is already in the words.
+   */
+  origin?: MessageOrigin;
+}
+
+/** A room on a surface that has rooms: a Discord channel, thread or DM. */
+export interface MessageRoom {
+  kind: "channel" | "thread" | "dm";
+  id?: string;
+  name?: string;
+}
+
+/** Who a message came from, when not the owner at the keyboard. */
+export interface MessageFrom {
+  kind: "guest" | "chat" | "schedule";
+  name: string;
+  id?: string;
+}
+
+/**
+ * Where a message came from. `via` is the surface (discord, imessage, sms)
+ * or, with no surface, how it arrived (schedule, dispatch). A message the
+ * owner typed on the dashboard has none: that is the default, not a label.
+ */
+export interface MessageOrigin {
+  via: string;
+  room?: MessageRoom;
+  from?: MessageFrom;
 }
 
 /**

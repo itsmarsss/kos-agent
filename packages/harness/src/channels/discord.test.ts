@@ -695,11 +695,11 @@ describe("DiscordAdapter authorization", () => {
     const project = { id: "c1", name: "garden", topic: "kos:project:garden · Garden", isThread: () => false };
     await adapter.receiveMessage(inGuild("owner-id", "g1", project));
     expect(messages).toHaveLength(1);
-    expect(messages[0]).toMatchObject({ senderId: "owner-id", text: "plan the week", conversationId: "project:garden" });
+    expect(messages[0]).toMatchObject({ senderId: "owner-id", text: "plan the week", conversationId: "project:garden", room: { kind: "channel", id: "c1", name: "garden" } });
     expect(messages[0]).not.toHaveProperty("newIn");
     // A thread under a project's channel is a chat of that project, titled as the thread.
     await adapter.receiveMessage(inGuild("owner-id", "g1", { id: "t9", name: "Seeds", isThread: () => true, parent: { topic: "kos:project:garden · Garden" } }));
-    expect(messages[1]).toMatchObject({ conversationId: "discord:thread:t9", newIn: { projectSlug: "garden", title: "Seeds" } });
+    expect(messages[1]).toMatchObject({ conversationId: "discord:thread:t9", newIn: { projectSlug: "garden", title: "Seeds" }, room: { kind: "thread", id: "t9", name: "Seeds" } });
     // A thread under a blob's channel is the blob's own thread.
     await adapter.receiveMessage(inGuild("owner-id", "g1", { id: "t10", name: "x", isThread: () => true, parent: { topic: "kos:agent:recap · Recap" } }));
     expect(messages[2]).toMatchObject({ conversationId: "agent:recap" });

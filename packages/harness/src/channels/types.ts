@@ -1,4 +1,5 @@
 import type { Attachment } from "../kernel/attachments.js";
+import type { MessageRoom } from "../models/types.js";
 
 /**
  * Channel adapters connect KOS to messaging surfaces (Discord first, SMS later,
@@ -47,6 +48,8 @@ export interface InboundMessage {
    * them as a guest's.
    */
   guest?: Guest;
+  /** Where on the surface it was said, when the surface has rooms, so the transcript can say so. */
+  room?: MessageRoom;
   /**
    * Adapter-private handle (e.g. Discord Message) for reactions/edits.
    * Runtime must not inspect this; only the adapter's acknowledge() may.

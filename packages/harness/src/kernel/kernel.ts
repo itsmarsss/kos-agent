@@ -56,6 +56,7 @@ import {
   type Recall,
 } from "../memory/index.js";
 import type { ContentBlock, ModelMessage } from "../models/types.js";
+import type { MessageFrom, MessageRoom } from "../models/types.js";
 import { textOf } from "../models/types.js";
 import { type RouteSummary } from "../models/router.js";
 import { SpendStore } from "../ops/spend.js";
@@ -105,6 +106,7 @@ import { GuardedTools } from "./guarded.js";
 import { ProgressBus } from "./progress.js";
 import { BEHAVIOUR_KEY, parseBehaviour, type Behaviour } from "./behaviour.js";
 import { parseMentions } from "./mentions.js";
+import { originOf } from "./origin.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
 import { bodyHexOf, channelNamesIn, faceSvg, KOS_SEED, lookOf, summarizeAction, type FaceSpec } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
@@ -649,6 +651,12 @@ export class Kernel {
       kept?: KeptFile[];
       /** A guest of a channel spoke, not the owner: named in the words, told to the turn, remembered by nobody. */
       guest?: Guest;
+      /** Where on the surface it was said, for the transcript to say so. */
+      room?: MessageRoom;
+      /** How it arrived when no surface carried it (schedule, dispatch); the channel otherwise says. */
+      via?: string;
+      /** Who sent it when not the owner at the keyboard: the chat that dispatched it, the schedule that fired. */
+      from?: MessageFrom;
       /**
        * An aside (/btw): answer with this conversation's history as context,
        * but record nothing into it. Pair with noSession and a sessionId of
@@ -731,6 +739,9 @@ export class Kernel {
       attachments?: Attachment[];
       kept?: KeptFile[];
       guest?: Guest;
+      room?: MessageRoom;
+      via?: string;
+      from?: MessageFrom;
       maxIterations?: number;
       /** Which model class answers; the reasoning route unless a job says cheap. */
       task?: Task;
@@ -906,9 +917,13 @@ export class Kernel {
           : userContent;
         let input: string | ModelMessage[] = text;
         const useSession = !this.sessionless && !opts.noSession;
+        // Where the words came from rides on the message, sent and stored
+        // alike: the loop hands its own list back to be kept, so a label
+        // only on the stored copy was gone by the end of the turn.
+        const origin = originOf(opts);
         if (useSession) {
           const prior = this.sessions.historyForPrompt(sessionId);
-          input = [...prior, { role: "user", content: sentContent }];
+          input = [...prior, { role: "user", content: sentContent, ...(origin ? { origin } : {}) }];
           // Written before the model is asked anything.
           //
           // Recorded only at the end, what the owner said existed nowhere but
@@ -918,7 +933,7 @@ export class Kernel {
           // What the owner said, without the context this turn recalled.
           this.sessions.record(sessionId, [
             ...prior,
-            { role: "user", content: userContent },
+            { role: "user", content: userContent, ...(origin ? { origin } : {}) },
           ]);
           this.conversations.touch(
             sessionId,
@@ -1320,6 +1335,8 @@ export class Kernel {
     const res = await this.runTurn(prompt, this.profile.ownerId, id, {
       origin: "system",
       task: job.task,
+      via: "schedule",
+      from: { kind: "schedule", name: job.name, id: String(job.id) },
     });
     // A blob that reports hands each run's answer to the owner, tagged as
     // its own; otherwise the answer stays in its thread and the brief says
@@ -1403,7 +1420,7 @@ export class Kernel {
    */
   async handleOrchestratorTurn(
     text: string,
-    opts: { channel?: string; attachments?: Attachment[] } = {},
+    opts: { channel?: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom } = {},
   ): Promise<HandleResult & { conversationId: string }> {
     const id = this.ensureOrchestratorConversation().id;
     const res = await this.handleMessage(text, {
@@ -1413,6 +1430,10 @@ export class Kernel {
       allow: [...ORCHESTRATOR_SCOPE],
       ...(opts.channel ? { channel: opts.channel } : {}),
       ...(opts.attachments ? { attachments: opts.attachments } : {}),
+      // A guest's words in a project's channel were arriving as the owner's:
+      // the guest was in opts and went no further than here.
+      ...(opts.guest ? { guest: opts.guest } : {}),
+      ...(opts.room ? { room: opts.room } : {}),
     });
     return { ...res, conversationId: id };
   }
@@ -1464,7 +1485,7 @@ export class Kernel {
         ? `What is asked of you now: ${ask}`
         : "Nothing is asked of you now. Keep this for when the owner picks it up here, and say in one line that you have it.",
     ].join("\n");
-    void this.dispatchTo(target.id, text)
+    void this.dispatchTo(target.id, text, input.from)
       .then((res) => {
         if (input.from) this.noteIn(input.from, `${target.title} answered: ${res.reply.slice(0, 600)}`);
       })
@@ -1859,7 +1880,7 @@ export class Kernel {
   async handleProjectTurn(
     slug: string,
     text: string,
-    opts: { channel?: string; attachments?: Attachment[] } = {},
+    opts: { channel?: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom } = {},
   ): Promise<HandleResult & { conversationId: string }> {
     const id = this.ensureProjectConversation(slug).id;
     const res = await this.handleMessage(text, {
@@ -1869,6 +1890,10 @@ export class Kernel {
       allow: [...ORCHESTRATOR_SCOPE],
       ...(opts.channel ? { channel: opts.channel } : {}),
       ...(opts.attachments ? { attachments: opts.attachments } : {}),
+      // A guest's words in a project's channel were arriving as the owner's:
+      // the guest was in opts and went no further than here.
+      ...(opts.guest ? { guest: opts.guest } : {}),
+      ...(opts.room ? { room: opts.room } : {}),
     });
     return { ...res, conversationId: id };
   }
@@ -1894,9 +1919,14 @@ export class Kernel {
   async dispatchTo(
     conversationId: string,
     text: string,
+    /** The chat sending it; the one whose tool is running, unless said. */
+    by?: string,
   ): Promise<{ reply: string; conversationId: string }> {
     const conversation = this.conversations.get(conversationId);
     if (!conversation) throw new Error(`no such conversation: ${conversationId}`);
+    // Read now, not in the lane: by the time the turn runs, the caller's tool is long over.
+    const sender = by ?? this.callerConversationId;
+    const from: MessageFrom | undefined = sender ? { kind: "chat", id: sender, name: this.titleOf(sender) } : undefined;
     // A sub-agent is never granted the chats tools, so a dispatched turn
     // cannot dispatch again and there is no recursion to bound. A project's
     // own orchestrator is the exception: handed its goal by KOS it is still
@@ -1906,6 +1936,7 @@ export class Kernel {
     const turn = (): Promise<HandleResult> =>
       this.runTurn(text, conversation.userId, conversation.id, {
         channel: "dispatch",
+        ...(from ? { from } : {}),
         ...(orchestrates ? { grant: [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOOLS], allow: [...ORCHESTRATOR_SCOPE] } : {}),
       });
     /*
@@ -2130,7 +2161,7 @@ export class Kernel {
         if (!found) return { reply: `No chat matches “${command.target}”. \`/agents\` lists them.` };
         if (found.id === conversationId) return { reply: "That is this chat. Just say it." };
         if (this.killSwitch.halted) return { reply: "KOS is halted; nothing is dispatched until it resumes." };
-        void this.dispatchTo(found.id, command.task).catch((err: unknown) => {
+        void this.dispatchTo(found.id, command.task, conversationId).catch((err: unknown) => {
           console.error(`dispatch to ${found.id}: ${err instanceof Error ? err.message : String(err)}`);
         });
         return { reply: `Handed to “${found.title}”: ${command.task}` };
@@ -2351,8 +2382,13 @@ export class Kernel {
   }
 
   /** A turn in a bound conversation, through the door that gives it its reach. */
-  private boundTurn(conversation: Conversation, input: { text: string; userId: string; channel: string; attachments?: Attachment[]; guest?: Guest }): Promise<HandleResult> {
-    const opts = { channel: input.channel, ...(input.attachments?.length ? { attachments: input.attachments } : {}), ...(input.guest ? { guest: input.guest } : {}) };
+  private boundTurn(conversation: Conversation, input: { text: string; userId: string; channel: string; attachments?: Attachment[]; guest?: Guest; room?: MessageRoom }): Promise<HandleResult> {
+    const opts = {
+      channel: input.channel,
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+      ...(input.guest ? { guest: input.guest } : {}),
+      ...(input.room ? { room: input.room } : {}),
+    };
     if (conversation.id === orchestratorId(this.profile.ownerId)) return this.handleOrchestratorTurn(input.text, opts);
     if (conversation.id.startsWith("project:")) return this.handleProjectTurn(conversation.id.slice("project:".length), input.text, opts);
     return this.handleMessage(input.text, { userId: input.userId, sessionId: conversation.id, ...opts });
@@ -2367,6 +2403,7 @@ export class Kernel {
     newIn?: ConversationSeed;
     attachments?: Attachment[];
     guest?: Guest;
+    room?: MessageRoom;
   }): Promise<HandleResult & { conversationId: string; isCommand: boolean; from?: Sender }> {
     const conversation = input.conversationId
       ? this.boundConversation(input.conversationId, input.userId, input.channel, input.newIn)
@@ -2401,6 +2438,7 @@ export class Kernel {
         sessionId: thread.id,
         channel: input.channel,
         ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+        ...(input.room ? { room: input.room } : {}),
       });
       const from = this.senderFor(thread.id);
       return { ...res, ...(from ? { from } : {}), conversationId: thread.id, isCommand: false };
@@ -2420,6 +2458,7 @@ export class Kernel {
       userId: input.userId,
       sessionId: conversation.id,
       channel: input.channel,
+      ...(input.room ? { room: input.room } : {}),
       /*
        * The surface's own thread may hand work on, and keep blobs.
        *
