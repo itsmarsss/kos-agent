@@ -15,6 +15,8 @@ import type { EarlierHistory } from "./session.js";
 
 /** An attachment as a reader needs it: a name, and either an image or text. */
 export interface Attachment {
+  /** Where the file is kept in the workspace, when it is, so the reader can open it as itself. */
+  path?: string;
   name: string;
   /** Data URI, for an image. */
   src?: string;
@@ -117,8 +119,9 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
             ? {
                 name: block.name ?? "image",
                 src: `data:${block.mediaType};base64,${block.data}`,
+                ...(block.path ? { path: block.path } : {}),
               }
-            : { name: block.name, text: block.text };
+            : { name: block.name, text: block.text, ...(block.path ? { path: block.path } : {}) };
         const last = events.at(-1);
         if (last?.kind === "message" && last.role === "you") {
           last.attachments = [...(last.attachments ?? []), attachment];

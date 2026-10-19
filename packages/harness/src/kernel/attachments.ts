@@ -94,7 +94,7 @@ export async function readAttachments(attachments: Attachment[]): Promise<Attach
       note = officeNote(read);
       text = read.text;
     }
-    out.push({ name: file.name, mediaType: "text/plain", data: Buffer.from(`[${file.name}: ${note}]\n${text}`, "utf8").toString("base64") });
+    out.push({ name: file.name, mediaType: "text/plain", data: Buffer.from(`[${file.name}: ${note}]\n${text}`, "utf8").toString("base64"), ...(file.path ? { path: file.path } : {}) });
   }
   return out;
 }
@@ -143,12 +143,14 @@ export function attachmentBlocks(attachments: Attachment[]): ContentBlock[] {
         `${file.name} is ${Math.round(bytes / 1024 / 1024)}MB; the limit is ${MAX_BYTES / 1024 / 1024}MB`,
       );
     }
+    const kept = file.path ? { path: file.path } : {};
     if (isImage(file.mediaType)) {
       blocks.push({
         type: "image",
         name: file.name,
         mediaType: file.mediaType,
         data: file.data,
+        ...kept,
       });
       continue;
     }
@@ -157,6 +159,7 @@ export function attachmentBlocks(attachments: Attachment[]): ContentBlock[] {
         type: "file",
         name: file.name,
         text: Buffer.from(file.data, "base64").toString("utf8"),
+        ...kept,
       });
       continue;
     }

@@ -62,7 +62,10 @@ In a chat:
   the project the chat belongs to (the blob's folder for a blob's thread,
   the root's `uploads/` otherwise), and the turn is told the path, so a
   later turn or another chat can open it. On a Discord server the same
-  file is uploaded under the mirrored message.
+  file is uploaded under the mirrored message. Clicking the attachment in
+  the chat opens the file itself, a PDF in the browser's viewer, an Office
+  file as its text, with Raw text for the words the model was given and
+  Open in Files for the folder.
 - Beside the composer: the model, how full the conversation is, and a chip
   that says what memory the last turn was given. Open it to see each claim
   with its scope and the log moments that came along.

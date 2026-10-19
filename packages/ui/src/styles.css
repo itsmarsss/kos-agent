@@ -2177,6 +2177,12 @@ select {
 .list-group-fold:hover { color: var(--text); }
 .list-group-caret { display: inline-block; width: 0.8em; font-size: 0.9em; opacity: 0.7; }
 
+/* A kept attachment opened as itself: the mode bar, then the Files page's own body. */
+.viewer-kept { display: flex; flex-direction: column; gap: 0.5rem; width: min(92vw, 64rem); max-height: 82vh; overflow: auto; }
+.viewer-modes { display: flex; gap: 0.35rem; align-items: center; }
+.viewer-kept .preview-frame { height: min(72vh, 56rem); }
+.viewer-kept .preview-pre { max-height: 72vh; overflow: auto; }
+
 /* A path in a step's summary: opens the file, without toggling the card. */
 .toolcall-path { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 2px; cursor: pointer; }
 .toolcall-path:hover { color: var(--text); text-decoration-color: var(--accent); }

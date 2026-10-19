@@ -322,6 +322,9 @@ describe("Kernel", () => {
     const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Receipts" });
     await kernel.handleMessage("can you access this", { sessionId: c.id, attachments: [{ name: "receipt.png", mediaType: "image/png", data: png }] });
     expect(readFileSync(join(root, "uploads", "receipt.png"), "base64")).toBe(png);
+    // The stored block knows where the file is, so the page can open it as itself.
+    const user = kernel.sessions.get(c.id).find((m) => m.role === "user")!;
+    expect((user.content as { type: string; path?: string }[]).find((b) => b.type === "image")?.path).toBe("uploads/receipt.png");
     expect(files.at(-1)).toEqual({ conversationId: c.id, files: [{ name: "receipt.png", path: "uploads/receipt.png" }] });
     // The model is told where, as a reference it can hand on.
     expect(JSON.stringify(requests.at(-1))).toContain("@file:uploads/receipt.png");

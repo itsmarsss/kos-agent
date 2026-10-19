@@ -1,5 +1,9 @@
 import { useEffect, useState, type ReactElement } from "react";
 
+import { api, type FileContent } from "./api.js";
+import { FileBody } from "./FilePreview.js";
+import { hrefFor } from "./routes.js";
+
 /**
  * Attachments as a row of small squares, in the composer and in the message.
  *
@@ -15,6 +19,66 @@ export interface StripItem {
   src?: string;
   /** Contents of a text file, so opening one shows the file. */
   text?: string;
+  /** Where the file itself is kept in the workspace: opened as itself, with the text as the other view. */
+  path?: string;
+}
+
+/**
+ * A kept file, as the Files page shows it: a PDF in the browser's viewer,
+ * a Word or Excel file as its text, an image as itself. The words the
+ * model was given (a PDF read as text) are the other view, since what was
+ * attached and what was read are not the same thing.
+ */
+function KeptFile({ item }: { item: StripItem }): ReactElement {
+  const [file, setFile] = useState<FileContent | null>(null);
+  const [raw, setRaw] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setFile(null);
+    setError(null);
+    setRaw(false);
+    if (!item.path) return undefined;
+    void api
+      .file(item.path)
+      .then((f) => {
+        if (!cancelled) setFile(f);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [item.path]);
+  return (
+    <div className="viewer-kept">
+      <div className="viewer-modes">
+        <button type="button" className={`btn btn--sm ${raw ? "btn--ghost" : ""}`} onClick={() => setRaw(false)}>
+          File
+        </button>
+        {item.text !== undefined && (
+          <button type="button" className={`btn btn--sm ${raw ? "" : "btn--ghost"}`} onClick={() => setRaw(true)} title="The words the model was given">
+            Raw text
+          </button>
+        )}
+        {item.path && (
+          <a className="btn btn--sm btn--ghost" href={hrefFor({ name: "files", path: item.path })}>
+            Open in Files
+          </a>
+        )}
+      </div>
+      {raw ? (
+        <pre className="viewer-text">{item.text}</pre>
+      ) : error ? (
+        <p className="hint preview-hint">The file is no longer there: {error}</p>
+      ) : file ? (
+        <FileBody file={file} />
+      ) : (
+        <p className="hint preview-hint">Opening…</p>
+      )}
+    </div>
+  );
 }
 
 /** More than this in one message is a folder, not an attachment. */
@@ -47,7 +111,9 @@ function Viewer({
   return (
     <div className="viewer" role="dialog" aria-label={item.name} onClick={onClose}>
       <div className="viewer-inner" onClick={(e) => e.stopPropagation()}>
-        {item.src ? (
+        {item.path && !item.src ? (
+          <KeptFile item={item} />
+        ) : item.src ? (
           <img className="viewer-image" src={item.src} alt={item.name} />
         ) : (
           // The point of opening a text file is reading it, not being told
