@@ -772,6 +772,81 @@ describe("DiscordAdapter authorization", () => {
     expect(await new DiscordAdapter({ token: "t" }).sync([])).toEqual({ created: [], kept: [], threads: [] });
   });
 
+  it("makes places and roles of the owner's beyond its own layout, and sets who may see and write in them", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
+    (adapter as unknown as { client: { user: unknown } }).client.user = { id: "bot" };
+    const applied: Record<string, unknown[]> = {};
+    const channelOf = (id: string, type: ChannelType, name: string, extra: Record<string, unknown> = {}) => ({
+      id,
+      type,
+      name,
+      topic: null,
+      parentId: null,
+      permissionOverwrites: { cache: new Map(), set: async (o: unknown[]) => { applied[id] = o; } },
+      ...extra,
+    });
+    const existing = new Map<string, Record<string, unknown>>([
+      ["cat", channelOf("cat", ChannelType.GuildCategory, "Projects")],
+      ["c1", channelOf("c1", ChannelType.GuildText, "garden", { topic: "kos:project:garden · Garden", parentId: "cat" })],
+      ["c5", channelOf("c5", ChannelType.GuildText, "general", { topic: "Say hi" })],
+    ]);
+    const roles = new Map([
+      ["g1", { id: "g1", name: "@everyone", color: 0, managed: false }],
+      ["r1", { id: "r1", name: "Members", color: 0x3b82f6, managed: false, members: { size: 3 } }],
+      ["r2", { id: "r2", name: "KOS", color: 0, managed: true }],
+    ]);
+    const created: Record<string, unknown>[] = [];
+    const guild = {
+      id: "g1",
+      channels: {
+        fetch: async () => existing,
+        create: async (opts: Record<string, unknown>) => {
+          const made = channelOf(`new-${created.length + 1}`, opts["type"] as ChannelType, opts["name"] as string, opts);
+          created.push(opts);
+          existing.set(made.id, made);
+          return made;
+        },
+      },
+      roles: {
+        fetch: async () => roles,
+        create: async (opts: { name: string; color?: number }) => {
+          const made = { id: `r${roles.size + 1}`, name: opts.name, color: opts.color ?? 0, managed: false };
+          roles.set(made.id, made);
+          return made;
+        },
+      },
+    };
+    (adapter as unknown as { client: unknown }).client = { ...(adapter as unknown as { client: object }).client, guilds: { fetch: async () => guild } };
+    // The server as it is: categories and channels, KOS's marked by what they are bound to; the roles without everyone's and the bots'.
+    expect(await adapter.places()).toEqual([
+      { id: "cat", name: "Projects", kind: "category" },
+      { id: "c1", name: "garden", kind: "channel", category: "Projects", bound: "project:garden" },
+      { id: "c5", name: "general", kind: "channel", topic: "Say hi" },
+    ]);
+    expect(await adapter.roles()).toEqual([{ id: "r1", name: "Members", colour: "#3b82f6", members: 3 }]);
+    // A category of the owner's alone, then a channel under it for a role: the role reads and writes, everyone else is out, the owner and KOS are in.
+    expect(await adapter.makePlace({ name: "Book club", kind: "category" })).toEqual({ id: "new-1", name: "Book club", kind: "category" });
+    const picks = await adapter.makePlace({ name: "picks", kind: "channel", category: "book club", topic: "This month", access: [{ who: "Members", view: true, write: true }] });
+    expect(picks).toEqual({ id: "new-2", name: "picks", kind: "channel", category: "book club", topic: "This month" });
+    expect(created[1]).toMatchObject({ name: "picks", type: ChannelType.GuildText, topic: "This month", parent: "new-1" });
+    const overwrites = created[1]!["permissionOverwrites"] as { id: string; type: OverwriteType; allow?: bigint[]; deny?: bigint[] }[];
+    expect(overwrites.map((o) => o.id)).toEqual(["g1", "owner-id", "bot", "r1"]);
+    expect(overwrites[0]).toEqual({ id: "g1", type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] });
+    expect(overwrites[3]).toEqual({ id: "r1", type: OverwriteType.Role, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.SendMessages, PermissionFlagsBits.SendMessagesInThreads, PermissionFlagsBits.CreatePublicThreads], deny: [] });
+    await expect(adapter.makePlace({ name: "x", kind: "channel", category: "nowhere" })).rejects.toThrow(/no category called nowhere/);
+    await expect(adapter.makePlace({ name: "x", kind: "channel", access: [{ who: "Nobodies", view: true, write: false }] })).rejects.toThrow(/no role called Nobodies/);
+    // A role, then access on an existing channel by name: everyone may read, a member by id may write, the rest as before.
+    expect(await adapter.createRole("Readers", "#ff0000")).toEqual({ id: "r4", name: "Readers", colour: "#ff0000", members: 0 });
+    expect(await adapter.setAccess("#general", [{ who: "everyone", view: true, write: false }, { who: "123456789012345678", view: true, write: true }])).toMatchObject({ id: "c5", name: "general" });
+    const set = applied["c5"] as { id: string; type: OverwriteType; allow?: bigint[]; deny?: bigint[] }[];
+    expect(set[0]).toEqual({ id: "g1", type: OverwriteType.Role, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.SendMessagesInThreads, PermissionFlagsBits.CreatePublicThreads] });
+    expect(set.find((o) => o.id === "123456789012345678")).toMatchObject({ type: OverwriteType.Member });
+    // Shut again: the owner-only base and nothing else.
+    await adapter.setAccess("c5", []);
+    expect((applied["c5"] as { id: string }[]).map((o) => o.id)).toEqual(["g1", "owner-id", "bot"]);
+    await expect(adapter.setAccess("nowhere", [])).rejects.toThrow(/no channel or category called nowhere/);
+  });
+
   it("moves a channel under its category and makes a thread per chat, once", async () => {
     const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
     const moved: string[] = [];

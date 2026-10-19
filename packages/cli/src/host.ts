@@ -235,6 +235,11 @@ export async function runHost(options: HostOptions): Promise<void> {
               const made = await layOut();
               return { created: made.created, kept: made.kept, threads: made.threads.length };
             },
+            // The server beyond KOS's own layout: places and roles of the owner's.
+            server: async () => ({ places: await adapter!.places(), roles: await adapter!.roles() }),
+            make: (input) => adapter!.makePlace(input),
+            createRole: (name, colour) => adapter!.createRole(name, colour),
+            setAccess: (place, access) => adapter!.setAccess(place, access),
           },
         }
       : {}),
