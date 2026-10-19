@@ -36,7 +36,7 @@ export function mentionRoute(kind: string, id: string): string {
     case "file":
       return `#/files/${enc(id)}`;
     case "schedule":
-      return "#/schedule";
+      return `#/schedule/${enc(id)}`;
     case "chat":
       return `#/chats/${enc(id)}`;
     case "blob":

@@ -141,9 +141,10 @@ function refHref(kind: string, id: string): string {
     case "file":
       return hrefFor({ name: "files", path: id });
     case "schedule":
-      return hrefFor({ name: "crons" });
+      return hrefFor({ name: "crons", job: id });
     case "chat":
       return hrefFor({ name: "chats", id });
+    case "blob":
     case "agent":
       return hrefFor({ name: "blobs", blob: id });
     case "build":

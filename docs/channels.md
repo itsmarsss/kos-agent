@@ -17,7 +17,9 @@ story of the turn, the words said and the steps taken, redrawn as they
 happen, so the card for an approval never lands first. When the answer
 comes, as its own message, the story stays as the record of what was
 done; a turn that told nothing takes its line down. Nothing reacts to
-your message.
+your message. A turn that stops to ask you says "waiting on you" and keeps
+its story open: the steps after your decision are added to it, and the
+answer lands under them when the turn ends.
 
 Blobs, KOS's standing helpers, work from here as from the dashboard: "keep an eye on
 this listing" said in the DM makes one, "ask recap what I got done" sends
@@ -38,7 +40,10 @@ ordinary message to KOS.
 
 Give KOS a server and it lays the dashboard out in three categories.
 `KOS` holds `#kos` (KOS itself, as on the dashboard's landing) and
-`#needs-you` (every approval, with its buttons, instead of your DM).
+`#needs-you` (approvals with nowhere else to be: a schedule's run, a
+dashboard turn, a blob with no channel yet; an ask from a chat you read in
+a channel or thread is asked there, with its buttons, so the question and
+the answer stay in one place).
 `Blobs` holds a channel per blob, its own thread; a blob answers there
 under its own name and wearing its own face, through a webhook of its own
 in the channel, not as the bot, and the story of its steps is told the

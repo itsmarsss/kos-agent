@@ -383,6 +383,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       ...(creds.guildId ? { guildId: creds.guildId } : {}),
       // Which thread stands for which chat: the kernel keeps it, the adapter asks.
       threadOf: (threadId) => kernel.threadBindings()[threadId],
+      threadBindings: () => kernel.threadBindings(),
       timezone: kernel.profile.timezone,
       // Who speaks from a chat, so a blob's story in its channel is the blob's.
       senderOf: (conversationId) => kernel.senderFor(conversationId),
@@ -516,11 +517,15 @@ export async function runHost(options: HostOptions): Promise<void> {
        * already there, so it is skipped.
        */
       kernel.bus.on("turn:said", async (said) => {
-        if (said.channel === "discord" || !adapter) return;
+        if (!adapter) return;
+        // A turn from Discord is answered by the presence that took it; one
+        // that waited on an approval was answered "waiting on you" there, and
+        // the answer after the decision has only this way back.
+        if (said.channel === "discord" && !said.resumed) return;
         const target = adapter.mirrorTarget(said.conversationId, kernel.threadBindings());
         if (!target) return;
         const from = kernel.senderFor(said.conversationId);
-        if (said.origin === "owner" && said.text.trim()) {
+        if (said.origin === "owner" && said.text.trim() && said.channel !== "discord") {
           // The files that came with the words go too, read back from where
           // the kernel kept them; one that is gone is simply not shown.
           const files = said.files.flatMap((f) => {

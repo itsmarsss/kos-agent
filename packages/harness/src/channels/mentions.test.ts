@@ -14,7 +14,7 @@ describe("linking references for Discord", () => {
       "see [book_crm_home](https://kos.example/#/page/book_crm_home) today",
     );
     expect(linkMentions("@schedule:[Email Amy Reminder] ran", base)).toBe(
-      "[Email Amy Reminder](https://kos.example/#/schedule) ran",
+      "[Email Amy Reminder](https://kos.example/#/schedule/Email%20Amy%20Reminder) ran",
     );
   });
 

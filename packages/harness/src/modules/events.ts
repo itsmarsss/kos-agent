@@ -21,7 +21,18 @@ export type KernelEvent =
    * answered, with where the words came from, so a surface that shows the
    * chat elsewhere can show this exchange too, and skip its own.
    */
-  | { kind: "turn:said"; conversationId: string; projectSlug: string | null; text: string; reply: string; origin: "owner" | "system"; channel: string | null; files: KeptFile[] }
+  | {
+      kind: "turn:said";
+      conversationId: string;
+      projectSlug: string | null;
+      text: string;
+      reply: string;
+      origin: "owner" | "system";
+      channel: string | null;
+      files: KeptFile[];
+      /** The turn waited on an approval and this is the answer after it: the surface it came from has nothing posting it. */
+      resumed?: boolean;
+    }
   /** A slash command run in a chat: the line as typed and what it answered, with where it was typed. */
   | { kind: "command:ran"; conversationId: string; text: string; reply: string; channel: string | null }
   | { kind: "tool:end"; tool: string; isError: boolean; conversationId: string | null }

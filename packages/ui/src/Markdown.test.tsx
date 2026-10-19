@@ -224,11 +224,10 @@ describe("references are links", () => {
     );
   });
 
-  it("links a schedule to the schedule tab", () => {
-    const { container } = render(<Markdown text="@schedule:nightly" />);
-    expect(container.querySelector("a.chip-ref--schedule")?.getAttribute("href")).toBe(
-      "#/crons",
-    );
+  it("links a schedule to its own drawer on the schedule page", () => {
+    const { container } = render(<Markdown text="@schedule:nightly and @schedule:[Email Amy Reminder]" />);
+    const hrefs = [...container.querySelectorAll("a.chip-ref--schedule")].map((a) => a.getAttribute("href"));
+    expect(hrefs).toEqual(["#/schedule/nightly", "#/schedule/Email%20Amy%20Reminder"]);
   });
 });
 

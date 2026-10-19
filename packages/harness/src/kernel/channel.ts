@@ -69,8 +69,11 @@ export function connectChannel(
       // the thread is read as far as they are concerned.
       kernel.conversations.markRead(res.conversationId);
       // A blob's answer carries its name, for the surface to show as a tag.
-      if (res.from && res.reply) return { text: res.reply, from: res.from };
-      return res.reply || "(no reply)";
+      // A turn waiting on an approval says so, so the surface keeps telling
+      // its story until the rest of it has run.
+      const waiting = res.suspended ? { suspended: true as const } : {};
+      if (res.from && res.reply) return { text: res.reply, from: res.from, ...waiting };
+      return res.suspended ? { text: res.reply || "(no reply)", ...waiting } : res.reply || "(no reply)";
     },
     /*
      * Only what the prompt itself does not already say.

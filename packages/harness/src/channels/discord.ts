@@ -292,6 +292,11 @@ export interface DiscordAdapterOptions {
    */
   timezone?: string;
   /**
+   * Which thread stands for which chat, all of them, so an ask from a chat
+   * can be put where the chat is read rather than in the approvals channel.
+   */
+  threadBindings?: () => Record<string, string>;
+  /**
    * Who speaks from a conversation when it is a blob's: its name and face,
    * so the story of a turn in its channel is told as the blob, the way the
    * answer is. KOS's own conversations have no speaker and the bot tells it.
@@ -677,6 +682,7 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly guildId?: string;
   private readonly threadOf?: (threadId: string) => string | undefined;
   private readonly senderOf?: (conversationId: string) => Sender | undefined;
+  private readonly threadBindings?: () => Record<string, string>;
   private readonly timezone?: string;
   /** The server's approvals channel, once sync has found or made it. */
   private approvalsChannelId?: string;
@@ -695,6 +701,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (options.guildId) this.guildId = options.guildId;
     if (options.threadOf) this.threadOf = options.threadOf;
     if (options.senderOf) this.senderOf = options.senderOf;
+    if (options.threadBindings) this.threadBindings = options.threadBindings;
     if (options.timezone) this.timezone = options.timezone;
     this.client = new Client({
       intents: [
@@ -1082,6 +1089,15 @@ export class DiscordAdapter implements ChannelAdapter {
 
   private async applyAudience(channel: OverwritableChannel, audience: Audience, guildId: string): Promise<void> {
     await channel.permissionOverwrites?.set(overwritesFor(audience, this.permissionIds(guildId)));
+  }
+
+  /** The channel or thread a conversation is read in on the server, when it has one. */
+  private async askingRoom(conversationId: string | undefined): Promise<{ send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> } | undefined> {
+    if (!conversationId || !this.guildId) return undefined;
+    const target = this.mirrorTarget(conversationId, this.threadBindings?.() ?? {});
+    if (!target) return undefined;
+    const channel = await this.client.channels.fetch(target);
+    return channel && channel.isSendable() ? (channel as unknown as { send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> }) : undefined;
   }
 
   /** The approvals channel, when the server has one; prompts go there rather than to a DM. */
@@ -1619,8 +1635,12 @@ export class DiscordAdapter implements ChannelAdapter {
       // being approved, rather than a description of it.
       ...(req.picture ? { files: [{ attachment: Buffer.from(req.picture, "base64"), name: "page.jpg" }] } : {}),
     };
-    // In a server, every ask lands in the one channel for them; a DM otherwise.
-    const room = await this.approvalsChannel().catch(() => undefined);
+    // In a server, an ask from a chat that has a channel or thread is asked
+    // there, where the owner is reading it: a question in #verity answered
+    // from #needs-you read as two conversations. The approvals channel takes
+    // the rest: a schedule's run, a dashboard turn, a blob with no channel
+    // yet. A DM without a server.
+    const room = (await this.askingRoom(req.asker?.conversationId).catch(() => undefined)) ?? (await this.approvalsChannel().catch(() => undefined));
     const sent = room ? await room.send(payload) : await (await this.client.users.fetch(recipientId)).send(payload);
     this.prompts.set(req.id, { message: sent, summary });
   }

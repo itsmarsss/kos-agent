@@ -123,7 +123,7 @@ describe("agent-authored cards and buttons", () => {
     expect(embed.description).toBe(
       "Five written: [blobs/recap/blob.md](https://kos.example/#/files/blobs%2Frecap%2Fblob.md). See [book_crm_home](https://kos.example/#/page/book_crm_home).",
     );
-    expect(embed.fields).toEqual([{ name: "Next: blob:recap", value: "[blob:recap](https://kos.example/#/schedule) fires at 18:00" }]);
+    expect(embed.fields).toEqual([{ name: "Next: blob:recap", value: "[blob:recap](https://kos.example/#/schedule/blob%3Arecap) fires at 18:00" }]);
     expect(embed.footer?.text).toBe("Verified against .kos/daemon.log");
     // Nowhere to link to: the names alone, in bold where markdown renders.
     expect(buildCard({ body: "see @page:home" }).toJSON().description).toBe("see **home**");
@@ -261,7 +261,7 @@ describe("the answer a turn shaped", () => {
     await presence!.complete({ text: "Done: @page:book_crm_home and @schedule:[Email Amy Reminder]" });
     // The targets in angle brackets, so Discord draws no preview card.
     expect(edits[0]?.content).toBe(
-      "Done: [book_crm_home](<https://kos.example/#/page/book_crm_home>) and [Email Amy Reminder](<https://kos.example/#/schedule>)",
+      "Done: [book_crm_home](<https://kos.example/#/page/book_crm_home>) and [Email Amy Reminder](<https://kos.example/#/schedule/Email%20Amy%20Reminder>)",
     );
   });
 
@@ -739,9 +739,11 @@ describe("DiscordAdapter authorization", () => {
       },
     };
     const sent: Record<string, unknown>[] = [];
+    const inGarden: Record<string, unknown>[] = [];
+    const sendable = (into: Record<string, unknown>[]) => ({ isSendable: () => true, send: async (p: Record<string, unknown>) => { into.push(p); return { edit: async () => undefined }; } });
     (adapter as unknown as { client: unknown }).client = {
       guilds: { fetch: async (id: string) => (id === "g1" ? guild : undefined) },
-      channels: { fetch: async (id: string) => (id === "new-2" ? { isSendable: () => true, send: async (p: Record<string, unknown>) => { sent.push(p); return { edit: async () => undefined }; } } : undefined) },
+      channels: { fetch: async (id: string) => (id === "new-2" ? sendable(sent) : id === "c1" ? sendable(inGarden) : undefined) },
       users: { fetch: async () => ({ send: async () => { throw new Error("the DM must not be used once the server has an approvals channel"); } }) },
     };
     const result = await adapter.sync([
@@ -763,11 +765,16 @@ describe("DiscordAdapter authorization", () => {
     expect(overwrites[0]).toEqual({ id: "g1", type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] });
     expect(overwrites.find((o) => o.id === "owner-id")?.type).toBe(OverwriteType.Member);
     expect(overwrites.find((o) => o.id === "owner-id")?.allow).toContain(PermissionFlagsBits.SendMessages);
-    // From now on an ask goes to the approvals channel, buttons and all.
+    // An ask from a chat with a channel is asked there, buttons and all; the
+    // approvals channel takes an ask with nowhere else to be: a schedule's.
     await adapter.requestApproval("owner-id", { id: "7", text: "x", tool: "files.rm", args: { path: "a.txt" }, asker: { name: "Garden", conversationId: "project:garden" } });
+    expect(sent).toHaveLength(0);
+    expect(inGarden).toHaveLength(1);
+    expect(String(inGarden[0]?.content).split("\n")[0]).toBe("**Garden needs your OK** · Delete a.txt");
+    expect(inGarden[0]?.components).toHaveLength(1);
+    await adapter.requestApproval("owner-id", { id: "8", text: "x", tool: "files.rm", args: { path: "b.txt" }, asker: { name: "Nightly", conversationId: "cron:9" } });
     expect(sent).toHaveLength(1);
-    expect(String(sent[0]?.content).split("\n")[0]).toBe("**Garden needs your OK** · Delete a.txt");
-    expect(sent[0]?.components).toHaveLength(1);
+    expect(String(sent[0]?.content).split("\n")[0]).toBe("**Nightly needs your OK** · Delete b.txt");
     // No server: nothing to lay out.
     expect(await new DiscordAdapter({ token: "t" }).sync([])).toEqual({ created: [], kept: [], threads: [] });
   });

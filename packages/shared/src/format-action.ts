@@ -100,6 +100,10 @@ export function summarizeAction(
       return `Start conversation “${fmtVal(a.title)}”`;
     case "chats.dispatch":
       return `Hand work to conversation ${fmtVal(a.id)}`;
+    case "chats.archive":
+      return a.archived === false ? `Bring back chat ${fmtVal(a.id)}` : `Archive chat ${fmtVal(a.id)}`;
+    case "chats.delete":
+      return `Delete chat ${fmtVal(a.id)}`;
     case "blobs.list":
       return "List the blobs";
     case "blobs.create":
