@@ -59,9 +59,18 @@ with anyone else's messages in its own.
 
 A thread or channel is the chat it stands for, not only a door into it:
 a turn taken on the dashboard, by a schedule or by a dispatch shows there
-too, your words quoted with a note that they came from the dashboard and
-the answer as KOS or as the blob under its own name. What you say on
-Discord is already there and is not repeated.
+too, your words quoted with a note that they came from the dashboard, the
+files you attached uploaded under them, and the answer as KOS or as the
+blob under its own name. What you say on Discord is already there and is
+not repeated. In a step line of the story, a workspace path ("Read
+blobs/verity/blob.md") links to the file on the dashboard.
+
+A file sent with a message, here or on the dashboard, is kept in the
+workspace as it came: under `uploads/` in the project the chat belongs
+to, in the blob's folder for a blob's thread, or at the root's own
+`uploads/`. A second file of the same name is kept beside the first as a
+copy. The turn is told the path, so it refers to the file by `@file:` and
+any later turn, chat or blob can open it with `files.read`.
 
 The categories, channels and threads are made when the host starts and
 kept in step every few minutes, so a new project, blob or chat appears

@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import type { Server } from "node:http";
 import { connect } from "node:net";
 import { homedir } from "node:os";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -516,7 +516,16 @@ export async function runHost(options: HostOptions): Promise<void> {
         if (!target) return;
         const from = kernel.senderFor(said.conversationId);
         if (said.origin === "owner" && said.text.trim()) {
-          await adapter.postIn(target, { text: `${said.text.trim().split("\n").map((l) => `> ${l}`).join("\n")}\n-# you, on the dashboard` });
+          // The files that came with the words go too, read back from where
+          // the kernel kept them; one that is gone is simply not shown.
+          const files = said.files.flatMap((f) => {
+            try {
+              return [{ name: f.name, mediaType: "application/octet-stream", data: readFileSync(kernel.workspace.resolve(f.path)).toString("base64") }];
+            } catch {
+              return [];
+            }
+          });
+          await adapter.postIn(target, { text: `${said.text.trim().split("\n").map((l) => `> ${l}`).join("\n")}\n-# you, on the dashboard`, ...(files.length ? { files } : {}) });
         }
         if (said.reply.trim()) await adapter.postIn(target, { text: said.reply, ...(from ? { from } : {}) });
       });

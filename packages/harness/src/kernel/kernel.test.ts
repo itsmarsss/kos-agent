@@ -304,6 +304,42 @@ describe("Kernel", () => {
     expect(said[1]).toMatchObject({ conversationId: c.id, text: "and now?", reply: "From Discord.", channel: "discord" });
   });
 
+  it("keeps what came with a message as files where the chat lives, tells the turn, and tells the mirror", async () => {
+    const requests: GenerateRequest[] = [];
+    const reply = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    kernel = await boot({
+      async generate(_t, r) {
+        requests.push(r);
+        return reply("Kept.");
+      },
+    });
+    const files: { conversationId: string; files: { name: string; path: string }[] }[] = [];
+    kernel.bus.on("turn:said", (e) => files.push({ conversationId: e.conversationId, files: e.files }));
+    const png = Buffer.from("not really a png").toString("base64");
+    // A root chat: the workspace's own uploads folder, as the file came.
+    const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Receipts" });
+    await kernel.handleMessage("can you access this", { sessionId: c.id, attachments: [{ name: "receipt.png", mediaType: "image/png", data: png }] });
+    expect(readFileSync(join(root, "uploads", "receipt.png"), "base64")).toBe(png);
+    expect(files.at(-1)).toEqual({ conversationId: c.id, files: [{ name: "receipt.png", path: "uploads/receipt.png" }] });
+    // The model is told where, as a reference it can hand on.
+    expect(JSON.stringify(requests.at(-1))).toContain("@file:uploads/receipt.png");
+    // Sent again under the same name: kept beside, not over, the first.
+    await kernel.handleMessage("and this", { sessionId: c.id, attachments: [{ name: "receipt.png", mediaType: "image/png", data: png }] });
+    expect(files.at(-1)!.files).toEqual([{ name: "receipt.png", path: "uploads/receipt copy.png" }]);
+    // A project's chat keeps them with the project; a blob's thread, in the blob's folder.
+    const project = kernel.standUpProject({ name: "Garden", type: "notes" });
+    await kernel.handleMessage("plan", { sessionId: project.conversationId, attachments: [{ name: "beds.pdf", mediaType: "application/pdf", data: toPdf([{ bed: "north" }], "Beds").toString("base64") }] });
+    expect(files.at(-1)!.files).toEqual([{ name: "beds.pdf", path: `projects/${project.slug}/uploads/beds.pdf` }]);
+    // The PDF itself is what is kept, not the text it was read as.
+    expect(readFileSync(join(root, "projects", project.slug, "uploads", "beds.pdf")).subarray(0, 4).toString("ascii")).toBe("%PDF");
+    kernel.roles.write({ name: "recap", description: "Sums up", brief: "You recap.", memory: "own" as const });
+    const thread = kernel.ensureAgentConversation("recap");
+    await kernel.handleMessage("file this", { sessionId: thread.id, attachments: [{ name: "../../notes.txt", mediaType: "text/plain", data: Buffer.from("hi").toString("base64") }] });
+    // A name that tries to climb out is just a name.
+    expect(files.at(-1)!.files).toEqual([{ name: "../../notes.txt", path: "blobs/recap/uploads/notes.txt" }]);
+    expect(readFileSync(join(root, "blobs", "recap", "uploads", "notes.txt"), "utf8")).toBe("hi");
+  });
+
   it("reads an attached PDF into the turn as the text it is", async () => {
     kernel = await boot(stubInference([]));
     const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Bills" });

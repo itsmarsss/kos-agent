@@ -58,6 +58,10 @@ describe("rendering for a surface with no furniture", () => {
     expect(renderForText({ text: "At <t:2026-10-18T23:42:t>", card: { title: "Plan", body: "Leave <t:2026-10-18T22:00:t>" } }, "America/Toronto")).toBe("At 23:42\n\nPlan\nLeave 22:00");
   });
 
+  it("names the files it cannot carry", () => {
+    expect(renderForText({ text: "Here.", files: [{ name: "a.pdf", mediaType: "application/pdf", data: "AA==" }, { name: "b.png", mediaType: "image/png", data: "AA==" }] })).toBe("Here.\n\nFiles: a.pdf, b.png");
+  });
+
   it("opens with the blob's name when a blob is speaking", () => {
     expect(renderForText({ text: "Done for today.", from: { name: "Recap", colour: "#3b82f6" } })).toBe("Recap: Done for today.");
     expect(renderForText({ text: "", from: { name: "Recap" } })).toBe("");

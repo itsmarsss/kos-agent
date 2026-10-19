@@ -60,6 +60,31 @@ export function plainMentions(text: string): string {
   return outsideCode(text, (part) => part.replace(MENTION, (_whole, _kind: string, bracketed?: string, plain?: string) => bracketed ?? plain ?? ""));
 }
 
+/**
+ * A workspace path as a step names it: one of the workspace's own folders,
+ * then the rest. Not preceded by a letter, a slash, a bracket or a colon,
+ * so a path inside a reference or a link already made is left alone.
+ */
+const WORKSPACE_PATH = /(?<![\w/@[(<:])((?:projects|blobs|uploads|memory|skills|agents|workspace|exports)\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*)(?![\w/])/g;
+
+/**
+ * The text with every workspace path turned into a link to the file on the
+ * dashboard, for a step line ("Read blobs/verity/blob.md") so the file it
+ * names can be opened from where the step is read. Trailing punctuation
+ * stays outside the link.
+ */
+export function linkPaths(text: string, dashboardUrl?: string): string {
+  const base = dashboardUrl?.replace(/\/+$/, "");
+  if (!base) return text;
+  return outsideCode(text, (part) =>
+    part.replace(WORKSPACE_PATH, (found: string) => {
+      const m = /^(.*?)([.,;:!?]*)$/.exec(found)!;
+      const path = m[1] ?? found;
+      return `[${path}](<${base}/${mentionRoute("file", path)}>)${m[2] ?? ""}`;
+    }),
+  );
+}
+
 /** The text with every reference turned into a link, or a plain name when there is nowhere to link to. */
 export function linkMentions(text: string, dashboardUrl?: string): string {
   const base = dashboardUrl?.replace(/\/+$/, "");

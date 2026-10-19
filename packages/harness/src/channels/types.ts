@@ -159,6 +159,11 @@ export interface Sender {
 }
 
 export interface OutboundMessage {
+  /**
+   * Files sent with the words, where the surface can carry them: a Discord
+   * message takes them as uploads; a surface that cannot names them.
+   */
+  files?: Attachment[];
   text: string;
   card?: MessageCard;
   buttons?: MessageButton[];

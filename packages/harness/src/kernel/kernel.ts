@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import { runAgent, type Inference } from "../agent/loop.js";
 import { PressRoutes } from "../channels/presses.js";
 import type { Asker, ConversationSeed, OutboundMessage, Sender } from "../channels/types.js";
@@ -105,10 +105,10 @@ import { GuardedTools } from "./guarded.js";
 import { ProgressBus } from "./progress.js";
 import { BEHAVIOUR_KEY, parseBehaviour, type Behaviour } from "./behaviour.js";
 import { parseMentions } from "./mentions.js";
-import { readFile as readWorkspaceFile } from "./files.js";
+import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
 import { bodyHexOf, faceSvg, KOS_SEED, lookOf, summarizeAction, type FaceSpec } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
-import { attachmentBlocks, isPdfFile, readAttachments, type Attachment } from "./attachments.js";
+import { attachmentBlocks, isPdfFile, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
 import { SessionStore, cronSessionId } from "./session.js";
 import { ConversationStore, type Conversation, projectConversationId } from "./conversations.js";
@@ -639,6 +639,8 @@ export class Kernel {
       allow?: string[];
       /** Files the owner attached to this message. */
       attachments?: Attachment[];
+      /** Where those files were kept; set here, on the way in. */
+      kept?: KeptFile[];
       /**
        * An aside (/btw): answer with this conversation's history as context,
        * but record nothing into it. Pair with noSession and a sessionId of
@@ -655,6 +657,11 @@ export class Kernel {
     const userId = opts.userId ?? this.profile.ownerId;
     const sessionId =
       opts.sessionId ?? `chat:${userId}`;
+    // What came with the message is kept as files first, in the folder of
+    // whatever the chat belongs to and before a PDF is turned into text, so
+    // the file outlives the turn: a later turn, another chat or a blob can
+    // open it by path, and a surface showing the chat elsewhere can show it.
+    if (opts.attachments?.length) opts = { ...opts, kept: this.keepAttachments(sessionId, opts.attachments) };
     // A PDF among the attachments becomes the text it reads as, once, here:
     // every door (dashboard, surface, API) comes through this method, and
     // what is parked, recorded and sent is then only pictures and text.
@@ -700,6 +707,7 @@ export class Kernel {
       grant?: string[];
       allow?: string[];
       attachments?: Attachment[];
+      kept?: KeptFile[];
       maxIterations?: number;
       /** Which model class answers; the reasoning route unless a job says cheap. */
       task?: Task;
@@ -777,6 +785,12 @@ export class Kernel {
         // rather than a string it has to go and look up, and so a name that
         // no longer exists says so instead of being silently ignored.
         const mentioned = this.resolveMentions(text, conversation?.id);
+        // Where this message's files now live, so the model refers to them
+        // by path and anything else can open them later.
+        const keptNote = opts.kept?.length
+          ? `Files attached to this message are kept in the workspace: ${opts.kept.map((f) => fileMention(f.path)).join(", ")}. Refer to them by that path; any chat or blob can read them with files.read.`
+          : null;
+        const pulled = [mentioned, keptNote].filter((part): part is string => Boolean(part)).join("\n\n");
         const formatting = channelGuidance(opts.channel, this.surfaceStyle(opts.channel, conversation?.projectSlug ?? undefined));
         // Say when the toolkit has been narrowed. Withheld tools are simply
         // absent, so a scoped agent asked for something outside its reach does
@@ -835,7 +849,7 @@ export class Kernel {
           ...(extra ? { extra } : {}),
           // What this message pulled in, kept out of the system prompt so the
           // fixed part in front of the tools is identical every turn.
-          ...(mentioned ? { turnExtra: mentioned } : {}),
+          ...(pulled ? { turnExtra: pulled } : {}),
         });
 
         // Attachments ride on the turn's own message rather than the system
@@ -989,7 +1003,7 @@ export class Kernel {
                 sessionId,
                 ...(opts.origin === "system" ? [] : [text]),
               );
-              this.said(sessionId, text, reply, opts.origin ?? "owner", opts.channel);
+              this.said(sessionId, text, reply, opts.origin ?? "owner", opts.channel, opts.kept ?? []);
             }
             /*
              * One row per model the call actually used.
@@ -1067,7 +1081,7 @@ export class Kernel {
         const outcome = await this.raceWithApproval(
           running,
           waiting,
-          (r) => this.settleTurn(r, { sessionId, userId, text, ...(opts.origin ? { origin: opts.origin } : {}), ...(opts.channel ? { channel: opts.channel } : {}), runId, useSession }),
+          (r) => this.settleTurn(r, { sessionId, userId, text, ...(opts.origin ? { origin: opts.origin } : {}), ...(opts.channel ? { channel: opts.channel } : {}), ...(opts.kept?.length ? { kept: opts.kept } : {}), runId, useSession }),
           { sessionId, runId },
         );
         suspended = outcome.suspended;
@@ -2493,6 +2507,8 @@ export class Kernel {
       origin?: "owner" | "system";
       /** The surface the words came in on, so a mirror of the chat can skip its own. */
       channel?: string;
+      /** The files that came with the words, kept in the workspace. */
+      kept?: KeptFile[];
       runId: number;
       useSession: boolean;
     },
@@ -2567,14 +2583,51 @@ export class Kernel {
       this.maybeExtract();
     }
 
-    if (useSession) this.said(sessionId, text, reply, origin ?? "owner", ctx.channel);
+    if (useSession) this.said(sessionId, text, reply, origin ?? "owner", ctx.channel, ctx.kept ?? []);
     this.runs.finish(runId, "ok");
     return reply;
   }
 
-  /** A turn's exchange, told to whoever shows the chat elsewhere. */
-  private said(conversationId: string, text: string, reply: string, origin: "owner" | "system", channel?: string): void {
-    this.bus.emit({ kind: "turn:said", conversationId, projectSlug: this.projectOf(conversationId), text, reply, origin, channel: channel ?? null });
+  /** A turn's exchange, told to whoever shows the chat elsewhere, with the files that came with it. */
+  private said(conversationId: string, text: string, reply: string, origin: "owner" | "system", channel: string | undefined, files: KeptFile[]): void {
+    this.bus.emit({ kind: "turn:said", conversationId, projectSlug: this.projectOf(conversationId), text, reply, origin, channel: channel ?? null, files });
+  }
+
+  /** Where a chat's uploads go: its project's folder, its blob's, or the root's own. */
+  private uploadsDirOf(sessionId: string): string {
+    let conversation: Conversation | undefined;
+    try {
+      conversation = this.conversations.get(sessionId);
+    } catch {
+      conversation = undefined;
+    }
+    if (conversation?.projectSlug) return `projects/${conversation.projectSlug}/uploads`;
+    const record = conversation?.role ? this.roles.get(conversation.role) : undefined;
+    if (record) return `${record.folder.replace(/\/+$/, "")}/uploads`;
+    return "uploads";
+  }
+
+  /**
+   * Keep a message's attachments as files, as they came (a PDF stays a PDF),
+   * under the folder of whatever the chat belongs to. A name already taken
+   * gets "copy" rather than overwriting what an earlier message sent.
+   */
+  private keepAttachments(sessionId: string, attachments: Attachment[]): KeptFile[] {
+    const dir = this.uploadsDirOf(sessionId);
+    const kept: KeptFile[] = [];
+    for (const file of attachments) {
+      try {
+        const abs = this.workspace.resolve(dir);
+        mkdirSync(abs, { recursive: true });
+        const name = basename(file.name).replace(/^\.+/, "") || "file";
+        const final = existsSync(join(abs, name)) ? uniqueName(this.workspace, dir, name) : name;
+        writeFileSync(join(abs, final), Buffer.from(file.data, "base64"));
+        kept.push({ name: file.name, path: `${dir}/${final}` });
+      } catch (err) {
+        console.warn(`[kernel] could not keep ${file.name}:`, err instanceof Error ? err.message : String(err));
+      }
+    }
+    return kept;
   }
 
   /**
@@ -3529,3 +3582,8 @@ export class Kernel {
 }
 
 /** Seed a nightly workspace git snapshot if the owner has not defined one. */
+
+/** A path as an @file: reference, bracketed when it has a space or anything else the plain form cannot carry. */
+function fileMention(path: string): string {
+  return /^[A-Za-z0-9._/-]*[A-Za-z0-9_/-]$/.test(path) ? `@file:${path}` : `@file:[${path}]`;
+}

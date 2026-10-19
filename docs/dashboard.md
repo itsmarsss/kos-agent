@@ -51,6 +51,11 @@ In a chat:
   two things Discord has that a chat wants too: a line starting with
   `-# ` is small print, and a time token (`<t:2026-10-19T07:30:R>`) shows
   on your own clock, "in 3 hours" or the date, with the full date on hover.
+- A file attached to a message is kept, as it came, under `uploads/` in
+  the project the chat belongs to (the blob's folder for a blob's thread,
+  the root's `uploads/` otherwise), and the turn is told the path, so a
+  later turn or another chat can open it. On a Discord server the same
+  file is uploaded under the mirrored message.
 - Beside the composer: the model, how full the conversation is, and a chip
   that says what memory the last turn was given. Open it to see each claim
   with its scope and the log moments that came along.

@@ -243,6 +243,8 @@ describe("the answer a turn shaped", () => {
     // A reference in the story links as it does in the answer, so the same
     // name is not a token in one message and a link in the next.
     expect(storyText("Reading it.\n› Read @page:home", "https://kos.example")).toBe("Reading it.\n-# › Read [home](<https://kos.example/#/page/home>)");
+    // A file a step names opens from the story: the path links to it on the dashboard.
+    expect(storyText("› Read blobs/verity/blob.md", "https://kos.example")).toBe("-# › Read [blobs/verity/blob.md](<https://kos.example/#/files/blobs%2Fverity%2Fblob.md>)");
     // A time as written is read in the owner's zone and goes out as Discord's own token; code is left alone.
     const late = Date.UTC(2026, 9, 19, 3, 42) / 1000;
     expect(storyText("Due <t:2026-10-18T23:42:R>, `<t:2026-10-18T23:42:R>` as typed", undefined, "America/Toronto")).toBe(`Due <t:${late}:R>, \`<t:2026-10-18T23:42:R>\` as typed`);
@@ -270,6 +272,19 @@ describe("the answer a turn shaped", () => {
     const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "hi", native: message });
     await presence!.complete({ text: "Read https://news.ycombinator.com/ for you." });
     expect(edits.at(-1)?.content).toBe("Read <https://news.ycombinator.com/> for you.");
+  });
+
+  it("sends the files a message carries as uploads, under the whole message", async () => {
+    const { adapter, edits, message } = presenceFor();
+    const presence = await adapter.acknowledge({ channel: "discord", senderId: "owner-id", text: "hi", native: message });
+    await presence!.complete({ text: "> can you access this\n-# you, on the dashboard", files: [{ name: "receipt.png", mediaType: "image/png", data: Buffer.from("png bytes").toString("base64") }] });
+    const sent = edits.at(-1) as { content: string; files: { attachment: Buffer; name: string }[] };
+    expect(sent.content).toBe("> can you access this\n-# you, on the dashboard");
+    expect(sent.files.map((f) => [f.name, f.attachment.toString("utf8")])).toEqual([["receipt.png", "png bytes"]]);
+    // A file alone is a message too.
+    await presence!.complete({ files: [{ name: "a.txt", mediaType: "text/plain", data: Buffer.from("a").toString("base64") }] });
+    expect((edits.at(-1) as { content?: string; files: unknown[] }).content).toBeUndefined();
+    expect((edits.at(-1) as { files: unknown[] }).files).toHaveLength(1);
   });
 
   it("says a failure in one plain line, marked", async () => {

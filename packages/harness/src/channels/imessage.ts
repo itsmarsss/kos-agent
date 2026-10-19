@@ -142,6 +142,8 @@ function renderBody(msg: OutboundMessage): string {
       `Reply with: ${msg.buttons.map((b) => `"${b.label}"`).join(", ")}`,
     );
   }
+  // A text thread carries no file; the names say what was sent.
+  if (msg.files?.length) parts.push(`Files: ${msg.files.map((f) => f.name).join(", ")}`);
   return parts.join("\n\n").trim();
 }
 
