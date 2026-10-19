@@ -108,7 +108,7 @@ import { parseMentions } from "./mentions.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
 import { bodyHexOf, faceSvg, KOS_SEED, lookOf, summarizeAction, type FaceSpec } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
-import { attachmentBlocks, isPdfFile, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
+import { attachmentBlocks, isDocument, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
 import { SessionStore, cronSessionId } from "./session.js";
 import { ConversationStore, type Conversation, projectConversationId } from "./conversations.js";
@@ -662,10 +662,11 @@ export class Kernel {
     // the file outlives the turn: a later turn, another chat or a blob can
     // open it by path, and a surface showing the chat elsewhere can show it.
     if (opts.attachments?.length) opts = { ...opts, kept: this.keepAttachments(sessionId, opts.attachments) };
-    // A PDF among the attachments becomes the text it reads as, once, here:
-    // every door (dashboard, surface, API) comes through this method, and
-    // what is parked, recorded and sent is then only pictures and text.
-    if (opts.attachments?.some((a) => isPdfFile(a.mediaType, a.name))) {
+    // A document among the attachments (a PDF, a Word, Excel or PowerPoint
+    // file) becomes the text it reads as, once, here: every door (dashboard,
+    // surface, API) comes through this method, and what is parked, recorded
+    // and sent is then only pictures and text.
+    if (opts.attachments?.some((a) => isDocument(a.mediaType, a.name))) {
       opts = { ...opts, attachments: await readAttachments(opts.attachments) };
     }
 

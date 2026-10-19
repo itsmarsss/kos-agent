@@ -1,3 +1,4 @@
+import { officeKindOf, officeNote, officeText } from "../files/office.js";
 import { pdfText } from "../files/pdftext.js";
 import { injectSecrets, injectSecretsInString } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
@@ -28,6 +29,24 @@ const DEFAULT_MAX_BYTES = 1_000_000;
 async function pdfBody(res: Response): Promise<string> {
   const read = await pdfText(new Uint8Array(await res.arrayBuffer()));
   return `[PDF, ${read.pages} page${read.pages === 1 ? "" : "s"}${read.truncated ? ", cut at the cap" : ""}]\n${read.text}`;
+}
+
+/** The body as words: a PDF or an Office document read, anything else as it came. */
+async function bodyText(res: Response): Promise<string> {
+  const type = res.headers.get("content-type") ?? "";
+  if (/^application\/pdf\b/i.test(type)) return pdfBody(res);
+  const name = (() => {
+    try {
+      return new URL(res.url).pathname;
+    } catch {
+      return "";
+    }
+  })();
+  if (officeKindOf(type, name)) {
+    const read = officeText(new Uint8Array(await res.arrayBuffer()), name, type);
+    return `[${officeNote(read)}]\n${read.text}`;
+  }
+  return res.text();
 }
 
 function hostOf(url: string): string | undefined {
@@ -72,7 +91,7 @@ async function doFetch(
     });
     // A PDF comes back as its words, not its bytes: a paper or a bill at a
     // url is as ordinary a thing to read as a page.
-    const text = /^application\/pdf\b/i.test(res.headers.get("content-type") ?? "") ? await pdfBody(res) : await res.text();
+    const text = await bodyText(res);
     const capped = text.slice(0, opts.maxBytes);
     return JSON.stringify({
       status: res.status,
