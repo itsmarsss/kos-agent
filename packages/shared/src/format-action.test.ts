@@ -136,3 +136,10 @@ describe("names beside ids", () => {
     expect(lines).toEqual(["Make #leetcode the home of LeetCode Daily", "channel: 1561 (#leetcode)", "to: project:leetcode_daily (LeetCode Daily)"]);
   });
 });
+
+describe("a skill commit queued by the promoter", () => {
+  it("is named by its skill, read from the entry path", () => {
+    expect(summarizeAction("skills.commit", { entry: "skills/leetcode-daily-board/index.js" })).toBe("Commit skill leetcode-daily-board");
+    expect(summarizeAction("skills.commit", { name: "daily" })).toBe("Commit skill daily");
+  });
+});
