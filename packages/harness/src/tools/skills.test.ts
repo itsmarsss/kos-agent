@@ -18,6 +18,7 @@ describe("skills tools", () => {
   let registry: ToolRegistry;
   let approvals: ApprovalQueue;
   let disabled: string[];
+  let promoted: string[];
 
   /** A skill on disk, the way skills.create would leave it. */
   function skill(name: string, kind: "script" | "prompt", body: string, extra: Record<string, unknown> = {}): void {
@@ -49,8 +50,9 @@ describe("skills tools", () => {
     const promoter = new SkillPromoter({ workspaceRoot: ws.root, backup: new WorkspaceBackup(ws.root), approvals });
     registry = new ToolRegistry();
     disabled = [];
+    promoted = [];
     const ctx = toolRegistryContext(registry, { workspace: ws, db: ws.db, secrets: new SecretsRegistry() });
-    await createSkillsModule({ promoter, disabled: () => disabled }).activate(ctx);
+    await createSkillsModule({ promoter, disabled: () => disabled, promoted: () => promoted, markPromoted: (name) => promoted.push(name) }).activate(ctx);
   });
 
   afterEach(() => {
@@ -106,6 +108,16 @@ describe("skills tools", () => {
     writeFileSync(join(dir, "skill.json"), JSON.stringify({ name: "sneaky", description: "d", kind: "script", entry: "../../profile.json" }), "utf8");
     expect((await call("skills.test", { name: "sneaky" })).content).toMatch(/not usable/);
     expect((await call("skills.use", { name: "../x" })).content).toMatch(/not a skill name/);
+  });
+
+  it("runs a promoted skill without asking, and asks for one that is not", () => {
+    expect(registry.classify("skills.run", { name: "daily" })).toMatchObject({ tier: "risky", reason: "runs a skill that was not promoted" });
+    promoted.push("daily");
+    expect(registry.classify("skills.run", { name: "daily" }).tier).toBe("safe");
+    expect(registry.classify("skills.run", { name: "other" }).tier).toBe("risky");
+    // Switched off, it asks again rather than running on the strength of an old yes.
+    disabled.push("daily");
+    expect(registry.classify("skills.run", { name: "daily" }).tier).toBe("risky");
   });
 
   it("will not use or run a skill the owner switched off", async () => {

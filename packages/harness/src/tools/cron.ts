@@ -126,7 +126,8 @@ function activate(ctx: ModuleContext, deps: CronToolDeps): void {
       description:
         "Schedule a job: a cron expression plus either actions (tool calls) or a self_prompt. New jobs require approval before running.\n" +
         'actions is a list of literal calls: [{"tool":"notify","args":{"text":"..."}}]. They run in order and nothing is substituted into them: an action cannot see what an earlier one returned, and there is no {{placeholder}} syntax.\n' +
-        "So anything that has to read data and then say something about it is a self_prompt job, not an actions job. Use actions only for calls whose arguments are known when you schedule them.",
+        "So anything that has to read data and then say something about it is a self_prompt job, not an actions job. Use actions only for calls whose arguments are known when you schedule them.\n" +
+        "A job that needs no judgment should not spend a model turn: write a script skill (skills.create), promote it once (skills.promote), and schedule an actions job calling skills.run with its name; a promoted skill runs without asking, so the run costs nothing but the script.",
       inputSchema: {
         type: "object",
         properties: {
