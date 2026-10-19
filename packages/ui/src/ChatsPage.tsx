@@ -700,6 +700,22 @@ export function ChatsPage({
   }, [project?.slug, needsOrchestrator]);
   /** Column widths the owner set by dragging, remembered per browser. */
   const [railW, setRailW] = useState(() => readWidth(RAIL_W));
+  // How tall a project's schedule stands under its agents, and whether it is folded to its head.
+  const [schedH, setSchedH] = useState(() => readWidth(SCHED_H));
+  const [schedShut, setSchedShut] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(SCHED_SHUT_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(SCHED_SHUT_KEY, schedShut ? "1" : "0");
+    } catch {
+      // Remembered for this visit only.
+    }
+  }, [schedShut]);
   const [panelW, setPanelW] = useState(() => readWidth(PANEL_W));
   /** Mid-drag: the columns follow the pointer with no easing in the way. */
   const [resizing, setResizing] = useState(false);
@@ -1356,37 +1372,65 @@ export function ChatsPage({
           </ul>
           {/* The project's schedule, under its agents: a job that works this
               project belongs with it, as its agents do, rather than in one
-              list of everything KOS runs. */}
-          <div className="chats-group-head">
-            <span>Schedule</span>
-            <button
-              type="button"
-              className="chats-group-add"
-              aria-label="New schedule"
-              title="Schedule a job for this project"
-              onClick={() => onEditCron(undefined, project.slug)}
-            >
-              +
-            </button>
+              list of everything KOS runs. The line between is the owner's
+              to drag: the two lists used to split the rail in half whatever
+              was in them, so a project with one job gave it half the column. */}
+          {!narrow && (
+            <Gutter
+              className="chats-gutter--sched"
+              label="the schedule"
+              value={schedH}
+              min={SCHED_H.min}
+              max={SCHED_H.max}
+              fallback={SCHED_H.fallback}
+              grows="up"
+              onChange={setSchedH}
+              onDone={(h) => saveWidth(SCHED_H, h)}
+              collapsed={schedShut}
+              onCollapse={() => setSchedShut(true)}
+              onExpand={() => setSchedShut(false)}
+            />
+          )}
+          <div className={`chats-sched ${schedShut ? "is-shut" : ""}`} style={!narrow && !schedShut ? { height: schedH } : undefined}>
+            <div className="chats-group-head">
+              <button
+                type="button"
+                className="chats-group-fold"
+                aria-expanded={!schedShut}
+                title={schedShut ? "Show the schedule" : "Fold the schedule away"}
+                onClick={() => setSchedShut((v) => !v)}
+              >
+                Schedule
+              </button>
+              <button
+                type="button"
+                className="chats-group-add"
+                aria-label="New schedule"
+                title="Schedule a job for this project"
+                onClick={() => onEditCron(undefined, project.slug)}
+              >
+                +
+              </button>
+            </div>
+            <ul className="chats-flat">
+              {crons
+                .filter((c) => c.projectSlug === project.slug)
+                .map((c) => (
+                  <li key={c.id}>
+                    <button type="button" className="chats-item chats-job" onClick={() => onEditCron(c)} title="Edit this schedule">
+                      <span className="chats-item-top">
+                        <StatusDot state={c.running ? "working" : c.enabled ? "read" : "error"} label={c.running ? "running" : c.enabled ? "on" : "off"} />
+                        <span className="chats-item-title">{c.name}</span>
+                        <span className="chats-item-when ops-mono">{c.schedule}</span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              {crons.every((c) => c.projectSlug !== project.slug) && (
+                <li className="chats-empty">Nothing scheduled for this project. Add one with +, or ask the orchestrator.</li>
+              )}
+            </ul>
           </div>
-          <ul className="chats-flat">
-            {crons
-              .filter((c) => c.projectSlug === project.slug)
-              .map((c) => (
-                <li key={c.id}>
-                  <button type="button" className="chats-item chats-job" onClick={() => onEditCron(c)} title="Edit this schedule">
-                    <span className="chats-item-top">
-                      <StatusDot state={c.running ? "working" : c.enabled ? "read" : "error"} label={c.running ? "running" : c.enabled ? "on" : "off"} />
-                      <span className="chats-item-title">{c.name}</span>
-                      <span className="chats-item-when ops-mono">{c.schedule}</span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            {crons.every((c) => c.projectSlug !== project.slug) && (
-              <li className="chats-empty">Nothing scheduled for this project. Add one with +, or ask the orchestrator.</li>
-            )}
-          </ul>
         </aside>
       ) : agent ? (
         /* The agent's own rail: its thread above, the chats it runs inside
@@ -2521,6 +2565,9 @@ interface ColumnSpec {
 }
 const RAIL_W: ColumnSpec = { key: "kos.chats.rail", min: 120, max: 420, fallback: 240 };
 const PANEL_W: ColumnSpec = { key: "kos.project.panel.w", min: 160, max: 640, fallback: 300 };
+/** A project's schedule, as a row under its agents: a height rather than a width. */
+const SCHED_H: ColumnSpec = { key: "kos.project.schedule.h", min: 64, max: 480, fallback: 160 };
+const SCHED_SHUT_KEY = "kos.project.schedule.shut";
 
 function readWidth(spec: ColumnSpec): number {
   try {

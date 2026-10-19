@@ -1,11 +1,11 @@
 import { useRef, useState, type ReactElement } from "react";
 
 /**
- * A drag handle between two columns.
+ * A drag handle between two columns, or two rows.
  *
- * It sits in the gap and reports a new width for the column it belongs to
- * as the pointer moves; the page sets the width and remembers it. Arrow
- * keys move it too, and a double-click puts the column back to its default.
+ * It sits in the gap and reports a new size for the column (or row) it
+ * belongs to as the pointer moves; the page sets the size and remembers it.
+ * Arrow keys move it too, and a double-click puts it back to its default.
  */
 export interface GutterProps {
   /** What is being resized, for the screen reader. */
@@ -16,9 +16,10 @@ export interface GutterProps {
   fallback: number;
   /**
    * Which way the column grows. A column on the left of the handle grows as
-   * the handle moves right; one on the right grows as it moves left.
+   * the handle moves right; one on the right grows as it moves left. A row
+   * above the handle grows as it moves down; one below, as it moves up.
    */
-  grows: "right" | "left";
+  grows: "right" | "left" | "down" | "up";
   /** Every move, while dragging. */
   onChange: (width: number) => void;
   /** Once, when the drag ends or a key or double-click settles it. */
@@ -57,14 +58,17 @@ export function Gutter({ label, value, min, max, fallback, grows, onChange, onDo
   /** Folded right now, by this drag or from before it. */
   const folded = useRef(false);
   const clamp = (w: number): number => Math.min(max, Math.max(min, Math.round(w)));
-  const sign = grows === "right" ? 1 : -1;
+  const sign = grows === "right" || grows === "down" ? 1 : -1;
+  const vertical = grows === "down" || grows === "up";
+  /** Where the pointer is along the axis the handle moves on. */
+  const along = (e: { clientX: number; clientY: number }): number => (vertical ? e.clientY : e.clientX);
 
   return (
     <button
       type="button"
       className={`chats-gutter ${active ? "is-active" : ""} ${className ?? ""}`}
       role="separator"
-      aria-orientation="vertical"
+      aria-orientation={vertical ? "horizontal" : "vertical"}
       aria-label={`Resize ${label}`}
       aria-valuenow={value}
       aria-valuemin={min}
@@ -76,13 +80,13 @@ export function Gutter({ label, value, min, max, fallback, grows, onChange, onDo
         e.currentTarget.setPointerCapture(e.pointerId);
         // Shut, the column grows from nothing; the remembered width is what
         // it keeps if the drag lets go before it is open.
-        start.current = { x: e.clientX, width: collapsed ? 0 : value, keep: value };
+        start.current = { x: along(e), width: collapsed ? 0 : value, keep: value };
         folded.current = collapsed;
         setActive(true);
       }}
       onPointerMove={(e) => {
         if (!start.current) return;
-        const raw = start.current.width + sign * (e.clientX - start.current.x);
+        const raw = start.current.width + sign * (along(e) - start.current.x);
         if (onCollapse && onExpand) {
           if (!folded.current && raw < min - SNAP) {
             folded.current = true;
@@ -100,7 +104,7 @@ export function Gutter({ label, value, min, max, fallback, grows, onChange, onDo
       onPointerUp={(e) => {
         if (!start.current) return;
         // Released folded, the column keeps the width it had for when it opens.
-        const width = folded.current ? start.current.keep : clamp(start.current.width + sign * (e.clientX - start.current.x));
+        const width = folded.current ? start.current.keep : clamp(start.current.width + sign * (along(e) - start.current.x));
         start.current = null;
         folded.current = false;
         setActive(false);
@@ -120,7 +124,8 @@ export function Gutter({ label, value, min, max, fallback, grows, onChange, onDo
         onDone(fallback);
       }}
       onKeyDown={(e) => {
-        const dir = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+        const [more, less] = vertical ? ["ArrowDown", "ArrowUp"] : ["ArrowRight", "ArrowLeft"];
+        const dir = e.key === more ? 1 : e.key === less ? -1 : 0;
         if (dir === 0) return;
         e.preventDefault();
         const width = clamp(value + sign * dir * STEP);
