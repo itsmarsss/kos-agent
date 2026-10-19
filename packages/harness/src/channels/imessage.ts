@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import { timesInWords } from "@kos/shared";
+
 import { ThreadReader, type ThreadMessage } from "./imessagedb.js";
 import type {
   ApprovalHandler,
@@ -44,6 +46,8 @@ export interface IMessageOptions {
    */
   sender?: (handle: string, text: string) => Promise<void>;
   now?: () => number;
+  /** The owner's zone, for a time written as `<t:2026-10-19T07:30:R>` to be said in. */
+  timezone?: string;
 }
 
 /**
@@ -105,10 +109,12 @@ end run`;
  * listed rather than dropped: the owner cannot press one, but they can see
  * what was on offer and say it back, and a silent omission would make the
  * agent look like it had said less than it did. A blob's message starts
- * with its name, the one tag plain text can carry.
+ * with its name, the one tag plain text can carry. A time token is said in
+ * words on the owner's clock, and the "-# " that makes a line small on
+ * surfaces that can is dropped here, where nothing is small.
  */
-export function renderForText(msg: OutboundMessage): string {
-  const body = renderBody(msg);
+export function renderForText(msg: OutboundMessage, timezone?: string): string {
+  const body = timesInWords(renderBody(msg), timezone).replace(/^[ \t]*-#[ \t]+/gm, "");
   return msg.from && body ? `${msg.from.name}: ${body}` : body;
 }
 
@@ -200,6 +206,7 @@ export class IMessageAdapter implements ChannelAdapter {
   private readonly pollMs: number;
   private readonly sender: (handle: string, text: string) => Promise<void>;
   private readonly now: () => number;
+  private readonly timezone?: string;
 
   private reader: ThreadReader | undefined;
   private timer: ReturnType<typeof setInterval> | undefined;
@@ -224,6 +231,7 @@ export class IMessageAdapter implements ChannelAdapter {
     this.pollMs = options.pollMs ?? 2000;
     this.sender = options.sender ?? sendViaMessages;
     this.now = options.now ?? Date.now;
+    if (options.timezone) this.timezone = options.timezone;
   }
 
   async start(): Promise<void> {
@@ -258,7 +266,7 @@ export class IMessageAdapter implements ChannelAdapter {
   }
 
   async send(_recipientId: string, msg: OutboundMessage): Promise<void> {
-    const text = renderForText(msg);
+    const text = renderForText(msg, this.timezone);
     if (!text) return;
     this.remember(text);
     await this.sender(this.handle, text);

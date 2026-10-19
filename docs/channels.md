@@ -131,6 +131,23 @@ hidden, never answered.
 `POST /api/hooks/<job name>` with `Authorization: Bearer <KOS_HOOK_SECRET>`
 starts that job. The secret opens nothing else and the body is ignored.
 
+## Times and small print
+
+A time KOS wants you to see on your own clock is written once, as a
+token: `<t:2026-10-19T07:30:R>`, the time as written in your timezone (or
+the unix seconds a tool gave it) and a style letter. On Discord it goes out
+as Discord's own token, so it shows "in 3 hours" or the date and time for
+whoever reads it; on the dashboard it renders the same way and keeps up
+with the clock; on iMessage and SMS it is said in words. The letters are
+Discord's: `R` relative, `t` 07:30, `T` with seconds, `d` 19/10/2026, `D`
+19 October 2026, `f` (the default) date and time, `F` with the weekday.
+KOS is told never to work the seconds out by hand, which is what made the
+token wrong before.
+
+A line starting with `-# ` is small print: a source, an id, a caveat. It
+renders small and muted on Discord and on the dashboard, and as a plain
+line on iMessage and SMS.
+
 ## Where a message goes
 
 `notify` from a turn goes to you on the first surface wired, or to a named

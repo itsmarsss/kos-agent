@@ -378,6 +378,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       ...(creds.guildId ? { guildId: creds.guildId } : {}),
       // Which thread stands for which chat: the kernel keeps it, the adapter asks.
       threadOf: (threadId) => kernel.threadBindings()[threadId],
+      timezone: kernel.profile.timezone,
       // Who speaks from a chat, so a blob's story in its channel is the blob's.
       senderOf: (conversationId) => kernel.senderFor(conversationId),
     });
@@ -537,6 +538,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       owner: sms.owner,
       ...(sms.publicUrl ? { publicUrl: sms.publicUrl } : {}),
       report: (m) => console.log(m),
+      timezone: kernel.profile.timezone,
     });
     smsRuntime = connectChannel(smsAdapter, kernel, {
       ownerRecipientId: sms.owner,
@@ -575,6 +577,7 @@ export async function runHost(options: HostOptions): Promise<void> {
         imessageAdapter = new IMessageAdapter({
           handle: imessage.handle,
           dbPath: imessage.dbPath,
+          timezone: kernel.profile.timezone,
         });
         imessageRuntime = connectChannel(imessageAdapter, kernel, {
           ownerRecipientId: imessage.handle,

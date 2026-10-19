@@ -51,6 +51,13 @@ describe("rendering for a surface with no furniture", () => {
     expect(text).toContain('"Add a book"');
   });
 
+  it("says a time token in words on the owner's clock, and drops the subtext marker", () => {
+    // Nothing here renders a token or a small line, so both become plain words.
+    const late = Date.UTC(2026, 9, 19, 3, 42) / 1000;
+    expect(renderForText({ text: `Due <t:${late}:f>.\n-# Source: the calendar` }, "America/Toronto")).toBe("Due 18 October 2026 23:42.\nSource: the calendar");
+    expect(renderForText({ text: "At <t:2026-10-18T23:42:t>", card: { title: "Plan", body: "Leave <t:2026-10-18T22:00:t>" } }, "America/Toronto")).toBe("At 23:42\n\nPlan\nLeave 22:00");
+  });
+
   it("opens with the blob's name when a blob is speaking", () => {
     expect(renderForText({ text: "Done for today.", from: { name: "Recap", colour: "#3b82f6" } })).toBe("Recap: Done for today.");
     expect(renderForText({ text: "", from: { name: "Recap" } })).toBe("");

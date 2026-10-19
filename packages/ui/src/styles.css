@@ -3623,6 +3623,16 @@ li:hover .chats-item-when { opacity: 0; }
   border-left: 2px solid var(--line-strong);
   color: var(--muted);
 }
+/* "-# " subtext: small and muted, under the line that matters. */
+.md-sub { margin: 0 0 0.45rem; color: var(--muted); font-size: var(--text-sm); line-height: 1.45; }
+/* A time on the reader's clock, marked as Discord marks its own. */
+.md-time {
+  background: rgba(127, 127, 127, 0.18);
+  border-radius: 4px;
+  padding: 0.02rem 0.3rem;
+  cursor: default;
+  white-space: nowrap;
+}
 .md code {
   font-family: var(--mono);
   font-size: 0.9em;

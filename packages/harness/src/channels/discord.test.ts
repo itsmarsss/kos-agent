@@ -243,6 +243,9 @@ describe("the answer a turn shaped", () => {
     // A reference in the story links as it does in the answer, so the same
     // name is not a token in one message and a link in the next.
     expect(storyText("Reading it.\n› Read @page:home", "https://kos.example")).toBe("Reading it.\n-# › Read [home](<https://kos.example/#/page/home>)");
+    // A time as written is read in the owner's zone and goes out as Discord's own token; code is left alone.
+    const late = Date.UTC(2026, 9, 19, 3, 42) / 1000;
+    expect(storyText("Due <t:2026-10-18T23:42:R>, `<t:2026-10-18T23:42:R>` as typed", undefined, "America/Toronto")).toBe(`Due <t:${late}:R>, \`<t:2026-10-18T23:42:R>\` as typed`);
   });
 
   it("links a reference in the reply to the dashboard, since Discord cannot draw the chip", async () => {

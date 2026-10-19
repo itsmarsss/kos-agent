@@ -98,3 +98,4 @@ export {
   type BlobShape,
   type BlobWhim,
 } from "./blob.js";
+export { TIME_TOKEN, formatTime, instantOf, relativeWords, styleOf, timesInWords, withUnixTimes, type TimeStyle } from "./time.js";
