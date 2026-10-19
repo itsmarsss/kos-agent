@@ -973,7 +973,7 @@ export class DiscordAdapter implements ChannelAdapter {
   async sync(plans: ChannelPlan[]): Promise<{ created: string[]; kept: string[]; threads: ThreadMade[]; audiences: Record<string, Audience> }> {
     if (!this.guildId) return { created: [], kept: [], threads: [], audiences: {} };
     const guild = await this.client.guilds.fetch(this.guildId);
-    const { bound, categories } = await this.boundChannels(guild);
+    const { bound, categories, loose } = await this.boundChannels(guild);
     const created: string[] = [];
     const kept: string[] = [];
     // Who may see each channel, as Discord has it now: the layout reports
@@ -998,7 +998,18 @@ export class DiscordAdapter implements ChannelAdapter {
       const audience = plan.audience ?? "owner";
       const parent = await categoryId(plan.category);
       let have = bound.get(plan.key);
-      if (have) {
+      // A channel of this name that is bound to nothing, under one of KOS's
+      // own categories, is the one KOS let go when the chat moved elsewhere:
+      // taken back rather than made again beside it.
+      const letGo = !have ? loose.get(plan.name.toLowerCase()) : undefined;
+      if (!have && letGo && letGo.setTopic && (!letGo.parentId || own.has(letGo.parentId))) {
+        await letGo.setTopic(this.topicWithLink(plan.topic, plan.key));
+        have = { id: letGo.id, name: letGo.name, audience: audienceOf(letGo, guild.id), parentId: letGo.parentId ?? null, channel: letGo };
+        bound.set(plan.key, have);
+        this.boundIds.set(plan.key, letGo.id);
+        loose.delete(plan.name.toLowerCase());
+        kept.push(letGo.name);
+      } else if (have) {
         kept.push(have.name);
         // The link to the chat, added once to a channel from before it was in the topic.
         const wanted = this.topicWithLink(plan.topic, plan.key);
@@ -1026,6 +1037,8 @@ export class DiscordAdapter implements ChannelAdapter {
       // chat goes quiet, and come back when it is spoken to.
       for (const thread of plan.threads ?? []) {
         if (this.threadBound(thread.conversationId)) continue;
+        // A chat that has a channel of its own is not also a thread here.
+        if (bound.has(thread.conversationId)) continue;
         const made = await have.channel.threads?.create({ name: thread.title.trim().slice(0, 100) || "Chat", autoArchiveDuration: 10080, reason: `KOS: ${thread.conversationId}` });
         if (made) threads.push({ threadId: made.id, conversationId: thread.conversationId, title: thread.title });
       }
@@ -1267,9 +1280,12 @@ export class DiscordAdapter implements ChannelAdapter {
   private async boundChannels(guild: { id: string; channels: { fetch: () => Promise<Map<string, unknown>> } }): Promise<{
     bound: Map<string, BoundChannel>;
     categories: Map<string, string>;
+    /** Text channels bound to nothing, by name: one of KOS's that was let go, or the owner's own. */
+    loose: Map<string, AdminChannel>;
   }> {
     const existing = [...(await guild.channels.fetch()).values()].filter((c): c is AdminChannel => !!c && typeof c === "object");
     const bound = new Map<string, BoundChannel>();
+    const loose = new Map<string, AdminChannel>();
     const categories = new Map<string, string>();
     const categoryNames = new Map<string, string>();
     for (const c of existing) {
@@ -1284,9 +1300,11 @@ export class DiscordAdapter implements ChannelAdapter {
       if (key) {
         bound.set(key, { id: c.id, name: c.name, audience: audienceOf(c, guild.id), parentId: c.parentId ?? null, channel: c });
         this.boundIds.set(key, c.id);
+      } else {
+        loose.set(c.name.toLowerCase(), c);
       }
     }
-    return { bound, categories };
+    return { bound, categories, loose };
   }
 
   private permissionIds(guildId: string): { everyone: string; owner?: string; bot?: string } {

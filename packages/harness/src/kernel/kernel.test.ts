@@ -327,8 +327,27 @@ describe("Kernel", () => {
     const club = kernel.standUpProject({ name: "Club", type: "club" });
     const projectChat = `project:${club.slug}`;
     // A guest's words in the project's channel used to lose the guest on the way to the project's chat.
-    await kernel.handleChannelTurn({ text: "add me and @Splat", userId: kernel.profile.ownerId, channel: "discord", conversationId: projectChat, guest: { id: "u2", name: "Ana" }, room: { kind: "channel", id: "c3", name: "club" }, members: [{ id: "306", name: "Splat" }] });
-    expect(JSON.stringify(requests.at(-1))).toContain("from Ana, a member of the channel, not the owner");
+    await kernel.handleChannelTurn({
+      text: "add me and @Splat",
+      userId: kernel.profile.ownerId,
+      channel: "discord",
+      conversationId: projectChat,
+      guest: { id: "u2", name: "Ana" },
+      room: { kind: "channel", id: "c3", name: "club" },
+      members: [{ id: "306", name: "Splat" }],
+      attachments: [{ name: "secret.txt", mediaType: "text/plain", data: Buffer.from("x").toString("base64") }],
+    });
+    const guestRequest = requests.at(-1)!;
+    expect(JSON.stringify(guestRequest)).toContain("from Ana, a member of the channel, not the owner");
+    // A guest's turn reaches the chat's data and the channel, not the owner's files or memory; a guest's file is neither kept nor read.
+    const offered = (guestRequest.tools ?? []).map((t) => t.name);
+    expect(offered).toContain("sql");
+    expect(offered).toContain("chats.handoff");
+    expect(offered).not.toContain("files.read");
+    expect(offered).not.toContain("memory.recall");
+    expect(offered).not.toContain("chats.create");
+    expect(JSON.stringify(guestRequest)).toContain("They attached secret.txt: a guest's files are not kept or read");
+    expect(existsSync(join(root, "projects", club.slug, "uploads", "secret.txt"))).toBe(false);
     // Who the words name, by id, so a name is never what the chat keeps.
     expect(JSON.stringify(requests.at(-1))).toContain("@Splat is Discord member 306");
     const guestTurn = kernel.sessions.get(projectChat).filter((m) => m.role === "user").at(-1);

@@ -133,8 +133,12 @@ pressed or filled in, so a board for other people is a category, a role,
 a channel or two and a message with buttons.
 
 A channel of yours can be a chat's home. `discord.bind` puts the `kos:`
-line into an existing channel's topic, so a project's orchestrator or a
-blob lives there from then on, wherever you put the channel: the layout
+line into an existing channel's topic, so a project's orchestrator, a
+blob, or any chat of yours by its id (an agent inside a project, say, so
+the project's orchestrator keeps its own private channel and the agent
+faces the public one) lives there from then on, wherever you put the
+channel; a chat with a channel of its own gets no thread, and a channel
+KOS let go is taken back when its chat returns rather than made again. The layout
 leaves a channel you placed in a category of your own where it is, and
 lets go of the one it had laid out. What the chat says shows there, what
 you say there reaches it, a project's scheduled runs post there under the
@@ -154,9 +158,12 @@ everyone on the server read and write there, and what a member writes
 reaches the chat the channel is bound to as that guest's words, named
 ("[Ana, a guest in the channel] …") and told to the turn as untrusted:
 the brief and your standing instructions govern, nothing of yours changes
-on a guest's say-so, and anything risky still asks you. Their button
-presses reach the chat the same way. Nothing a guest says is remembered as
-yours. Opening a channel to guests asks you first.
+on a guest's say-so, and anything risky still asks you. A guest's turn
+reaches less than the chat's own: the chat's data, the channel, a word
+back, and a handoff to the orchestrator; never your files, memory,
+schedules or browser, and a file a guest sends is neither kept nor read.
+Their button presses reach the chat the same way. Nothing a guest says is
+remembered as yours. Opening a channel to guests asks you first.
 
 Someone named in a message (`@name` on Discord) arrives on the dashboard
 as `@name`, and the turn is told the member's id beside it; `discord.member`

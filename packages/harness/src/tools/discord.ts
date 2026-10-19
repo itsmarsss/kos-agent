@@ -360,15 +360,15 @@ function defineAdminTools(deps: DiscordServices, ctx: ModuleContext): void {
         type: "object",
         properties: {
           channel: { type: "string", description: "the channel's id, as discord.server lists it; its name also works" },
-          to: { type: "string", description: "the chat: project:<slug> for a project's orchestrator, agent:<name> for a blob" },
+          to: { type: "string", description: "the chat: project:<slug> for a project's orchestrator, agent:<name> for a blob, or a chat's id (as chats.list gives it, or @chat:[id]) for an agent that should answer there, with its project's orchestrator kept in its own channel" },
         },
         required: ["channel", "to"],
       },
     },
     async (input) => {
       up();
-      const to = str(input, "to");
-      if (!/^(project|agent):[a-z0-9][a-z0-9_-]*$/i.test(to)) throw new Error("to must be project:<slug> or agent:<name>");
+      const to = str(input, "to").replace(/^@chat:\[(.+)\]$/, "$1").replace(/^@chat:/, "");
+      if (!/^(project|agent):[a-z0-9][a-z0-9_-]*$/i.test(to) && !/^[A-Za-z0-9._:-]+$/.test(to)) throw new Error("to must be project:<slug>, agent:<name>, or a chat's id");
       const bound = await deps.bind(str(input, "channel"), to);
       return JSON.stringify({ ...bound, note: `#${bound.name} is ${to}'s home now (${bound.audience === "guests" ? "members read and write there, and are heard" : bound.audience === "everyone" ? "members read there" : "the owner's alone"}).` });
     },

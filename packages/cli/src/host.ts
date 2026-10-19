@@ -248,6 +248,8 @@ export async function runHost(options: HostOptions): Promise<void> {
             // audience the channel's own permissions say, so the layout and
             // the guest gate agree with it.
             bind: async (channel, to) => {
+              // A project's or a blob's home, or any chat of the owner's by its id.
+              if (!/^(project|agent):/.test(to) && !kernel.conversations.get(to)) throw new Error(`no chat with id ${to}; chats.list gives ids`);
               const bound = await adapter!.bind(channel, to, kernel.titleOf(to));
               kernel.setChannelAudience(to, bound.audience);
               return { key: to, name: bound.name, audience: bound.audience };

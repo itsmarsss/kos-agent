@@ -1053,6 +1053,33 @@ describe("DiscordAdapter authorization", () => {
     expect(edits[0]?.[1]["components"]).toEqual([]);
   });
 
+  it("takes a let-go channel back for its chat instead of making another, and makes no thread for a chat with a channel", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1" });
+    const topics: Record<string, string> = {};
+    const made: string[] = [];
+    const threads: string[] = [];
+    const projects = { id: "cat", type: ChannelType.GuildCategory, name: "Projects" };
+    // Let go earlier: its topic is plain words, it sits under KOS's own category.
+    const letGo = { id: "c8", type: ChannelType.GuildText, name: "garden", topic: "Garden", parentId: "cat", setTopic: async (t: string) => { topics["c8"] = t; }, threads: { create: async (o: { name: string }) => { threads.push(o.name); return { id: `t-${o.name}` }; } } };
+    // Bound to a chat of the project's own, as its channel: no thread for that chat.
+    const handler = { id: "c9", type: ChannelType.GuildText, name: "club", topic: "kos:chat-1 · Handler", parentId: null };
+    const guild = {
+      id: "g1",
+      channels: {
+        fetch: async () => new Map<string, unknown>([["cat", projects], ["c8", letGo], ["c9", handler]]),
+        create: async (o: { name: string }) => { made.push(o.name); return { id: `new-${o.name}`, name: o.name }; },
+      },
+    };
+    (adapter as unknown as { client: unknown }).client = { user: { id: "bot" }, guilds: { fetch: async () => guild } };
+    const result = await adapter.sync([
+      { key: "project:garden", name: "garden", topic: "kos:project:garden · Garden", category: "Projects", threads: [{ conversationId: "chat-1", title: "Handler" }, { conversationId: "chat-2", title: "Roster" }] },
+    ]);
+    expect(made).toEqual([]);
+    expect(topics["c8"]).toBe("kos:project:garden · Garden");
+    expect(result.kept).toEqual(["garden"]);
+    expect(threads).toEqual(["Roster"]);
+  });
+
   it("writes a link to the chat into a bound channel's topic, and takes it out when the channel is let go", async () => {
     const adapter = new DiscordAdapter({ token: "t", guildId: "g1", dashboardUrl: "http://kos.test/" });
     const topics: Record<string, string> = {};
