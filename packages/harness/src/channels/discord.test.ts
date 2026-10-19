@@ -692,7 +692,7 @@ describe("DiscordAdapter authorization", () => {
   });
 
   it("lays the plan out as channels under a KOS category, keeping what is there", async () => {
-    const adapter = new DiscordAdapter({ token: "t", guildId: "g1" });
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
     const existing = new Map<string, Record<string, unknown>>([
       ["cat", { id: "cat", type: ChannelType.GuildCategory, name: "kos" }],
       ["c1", { id: "c1", type: ChannelType.GuildText, name: "my-garden", topic: "kos:project:garden · Garden" }],
@@ -700,6 +700,7 @@ describe("DiscordAdapter authorization", () => {
     ]);
     const created: Record<string, unknown>[] = [];
     const guild = {
+      id: "g1",
       channels: {
         fetch: async () => existing,
         create: async (opts: Record<string, unknown>) => {
