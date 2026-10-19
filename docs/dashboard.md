@@ -36,6 +36,9 @@ In a chat:
 
 - The header says where it sits: an agent names its project, a project
   chat says it orchestrates the project.
+- A message sent from Discord, a phone or another tab shows in the chat
+  the moment its turn starts, marked with where it came from, rather than
+  when the turn ends.
 - In a project, the rail lists the orchestrator, its agents and its
   schedule. The line above Schedule drags, so the schedule takes the room
   you give it and the agents the rest; pushed down past its smallest it

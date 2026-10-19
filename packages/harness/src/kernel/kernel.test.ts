@@ -362,6 +362,19 @@ describe("Kernel", () => {
     expect(JSON.stringify(kernel.sessions.get(c.id))).not.toContain("Three things.");
   });
 
+  it("tells the page what the owner said and where, as the turn starts", async () => {
+    kernel = await boot(stubInference([]));
+    const starts: { conversationId: string; said?: string; from?: string }[] = [];
+    kernel.progress.subscribe((e) => {
+      if (e.kind === "turn-start") starts.push({ conversationId: e.conversationId, ...(e.said ? { said: e.said } : {}), ...(e.from ? { from: e.from } : {}) });
+    });
+    const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Kitchen" });
+    await kernel.handleChannelTurn({ text: "what time is it", userId: kernel.profile.ownerId, channel: "discord", conversationId: c.id });
+    expect(starts.at(-1)).toEqual({ conversationId: c.id, said: "what time is it", from: "discord" });
+    await kernel.handleMessage("and here", { sessionId: c.id, channel: "dashboard" });
+    expect(starts.at(-1)).toEqual({ conversationId: c.id, said: "and here", from: "dashboard" });
+  });
+
   it("reads an attached PDF into the turn as the text it is", async () => {
     kernel = await boot(stubInference([]));
     const c = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Bills" });

@@ -39,6 +39,14 @@ describe("progress handover", () => {
     vi.unstubAllGlobals();
   });
 
+  it("keeps what the owner said elsewhere, so the page can show it at once", () => {
+    const { result } = renderHook(() => useProgress());
+    deliver({ kind: "turn-start", conversationId: "c1", said: "what time is it", from: "discord" });
+    expect(result.current["c1"]).toMatchObject({ said: "what time is it", from: "discord", steps: [] });
+    deliver({ kind: "turn-start", conversationId: "c1" });
+    expect(result.current["c1"]?.said).toBeUndefined();
+  });
+
   it("keeps a finished turn's steps until the transcript takes over", () => {
     const { result } = renderHook(() => useProgress());
     deliver({ kind: "turn-start", conversationId: "c1" });

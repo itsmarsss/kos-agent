@@ -723,7 +723,13 @@ export class Kernel {
       this.currentConversationId = sessionId;
       this.working.add(sessionId);
       this.failed.delete(sessionId);
-      this.progress.emit({ kind: "turn-start", conversationId: sessionId });
+      // The owner's own words ride along, so a page watching this chat can
+      // show them at once; a turn the harness started has none to show.
+      this.progress.emit({
+        kind: "turn-start",
+        conversationId: sessionId,
+        ...(opts.origin !== "system" && text.trim() ? { said: text, ...(opts.channel ? { from: opts.channel } : {}) } : {}),
+      });
       this.bus.emit({ kind: "turn:start", conversationId: sessionId, projectSlug: this.projectOf(sessionId) });
       /** Set when the turn hands its ending over to a deferred settle. */
       let suspended = false;

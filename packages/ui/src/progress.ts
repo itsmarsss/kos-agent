@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
  */
 
 export type ProgressEvent =
-  | { kind: "turn-start"; conversationId: string }
+  | { kind: "turn-start"; conversationId: string; said?: string; from?: string }
   | {
       kind: "tool-start";
       conversationId: string;
@@ -61,6 +61,13 @@ export interface Live {
   text: string;
   /** When the turn started, so a wait can show its length. */
   since: number;
+  /**
+   * What the owner said to start it, when it was said somewhere other than
+   * this page (Discord, iMessage, SMS, another tab), so the words show at
+   * once rather than when the turn ends; and where they were said.
+   */
+  said?: string;
+  from?: string;
   /**
    * The turn is over, but what it did is still the only copy on screen.
    *
@@ -227,7 +234,7 @@ class ProgressStore {
         // what turns its dot green, and the next poll was up to five seconds off.
         for (const listener of endListeners) listener(id);
       } else if (event.kind === "turn-start") {
-        this.map = { ...this.map, [id]: { steps: [], text: "", since: Date.now() } };
+        this.map = { ...this.map, [id]: { steps: [], text: "", since: Date.now(), ...(event.said ? { said: event.said, ...(event.from ? { from: event.from } : {}) } : {}) } };
       } else {
         const live = this.map[id] ?? { steps: [], text: "", since: Date.now() };
         this.map = { ...this.map, [id]: reduce(live, event) };
