@@ -1739,6 +1739,20 @@ export class Kernel {
     return { name: roleTitle(record), colour: bodyHexOf(record.name, record.face ?? {}), avatar: this.faceOf(record) };
   }
 
+  /** What a chat is called where it is shown elsewhere: a project's name, a blob's title, a chat's title. */
+  titleOf(conversationId: string): string {
+    if (conversationId.startsWith("project:")) return this.manifest.get(conversationId.slice("project:".length))?.name ?? conversationId;
+    if (conversationId.startsWith("agent:")) {
+      const record = this.roles.get(conversationId.slice("agent:".length));
+      if (record) return roleTitle(record);
+    }
+    try {
+      return this.conversations.get(conversationId)?.title ?? conversationId;
+    } catch {
+      return conversationId;
+    }
+  }
+
   /**
    * What a reference is called, for a surface that shows a link and cannot
    * look the thing up: a chat's title, a job's name for its number, a blob's

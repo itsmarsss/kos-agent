@@ -112,6 +112,15 @@ role always asks. Posting into a place it made is `notify` to
 pressed or filled in, so a board for other people is a category, a role,
 a channel or two and a message with buttons.
 
+A channel of yours can be a chat's home. `discord.bind` puts the `kos:`
+line into an existing channel's topic, so a project's orchestrator or a
+blob lives there from then on, wherever you put the channel: the layout
+leaves a channel you placed in a category of your own where it is, and
+lets go of the one it had laid out. What the chat says shows there, what
+you say there reaches it, a project's scheduled runs post there under the
+job's name, and the channel's own permissions say who may read and write.
+Binding asks you, since the chat will show in the channel.
+
 A channel can take guests: `discord.audience` set to `guests` lets
 everyone on the server read and write there, and what a member writes
 reaches the chat the channel is bound to as that guest's words, named

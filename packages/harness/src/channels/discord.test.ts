@@ -1160,6 +1160,50 @@ describe("DiscordAdapter authorization", () => {
     expect(posted).toEqual([{ content: "-# › List projects", flags: MessageFlags.SuppressNotifications }]);
   });
 
+  it("binds a channel of the owner's to a chat, lets the old one go, and leaves the owner's placement alone", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
+    (adapter as unknown as { client: { user: unknown } }).client.user = { id: "bot" };
+    const topics: Record<string, string> = {};
+    const moved: string[] = [];
+    const channelOf = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
+      id,
+      type: ChannelType.GuildText,
+      name,
+      topic: null,
+      parentId: null,
+      permissionOverwrites: { cache: new Map(), set: async () => undefined },
+      setTopic: async (t: string) => {
+        topics[id] = t;
+      },
+      setParent: async () => {
+        moved.push(id);
+      },
+      ...extra,
+    });
+    const clubs = { id: "clubs", type: ChannelType.GuildCategory, name: "Clubs", topic: null, parentId: null };
+    const projects = { id: "projects", type: ChannelType.GuildCategory, name: "Projects", topic: null, parentId: null };
+    const everyoneWrites = { cache: new Map([["g1", { deny: { has: () => false }, allow: { has: (bit: bigint) => bit === PermissionFlagsBits.SendMessages } }]]), set: async () => undefined };
+    const existing = new Map<string, Record<string, unknown>>([
+      ["clubs", clubs],
+      ["projects", projects],
+      ["c1", channelOf("c1", "leetcode-daily", { topic: "kos:project:leetcode_daily · LeetCode Daily", parentId: "projects" })],
+      ["c2", channelOf("c2", "leetcode", { topic: "Daily board", parentId: "clubs", permissionOverwrites: everyoneWrites })],
+    ]);
+    const guild = { id: "g1", channels: { fetch: async () => existing, create: async () => { throw new Error("nothing to make"); } } };
+    (adapter as unknown as { client: unknown }).client = { user: { id: "bot" }, guilds: { fetch: async () => guild }, channels: { fetch: async () => undefined } };
+    // Bound by name: the kos: line goes into the topic, the channel KOS had laid out is let go, the audience is what the permissions say.
+    expect(await adapter.bind("#LeetCode", "project:leetcode_daily", "LeetCode Daily")).toEqual({ id: "c2", name: "leetcode", audience: "guests" });
+    // The let-go channel keeps its plain title as its topic.
+    expect(topics).toEqual({ c2: "kos:project:leetcode_daily · LeetCode Daily", c1: "LeetCode Daily" });
+    await expect(adapter.bind("nowhere", "project:x", "X")).rejects.toThrow(/no text channel called nowhere/);
+    // A later layout keeps the bound channel under Clubs, where the owner put it.
+    (existing.get("c2") as Record<string, unknown>)["topic"] = topics["c2"];
+    (existing.get("c1") as Record<string, unknown>)["topic"] = null;
+    const result = await adapter.sync([{ key: "project:leetcode_daily", name: "leetcode-daily", topic: "kos:project:leetcode_daily · LeetCode Daily", category: "Projects" }]);
+    expect(result.kept).toEqual(["leetcode"]);
+    expect(moved).toEqual([]);
+  });
+
   it("takes a guest's words and presses in a room opened to guests, as the guest's, and nobody else's anywhere else", async () => {
     const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id", guestsAllowed: (key) => key === "project:club" });
     adapter.setAuthorizer((senderId) => senderId === "owner-id");

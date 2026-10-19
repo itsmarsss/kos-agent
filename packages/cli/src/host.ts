@@ -242,6 +242,14 @@ export async function runHost(options: HostOptions): Promise<void> {
             make: (input) => adapter!.makePlace(input),
             createRole: (name, colour) => adapter!.createRole(name, colour),
             setAccess: (place, access) => adapter!.setAccess(place, access),
+            // A channel of the owner's as a chat's home: the kernel keeps the
+            // audience the channel's own permissions say, so the layout and
+            // the guest gate agree with it.
+            bind: async (channel, to) => {
+              const bound = await adapter!.bind(channel, to, kernel.titleOf(to));
+              kernel.setChannelAudience(to, bound.audience);
+              return { key: to, name: bound.name, audience: bound.audience };
+            },
             react: (channel, message, emoji) => adapter!.react(channel, message, emoji),
             reactions: (channel, message) => adapter!.reactions(channel, message),
             messages: (channel, limit) => adapter!.messages(channel, limit),
@@ -530,8 +538,16 @@ export async function runHost(options: HostOptions): Promise<void> {
         // that waited on an approval was answered "waiting on you" there, and
         // the answer after the decision has only this way back.
         if (said.channel === "discord" && !said.resumed) return;
-        const target = adapter.mirrorTarget(said.conversationId, kernel.threadBindings());
+        // A scheduled run of a project's job shows in the project's channel,
+        // under the job's name: a daily post is what a schedule is for.
+        const job = said.conversationId.startsWith("cron:") ? kernel.crons.get(Number(said.conversationId.slice("cron:".length))) : undefined;
+        const home = job?.projectSlug ? `project:${job.projectSlug}` : said.conversationId;
+        const target = adapter.mirrorTarget(home, kernel.threadBindings());
         if (!target) return;
+        if (job) {
+          if (said.reply.trim()) await adapter.postIn(target, { text: `-# ${job.name}\n${said.reply}` });
+          return;
+        }
         const from = kernel.senderFor(said.conversationId);
         if (said.origin === "owner" && said.text.trim() && said.channel !== "discord") {
           // The files that came with the words go too, read back from where

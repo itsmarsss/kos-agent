@@ -852,6 +852,34 @@ export class DiscordAdapter implements ChannelAdapter {
     return { id: who.id, name: from.member?.displayName ?? who.globalName ?? who.username };
   }
 
+  /**
+   * Bind a channel of the owner's to a chat: the `kos:` line goes into its
+   * topic, which is what the layout reads, so the chat lives there from
+   * then on, wherever the owner put the channel; a channel bound to the
+   * same chat before is let go, its topic back to plain words. The
+   * channel's own permissions say who it is open to, and that comes back
+   * so the kernel can keep it.
+   */
+  async bind(channel: string, key: string, title: string): Promise<{ id: string; name: string; audience: Audience }> {
+    const guild = await this.guild();
+    const all = [...(await guild.channels.fetch()).values()].filter((c): c is AdminChannel => !!c && typeof c === "object" && c.type === ChannelType.GuildText);
+    const want = channel.trim().replace(/^#/, "").toLowerCase();
+    const target = all.find((c) => c.id === channel.trim()) ?? all.find((c) => c.name.toLowerCase() === want);
+    if (!target) throw new Error(`no text channel called ${channel}; discord.server lists them`);
+    const setTopic = async (c: AdminChannel, topic: string): Promise<void> => {
+      await (c as unknown as { setTopic?: (t: string) => Promise<unknown> }).setTopic?.(topic);
+    };
+    for (const other of all) {
+      if (other.id !== target.id && boundKeyOf(other.topic) === key) {
+        await setTopic(other, (other.topic ?? "").replace(/^kos:[^·\n]*·?\s*/, "").trim());
+      }
+    }
+    await setTopic(target, `kos:${key} · ${title}`);
+    this.boundIds.set(key, target.id);
+    this.channelIds.set(target.name.toLowerCase(), target.id);
+    return { id: target.id, name: target.name, audience: audienceOf(target, guild.id) };
+  }
+
   /** The channel or thread, by id or by name, as somewhere messages can be read from. */
   private async room(channel: string): Promise<ReadableChannel> {
     const id = this.channelIds.get(channel.trim().replace(/^#/, "").toLowerCase()) ?? channel.trim();
@@ -907,6 +935,9 @@ export class DiscordAdapter implements ChannelAdapter {
     const created: string[] = [];
     const kept: string[] = [];
     const threads: ThreadMade[] = [];
+    // KOS's own categories, by id: a channel the owner put elsewhere (a
+    // project living in a club's category) stays where they put it.
+    const own = new Set(["kos", "projects", "blobs"].map((name) => categories.get(name)).filter((id): id is string => Boolean(id)));
     // A category is found by name and made when missing, owner-only like
     // everything else; a channel that is under the wrong one is moved.
     const categoryId = async (name: string): Promise<string> => {
@@ -924,7 +955,7 @@ export class DiscordAdapter implements ChannelAdapter {
         kept.push(have.name);
         // Permissions follow the audience; a channel that drifted is put back.
         if (have.audience !== audience) await this.applyAudience(have.channel, audience, guild.id);
-        if (have.parentId !== parent) await have.channel.setParent?.(parent, { lockPermissions: false });
+        if (have.parentId !== parent && (!have.parentId || own.has(have.parentId))) await have.channel.setParent?.(parent, { lockPermissions: false });
       } else {
         const made = await guild.channels.create({
           name: plan.name,
