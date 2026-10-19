@@ -331,6 +331,11 @@ function defineAdminTools(deps: DiscordServices, ctx: ModuleContext): void {
   );
 }
 
+/**
+ * Reading and reacting are every chat's, as notify is: a blob's daily run
+ * ticks a post and counts the ticks without being an orchestrator. The
+ * tools that shape the server stay the orchestrators'.
+ */
 function defineReadingTools(deps: DiscordServices, ctx: ModuleContext): void {
   const up = (): void => {
     if (!deps.connected()) throw new Error("the Discord server is not set up here: KOS_DISCORD_GUILD names it, under Settings, Network.");
@@ -356,7 +361,7 @@ function defineReadingTools(deps: DiscordServices, ctx: ModuleContext): void {
       return JSON.stringify({ reacted: str(input, "emoji"), message: str(input, "message") });
     },
     { floor: "safe" },
-    { restricted: true },
+    { restricted: false },
   );
 
   ctx.registerTool(
@@ -374,7 +379,7 @@ function defineReadingTools(deps: DiscordServices, ctx: ModuleContext): void {
       return JSON.stringify({ reactions: await deps.reactions(str(input, "channel"), str(input, "message")) });
     },
     { floor: "safe" },
-    { restricted: true },
+    { restricted: false },
   );
 
   ctx.registerTool(
@@ -393,7 +398,7 @@ function defineReadingTools(deps: DiscordServices, ctx: ModuleContext): void {
       return JSON.stringify({ messages: await deps.messages(str(input, "channel"), limit) });
     },
     { floor: "safe" },
-    { restricted: true },
+    { restricted: false },
   );
 }
 
