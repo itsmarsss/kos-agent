@@ -89,6 +89,7 @@ import { offeredSkills, readSkills } from "../skills/manifest.js";
 import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import { CHAT_TOOLS } from "../tools/chats.js";
 import { BLOB_TOOLS, type BlobJob } from "../tools/agents.js";
+import { DISCORD_TOOLS, type Audience, type DiscordServices } from "../tools/discord.js";
 import { agentConversationId, agentScope, type Role, type RoleStore } from "../agents/roles.js";
 import { type NotifyPayload } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
@@ -134,6 +135,8 @@ export interface KernelOptions {
   system?: string;
   /** Notified when a risky action is queued (e.g. to render Discord buttons). */
   onApprovalRequested?: (action: PendingAction) => void;
+  /** The owner's Discord server, when KOS lives in one: its channels, who sees them, laying it out. */
+  discord?: DiscordServices;
   /**
    * How the host is started again, for a restart asked for from Settings.
    * Absent when nothing supervises it: then a restart would be a stop.
@@ -156,6 +159,9 @@ export interface HandleResult {
 
 export const BUILD_SETTINGS_KEY = "builds";
 /** Set once the one-time retirement of pre-surface pointers has happened. */
+
+/** Who may see each Discord server channel, by binding; absent means the owner alone. */
+export const CHANNEL_AUDIENCE_KEY = "discord.audience";
 
 /** The orchestrator's own conversation id. */
 export function orchestratorId(ownerId = "owner"): string {
@@ -1323,7 +1329,7 @@ export class Kernel {
     const res = await this.handleMessage(text, {
       sessionId: id,
       userId: this.profile.ownerId,
-      grant: [...CHAT_TOOLS, ...BLOB_TOOLS],
+      grant: [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOOLS],
       allow: [...ORCHESTRATOR_SCOPE],
       ...(opts.channel ? { channel: opts.channel } : {}),
       ...(opts.attachments ? { attachments: opts.attachments } : {}),
@@ -1682,7 +1688,7 @@ export class Kernel {
     const res = await this.handleMessage(text, {
       sessionId: id,
       userId: this.profile.ownerId,
-      grant: [...CHAT_TOOLS, ...BLOB_TOOLS],
+      grant: [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOOLS],
       allow: [...ORCHESTRATOR_SCOPE],
       ...(opts.channel ? { channel: opts.channel } : {}),
       ...(opts.attachments ? { attachments: opts.attachments } : {}),
@@ -2098,17 +2104,36 @@ export class Kernel {
    * The key is the conversation the channel is bound to; the surface keeps
    * it in the channel's topic, so the binding is readable by hand.
    */
-  surfaceChannels(): { key: string; name: string; topic: string }[] {
+  surfaceChannels(): { key: string; name: string; topic: string; audience: Audience; fixed?: boolean }[] {
     const slug = (text: string): string => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 90) || "channel";
+    const audiences = this.channelAudiences();
+    const of = (key: string): Audience => audiences[key] ?? "owner";
     return [
-      { key: orchestratorId(this.profile.ownerId), name: "kos", topic: `kos:${orchestratorId(this.profile.ownerId)} · KOS` },
-      { key: "needs-you", name: "needs-you", topic: "kos:needs-you · Approvals" },
+      { key: orchestratorId(this.profile.ownerId), name: "kos", topic: `kos:${orchestratorId(this.profile.ownerId)} · KOS`, audience: "owner", fixed: true },
+      { key: "needs-you", name: "needs-you", topic: "kos:needs-you · Approvals", audience: "owner", fixed: true },
       ...this.manifest
         .list()
         .filter((p) => p.status === "active")
-        .map((p) => ({ key: `project:${p.slug}`, name: slug(p.name), topic: `kos:project:${p.slug} · ${p.name}` })),
-      ...this.roles.list().roles.map((r) => ({ key: agentConversationId(r.name), name: slug(r.name), topic: `kos:${agentConversationId(r.name)} · ${roleTitle(r)}` })),
+        .map((p) => ({ key: `project:${p.slug}`, name: slug(p.name), topic: `kos:project:${p.slug} · ${p.name}`, audience: of(`project:${p.slug}`) })),
+      ...this.roles.list().roles.map((r) => ({ key: agentConversationId(r.name), name: slug(r.name), topic: `kos:${agentConversationId(r.name)} · ${roleTitle(r)}`, audience: of(agentConversationId(r.name)) })),
     ];
+  }
+
+  /** Who may see each server channel, by what it is bound to; absent means the owner alone. */
+  channelAudiences(): Record<string, Audience> {
+    const raw = this.settings.get(CHANNEL_AUDIENCE_KEY);
+    if (typeof raw !== "object" || raw === null) return {};
+    const out: Record<string, Audience> = {};
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) if (value === "everyone" || value === "owner") out[key] = value;
+    return out;
+  }
+
+  /** Set who may see a channel. Kept as a setting, so the next layout applies it; the surface applies it now. */
+  setChannelAudience(key: string, audience: Audience): void {
+    const next = { ...this.channelAudiences() };
+    if (audience === "owner") delete next[key];
+    else next[key] = audience;
+    this.settings.set(CHANNEL_AUDIENCE_KEY, next);
   }
 
   /** A turn in a bound conversation, through the door that gives it its reach. */
@@ -2192,7 +2217,7 @@ export class Kernel {
        * could spawn more of itself is a loop waiting to happen.
        */
       ...(conversation.id === surfaceSessionId(input.channel, input.userId)
-        ? { grant: [...CHAT_TOOLS, ...BLOB_TOOLS] }
+        ? { grant: [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOOLS] }
         : {}),
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     });

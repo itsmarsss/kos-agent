@@ -263,16 +263,24 @@ describe("Kernel", () => {
     // The plan: KOS, approvals, each project (the workspace's own included), each blob, with the binding in the topic.
     const plan = kernel.surfaceChannels();
     expect(plan.slice(0, 2)).toEqual([
-      { key: "orchestrator:owner", name: "kos", topic: "kos:orchestrator:owner · KOS" },
-      { key: "needs-you", name: "needs-you", topic: "kos:needs-you · Approvals" },
+      { key: "orchestrator:owner", name: "kos", topic: "kos:orchestrator:owner · KOS", audience: "owner", fixed: true },
+      { key: "needs-you", name: "needs-you", topic: "kos:needs-you · Approvals", audience: "owner", fixed: true },
     ]);
     expect(plan).toEqual(
       expect.arrayContaining([
-        { key: `project:${garden.slug}`, name: "my-garden", topic: `kos:project:${garden.slug} · My Garden` },
-        { key: "agent:recap", name: "recap", topic: "kos:agent:recap · Recap" },
+        { key: `project:${garden.slug}`, name: "my-garden", topic: `kos:project:${garden.slug} · My Garden`, audience: "owner" },
+        { key: "agent:recap", name: "recap", topic: "kos:agent:recap · Recap", audience: "owner" },
       ]),
     );
     expect(plan.every((c) => /^[a-z0-9-]+$/.test(c.name))).toBe(true);
+    // Everything is the owner's alone until they say otherwise, one channel at a time; KOS's own and the approvals always.
+    expect(plan.every((c) => c.audience === "owner")).toBe(true);
+    expect(plan.filter((c) => c.fixed).map((c) => c.key)).toEqual(["orchestrator:owner", "needs-you"]);
+    kernel.setChannelAudience(`project:${garden.slug}`, "everyone");
+    expect(kernel.channelAudiences()).toEqual({ [`project:${garden.slug}`]: "everyone" });
+    expect(kernel.surfaceChannels().find((c) => c.key === `project:${garden.slug}`)?.audience).toBe("everyone");
+    kernel.setChannelAudience(`project:${garden.slug}`, "owner");
+    expect(kernel.channelAudiences()).toEqual({});
   });
 
   it("reads an attached PDF into the turn as the text it is", async () => {

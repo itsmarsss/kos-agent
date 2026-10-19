@@ -65,6 +65,7 @@ import { PageLog } from "../memory/pages.js";
 import { ReviewQueue } from "../memory/review.js";
 import { RoleStore } from "../agents/roles.js";
 import { createAgentsModule } from "../tools/agents.js";
+import { createDiscordModule } from "../tools/discord.js";
 import { BEHAVIOUR_DEFAULTS } from "./behaviour.js";
 import { SuggestionStore } from "../improve/store.js";
 import { ensureDefaultImproveCron } from "../improve/job.js";
@@ -318,6 +319,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const modules: KosModule[] = [
     filesModule,
     sqlModule,
+    // KOS's own server, when it lives in one: its channels and who sees them.
+    ...(options.discord ? [createDiscordModule(options.discord)] : []),
     createNotifyModule({
       // A press is a message, so it needs somewhere to be a message in. The
       // caller may name a conversation; otherwise it lands back in the one
