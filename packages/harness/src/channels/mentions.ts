@@ -77,14 +77,18 @@ export function linkPaths(text: string, dashboardUrl?: string): string {
   );
 }
 
+/** What to call a reference on a surface that cannot look it up: a title for an id, when known. */
+export type LabelOf = (kind: string, id: string) => string | undefined;
+
 /** The text with every reference turned into a link, or a plain name when there is nowhere to link to. */
-export function linkMentions(text: string, dashboardUrl?: string): string {
+export function linkMentions(text: string, dashboardUrl?: string, labelOf?: LabelOf): string {
   const base = dashboardUrl?.replace(/\/+$/, "");
   return outsideCode(text, (part) =>
     part.replace(MENTION, (_whole, kind: string, bracketed?: string, plain?: string) => {
       const id = bracketed ?? plain ?? "";
-      // Brackets in a label would end the link early.
-      const label = id.replace(/[[\]]/g, "");
+      // Brackets in a label would end the link early. A chat's id or a job's
+      // number is no name for a link; the kernel's label for it is.
+      const label = (labelOf?.(kind, id) ?? id).replace(/[[\]]/g, "");
       return base ? `[${label}](${base}/${mentionRoute(kind, id)})` : `**${label}**`;
     }),
   );

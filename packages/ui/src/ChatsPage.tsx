@@ -481,6 +481,8 @@ export function ChatsPage({
       const tab = tabs.find((t) => t.id === id);
       return tab ? tabName(tab) : "a closed tab";
     }
+    // A job is referred to by its number, which outlives a rename; shown by name.
+    if (kind === "schedule") return crons.find((c) => String(c.id) === id)?.name;
     return undefined;
   };
 
@@ -2121,7 +2123,7 @@ export function ChatsPage({
                   words show now, as they would had they been typed here,
                   rather than when the turn ends. This tab's own message is
                   already in the list above. */}
-              {live?.said && sendingIn !== activeId && (
+              {live?.said && sendingIn !== activeId && !visible.some((e) => e.kind === "message" && e.role === "you" && e.text === live.said) && (
                 <div className="turn turn--you">
                   <div className="bubble bubble--you">
                     <Markdown text={live.said} />

@@ -72,7 +72,7 @@ describe("findMentions", () => {
   const sources = () => ({
     projects: [{ slug: "budget_tracker", name: "Budget Tracker", type: "budget" }],
     pages: [{ id: "budget-dash", title: "Budget", projectSlug: "budget_tracker" }],
-    crons: [{ name: "WeekdaySummary", schedule: "0 9 * * 1-5" }],
+    crons: [{ id: 4, name: "WeekdaySummary", schedule: "0 9 * * 1-5" }],
     workspace: ws,
   });
 
@@ -188,7 +188,7 @@ describe("narrowing to one kind", () => {
   const sources = () => ({
     projects: [{ slug: "budget_tracker", name: "Budget Tracker", type: "budget" }],
     pages: [{ id: "budget-dash", title: "Budget", projectSlug: "budget_tracker" }],
-    crons: [{ name: "budget-nightly", schedule: "0 3 * * *" }],
+    crons: [{ id: 9, name: "budget-nightly", schedule: "0 3 * * *" }],
     workspace: ws,
   });
 

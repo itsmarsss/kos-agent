@@ -551,7 +551,7 @@ describe("KOS end-to-end flows", () => {
     const thread = kernel.ensureAgentConversation("price-watch");
     expect(thread).toMatchObject({ id: "agent:price-watch", title: "Price watch", role: "price-watch", toolAllow: ["memory"] });
     const job = kernel.bindAgentSchedule("price-watch", kernel.roles.get("price-watch"))!;
-    expect(job).toMatchObject({ name: "blob:price-watch", agent: "price-watch", type: "self_prompt", prompt: "Look at the listing.", enabled: true });
+    expect(job).toMatchObject({ name: "blob.price-watch", agent: "price-watch", type: "self_prompt", prompt: "Look at the listing.", enabled: true });
 
     // Its turn runs under the file's brief and reach, and what it remembers is its own.
     await kernel.handleMessage("my target price is under 40", { sessionId: thread.id });

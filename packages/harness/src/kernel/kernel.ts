@@ -1662,7 +1662,8 @@ export class Kernel {
       return undefined;
     }
     const input: CreateCronInput = {
-      name: `blob:${name}`,
+      // Named as KOS's own jobs are (kos.backup): one scheme on the Schedule page.
+      name: `blob.${name}`,
       schedule: role.schedule,
       type: "self_prompt",
       prompt: role.prompt,
@@ -1721,6 +1722,35 @@ export class Kernel {
     const record = role ? this.roles.get(role) : undefined;
     if (!record) return undefined;
     return { name: roleTitle(record), colour: bodyHexOf(record.name, record.face ?? {}), avatar: this.faceOf(record) };
+  }
+
+  /**
+   * What a reference is called, for a surface that shows a link and cannot
+   * look the thing up: a chat's title, a job's name for its number, a blob's
+   * or a project's name. Nothing when it is not known, and the id stands.
+   */
+  labelFor(kind: string, id: string): string | undefined {
+    try {
+      switch (kind) {
+        case "chat":
+          return this.conversations.get(id)?.title;
+        case "schedule": {
+          const job = this.crons.list().find((j) => String(j.id) === id || j.name === id);
+          return job?.name;
+        }
+        case "blob":
+        case "agent": {
+          const record = this.roles.get(id);
+          return record ? roleTitle(record) : undefined;
+        }
+        case "project":
+          return this.manifest.get(id)?.name;
+        default:
+          return undefined;
+      }
+    } catch {
+      return undefined;
+    }
   }
 
   /** Faces drawn this boot, by name and look, so a message does not redraw one. */

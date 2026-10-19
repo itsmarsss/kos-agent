@@ -50,6 +50,16 @@ describe("linking references for Discord", () => {
   });
 });
 
+describe("a label for a link", () => {
+  it("names a reference by what the kernel calls it, and falls back to the id", () => {
+    const base = "https://kos.example";
+    const labelOf = (kind: string, id: string): string | undefined => (kind === "schedule" && id === "8" ? "Email Amy Reminder" : kind === "chat" && id === "cmv1:owner" ? "Kitchen" : undefined);
+    expect(linkMentions("see @schedule:8 and @chat:cmv1:owner and @page:home", base, labelOf)).toBe(
+      "see [Email Amy Reminder](https://kos.example/#/schedule/8) and [Kitchen](https://kos.example/#/chats/cmv1%3Aowner) and [home](https://kos.example/#/page/home)",
+    );
+  });
+});
+
 describe("an id with colons", () => {
   it("is one reference, not a chip and a tail", () => {
     const base = "https://kos.example";

@@ -119,11 +119,14 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
         />
       </Drawer>
 
-      {/* The rows come in as the project cards do: staggered, lifting on hover. */}
+      {/* The rows come in as the project cards do: staggered, lifting on
+          hover. Mounted once the rows are known: a list that mounted empty
+          and filled later had already played its entrance to nobody. */}
+      {agents === null && !error && <p className="hint">Loading…</p>}
+      {agents !== null && (
       <m.ul className="agents-list agents-list--index" variants={stagger} initial="hidden" animate="show">
-        {agents === null && !error && <li className="hint">Loading…</li>}
-        {agents?.length === 0 && <li className="hint">None yet. Ask KOS to keep something up for you, or make one with New blob.</li>}
-        {agents?.map((a) => (
+        {agents.length === 0 && <li className="hint">None yet. Ask KOS to keep something up for you, or make one with New blob.</li>}
+        {agents.map((a) => (
           <m.li key={a.name} variants={card} whileHover={{ y: -2 }}>
             <button type="button" className="agents-row" onClick={() => onOpen(a.name)}>
               <span className="agents-row-top">
@@ -154,6 +157,7 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
           </li>
         ))}
       </m.ul>
+      )}
     </div>
   );
 }
