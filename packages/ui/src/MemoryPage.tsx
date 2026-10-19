@@ -134,6 +134,20 @@ function metaOf(c: ReviewClaim): string {
  * card leads with what it leans to and a press that does that; the claims
  * follow as a row each, value first, with Keep on the row it keeps.
  */
+/** A long value shown short, with the rest a press away: a claim written as a report should not be the owner's whole screen. */
+function Clamp({ text, chars = 280 }: { text: string; chars?: number }): ReactElement {
+  const [all, setAll] = useState(false);
+  if (text.length <= chars) return <>{text}</>;
+  return (
+    <>
+      {all ? text : `${text.slice(0, chars).trimEnd()}…`}{" "}
+      <button type="button" className="mem-more" onClick={() => setAll((v) => !v)}>
+        {all ? "less" : "more"}
+      </button>
+    </>
+  );
+}
+
 export function MemoryDecision({ item, onResolved }: { item: ReviewItem; onResolved: () => void }): ReactElement {
   const [busy, setBusy] = useState(false);
   const decide = (action: ReviewAction, key?: string): void => {
@@ -162,7 +176,13 @@ export function MemoryDecision({ item, onResolved }: { item: ReviewItem; onResol
           <span>
             KOS leans <strong>{lean.words}</strong>
             {typeof item.sure === "number" ? `, ${Math.round(item.sure * 100)}% sure` : ""}
-            {item.note ? `: ${item.note}` : "."}
+            {item.note ? (
+              <>
+                : <Clamp text={item.note} chars={220} />
+              </>
+            ) : (
+              "."
+            )}
           </span>
           <button type="button" className="btn btn--sm btn--primary" disabled={busy} onClick={() => decide(lean.action, lean.key)}>
             Do that
@@ -179,7 +199,7 @@ export function MemoryDecision({ item, onResolved }: { item: ReviewItem; onResol
                 {c.scope && <span className="mem-scope">{c.scope}</span>}
                 <code>{c.key}</code>
               </div>
-              <div className="mem-claim-value">{c.value === undefined ? <em>No longer in memory.</em> : c.value || <em>Empty.</em>}</div>
+              <div className="mem-claim-value">{c.value === undefined ? <em>No longer in memory.</em> : c.value ? <Clamp text={c.value} /> : <em>Empty.</em>}</div>
             </div>
             {item.kind !== "promotion" && c.value !== undefined && (
               <button

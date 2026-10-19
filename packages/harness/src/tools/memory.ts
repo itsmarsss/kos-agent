@@ -12,6 +12,9 @@ import { toExchanges } from "../kernel/session.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 
+/** The most a claim may say; what needs more is a page. */
+const CLAIM_MAX = 600;
+
 /**
  * The `memory` tool module: deliberate, shared, persistent knowledge.
  *
@@ -149,7 +152,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
             type: "string",
             description: "stable identifier, e.g. deploy_target or coffee_order",
           },
-          value: { type: "string", description: "the thing to remember, self-contained" },
+          value: { type: "string", description: "the thing to remember, self-contained, in a sentence or two (under 600 characters); detail belongs in a page or a file, not in a claim" },
           kind: { type: "string", enum: [...KINDS] },
           tags: {
             type: "array",
@@ -177,6 +180,15 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
     },
     (input) => {
       const key = normalizeKey(str(input, "key"));
+      const value = str(input, "value").trim();
+      // A claim read as a report filled the owner's Inbox with walls of
+      // text when two of them disagreed; the conclusion is the claim, the
+      // rest has a page.
+      if (value.length > CLAIM_MAX) {
+        throw new Error(
+          `a claim is a line, not a report (${value.length} characters, ${CLAIM_MAX} at most): keep the conclusion here and put the detail in a page with memory.page, or in the project's files`,
+        );
+      }
       const tags = stringList(input, "tags");
       const evidence = Array.isArray(input.evidence) ? input.evidence.filter((x): x is number => typeof x === "number") : [];
       const seen = shown.get(source());
@@ -192,7 +204,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
         ownerId,
         {
           key,
-          value: str(input, "value"),
+          value,
           kind: input.kind === "preference" ? "preference" : "fact",
           scope: scopeOf(input.scope),
           trust,
@@ -453,8 +465,8 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       name: "memory.flag",
       description:
         "A memory question with what you would do about it: a contradiction you cannot settle from the values alone, or a project claim that should become global. " +
-        "Say which claims, why in one line, what you lean to, and how sure you are. KOS carries out a lean it is sure enough of and raises the rest to the owner, " +
-        "so be honest: a guess is 0.5, a strong hunch 0.7, and 0.9 means you would bet on it.",
+        "Say which claims, why in one line, what you lean to, and how sure you are. KOS carries out a lean it is sure enough of, and any lean to leave things as they are, " +
+        "and raises the rest to the owner, so be honest: a guess is 0.5, a strong hunch 0.7, and 0.9 means you would bet on it.",
       inputSchema: {
         type: "object",
         properties: {
@@ -482,7 +494,11 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       // record as KOS's doing with how sure it was; the owner reads it
       // under Memory rather than deciding it in the Inbox.
       const threshold = deps.decideAbove?.();
-      if (threshold !== undefined && sure * 100 >= threshold) {
+      // A lean to leave things as they are changes nothing, so nobody needs
+      // to decide it: closed as KOS's, however unsure. The owner was being
+      // asked to adjudicate contradictions KOS itself would have left alone.
+      const leaves = resolution.action === "both" || resolution.action === "dismiss";
+      if (leaves || (threshold !== undefined && sure * 100 >= threshold)) {
         const report = applyResolution(facts, deps.review, ownerId, item.id, resolution, { by: "KOS", source: source(), sure });
         if (report) return JSON.stringify({ decided: item.id, kind: item.kind, keys: item.keys, lean, archived: report.archived, promoted: report.promoted });
       }

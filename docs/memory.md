@@ -42,7 +42,11 @@ has a brief you can read and edit on the Schedule page.
   everywhere, it flags with what it would do and how sure it is. Sure
   enough (Settings, Behaviour: 80% by default) and it does that itself,
   on the record as KOS's under Memory, Decisions; below that the question
-  comes to the Inbox with the lean in front of you.
+  comes to the Inbox with the lean in front of you. A lean to leave things
+  as they are is carried out without asking, since nothing changes. A
+  claim is a line, not a report: `memory.remember` refuses more than 600
+  characters and points the detail to a page or a file, and a long one in
+  a decision is shown short with the rest a press away.
 - **Condense** (`kos.observe`, hourly): writes observations for threads past
   their budget.
 

@@ -95,6 +95,10 @@ describe("memory tools: reading the log and citing it", () => {
     expect(owner.json).toMatchObject({ remembered: "sister", trust: "owner" });
     const mixed = await call("memory.remember", { key: "sister_city", value: "Halifax", evidence: [a, b] });
     expect(mixed.json).toMatchObject({ trust: "agent" });
+    // A claim is a line: a report is refused and pointed to a page.
+    const report = await call("memory.remember", { key: "sister_report", value: "x".repeat(601) });
+    expect(report.isError).toBe(true);
+    expect(report.content).toMatch(/a claim is a line/);
     expect(facts.trace(facts.get("owner", "sister")!.id)!.evidence).toEqual([a]);
     // Another conversation was shown nothing.
     where = "chat:other";
@@ -126,9 +130,17 @@ describe("memory tools: reading the log and citing it", () => {
     expect(reviewQueue.pending()).toHaveLength(0);
     expect(reviewQueue.get(flagged["flagged"] as number)?.resolution).toBe("keep global/city (KOS, 90% sure)");
     expect(facts.get("owner", "city", "project:trip")).toBeUndefined();
+    // A lean to leave things as they are needs nobody: closed as KOS's, however unsure, and nothing moves.
+    facts.upsert("owner", { key: "city", value: "Lisbon", kind: "fact", scope: "project:trip" });
+    const left = (await call("memory.flag", { kind: "contradiction", keys, note: "both may hold", lean: "both", sure: 0.4 })).json!;
+    expect(left).toMatchObject({ lean: "both", archived: [] });
+    expect(typeof left["decided"]).toBe("number");
+    expect(reviewQueue.pending()).toHaveLength(0);
+    expect(facts.get("owner", "city", "project:trip")?.value).toBe("Lisbon");
     // A lean the buttons could not give is refused before anything is written.
     expect((await call("memory.flag", { kind: "other", keys: ["global/city"], note: "?", lean: "merge them", sure: 1 })).isError).toBe(true);
-    expect(reviewQueue.recent()).toHaveLength(1);
+    // Both settled questions are on the record: the one KOS was sure of, and the one it left alone.
+    expect(reviewQueue.recent()).toHaveLength(2);
     expect((await call("memory.page", { name: "profile", markdown: "# Owner\n- city: Montreal" })).json).toMatchObject({ wrote: "memory/profile.md" });
     // A page comes back as its text, not JSON.
     expect((await registry.execute("memory.pages", { name: "profile" })).content).toContain("city: Montreal");
