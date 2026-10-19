@@ -21,7 +21,7 @@ import {
   type TextChannel,
   type Webhook,
 } from "discord.js";
-import { detailLines, summarizeAction, withUnixTimes } from "@kos/shared";
+import { CHANNEL_TOKEN, detailLines, summarizeAction, withUnixTimes } from "@kos/shared";
 
 import { isReadable, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, MakePlace, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
@@ -434,8 +434,8 @@ interface BoundChannel {
 }
 
 /** What a channel's permissions say its audience is: the owner alone when everyone is kept out; guests when everyone may write. */
-function audienceOf(channel: { permissionOverwrites?: { cache: Map<string, { deny: { has: (bit: bigint) => boolean }; allow?: { has: (bit: bigint) => boolean } }> } }, everyoneId: string): Audience {
-  const everyone = channel.permissionOverwrites?.cache.get(everyoneId);
+function audienceOf(channel: { permissionOverwrites?: { cache?: Map<string, { deny: { has: (bit: bigint) => boolean }; allow?: { has: (bit: bigint) => boolean } }> } }, everyoneId: string): Audience {
+  const everyone = channel.permissionOverwrites?.cache?.get(everyoneId);
   if (everyone?.deny.has(PermissionFlagsBits.ViewChannel)) return "owner";
   return everyone?.allow?.has(PermissionFlagsBits.SendMessages) ? "guests" : "everyone";
 }
@@ -724,7 +724,7 @@ export class DiscordAdapter implements ChannelAdapter {
   /** One webhook per channel, made on first use, through which a blob speaks as itself. */
   private readonly webhooks = new Map<string, Webhook>();
   /** Every text channel on the server by name, from the last look, so "#general" in words can be the channel itself. */
-  private readonly channelIds = new Map<string, string>();
+  private readonly known = new Map<string, ServerPlace>();
   /** The owner as a speaker, once looked up. */
   private owner?: Sender;
   private isAuthorized: SenderAuthorizer = () => true;
@@ -829,7 +829,7 @@ export class DiscordAdapter implements ChannelAdapter {
     await this.messageHandler?.({
       channel: this.name,
       senderId: message.author.id,
-      text: message.content + note,
+      text: this.channelsNamed(message.content) + note,
       ...(attachments.length ? { attachments } : {}),
       ...(binding ? { conversationId: binding.conversationId } : {}),
       ...(binding?.newIn ? { newIn: binding.newIn } : {}),
@@ -876,13 +876,21 @@ export class DiscordAdapter implements ChannelAdapter {
     }
     await setTopic(target, `kos:${key} · ${title}`);
     this.boundIds.set(key, target.id);
-    this.channelIds.set(target.name.toLowerCase(), target.id);
+    // What is known of the channels follows the topics as they are now.
+    for (const other of all) {
+      const was = this.known.get(other.name.toLowerCase());
+      if (was && was.bound === key && other.id !== target.id) {
+        const { bound: _bound, ...rest } = was;
+        this.known.set(other.name.toLowerCase(), rest);
+      }
+    }
+    this.known.set(target.name.toLowerCase(), { ...(this.known.get(target.name.toLowerCase()) ?? this.placeOf(target, new Map(), guild.id)), bound: key });
     return { id: target.id, name: target.name, audience: audienceOf(target, guild.id) };
   }
 
   /** The channel or thread, by id or by name, as somewhere messages can be read from. */
   private async room(channel: string): Promise<ReadableChannel> {
-    const id = this.channelIds.get(channel.trim().replace(/^#/, "").toLowerCase()) ?? channel.trim();
+    const id = this.known.get(channel.trim().replace(/^#/, "").toLowerCase())?.id ?? channel.trim();
     const fetched = await this.client.channels.fetch(id).catch(() => null);
     if (!fetched || !("messages" in fetched)) throw new Error(`no channel called ${channel} that KOS can read; discord.server lists them`);
     return fetched as unknown as ReadableChannel;
@@ -916,7 +924,7 @@ export class DiscordAdapter implements ChannelAdapter {
       .map((m) => ({
         id: m.id,
         author: { id: m.author.id, name: m.author.globalName ?? m.author.username, bot: m.author.bot },
-        text: m.content,
+        text: this.channelsNamed(m.content),
         at: new Date(m.createdTimestamp).toISOString(),
         reactions: [...m.reactions.cache.values()].map((r) => ({ emoji: r.emoji.name ?? String(r.emoji), count: r.count })),
       }));
@@ -1103,18 +1111,34 @@ export class DiscordAdapter implements ChannelAdapter {
     const categories = new Map(all.filter((c) => c.type === ChannelType.GuildCategory).map((c) => [c.id, c.name]));
     return all
       .filter((c) => c.type === ChannelType.GuildCategory || c.type === ChannelType.GuildText)
-      .map((c) => {
-        const bound = boundKeyOf(c.topic);
-        const category = c.parentId ? categories.get(c.parentId) : undefined;
-        return {
-          id: c.id,
-          name: c.name,
-          kind: c.type === ChannelType.GuildCategory ? ("category" as const) : ("channel" as const),
-          ...(category ? { category } : {}),
-          ...(bound ? { bound } : {}),
-          ...(c.topic && !bound ? { topic: c.topic } : {}),
-        };
-      });
+      .map((c) => (c.type === ChannelType.GuildCategory ? { id: c.id, name: c.name, kind: "category" as const } : this.remember(c, categories, guild.id)));
+  }
+
+  /** The server's text channels as last seen, at once: a name in a message is resolved while the prompt is built. */
+  knownChannels(): ServerPlace[] {
+    return [...this.known.values()];
+  }
+
+  /** A text channel as a place, and kept by name so "#general" in words can be the channel itself. */
+  private remember(c: AdminChannel, categoryNames: Map<string, string>, guildId: string): ServerPlace {
+    const place = this.placeOf(c, categoryNames, guildId);
+    this.known.set(c.name.toLowerCase(), place);
+    return place;
+  }
+
+  private placeOf(c: AdminChannel, categoryNames: Map<string, string>, guildId: string): ServerPlace {
+    const bound = boundKeyOf(c.topic);
+    const category = c.parentId ? categoryNames.get(c.parentId) : undefined;
+    return {
+      id: c.id,
+      name: c.name,
+      kind: "channel",
+      url: `https://discord.com/channels/${guildId}/${c.id}`,
+      audience: audienceOf(c, guildId),
+      ...(category ? { category } : {}),
+      ...(bound ? { bound } : {}),
+      ...(c.topic && !bound ? { topic: c.topic } : {}),
+    };
   }
 
   /**
@@ -1201,20 +1225,22 @@ export class DiscordAdapter implements ChannelAdapter {
     bound: Map<string, BoundChannel>;
     categories: Map<string, string>;
   }> {
-    const existing = await guild.channels.fetch();
+    const existing = [...(await guild.channels.fetch()).values()].filter((c): c is AdminChannel => !!c && typeof c === "object");
     const bound = new Map<string, BoundChannel>();
     const categories = new Map<string, string>();
-    for (const channel of existing.values()) {
-      if (!channel || typeof channel !== "object") continue;
-      const c = channel as OverwritableChannel & { type: ChannelType; name: string; topic?: string | null; parentId?: string | null };
-      if (c.type === ChannelType.GuildCategory) categories.set(c.name.toLowerCase(), c.id);
-      if (c.type === ChannelType.GuildText) this.channelIds.set(c.name.toLowerCase(), c.id);
-      if (c.type === ChannelType.GuildText) {
-        const key = boundKeyOf(c.topic);
-        if (key) {
-          bound.set(key, { id: c.id, name: c.name, audience: audienceOf(c, guild.id), parentId: c.parentId ?? null, channel: c });
-          this.boundIds.set(key, c.id);
-        }
+    const categoryNames = new Map<string, string>();
+    for (const c of existing) {
+      if (c.type !== ChannelType.GuildCategory) continue;
+      categories.set(c.name.toLowerCase(), c.id);
+      categoryNames.set(c.id, c.name);
+    }
+    for (const c of existing) {
+      if (c.type !== ChannelType.GuildText) continue;
+      this.remember(c, categoryNames, guild.id);
+      const key = boundKeyOf(c.topic);
+      if (key) {
+        bound.set(key, { id: c.id, name: c.name, audience: audienceOf(c, guild.id), parentId: c.parentId ?? null, channel: c });
+        this.boundIds.set(key, c.id);
       }
     }
     return { bound, categories };
@@ -1619,13 +1645,23 @@ export class DiscordAdapter implements ChannelAdapter {
 
   /** "#general" as `<#id>` when the server has a channel of that name; code and mentions already made are left alone. */
   private channelMentions(text: string): string {
-    if (this.channelIds.size === 0) return text;
+    if (this.known.size === 0) return text;
     return outsideCode(text, (part) =>
-      part.replace(/(?<![\w<#/])#([A-Za-z0-9][\w-]{0,99})(?![\w-])/g, (whole, name: string) => {
-        const id = this.channelIds.get(name.toLowerCase());
+      part.replace(new RegExp(CHANNEL_TOKEN.source, "g"), (whole, name: string) => {
+        const id = this.known.get(name.toLowerCase())?.id;
         return id ? `<#${id}>` : whole;
       }),
     );
+  }
+
+  /** `<#id>` as "#name" for a channel KOS knows, so what was said reads the same on the dashboard and the chat sees the name. */
+  private channelsNamed(text: string): string {
+    if (this.known.size === 0 || !text.includes("<#")) return text;
+    const names = new Map([...this.known.values()].map((p) => [p.id, p.name]));
+    return text.replace(/<#(\w+)>/g, (whole, id: string) => {
+      const name = names.get(id);
+      return name ? `#${name}` : whole;
+    });
   }
 
   /**

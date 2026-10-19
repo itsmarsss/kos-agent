@@ -23,7 +23,9 @@ export type MentionKind =
   | "blob"
   /** A coding sub-agent, by id. */
   | "build"
-  | "tab";
+  | "tab"
+  /** A Discord channel, by name; written `#<name>`, as on Discord. */
+  | "channel";
 
 export interface Mention {
   kind: MentionKind;
@@ -33,6 +35,8 @@ export interface Mention {
   label: string;
   /** Secondary line, when there is something worth saying. */
   hint?: string;
+  /** Where the thing is outside the dashboard, when that is where it opens: a channel, on Discord. */
+  url?: string;
 }
 
 export interface MentionSources {
@@ -57,6 +61,8 @@ export interface MentionSources {
    * it is, already in words.
    */
   tabs?: { id: string; title: string; url: string; owner?: string }[];
+  /** The Discord server's text channels, each with whose home it is, in words. */
+  channels?: { name: string; category?: string; bound?: string; home?: string; url?: string }[];
 }
 
 /** A tab's name in a list: its title, else its host, else blank. */
@@ -238,6 +244,17 @@ export function findMentions(
       label: tabLabel(t),
       hint: [t.owner, t.url !== "about:blank" ? t.url : ""].filter(Boolean).join(" · "),
     })),
+    ...(sources.channels ?? []).map((c) => {
+      const hint = [c.category, c.home ? `home of ${c.home}` : ""].filter(Boolean).join(" · ");
+      return {
+        kind: "channel" as const,
+        id: c.name,
+        label: `#${c.name}`,
+        ...(hint ? { hint } : {}),
+        ...(c.url ? { url: c.url } : {}),
+        ...(c.bound?.startsWith("project:") ? { of: c.bound.slice("project:".length) } : {}),
+      };
+    }),
     ...walkFiles(sources.workspace).map((path) => ({
       kind: "file" as const,
       id: path,
@@ -269,6 +286,8 @@ export function mentionToken(mention: Mention): string {
  * the parser read "@schedule:9": most jobs could not be pointed at at all.
  */
 export function writeMention(kind: MentionKind, id: string): string {
+  // A channel is written as Discord writes it.
+  if (kind === "channel") return `#${id}`;
   return PLAIN_ID.test(id) ? `@${kind}:${id}` : `@${kind}:[${id}]`;
 }
 

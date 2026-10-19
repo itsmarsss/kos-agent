@@ -280,6 +280,26 @@ describe("every kind of reference", () => {
     );
   });
 
+  it("draws a channel the view knows as a chip that opens on Discord, and leaves a # it does not", () => {
+    const { container } = render(
+      <MentionNames
+        resolve={(k, id) => (k === "channel" && id === "leetcode" ? "#leetcode" : undefined)}
+        hrefOf={(k, id) => (k === "channel" ? `https://discord.com/channels/g1/${id}` : undefined)}
+      >
+        <Markdown text="posted in #leetcode, fix #3 and `#leetcode`" />
+      </MentionNames>,
+    );
+    const chip = container.querySelector<HTMLAnchorElement>("a.chip-ref--channel");
+    expect(chip?.textContent).toBe("#leetcode");
+    expect(chip?.getAttribute("href")).toBe("https://discord.com/channels/g1/leetcode");
+    expect(chip?.getAttribute("target")).toBe("_blank");
+    expect(container.querySelectorAll(".chip-ref--channel")).toHaveLength(1);
+    expect(container.textContent).toContain("fix #3");
+    expect(container.querySelector("code")?.textContent).toBe("#leetcode");
+    // With no view to say, a # stays words.
+    expect(html("in #leetcode")).not.toContain("chip-ref");
+  });
+
   it("falls back to the id when nothing knows better", () => {
     const { container } = render(<Markdown text="see @chat:[abc123:owner]" />);
     expect(container.querySelector(".chip-ref--chat")?.textContent).toBe(

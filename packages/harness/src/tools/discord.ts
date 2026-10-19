@@ -62,6 +62,10 @@ export interface ServerPlace {
   /** What KOS bound it to, when it is one of KOS's own. */
   bound?: string;
   topic?: string;
+  /** Where it is on Discord, as a link. */
+  url?: string;
+  /** Who may see and write in a channel, by its permissions. */
+  audience?: Audience;
 }
 
 /**
@@ -98,6 +102,12 @@ export interface DiscordServices {
   setAccess: (place: string, access: Access[]) => Promise<ServerPlace>;
   /** A channel of the owner's made the home of a chat: the chat is read and answered there from then on. */
   bind: (channel: string, to: string) => Promise<ServerChannel>;
+  /**
+   * Every text channel on the server by name, from the last look at it.
+   * Held in memory and answered at once, since "#general" in a message is
+   * resolved while the prompt is built.
+   */
+  known: () => ServerPlace[];
   /** An emoji on a message, from KOS. */
   react: (channel: string, message: string, emoji: string) => Promise<void>;
   /** Who reacted with what on a message. */

@@ -1,5 +1,7 @@
 import { useEffect, useRef, type ReactElement, type ReactNode } from "react";
 
+import { CHANNEL_TOKEN } from "@kos/shared";
+
 /**
  * A textarea whose references are coloured as they are typed.
  *
@@ -27,8 +29,33 @@ interface Piece {
   kind?: string;
 }
 
-/** Split text into plain runs and reference runs, in order. */
-export function highlightPieces(text: string): Piece[] {
+/**
+ * Split text into plain runs and reference runs, in order.
+ *
+ * A "#name" is coloured only when it names a channel the caller knows: the
+ * shape alone is an issue number or a colour as often as a channel.
+ */
+export function highlightPieces(text: string, channels?: ReadonlySet<string>): Piece[] {
+  const pieces = splitMentions(text);
+  if (!channels || channels.size === 0) return pieces;
+  return pieces.flatMap((piece) => (piece.kind ? [piece] : splitChannels(piece.text, channels)));
+}
+
+function splitChannels(text: string, channels: ReadonlySet<string>): Piece[] {
+  const pieces: Piece[] = [];
+  let last = 0;
+  for (const match of text.matchAll(new RegExp(CHANNEL_TOKEN.source, "g"))) {
+    if (!channels.has((match[1] ?? "").toLowerCase())) continue;
+    const index = match.index ?? 0;
+    if (index > last) pieces.push({ text: text.slice(last, index) });
+    pieces.push({ text: match[0], kind: "channel" });
+    last = index + match[0].length;
+  }
+  if (last < text.length) pieces.push({ text: text.slice(last) });
+  return pieces;
+}
+
+function splitMentions(text: string): Piece[] {
   const pieces: Piece[] = [];
   let at = 0;
 
@@ -54,10 +81,13 @@ export function highlightPieces(text: string): Piece[] {
 export function HighlightedInput({
   value,
   textareaRef,
+  channels,
   children,
 }: {
   value: string;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  /** The Discord channels there are, by name, so "#name" is coloured as one. */
+  channels?: ReadonlySet<string>;
   /** The textarea itself, so the caller keeps ownership of its handlers. */
   children: ReactNode;
 }): ReactElement {
@@ -81,7 +111,7 @@ export function HighlightedInput({
   return (
     <div className="hl">
       <div className="hl-mirror" ref={mirror} aria-hidden="true">
-        {highlightPieces(value).map((piece, i) =>
+        {highlightPieces(value, channels).map((piece, i) =>
           piece.kind ? (
             <span key={i} className={`hl-ref hl-ref--${piece.kind}`}>
               {piece.text}

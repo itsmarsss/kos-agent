@@ -28,8 +28,8 @@ export interface Suggestion {
 }
 
 export interface Trigger {
-  /** "@" for a mention, "/" for a command, "arg" for what a command takes. */
-  char: "@" | "/" | "arg";
+  /** "@" for a mention, "#" for a Discord channel, "/" for a command, "arg" for what a command takes. */
+  char: "@" | "#" | "/" | "arg";
   /** What has been typed after it. */
   query: string;
   /**
@@ -91,9 +91,10 @@ export function readTrigger(text: string, caret: number): Trigger | null {
   // The query keeps colons and slashes, so a half-typed reference is still a
   // trigger: backspacing into @file:notes/a leaves a live search rather than
   // a dead string, and typing a kind narrows to it.
-  const match = /(^|\s)([@/])([^\s@]*)$/.exec(before);
-  if (match) {
-    const char = match[2] as "@" | "/";
+  const match = /(^|\s)([@/#])([^\s@]*)$/.exec(before);
+  // After a command, "#3" is the thing it takes (an approval), not a channel.
+  if (match && !(match[2] === "#" && /^\s*\/\S+\s/.test(before))) {
+    const char = match[2] as "@" | "/" | "#";
     const query = match[3] ?? "";
     // A slash command is only ever the first thing in the message.
     if (char === "/" && before.trimStart().length !== query.length + 1) return null;
@@ -135,6 +136,7 @@ const KIND_LABEL: Record<string, string> = {
   agent: "agent",
   build: "build",
   tab: "tab",
+  channel: "channel",
   command: "command",
   approval: "waiting",
 };
@@ -162,14 +164,16 @@ export function useSuggestions(trigger: Trigger | null, options: SuggestionOptio
   // What is being looked for, apart from the term. When it changes, the last
   // answer is for something else and is dropped rather than shown until the
   // next one lands: chats under "@file:", for a moment, was that.
-  const mode = `${char}:${wantsChats ? "chat" : (split.kind ?? "")}`;
+  // A # is a channel being named, and only channels are offered for it.
+  const wantsChannels = char === "#";
+  const mode = `${char}:${wantsChats ? "chat" : wantsChannels ? "channel" : (split.kind ?? "")}`;
   useEffect(() => setMentions([]), [mode]);
 
   useEffect(() => {
-    if (char !== "@" && !wantsChats) return;
+    if (char !== "@" && !wantsChats && !wantsChannels) return;
     let cancelled = false;
     void api
-      .mentions(wantsChats ? query : split.term, wantsChats ? "chat" : split.kind, undefined, project)
+      .mentions(wantsChats || wantsChannels ? query : split.term, wantsChats ? "chat" : wantsChannels ? "channel" : split.kind, undefined, project)
       .then((r) => {
         if (cancelled) return;
         setMentions(
@@ -178,9 +182,12 @@ export function useSuggestions(trigger: Trigger | null, options: SuggestionOptio
             // carry. A schedule is named by the owner and usually has spaces
             // in it, so this inserted a reference that read as far as the
             // first space and pointed at nothing.
-            insert: /^[A-Za-z0-9._/-]*[A-Za-z0-9_/-]$/.test(mn.id)
-              ? `@${mn.kind}:${mn.id}`
-              : `@${mn.kind}:[${mn.id}]`,
+            insert:
+              mn.kind === "channel"
+                ? `#${mn.id}`
+                : /^[A-Za-z0-9._/-]*[A-Za-z0-9_/-]$/.test(mn.id)
+                  ? `@${mn.kind}:${mn.id}`
+                  : `@${mn.kind}:[${mn.id}]`,
             label: mn.label,
             kind: mn.kind,
             ...(mn.hint ? { hint: mn.hint } : {}),
@@ -201,7 +208,7 @@ export function useSuggestions(trigger: Trigger | null, options: SuggestionOptio
     return () => {
       cancelled = true;
     };
-  }, [char, wantsChats, query, split.kind, split.term, project]);
+  }, [char, wantsChats, wantsChannels, query, split.kind, split.term, project]);
 
   // Commands come back with the mentions, so the list is there before the
   // first slash is typed and the menu does not flash empty.
@@ -250,6 +257,7 @@ export function useSuggestions(trigger: Trigger | null, options: SuggestionOptio
           : { insert: mn.label, label: mn.label, kind: mn.kind, ...(mn.hint ? { hint: mn.hint } : {}) },
       );
     }
+    if (trigger.char === "#") return mentions;
     // Before a kind is chosen, offer the kinds themselves: typing @fi should
     // get you to files rather than only matching things called "fi".
     const kinds: Suggestion[] =

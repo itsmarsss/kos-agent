@@ -39,6 +39,23 @@ describe("readTrigger", () => {
   });
 });
 
+describe("a channel being named", () => {
+  it("sees # at a word's start as a channel trigger", () => {
+    expect(readTrigger("post in #lee", 12)).toEqual({ char: "#", query: "lee", at: 8 });
+  });
+
+  it("leaves #3 after a command to the command, which takes an approval", () => {
+    expect(readTrigger("/approve #3", 11)).toMatchObject({ char: "arg", command: "approve", query: "#3" });
+  });
+
+  it("finishes a channel like a mention, with a space after", () => {
+    expect(applySuggestion("post in #lee", { char: "#", query: "lee", at: 8 }, { insert: "#leetcode", label: "#leetcode", kind: "channel" })).toEqual({
+      text: "post in #leetcode ",
+      caret: 18,
+    });
+  });
+});
+
 describe("applySuggestion", () => {
   it("replaces the trigger and its query, and leaves the rest", () => {
     const trigger = readTrigger("look at @not", 12)!;

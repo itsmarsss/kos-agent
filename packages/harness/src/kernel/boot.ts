@@ -725,6 +725,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       ? { onApprovalRequested: options.onApprovalRequested }
       : {}),
     ...(options.restart ? { restart: options.restart } : {}),
+    ...(options.discord ? { discord: options.discord } : {}),
   });
   return kernelRef;
 }

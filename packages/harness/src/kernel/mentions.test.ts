@@ -89,6 +89,18 @@ describe("findMentions", () => {
     expect(hits[0]?.label).toBe("Budget");
   });
 
+  it("offers the server's channels, written as Discord writes them, with whose home each is", () => {
+    const found = findMentions(
+      { ...sources(), channels: [{ name: "leetcode", category: "Clubs", bound: "project:leetcode_daily", home: "LeetCode Daily", url: "https://discord.com/channels/g/c1" }, { name: "general" }] },
+      "lee",
+    );
+    expect(found).toEqual([{ kind: "channel", id: "leetcode", label: "#leetcode", hint: "Clubs · home of LeetCode Daily", url: "https://discord.com/channels/g/c1" }]);
+    expect(writeMention("channel", "leetcode")).toBe("#leetcode");
+    // A channel bound to a project is that project's, so it comes first from inside it.
+    const inside = findMentions({ ...sources(), channels: [{ name: "zzz", bound: "project:budget_tracker" }] }, "", 12, undefined, "budget_tracker");
+    expect(inside[0]).toMatchObject({ kind: "channel", id: "zzz" });
+  });
+
   it("finds a file by its path", () => {
     expect(findMentions(sources(), "todo").map((m) => m.id)).toContain(
       "notes/todo.md",

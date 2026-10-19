@@ -250,6 +250,7 @@ export async function runHost(options: HostOptions): Promise<void> {
               kernel.setChannelAudience(to, bound.audience);
               return { key: to, name: bound.name, audience: bound.audience };
             },
+            known: () => adapter?.knownChannels() ?? [],
             react: (channel, message, emoji) => adapter!.react(channel, message, emoji),
             reactions: (channel, message) => adapter!.reactions(channel, message),
             messages: (channel, limit) => adapter!.messages(channel, limit),

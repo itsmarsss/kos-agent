@@ -49,6 +49,11 @@ In a chat:
   system prompt for this chat only) and which tools it may use. A scoped
   chat is told its own limits so it says "not here" rather than improvising.
 - `@` references a project, page, file, schedule, chat, site or blob.
+- `#` names a channel on your Discord server, written as Discord writes
+  it (`#leetcode`): the picker offers the channels, the chip opens the
+  channel on Discord, and the turn is told what the channel is, who reads
+  it and whose home it is. A `#` that names no channel (`fix #3`) stays
+  words.
   `/` opens commands: `/new`, `/chats`, `/switch`, `/rename`, `/archive`,
   `/compact`, `/clear`, `/tools`, `/help`. `/clear` and `/compact` take the
   chat out of KOS's context without taking it off your screen: what was

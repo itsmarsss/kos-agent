@@ -22,6 +22,15 @@ describe("bracketed references", () => {
   });
 });
 
+describe("a channel in the composer", () => {
+  it("colours #name only when it is a channel there is", () => {
+    const pieces = highlightPieces("post in #leetcode, fix #3", new Set(["leetcode"]));
+    expect(pieces).toEqual([{ text: "post in " }, { text: "#leetcode", kind: "channel" }, { text: ", fix #3" }]);
+    // Without the list, nothing is a channel.
+    expect(highlightPieces("post in #leetcode").every((p) => p.kind !== "channel")).toBe(true);
+  });
+});
+
 describe("highlightPieces", () => {
   it("marks a reference and leaves the rest alone", () => {
     expect(highlightPieces("look at @file:a/b.md now")).toEqual([

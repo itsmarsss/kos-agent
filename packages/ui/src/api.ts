@@ -847,6 +847,19 @@ async function post<T>(path: string, body: unknown = {}): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** A text channel on the owner's Discord server, as a thing "#name" in a chat can be. */
+export interface DiscordChannel {
+  id: string;
+  name: string;
+  /** Where it opens, on Discord. */
+  url?: string;
+  category?: string;
+  bound?: string;
+  /** What the chat it is the home of is called. */
+  home?: string;
+  audience?: string;
+}
+
 export const api = {
   status: () => get<Status>("/api/status"),
   /** Restart the host once nothing is mid-turn; the answer says what it is waiting on. */
@@ -1170,10 +1183,12 @@ export const api = {
   /** A project's own chat, made on first use so it can be opened before it is spoken to. */
   projectChat: (slug: string) => post<Conversation>("/api/projects/chat", { slug }),
   folders: () => get<{ folders: string[] }>("/api/folders"),
+  /** The Discord server's channels, so "#name" in a chat is the channel; none when KOS lives in no server. */
+  discordChannels: () => get<{ channels: DiscordChannel[] }>("/api/discord/channels"),
   /** Things to point at. With `project`, that project's own come first. */
   mentions: (q: string, kind?: string, limit?: number, project?: string) =>
     get<{
-      mentions: { kind: string; id: string; label: string; hint?: string }[];
+      mentions: { kind: string; id: string; label: string; hint?: string; url?: string }[];
       commands: { name: string; args?: string; description: string }[];
     }>(
       `/api/mentions?q=${encodeURIComponent(q)}` +

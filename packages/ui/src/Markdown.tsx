@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { COMMAND_NAMES, TIME_TOKEN, formatTime, instantOf, styleOf } from "@kos/shared";
+import { CHANNEL_TOKEN, COMMAND_NAMES, TIME_TOKEN, formatTime, instantOf, styleOf } from "@kos/shared";
 
 import { Face } from "./Face.js";
 import { useOpenTab } from "./opentab.js";
@@ -50,18 +50,42 @@ const COMMAND = new RegExp(`(^|\\s)(/(?:${COMMAND_NAMES.join("|")}))\\b`);
  * reading "cmtjz26wu1:owner" tells the reader nothing. Whoever is rendering
  * usually has the list to hand, so they can supply the words.
  */
-const Names = createContext<
-  ((kind: string, id: string) => string | undefined) | null
->(null);
+interface NameSource {
+  resolve: (kind: string, id: string) => string | undefined;
+  /** Where a reference opens when it is no page of the dashboard: a channel, on Discord. */
+  hrefOf?: (kind: string, id: string) => string | undefined;
+}
+
+const Names = createContext<NameSource | null>(null);
 
 export function MentionNames({
   resolve,
+  hrefOf,
   children,
 }: {
   resolve: (kind: string, id: string) => string | undefined;
+  hrefOf?: (kind: string, id: string) => string | undefined;
   children: ReactNode;
 }): ReactElement {
-  return <Names.Provider value={resolve}>{children}</Names.Provider>;
+  return <Names.Provider value={hrefOf ? { resolve, hrefOf } : { resolve }}>{children}</Names.Provider>;
+}
+
+/**
+ * A Discord channel named in words, as a chip when the view knows a channel
+ * of that name, and as the words it was otherwise: "#3" in "fix #3" is not a
+ * channel, and a chip to nowhere would say it was.
+ */
+function ChannelChip({ name, raw }: { name: string; raw: string }): ReactElement {
+  const names = useContext(Names);
+  const label = names?.resolve("channel", name);
+  if (label === undefined) return <>{raw}</>;
+  const href = names?.hrefOf?.("channel", name);
+  if (!href) return <span className="chip-ref chip-ref--channel" title={`channel: ${name}`}>{label}</span>;
+  return (
+    <a className="chip-ref chip-ref--channel" href={href} title={`channel: ${name}, on Discord`} target="_blank" rel="noopener noreferrer">
+      {label}
+    </a>
+  );
 }
 
 /**
@@ -108,9 +132,9 @@ function KindMark({ kind }: { kind: string }): ReactElement | null {
 }
 
 function MentionChip({ kind, id }: { kind: string; id: string }): ReactElement {
-  const resolve = useContext(Names);
+  const names = useContext(Names);
   const openTab = useOpenTab();
-  const label = resolve?.(kind, id) ?? id;
+  const label = names?.resolve(kind, id) ?? id;
   // A tab has no page of its own: the chip opens the browser window on it.
   const onClick =
     kind === "tab" && openTab
@@ -230,6 +254,7 @@ const INLINE: Array<{
     ),
   },
   { re: TIME_TOKEN, render: (m, k) => <Stamp key={k} value={m[1] ?? ""} letter={m[2]} raw={m[0]} /> },
+  { re: CHANNEL_TOKEN, render: (m, k) => <ChannelChip key={k} name={m[1] ?? ""} raw={m[0]} /> },
   {
     re: LINK,
     render: (m, k) => (

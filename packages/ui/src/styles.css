@@ -2636,6 +2636,8 @@ li:hover .chats-item-when { opacity: 0; }
 .chip-ref--chat { color: var(--accent); background: var(--accent-dim); border-color: color-mix(in srgb, var(--accent) 28%, transparent); }
 .chip-ref--site { color: var(--ok); background: var(--ok-dim); border-color: color-mix(in srgb, var(--ok) 28%, transparent); }
 .chip-ref--agent { color: var(--warn); background: var(--warn-dim); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+/* A Discord channel, in Discord's own blue, so it reads as the place it is. */
+.chip-ref--channel { color: #5865f2; background: color-mix(in srgb, #5865f2 12%, transparent); border-color: color-mix(in srgb, #5865f2 30%, transparent); }
 /* On the owner's own bubble the accent is the background, so the chips need
    to sit against it rather than disappear into it. */
 .bubble--you .chip-ref {
@@ -2715,6 +2717,7 @@ li:hover .chats-item-when { opacity: 0; }
 .hl-ref--file { color: var(--muted); background: var(--panel-2); }
 .hl-ref--schedule { color: var(--warn); background: var(--warn-dim); }
 .hl-ref--command { color: var(--accent); background: var(--accent-dim); }
+.hl-ref--channel { color: #5865f2; background: color-mix(in srgb, #5865f2 12%, transparent); }
 
 /* —— autocomplete —— */
 .composer-input { position: relative; }

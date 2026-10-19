@@ -34,6 +34,7 @@ import {
   type PendingAction,
   type PendingMessage,
   type Project,
+  type DiscordChannel,
 } from "./api.js";
 import { tabName } from "./address.js";
 import { AttachButton, useAttachments, useDropZone } from "./Attachments.js";
@@ -414,6 +415,22 @@ export function ChatsPage({
   }, [activeId, narrow]);
 
   const [trigger, setTrigger] = useState<Trigger | null>(null);
+  // The server's channels, so "#name" in a chat is coloured and chipped as
+  // the channel; none when KOS lives in no server.
+  const [channels, setChannels] = useState<DiscordChannel[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .discordChannels()
+      .then((r) => {
+        if (!cancelled) setChannels(r.channels);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const channelNames = useMemo(() => new Set(channels.map((c) => c.name.toLowerCase())), [channels]);
   const [acCursor, setAcCursor] = useState(0);
   /*
    * What the menu offers besides the index: inside a project its own files,
@@ -483,8 +500,13 @@ export function ChatsPage({
     }
     // A job is referred to by its number, which outlives a rename; shown by name.
     if (kind === "schedule") return crons.find((c) => String(c.id) === id)?.name;
+    // A channel is a chip only when it is one; "#3" in a sentence is not.
+    if (kind === "channel") return channelNames.has(id.toLowerCase()) ? `#${id}` : undefined;
     return undefined;
   };
+  /** A channel opens on Discord; everything else has a page here. */
+  const channelHref = (kind: string, id: string): string | undefined =>
+    kind === "channel" ? channels.find((c) => c.name.toLowerCase() === id.toLowerCase())?.url : undefined;
 
   /**
    * Reload on the conversation changing, and again whenever it has moved on
@@ -2107,7 +2129,7 @@ export function ChatsPage({
 
             {/* The thread knows the chats and agents by name, so a chip can
                 read "Lane A" rather than the id it is addressed by. */}
-            <MentionNames resolve={nameFor}>
+            <MentionNames resolve={nameFor} hrefOf={channelHref}>
             <div className="chats-thread" ref={boxRef}>
               {visible.length === 0 && <p className="hint">Nothing said yet.</p>}
               {(() => {
@@ -2404,7 +2426,7 @@ export function ChatsPage({
                   cursor={acCursor}
                   onPick={choose}
                 />
-                <HighlightedInput value={draft} textareaRef={inputRef}>
+                <HighlightedInput value={draft} textareaRef={inputRef} channels={channelNames}>
                 <textarea
                   className="hl-area"
                   ref={inputRef}
