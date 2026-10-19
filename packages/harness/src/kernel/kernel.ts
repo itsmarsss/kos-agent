@@ -984,6 +984,7 @@ export class Kernel {
                 sessionId,
                 ...(opts.origin === "system" ? [] : [text]),
               );
+              this.said(sessionId, text, reply, opts.origin ?? "owner", opts.channel);
             }
             /*
              * One row per model the call actually used.
@@ -1061,7 +1062,7 @@ export class Kernel {
         const outcome = await this.raceWithApproval(
           running,
           waiting,
-          (r) => this.settleTurn(r, { sessionId, userId, text, ...(opts.origin ? { origin: opts.origin } : {}), runId, useSession }),
+          (r) => this.settleTurn(r, { sessionId, userId, text, ...(opts.origin ? { origin: opts.origin } : {}), ...(opts.channel ? { channel: opts.channel } : {}), runId, useSession }),
           { sessionId, runId },
         );
         suspended = outcome.suspended;
@@ -2432,6 +2433,8 @@ export class Kernel {
       userId: string;
       text: string;
       origin?: "owner" | "system";
+      /** The surface the words came in on, so a mirror of the chat can skip its own. */
+      channel?: string;
       runId: number;
       useSession: boolean;
     },
@@ -2506,8 +2509,14 @@ export class Kernel {
       this.maybeExtract();
     }
 
+    if (useSession) this.said(sessionId, text, reply, origin ?? "owner", ctx.channel);
     this.runs.finish(runId, "ok");
     return reply;
+  }
+
+  /** A turn's exchange, told to whoever shows the chat elsewhere. */
+  private said(conversationId: string, text: string, reply: string, origin: "owner" | "system", channel?: string): void {
+    this.bus.emit({ kind: "turn:said", conversationId, projectSlug: this.projectOf(conversationId), text, reply, origin, channel: channel ?? null });
   }
 
   /**
