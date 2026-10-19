@@ -279,7 +279,7 @@ function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
     {
       name: "discord.audience",
       description:
-        "Who may see one of KOS's channels on the server: owner (only the owner and KOS), everyone (the server reads, nobody else writes), or guests (the server reads and writes, and what a member writes there reaches this chat as that guest's words, named and treated as untrusted; their button presses reach it too). Opening a channel shows people what is said there from then on, so it asks the owner first; closing one does not. KOS's own channel and the approvals stay the owner's.",
+        "Who may see one of KOS's channels on the server: owner (only the owner and KOS), everyone (the server reads, nobody else writes), or guests (the server reads and writes, and what a member writes there reaches this chat as that guest's words, named and treated as untrusted, with a narrow set of tools; their button presses reach it too). Opening a channel shows people what is said there from then on, so it asks the owner first; closing one does not. KOS's own channel and the approvals stay the owner's. A channel for other people is best the home of a chat made for it (see discord.bind), not of a project's orchestrator.",
       inputSchema: {
         type: "object",
         properties: {
@@ -355,7 +355,8 @@ function defineAdminTools(deps: DiscordServices, ctx: ModuleContext): void {
     {
       name: "discord.bind",
       description:
-        "Make a channel the home of a chat: a project's orchestrator or a blob lives in that channel from then on, wherever the owner put it. What the chat says shows there, what the owner says there reaches it, its scheduled runs post there, and if the channel takes guests (discord.access or discord.audience), what members write reaches it as theirs. The channel KOS had laid out for the chat is let go. Asks the owner when the channel is open to other people, since the chat will show there.",
+        "Make a channel the home of a chat: a project's orchestrator, a blob, or a chat by its id lives in that channel from then on, wherever the owner put it. What the chat says shows there, what the owner says there reaches it, its scheduled runs post there, and if the channel takes guests (discord.access or discord.audience), what members write reaches it as theirs. The channel KOS had laid out for the chat is let go. " +
+        "A channel other people will write in should be the home of a chat made for it (chats.create with a brief for the channel, then bind by that chat's id), not of the orchestrator: the project's own channel and threads stay private, and the handler reaches the orchestrator with chats.handoff. Asks the owner when the channel is open to other people, since the chat will show there.",
       inputSchema: {
         type: "object",
         properties: {

@@ -71,6 +71,26 @@ describe("runCronJob", () => {
     expect(sent).toEqual(["you spent 250"]);
   });
 
+  it("reads the scope again before each action, so an action can say what an earlier one left in a table", async () => {
+    registry.register({ name: "add", description: "a", inputSchema: { type: "object" } }, () => {
+      ws.db.prepare("INSERT INTO tx (amount) VALUES (50)").run();
+      return "added";
+    });
+    const res = await runCronJob(
+      job({
+        type: "actions",
+        query: "SELECT SUM(amount) AS total FROM tx",
+        actions: [
+          { tool: "add", args: {} },
+          { tool: "notify", args: { text: "you spent {total}" } },
+        ],
+      }),
+      { db: ws.db, tools: registry },
+    );
+    expect(res.ran).toBe(true);
+    expect(sent).toEqual(["you spent 300"]);
+  });
+
   it("skips when the condition fails", async () => {
     const res = await runCronJob(
       job({
