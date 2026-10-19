@@ -291,6 +291,8 @@ export async function runHost(options: HostOptions): Promise<void> {
               tool: action.tool,
               args: action.args,
               reason: action.reason,
+              // The card names what the ids are: #leetcode, not 1561643942586351626.
+              names: (kind: string, id: string) => kernel.labelFor(kind, id),
               ...(picture ? { picture } : {}),
               ...(action.why ? { why: action.why } : {}),
               ...(asker ? { asker } : {}),

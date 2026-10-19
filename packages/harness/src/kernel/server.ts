@@ -6,6 +6,7 @@ import { dirname, extname, join, normalize, relative, resolve, sep } from "node:
 import { parseHomeLayout,
   CHAT_COMMANDS,
 } from "@kos/shared";
+import { summarizeAction } from "@kos/shared";
 import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
 import { DREAM_JOB, MEMORY_JOB, OBSERVE_JOB } from "../memory/job.js";
@@ -725,7 +726,15 @@ export async function handleApiRequest(
   if (method === "GET" && path === "/api/approvals") {
     // When each lapses if nobody decides, so the inbox can say so.
     const keep = kernel.behaviour().approvalExpiryHours * 3_600_000;
-    return ok(kernel.approvals.pending().map((a) => ({ ...a, asker: kernel.askerOf(a.conversationId)?.name, expiresAt: a.requestedAt + keep })));
+    // With the ids named, so the inbox says #leetcode where the arguments say an id.
+    return ok(
+      kernel.approvals.pending().map((a) => ({
+        ...a,
+        asker: kernel.askerOf(a.conversationId)?.name,
+        expiresAt: a.requestedAt + keep,
+        summary: summarizeAction(a.tool, a.args, (kind, id) => kernel.labelFor(kind, id)),
+      })),
+    );
   }
 
   // What the browser showed after a step, for the thread's tool card.

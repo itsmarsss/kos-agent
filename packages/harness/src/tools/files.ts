@@ -46,7 +46,7 @@ export function outsideScratch(path: string): boolean {
 
 const rmRisk: ToolRisk = {
   floor: "safe",
-  escalate: (input) => outsideScratch(optStr(input, "path") ?? ""),
+  escalate: (input) => (outsideScratch(optStr(input, "path") ?? "") ? "outside the scratch folder" : false),
 };
 
 function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
@@ -193,7 +193,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       renameSync(ws.resolve(str(input, "from")), to);
       return "ok";
     },
-    { floor: "safe", escalate: (input) => outsideScratch(optStr(input, "from") ?? "") },
+    { floor: "safe", escalate: (input) => (outsideScratch(optStr(input, "from") ?? "") ? "outside the scratch folder" : false) },
   );
 
   ctx.registerTool(

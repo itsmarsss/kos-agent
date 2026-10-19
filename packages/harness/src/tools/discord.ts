@@ -37,6 +37,8 @@ export type Audience = "owner" | "everyone" | "guests";
 export interface ServerChannel {
   /** The conversation the channel is bound to, or "needs-you". */
   key: string;
+  /** Discord's own id for the channel, the one thing about it that never changes. */
+  id?: string;
   name: string;
   /** The category it sits under: KOS, Blobs, or the project's own. */
   category?: string;
@@ -166,6 +168,12 @@ export function opensUp(access: Access[]): boolean {
   return access.some((a) => a.who.toLowerCase() !== "owner" && (a.view || a.write));
 }
 
+/** Who an access list lets in, as the reason an ask gives; false when nobody but the owner. */
+export function letsIn(access: Access[]): string | false {
+  const who = access.filter((a) => a.who.toLowerCase() !== "owner" && (a.view || a.write)).map((a) => a.who);
+  return who.length ? `lets ${who.join(", ")} in` : false;
+}
+
 function str(input: Record<string, unknown>, key: string): string {
   const v = input[key];
   if (typeof v !== "string" || v.trim() === "") throw new Error(`missing arg: ${key}`);
@@ -175,7 +183,7 @@ function str(input: Record<string, unknown>, key: string): string {
 /** A channel named any way the owner would: by name, with or without #, or by what it is bound to. */
 export function findChannel(channels: ServerChannel[], named: string): ServerChannel | undefined {
   const want = named.trim().replace(/^#/, "").toLowerCase();
-  return channels.find((c) => c.name.toLowerCase() === want || c.key.toLowerCase() === want || c.key.toLowerCase().endsWith(`:${want}`));
+  return channels.find((c) => c.id === named.trim() || c.name.toLowerCase() === want || c.key.toLowerCase() === want || c.key.toLowerCase().endsWith(`:${want}`));
 }
 
 function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
@@ -229,7 +237,7 @@ function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
         "Delete the threads whose chats are gone, so Discord shows what the dashboard shows. A chat deleted now takes its thread with it; this is for threads left behind before that. Asks the owner first. From a project's chat, only the project's own.",
       inputSchema: {
         type: "object",
-        properties: { channel: { type: "string", description: "only the threads under this channel, named any way: by name, or by what it is bound to (project:<slug>)" } },
+        properties: { channel: { type: "string", description: "only the threads under this channel: its id, its name, or what it is bound to (project:<slug>)" } },
       },
     },
     async (input) => {
@@ -243,7 +251,7 @@ function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
       return JSON.stringify({ deleted, note: `Deleted ${deleted.length} thread${deleted.length === 1 ? "" : "s"} whose chat was gone.` });
     },
     // Deleting is for good, so the owner says so.
-    { floor: "risky" },
+    { floor: "risky", why: "deletes threads for good" },
     { restricted: true },
   );
   ctx.registerTool(
@@ -254,7 +262,7 @@ function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
       inputSchema: {
         type: "object",
         properties: {
-          channel: { type: "string", description: "the channel's name, or what it is bound to (project:<slug>, agent:<name>)" },
+          channel: { type: "string", description: "the channel's id, as discord.channels lists it; its name or what it is bound to (project:<slug>, agent:<name>) also work" },
           audience: { type: "string", enum: ["owner", "everyone", "guests"] },
         },
         required: ["channel", "audience"],
@@ -279,7 +287,11 @@ function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
       });
     },
     // Opening a channel shows other people the owner's chat; closing one shows nobody anything.
-    { floor: "safe", escalate: (input) => input["audience"] === "everyone" || input["audience"] === "guests" },
+    {
+      floor: "safe",
+      escalate: (input) =>
+        input["audience"] === "everyone" ? "everyone on the server would read it" : input["audience"] === "guests" ? "everyone on the server would read and write there" : false,
+    },
     { restricted: true },
   );
 
@@ -326,7 +338,7 @@ function defineAdminTools(deps: DiscordServices, ctx: ModuleContext): void {
       inputSchema: {
         type: "object",
         properties: {
-          channel: { type: "string", description: "the channel, by name or id, as discord.server lists it" },
+          channel: { type: "string", description: "the channel's id, as discord.server lists it; its name also works" },
           to: { type: "string", description: "the chat: project:<slug> for a project's orchestrator, agent:<name> for a blob" },
         },
         required: ["channel", "to"],
@@ -347,7 +359,8 @@ function defineAdminTools(deps: DiscordServices, ctx: ModuleContext): void {
       escalate: (input) => {
         const want = String(input["channel"] ?? "").trim().replace(/^#/, "").toLowerCase();
         const place = deps.known().find((p) => p.id === want || p.name.toLowerCase() === want);
-        return !place || place.audience !== "owner";
+        if (!place) return "a channel KOS has not looked at yet, so nobody knows who reads it";
+        return place.audience !== "owner" ? `other people can see #${place.name}, and the chat would show there` : false;
       },
     },
     { restricted: true },
@@ -397,7 +410,7 @@ function defineAdminTools(deps: DiscordServices, ctx: ModuleContext): void {
       return JSON.stringify({ ...made, note: `Made ${made.kind === "category" ? made.name : `#${made.name}`}${access.length ? ` for ${access.map((a) => a.who).join(", ")}` : ", for the owner alone"}. Post into a channel with notify, to: discord:channel:${made.id}.` });
     },
     // Letting other people into the new place is what asks; a place of the owner's alone does not.
-    { floor: "safe", escalate: (input) => opensUp(parseAccess(input["access"])) },
+    { floor: "safe", escalate: (input) => letsIn(parseAccess(input["access"])) },
     { restricted: true },
   );
 
@@ -440,7 +453,7 @@ function defineAdminTools(deps: DiscordServices, ctx: ModuleContext): void {
       const now = await deps.setAccess(str(input, "place"), access);
       return JSON.stringify({ ...now, access, note: access.length ? `${now.name} is open to ${access.map((a) => `${a.who} (${a.write ? "read and write" : "read"})`).join(", ")}.` : `${now.name} is the owner's alone.` });
     },
-    { floor: "safe", escalate: (input) => opensUp(parseAccess(input["access"])) },
+    { floor: "safe", escalate: (input) => letsIn(parseAccess(input["access"])) },
     { restricted: true },
   );
 }
@@ -462,7 +475,7 @@ function defineReadingTools(deps: DiscordServices, ctx: ModuleContext): void {
       inputSchema: {
         type: "object",
         properties: {
-          channel: { type: "string", description: "the channel, by name or id" },
+          channel: { type: "string", description: "the channel's id, or its name" },
           message: { type: "string", description: "the message id" },
           emoji: { type: "string", description: "the emoji itself, like 👍, or a custom one by name" },
         },
@@ -484,7 +497,7 @@ function defineReadingTools(deps: DiscordServices, ctx: ModuleContext): void {
       description: "Who reacted with what on a message in a channel on the server: each emoji with its count and the members behind it, by name. For counting who did something, or who voted.",
       inputSchema: {
         type: "object",
-        properties: { channel: { type: "string", description: "the channel, by name or id" }, message: { type: "string", description: "the message id" } },
+        properties: { channel: { type: "string", description: "the channel's id, or its name" }, message: { type: "string", description: "the message id" } },
         required: ["channel", "message"],
       },
     },
@@ -502,7 +515,7 @@ function defineReadingTools(deps: DiscordServices, ctx: ModuleContext): void {
       description: "The last messages in a channel on the server, oldest first: who said what and when, with the reactions each carries. What a guest said in a channel that takes guests reaches you as a turn anyway; this is for looking back, or at a channel of yours that does not.",
       inputSchema: {
         type: "object",
-        properties: { channel: { type: "string", description: "the channel, by name or id" }, limit: { type: "number", description: "how many, up to 100; 20 unless said" } },
+        properties: { channel: { type: "string", description: "the channel's id, or its name" }, limit: { type: "number", description: "how many, up to 100; 20 unless said" } },
         required: ["channel"],
       },
     },

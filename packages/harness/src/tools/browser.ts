@@ -331,7 +331,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         },
         // Asks only when a step touches the page. A watcher that waits four
         // seconds for a table to render was asking the owner every six hours.
-        { floor: "safe", escalate: touchesPage },
+        { floor: "safe", escalate: (input) => (touchesPage(input) ? "clicks, types or fills on the page" : false) },
       );
 
       /*

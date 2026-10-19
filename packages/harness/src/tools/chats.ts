@@ -413,7 +413,7 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
       const removed = conversations.remove(target.id);
       return JSON.stringify({ id: target.id, title: target.title, removed });
     },
-    { floor: "risky" },
+    { floor: "risky", why: "deletes the chat for good" },
     { restricted: true },
   );
 

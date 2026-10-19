@@ -566,7 +566,7 @@ export function createNotifyModule(deps: NotifyToolDeps = {}): KosModule {
           // Messaging the owner is the whole point and asks nothing. Posting
           // anywhere else is KOS speaking in a place the owner did not choose,
           // which is a decision for the owner rather than for the agent.
-          escalate: sendsElsewhere,
+          escalate: (input) => (sendsElsewhere(input) ? "a message to somewhere other than you" : false),
         },
       );
     },

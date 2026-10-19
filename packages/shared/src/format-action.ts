@@ -24,6 +24,16 @@ function parseArgs(args: string | Record<string, unknown>): Record<string, unkno
   return { raw: args };
 }
 
+/** ", open to Members, everyone" for an access list; nothing for one that lets nobody else in. */
+function whoOf(access: unknown): string {
+  if (!Array.isArray(access)) return "";
+  const who = access
+    .filter((e): e is { who: string } => !!e && typeof e === "object" && typeof (e as { who?: unknown }).who === "string")
+    .map((e) => e.who)
+    .filter((w) => w.toLowerCase() !== "owner");
+  return who.length ? `, open to ${who.join(", ")}` : "";
+}
+
 function fmtVal(v: unknown): string {
   if (v === null || v === undefined) return "—";
   if (typeof v === "string") return truncate(v);
@@ -35,13 +45,50 @@ function fmtVal(v: unknown): string {
   }
 }
 
-/** One-line summary for a tool + args. */
+/** What to call an id, where the caller knows: a channel's name for its id, a chat's title, a job's name. */
+export type ActionNames = (kind: string, id: string) => string | undefined;
+
+/** The kind of thing a field holds, so a name can stand beside its id. */
+function kindOfField(tool: string, key: string): string | undefined {
+  if (key === "channel" || key === "place") return "channel";
+  if (key === "to") return tool === "notify" ? "target" : "chat";
+  if (key === "id") return tool.startsWith("cron.") ? "schedule" : tool.startsWith("chats.") ? "chat" : undefined;
+  if (key === "name" && tool.startsWith("blobs.")) return "blob";
+  return undefined;
+}
+
+/** One-line summary for a tool + args, with names for the ids the caller can name. */
 export function summarizeAction(
   tool: string,
   args: string | Record<string, unknown>,
+  names?: ActionNames,
 ): string {
   const a = parseArgs(args);
+  // A name where one is known, the value as written otherwise: an id alone
+  // is no basis for a yes, and the id stays in the detail lines.
+  const named = (kind: string, raw: unknown, fallback = fmtVal(raw)): string => {
+    const id = typeof raw === "string" ? raw : typeof raw === "number" ? String(raw) : "";
+    return (id && names?.(kind, id)) || fallback;
+  };
   switch (tool) {
+    case "discord.bind":
+      return `Make ${named("channel", a.channel, `#${fmtVal(a.channel)}`)} the home of ${named("chat", a.to)}`;
+    case "discord.audience": {
+      const channel = named("channel", a.channel, `#${fmtVal(a.channel)}`);
+      return a.audience === "owner"
+        ? `Close ${channel} to you alone`
+        : `Open ${channel} to everyone on the server${a.audience === "guests" ? ", reading and writing" : ", reading"}`;
+    }
+    case "discord.make":
+      return `Make the ${a.kind === "category" ? "category" : "channel"} ${fmtVal(a.name)}${a.category ? ` under ${fmtVal(a.category)}` : ""}${whoOf(a.access)}`;
+    case "discord.access":
+      return `Set who may use ${named("channel", a.place)}${whoOf(a.access) || ": you alone"}`;
+    case "discord.role":
+      return `Make the role ${fmtVal(a.name)}`;
+    case "discord.prune":
+      return `Delete the threads whose chats are gone${a.channel ? ` under ${named("channel", a.channel, `#${fmtVal(a.channel)}`)}` : ""}`;
+    case "chats.delete":
+      return `Delete the chat ${named("chat", a.id)} for good`;
     case "tasks.create_list":
       return `Create task list “${fmtVal(a.name)}”`;
     case "tasks.add":
@@ -84,8 +131,10 @@ export function summarizeAction(
       return `Recall about “${fmtVal(a.query)}”`;
     case "export.query":
       return `Export ${fmtVal(a.format)} to ${fmtVal(a.path)}`;
-    case "notify":
-      return `Notify: ${fmtVal(a.text)}`;
+    case "notify": {
+      const to = typeof a.to === "string" && a.to.trim() && a.to !== "owner" ? a.to.trim() : "";
+      return to ? `Post to ${named("target", to)}: ${fmtVal(a.text)}` : `Tell you: ${fmtVal(a.text)}`;
+    }
     case "skills.test":
       return `Sandbox test ${fmtVal(a.entry)}`;
     case "skills.promote":
@@ -102,8 +151,6 @@ export function summarizeAction(
       return `Hand work to conversation ${fmtVal(a.id)}`;
     case "chats.archive":
       return a.archived === false ? `Bring back chat ${fmtVal(a.id)}` : `Archive chat ${fmtVal(a.id)}`;
-    case "chats.delete":
-      return `Delete chat ${fmtVal(a.id)}`;
     case "blobs.list":
       return "List the blobs";
     case "blobs.create":
@@ -115,7 +162,7 @@ export function summarizeAction(
     case "blobs.resume":
       return `Resume the blob ${fmtVal(a.name)}`;
     case "blobs.remove":
-      return `Remove the blob ${fmtVal(a.name)}`;
+      return `Remove the blob ${named("blob", a.name)}`;
     case "chats.handoff": {
       const brief = typeof a.brief === "string" ? a.brief.replace(/\s+/g, " ").trim() : "";
       return `Hand off to ${fmtVal(a.to)}: ${brief.length > 90 ? `${brief.slice(0, 89)}…` : brief}`;
@@ -147,7 +194,7 @@ export function summarizeAction(
     case "shell.run":
       return `Run: ${fmtVal(a.command)}${a.cwd ? ` (in ${fmtVal(a.cwd)})` : ""}`;
     case "cron.run":
-      return `Run scheduled job #${fmtVal(a.id)} now`;
+      return `Run the job ${named("schedule", a.id, `#${fmtVal(a.id)}`)} now`;
     case "builds.run":
       return `Start a coding agent in ${fmtVal(a.dir)}: ${fmtVal(a.task)}`;
     case "daemons.create":
@@ -250,14 +297,18 @@ export function summarizeAction(
 export function detailLines(
   tool: string,
   args: string | Record<string, unknown>,
+  names?: ActionNames,
 ): string[] {
   const a = parseArgs(args);
   const lines: string[] = [];
   // Prefer a short summary line first.
-  lines.push(summarizeAction(tool, a));
+  lines.push(summarizeAction(tool, a, names));
   const keys = Object.keys(a).slice(0, MAX_FIELDS);
   for (const k of keys) {
-    lines.push(`${k}: ${fmtVal(a[k])}`);
+    // The id as written, and its name beside it where one is known.
+    const kind = kindOfField(tool, k);
+    const name = kind && typeof a[k] === "string" ? names?.(kind, a[k] as string) : undefined;
+    lines.push(`${k}: ${fmtVal(a[k])}${name && name !== a[k] ? ` (${name})` : ""}`);
   }
   if (Object.keys(a).length > MAX_FIELDS) {
     lines.push(`…+${Object.keys(a).length - MAX_FIELDS} more fields`);
@@ -271,8 +322,9 @@ export function formatApprovalPrompt(
   tool: string,
   args: string | Record<string, unknown>,
   reason?: string | null,
+  names?: ActionNames,
 ): string {
-  const summary = summarizeAction(tool, args);
+  const summary = summarizeAction(tool, args, names);
   const lines = [
     `**Approval needed** · pending \`#${id}\``,
     "",

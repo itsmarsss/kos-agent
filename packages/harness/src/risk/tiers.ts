@@ -7,7 +7,8 @@
 export type RiskTier = "safe" | "risky";
 
 /** Returns true if these arguments should escalate the tool above its floor. */
-export type Escalation = (input: Record<string, unknown>) => boolean;
+/** True to escalate, or the reason to, in words the owner reads on the card: "other people can see #leetcode". */
+export type Escalation = (input: Record<string, unknown>) => boolean | string;
 
 export interface ToolRisk {
   floor: RiskTier;
@@ -19,12 +20,16 @@ export interface ToolRisk {
    * rule can prove harmless.
    */
   relax?: Escalation;
+  /** Why a risky floor asks, in words the owner reads on the card: "deletes the chat for good". */
+  why?: string;
 }
 
 export interface RiskAssessment {
   tier: RiskTier;
   /** True when an escalation rule (not the floor) produced a risky tier. */
   escalated: boolean;
+  /** Why it asks, when the rule or the floor says so in words. */
+  reason?: string;
 }
 
 export const SAFE: ToolRisk = { floor: "safe" };
@@ -41,10 +46,12 @@ export function classifyRisk(
 ): RiskAssessment {
   const floor = risk?.floor ?? "safe";
   if (floor === "risky") {
-    return { tier: risk?.relax?.(input) ? "safe" : "risky", escalated: false };
+    if (risk?.relax?.(input)) return { tier: "safe", escalated: false };
+    return { tier: "risky", escalated: false, ...(risk?.why ? { reason: risk.why } : {}) };
   }
-  if (risk?.escalate?.(input)) {
-    return { tier: "risky", escalated: true };
+  const fired = risk?.escalate?.(input);
+  if (fired) {
+    return { tier: "risky", escalated: true, ...(typeof fired === "string" ? { reason: fired } : {}) };
   }
   return { tier: "safe", escalated: false };
 }

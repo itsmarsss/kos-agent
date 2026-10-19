@@ -129,7 +129,7 @@ export function createModulesModule(deps: ModulesModuleDeps): KosModule {
           });
         },
         // The owner's yes, as the spec requires: the floor puts it through approval.
-        { floor: "risky" },
+        { floor: "risky", why: "code of KOS's own writing would be switched on" },
       );
 
       ctx.registerTool(

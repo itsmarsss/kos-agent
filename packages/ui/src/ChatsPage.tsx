@@ -443,7 +443,7 @@ export function ChatsPage({
       ...(slug ? { project: slug } : {}),
       approvals: approvals.map((a) => ({
         id: a.id,
-        label: a.reason ?? summarizeAction(a.tool, a.args),
+        label: a.summary ?? summarizeAction(a.tool, a.args),
         here: a.conversationId === activeId,
       })),
     };
@@ -2216,7 +2216,7 @@ export function ChatsPage({
                         whole card, and the command it wanted to run was
                         nowhere. The reason is a tag, the arguments a fold. */}
                     <code>{a.tool}</code>
-                    <span className="loose-approval-what">{summarizeAction(a.tool, a.args)}</span>
+                    <span className="loose-approval-what">{a.summary ?? summarizeAction(a.tool, a.args)}</span>
                     {a.reason && <span className="loose-approval-why">{a.reason}</span>}
                     <details className="loose-approval-details">
                       <summary>Arguments</summary>

@@ -248,7 +248,7 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
           const sha = await deps.promoter.commit(skill.file);
           return JSON.stringify({ status: "promoted", name: skill.manifest.name, sha });
         },
-        { floor: "risky" },
+        { floor: "risky", why: "code of KOS's own writing would be kept to run" },
       );
 
       ctx.registerTool(
@@ -269,7 +269,7 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
           const result = await runSkillLive({ workspaceRoot: ws.root, entry: skill.file, ...(args ? { args } : {}) });
           return JSON.stringify(sandboxReport(result));
         },
-        { floor: "risky" },
+        { floor: "risky", why: "runs a skill for real" },
       );
     },
   };

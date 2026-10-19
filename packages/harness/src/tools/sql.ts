@@ -114,7 +114,7 @@ export function defineSqlTool(db: Db, ctx: ModuleContext): void {
     {
       floor: "safe",
       escalate: (input) =>
-        typeof input.sql === "string" && isSqlDestructive(input.sql),
+        typeof input.sql === "string" && isSqlDestructive(input.sql) ? "changes or removes rows" : false,
     },
   );
 }

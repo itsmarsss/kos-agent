@@ -158,13 +158,13 @@ export function approvalText(req: ApprovalRequest): string {
     return noPreviews([...said, `${asks} · ${req.text}`, `-# #${req.id}${req.reason ? ` · ${req.reason}` : ""}`].join("\n"));
   }
   const args = req.args ?? {};
-  const { head, body } = splitSummary(summarizeAction(req.tool, args));
+  const { head, body } = splitSummary(summarizeAction(req.tool, args, req.names));
   // The command itself, or failing that the arguments, in a code block: a
   // `--include=*.ts` that turned italic was a command you could not read
   // back, and an approval you cannot read is not one you can give.
   const code = body
     ? [cut(body, CODE_MAX)]
-    : detailLines(req.tool, args)
+    : detailLines(req.tool, args, req.names)
         .slice(1)
         .filter((l) => !l.startsWith("…"))
         .slice(0, 3)
@@ -1084,7 +1084,7 @@ export class DiscordAdapter implements ChannelAdapter {
     const guild = await this.client.guilds.fetch(this.guildId);
     const { bound, categories } = await this.boundChannels(guild);
     const nameOf = new Map([...categories.entries()].map(([name, id]) => [id, name]));
-    return [...bound.entries()].map(([key, c]) => ({ key, name: c.name, audience: c.audience, ...(c.parentId && nameOf.get(c.parentId) ? { category: nameOf.get(c.parentId)! } : {}) }));
+    return [...bound.entries()].map(([key, c]) => ({ key, id: c.id, name: c.name, audience: c.audience, ...(c.parentId && nameOf.get(c.parentId) ? { category: nameOf.get(c.parentId)! } : {}) }));
   }
 
   /** Who may see one channel, applied now. */
@@ -1869,7 +1869,7 @@ export class DiscordAdapter implements ChannelAdapter {
         .setStyle(ButtonStyle.Danger),
     );
 
-    const summary = req.tool !== undefined ? summarizeAction(req.tool, req.args ?? {}) : req.text;
+    const summary = req.tool !== undefined ? summarizeAction(req.tool, req.args ?? {}, req.names) : req.text;
     const payload = {
       content: approvalText(req),
       components: [row],

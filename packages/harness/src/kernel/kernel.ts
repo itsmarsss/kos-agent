@@ -94,7 +94,7 @@ import { CHAT_TOOLS } from "../tools/chats.js";
 import { BLOB_TOOLS, type BlobJob } from "../tools/agents.js";
 import { DISCORD_TOOLS, type Audience, type BoundThread, type DiscordServices, type ServerPlace } from "../tools/discord.js";
 import { agentConversationId, agentScope, KOS_FACE_KEY, parseFaceLook, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
-import { type NotifyPayload } from "../tools/notify.js";
+import { type NotifyPayload, parseTarget } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
 import type { EventBus } from "../modules/events.js";
 import type { SuggestionStore } from "../improve/store.js";
@@ -1816,6 +1816,20 @@ export class Kernel {
         }
         case "project":
           return this.manifest.get(id)?.name;
+        case "channel": {
+          // By Discord's id, the one thing that does not change; by name as a courtesy.
+          const want = id.trim().replace(/^#/, "").toLowerCase();
+          const place = this.discord?.known().find((p) => p.id === id.trim() || p.name.toLowerCase() === want);
+          return place ? `#${place.name}` : undefined;
+        }
+        case "target": {
+          // A notify destination: you, a channel, a person.
+          const target = parseTarget(id);
+          if (target.kind === "owner") return "you";
+          const tid = "id" in target && typeof target.id === "string" ? target.id : "";
+          const where = target.kind === "channel" ? (this.labelFor("channel", tid) ?? `channel ${tid}`) : `user ${tid}`;
+          return target.surface ? `${where} on ${target.surface === "discord" ? "Discord" : target.surface}` : where;
+        }
         default:
           return undefined;
       }

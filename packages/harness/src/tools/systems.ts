@@ -78,7 +78,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
       const slug = str(input, "project");
       return JSON.stringify(deleteProject({ manifest, migrator, pages }, slug));
     },
-    { floor: "risky" },
+    { floor: "risky", why: "deletes the project and its tables for good" },
     { tags: ["systems"] },
   );
 
@@ -144,7 +144,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
     },
     // Risk is tool plus arguments: additive schema changes are safe, and
     // destructive or unclassifiable ones escalate to the approval queue.
-    { floor: "safe", escalate: migrationEscalation },
+    { floor: "safe", escalate: (input) => (migrationEscalation(input) ? "a schema change that is not an add" : false) },
     { tags: ["systems"] },
   );
 
