@@ -50,6 +50,15 @@ describe("linking references for Discord", () => {
   });
 });
 
+describe("an id with colons", () => {
+  it("is one reference, not a chip and a tail", () => {
+    const base = "https://kos.example";
+    expect(linkMentions("by @schedule:blob:briefing at 07:30", base)).toBe("by [blob:briefing](https://kos.example/#/schedule/blob%3Abriefing) at 07:30");
+    expect(linkMentions("in @chat:cmv1:owner.", base)).toBe("in [cmv1:owner](https://kos.example/#/chats/cmv1%3Aowner).");
+    expect(plainMentions("by @schedule:blob:briefing at")).toBe("by blob:briefing at");
+  });
+});
+
 describe("linkPaths", () => {
   it("links a workspace path a step names to the file on the dashboard, and nothing that is not one", () => {
     const base = "https://kos.example";

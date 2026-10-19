@@ -31,8 +31,11 @@ import { hrefFor } from "./routes.js";
  * middle of a sentence, and coloured by kind so a file is distinguishable from
  * a project at a glance.
  */
+// An id may hold colons after its first segment: a chat is "cmv…:owner" and
+// a blob's job is "blob:briefing", and stopping at the colon made a chip of
+// the first half with the rest left dangling.
 const MENTION =
-  /@(project|page|file|schedule|chat|site|blob|agent|build|tab):(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*[A-Za-z0-9_/-]))/;
+  /@(project|page|file|schedule|chat|site|blob|agent|build|tab):(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*(?::[A-Za-z0-9._/-]+)*[A-Za-z0-9_/-]))/;
 /*
  * Built from the shared list rather than spelled out here. The private copy
  * went stale: /compact, /clear and /tools were added to the harness and the

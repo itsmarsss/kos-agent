@@ -14,7 +14,7 @@
 import { pathsIn } from "@kos/shared";
 
 const MENTION =
-  /@(project|page|file|schedule|chat|site|blob|agent):(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*[A-Za-z0-9_/-]))/g;
+  /@(project|page|file|schedule|chat|site|blob|agent):(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*(?::[A-Za-z0-9._/-]+)*[A-Za-z0-9_/-]))/g;
 
 /** Fenced blocks and inline code, which are not rewritten. */
 const CODE = /(```[\s\S]*?```|`[^`\n]*`)/g;

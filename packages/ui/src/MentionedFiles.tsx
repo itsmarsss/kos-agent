@@ -18,7 +18,7 @@ import { hrefFor } from "./routes.js";
  */
 
 /** `@file:` mentions as the Markdown chips read them: a bare path, or a bracketed one. */
-const FILE_MENTION = /@file:(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*[A-Za-z0-9_/-]))/g;
+const FILE_MENTION = /@file:(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*(?::[A-Za-z0-9._/-]+)*[A-Za-z0-9_/-]))/g;
 
 /** The distinct paths a message mentions, in the order they appear. */
 export function mentionedPaths(text: string): string[] {
