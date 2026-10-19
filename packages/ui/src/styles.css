@@ -2635,7 +2635,9 @@ li:hover .chats-item-when { opacity: 0; }
 .chip-mark { opacity: 0.85; }
 .chip-ref--chat { color: var(--accent); background: var(--accent-dim); border-color: color-mix(in srgb, var(--accent) 28%, transparent); }
 .chip-ref--site { color: var(--ok); background: var(--ok-dim); border-color: color-mix(in srgb, var(--ok) 28%, transparent); }
-.chip-ref--agent { color: var(--warn); background: var(--warn-dim); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.chip-ref--agent,
+.chip-ref--blob { color: var(--warn); background: var(--warn-dim); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.chip-ref--build { color: var(--muted); background: var(--panel-2); border-color: var(--line); }
 /* A Discord channel, in Discord's own blue, so it reads as the place it is. */
 .chip-ref--channel { color: #5865f2; background: color-mix(in srgb, #5865f2 12%, transparent); border-color: color-mix(in srgb, #5865f2 30%, transparent); }
 /* On the owner's own bubble the accent is the background, so the chips need
@@ -2717,6 +2719,13 @@ li:hover .chats-item-when { opacity: 0; }
 .hl-ref--file { color: var(--muted); background: var(--panel-2); }
 .hl-ref--schedule { color: var(--warn); background: var(--warn-dim); }
 .hl-ref--command { color: var(--accent); background: var(--accent-dim); }
+.hl-ref--chat { color: var(--accent); background: var(--accent-dim); }
+.hl-ref--site { color: var(--ok); background: var(--ok-dim); }
+/* A blob, by either name it has had, in the warm tone its chip takes. */
+.hl-ref--blob,
+.hl-ref--agent { color: var(--warn); background: var(--warn-dim); }
+.hl-ref--build { color: var(--muted); background: var(--panel-2); }
+.hl-ref--tab { color: var(--accent); background: var(--accent-dim); }
 .hl-ref--channel { color: #5865f2; background: color-mix(in srgb, #5865f2 12%, transparent); }
 
 /* —— autocomplete —— */
@@ -5304,9 +5313,6 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
   font-size: var(--text-sm);
 }
 
-.hl-ref--chat { color: var(--accent); }
-.hl-ref--site { color: var(--ok); }
-.hl-ref--agent { color: var(--warn); }
 .decision { display: inline-flex; gap: 0.4rem; }
 .btn--sm { padding: 0.2rem 0.5rem; font-size: var(--text-sm); }
 .spinner { animation: spin 0.8s linear infinite; margin-right: 0.3rem; }

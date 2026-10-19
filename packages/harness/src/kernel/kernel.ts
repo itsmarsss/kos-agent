@@ -2699,6 +2699,20 @@ export class Kernel {
     this.bus.emit({ kind: "turn:said", conversationId, projectSlug: this.projectOf(conversationId), text, reply, origin, channel: channel ?? null, files, ...(resumed ? { resumed: true } : {}) });
   }
 
+  /**
+   * The kept file behind an attachment that was stored without its path,
+   * from before paths were kept with the block: the file under the chat's
+   * own uploads folder by that name, when there is one.
+   */
+  keptPathOf(sessionId: string, name: string): string | undefined {
+    const rel = `${this.uploadsDirOf(sessionId)}/${name}`;
+    try {
+      return existsSync(this.workspace.resolve(rel)) ? rel : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   /** Where a chat's uploads go: its project's folder, its blob's, or the root's own. */
   private uploadsDirOf(sessionId: string): string {
     let conversation: Conversation | undefined;

@@ -368,6 +368,25 @@ function memoryReport(kernel: Kernel): {
   };
 }
 
+/**
+ * An attachment stored before its path was kept with it still has its file
+ * under the chat's uploads folder; the page can open it as itself once told where.
+ */
+function withKeptPaths(kernel: Kernel, conversationId: string, events: ChatEvent[]): ChatEvent[] {
+  return events.map((e) =>
+    "attachments" in e && e.attachments
+      ? {
+          ...e,
+          attachments: e.attachments.map((a) => {
+            if (a.path) return a;
+            const path = kernel.keptPathOf(conversationId, a.name);
+            return path ? { ...a, path } : a;
+          }),
+        }
+      : e,
+  );
+}
+
 /** A channel on the server as a thing to name: with whose home it is, in words, and where it opens. */
 export interface KnownChannel {
   id: string;
@@ -2539,7 +2558,7 @@ export async function handleApiRequest(
     return ok({
       id,
       messages: transcriptOf(kernel, id),
-      events: withFrames(historyEvents(kernel.sessions.earlier(id), kernel.sessions.get(id)), kernel.frames.listFor(id)),
+      events: withFrames(withKeptPaths(kernel, id, historyEvents(kernel.sessions.earlier(id), kernel.sessions.get(id))), kernel.frames.listFor(id)),
       // Sent but not yet run. Shown after the transcript because that is where
       // they will land, and separately because they have not happened yet.
       pending: kernel.pending.forConversation(id).map((m) => ({
