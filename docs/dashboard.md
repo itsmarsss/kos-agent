@@ -41,6 +41,10 @@ In a chat:
 - `@` references a project, page, file, schedule, chat, site or blob.
   `/` opens commands: `/new`, `/chats`, `/switch`, `/rename`, `/archive`,
   `/compact`, `/clear`, `/tools`, `/help`.
+- A reply renders as markdown: emphasis, code, lists, quotes, tables, and
+  two things Discord has that a chat wants too: a line starting with
+  `-# ` is small print, and a time token (`<t:2026-10-19T07:30:R>`) shows
+  on your own clock, "in 3 hours" or the date, with the full date on hover.
 - Beside the composer: the model, how full the conversation is, and a chip
   that says what memory the last turn was given. Open it to see each claim
   with its scope and the log moments that came along.

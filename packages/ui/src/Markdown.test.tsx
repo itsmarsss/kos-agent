@@ -18,6 +18,22 @@ describe("Markdown", () => {
     expect(html("**bold** and *italic* and `code`")).toContain("<code>code</code>");
   });
 
+  it("shows a time on the reader's clock, and subtext small", () => {
+    const seconds = Math.floor(Date.now() / 1000) + 3 * 3600;
+    const out = html(`Due <t:${seconds}:R>.\n-# Source: the calendar`);
+    expect(out).toContain('class="md-time"');
+    expect(out).toContain(">in 3 hours</time>");
+    expect(out).toContain('<p class="md-sub">Source: the calendar</p>');
+    // A time as written is read in this browser's zone, so its clock reads back as written.
+    expect(html("<t:2026-10-19T07:30:t>")).toContain(">07:30</time>");
+    expect(html("<t:2026-10-19T07:30:D>")).toContain(">19 October 2026</time>");
+    // One that does not parse stays as typed, and code is never a token.
+    expect(html("at <t:never:R>")).toContain("at &lt;t:never:R&gt;");
+    expect(html("`<t:1:t>`")).toContain("<code>&lt;t:1:t&gt;</code>");
+    // Two small lines are one block; a paragraph ends where subtext starts.
+    expect(html("Main line\n-# one\n-# two")).toBe('<div class="md"><p class="md-p">Main line</p><p class="md-sub">one<br>two</p></div>');
+  });
+
   it("keeps markdown inside backticks literal", () => {
     // The whole point of code spans: `**x**` is two asterisks, not bold.
     const out = html("use `**not bold**` here");

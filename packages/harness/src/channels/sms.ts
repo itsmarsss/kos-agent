@@ -37,6 +37,8 @@ export interface SmsOptions {
   /** Where Twilio was told to post, when a proxy hides it from the request. */
   publicUrl?: string;
   report?: (message: string) => void;
+  /** The owner's zone, for a time written as `<t:2026-10-19T07:30:R>` to be said in. */
+  timezone?: string;
 }
 
 /** One SMS segment is 160 characters; Twilio concatenates up to 1600. */
@@ -112,7 +114,7 @@ export class SmsAdapter implements ChannelAdapter {
   }
 
   async send(_recipientId: string, msg: OutboundMessage): Promise<void> {
-    const text = renderForText(msg);
+    const text = renderForText(msg, this.options.timezone);
     if (!text) return;
     for (const part of chunkSms(text)) await this.deliver(part);
   }

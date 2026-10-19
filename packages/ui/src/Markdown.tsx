@@ -2,11 +2,13 @@ import {
   createContext,
   Fragment,
   useContext,
+  useEffect,
+  useState,
   type ReactElement,
   type ReactNode,
 } from "react";
 
-import { COMMAND_NAMES } from "@kos/shared";
+import { COMMAND_NAMES, TIME_TOKEN, formatTime, instantOf, styleOf } from "@kos/shared";
 
 import { Face } from "./Face.js";
 import { useOpenTab } from "./opentab.js";
@@ -161,6 +163,37 @@ function refHref(kind: string, id: string): string {
   }
 }
 
+/**
+ * A time on the reader's own clock.
+ *
+ * `<t:2026-10-19T07:30:R>` is read in this browser's zone and shown the way
+ * Discord shows its own token: "in 3 hours", or the date and time in the
+ * style asked for, with the full date on hover. A relative one keeps up
+ * with the clock, so a message read later still says how far off it is.
+ */
+function Stamp({ value, letter, raw }: { value: string; letter: string | undefined; raw: string }): ReactElement {
+  const seconds = instantOf(value);
+  const style = styleOf(letter);
+  const now = useNow(style === "R" ? 30_000 : 0);
+  if (seconds === undefined) return <>{raw}</>;
+  return (
+    <time className="md-time" dateTime={new Date(seconds * 1000).toISOString()} title={formatTime(seconds, "F")}>
+      {formatTime(seconds, style, undefined, now)}
+    </time>
+  );
+}
+
+/** The clock, re-read every `every` milliseconds; once when `every` is 0. */
+function useNow(every: number): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!every) return undefined;
+    const timer = setInterval(() => setNow(Date.now()), every);
+    return () => clearInterval(timer);
+  }, [every]);
+  return now;
+}
+
 const BOLD_ITALIC = /(\*\*\*|___)(.+?)\1/;
 const BOLD = /(\*\*|__)(.+?)\1/;
 const ITALIC = /(?<![*\w])(\*|_)(?!\s)(.+?)(?<!\s)\1(?![*\w])/;
@@ -192,6 +225,7 @@ const INLINE: Array<{
       </Fragment>
     ),
   },
+  { re: TIME_TOKEN, render: (m, k) => <Stamp key={k} value={m[1] ?? ""} letter={m[2]} raw={m[0]} /> },
   {
     re: LINK,
     render: (m, k) => (
@@ -245,6 +279,8 @@ function inline(text: string, keySeed = 0): ReactNode[] {
 interface Block {
   render(key: number): ReactElement;
 }
+
+const SUBTEXT = /^\s*-#\s+/;
 
 /** Group lines into blocks, respecting fenced code. */
 function blocks(source: string): Block[] {
@@ -363,6 +399,29 @@ function blocks(source: string): Block[] {
       continue;
     }
 
+    // Subtext, as Discord has it: a line starting with "-# " renders small
+    // and muted, for a source, an id or a caveat under the line that matters.
+    if (SUBTEXT.test(line)) {
+      const body: string[] = [];
+      while (i < lines.length && SUBTEXT.test(lines[i] ?? "")) {
+        body.push((lines[i] ?? "").replace(SUBTEXT, ""));
+        i++;
+      }
+      out.push({
+        render: (k) => (
+          <p key={k} className="md-sub">
+            {body.map((l, n) => (
+              <Fragment key={n}>
+                {n > 0 && <br />}
+                {inline(l)}
+              </Fragment>
+            ))}
+          </p>
+        ),
+      });
+      continue;
+    }
+
     const bullet = /^\s*[-*+]\s+/;
     const numbered = /^\s*\d+[.)]\s+/;
     if (bullet.test(line) || numbered.test(line)) {
@@ -418,6 +477,7 @@ function blocks(source: string): Block[] {
       !/^\s*```/.test(lines[i] ?? "") &&
       !/^#{1,3}\s/.test(lines[i] ?? "") &&
       !/^\s*>\s?/.test(lines[i] ?? "") &&
+      !SUBTEXT.test(lines[i] ?? "") &&
       !bullet.test(lines[i] ?? "") &&
       !numbered.test(lines[i] ?? "") &&
       !(isRow(lines[i] ?? "") && isDivider(lines[i + 1] ?? ""))

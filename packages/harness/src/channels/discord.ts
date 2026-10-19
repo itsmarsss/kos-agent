@@ -21,7 +21,7 @@ import {
   type TextChannel,
   type Webhook,
 } from "discord.js";
-import { detailLines, summarizeAction } from "@kos/shared";
+import { detailLines, summarizeAction, withUnixTimes } from "@kos/shared";
 
 import { isReadable, type Attachment } from "../kernel/attachments.js";
 import type { Audience } from "../tools/discord.js";
@@ -80,11 +80,20 @@ const CODE_MAX = 600;
 /** How much of what the agent said before asking the card quotes. */
 const WHY_MAX = 300;
 
+/**
+ * A time written as `<t:2026-10-19T07:30:R>` becomes Discord's own token,
+ * with the seconds filled in on the owner's clock, so Discord renders it on
+ * the reader's. Code is left alone, as it is for links.
+ */
+function withTimes(text: string, timezone?: string): string {
+  return outsideCode(text, (part) => withUnixTimes(part, timezone));
+}
+
 /** A turn's story as Discord shows it: the agent's words plain, its steps small. */
-export function storyText(status: string, dashboardUrl?: string): string {
+export function storyText(status: string, dashboardUrl?: string, timezone?: string): string {
   // References in the story link where they link in the answer, or the
   // same name reads as a token in one place and a link in the other.
-  return noPreviews(linkMentions(status, dashboardUrl))
+  return noPreviews(linkMentions(withTimes(status, timezone), dashboardUrl))
     .split("\n")
     .map((line) => (line.startsWith(STEP_MARK) ? `-# ${line}` : line))
     .join("\n")
@@ -277,6 +286,12 @@ export interface DiscordAdapterOptions {
    * carry no topic, so the binding lives with the kernel and is asked for.
    */
   threadOf?: (threadId: string) => string | undefined;
+  /**
+   * The owner's zone: a time written as `<t:2026-10-19T07:30:R>` is read in
+   * it on the way out, so Discord shows it on the reader's clock. The
+   * machine's zone without one.
+   */
+  timezone?: string;
   /**
    * Who speaks from a conversation when it is a blob's: its name and face,
    * so the story of a turn in its channel is told as the blob, the way the
@@ -531,6 +546,8 @@ export interface CardOptions {
   named?: boolean;
   /** Where references link to; without it they are tidied to their names. */
   dashboardUrl?: string;
+  /** The owner's zone, for a time written as `<t:2026-10-19T07:30:R>` to be read in it. */
+  timezone?: string;
 }
 
 /**
@@ -543,8 +560,8 @@ export interface CardOptions {
  * not (the title, the footer, a field's name), so `@page:x` never shows raw
  * in either place.
  */
-export function buildCard(card: MessageCard, { from, named = true, dashboardUrl }: CardOptions = {}): EmbedBuilder {
-  const link = (text: string): string => linkMentions(text, dashboardUrl);
+export function buildCard(card: MessageCard, { from, named = true, dashboardUrl, timezone }: CardOptions = {}): EmbedBuilder {
+  const link = (text: string): string => linkMentions(withTimes(text, timezone), dashboardUrl);
   const embed = new EmbedBuilder();
   if (from && named) embed.setAuthor({ name: from.name.slice(0, CARD_TITLE_MAX) });
   if (card.title) embed.setTitle(plainMentions(card.title).slice(0, CARD_TITLE_MAX));
@@ -641,6 +658,7 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly guildId?: string;
   private readonly threadOf?: (threadId: string) => string | undefined;
   private readonly senderOf?: (conversationId: string) => Sender | undefined;
+  private readonly timezone?: string;
   /** The server's approvals channel, once sync has found or made it. */
   private approvalsChannelId?: string;
   /** One webhook per channel, made on first use, through which a blob speaks as itself. */
@@ -658,6 +676,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (options.guildId) this.guildId = options.guildId;
     if (options.threadOf) this.threadOf = options.threadOf;
     if (options.senderOf) this.senderOf = options.senderOf;
+    if (options.timezone) this.timezone = options.timezone;
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
@@ -1044,7 +1063,7 @@ export class DiscordAdapter implements ChannelAdapter {
       // news for a channel.
       await interaction.reply({
         ...(said.text ? { content: said.text } : {}),
-        ...(said.card ? { embeds: [buildCard(said.card, { dashboardUrl: this.dashboardUrl })] } : {}),
+        ...(said.card ? { embeds: [buildCard(said.card, { dashboardUrl: this.dashboardUrl, timezone: this.timezone })] } : {}),
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -1144,8 +1163,8 @@ export class DiscordAdapter implements ChannelAdapter {
       embeds?: EmbedBuilder[];
       components?: ActionRowBuilder<ButtonBuilder>[];
     } => ({
-      ...(taggedText(msg) ? { content: noPreviews(linkMentions(taggedText(msg), this.dashboardUrl)).slice(0, 2000) } : {}),
-      ...(msg.card ? { embeds: [buildCard(msg.card, { from: msg.from, named: !msg.text, dashboardUrl: this.dashboardUrl })] } : {}),
+      ...(taggedText(msg) ? { content: this.words(taggedText(msg)).slice(0, 2000) } : {}),
+      ...(msg.card ? { embeds: [buildCard(msg.card, { from: msg.from, named: !msg.text, dashboardUrl: this.dashboardUrl, timezone: this.timezone })] } : {}),
       ...(msg.buttons?.length ? { components: buildButtons(msg.buttons) } : {}),
     });
 
@@ -1289,6 +1308,11 @@ export class DiscordAdapter implements ChannelAdapter {
     await this.send(id, msg);
   }
 
+  /** Words as Discord takes them: times on the reader's clock, references as links, no previews. */
+  private words(text: string): string {
+    return noPreviews(linkMentions(withTimes(text, this.timezone), this.dashboardUrl));
+  }
+
   /**
    * One place that turns a neutral message into what Discord takes.
    *
@@ -1308,8 +1332,8 @@ export class DiscordAdapter implements ChannelAdapter {
     // References become links first, so the split sees the longer text. A
     // message already posted under the speaker's own name carries no tag.
     const text = tagged ? taggedText(msg) : msg.text;
-    const chunks = text ? chunkText(noPreviews(linkMentions(text, this.dashboardUrl))) : [];
-    const embeds = msg.card ? [buildCard(msg.card, { from: msg.from, named: tagged && chunks.length === 0, dashboardUrl: this.dashboardUrl })] : [];
+    const chunks = text ? chunkText(this.words(text)) : [];
+    const embeds = msg.card ? [buildCard(msg.card, { from: msg.from, named: tagged && chunks.length === 0, dashboardUrl: this.dashboardUrl, timezone: this.timezone })] : [];
     const components = buildButtons(msg.buttons ?? []);
     if (chunks.length === 0 && embeds.length === 0) {
       throw new Error("nothing to send: no text and no card");
@@ -1399,7 +1423,7 @@ export class DiscordAdapter implements ChannelAdapter {
 
     return {
       update: async (status: string) => {
-        const content = storyText(status, this.dashboardUrl);
+        const content = storyText(status, this.dashboardUrl, this.timezone);
         if (story) await story.edit(content);
         else story = await tell(content);
       },

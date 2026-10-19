@@ -207,8 +207,10 @@ describe("channelGuidance", () => {
     expect(g).toContain("After an approval");
     // Times are quoted in the owner's words, never computed into Discord's
     // <t:…> markup: the number came out a year off when worked out by hand.
-    expect(g).toContain("Write times in words in the owner's timezone");
-    expect(g).toContain("Never a <t:…> timestamp");
+    // A time on the reader's clock is a token with the time as written, never seconds worked out by hand.
+    expect(g).toContain("<t:2026-10-19T07:30:R>");
+    expect(g).toContain("never work unix seconds");
+    expect(g).toContain("say times in words as the clock line and tool results give them");
     // The model wrote "these are references, not URLs" under a list of them;
     // the adapter links them, so it is told not to explain.
     expect(g).toContain("@schedule:[Email Amy Reminder] becomes a link");
