@@ -11,13 +11,13 @@ KOS offers; forms for answers that are not fixed. Slash commands are
 answered by the host without a model turn. An approval card opens with
 what KOS was saying when it reached for the tool, quoted, so the ask
 reads as a sentence and not a bare command; iMessage and SMS prompts and
-the dashboard's Inbox carry the same words. While a turn that takes
-steps runs, one silent message tells its story, the words KOS says and
-the steps it takes, redrawn as they happen, so the card for an approval
-never lands first; when the answer comes, as its own message, the story
-stays as the record of what was done. The hourglass reaction on your
-message is what says the turn is still going; the story carries no marker
-of its own. A turn with no steps gets no extra message.
+the dashboard's Inbox carry the same words. While a turn runs, a silent
+"thinking…" line stands in for it, as KOS or as the blob, and becomes the
+story of the turn, the words said and the steps taken, redrawn as they
+happen, so the card for an approval never lands first. When the answer
+comes, as its own message, the story stays as the record of what was
+done; a turn that told nothing takes its line down. Nothing reacts to
+your message.
 
 Blobs, KOS's standing helpers, work from here as from the dashboard: "keep an eye on
 this listing" said in the DM makes one, "ask recap what I got done" sends

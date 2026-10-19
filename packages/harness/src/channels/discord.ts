@@ -60,9 +60,8 @@ export const MODAL_PREFIX = "kos:form:";
 /** How long a form is left open before the interaction is let go. */
 const MODAL_WAIT_MS = 5 * 60 * 1000;
 
-const REACT_WORKING = "⏳";
-const REACT_DONE = "✅";
-const REACT_FAIL = "❌";
+/** What stands in for the turn until it has words or steps of its own. */
+const THINKING = "-# thinking…";
 /** Subtext lines may not be longer than this and still read as a glance. */
 const DETAIL_MAX = 160;
 
@@ -1366,25 +1365,6 @@ export class DiscordAdapter implements ChannelAdapter {
     if (!inbound || typeof inbound !== "object") return undefined;
     const message = inbound as Message;
 
-    try {
-      await message.react(REACT_WORKING);
-    } catch {
-      // reactions may fail in some DM configs
-    }
-
-    const swapReact = async (from: string, to: string): Promise<void> => {
-      try {
-        await message.reactions.cache.get(from)?.users.remove(this.client.user!.id);
-      } catch {
-        // ignore
-      }
-      try {
-        await message.react(to);
-      } catch {
-        // ignore
-      }
-    };
-
     // Into the same DM the question came from, without quoting it: a
     // reply reference adds a "replying to" line to every answer.
     const channel = message.channel as { send?: (payload: unknown) => Promise<unknown> } | undefined;
@@ -1394,45 +1374,59 @@ export class DiscordAdapter implements ChannelAdapter {
     };
 
     /*
-     * The story of the turn, in one message edited as it goes.
+     * The turn, as a line of the chat.
      *
-     * Posted only once the turn has taken a step, and silently: it is for
-     * the eye, and the answer is what should buzz. Its point is order. An
-     * approval card used to be the first thing the owner saw of a turn,
-     * with nothing before it saying why; now the words that led to it are
-     * on the screen first. When the turn ends the story stays, as the
-     * record of what was done. The reaction on the owner's message is what
-     * says the turn is still going: a marker in the story's first line put
-     * "⏳ -# ›" on the screen, since subtext renders only at a line's start.
+     * A reaction on the owner's message used to be the whole presence, an
+     * hourglass and then a tick, with the story posted only once a step was
+     * taken. The owner wanted a dialogue. So a silent "thinking" line goes
+     * up at once, as the blob or as KOS, becomes the story of the words and
+     * steps as they come, and is taken down when the answer lands if nothing
+     * was ever told in it; told, it stays as the record of what was done.
+     * The answer is its own message, so it is what buzzes. No reactions: a
+     * tick under the question is not how a chat reads.
      *
-     * In a blob's channel the story is the blob's, told through its webhook
-     * under its name and face, the way the answer is; with the bot telling
-     * it and the blob answering, one turn read as two speakers.
+     * In a blob's channel the line is the blob's, through its webhook under
+     * its name and face, the way the answer is; with the bot telling it and
+     * the blob answering, one turn read as two speakers.
      */
     const bound = msg.conversationId ?? msg.conversationKey;
     const from = message.guild && bound ? this.senderOf?.(bound) : undefined;
-    let story: { edit: (content: string) => Promise<unknown> } | undefined;
-    const tell = async (content: string): Promise<typeof story> => {
+    interface Story {
+      edit(content: string): Promise<unknown>;
+      remove(): Promise<unknown>;
+    }
+    const tell = async (content: string): Promise<Story | undefined> => {
       const silent = { content, flags: MessageFlags.SuppressNotifications as const };
       const via = from ? await this.webhookFor(message.channel as Parameters<DiscordAdapter["webhookFor"]>[0], from).catch(() => undefined) : undefined;
       if (via && from) {
         const thread = via.threadId ? { threadId: via.threadId } : {};
         const posted = await via.hook.send({ ...silent, username: from.name, ...thread });
-        return { edit: (next) => via.hook.editMessage(posted.id, { content: next, ...thread }) };
+        return {
+          edit: (next) => via.hook.editMessage(posted.id, { content: next, ...thread }),
+          remove: () => via.hook.deleteMessage(posted.id, via.threadId),
+        };
       }
       if (!channel?.send) return undefined;
-      const posted = (await channel.send(silent)) as { edit: (payload: { content: string }) => Promise<unknown> };
-      return { edit: (next) => posted.edit({ content: next }) };
+      const posted = (await channel.send(silent)) as { edit: (payload: { content: string }) => Promise<unknown>; delete: () => Promise<unknown> };
+      return { edit: (next) => posted.edit({ content: next }), remove: () => posted.delete() };
+    };
+    // Up before the turn starts, so it is always the first thing after the
+    // question; a line that could not be posted is no reason to hold the turn.
+    const story = await tell(THINKING).catch(() => undefined);
+    let told = false;
+    const settle = async (): Promise<void> => {
+      if (story && !told) await story.remove().catch(() => undefined);
     };
 
     return {
       update: async (status: string) => {
         const content = storyText(status, this.dashboardUrl, this.timezone);
-        if (story) await story.edit(content);
-        else story = await tell(content);
+        if (!content.trim() || !story) return;
+        told = true;
+        await story.edit(content);
       },
       complete: async (reply: OutboundMessage) => {
-        await swapReact(REACT_WORKING, REACT_DONE);
+        await settle();
         // In a server, a blob answers as itself: through the channel's
         // webhook, under its own name, with no tag line needed.
         if (reply.from && message.guild && (await this.sendAs(message.channel as Parameters<DiscordAdapter["sendAs"]>[0], reply))) return;
@@ -1444,7 +1438,7 @@ export class DiscordAdapter implements ChannelAdapter {
         }
       },
       fail: async (err: string) => {
-        await swapReact(REACT_WORKING, REACT_FAIL);
+        await settle();
         const text = noPreviews(`❌ ${err.slice(0, 1900)}`);
         try {
           await post({ content: text });
