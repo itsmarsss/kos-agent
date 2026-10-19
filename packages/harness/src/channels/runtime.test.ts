@@ -273,6 +273,21 @@ describe("telling the turn's story on a surface with a presence", () => {
     expect(tell).toBeUndefined();
   });
 
+  it("says a message is queued when a turn is already running where it goes", async () => {
+    const adapter = new InMemoryAdapter();
+    adapter.withPresence = true;
+    const runtime = new ChannelRuntime({
+      adapter,
+      isBusy: () => true,
+      watchTurn: () => () => undefined,
+      handleTurn: async () => "Done.",
+    });
+    await runtime.start();
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "and this" });
+    expect(adapter.shown[0]).toBe("-# queued: a turn is running here, this one is next");
+    expect(adapter.completed).toEqual([{ text: "Done." }]);
+  });
+
   it("shows nothing for a turn that takes no step", async () => {
     const adapter = new InMemoryAdapter();
     adapter.withPresence = true;

@@ -19,7 +19,10 @@ comes, as its own message, the story stays as the record of what was
 done; a turn that told nothing takes its line down. Nothing reacts to
 your message. A turn that stops to ask you says "waiting on you" and keeps
 its story open: the steps after your decision are added to it, and the
-answer lands under them when the turn ends.
+answer lands under them when the turn ends. Waiting is not working: the
+chat takes your next message meanwhile, and when you decide, the first
+turn finishes and its answer goes on the end. A message sent while a turn
+is still running there says "queued" at once, and runs next.
 
 Blobs, KOS's standing helpers, work from here as from the dashboard: "keep an eye on
 this listing" said in the DM makes one, "ask recap what I got done" sends
