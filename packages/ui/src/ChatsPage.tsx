@@ -602,7 +602,7 @@ export function ChatsPage({
   }, [activeId, stamp, sendingIn, loadedFor, justEnded, turnRunningHere]);
 
   // The live turn grows as it streams, so it is part of what pins the scroll.
-  useStickToBottom(boxRef, [events, sendingIn, activeId, live?.steps.length, live?.text]);
+  useStickToBottom(boxRef, [events, sendingIn, activeId, live?.steps.length, live?.text], `${activeId}:${sendingIn === activeId}`);
 
   /*
    * Grow the composer with what is typed.
