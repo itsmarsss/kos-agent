@@ -100,7 +100,11 @@ ask. `#kos` and `#needs-you` are yours always. KOS does this with its own
 tools, `discord.channels` (what there is and who sees it),
 `discord.audience` (owner or everyone, per channel) and `discord.sync`
 (lay the server out now); the setting is kept, so a layout later keeps
-what you chose.
+what you chose. `discord.threads` lists the threads it made for chats,
+marking any whose chat is gone, and `discord.prune` deletes those, with
+your yes. From a project's chat these tools show the project's own
+channel and threads and nothing of another project's, as the chat tools
+do; `discord.server` is the one window on the rest of the server.
 
 The server is also somewhere KOS can build. Beyond its own layout it can
 make a category or a channel for a purpose of yours, make a role for you

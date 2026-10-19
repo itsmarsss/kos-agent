@@ -92,7 +92,7 @@ import { offeredSkills, readSkills } from "../skills/manifest.js";
 import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import { CHAT_TOOLS } from "../tools/chats.js";
 import { BLOB_TOOLS, type BlobJob } from "../tools/agents.js";
-import { DISCORD_TOOLS, type Audience, type DiscordServices, type ServerPlace } from "../tools/discord.js";
+import { DISCORD_TOOLS, type Audience, type BoundThread, type DiscordServices, type ServerPlace } from "../tools/discord.js";
 import { agentConversationId, agentScope, KOS_FACE_KEY, parseFaceLook, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
 import { type NotifyPayload } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
@@ -2369,6 +2369,19 @@ export class Kernel {
     const out: Record<string, string> = {};
     for (const [thread, conversation] of Object.entries(raw as Record<string, unknown>)) if (typeof conversation === "string") out[thread] = conversation;
     return out;
+  }
+
+  /** The threads KOS made for chats, from the bindings: each with the chat it stands for, or marked gone when that chat no longer exists. */
+  threadsBound(): BoundThread[] {
+    return Object.entries(this.threadBindings()).map(([id, conversationId]) => {
+      const conversation = this.conversations.get(conversationId);
+      const channel = conversation?.projectSlug
+        ? `project:${conversation.projectSlug}`
+        : conversation?.role
+          ? agentConversationId(conversation.role)
+          : orchestratorId(this.profile.ownerId);
+      return { id, name: conversation?.title ?? "(chat deleted)", channel, conversationId, projectSlug: conversation?.projectSlug ?? null, gone: !conversation };
+    });
   }
 
   /** A thread that is gone: its binding goes with it. */
