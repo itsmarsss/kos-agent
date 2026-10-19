@@ -2172,6 +2172,9 @@ select {
 
 /* An approval resume is plumbing, not something the owner said. It stays in
    the thread because the continuation would otherwise come from nowhere. */
+/* Where a message came in from, when not from here. */
+.turn-via { align-self: flex-end; margin-top: 0.15rem; color: var(--faint); font-size: var(--text-xs); }
+
 /* A line across the chat where it was cleared or compacted. */
 .chat-divider {
   display: flex;

@@ -18,7 +18,18 @@ export interface CongregationMember {
 }
 
 export type ProgressEvent =
-  | { kind: "turn-start"; conversationId: string }
+  | {
+      kind: "turn-start";
+      conversationId: string;
+      /**
+       * The owner's words, when the turn came in from somewhere other than
+       * the page showing it: a Discord message showed on the dashboard as a
+       * spinner with nothing above it until the turn ended.
+       */
+      said?: string;
+      /** The surface those words came in on. */
+      from?: string;
+    }
   | {
       kind: "tool-start";
       conversationId: string;

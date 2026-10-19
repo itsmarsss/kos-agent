@@ -2110,6 +2110,18 @@ export function ChatsPage({
                   return renderEvent(e, i, turn);
                 });
               })()}
+              {/* Said somewhere else (Discord, a phone, another tab): the
+                  words show now, as they would had they been typed here,
+                  rather than when the turn ends. This tab's own message is
+                  already in the list above. */}
+              {live?.said && sendingIn !== activeId && (
+                <div className="turn turn--you">
+                  <div className="bubble bubble--you">
+                    <Markdown text={live.said} />
+                  </div>
+                  {live.from && live.from !== "dashboard" && <span className="turn-via">via {live.from}</span>}
+                </div>
+              )}
               {live ? (
                 <LiveTurn live={live} />
               ) : (
