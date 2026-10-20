@@ -219,6 +219,11 @@ export class GuardedTools implements ToolBox {
       };
     }
 
+    // Refused before it is judged: a rule that refuses is the fence, and an
+    // ask would only invite the owner to open a gate the harness keeps shut.
+    const refused = registry.refusal(name, input);
+    if (refused) return { content: refused, isError: true };
+
     const assessment = registry.classify(name, input);
 
     if (assessment.tier === "risky") {

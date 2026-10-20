@@ -153,6 +153,27 @@ describe("GuardedTools", () => {
     expect(entry?.args).toContain("{{secret:openai}}"); // audit stays redacted
   });
 
+  it("refuses a call its rule refuses, before the owner is asked", async () => {
+    const ran: string[] = [];
+    registry.register(
+      { name: "open", description: "", inputSchema: { type: "object", properties: {} } },
+      (input) => {
+        ran.push(String(input["path"]));
+        return "opened";
+      },
+      { ...RISKY, refuse: (input) => (input["path"] === "kos.sqlite" ? "not that file: read it through its tool" : false) },
+    );
+    const refused = await guarded().execute("open", { path: "kos.sqlite" });
+    expect(refused).toEqual({ content: "not that file: read it through its tool", isError: true });
+    expect(approvals.pending()).toEqual([]);
+    expect(ran).toEqual([]);
+    // Anything else is judged as before: risky, so it asks.
+    const asked = guarded().execute("open", { path: "notes.md" });
+    await vi.waitFor(() => expect(approvals.pending()).toHaveLength(1));
+    approvals.deny(approvals.pending()[0]!.id, "owner");
+    await asked;
+  });
+
   it("holds a risky call until the owner decides, then runs it", async () => {
     let ran = false;
     registry.register(

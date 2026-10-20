@@ -22,6 +22,14 @@ export interface ToolRisk {
   relax?: Escalation;
   /** Why a risky floor asks, in words the owner reads on the card: "deletes the chat for good". */
   why?: string;
+  /**
+   * Arguments the harness refuses outright, with the reason the model
+   * reads, or false. Checked before the tier, so a refused call never
+   * reaches the owner as an ask: the fence around KOS's own tables, met
+   * on a road around it (the shell opening the database), refuses there
+   * as the sql tool does rather than asking the owner to let it through.
+   */
+  refuse?: (input: Record<string, unknown>) => string | false;
 }
 
 export interface RiskAssessment {

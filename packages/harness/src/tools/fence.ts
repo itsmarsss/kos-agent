@@ -93,7 +93,7 @@ export function fence(sql: string, existing: readonly string[], project: string 
       hideKernelRows: false,
       reason:
         `${own.join(", ")}: ${own.length === 1 ? "that table is" : "those tables are"} KOS's own, not a project's. ` +
-        "Use the tool for the job (chats.handoff to pass something to another chat, memory for facts, cron for jobs); sql is for your project's tables.",
+        "Use the tool for the job (cron.list for jobs, chats.list and chats.read for chats, tasks.list, blobs.list, memory.recall for facts, chats.handoff to pass something to another chat); sql is for your project's tables.",
     };
   }
   return { ok: true, hideKernelRows: kernel.length > 0 };

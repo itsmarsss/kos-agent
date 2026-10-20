@@ -8,7 +8,7 @@ import { toolRegistryContext } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { programOf } from "../risk/rules.js";
-import { createShellModule, type ShellResult } from "./shell.js";
+import { createShellModule, DATABASE_REFUSED, namesDatabase, type ShellResult } from "./shell.js";
 
 const onMac = process.platform === "darwin";
 
@@ -113,6 +113,20 @@ describe.runIf(onMac)("shell.run on macOS", () => {
     const r = JSON.parse(res.content) as ShellResult;
     expect(r.stdout.length).toBe(100);
     expect(r.truncated).toBe(true);
+  });
+
+  it("refuses to open KOS's own database, except from Maintenance, which asks", async () => {
+    expect(namesDatabase("sqlite3 -readonly kos.sqlite '.schema crons'")).toBe(true);
+    expect(namesDatabase("cp kos.sqlite backup/")).toBe(true);
+    expect(namesDatabase("ls")).toBe(false);
+    expect(registry.refusal("shell.run", { command: "sqlite3 kos.sqlite .tables" })).toBe(DATABASE_REFUSED);
+    expect(registry.refusal("shell.run", { command: "sqlite3 kos.sqlite .tables" })).toContain("cron.list");
+    expect(registry.refusal("shell.run", { command: "git status" })).toBeUndefined();
+    const maintenance = new ToolRegistry();
+    const ctx = toolRegistryContext(maintenance, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), callerProject: () => "maintenance" });
+    await createShellModule({ timeoutSeconds: 5 }).activate(ctx);
+    expect(maintenance.refusal("shell.run", { command: "sqlite3 kos.sqlite .tables" })).toBeUndefined();
+    expect(maintenance.classify("shell.run", { command: "sqlite3 -readonly kos.sqlite .tables" }).tier).toBe("risky");
   });
 
   it("is risky by floor, and safe for a line that only reads", () => {

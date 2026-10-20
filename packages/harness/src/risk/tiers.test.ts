@@ -48,6 +48,14 @@ describe("classifyRisk", () => {
     expect(called).toBe(false);
   });
 
+  it("carries a refusal rule, which the tier does not consult", () => {
+    // A refusal is the registry's to apply before the tier; the tier itself is unchanged by it.
+    const risk: ToolRisk = { floor: "risky", refuse: (input) => (input["path"] === "kos.sqlite" ? "not that file" : false) };
+    expect(classifyRisk(risk, { path: "kos.sqlite" }).tier).toBe("risky");
+    expect(risk.refuse?.({ path: "kos.sqlite" })).toBe("not that file");
+    expect(risk.refuse?.({ path: "notes.md" })).toBe(false);
+  });
+
   it("does not consult escalation when the floor is already risky", () => {
     let called = false;
     const risk: ToolRisk = {

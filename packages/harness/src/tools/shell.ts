@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { MAINTENANCE } from "../kernel/caretaker.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { isReadOnlyCommand } from "../risk/readonly.js";
@@ -28,6 +29,17 @@ export interface ShellModuleOptions {
 
 export const SHELL_TIMEOUT_SECONDS = 120;
 export const SHELL_MAX_OUTPUT = 20_000;
+
+/** The workspace database named on a command line: the shell's road around the sql fence. */
+export function namesDatabase(command: string): boolean {
+  return /kos\.sqlite/.test(command);
+}
+
+/** Said to a chat that reached for the database with the shell, instead of asking the owner. */
+export const DATABASE_REFUSED =
+  "kos.sqlite is KOS's own database, not a file for the shell to open. What it holds is read through the tools for the job: " +
+  "cron.list for jobs, chats.list and chats.read for chats, tasks.list, blobs.list, memory.recall for what KOS knows, discord.threads for threads; " +
+  "your project's own tables through sql.";
 
 export interface ShellResult {
   exitCode: number | null;
@@ -100,7 +112,8 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
           name: "shell.run",
           description:
             "Run a shell command inside the workspace: git, pnpm, python, a build, a script. It cannot see the owner's home directory or write outside the workspace. Prefer the files, search and sql tools when one does the job; use this for programs. " +
-            "A command line that only reads (ls, cat, grep, find, git status/log/diff, and the like, joined by pipes or &&) runs without asking; anything that writes, runs code or reaches the network asks the owner first. Output is capped; long runs time out.",
+            "A command line that only reads (ls, cat, grep, find, git status/log/diff, and the like, joined by pipes or &&) runs without asking; anything that writes, runs code or reaches the network asks the owner first. Output is capped; long runs time out. " +
+            "kos.sqlite, KOS's own database, is refused here, not asked about: jobs, chats, tasks, blobs and memory are read through cron.list, chats.list, tasks.list, blobs.list and memory.recall.",
           inputSchema: {
             type: "object",
             properties: {
@@ -122,7 +135,18 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
         },
         // Risky by floor, as the spec says; a line that provably only reads
         // runs as safe, since asking for every ls teaches the owner to say yes.
-        { floor: "risky", why: "a command that may write", relax: (input) => typeof input["command"] === "string" && isReadOnlyCommand(input["command"]) },
+        // A line that opens KOS's own database is refused outright, as the
+        // sql tool refuses those tables: asked, the owner said yes to a read
+        // of the crons table twice in a day, each time to a chat that had
+        // cron.list. Maintenance, which repairs KOS, may, and asks as for any
+        // command that writes.
+        {
+          floor: "risky",
+          why: "a command that may write",
+          relax: (input) => typeof input["command"] === "string" && isReadOnlyCommand(input["command"]),
+          refuse: (input) =>
+            typeof input["command"] === "string" && namesDatabase(input["command"]) && ctx.services?.callerProject?.() !== MAINTENANCE.slug ? DATABASE_REFUSED : false,
+        },
       );
     },
   };

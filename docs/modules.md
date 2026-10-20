@@ -49,6 +49,23 @@ new slug, the pages written for it, its jobs made and left off. Make one
 under Settings, Modules, or with `modules.instantiate`. A module with both
 a server and a blueprint has its tools scoped to its instances.
 
+## KOS's own tables
+
+The workspace database holds a project's tables, namespaced to its slug
+and the agent's to read and write through `sql`, and KOS's own:
+conversations and transcripts, jobs, the approval queue, the permission
+rules, memory, the audit log. The agent does not reach those through
+`sql`, reads included, and the shell refuses a command line that names
+`kos.sqlite` rather than asking you to let it through: the road around
+the fence would otherwise be one yes away. What those tables hold is
+read through the tools for the job, `cron.list`, `chats.list` and
+`chats.read`, `tasks.list`, `blobs.list`, `memory.recall`,
+`discord.threads`, and the turn's guidance says so. Maintenance, where
+KOS repairs itself, is the exception: there `sql` reads KOS's tables
+and writes them with your yes, the shell asks as for any command that
+writes, and the trust tables (approvals, permissions, the kill switch)
+are never written by a model from anywhere.
+
 ## Promotion
 
 A project KOS built in place becomes a blueprint with `modules.promote`.
