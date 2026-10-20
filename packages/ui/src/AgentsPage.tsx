@@ -69,14 +69,25 @@ export function runsWhen(a: AgentInfo): string {
   return a.job.lastRunAt ? `${next} · last run ${ago(a.job.lastRunAt)}` : `${next} · not run yet`;
 }
 
+/**
+ * The last listing, kept across mounts. Coming back to the index from a
+ * blob's page mounted it empty, showed "Loading…" and then staggered the
+ * rows in once the fetch landed: a page that arrived in two steps beside
+ * every other page's one. It arrives with what it last showed, and the
+ * fetch refreshes that in place; the entrance plays on the first visit.
+ */
+let remembered: { agents: AgentInfo[]; invalid: InvalidAgent[] } | null = null;
+
 export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProps): ReactElement {
-  const [agents, setAgents] = useState<AgentInfo[] | null>(null);
-  const [invalid, setInvalid] = useState<InvalidAgent[]>([]);
+  const [agents, setAgents] = useState<AgentInfo[] | null>(remembered?.agents ?? null);
+  const [invalid, setInvalid] = useState<InvalidAgent[]>(remembered?.invalid ?? []);
   const [error, setError] = useState<string | null>(null);
+  const [firstVisit] = useState(remembered === null);
 
   const load = useCallback(async (): Promise<void> => {
     try {
       const r = await api.agents();
+      remembered = { agents: r.agents, invalid: r.invalid };
       setAgents(r.agents);
       setInvalid(r.invalid);
       setError(null);
@@ -124,7 +135,7 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
           and filled later had already played its entrance to nobody. */}
       {agents === null && !error && <p className="hint">Loading…</p>}
       {agents !== null && (
-      <m.ul className="agents-list agents-list--index" variants={stagger} initial="hidden" animate="show">
+      <m.ul className="agents-list agents-list--index" variants={stagger} initial={firstVisit ? "hidden" : false} animate="show">
         {agents.length === 0 && <li className="hint">None yet. Ask KOS to keep something up for you, or make one with New blob.</li>}
         {agents.map((a) => (
           <m.li key={a.name} variants={card} whileHover={{ y: -2 }}>

@@ -44,8 +44,11 @@ export function stateOf(a: AgentInfo, paused: boolean): { tone: "working" | "nee
   return { tone: "idle", text: "Quiet, nothing said yet" };
 }
 
+/** What each blob's panel last showed, so opening it again does not pass through "Loading…". */
+const remembered = new Map<string, AgentInfo | null>();
+
 export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onRemoved, hidden = false }: AgentPanelProps): ReactElement {
-  const [agent, setAgent] = useState<AgentInfo | null | undefined>(undefined);
+  const [agent, setAgent] = useState<AgentInfo | null | undefined>(remembered.get(name));
   const [invalidReason, setInvalidReason] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -54,6 +57,7 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
     try {
       const r = await api.agents();
       const found = r.agents.find((a) => a.name === name) ?? null;
+      remembered.set(name, found);
       setAgent(found);
       setInvalidReason(r.invalid.find((i) => i.name === name)?.reason ?? null);
     } catch (err) {
@@ -61,8 +65,9 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
     }
   }, [name, onError]);
 
+  // Another blob is another panel: what it last showed, or nothing until read.
   useEffect(() => {
-    setAgent(undefined);
+    setAgent(remembered.get(name));
   }, [name]);
 
   useEffect(() => {
