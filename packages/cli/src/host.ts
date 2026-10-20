@@ -579,12 +579,12 @@ export async function runHost(options: HostOptions): Promise<void> {
             }
           });
           if (said.from) {
-            // Passed on by a chat or a schedule: under that sender's name,
-            // with a line saying so. A dispatched message is asked as the
-            // owner, so it used to wear the owner's name and picture here,
-            // and nothing told a handoff from the owner's own words apart.
+            // Passed on by a chat or a schedule: under that sender's name and
+            // face, which say who; the line says only what they cannot, that
+            // it was passed on. A dispatched message is asked as the owner,
+            // so it used to wear the owner's name and picture here.
             const speaker = kernel.speakerFor(said.from);
-            await adapter.postIn(target, { text: `${said.text.trim()}\n-# passed on by ${said.from.name}, not the owner`, from: speaker, ...(files.length ? { files } : {}) });
+            await adapter.postIn(target, { text: `${said.text.trim()}\n-# passed on`, from: speaker, ...(files.length ? { files } : {}) });
           } else {
             // As the owner, under their own name and picture, so the thread
             // reads as the conversation it is; quoted by the bot only when the

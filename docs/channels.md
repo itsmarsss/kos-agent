@@ -84,8 +84,8 @@ Discord tags them as the app's), the
 files you attached uploaded under them, and the answer as KOS or as the
 blob under its own name. A message another chat passed on (a handoff, a
 dispatch, a project's goal) shows under that chat's name with KOS's face,
-a blob's under its own, with a line saying it was passed on and not
-yours: only your own words wear your name. Work is passed on at most
+a blob's under its own, marked "passed on" under the words: only your
+own words wear your name. Work is passed on at most
 three times and never back to a chat it came through; that chat hears
 the answer as a note. What you say on Discord is already there and is
 not repeated. In a step line of the story, a workspace path ("Read
