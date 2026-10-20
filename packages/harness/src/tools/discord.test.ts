@@ -56,6 +56,12 @@ describe("the discord tools", () => {
           c.audience = audience;
           return c;
         },
+        setListen: async (key, listen) => {
+          const c = channels.find((x) => x.key === key)!;
+          if (listen === "mention") c.listen = listen;
+          else delete c.listen;
+          return c;
+        },
         sync: async () => {
           synced.push(1);
           return { created: synced.length === 1 ? ["verity"] : [], kept: ["kos"], threads: synced.length === 1 ? 2 : 0 };
@@ -200,6 +206,17 @@ describe("the discord tools", () => {
     expect(findChannel(h.channels, "project:garden")?.name).toBe("my-garden");
     expect(findChannel(h.channels, "Recap")?.key).toBe("agent:recap");
     expect(findChannel(h.channels, "nothing")).toBeUndefined();
+  });
+
+  it("sets when a channel's members reach its chat, without asking, within the caller's reach", async () => {
+    const h = await harness(true, "garden");
+    expect(h.registry.classify("discord.listen", { channel: "my-garden", when: "mention" }).tier).toBe("safe");
+    const gated = (await h.call("discord.listen", { channel: "#my-garden", when: "mention" })).json!;
+    expect(gated).toMatchObject({ key: "project:garden", listen: "mention" });
+    expect(String(gated["note"])).toContain("only when KOS is @mentioned");
+    expect((await h.call("discord.listen", { channel: "ch3", when: "always" })).json).not.toHaveProperty("listen");
+    expect((await h.call("discord.listen", { channel: "recap", when: "mention" })).isError).toBe(true);
+    expect((await h.call("discord.listen", { channel: "my-garden", when: "sometimes" })).isError).toBe(true);
   });
 
   it("opens a channel to everyone only with the owner's yes, closes one without, and never KOS's own", async () => {
