@@ -237,6 +237,9 @@ const ORCHESTRATOR_SCOPE = ["memory"];
  * orchestrator. Not the owner's files, memory, schedules or browser; the
  * chat's own allow-list narrows this further, never widens it.
  */
+/** How many chats a piece of work may be passed through before the next handoff is refused. */
+export const HANDOFF_HOPS = 3;
+
 const GUEST_TOOLS = ["sql", "discord.react", "discord.reactions", "discord.messages", "discord.member", "notify", "chats.handoff"];
 
 /** The same message said twice: the words of two stored copies agree, whatever else rides on them. */
@@ -673,6 +676,8 @@ export class Kernel {
       via?: string;
       /** Who sent it when not the owner at the keyboard: the chat that dispatched it, the schedule that fired. */
       from?: MessageFrom;
+      /** The chats this work has already passed through, oldest first, so a turn cannot pass it on forever. */
+      trail?: string[];
       /** Files a guest sent, by name: not kept, not read, only named to the turn. */
       guestFiles?: string[];
       /**
@@ -769,6 +774,7 @@ export class Kernel {
       members?: { id: string; name: string }[];
       via?: string;
       from?: MessageFrom;
+      trail?: string[];
       guestFiles?: string[];
       maxIterations?: number;
       /** Which model class answers; the reasoning route unless a job says cheap. */
@@ -784,6 +790,10 @@ export class Kernel {
       this.currentConversationId = sessionId;
       this.working.add(sessionId);
       this.failed.delete(sessionId);
+      // Where this work has been, for as long as the turn runs: a handoff
+      // made from inside it extends the trail rather than starting one.
+      if (opts.trail?.length) this.trails.set(sessionId, opts.trail);
+      else this.trails.delete(sessionId);
       // Where the words came from rides on the message, sent and stored
       // alike: the loop hands its own list back to be kept, so a label
       // only on the stored copy was gone by the end of the turn.
@@ -1095,7 +1105,7 @@ export class Kernel {
                 sessionId,
                 ...(opts.origin === "system" ? [] : [text]),
               );
-              this.said(sessionId, text, reply, opts.origin ?? "owner", opts.channel, opts.kept ?? [], resumed);
+              this.said(sessionId, text, reply, opts.origin ?? "owner", opts.channel, opts.kept ?? [], resumed, opts.guest ? undefined : opts.from);
             }
             /*
              * One row per model the call actually used.
@@ -1182,6 +1192,7 @@ export class Kernel {
               ...(opts.channel ? { channel: opts.channel } : {}),
               ...(opts.kept?.length ? { kept: opts.kept } : {}),
               ...(resumed ? { resumed: true } : {}),
+              ...(opts.from && !opts.guest ? { from: opts.from } : {}),
               runId,
               useSession,
               before,
@@ -1426,6 +1437,7 @@ export class Kernel {
     this.working.delete(sessionId);
     this.stopping.delete(sessionId);
     this.aborts.delete(sessionId);
+    this.trails.delete(sessionId);
     this.progress.emit({ kind: "turn-end", conversationId: sessionId });
     this.bus.emit({ kind: "turn:end", conversationId: sessionId, projectSlug: this.projectOf(sessionId) });
     // News that arrived while the transcript was being written goes in now.
@@ -1529,6 +1541,9 @@ export class Kernel {
     if (!brief) throw new Error("a brief is required: what the other chat needs to know, in your words");
     const target = this.handoffTarget(input.to);
     if (input.from && target.id === input.from) throw new Error("that is this chat");
+    // Judged here, not in the dispatch, so the refusal is the tool's answer
+    // rather than a note that arrives after the turn has moved on.
+    this.trailTo(target.id, input.from);
     const source = input.from ? this.conversations.get(input.from) : undefined;
     const ask = input.ask?.trim();
     const text = [
@@ -1836,6 +1851,49 @@ export class Kernel {
     return undefined;
   }
 
+  /** The chats a running turn's work has passed through, oldest first; empty for work that began in that chat. */
+  private readonly trails = new Map<string, string[]>();
+
+  /**
+   * The trail a piece of work carries into its next chat: the sender's own
+   * trail with the sender on the end. Refused when the target is already on
+   * it (it had this and passed it on; the sender's answer reaches it as a
+   * note without another turn) or when it has been passed on HANDOFF_HOPS
+   * times already. Two chats handing the same brief back and forth ran
+   * turns against each other until the owner noticed.
+   */
+  private trailTo(target: string, sender: string | undefined): string[] {
+    // No sender, or the sender read back as the target itself: a bare
+    // dispatch from outside any turn, whose "caller" is whichever turn is
+    // current. Not a hop, so not a trail.
+    if (!sender || sender === target) return [];
+    const trail = [...(this.trails.get(sender) ?? []), sender];
+    if (trail.includes(target)) {
+      const back = this.titleOf(target);
+      throw new Error(`${back} already had this and passed it on (${trail.map((id) => this.titleOf(id)).join(" → ")}); answer it here instead, your answer reaches ${back} as a note`);
+    }
+    if (trail.length > HANDOFF_HOPS) {
+      throw new Error(`this has passed through ${HANDOFF_HOPS} chats already (${trail.map((id) => this.titleOf(id)).join(" → ")}); answer it here, or tell the owner what is blocking you`);
+    }
+    return trail;
+  }
+
+  /**
+   * Who speaks for a message that was passed on, where a surface shows the
+   * chat: the chat it came from, by its title and wearing KOS's face (a blob
+   * by its own name and face); a schedule by its name. Never the owner, whose
+   * name a dispatched message wore on Discord because its origin is
+   * "owner" by design: it is asked as the owner, but it is not the owner's words.
+   */
+  speakerFor(from: MessageFrom): Sender {
+    if (from.kind === "chat" && from.id) {
+      const record = this.conversations.get(from.id)?.role ? this.roles.get(this.conversations.get(from.id)!.role!) : undefined;
+      if (record) return { name: roleTitle(record), colour: bodyHexOf(record.name, record.face ?? {}), avatar: this.faceOf(record) };
+      return { name: this.titleOf(from.id), avatar: this.face() };
+    }
+    return { name: from.kind === "schedule" ? `schedule · ${from.name}` : from.name, avatar: this.face() };
+  }
+
   /** What a chat is called where it is shown elsewhere: a project's name, a blob's title, a chat's title. */
   titleOf(conversationId: string): string {
     if (conversationId.startsWith("project:")) return this.manifest.get(conversationId.slice("project:".length))?.name ?? conversationId;
@@ -2010,6 +2068,7 @@ export class Kernel {
     // Read now, not in the lane: by the time the turn runs, the caller's tool is long over.
     const sender = by ?? this.callerConversationId;
     const from: MessageFrom | undefined = sender ? { kind: "chat", id: sender, name: this.titleOf(sender) } : undefined;
+    const trail = this.trailTo(conversationId, sender);
     // A sub-agent is never granted the chats tools, so a dispatched turn
     // cannot dispatch again and there is no recursion to bound. A project's
     // own orchestrator is the exception: handed its goal by KOS it is still
@@ -2020,6 +2079,7 @@ export class Kernel {
       this.runTurn(text, conversation.userId, conversation.id, {
         channel: "dispatch",
         ...(from ? { from } : {}),
+        ...(trail.length ? { trail } : {}),
         ...(orchestrates ? { grant: [...CHAT_TOOLS, ...BLOB_TOOLS, ...DISCORD_TOOLS], allow: [...ORCHESTRATOR_SCOPE] } : {}),
       });
     /*
@@ -2768,6 +2828,8 @@ export class Kernel {
       kept?: KeptFile[];
       /** The turn waited on an approval, and this is the answer after it. */
       resumed?: boolean;
+      /** Who passed the words on, when a chat or a schedule did rather than the owner. */
+      from?: MessageFrom;
       runId: number;
       useSession: boolean;
       /** How long the history was when the turn began; what follows is the turn's own. */
@@ -2858,14 +2920,25 @@ export class Kernel {
       this.maybeExtract();
     }
 
-    if (useSession) this.said(sessionId, text, reply, origin ?? "owner", ctx.channel, ctx.kept ?? [], ctx.resumed ?? false);
+    if (useSession) this.said(sessionId, text, reply, origin ?? "owner", ctx.channel, ctx.kept ?? [], ctx.resumed ?? false, ctx.from);
     this.runs.finish(runId, "ok");
     return reply;
   }
 
-  /** A turn's exchange, told to whoever shows the chat elsewhere, with the files that came with it. */
-  private said(conversationId: string, text: string, reply: string, origin: "owner" | "system", channel: string | undefined, files: KeptFile[], resumed = false): void {
-    this.bus.emit({ kind: "turn:said", conversationId, projectSlug: this.projectOf(conversationId), text, reply, origin, channel: channel ?? null, files, ...(resumed ? { resumed: true } : {}) });
+  /** A turn's exchange, told to whoever shows the chat elsewhere, with the files that came with it and who passed the words on. */
+  private said(conversationId: string, text: string, reply: string, origin: "owner" | "system", channel: string | undefined, files: KeptFile[], resumed = false, from?: MessageFrom): void {
+    this.bus.emit({
+      kind: "turn:said",
+      conversationId,
+      projectSlug: this.projectOf(conversationId),
+      text,
+      reply,
+      origin,
+      channel: channel ?? null,
+      files,
+      ...(resumed ? { resumed: true } : {}),
+      ...(from ? { from } : {}),
+    });
   }
 
   /**

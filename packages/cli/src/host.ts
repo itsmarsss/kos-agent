@@ -578,12 +578,21 @@ export async function runHost(options: HostOptions): Promise<void> {
               return [];
             }
           });
-          // As the owner, under their own name and picture, so the thread
-          // reads as the conversation it is; quoted by the bot only when the
-          // owner cannot be looked up.
-          const owner = await adapter.ownerSender();
-          const text = owner ? said.text.trim() : `${said.text.trim().split("\n").map((l) => `> ${l}`).join("\n")}\n-# you, on the dashboard`;
-          await adapter.postIn(target, { text, ...(owner ? { from: owner } : {}), ...(files.length ? { files } : {}) });
+          if (said.from) {
+            // Passed on by a chat or a schedule: under that sender's name,
+            // with a line saying so. A dispatched message is asked as the
+            // owner, so it used to wear the owner's name and picture here,
+            // and nothing told a handoff from the owner's own words apart.
+            const speaker = kernel.speakerFor(said.from);
+            await adapter.postIn(target, { text: `${said.text.trim()}\n-# passed on by ${said.from.name}, not the owner`, from: speaker, ...(files.length ? { files } : {}) });
+          } else {
+            // As the owner, under their own name and picture, so the thread
+            // reads as the conversation it is; quoted by the bot only when the
+            // owner cannot be looked up.
+            const owner = await adapter.ownerSender();
+            const text = owner ? said.text.trim() : `${said.text.trim().split("\n").map((l) => `> ${l}`).join("\n")}\n-# you, on the dashboard`;
+            await adapter.postIn(target, { text, ...(owner ? { from: owner } : {}), ...(files.length ? { files } : {}) });
+          }
         }
         if (said.reply.trim()) await adapter.postIn(target, { text: said.reply, ...(from ? { from } : {}) });
       });

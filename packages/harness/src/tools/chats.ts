@@ -137,7 +137,8 @@ function defineHandoffTool(deps: ChatToolDeps, ctx: ModuleContext): void {
         "Pass what this chat knows to another chat or project, in your own words: what matters, what was decided, what is open, with @file: " +
         "references for anything on disk. Write the brief; never copy a transcript. `to` is @chat:<id> or @project:<slug> (a project means its " +
         "orchestrator). `ask` is what that chat should do with it now, if anything; without it the brief is kept there for later. The owner " +
-        "approves the brief once per target. It returns as soon as it is handed over; the answer comes back as a note here.",
+        "approves the brief once per target. It returns as soon as it is handed over; the answer comes back as a note here. " +
+        "Never hand work back to the chat it came from: that chat hears your answer as a note. Work passes on at most three times; after that, answer where you are.",
       inputSchema: {
         type: "object",
         properties: {

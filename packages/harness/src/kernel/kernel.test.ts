@@ -7,6 +7,7 @@ import type { Inference } from "../agent/loop.js";
 import type { GenerateRequest, ModelResponse } from "../models/types.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Kernel, orchestratorId } from "./kernel.js";
+import type { Conversation } from "./conversations.js";
 import { isKernelTable } from "../tools/fence.js";
 import { SurfaceDownError, type NotifyPayload } from "../tools/notify.js";
 import type { DiscordServices, ServerPlace } from "../tools/discord.js";
@@ -356,6 +357,62 @@ describe("Kernel", () => {
     const target = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Helper" });
     await kernel.dispatchTo(target.id, "do the thing", projectChat);
     expect(kernel.sessions.get(target.id).filter((m) => m.role === "user").at(-1)?.origin).toEqual({ via: "dispatch", from: { kind: "chat", id: projectChat, name: "Club" } });
+  });
+
+  it("refuses to pass work back to a chat it came through, or on a fourth time", async () => {
+    // Each turn hands the work on to the next chat in the script, through the tool, as an agent would.
+    // Which chat a turn is comes from its brief: the kernel's own notion of
+    // the current chat is a turn-level field, and two lanes run here at once.
+    const ids = new Map<string, string>();
+    const route = new Map<string, string>();
+    const outcomes: string[] = [];
+    let turns = 0;
+    kernel = await boot({
+      async generate(_t, r) {
+        turns += 1;
+        const here = ids.get(/You are chat (\w)\./.exec(r.system ?? "")?.[1] ?? "") ?? "";
+        const next = route.get(here);
+        const last = r.messages[r.messages.length - 1];
+        const result = last?.content.find((b) => b.type === "tool_result") as { content?: string } | undefined;
+        if (result?.content) {
+          outcomes.push(`${here}: ${result.content}`);
+          return { content: [{ type: "text", text: "noted" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+        }
+        if (!next) return { content: [{ type: "text", text: "done here" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+        return {
+          content: [{ type: "tool_use", id: `h${turns}`, name: "chats.handoff", input: { to: next, brief: "the brief", ask: "carry on" } }],
+          stopReason: "tool_use",
+          usage: { inputTokens: 0, outputTokens: 0 },
+          model: "stub",
+        };
+      },
+    });
+    const chat = (letter: string): Conversation => {
+      const made = kernel.conversations.create({ userId: kernel.profile.ownerId, title: letter, brief: `You are chat ${letter}.` });
+      ids.set(letter, made.id);
+      return made;
+    };
+    const [a, b, c, d, e] = ["A", "B", "C", "D", "E"].map(chat) as [Conversation, Conversation, Conversation, Conversation, Conversation];
+    // A → B → A: the bounce is refused in B, and A's turn is not run again.
+    route.set(b.id, a.id);
+    await kernel.handoff({ from: a.id, to: b.id, brief: "start", ask: "go", by: "owner" });
+    await vi.waitFor(() => expect(outcomes.length).toBe(1));
+    expect(outcomes[0]).toContain(`${b.id}: `);
+    expect(outcomes[0]).toMatch(/A already had this and passed it on \(A → B\)/);
+    expect(outcomes[0]).toContain("reaches A as a note");
+    // A → B → C → D → E: three hops run; the fourth is refused in D.
+    outcomes.length = 0;
+    route.set(b.id, c.id);
+    route.set(c.id, d.id);
+    route.set(d.id, e.id);
+    await kernel.handoff({ from: a.id, to: b.id, brief: "start", ask: "go", by: "owner" });
+    await vi.waitFor(() => expect(outcomes.some((o) => o.startsWith(`${d.id}: `))).toBe(true));
+    const refused = outcomes.find((o) => o.startsWith(`${d.id}: `))!;
+    expect(refused).toMatch(/passed through 3 chats already \(A → B → C → D\)/);
+    expect(kernel.sessions.get(e.id)).toEqual([]);
+    // The trail is the turn's: once it ends, a fresh message in D starts clean.
+    await kernel.queue.drain();
+    expect((await kernel.handoff({ from: d.id, to: e.id, brief: "fresh", by: "owner" })).conversationId).toBe(e.id);
   });
 
   it("speaks from a project's chats as Orchestrator and Agent, and announces a deleted chat", async () => {
@@ -766,6 +823,16 @@ describe("Kernel", () => {
     expect(delivered).toContain(`Handed off from "Main" (@chat:[${source.id}]) at the owner's request.`);
     expect(delivered).toContain("Seventeen books restored.");
     expect(delivered).toContain("What is asked of you now: check the lending table");
+    // Who passed the words on rides on what the turn said, so a mirror speaks as them and not as the owner.
+    const passed: { text: string; from?: unknown }[] = [];
+    kernel.bus.on("turn:said", (e) => {
+      if (e.conversationId === books.conversationId) passed.push({ text: e.text, from: e.from });
+    });
+    await kernel.dispatchTo(books.conversationId, "count the shelves", source.id);
+    expect(passed).toEqual([{ text: "count the shelves", from: { kind: "chat", id: source.id, name: "Main" } }]);
+    expect(kernel.speakerFor({ kind: "chat", id: source.id, name: "Main" })).toMatchObject({ name: "Main" });
+    expect(kernel.speakerFor({ kind: "chat", id: source.id, name: "Main" }).avatar).toBeTruthy();
+    expect(kernel.speakerFor({ kind: "schedule", id: "4", name: "Daily board" })).toMatchObject({ name: "schedule · Daily board" });
     // A chat by id works too; a name that is neither does not, nor does handing to itself.
     expect((await kernel.handoff({ to: source.id, brief: "x", by: "agent" })).conversationId).toBe(source.id);
     await expect(kernel.handoff({ from: source.id, to: source.id, brief: "x", by: "agent" })).rejects.toThrow(/this chat/);
