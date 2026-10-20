@@ -100,7 +100,7 @@ export function defineSqlTool(db: Db, ctx: ModuleContext): void {
       name: "sql",
       description:
         "Run one DML statement (SELECT/INSERT/UPDATE/DELETE) against your project's tables in the workspace database. Use ? placeholders and the params array. DDL is not allowed; use migrate. " +
-        "KOS's own tables (conversations, pending messages and actions, permissions, memory) are not reachable here: use chats.handoff, memory and cron for those.",
+        "KOS's own tables (conversations, jobs, pending messages and actions, permissions, memory) are not reachable here, nor through the shell: cron.list, chats.list and chats.read, tasks.list, blobs.list and memory.recall read them.",
       inputSchema: {
         type: "object",
         properties: {

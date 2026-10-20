@@ -85,6 +85,12 @@ export class ToolRegistry {
     return classifyRisk(tool.risk, input);
   }
 
+  /** Why a call is refused outright, before its tier is judged; nothing for a call that may be judged. */
+  refusal(name: string, input: Record<string, unknown>): string | undefined {
+    const refused = this.tools.get(name)?.risk.refuse?.(input);
+    return refused || undefined;
+  }
+
   has(name: string): boolean {
     return this.tools.has(name);
   }

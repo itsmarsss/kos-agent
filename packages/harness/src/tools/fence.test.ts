@@ -28,6 +28,7 @@ describe("the fence around KOS's own tables", () => {
     expect(read.ok).toBe(false);
     expect(read.reason).toMatch(/conversations: that table is KOS's own/);
     expect(read.reason).toMatch(/chats.handoff/);
+    expect(read.reason).toMatch(/cron.list/);
     expect(fence("INSERT INTO pending_messages (conversation_id, text) VALUES ('x', 'y')", existing, undefined).ok).toBe(false);
     expect(fence("SELECT * FROM books_items", existing, "books")).toEqual({ ok: true, hideKernelRows: false });
     expect(fence("SELECT 1", existing, undefined)).toEqual({ ok: true, hideKernelRows: false });
