@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { hrefFor, NAV, navActive, parseRoute } from "./routes.js";
+import { hrefFor, NAV, navActive, pageKeyOf, parseRoute } from "./routes.js";
 
 describe("an approval's own address", () => {
   it("opens the inbox on that approval, and writes the link the same way", async () => {
@@ -9,6 +9,19 @@ describe("an approval's own address", () => {
     expect(parseRoute("#/inbox")).toEqual({ name: "inbox" });
     expect(hrefFor({ name: "inbox", id: 290 })).toBe("#/inbox/290");
     expect(hrefFor({ name: "inbox" })).toBe("#/inbox");
+  });
+});
+
+describe("what a page transition is keyed on", () => {
+  it("tells the blobs index from a blob's page, and one project from another, and keeps a page across its own chats", () => {
+    expect(pageKeyOf({ name: "blobs" })).toBe("blobs");
+    expect(pageKeyOf({ name: "blobs", blob: "new" })).toBe("blobs");
+    expect(pageKeyOf({ name: "blobs", blob: "recap" })).toBe("blobs:recap");
+    expect(pageKeyOf({ name: "project", slug: "garden" })).toBe("project:garden");
+    expect(pageKeyOf({ name: "project", slug: "garden", id: "c1" })).toBe("project:garden");
+    expect(pageKeyOf({ name: "project", slug: "books" })).toBe("project:books");
+    expect(pageKeyOf({ name: "chats", id: "c1" })).toBe("chats");
+    expect(pageKeyOf({ name: "settings", section: "skills" })).toBe("settings");
   });
 });
 

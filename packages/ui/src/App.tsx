@@ -21,7 +21,7 @@ import { Inspector, type InspectTarget } from "./Inspector.js";
 import { ListPage } from "./ListPage.js";
 import { AnimatePresence, m } from "motion/react";
 
-import { hrefFor, parseRoute, type Route } from "./routes.js";
+import { hrefFor, pageKeyOf, parseRoute, type Route } from "./routes.js";
 import { Drawer } from "./Drawer.js";
 import { CronEditor } from "./CronEditor.js";
 import { describeCron } from "./schedule.js";
@@ -753,7 +753,7 @@ export function App(): React.ReactElement {
             and small: this is orientation, not decoration. */}
         <AnimatePresence mode="wait" initial={false}>
           <m.div
-            key={route.name}
+            key={pageKeyOf(route)}
             className="ops-page"
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}

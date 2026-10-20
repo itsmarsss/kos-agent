@@ -22,6 +22,25 @@ export type Route =
   | { name: "builds"; id?: number }
   | { name: "page"; id: string };
 
+/**
+ * What the page transition is keyed on: the page that is open, not only
+ * the route's name. The blobs index and a blob's own page are both "blobs",
+ * and one project's page and another's are both "project", so keyed on the
+ * name alone those swapped with no motion while every other change of page
+ * faded. A chat opened inside a page keeps the page's key: the page stays,
+ * its thread changes.
+ */
+export function pageKeyOf(route: Route): string {
+  switch (route.name) {
+    case "blobs":
+      return route.blob && route.blob !== "new" ? `blobs:${route.blob}` : "blobs";
+    case "project":
+      return `project:${route.slug}`;
+    default:
+      return route.name;
+  }
+}
+
 export function parseRoute(hash: string): Route {
   // A query on a hash route (#/memory?tab=log) is the page's own business;
   // it used to make the whole route unrecognised and land on the overview.
