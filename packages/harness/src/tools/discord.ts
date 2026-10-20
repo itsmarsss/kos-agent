@@ -1,3 +1,4 @@
+import { reachesAll } from "../kernel/caretaker.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 
 /**
@@ -213,11 +214,11 @@ function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
   };
   // The reach of the chat asking, as chats.list has it: a project's chat
   // sees its own channel and threads and no other project's, and cannot
-  // look outside; KOS at the root sees them all. discord.server is the
-  // one window on the rest of the server.
+  // look outside; KOS at the root, and Maintenance, see them all.
+  // discord.server is the one window on the rest of the server.
   const scope = (): string | undefined => ctx.services?.callerProject?.();
-  const ownChannel = (c: ServerChannel): boolean => scope() === undefined || c.key === `project:${scope()}`;
-  const ownThread = (t: BoundThread): boolean => scope() === undefined || t.projectSlug === scope();
+  const ownChannel = (c: ServerChannel): boolean => reachesAll(scope()) || c.key === `project:${scope()}`;
+  const ownThread = (t: BoundThread): boolean => reachesAll(scope()) || t.projectSlug === scope();
 
   ctx.registerTool(
     {
@@ -225,7 +226,7 @@ function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
       description:
         "The channels KOS keeps on the owner's Discord server, laid out as the dashboard is: #kos and #needs-you under the KOS category, a channel per blob under Blobs, and a category per project holding its channel (the project's orchestrator) with a thread for each chat in the project. " +
         "Each is listed with what it is bound to, its category, who may see it (owner, the default, or everyone on the server) and how many chats have threads under it. " +
-        "From a project's chat, only the project's own channel, as chats.list shows only the project's chats; KOS at the root sees them all.",
+        "From a project's chat, only the project's own channel, as chats.list shows only the project's chats; KOS at the root, and Maintenance, see them all.",
       inputSchema: { type: "object", properties: {} },
     },
     async () => {
@@ -240,7 +241,7 @@ function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
     {
       name: "discord.threads",
       description:
-        "The threads KOS made for chats on the server, each with the chat it stands for and the channel it sits under. One whose chat has since been deleted is marked gone; discord.prune removes those. From a project's chat, only the project's own threads.",
+        "The threads KOS made for chats on the server, each with the chat it stands for and the channel it sits under. One whose chat has since been deleted is marked gone; discord.prune removes those. From a project's chat, only the project's own threads; the root and Maintenance see every thread.",
       inputSchema: { type: "object", properties: {} },
     },
     () => {
@@ -255,7 +256,7 @@ function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
     {
       name: "discord.prune",
       description:
-        "Delete the threads whose chats are gone, so Discord shows what the dashboard shows. A chat deleted now takes its thread with it; this is for threads left behind before that. Asks the owner first. From a project's chat, only the project's own.",
+        "Delete the threads whose chats are gone, so Discord shows what the dashboard shows. A chat deleted now takes its thread with it; this is for threads left behind before that. Asks the owner first. From a project's chat, only the project's own; the root and Maintenance reach every thread.",
       inputSchema: {
         type: "object",
         properties: { channel: { type: "string", description: "only the threads under this channel: its id, its name, or what it is bound to (project:<slug>)" } },

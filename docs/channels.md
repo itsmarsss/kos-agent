@@ -122,6 +122,9 @@ marking any whose chat is gone, and `discord.prune` deletes those, with
 your yes. From a project's chat these tools show the project's own
 channel and threads and nothing of another project's, as the chat tools
 do; `discord.server` is the one window on the rest of the server.
+Maintenance, where KOS repairs itself, sees as the root does: every
+channel and thread here, every chat and blob, and KOS's own tables
+through sql, since a repair reaches what the fault reaches.
 
 The server is also somewhere KOS can build. Beyond its own layout it can
 make a category or a channel for a purpose of yours, make a role for you

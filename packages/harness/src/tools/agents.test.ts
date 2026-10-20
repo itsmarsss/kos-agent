@@ -177,6 +177,9 @@ describe("blobs tools", () => {
     }
     expect((await garden.call("blobs.pause", { name: "recap" })).content).toContain("KOS's own blob, not yours");
     expect(garden.roles.exists("beds")).toBe(true);
+    // Maintenance reaches as the root does: every blob is its to change.
+    const maintenance = await harness(ws, { scope: "maintenance" });
+    expect(((await maintenance.call("blobs.list")).json!["blobs"] as Record<string, unknown>[]).map((b) => [b["name"], b["yours"]])).toEqual([["beds", true], ["recap", true]]);
     // The owner may; so may the root (each harness holds its own jobs, so the schedule is the owner's to toggle here).
     expect((await garden.call("blobs.pause", { name: "beds" })).isError).toBe(false);
     expect((await garden.call("blobs.resume", { name: "beds" })).isError).toBe(false);

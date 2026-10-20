@@ -1,6 +1,7 @@
 import cron from "node-cron";
 
 import { agentConversationId, parseFaceLook, ROLE_NAME, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
+import { reachesAll } from "../kernel/caretaker.js";
 import type { Conversation } from "../kernel/conversations.js";
 import { whenWords } from "../kernel/when.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
@@ -106,7 +107,7 @@ function summary(r: RoleRecord, job: BlobJob | undefined, timezone: string, scop
     // Whose it is: the project that made it, or KOS's at the root; and
     // whether the caller may change it, so a refusal is never a surprise.
     owner: r.project ?? "kos",
-    yours: scope === undefined || r.project === scope,
+    yours: reachesAll(scope) || r.project === scope,
     ...(r.task ? { task: r.task } : {}),
     state: stateOf(job),
     ...runs(job, timezone),
@@ -128,7 +129,7 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
     const record = deps.roles.get(name);
     if (!record) throw new Error(`no blob called ${name}; blobs.list says which exist`);
     const scope = deps.scope?.();
-    if (scope !== undefined && record.project !== scope) {
+    if (!reachesAll(scope) && record.project !== scope) {
       throw new Error(`${name} is ${record.project ? `the ${record.project} project's` : "KOS's own"} blob, not yours to ${verb}; you can still dispatch to it, or ask the owner`);
     }
     return record;

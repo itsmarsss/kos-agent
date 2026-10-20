@@ -74,6 +74,17 @@ export const MAINTENANCE = {
   description: "Where KOS looks into something of its own that failed: one agent per repair.",
 } as const;
 
+/**
+ * Whether a caller reaches the whole of KOS. The root does, having no
+ * project. So does Maintenance: it is where KOS repairs itself, and a
+ * repair reaches what the fault reaches, so it sees every chat, every
+ * blob and the whole Discord layout as the root does, and KOS's own
+ * tables besides (tools/fence.ts). Any other project sees its own.
+ */
+export function reachesAll(project: string | undefined): boolean {
+  return project === undefined || project === MAINTENANCE.slug;
+}
+
 type ManifestLike = CaretakerDeps["manifest"];
 
 /** The maintenance project's slug, the project made if it is not there. */
