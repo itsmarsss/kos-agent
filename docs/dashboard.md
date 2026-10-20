@@ -38,7 +38,10 @@ In a chat:
   chat says it orchestrates the project.
 - A message sent from Discord, a phone or another tab shows in the chat
   the moment its turn starts, marked with where it came from, rather than
-  when the turn ends.
+  when the turn ends. One sent while a turn is already running waits
+  under it, marked queued and with where it came from, editable until its
+  turn starts; the list says how many wait in each chat, beside the dot,
+  as Discord says queued on the message itself.
 - In a project, the rail lists the orchestrator, its agents and its
   schedule. The line above Schedule drags, so the schedule takes the room
   you give it and the agents the rest; pushed down past its smallest it

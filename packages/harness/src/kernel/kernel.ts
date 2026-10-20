@@ -732,9 +732,11 @@ export class Kernel {
     // Behind this conversation's own work, not behind the whole process. A
     // turn in another chat used to park a message here for no reason the
     // owner could see.
+    // With where it came from, so the dashboard shows a message waiting
+    // from Discord as it will show it once sent, and the list counts it.
     const parked =
       useSession && this.queue.depthOf(sessionId) > 0
-        ? this.pending.add(sessionId, text, opts.attachments ?? [])
+        ? this.pending.add(sessionId, text, opts.attachments ?? [], originOf(opts))
         : undefined;
 
     return this.queue.enqueue(() => {

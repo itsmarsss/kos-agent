@@ -1,3 +1,4 @@
+import type { MessageOrigin } from "../models/types.js";
 import type { Db } from "../store/db.js";
 import type { Attachment } from "./attachments.js";
 
@@ -20,6 +21,13 @@ export interface PendingMessage {
   text: string;
   attachments: Attachment[];
   createdAt: number;
+  /**
+   * Where it came from, when not typed on the dashboard: a surface and the
+   * room on it, a guest, the chat that sent it. Shown under the queued
+   * bubble as it will be under the sent one, so a message waiting from
+   * Discord reads as one on the dashboard too.
+   */
+  origin?: MessageOrigin;
 }
 
 const SCHEMA = `
@@ -28,7 +36,8 @@ CREATE TABLE IF NOT EXISTS pending_messages (
   conversation_id TEXT NOT NULL,
   text TEXT NOT NULL,
   attachments_json TEXT NOT NULL DEFAULT '[]',
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  origin_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_pending_messages_conversation
   ON pending_messages (conversation_id, id);
@@ -40,22 +49,29 @@ interface Row {
   text: string;
   attachments_json: string;
   created_at: number;
+  origin_json: string | null;
 }
 
-function toMessage(row: Row): PendingMessage {
-  let attachments: Attachment[] = [];
+function parsed<T>(json: string | null, fallback: T): T {
+  if (!json) return fallback;
   try {
-    attachments = JSON.parse(row.attachments_json) as Attachment[];
+    return JSON.parse(json) as T;
   } catch {
     // A row we cannot parse still has its text, which is the part the owner
     // wrote and the part they would miss.
+    return fallback;
   }
+}
+
+function toMessage(row: Row): PendingMessage {
+  const origin = parsed<MessageOrigin | undefined>(row.origin_json, undefined);
   return {
     id: row.id,
     conversationId: row.conversation_id,
     text: row.text,
-    attachments,
+    attachments: parsed<Attachment[]>(row.attachments_json, []),
     createdAt: row.created_at,
+    ...(origin ? { origin } : {}),
   };
 }
 
@@ -65,6 +81,10 @@ export class PendingMessages {
     private readonly now: () => number = Date.now,
   ) {
     this.db.exec(SCHEMA);
+    // A table made before the origin column learns it; the rows are cleared
+    // below anyway, so nothing old needs a value.
+    const columns = new Set((this.db.prepare(`PRAGMA table_info(pending_messages)`).all() as { name: string }[]).map((c) => c.name));
+    if (!columns.has("origin_json")) this.db.exec(`ALTER TABLE pending_messages ADD COLUMN origin_json TEXT`);
     // Anything left from a previous process was never going to run: its queue
     // died with it. Clearing on boot stops a crash mid-turn from leaving a
     // message showing as waiting forever.
@@ -72,13 +92,13 @@ export class PendingMessages {
   }
 
   /** Park a message. Returns its id so the turn can claim it. */
-  add(conversationId: string, text: string, attachments: Attachment[] = []): number {
+  add(conversationId: string, text: string, attachments: Attachment[] = [], origin?: MessageOrigin): number {
     const info = this.db
       .prepare(
-        `INSERT INTO pending_messages (conversation_id, text, attachments_json, created_at)
-         VALUES (?, ?, ?, ?)`,
+        `INSERT INTO pending_messages (conversation_id, text, attachments_json, created_at, origin_json)
+         VALUES (?, ?, ?, ?, ?)`,
       )
-      .run(conversationId, text, JSON.stringify(attachments), this.now());
+      .run(conversationId, text, JSON.stringify(attachments), this.now(), origin ? JSON.stringify(origin) : null);
     return Number(info.lastInsertRowid);
   }
 

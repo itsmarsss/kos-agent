@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Kernel } from "./kernel.js";
+import { handleApiRequest } from "./server.js";
 import type { Inference } from "../agent/loop.js";
 import type { ModelResponse } from "../models/types.js";
 
@@ -74,6 +75,41 @@ describe("a message sent while a turn is running", () => {
     // And once it has run it is no longer waiting, it is in the transcript.
     expect(kernel.pending.forConversation(id)).toEqual([]);
     expect(history(id)).toContain("second");
+  });
+
+  it("keeps where it came from, so the dashboard shows it waiting as it will show it sent, and the list counts it", async () => {
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Queue" });
+    const id = chat.id;
+    const first = kernel.handleMessage("first", { sessionId: id });
+    await new Promise((r) => setTimeout(r, 20));
+    const room = { kind: "channel" as const, id: "c1", name: "leetcode" };
+    const second = kernel.handleMessage("second", { sessionId: id, channel: "discord", room });
+    const third = kernel.handleMessage("third", { sessionId: id });
+    await new Promise((r) => setTimeout(r, 20));
+
+    // The parked message carries its origin; one typed on the dashboard carries none.
+    expect(kernel.pending.forConversation(id).map((m) => [m.text, m.origin])).toEqual([
+      ["second", { via: "discord", room }],
+      ["third", undefined],
+    ]);
+    const listed = (await handleApiRequest(kernel, { method: "GET", path: "/api/conversations" })).body as { id: string; queued?: number }[];
+    expect(listed.find((c) => c.id === id)?.queued).toBe(2);
+    const opened = (await handleApiRequest(kernel, { method: "GET", path: `/api/conversations/${encodeURIComponent(id)}/messages` })).body as {
+      pending: { text: string; origin?: unknown }[];
+    };
+    expect(opened.pending.map((p) => [p.text, p.origin])).toEqual([
+      ["second", { via: "discord", room }],
+      ["third", undefined],
+    ]);
+
+    for (let i = 0; i < 3; i++) {
+      release.forEach((fn) => fn());
+      await new Promise((r) => setTimeout(r, 30));
+    }
+    await Promise.all([first, second, third]);
+    expect(kernel.pending.forConversation(id)).toEqual([]);
+    const after = (await handleApiRequest(kernel, { method: "GET", path: "/api/conversations" })).body as { id: string; queued?: number }[];
+    expect(after.find((c) => c.id === id)?.queued).toBeUndefined();
   });
 
   /*
