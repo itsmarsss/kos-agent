@@ -107,6 +107,7 @@ import { ProgressBus } from "./progress.js";
 import { BEHAVIOUR_KEY, parseBehaviour, type Behaviour } from "./behaviour.js";
 import { parseMentions } from "./mentions.js";
 import { originOf } from "./origin.js";
+import { inHouseVoice } from "./voice.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
 import { bodyHexOf, channelNamesIn, faceSvg, KOS_SEED, lookOf, summarizeAction, type FaceSpec } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
@@ -1061,7 +1062,7 @@ export class Kernel {
           });
 
           const settleSdk = (sdk: SdkChatResult, resumed = false): string => {
-            const reply = sdk.text || "I do not have anything to add to that.";
+            const reply = sdk.text ? inHouseVoice(sdk.text) : "I do not have anything to add to that.";
             if (useSession) {
               /*
                * The calls, then the reply.
@@ -2854,7 +2855,7 @@ export class Kernel {
       result.stopped && result.finalText.trim() === ""
         ? "Stopped."
         : result.finalText.trim() !== ""
-          ? result.finalText
+          ? inHouseVoice(result.finalText)
           : result.exhausted
             ? "I got stuck on that and stopped after too many steps without reaching an answer. Tell me what to try instead, or narrow it down."
             : "I do not have anything to add to that.";

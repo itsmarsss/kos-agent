@@ -212,7 +212,7 @@ describe("tabs", () => {
     for (const name of ["browser.tabs", "browser.use_tab", "browser.new_tab"]) expect(h.registry.classify(name, {}).tier).toBe("safe");
 
     expect((await h.registry.execute("browser.tabs", {})).content).toBe(
-      "T1 (yours, current): Mine — https://a\nT2 (Research's): untitled — https://b\nT3 (the owner's): Owner's — https://c",
+      "T1 (yours, current): Mine: https://a\nT2 (Research's): untitled: https://b\nT3 (the owner's): Owner's: https://c",
     );
 
     const moved = await h.registry.execute("browser.use_tab", { tab: "T3", then: "snapshot" });
