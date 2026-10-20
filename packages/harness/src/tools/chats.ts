@@ -1,6 +1,7 @@
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { tokenize } from "../memory/facts.js";
+import { reachesAll } from "../kernel/caretaker.js";
 import { conversationKind, isFixed, type Conversation, type ConversationStore } from "../kernel/conversations.js";
 import type { CongregationMember } from "../kernel/progress.js";
 import type { SessionStore } from "../kernel/session.js";
@@ -53,12 +54,13 @@ const REPLY_CAP = 8_000;
  *
  * A project orchestrator sees its own project and no other, and never
  * another project's orchestrator, so one project cannot reach into the next
- * through a dispatch. The root, with no scope, sees everything.
+ * through a dispatch. The root, with no scope, sees everything, and so
+ * does Maintenance: a repair reaches what the fault reaches.
  */
 function inScopeFor(deps: ChatToolDeps): (c: { id: string; projectSlug: string | null }) => boolean {
   return (c) => {
     const scope = deps.scope?.();
-    if (scope === undefined) return true;
+    if (reachesAll(scope)) return true;
     return c.projectSlug === scope && !c.id.startsWith("project:");
   };
 }
@@ -375,7 +377,7 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
     {
       name: "chats.archive",
       description:
-        "Archive a conversation, or bring one back with archived: false. An archived chat leaves the list and keeps its history. Only a chat in your reach: a project's orchestrator reaches its own project's chats, KOS at the root reaches any ordinary chat. A project's own thread, a blob's thread and the owner's chats with KOS are fixed.",
+        "Archive a conversation, or bring one back with archived: false. An archived chat leaves the list and keeps its history. Only a chat in your reach: a project's orchestrator reaches its own project's chats, KOS at the root and Maintenance reach any ordinary chat. A project's own thread, a blob's thread and the owner's chats with KOS are fixed.",
       inputSchema: {
         type: "object",
         properties: {

@@ -134,7 +134,7 @@ does, so a blob cannot spawn more of itself:
 
 A blob made from inside a project is that project's: `project: <slug>` in
 its file. Every orchestrator sees every blob and may dispatch to any; only
-the project that owns one, or KOS at the root, may rewrite, pause, resume
+the project that owns one, or KOS at the root, or Maintenance, may rewrite, pause, resume
 or remove it, and the list says whose each is (`owner`) and whether it is
 yours. A blob KOS makes at the root is KOS's own, and a project's
 orchestrator is told to ask rather than change it.

@@ -125,6 +125,10 @@ describe("chats.archive and chats.delete", () => {
     const rootH = await harness(ws);
     expect((await rootH.registry.execute("chats.archive", { id: theirs.id })).isError).toBe(false);
     expect((await rootH.registry.execute("chats.delete", { id: fixed.id })).isError).toBe(true);
+    // Maintenance reaches as the root does: a repair reaches what the fault reaches.
+    const maintenance = await harness(ws, { scope: "maintenance" });
+    expect((await maintenance.registry.execute("chats.archive", { id: theirs.id, archived: false })).isError).toBe(false);
+    expect(h.conversations.get(theirs.id)?.archived).toBe(false);
   });
 });
 

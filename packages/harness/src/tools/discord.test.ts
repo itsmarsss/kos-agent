@@ -122,6 +122,11 @@ describe("the discord tools", () => {
     expect((await garden.call("discord.prune")).json).toMatchObject({ deleted: ["t2"] });
     expect(garden.pruned).toEqual(["t2"]);
     expect((await garden.call("discord.audience", { channel: "recap", audience: "owner" })).isError).toBe(true);
+    // Maintenance repairs KOS, so it sees the server as the root does.
+    const maintenance = await harness(true, "maintenance");
+    expect(((await maintenance.call("discord.channels")).json!["channels"] as { key: string }[]).map((c) => c.key)).toEqual(["orchestrator:owner", "needs-you", "project:garden", "agent:recap"]);
+    expect(((await maintenance.call("discord.threads")).json!["threads"] as { id: string }[]).map((t) => t.id)).toEqual(["t1", "t2", "t3", "t4"]);
+    expect((await maintenance.call("discord.prune")).json).toMatchObject({ deleted: ["t2", "t4"] });
   });
 
   it("opens a channel to guests only with the owner's yes, reacts, and reads reactions and messages", async () => {
