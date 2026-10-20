@@ -257,7 +257,7 @@ describe("handleApiRequest", () => {
     expect(made.body).toMatchObject({ installed: "receipts", kind: "prompt", origin: null });
     const list = await handleApiRequest(kernel, { method: "GET", path: "/api/skills" });
     expect((list.body as { skills: { name: string; enabled: boolean; origin: string | null }[] }).skills).toEqual([
-      expect.objectContaining({ name: "receipts", enabled: false, origin: null }),
+      expect.objectContaining({ name: "receipts", enabled: false, promoted: false, origin: null }),
     ]);
     expect((await handleApiRequest(kernel, { method: "POST", path: "/api/skills/update", body: { name: "receipts" } })).status).toBe(400);
     const gone = await handleApiRequest(kernel, { method: "POST", path: "/api/skills/remove", body: { name: "receipts" } });
@@ -693,6 +693,18 @@ describe("handleApiRequest", () => {
     expect(jobs.find((j) => j.id === thinks.id)?.spend).toEqual({ runs: 2, calls: 2, inputTokens: 3_000_000, outputTokens: 0, cost: 3, last: { calls: 1, inputTokens: 1_000_000, outputTokens: 0, cost: 1 } });
     expect(jobs.find((j) => j.id === script.id)?.spend).toEqual({ runs: 1, calls: 0, inputTokens: 0, outputTokens: 0, last: { calls: 0, inputTokens: 0, outputTokens: 0 } });
     expect(jobs.find((j) => j.id === fresh.id)?.spend).toBeUndefined();
+  });
+
+  it("lists a project's own skills in its detail, with promotion and state", async () => {
+    kernel.manifest.createProject({ name: "Books", type: "tracker" });
+    const dir = join(root, "skills", "shelf");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "skill.json"), JSON.stringify({ name: "shelf", description: "Counts the shelves.", kind: "script", entry: "run.mjs", projects: ["books"] }), "utf8");
+    writeFileSync(join(dir, "run.mjs"), "console.log(1)\n", "utf8");
+    const detail = (await handleApiRequest(kernel, { method: "GET", path: "/api/projects/books/detail" })).body as { skills: unknown[] };
+    expect(detail.skills).toEqual([{ name: "shelf", kind: "script", description: "Counts the shelves.", file: "skills/shelf/run.mjs", enabled: true, promoted: false }]);
+    const other = (await handleApiRequest(kernel, { method: "GET", path: "/api/projects/nowhere/detail" })).status;
+    expect(other).toBe(404);
   });
 
   it("does not send run rows nobody asked for with the activity log", async () => {

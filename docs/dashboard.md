@@ -292,9 +292,14 @@ Six tabs. See [memory.md](memory.md) for what each holds.
   turn, which is the saving over one that thinks. The built-in backup has no actions to edit.
   A new job can start from a template: **Morning brief** (weekdays at
   7:30: today's calendar, mail that needs an answer, what KOS has planned,
-  sent to you with notify), **Weekly review** (Mondays at 8), or **Watch a
+  sent to you with notify), **Weekly review** (Mondays at 8), **Watch a
   page** (every six hours: the browser reads the page, keeps what it said,
-  and tells you which lines changed, with no model turn). The brief
+  and tells you which lines changed, with no model turn), **Run a script**
+  (a promoted script skill, picked from a list under the job; no model
+  turn, no ask) or **Run a command** (a shell line in the workspace; it
+  asks the first time, and Always on that ask remembers the program). A
+  fixed-calls job of any kind has the script pick: chosen, it is the first
+  call, and the calls after it stay. The brief
   reads your calendar and mail once those servers are added under Settings
   > MCP servers (the Google Calendar and Gmail picks, each with a one-time
   sign-in step it spells out), and until then says what it could not read.
@@ -314,7 +319,10 @@ Grouped by what you came to do.
   settle a memory question alone), Appearance (dark, light or system;
   density; KOS's face: its colour, eyes and gait, kept in the workspace so
   every screen and the tab icon agree).
-- **Extensions**: Skills (on by default; off keeps the folder), Modules
+- **Extensions**: Skills (all of them, or one project's own, scripts,
+  prompt skills, promoted, or switched off; a script says whether it is
+  promoted; Open shows the file in Files; on by default; off keeps the
+  folder), Modules
   (built-ins to switch, workspace modules to switch on, blueprints with
   their instances, install from a git URL or folder).
 - **Access**: Permissions (every Always you said, revocable), Network (ports,

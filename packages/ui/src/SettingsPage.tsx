@@ -12,7 +12,9 @@ import { KOS_SEED } from "./Face.js";
 import { FaceEditor } from "./FaceEditor.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { useOpenTab } from "./opentab.js";
+import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";
+import { matchesSkillView, skillViews } from "./skillviews.js";
 import { McpAdd, SkillsAdd } from "./ExtensionBrowser.js";
 import { isDensity, isTheme, readDensity, readTheme, setDensity, setTheme, type Density, type Theme } from "./theme.js";
 import { SpendPanel } from "./SpendPanel.js";
@@ -449,6 +451,8 @@ export function SettingsPage({
   const [newInstance, setNewInstance] = useState<Record<string, string>>({});
   const [installSource, setInstallSource] = useState("");
   const [skillBusy, setSkillBusy] = useState<string | null>(null);
+  /** Which skills the list shows: all, one project's, a kind or a state. */
+  const [skillView, setSkillView] = useState("all");
   /** The servers in mcp.json, with whether each is up. */
   const [mcp, setMcp] = useState<McpServerInfo[]>([]);
   const [mcpBusy, setMcpBusy] = useState<string | null>(null);
@@ -1326,11 +1330,16 @@ export function SettingsPage({
             {skills.skills.length === 0 && skills.invalid.length === 0 && (
               <p className="hint">Nothing installed yet. Add one below, or ask KOS to make one.</p>
             )}
+            {skills.skills.length > 0 && (
+              <Field label="Show" hint="All of them, one project's own, a kind, or a state." row>
+                <Select className="settings-select" label="Which skills" value={skillView} options={skillViews(skills.skills)} onChange={setSkillView} />
+              </Field>
+            )}
             <div className="set-rows">
-            {skills.skills.map((sk) => (
+            {skills.skills.filter((sk) => matchesSkillView(sk, skillView)).map((sk) => (
               <Field
                 key={sk.name}
-                label={`${sk.name} (${sk.kind})${sk.projects ? ` · ${sk.projects.join(", ")}` : ""}`}
+                label={`${sk.name} (${sk.kind}${sk.kind === "script" ? (sk.promoted ? ", promoted" : ", not promoted") : ""})${sk.projects ? ` · ${sk.projects.join(", ")}` : ""}`}
                 hint={sk.description}
                 row
                 {...(sk.origin ? { meta: <span className="set-origin ops-mono">{sk.origin}</span> } : {})}
@@ -1351,6 +1360,10 @@ export function SettingsPage({
                   <span>{sk.enabled ? "On" : "Off"}</span>
                 </label>
                 <span className="set-module-actions">
+                  {/* The file itself, in Files: what a script does is in its code, what a prompt skill says is in its text. */}
+                  <a className="link" href={hrefFor({ name: "files", path: sk.file })}>
+                    Open
+                  </a>
                   {sk.origin && (
                     <button
                       type="button"

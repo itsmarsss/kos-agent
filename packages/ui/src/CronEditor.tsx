@@ -1,6 +1,7 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 
-import { api, type CronJob, type JobSpend } from "./api.js";
+import { api, type CronJob, type JobSpend, type SkillInfo } from "./api.js";
+import { scriptIn, withScript } from "./cronscript.js";
 import { ConfirmButton, Field } from "./kit.js";
 import { describeCron } from "./schedule.js";
 import { SchedulePicker } from "./SchedulePicker.js";
@@ -73,6 +74,23 @@ export const TEMPLATES: {
     // changed, and tells the owner itself.
     actions: [{ tool: "browser.watch", args: { url: "https://example.com", tell: true } }],
   },
+  {
+    id: "script",
+    label: "Run a script",
+    name: "Run a script",
+    schedule: "0 9 * * *",
+    // A promoted script skill, picked below: no model turn, no ask.
+    actions: [{ tool: "skills.run", args: { name: "" } }],
+  },
+  {
+    id: "command",
+    label: "Run a command",
+    name: "Run a command",
+    schedule: "0 */6 * * *",
+    // A shell line in the workspace. It asks the first time; Always on that
+    // ask remembers the program, and the runs after it are free.
+    actions: [{ tool: "shell.run", args: { command: "echo hello" } }],
+  },
 ];
 
 /**
@@ -138,6 +156,21 @@ export function CronEditor({
   );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // The scripts a job may run without asking: promoted and on. Read once;
+  // a job that runs one is a pick here rather than JSON to type.
+  const [scripts, setScripts] = useState<SkillInfo[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .skills()
+      .then((r) => {
+        if (!cancelled) setScripts(r.skills.filter((s) => s.kind === "script" && s.promoted === true && s.enabled));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const save = (): void => {
     setError(null);
@@ -234,7 +267,7 @@ export function CronEditor({
         {!job && (
           <Field
             label="Start from"
-            hint="A whole job, written out; change any of it below. The brief reads your calendar and mail when those servers are added under Settings, MCP servers, and says what it could not read until then. A watch reads a page in the browser and tells you what changed, with no model turn."
+            hint="A whole job, written out; change any of it below. The brief reads your calendar and mail when those servers are added under Settings, MCP servers, and says what it could not read until then. A watch reads a page in the browser and tells you what changed, with no model turn. Run a script runs a promoted script skill, picked below, with no model turn; Run a command runs a shell line, which asks the first time and never again once you press Always."
           >
             <Select
               className="settings-select"
@@ -350,15 +383,33 @@ export function CronEditor({
             edit; its schedule above is the only setting.
           </p>
         ) : (
-          <Field label="Tool calls" required hint="Run in order. Nothing is substituted into them, so anything that has to read data and then report on it belongs in Ask KOS instead.">
-            <textarea
-              className="kos-input kos-mono"
-              rows={7}
-              value={actions}
-              spellCheck={false}
-              onChange={(e) => setActions(e.target.value)}
-            />
-          </Field>
+          <>
+            <Field
+              label="Script"
+              hint={
+                scripts.length
+                  ? "A promoted script skill runs without asking. Picked here, it is the first call below; what follows it (a notify with {column} from the query, say) stays."
+                  : "No promoted script skill yet. Ask KOS to write one and promote it, and it is a pick here."
+              }
+            >
+              <Select
+                className="settings-select"
+                label="Script to run"
+                value={scripts.some((s) => s.name === scriptIn(actions)) ? scriptIn(actions) : ""}
+                options={[{ value: "", label: "None", hint: "the calls below, as written" }, ...scripts.map((s) => ({ value: s.name, label: s.name, hint: s.description }))]}
+                onChange={(name) => setActions(withScript(actions, name))}
+              />
+            </Field>
+            <Field label="Tool calls" required hint="Run in order. {column} in a string argument is replaced from the query's first row, read again before each call. A shell.run call asks the first time; Always on that ask remembers the program.">
+              <textarea
+                className="kos-input kos-mono"
+                rows={7}
+                value={actions}
+                spellCheck={false}
+                onChange={(e) => setActions(e.target.value)}
+              />
+            </Field>
+          </>
         )}
       </div>
 

@@ -198,6 +198,10 @@ is not a skill is removed again, and the reason is said.
 A script skill, once promoted, runs without asking: `skills.promote`
 tests it in the sandbox and commits it, or asks you first when the code
 reaches for something risky, and from then on `skills.run` of it is free.
+Settings, Skills shows every skill, or one project's own, by kind or by
+state, says which scripts are promoted, and opens each one's file; a
+project's drawer lists its own. The Schedule page's Run a script template
+schedules a promoted one as a fixed-calls job, no model turn.
 That is how a job that needs no judgment is kept off the model: KOS writes
 the script, you let it through once, and a schedule runs it as an actions
 job calling `skills.run`, with no turn and no ask. A script reaches the

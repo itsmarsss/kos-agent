@@ -16,6 +16,7 @@ import { lookOf } from "./Face.js";
 import { FileIcon } from "./FileIcon.js";
 import { Card, ConfirmButton, Field, Pill, Tag } from "./kit.js";
 import { ease, spring } from "./motion.js";
+import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";
 
 export type InspectTarget =
@@ -511,6 +512,26 @@ export function Inspector(props: {
                           {pg.title}
                         </button>
                         <span className="insp-meta ops-mono">{pg.id}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </Section>
+              )}
+
+              {(detail?.skills?.length ?? 0) > 0 && (
+                <Section title="Skills">
+                  <ul className="insp-rows">
+                    {detail!.skills!.map((sk) => (
+                      <li key={sk.name}>
+                        {/* The name opens the file itself in Files: a skill is a file first. */}
+                        <a className="ops-link" href={hrefFor({ name: "files", path: sk.file })} title={sk.description}>
+                          {sk.name}
+                        </a>
+                        <span className="insp-meta">
+                          {sk.kind}
+                          {sk.kind === "script" ? (sk.promoted ? " · promoted" : " · not promoted") : ""}
+                          {sk.enabled ? "" : " · off"}
+                        </span>
                       </li>
                     ))}
                   </ul>
