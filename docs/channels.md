@@ -82,7 +82,12 @@ a turn taken on the dashboard, by a schedule or by a dispatch shows there
 too, your words under your own name and picture (through a webhook, so
 Discord tags them as the app's), the
 files you attached uploaded under them, and the answer as KOS or as the
-blob under its own name. What you say on Discord is already there and is
+blob under its own name. A message another chat passed on (a handoff, a
+dispatch, a project's goal) shows under that chat's name with KOS's face,
+a blob's under its own, with a line saying it was passed on and not
+yours: only your own words wear your name. Work is passed on at most
+three times and never back to a chat it came through; that chat hears
+the answer as a note. What you say on Discord is already there and is
 not repeated. In a step line of the story, a workspace path ("Read
 blobs/verity/blob.md") links to the file on the dashboard. A slash
 command you run on the dashboard (`/clear`, `/rename`, `/compact`) shows

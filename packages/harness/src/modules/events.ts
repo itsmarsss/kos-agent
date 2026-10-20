@@ -12,6 +12,7 @@
  */
 
 import type { KeptFile } from "../kernel/attachments.js";
+import type { MessageFrom } from "../models/types.js";
 
 export type KernelEvent =
   | { kind: "turn:start"; conversationId: string; projectSlug: string | null }
@@ -32,6 +33,8 @@ export type KernelEvent =
       files: KeptFile[];
       /** The turn waited on an approval and this is the answer after it: the surface it came from has nothing posting it. */
       resumed?: boolean;
+      /** Who passed the words on, when a chat or a schedule did: the mirror speaks as them, never as the owner. */
+      from?: MessageFrom;
     }
   /** A slash command run in a chat: the line as typed and what it answered, with where it was typed. */
   | { kind: "command:ran"; conversationId: string; text: string; reply: string; channel: string | null }
