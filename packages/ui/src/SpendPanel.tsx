@@ -29,13 +29,13 @@ import { Select } from "./Select.js";
  * priced. A model you have not priced shows its tokens and says so.
  */
 
-function tokens(n: number): string {
+export function tokens(n: number): string {
   if (n < 1000) return String(n);
   if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
   return `${(n / 1_000_000).toFixed(2)}M`;
 }
 
-function money(n: number): string {
+export function money(n: number): string {
   return n < 0.01 && n > 0 ? "<$0.01" : `$${n.toFixed(2)}`;
 }
 

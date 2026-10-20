@@ -1,10 +1,11 @@
 import { useState, type ReactElement } from "react";
 
-import { api, type CronJob } from "./api.js";
+import { api, type CronJob, type JobSpend } from "./api.js";
 import { ConfirmButton, Field } from "./kit.js";
 import { describeCron } from "./schedule.js";
 import { SchedulePicker } from "./SchedulePicker.js";
 import { Select } from "./Select.js";
+import { money, tokens } from "./SpendPanel.js";
 
 /**
  * Writing a schedule by hand.
@@ -73,6 +74,22 @@ export const TEMPLATES: {
     actions: [{ tool: "browser.watch", args: { url: "https://example.com", tell: true } }],
   },
 ];
+
+/**
+ * What a job's runs have cost, in one line: over its life, per run, and
+ * the last run on its own. A job that runs a script makes no model call,
+ * and the line says so: that is the saving over a job that thinks.
+ */
+export function spendWords(spend: JobSpend): string {
+  const runs = `${spend.runs} run${spend.runs === 1 ? "" : "s"}`;
+  if (spend.calls === 0) return `${runs}, no model turn: they cost no tokens.`;
+  const each = (s: { inputTokens: number; outputTokens: number; cost?: number }): string =>
+    `${tokens(s.inputTokens)} in, ${tokens(s.outputTokens)} out${s.cost !== undefined ? `, ${money(s.cost)}` : ""}`;
+  const perRun = spend.cost !== undefined ? `, about ${money(spend.cost / spend.runs)} a run` : "";
+  const last = spend.last && spend.last.calls > 0 ? ` Last run: ${each(spend.last)}.` : "";
+  const unpriced = spend.cost === undefined ? " Set the model's rate under Settings for a figure." : "";
+  return `${runs}: ${each(spend)}${perRun}.${last}${unpriced}`;
+}
 
 export function CronEditor({
   job,
@@ -196,6 +213,14 @@ export function CronEditor({
             <code className="cron-hook" title="POST here with the hook secret as a bearer token">
               POST /api/hooks/{encodeURIComponent(job.name)}
             </code>
+          )}
+          {/* What its runs cost, so a job that thinks and a job that runs a
+              script can be held side by side; the script job's line says
+              no model turn. */}
+          {job.spend && (
+            <p className="cron-spend" title="From the thread its runs are written into">
+              {spendWords(job.spend)}
+            </p>
           )}
         </div>
       )}

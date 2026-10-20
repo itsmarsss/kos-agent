@@ -35,6 +35,20 @@ describe("RunsLog", () => {
     expect(rec?.durationMs).toBe(500);
   });
 
+  it("knows one thing's finished runs, newest first, and how many there were", () => {
+    const first = runs.start("cron", "7");
+    runs.finish(first, "ok");
+    const other = runs.start("cron", "8");
+    runs.finish(other, "ok");
+    const second = runs.start("cron", "7");
+    runs.finish(second, "error", "boom");
+    runs.start("cron", "7");
+    expect(runs.finishedFor("cron", "7").map((r) => [r.id, r.status])).toEqual([[second, "error"], [first, "ok"]]);
+    expect(runs.finishedFor("cron", "7", 1).map((r) => r.id)).toEqual([second]);
+    expect(runs.countFinished("cron", "7")).toBe(2);
+    expect(runs.countFinished("cron", "9")).toBe(0);
+  });
+
   it("captures errors and surfaces them via failures()", () => {
     const ok = runs.start("cron", "good");
     runs.finish(ok, "ok");

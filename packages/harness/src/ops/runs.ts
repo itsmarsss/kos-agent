@@ -92,6 +92,22 @@ export class RunsLog {
     return rows.map(toRecord);
   }
 
+  /** The finished runs of one thing, newest first: a job's, by its id. */
+  finishedFor(kind: string, ref: string, limit = 50): RunRecord[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM runs_log WHERE kind = ? AND ref = ? AND status != 'running' ORDER BY id DESC LIMIT ?`)
+      .all(kind, ref, limit) as Row[];
+    return rows.map(toRecord);
+  }
+
+  /** How many times one thing has finished running, whatever the outcome. */
+  countFinished(kind: string, ref: string): number {
+    const row = this.db
+      .prepare(`SELECT COUNT(*) AS n FROM runs_log WHERE kind = ? AND ref = ? AND status != 'running'`)
+      .get(kind, ref) as { n: number };
+    return row.n;
+  }
+
   failures(limit = 50): RunRecord[] {
     const rows = this.db
       .prepare(`SELECT * FROM runs_log WHERE status = 'error' ORDER BY id DESC LIMIT ?`)

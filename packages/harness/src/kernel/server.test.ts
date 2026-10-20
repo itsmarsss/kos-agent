@@ -8,6 +8,8 @@ import type { Inference } from "../agent/loop.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Kernel, orchestratorId } from "./kernel.js";
 import type { DiscordServices, ServerPlace } from "../tools/discord.js";
+import { RATES_KEY } from "../ops/spend.js";
+import { cronSessionId } from "./session.js";
 import { handleApiRequest, withFrames } from "./server.js";
 
 const stub: Inference = {
@@ -668,6 +670,29 @@ describe("handleApiRequest", () => {
       const res = await handleApiRequest(kernel, { method: "GET", path: p });
       expect(res.status).toBe(200);
     }
+  });
+
+  it("says what a job's runs have cost, and that a script job's cost nothing", async () => {
+    const thinks = kernel.crons.create({ name: "thinks", schedule: "0 9 * * *", type: "self_prompt", prompt: "think" });
+    const script = kernel.crons.create({ name: "script", schedule: "0 9 * * *", type: "actions", actions: [{ tool: "skills.run", args: { name: "board" } }] });
+    const fresh = kernel.crons.create({ name: "fresh", schedule: "0 9 * * *", type: "actions" });
+    kernel.settings.set(RATES_KEY, { "openai:gpt-5.6-terra": { inputPerMillion: 1, outputPerMillion: 2 } });
+    const used = (conversationId: string, inputTokens: number): void =>
+      kernel.spend.record({ conversationId, task: "reasoning", provider: "openai", model: "gpt-5.6-terra", inputTokens, outputTokens: 0 });
+    // Two runs of the thinking job, the second cheaper; one of the script job with no model call.
+    const one = kernel.runs.start("cron", String(thinks.id));
+    used(cronSessionId(thinks.id), 2_000_000);
+    kernel.runs.finish(one, "ok");
+    await new Promise((r) => setTimeout(r, 5));
+    const two = kernel.runs.start("cron", String(thinks.id));
+    used(cronSessionId(thinks.id), 1_000_000);
+    kernel.runs.finish(two, "ok");
+    const ran = kernel.runs.start("cron", String(script.id));
+    kernel.runs.finish(ran, "ok");
+    const jobs = (await handleApiRequest(kernel, { method: "GET", path: "/api/crons" })).body as { id: number; spend?: { runs: number; calls: number; inputTokens: number; cost?: number; last?: { calls: number; cost?: number } } }[];
+    expect(jobs.find((j) => j.id === thinks.id)?.spend).toEqual({ runs: 2, calls: 2, inputTokens: 3_000_000, outputTokens: 0, cost: 3, last: { calls: 1, inputTokens: 1_000_000, outputTokens: 0, cost: 1 } });
+    expect(jobs.find((j) => j.id === script.id)?.spend).toEqual({ runs: 1, calls: 0, inputTokens: 0, outputTokens: 0, last: { calls: 0, inputTokens: 0, outputTokens: 0 } });
+    expect(jobs.find((j) => j.id === fresh.id)?.spend).toBeUndefined();
   });
 
   it("does not send run rows nobody asked for with the activity log", async () => {
