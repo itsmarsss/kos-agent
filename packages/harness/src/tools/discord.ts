@@ -17,6 +17,7 @@ export const DISCORD_TOOLS = [
   "discord.threads",
   "discord.prune",
   "discord.audience",
+  "discord.listen",
   "discord.sync",
   "discord.server",
   "discord.make",
@@ -36,6 +37,14 @@ export const DISCORD_TOOLS = [
  */
 export type Audience = "owner" | "everyone" | "guests";
 
+/**
+ * When a channel that takes guests reaches its chat: on every message a
+ * member writes, or only on one that addresses KOS (an @mention, or a
+ * reply to something KOS said), with what was said there since KOS last
+ * heard carried along as context. The owner's own words always reach it.
+ */
+export type Listen = "always" | "mention";
+
 export interface ServerChannel {
   /** The conversation the channel is bound to, or "needs-you". */
   key: string;
@@ -45,6 +54,8 @@ export interface ServerChannel {
   /** The category it sits under: KOS, Blobs, or the project's own. */
   category?: string;
   audience: Audience;
+  /** When members' words reach the chat; absent means always. */
+  listen?: Listen;
   /** Only the owner may ever see KOS's own channel and the approvals. */
   fixed?: boolean;
   /** How many of its chats have a thread under it. */
@@ -114,6 +125,8 @@ export interface DiscordServices {
   /** Delete these threads on Discord and let their bindings go; the ids actually deleted. */
   prune: (ids: string[]) => Promise<string[]>;
   setAudience: (key: string, audience: Audience) => Promise<ServerChannel>;
+  /** When a channel's members reach its chat; kept by the kernel, read by the adapter's gate. */
+  setListen: (key: string, listen: Listen) => Promise<ServerChannel>;
   sync: () => Promise<{ created: string[]; kept: string[]; threads: number }>;
   /** Everything on the server: every category and channel, and the roles. */
   server: () => Promise<{ places: ServerPlace[]; roles: ServerRole[] }>;
@@ -225,7 +238,7 @@ function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
       name: "discord.channels",
       description:
         "The channels KOS keeps on the owner's Discord server, laid out as the dashboard is: #kos and #needs-you under the KOS category, a channel per blob under Blobs, and a category per project holding its channel (the project's orchestrator) with a thread for each chat in the project. " +
-        "Each is listed with what it is bound to, its category, who may see it (owner, the default, or everyone on the server) and how many chats have threads under it. " +
+        "Each is listed with what it is bound to, its category, who may see it (owner, the default, or everyone on the server), when members' words reach its chat (listen: mention, when only an @mention or a reply does; see discord.listen) and how many chats have threads under it. " +
         "From a project's chat, only the project's own channel, as chats.list shows only the project's chats; KOS at the root, and Maintenance, see them all.",
       inputSchema: { type: "object", properties: {} },
     },
@@ -314,6 +327,36 @@ function defineDiscordTools(deps: DiscordServices, ctx: ModuleContext): void {
       escalate: (input) =>
         input["audience"] === "everyone" ? "everyone on the server would read it" : input["audience"] === "guests" ? "everyone on the server would read and write there" : false,
     },
+    { restricted: true },
+  );
+
+  ctx.registerTool(
+    {
+      name: "discord.listen",
+      description:
+        "When members' messages in a channel that takes guests reach its chat: always (every message, the default) or mention (only a message that @mentions KOS or replies to something it said; what members said there since KOS last heard, up to twenty messages, comes along as context, marked as such). The owner's own messages always reach the chat. Narrows what KOS hears, so it never asks.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          channel: { type: "string", description: "the channel's id, as discord.channels lists it; its name or what it is bound to also work" },
+          when: { type: "string", enum: ["always", "mention"] },
+        },
+        required: ["channel", "when"],
+      },
+    },
+    async (input) => {
+      up();
+      const when = input["when"];
+      if (when !== "always" && when !== "mention") throw new Error('when must be "always" or "mention"');
+      const found = findChannel((await deps.channels()).filter(ownChannel), str(input, "channel"));
+      if (!found) throw new Error(`no channel of KOS's called ${str(input, "channel")}; discord.channels lists them`);
+      const now = await deps.setListen(found.key, when);
+      return JSON.stringify({
+        ...now,
+        note: when === "mention" ? `#${now.name} reaches its chat only when KOS is @mentioned or replied to; what was said in between comes along then.` : `#${now.name} reaches its chat on every message.`,
+      });
+    },
+    { floor: "safe" },
     { restricted: true },
   );
 

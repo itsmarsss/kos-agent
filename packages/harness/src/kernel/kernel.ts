@@ -92,7 +92,7 @@ import { offeredSkills, readSkills } from "../skills/manifest.js";
 import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import { CHAT_TOOLS } from "../tools/chats.js";
 import { BLOB_TOOLS, type BlobJob } from "../tools/agents.js";
-import { DISCORD_TOOLS, type Audience, type BoundThread, type DiscordServices, type ServerPlace } from "../tools/discord.js";
+import { DISCORD_TOOLS, type Audience, type BoundThread, type DiscordServices, type Listen, type ServerPlace } from "../tools/discord.js";
 import { agentConversationId, agentScope, KOS_FACE_KEY, parseFaceLook, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
 import { type NotifyPayload, parseTarget } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
@@ -170,6 +170,8 @@ export const BUILD_SETTINGS_KEY = "builds";
 
 /** Who may see each Discord server channel, by binding; absent means the owner alone. */
 export const CHANNEL_AUDIENCE_KEY = "discord.audience";
+/** When each server channel's members reach its chat, by what it is bound to; absent means always. */
+export const CHANNEL_LISTEN_KEY = "discord.listen";
 /** Which Discord thread stands for which chat. */
 export const THREAD_BINDINGS_KEY = "discord.threads";
 /** The face the Discord bot wears, as a hash of the PNG, so it is set again only when the look changes. */
@@ -2536,6 +2538,23 @@ export class Kernel {
     // the owner's alone: the next layout shut it, and no guest was ever heard.
     for (const [key, value] of Object.entries(raw as Record<string, unknown>)) if (value === "everyone" || value === "guests" || value === "owner") out[key] = value;
     return out;
+  }
+
+  /** When each channel's members reach its chat; a channel not listed reaches it on every message. */
+  channelListening(): Record<string, Listen> {
+    const raw = this.settings.get(CHANNEL_LISTEN_KEY);
+    if (typeof raw !== "object" || raw === null) return {};
+    const out: Record<string, Listen> = {};
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) if (value === "mention") out[key] = value;
+    return out;
+  }
+
+  /** When a channel's members reach its chat, as the owner set it; the adapter's gate reads this. */
+  setChannelListen(key: string, listen: Listen): void {
+    const next = { ...this.channelListening() };
+    if (listen === "always") delete next[key];
+    else next[key] = listen;
+    this.settings.set(CHANNEL_LISTEN_KEY, next);
   }
 
   /** Who may see a channel, as last read from the surface or set through it; the guest gate reads this. */

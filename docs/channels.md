@@ -177,6 +177,14 @@ schedules or browser, and a file a guest sends is neither kept nor read.
 Their button presses reach the chat the same way. Nothing a guest says is
 remembered as yours. Opening a channel to guests asks you first.
 
+By default every message a member writes there reaches the chat. Set a
+channel to listen on mention (`discord.listen`, "only answer in #leetcode
+when pinged") and only a message that @mentions KOS or replies to
+something it said reaches it; what members said in between, up to twenty
+messages, comes along with it as context marked as such, so KOS can
+answer "what do you all think" without having heard it all. Your own
+messages always reach the chat, carrying the same context.
+
 Someone named in a message (`@name` on Discord) arrives on the dashboard
 as `@name`, and the turn is told the member's id beside it; `discord.member`
 gives who that id is (account name, the name shown, roles, when they

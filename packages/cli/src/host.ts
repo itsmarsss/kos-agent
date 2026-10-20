@@ -225,15 +225,23 @@ export async function runHost(options: HostOptions): Promise<void> {
             channels: async () => {
               const plan = kernel.surfaceChannels();
               const bound = new Set(Object.values(kernel.threadBindings()));
+              const listening = kernel.channelListening();
               return (await adapter!.channels()).map((c) => {
                 const planned = plan.find((p) => p.key === c.key);
                 const threads = (planned?.threads ?? []).filter((t) => bound.has(t.conversationId)).length;
-                return { ...c, ...(planned?.fixed ? { fixed: true } : {}), ...(threads ? { threads } : {}) };
+                return { ...c, ...(planned?.fixed ? { fixed: true } : {}), ...(threads ? { threads } : {}), ...(listening[c.key] ? { listen: listening[c.key]! } : {}) };
               });
             },
             setAudience: async (key, audience) => {
               kernel.setChannelAudience(key, audience);
               return adapter!.setAudience(key, audience);
+            },
+            // Kept by the kernel alone: Discord has no permission for "only when addressed".
+            setListen: async (key, listen) => {
+              kernel.setChannelListen(key, listen);
+              const found = (await adapter!.channels()).find((c) => c.key === key);
+              if (!found) throw new Error(`no channel bound to ${key}`);
+              return { ...found, ...(listen === "mention" ? { listen } : {}) };
             },
             sync: async () => {
               const made = await layOut();
@@ -420,6 +428,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       labelOf: (kind, id) => kernel.labelFor(kind, id),
       // A channel the owner opened to guests takes what its members say.
       guestsAllowed: (key) => kernel.channelAudiences()[key] === "guests",
+      // A channel the owner set to listen on mention reaches its chat only when addressed.
+      listenOf: (key) => kernel.channelListening()[key] ?? "always",
       // Who speaks from a chat, so a blob's story in its channel is the blob's.
       senderOf: (conversationId) => kernel.senderFor(conversationId),
     });
