@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
 import { contextWindowFor } from "../models/windows.js";
-import { costOf, parseRates, SpendStore } from "./spend.js";
+import { costOf, parseRates, SpendStore, sumSpend } from "./spend.js";
 
 describe("what KOS has spent", () => {
   let root: string;
@@ -98,6 +98,16 @@ describe("what KOS has spent", () => {
       expect(total).toEqual({ inputTokens: 2000, outputTokens: 400, calls: 2 });
     });
 
+    it("totals per model within a window, for one run of a job", () => {
+      usage();
+      clock += 1000;
+      usage({ model: "gpt-5.6-mini", outputTokens: 50 });
+      usage({ conversationId: "chat:2" });
+      expect(spend.byModelFor("chat:1").map((m) => [m.model, m.calls])).toEqual([["gpt-5.6-terra", 1], ["gpt-5.6-mini", 1]]);
+      expect(spend.byModelFor("chat:1", clock, clock).map((m) => m.model)).toEqual(["gpt-5.6-mini"]);
+      expect(spend.byModelFor("chat:none")).toEqual([]);
+    });
+
     it("says nothing rather than zero for a conversation with no turns", () => {
       expect(spend.lastContext("chat:none")).toBeUndefined();
       expect(spend.forConversation("chat:none").calls).toBe(0);
@@ -117,6 +127,16 @@ describe("what KOS has spent", () => {
         outputTokens: 1_000_000,
       };
       expect(costOf(total, {})).toBeUndefined();
+    });
+
+    it("sums a set of totals, and prices it only when every model is priced", () => {
+      const rates = parseRates({ "openai:gpt-5.6-terra": { inputPerMillion: 1, outputPerMillion: 2 } });
+      const terra = { provider: "openai", model: "gpt-5.6-terra", inputTokens: 1_000_000, outputTokens: 500_000, cacheReadTokens: 0, cacheCreationTokens: 0, reportedCostUSD: 0, calls: 3 };
+      const mini = { ...terra, model: "gpt-5.6-mini", calls: 1 };
+      expect(sumSpend([terra], rates)).toEqual({ calls: 3, inputTokens: 1_000_000, outputTokens: 500_000, cost: 2 });
+      // A priced model and an unpriced one: the tokens add up, the money does not pretend to.
+      expect(sumSpend([terra, mini], rates)).toEqual({ calls: 4, inputTokens: 2_000_000, outputTokens: 1_000_000 });
+      expect(sumSpend([], rates)).toEqual({ calls: 0, inputTokens: 0, outputTokens: 0 });
     });
 
     it("prices input and output separately", () => {

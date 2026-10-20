@@ -97,6 +97,20 @@ CREATE INDEX IF NOT EXISTS idx_token_usage_conversation
   ON token_usage (conversation_id, at);
 `;
 
+/**
+ * The per-model columns, aliased to the field names the type promises.
+ * Casting the raw rows instead left inputTokens undefined everywhere the
+ * type said it was a number, which reaches the dashboard as a blank rather
+ * than an error.
+ */
+const MODEL_TOTALS = `provider, model,
+                SUM(input_tokens) AS inputTokens,
+                SUM(output_tokens) AS outputTokens,
+                SUM(cache_read_tokens) AS cacheReadTokens,
+                SUM(cache_creation_tokens) AS cacheCreationTokens,
+                COALESCE(SUM(cost_usd), 0) AS reportedCostUSD,
+                COUNT(*) AS calls`;
+
 export class SpendStore {
   constructor(
     private readonly db: Db,
@@ -157,21 +171,29 @@ export class SpendStore {
   byModel(since = 0): ModelTotal[] {
     return this.db
       .prepare(
-        // Aliased to the field names the type promises. Casting the raw rows
-        // instead left inputTokens undefined everywhere the type said it was a
-        // number, which reaches the dashboard as a blank rather than an error.
-        `SELECT provider, model,
-                SUM(input_tokens) AS inputTokens,
-                SUM(output_tokens) AS outputTokens,
-                SUM(cache_read_tokens) AS cacheReadTokens,
-                SUM(cache_creation_tokens) AS cacheCreationTokens,
-                COALESCE(SUM(cost_usd), 0) AS reportedCostUSD,
-                COUNT(*) AS calls
+        `SELECT ${MODEL_TOTALS}
          FROM token_usage WHERE at >= ?
          GROUP BY provider, model
          ORDER BY (SUM(input_tokens) + SUM(output_tokens)) DESC`,
       )
       .all(since) as unknown as ModelTotal[];
+  }
+
+  /**
+   * Totals per model for one conversation within a window: what a job's
+   * thread cost over its life, or over one run between its own start and
+   * end. A script job's thread has no rows at all, which is the point of
+   * a script job, and the empty list says so rather than a zero.
+   */
+  byModelFor(conversationId: string, since = 0, until = Number.MAX_SAFE_INTEGER): ModelTotal[] {
+    return this.db
+      .prepare(
+        `SELECT ${MODEL_TOTALS}
+         FROM token_usage WHERE conversation_id = ? AND at >= ? AND at <= ?
+         GROUP BY provider, model
+         ORDER BY (SUM(input_tokens) + SUM(output_tokens)) DESC`,
+      )
+      .all(conversationId, since, until) as unknown as ModelTotal[];
   }
 
   /**
@@ -263,6 +285,28 @@ export class SpendStore {
       calls: row.calls,
     };
   }
+}
+
+/** A set of model totals added up: tokens always, money only when every model in it is priced. */
+export interface SpendSummary {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  /** Absent when any model in the set has no rate: a sum of a subset is not the figure. */
+  cost?: number;
+}
+
+export function sumSpend(totals: readonly ModelTotal[], rates: Rates): SpendSummary {
+  const summary: SpendSummary = { calls: 0, inputTokens: 0, outputTokens: 0 };
+  let cost: number | undefined = 0;
+  for (const total of totals) {
+    summary.calls += total.calls;
+    summary.inputTokens += total.inputTokens;
+    summary.outputTokens += total.outputTokens;
+    const priced = costOf(total, rates);
+    cost = cost === undefined || priced === undefined ? undefined : cost + priced;
+  }
+  return totals.length && cost !== undefined ? { ...summary, cost } : summary;
 }
 
 /** Owner-set facts about a model, keyed by `provider:model`. */

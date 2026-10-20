@@ -279,7 +279,10 @@ Six tabs. See [memory.md](memory.md) for what each holds.
   chat with KOS on it.
 - **Schedule**: the jobs. A row opens the editor: name, when (as choices: daily, weekdays, the days you pick, every so many hours or minutes, a day of the month; the cron line itself is there to edit for anything else),
   what it does (Ask KOS with a prompt and a model class, or fixed tool
-  calls), Run now, Pause, Delete. The built-in backup has no actions to edit.
+  calls), Run now, Pause, Delete, and what its runs have cost: tokens over
+  its life and per run, money where the model is priced under Settings,
+  and the last run on its own. A job that runs a script says no model
+  turn, which is the saving over one that thinks. The built-in backup has no actions to edit.
   A new job can start from a template: **Morning brief** (weekdays at
   7:30: today's calendar, mail that needs an answer, what KOS has planned,
   sent to you with notify), **Weekly review** (Mondays at 8), or **Watch a

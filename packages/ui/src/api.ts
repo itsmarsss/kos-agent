@@ -321,6 +321,20 @@ export interface PermissionRule {
   createdAt: number;
 }
 
+/** What a job's runs have cost, once it has run. */
+export interface JobSpend {
+  /** Finished runs on record. */
+  runs: number;
+  /** Model calls across them; zero for a job that runs a script. */
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  /** Money, when every model used is priced under Settings. */
+  cost?: number;
+  /** The last run's own figures. */
+  last?: { calls: number; inputTokens: number; outputTokens: number; cost?: number };
+}
+
 export interface CronJob {
   id: number;
   name: string;
@@ -344,6 +358,8 @@ export interface CronJob {
   nextRunAt?: number;
   /** Which model class answers a self_prompt. */
   task?: "reasoning" | "cheap";
+  /** What its runs have cost, once it has run at all. */
+  spend?: JobSpend;
 }
 
 export interface RunRecord {

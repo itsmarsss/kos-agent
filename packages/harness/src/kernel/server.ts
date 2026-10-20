@@ -37,7 +37,7 @@ import { historyEvents, type ChatEvent } from "./transcript.js";
 import { DENIED_PREFIX } from "./guarded.js";
 import { copyEntry, deleteEntry, listDirectory, makeDir, readForText, readForView, readImage, readBytes, readPdf, renameEntry, type DirEntry } from "./files.js";
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
-import { costOf, parseRates, windowFor, RATES_KEY } from "../ops/spend.js";
+import { costOf, parseRates, sumSpend, windowFor, RATES_KEY, type Rates, type SpendSummary } from "../ops/spend.js";
 import type { FailingJob } from "../ops/health.js";
 import { readSkills } from "../skills/manifest.js";
 import { importPage, listPages, readPage } from "../memory/pages.js";
@@ -284,6 +284,32 @@ function projectMap(
       jobs: jobs.get(p.slug) ?? 0,
     };
   });
+}
+
+/** What a job's runs have cost: over its life, and the last run on its own. */
+interface JobSpend extends SpendSummary {
+  /** Finished runs on record, whatever their outcome. */
+  runs: number;
+  last?: SpendSummary;
+}
+
+/**
+ * What a job has cost, from its thread's usage: its runs over its life and
+ * the last run between its own start and end, so a self-prompt job and a
+ * script job can be held side by side. A job that has run and made no
+ * model call is the script job, and its zero calls are the saving.
+ */
+function jobSpend(kernel: Kernel, jobId: number, rates: Rates): JobSpend | undefined {
+  const ref = String(jobId);
+  const runs = kernel.runs.countFinished("cron", ref);
+  if (runs === 0) return undefined;
+  const thread = cronSessionId(jobId);
+  const [last] = kernel.runs.finishedFor("cron", ref, 1);
+  return {
+    runs,
+    ...sumSpend(kernel.spend.byModelFor(thread), rates),
+    ...(last ? { last: sumSpend(kernel.spend.byModelFor(thread, last.startedAt, last.finishedAt ?? Number.MAX_SAFE_INTEGER), rates) } : {}),
+  };
 }
 
 /** Runs due in the next day, soonest first, for a timeline of what is coming. */
@@ -1165,9 +1191,12 @@ export async function handleApiRequest(
         .map((c) => [c.id, c]),
     );
     const busyNow = new Set(kernel.busyConversations());
+    const rates = parseRates(kernel.settings.get(RATES_KEY));
     return ok(
       kernel.crons.list().map((job) => {
         const thread = threads.get(cronSessionId(job.id));
+        // What its runs have cost, so the drawer can say it beside Run now.
+        const spend = jobSpend(kernel, job.id, rates);
         /*
          * lastRunAt comes from the job, not its conversation.
          *
@@ -1183,6 +1212,7 @@ export async function handleApiRequest(
             ? { conversationId: thread.id, running: busyNow.has(thread.id) }
             : {}),
           ...(nextRunAt !== undefined ? { nextRunAt } : {}),
+          ...(spend ? { spend } : {}),
         };
       }),
     );
