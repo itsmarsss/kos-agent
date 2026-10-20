@@ -100,6 +100,8 @@ export interface SkillInfo {
   file: string;
   projects?: string[];
   enabled: boolean;
+  /** A script the owner let through: it runs without asking, so a schedule can run it. */
+  promoted?: boolean;
   /** The repository it was installed from, when it was. */
   origin?: string | null;
 }
@@ -794,10 +796,22 @@ export interface SettingsPayload {
   sitesUrl: string | null;
 }
 
+/** A skill written for one project, as its drawer lists it. */
+export interface ProjectSkill {
+  name: string;
+  kind: "script" | "prompt";
+  description: string;
+  file: string;
+  enabled: boolean;
+  promoted: boolean;
+}
+
 export interface ProjectDetail {
   project: Project;
   tables: { name: string; rows: number; columns: number }[];
   pages: PageSummary[];
+  /** Its own skills; absent from a host older than the list. */
+  skills?: ProjectSkill[];
   crons: CronJob[];
   sites: SiteInfo[];
   sitesBase: string | null;

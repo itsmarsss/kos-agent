@@ -316,6 +316,21 @@ function jobSpend(kernel: Kernel, jobId: number, rates: Rates): JobSpend | undef
   };
 }
 
+/** A project's own skills: the ones made for it by name, each with whether it is on and, for a script, promoted. */
+function skillsFor(kernel: Kernel, slug: string): { name: string; kind: "script" | "prompt"; description: string; file: string; enabled: boolean; promoted: boolean }[] {
+  const settings = parseSkillSettings(kernel.settings.get(SKILLS_KEY));
+  return readSkills(kernel.workspace)
+    .skills.filter((s) => s.manifest.projects?.includes(slug))
+    .map((s) => ({
+      name: s.manifest.name,
+      kind: s.manifest.kind,
+      description: s.manifest.description,
+      file: s.file,
+      enabled: !settings.disabled.includes(s.manifest.name),
+      promoted: settings.promoted.includes(s.manifest.name),
+    }));
+}
+
 /** Runs due in the next day, soonest first, for a timeline of what is coming. */
 function upcomingRuns(kernel: Kernel, now: number): { id: number; name: string; at: number }[] {
   const out: { id: number; name: string; at: number }[] = [];
@@ -869,13 +884,17 @@ export async function handleApiRequest(
 
   if (method === "GET" && path === "/api/skills") {
     const { skills, invalid } = readSkills(kernel.workspace);
-    const off = new Set(parseSkillSettings(kernel.settings.get(SKILLS_KEY)).disabled);
+    const settings = parseSkillSettings(kernel.settings.get(SKILLS_KEY));
+    const off = new Set(settings.disabled);
+    const promoted = new Set(settings.promoted);
     // Where each came from, for the ones that came from a repository.
     const listed = await Promise.all(
       skills.map(async (s) => ({
         ...s.manifest,
         file: s.file,
         enabled: !off.has(s.manifest.name),
+        // A script that runs without asking, which is what a schedule can run.
+        promoted: promoted.has(s.manifest.name),
         origin: await skillOrigin(kernel.workspace.resolve(s.dir), run),
       })),
     );
@@ -2356,6 +2375,10 @@ export async function handleApiRequest(
         .filter((c) => c.projectSlug === slug && c.id !== projectConversationId(slug))
         .map(conversationLabeller(kernel)),
       files: projectFiles(kernel, slug),
+      // What it knows how to do: the skills written for it, so the drawer
+      // answers "does this project have a script for that" without the
+      // trip to Settings.
+      skills: skillsFor(kernel, slug),
     });
   }
 

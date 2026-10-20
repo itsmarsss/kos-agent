@@ -39,6 +39,20 @@ describe("what a job's runs cost", () => {
   });
 });
 
+describe("a job that runs a script", () => {
+  it("offers the two templates and a script pick for a fixed-calls job", () => {
+    render(
+      <CronEditor
+        job={{ id: 4, name: "Board", schedule: "0 9 * * *", type: "actions", enabled: true, actions: [{ tool: "skills.run", args: { name: "board" } }] }}
+        onDone={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(screen.getByText("Script")).toBeTruthy();
+    expect(screen.getByText("Tool calls")).toBeTruthy();
+  });
+});
+
 describe("a schedule's project", () => {
   const projects = [
     { slug: "garden", name: "Garden" },

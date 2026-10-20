@@ -5,12 +5,15 @@ import { describeCron } from "./schedule.js";
 
 describe("the jobs offered to start from", () => {
   it("each has a schedule that reads back, and a prompt that reaches the owner", () => {
-    expect(TEMPLATES.map((t) => t.id)).toEqual(["brief", "review", "watch"]);
+    expect(TEMPLATES.map((t) => t.id)).toEqual(["brief", "review", "watch", "script", "command"]);
     for (const t of TEMPLATES) {
       expect(describeCron(t.schedule)).not.toBeNull();
       expect(t.name.length).toBeGreaterThan(0);
-      // A prompt reaches the owner through notify; a fixed watch tells them itself.
-      if (t.actions) expect(t.actions[0]).toMatchObject({ tool: "browser.watch", args: { tell: true } });
+      // A prompt reaches the owner through notify; a fixed watch tells them
+      // itself; a script and a command are one call each, filled in below.
+      if (t.id === "watch") expect(t.actions?.[0]).toMatchObject({ tool: "browser.watch", args: { tell: true } });
+      else if (t.id === "script") expect(t.actions).toEqual([{ tool: "skills.run", args: { name: "" } }]);
+      else if (t.id === "command") expect(t.actions?.[0]).toMatchObject({ tool: "shell.run" });
       else expect(t.prompt).toContain("notify");
     }
     expect(describeCron(TEMPLATES[0]!.schedule)).toBe("Weekdays at 07:30");
