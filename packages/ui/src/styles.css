@@ -135,9 +135,7 @@ select {
 
 /* —— shell —— */
 .ops {
-  max-width: 1200px;
   margin: 0;
-  padding: 1.25rem 1.5rem 2rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -1723,17 +1721,21 @@ select {
 
 /* Beside a sidebar the page reads from the left edge; centring it left a
    gutter the chat list floated in. */
-.ops {
+/* The frame a page reads in: a reading width and the page gutter. On the
+   page rather than on the main element, so a page fading out keeps its own
+   frame while the next one arrives in its. */
+.ops-page {
+  width: 100%;
   max-width: 1200px;
-  margin: 0;
   padding: 1.25rem 1.5rem 4rem;
 }
 
 /* Exactly the viewport, so nothing behind the chat can scroll. The pane takes
    whatever is left after the top bar rather than guessing at its height. */
-.ops--full {
+.ops-page--full {
   height: 100vh;
   height: 100dvh;
+  flex: 1;
   /* The whole width. The page's 1200px cap is for reading; with the nav
      folded to a rail it left a blank strip down the window's right edge. */
   max-width: none;
@@ -1756,9 +1758,8 @@ select {
   flex-direction: column;
   min-height: 0;
 }
-.ops--full .ops-page { flex: 1; }
 
-.ops--full .chats {
+.ops-page--full .chats {
   flex: 1;
   height: auto;
   min-height: 0;
@@ -6314,8 +6315,8 @@ a.health {
 .side-backdrop { display: none; }
 @media (max-width: 860px) {
   .app { grid-template-columns: 1fr; }
-  .ops { padding: 0.75rem 1rem 2rem; }
-  .ops--full { height: calc(100dvh - 3.25rem); padding-top: 0.5rem; }
+  .ops-page { padding: 0.75rem 1rem 2rem; }
+  .ops-page--full { height: calc(100dvh - 3.25rem); padding-top: 0.5rem; }
   .phonebar {
     position: sticky;
     top: 0;

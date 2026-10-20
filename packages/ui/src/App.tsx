@@ -680,7 +680,7 @@ export function App(): React.ReactElement {
         onCopyWorkspace={() => void copyWorkspace()}
         onToggleKill={() => void toggleKill()}
       />
-      <main className={`ops ${route.name === "chats" || route.name === "project" || agentPage ? "ops--full" : ""}`}>
+      <main className="ops">
         <AnimatePresence>
           {toast && (
             <m.div
@@ -750,11 +750,15 @@ export function App(): React.ReactElement {
 
         {/* A page arriving. Keyed on the route so switching tabs is a change
             the eye can follow rather than a swap between two frames. Short
-            and small: this is orientation, not decoration. */}
+            and small: this is orientation, not decoration. The page carries
+            its own frame (a reading width and gutter, or the chat's full
+            bleed): on the main element the frame flipped the instant the
+            route changed, so the page still fading out jumped to the next
+            page's margins before it was gone. */}
         <AnimatePresence mode="wait" initial={false}>
           <m.div
             key={pageKeyOf(route)}
-            className="ops-page"
+            className={`ops-page ${route.name === "chats" || route.name === "project" || agentPage ? "ops-page--full" : ""}`}
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
