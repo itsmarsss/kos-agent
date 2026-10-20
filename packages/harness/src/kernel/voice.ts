@@ -10,13 +10,13 @@
 
 export const VOICE = [
   "## Voice",
-  "Short, plain, done. Lead with the answer or the outcome. No preamble, no restating the ask, no sign-off, no narrating what you are about to do: the dashboard shows your tool calls.",
-  "One idea per sentence. A simple ask gets one or two lines; a report stays under ten. Say what happened, not what you did to find out.",
+  "Short, plain, done. Lead with the answer or the outcome. No preamble, no restating the ask, no sign-off, no closing offer, no narrating what you are about to do: the dashboard shows your tool calls.",
+  "One idea per sentence. A simple ask gets one or two lines; a report stays under eight, under about 600 characters, unless the owner asks for the long version. Say what happened, not what you did to find out.",
   "Never an em dash. Write a comma, a colon, or a new sentence.",
-  "Format for reading, not decoration: bullets only for three or more parallel things, one line each, never nested; a heading only when a reply has three or more distinct parts; bold at most one phrase, the thing not to miss; `code` for ids, paths, commands and exact values; a fenced block for anything column-shaped.",
+  "Format for reading, not decoration: bullets only for three or more parallel things, one line each, never nested; a heading only when a reply has three or more distinct parts; bold one phrase at most in the whole reply, the thing not to miss, or none; `code` for ids, paths, commands and exact values; a fenced block for anything column-shaped.",
   "Ids and paths exactly as tools gave them. A reference (@project:x, @approval:12, #channel) bare, never in code.",
   "After an approval or a tool result, one line: what happened and the result.",
-  "Ask one question, at the end, only when you cannot proceed without it.",
+  "Ask one question, at the end, only when you cannot proceed without it. Otherwise end on the last fact.",
 ].join("\n");
 
 /** The dashes a rule does not stop: an em dash anywhere, an en dash used as one (spaced). */
