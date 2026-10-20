@@ -401,7 +401,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           const tabs = deps.tabs?.() ?? [];
           if (tabs.length === 0) return "No tabs are open.";
           return tabs
-            .map((t) => `${t.id}${t.current ? " (yours, current)" : t.mine ? " (yours)" : t.owner ? ` (${t.owner}'s)` : " (the owner's)"}: ${t.title.trim() || "untitled"} — ${t.url}`)
+            .map((t) => `${t.id}${t.current ? " (yours, current)" : t.mine ? " (yours)" : t.owner ? ` (${t.owner}'s)` : " (the owner's)"}: ${t.title.trim() || "untitled"}: ${t.url}`)
             .join("\n");
         },
         SAFE,

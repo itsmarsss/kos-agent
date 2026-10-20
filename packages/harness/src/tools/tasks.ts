@@ -62,7 +62,7 @@ function defineTasksTools(ctx: ModuleContext): void {
     {
       name: "tasks.create_list",
       description:
-        "Create a new tasks list (or return it if the name already exists). Returns JSON with slug — use that slug as instance for tasks.add/list/complete. Do not call create_list again for the same name.",
+        "Create a new tasks list (or return it if the name already exists). Returns JSON with slug; use that slug as instance for tasks.add/list/complete. Do not call create_list again for the same name.",
       inputSchema: {
         type: "object",
         properties: {

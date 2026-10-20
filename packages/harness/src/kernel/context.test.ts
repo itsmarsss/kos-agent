@@ -61,6 +61,13 @@ describe("assembleSystemPrompt", () => {
     expect(prompt.turnContext).toContain(TURN_CONTEXT_HEADER);
   });
 
+  it("puts the house voice right after the base prompt, with no em dash anywhere in the fixed half", () => {
+    const prompt = assembleSystemPrompt({ baseSystem: "You are KOS.", profile: DEFAULT_PROFILE, projects: [], recall: { facts: [], events: [] } });
+    expect(prompt.system.startsWith("You are KOS.\n\n## Voice\n")).toBe(true);
+    expect(prompt.system).toContain("Never an em dash.");
+    expect(prompt.system).not.toContain("—");
+  });
+
   it("opens the turn with the clock in the owner's zone, and keeps it out of the fixed half", () => {
     const prompt = assembleSystemPrompt({
       baseSystem: "You are KOS.",

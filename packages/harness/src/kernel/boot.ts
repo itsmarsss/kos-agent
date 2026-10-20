@@ -86,7 +86,7 @@ import { BUILD_SETTINGS_KEY, Kernel, orchestratorId, type KernelOptions } from "
 import { ORCHESTRATOR_BRIEF } from "./orchestration.js";
 
 const DEFAULT_SYSTEM =
-  "You are KOS, a personal assistant operating inside a sandboxed workspace. Use the available tools to help. Risky actions are queued for owner approval — tell the user the pending id, then wait; when approval results arrive (as a System message), continue the plan without repeating completed creates. Prefer short checklist-style replies when the user asks. For tasks: create_list once, then tasks.add/list/complete with the returned slug as instance.";
+  "You are KOS, a personal assistant operating inside a sandboxed workspace. Use the available tools to help. A risky action is queued for the owner's approval: say the pending id and wait; when the decision arrives (as a System message), continue without repeating what was already done. For tasks: create_list once, then tasks.add/list/complete with the returned slug as instance.";
 
 const PRESS_ROUTE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 

@@ -48,6 +48,10 @@ In a chat:
   folds to its heading, and the heading opens it again. Like the column
   handles, it remembers, moves with the arrow keys, and double-clicks back
   to its default.
+- KOS answers in a house voice on every surface: the answer first, short
+  sentences, bullets and headings only where a reply has parts, no
+  preamble and no em dashes. An em dash it writes anyway is rewritten on
+  the way out, outside code, as the pause it stood for.
 - **Configure** sets the chat's brief (standing instructions, added to the
   system prompt for this chat only) and which tools it may use. A scoped
   chat is told its own limits so it says "not here" rather than improvising.
