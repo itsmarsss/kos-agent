@@ -2898,6 +2898,16 @@ li:hover .chats-item-when { opacity: 0; }
   font-size: var(--text-base);
   transition: opacity 0.12s;
 }
+/* Messages waiting behind the turn, beside the dot that says it is running. */
+.chats-queued {
+  flex: none;
+  align-self: center;
+  font-size: var(--text-xs);
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
 
 /* What a thread is doing, in the place the timestamp would otherwise sit. */
 .chats-flag {

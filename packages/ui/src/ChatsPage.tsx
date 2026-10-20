@@ -74,7 +74,7 @@ import {
   type Live,
 } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
-import { ActivityDot, StatusDot } from "./StatusDot.js";
+import { ActivityDot, QueuedMark, StatusDot } from "./StatusDot.js";
 import { ArchiveIcon, GearIcon } from "./icons.js";
 import { ToolCall } from "./ToolCall.js";
 import { ChatConfig } from "./ChatConfig.js";
@@ -1300,6 +1300,7 @@ export function ChatsPage({
             {/* An agent working inside a project wears its role's face. */}
             {c.role && <Face seed={c.role} size={16} mood={moodOf(c.activity)} />}
             <span className="chats-item-title">{label ?? c.title}</span>
+            <QueuedMark n={c.queued} />
             <span className="chats-item-when">{relative(c.updatedAt)}</span>
           </span>
           {/* Title and state only. The brief and the tool list made every
@@ -1371,6 +1372,7 @@ export function ChatsPage({
                   <span className="chats-root-title">
                     Orchestrator
                     <ThreadDot live={progress[projectOrchestrator.id]} chat={projectOrchestrator} waiting={waitingOn.has(projectOrchestrator.id)} />
+                    <QueuedMark n={projectOrchestrator.queued} />
                   </span>
                   <span className="chats-root-sub">Plans the work and runs the agents</span>
                 </span>
@@ -1503,6 +1505,7 @@ export function ChatsPage({
                   <span className="chats-root-title">
                     {agentThread.title}
                     <ThreadDot live={progress[agentThread.id]} chat={agentThread} waiting={waitingOn.has(agentThread.id)} />
+                    <QueuedMark n={agentThread.queued} />
                   </span>
                   <span className="chats-root-sub">Its home thread: talk to it here, and its schedule runs here</span>
                 </span>
@@ -1732,6 +1735,7 @@ export function ChatsPage({
                     <span className="chats-item-top">
                       <ThreadDot live={progress[c.id]} chat={c} waiting={waitingOn.has(c.id)} />
                       <span className="chats-item-title">{c.title}</span>
+                      <QueuedMark n={c.queued} />
                       <span className="chats-item-when">
                         {relative(c.updatedAt)}
                       </span>
@@ -2354,6 +2358,9 @@ export function ChatsPage({
                         {p.text}
                         <span className="queued-mark">queued</span>
                       </div>
+                      {/* Where it came from, as it will read once sent: a
+                          message waiting from Discord is one here too. */}
+                      {p.origin && <OriginLine origin={p.origin} linkFor={channelLink} />}
                       {/* What came with it, by name: the files are kept when the turn runs. */}
                       {p.attachments.length > 0 && <AttachmentStrip items={p.attachments} />}
                       <div className="queued-actions">

@@ -21,6 +21,20 @@ export function StatusDot({ state, label }: { state: DotState; label: string }):
 
 type Activity = NonNullable<Conversation["activity"]>;
 
+/**
+ * How many messages wait behind the turn running in a thread. Discord says
+ * "queued" on the message itself; the list says it beside the dot, since a
+ * thread with three messages waiting is not the same as one mid-turn.
+ */
+export function QueuedMark({ n }: { n: number | undefined }): ReactElement | null {
+  if (!n) return null;
+  return (
+    <span className="chats-queued" title={`${n} message${n === 1 ? "" : "s"} sent while a turn runs here; they go next, in order`}>
+      {n} queued
+    </span>
+  );
+}
+
 /** The dot for a thread: what it is doing, else whether you have read it. */
 export function ActivityDot({
   activity,

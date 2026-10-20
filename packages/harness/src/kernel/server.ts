@@ -204,8 +204,11 @@ type Activity = "working" | "needs-you" | "error" | "idle";
  */
 function conversationLabeller(
   kernel: Kernel,
-): (c: Conversation) => Conversation & { kind: ConversationKind; activity: Activity; unread: boolean; lastError?: string } {
+): (c: Conversation) => Conversation & { kind: ConversationKind; activity: Activity; unread: boolean; lastError?: string; queued?: number } {
   const busy = new Set(kernel.busyConversations());
+  // Messages waiting behind the turn running in each, from any surface:
+  // Discord says "queued" on the message itself, and the list says it here.
+  const queued = kernel.pending.counts();
   const waiting = new Set(
     kernel.approvals
       .pending()
@@ -234,6 +237,7 @@ function conversationLabeller(
       unread: c.updatedAt > (c.readAt ?? 0),
       ...(activity === "error" ? { lastError: failed.get(c.id) } : {}),
       ...(c.role && faces.has(c.role) ? { face: faces.get(c.role) } : {}),
+      ...(queued[c.id] ? { queued: queued[c.id] } : {}),
     };
   };
 }
@@ -2628,6 +2632,7 @@ export async function handleApiRequest(
         id: m.id,
         text: m.text,
         attachments: m.attachments.map((a) => ({ name: a.name })),
+        ...(m.origin ? { origin: m.origin } : {}),
       })),
     });
   }

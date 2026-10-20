@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ActivityDot, fixLabel } from "./StatusDot.js";
+import { ActivityDot, fixLabel, QueuedMark } from "./StatusDot.js";
 
 afterEach(cleanup);
 
@@ -10,6 +10,17 @@ afterEach(cleanup);
  * A thread's state as a colour. The word that used to be in a chip is in
  * the tooltip, so a reader who hovers still gets it.
  */
+describe("the queued mark", () => {
+  it("counts the messages waiting behind a turn, and is nothing when none are", () => {
+    render(<QueuedMark n={2} />);
+    expect(screen.getByText("2 queued").getAttribute("title")).toContain("2 messages sent while a turn runs here");
+    cleanup();
+    const { container } = render(<QueuedMark n={0} />);
+    expect(container.textContent).toBe("");
+    expect(render(<QueuedMark n={undefined} />).container.textContent).toBe("");
+  });
+});
+
 describe("the activity dot", () => {
   it("is blue working, yellow waiting on you, red broken, green unread and grey read", () => {
     render(<ActivityDot activity="working" />);

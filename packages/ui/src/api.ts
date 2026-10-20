@@ -455,6 +455,8 @@ export interface Conversation {
   readAt?: number | null;
   /** Newer activity than the owner has seen. */
   unread?: boolean;
+  /** Messages waiting behind the turn running here, from any surface. */
+  queued?: number;
 }
 
 export interface ChatTurn {
@@ -583,6 +585,8 @@ export interface PendingMessage {
   id: number;
   text: string;
   attachments: { name: string }[];
+  /** Where it came from, when not typed here: shown under the bubble as it will be once sent. */
+  origin?: MessageOrigin;
 }
 
 /** How KOS behaves when nobody is telling it what to do. */
