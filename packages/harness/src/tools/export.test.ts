@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
-import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
+import { ModuleLoader, toolRegistryContext, type ModuleServices } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { exportModule, toCsv, toMarkdown } from "./export.js";
@@ -53,16 +53,20 @@ describe("export.query tool", () => {
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "kos-export-"));
     ws = Workspace.open(root);
-    ws.db.exec("CREATE TABLE tx (id INTEGER PRIMARY KEY, amount REAL, note TEXT)");
-    const insert = ws.db.prepare("INSERT INTO tx (amount, note) VALUES (?, ?)");
+    ws.db.exec("CREATE TABLE books_tx (id INTEGER PRIMARY KEY, amount REAL, note TEXT)");
+    const insert = ws.db.prepare("INSERT INTO books_tx (amount, note) VALUES (?, ?)");
     insert.run(12.5, "coffee");
     insert.run(40, "groceries");
 
     registry = new ToolRegistry();
+    // Asked as the Books project: an export reads through the same fence as sql.
+    const manifest = { list: () => [{ slug: "books", name: "Books" }] } as unknown as NonNullable<ModuleServices["manifest"]>;
     const ctx = toolRegistryContext(registry, {
       workspace: ws,
       db: ws.db,
       secrets: new SecretsRegistry(),
+      manifest,
+      callerProject: () => "books",
     });
     await new ModuleLoader(ctx).load([exportModule]);
   });
@@ -74,7 +78,7 @@ describe("export.query tool", () => {
 
   it("writes a csv into the workspace and reports the row count", async () => {
     const res = await registry.execute("export.query", {
-      query: "SELECT note, amount FROM tx ORDER BY amount",
+      query: "SELECT note, amount FROM books_tx ORDER BY amount",
       path: "exports/spend.csv",
       format: "csv",
     });
@@ -89,7 +93,7 @@ describe("export.query tool", () => {
 
   it("writes a pdf the owner can open", async () => {
     const res = await registry.execute("export.query", {
-      query: "SELECT note, amount FROM tx ORDER BY amount",
+      query: "SELECT note, amount FROM books_tx ORDER BY amount",
       path: "exports/spend.pdf",
       format: "pdf",
       title: "Spending",
@@ -102,7 +106,7 @@ describe("export.query tool", () => {
 
   it("writes markdown with a title", async () => {
     await registry.execute("export.query", {
-      query: "SELECT note FROM tx ORDER BY note",
+      query: "SELECT note FROM books_tx ORDER BY note",
       path: "exports/spend.md",
       format: "markdown",
       title: "Spending",
@@ -114,7 +118,7 @@ describe("export.query tool", () => {
 
   it("refuses a write query", async () => {
     const res = await registry.execute("export.query", {
-      query: "DELETE FROM tx",
+      query: "DELETE FROM books_tx",
       path: "exports/x.csv",
       format: "csv",
     });

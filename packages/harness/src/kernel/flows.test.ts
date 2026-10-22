@@ -221,8 +221,9 @@ describe("KOS end-to-end flows", () => {
   });
 
   it("queues a risky write, then resumes the plan after approval", async () => {
+    // In the project's own chat: a chat reaches the tables of the project it
+    // belongs to, so the work on Budget's table happens from inside Budget.
     const model = scripted([
-      toolCall("c1", "systems.project_create", { name: "Budget", type: "budget" }),
       toolCall("c2", "systems.migrate", {
         project: "budget",
         spec: {
@@ -249,8 +250,10 @@ describe("KOS end-to-end flows", () => {
       text("Removed the 40 dollar row."),
     ]);
     kernel = await boot(model.inference);
+    const budget = kernel.standUpProject({ name: "Budget", type: "budget" });
+    const inBudget = kernel.conversations.create({ userId: "owner", title: "Ledger", projectSlug: budget.slug });
 
-    await kernel.handleMessage("log a forty dollar expense, then take it back");
+    await kernel.handleMessage("log a forty dollar expense, then take it back", { sessionId: inBudget.id });
 
     const pending = kernel.approvals.pending();
     expect(pending).toHaveLength(1);

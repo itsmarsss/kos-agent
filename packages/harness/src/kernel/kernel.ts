@@ -79,7 +79,7 @@ import { SkillPromoter, type PromoteInput, type PromoteOutcome } from "../skills
 import { Workspace } from "../store/workspace.js";
 import { InstanceConfig } from "../systems/config.js";
 import { ProjectManifest } from "../systems/manifest.js";
-import { describeActive } from "../systems/schema.js";
+import { describeActive, describeProject, type ProjectSchema } from "../systems/schema.js";
 import { caller } from "./caller.js";
 import {
   deleteProject as cascadeDeleteProject,
@@ -99,7 +99,7 @@ import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
 import type { EventBus } from "../modules/events.js";
 import type { SuggestionStore } from "../improve/store.js";
 import { AfterTurn } from "./afterturn.js";
-import { Caretaker } from "./caretaker.js";
+import { Caretaker, MAINTENANCE, MAINTENANCE_BRIEF } from "./caretaker.js";
 import { Decisions, type DecisionResult } from "./decisions.js";
 import { assembleSystemPrompt, withoutTurnContext, channelGuidance } from "./context.js";
 import { GuardedTools } from "./guarded.js";
@@ -943,9 +943,7 @@ export class Kernel {
           profile: this.profile,
           now: Date.now(),
           projects,
-          // The tables those projects own. Without them the model guessed
-          // column names, and 77 sql calls on one workspace failed that way.
-          schemas: describeActive(this.workspace.db, projects),
+          schemas: this.schemasFor(conversation?.projectSlug ?? undefined),
           skills: this.skillsOffered(conversation?.projectSlug ?? undefined),
           recall,
           ...(extra ? { extra } : {}),
@@ -1628,7 +1626,8 @@ export class Kernel {
       title: project.name,
       channel: "dashboard",
       projectSlug: slug,
-      brief: [
+      // Maintenance is not a project like the others; its brief says what it is for.
+      brief: slug === MAINTENANCE.slug ? MAINTENANCE_BRIEF : [
         `You are the orchestrator for the project "${project.name}" (slug ${slug}).`,
         "Run this project for the owner: it is theirs, and it is whatever they need it to be.",
         "Some projects are built things, with tables, pages or a site; many are mostly",
@@ -1895,6 +1894,23 @@ export class Kernel {
       return { name: this.titleOf(from.id), avatar: this.face() };
     }
     return { name: from.kind === "schedule" ? `schedule · ${from.name}` : from.name, avatar: this.face() };
+  }
+
+  /**
+   * The tables a turn is shown, with their columns, so it types names it
+   * has seen (without them 77 sql calls on one workspace guessed wrong):
+   * its own project's, and no other's. Maintenance, where repairs go
+   * anywhere, is shown every active project's. A chat with no project is
+   * shown none. Every turn used to be shown every project's tables, which
+   * is where the looking around began.
+   */
+  schemasFor(slug: string | undefined): ProjectSchema[] {
+    const projects = this.manifest.list();
+    if (slug === MAINTENANCE.slug) return describeActive(this.workspace.db, projects);
+    const own = slug ? projects.find((p) => p.slug === slug) : undefined;
+    if (!own) return [];
+    const schema = describeProject(this.workspace.db, own.slug, own.lastTouchedAt, projects.map((p) => p.slug));
+    return schema.tables.length ? [schema] : [];
   }
 
   /** What a chat is called where it is shown elsewhere: a project's name, a blob's title, a chat's title. */
@@ -2719,9 +2735,7 @@ export class Kernel {
       profile: this.profile,
       now: Date.now(),
       projects,
-      // The tables those projects own. Without them the model guessed
-      // column names, and 77 sql calls on one workspace failed that way.
-      schemas: describeActive(this.workspace.db, projects),
+      schemas: this.schemasFor(job.projectSlug ?? undefined),
       skills: this.skillsOffered(job.projectSlug ?? undefined),
       recall,
       extra: [

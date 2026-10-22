@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ToolRegistry } from "../agent/registry.js";
-import { ModuleLoader, toolRegistryContext } from "../modules/loader.js";
+import { ModuleLoader, toolRegistryContext, type ModuleServices } from "../modules/loader.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
 import { sqlModule } from "./sql.js";
@@ -17,15 +17,19 @@ describe("sqlModule", () => {
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "kos-sql-"));
     ws = Workspace.open(root);
-    ws.db.exec("CREATE TABLE tx (id INTEGER PRIMARY KEY, amount REAL)");
-    registry = new ToolRegistry();
-    const ctx = toolRegistryContext(registry, {
-      workspace: ws,
-      db: ws.db,
-      secrets: new SecretsRegistry(),
-    });
-    await new ModuleLoader(ctx).load([sqlModule]);
+    ws.db.exec("CREATE TABLE books_tx (id INTEGER PRIMARY KEY, amount REAL)");
+    ws.db.exec("CREATE TABLE garden_beds (id INTEGER PRIMARY KEY)");
+    registry = await harness("books");
   });
+
+  /** The sql tool as one chat sees it: the caller's project, and the projects that exist. */
+  async function harness(project: string | undefined): Promise<ToolRegistry> {
+    const made = new ToolRegistry();
+    const manifest = { list: () => [{ slug: "books", name: "Books" }, { slug: "garden", name: "Garden" }, { slug: "maintenance", name: "Maintenance" }] } as unknown as NonNullable<ModuleServices["manifest"]>;
+    const ctx = toolRegistryContext(made, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), manifest, ...(project ? { callerProject: () => project } : {}) });
+    await new ModuleLoader(ctx).load([sqlModule]);
+    return made;
+  }
 
   afterEach(() => {
     ws.close();
@@ -33,9 +37,9 @@ describe("sqlModule", () => {
   });
 
   it("runs a parameterized SELECT and returns rows", async () => {
-    ws.db.prepare("INSERT INTO tx (amount) VALUES (10), (20)").run();
+    ws.db.prepare("INSERT INTO books_tx (amount) VALUES (10), (20)").run();
     const res = await registry.execute("sql", {
-      sql: "SELECT amount FROM tx WHERE amount > ? ORDER BY amount",
+      sql: "SELECT amount FROM books_tx WHERE amount > ? ORDER BY amount",
       params: [5],
     });
     expect(res.isError).toBe(false);
@@ -44,7 +48,7 @@ describe("sqlModule", () => {
 
   it("runs a write and reports changes", async () => {
     const res = await registry.execute("sql", {
-      sql: "INSERT INTO tx (amount) VALUES (?)",
+      sql: "INSERT INTO books_tx (amount) VALUES (?)",
       params: [99],
     });
     expect(JSON.parse(res.content).changes).toBe(1);
@@ -52,9 +56,9 @@ describe("sqlModule", () => {
 
   it("classifies SELECT and INSERT safe, UPDATE and DELETE risky", () => {
     expect(registry.classify("sql", { sql: "SELECT 1" }).tier).toBe("safe");
-    expect(registry.classify("sql", { sql: "INSERT INTO tx (a) VALUES (1)" }).tier).toBe("safe");
-    expect(registry.classify("sql", { sql: "UPDATE tx SET a = 2" }).tier).toBe("risky");
-    expect(registry.classify("sql", { sql: "DELETE FROM tx" }).tier).toBe("risky");
+    expect(registry.classify("sql", { sql: "INSERT INTO books_tx (a) VALUES (1)" }).tier).toBe("safe");
+    expect(registry.classify("sql", { sql: "UPDATE books_tx SET a = 2" }).tier).toBe("risky");
+    expect(registry.classify("sql", { sql: "DELETE FROM books_tx" }).tier).toBe("risky");
   });
 
   it("refuses KOS's own tables outside Maintenance, and the trust tables everywhere", async () => {
@@ -64,29 +68,43 @@ describe("sqlModule", () => {
     const read = await registry.execute("sql", { sql: "SELECT * FROM conversations" });
     expect(read.isError).toBe(true);
     expect(read.content).toMatch(/KOS's own/);
-    // The schema listing goes through, without KOS's rows.
+    // The schema is not a project's to list.
     const listed = await registry.execute("sql", { sql: "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name" });
-    expect(JSON.parse(listed.content)).toEqual([{ name: "tx" }]);
+    expect(listed.isError).toBe(true);
+    expect(listed.content).toMatch(/schema is Maintenance's to read/);
     // The same, asked from Maintenance: reads allowed, the trust tables still not written.
-    const maintenance = new ToolRegistry();
-    const ctx = toolRegistryContext(maintenance, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), callerProject: () => "maintenance" });
-    await new ModuleLoader(ctx).load([sqlModule]);
+    const maintenance = await harness("maintenance");
     expect(JSON.parse((await maintenance.execute("sql", { sql: "SELECT title FROM conversations" })).content)).toEqual([{ title: "Main" }]);
     const trust = await maintenance.execute("sql", { sql: "UPDATE pending_actions SET status = 'approved'" });
     expect(trust.isError).toBe(true);
     expect(trust.content).toMatch(/trust tables/);
-    expect(JSON.parse((await maintenance.execute("sql", { sql: "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name" })).content).map((r: { name: string }) => r.name)).toEqual(["conversations", "pending_actions", "tx"]);
+    expect(JSON.parse((await maintenance.execute("sql", { sql: "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name" })).content).map((r: { name: string }) => r.name)).toEqual(["books_tx", "conversations", "garden_beds", "pending_actions"]);
+  });
+
+  it("reaches another project's table only from Maintenance, and no table from a chat with no project", async () => {
+    const theirs = await registry.execute("sql", { sql: "SELECT * FROM garden_beds" });
+    expect(theirs.isError).toBe(true);
+    expect(theirs.content).toMatch(/garden_beds is the Garden project's, not this project's/);
+    expect(theirs.content).toMatch(/@project:maintenance/);
+    const loose = await harness(undefined);
+    const nothing = await loose.execute("sql", { sql: "SELECT * FROM books_tx" });
+    expect(nothing.isError).toBe(true);
+    expect(nothing.content).toMatch(/books_tx is the Books project's/);
+    expect(nothing.content).toMatch(/ask KOS at the root/);
+    expect((await loose.execute("sql", { sql: "SELECT 1 AS n" })).isError).toBe(false);
+    const maintenance = await harness("maintenance");
+    expect((await maintenance.execute("sql", { sql: "SELECT * FROM garden_beds" })).isError).toBe(false);
   });
 
   it("rejects DDL (must use migrate)", async () => {
-    const res = await registry.execute("sql", { sql: "DROP TABLE tx" });
+    const res = await registry.execute("sql", { sql: "DROP TABLE books_tx" });
     expect(res.isError).toBe(true);
     expect(res.content).toMatch(/migrate/);
   });
 
   it("rejects stacked statements", async () => {
     const res = await registry.execute("sql", {
-      sql: "SELECT 1; DELETE FROM tx",
+      sql: "SELECT 1; DELETE FROM books_tx",
     });
     expect(res.isError).toBe(true);
     expect(res.content).toMatch(/multiple statements/);
@@ -102,14 +120,17 @@ describe("missing table errors", () => {
     root = mkdtempSync(join(tmpdir(), "kos-sqlerr-"));
     ws = Workspace.open(root);
     ws.db.exec(`CREATE TABLE budget_tracker_expenses (id INTEGER PRIMARY KEY)`);
-    registry = new ToolRegistry();
-    const ctx = toolRegistryContext(registry, {
-      workspace: ws,
-      db: ws.db,
-      secrets: new SecretsRegistry(),
-    });
-    await new ModuleLoader(ctx).load([sqlModule]);
+    ws.db.exec(`CREATE TABLE books_items (id INTEGER PRIMARY KEY)`);
+    registry = await scoped("budget_tracker");
   });
+
+  async function scoped(project: string | undefined): Promise<ToolRegistry> {
+    const made = new ToolRegistry();
+    const manifest = { list: () => [{ slug: "budget_tracker", name: "Budget" }, { slug: "books", name: "Books" }] } as unknown as NonNullable<ModuleServices["manifest"]>;
+    const ctx = toolRegistryContext(made, { workspace: ws, db: ws.db, secrets: new SecretsRegistry(), manifest, ...(project ? { callerProject: () => project } : {}) });
+    await new ModuleLoader(ctx).load([sqlModule]);
+    return made;
+  }
 
   afterEach(() => {
     ws.close();
@@ -132,9 +153,24 @@ describe("missing table errors", () => {
     expect(res.content).toContain('use "budget_tracker_expenses"');
   });
 
-  it("lists what exists when the name resembles nothing", async () => {
+  it("lists the project's own tables when the name resembles nothing, and points on", async () => {
     const res = await registry.execute("sql", { sql: "SELECT * FROM nonsense" });
     expect(res.isError).toBe(true);
-    expect(res.content).toContain("budget_tracker_expenses");
+    expect(res.content).toContain("This project's tables: budget_tracker_expenses");
+    expect(res.content).not.toContain("books_items");
+    expect(res.content).toContain("@project:maintenance");
+  });
+
+  it("says whose a table is when another project's was named, and that a loose chat has none", async () => {
+    const theirs = await registry.execute("sql", { sql: "SELECT * FROM items" });
+    expect(theirs.isError).toBe(true);
+    expect(theirs.content).toMatch(/That is the Books project's table, not this chat's/);
+    expect(theirs.content).toContain("@project:books");
+    const loose = await scoped(undefined);
+    const none = await loose.execute("sql", { sql: "SELECT * FROM nonsense" });
+    expect(none.content).toMatch(/belongs to no project, so no table is its to read/);
+    // Maintenance is shown everything, as before.
+    const maintenance = await scoped("maintenance");
+    expect((await maintenance.execute("sql", { sql: "SELECT * FROM nonsense" })).content).toContain("Tables in this workspace: books_items, budget_tracker_expenses");
   });
 });
