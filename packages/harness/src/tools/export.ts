@@ -5,6 +5,8 @@ import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import type { Workspace } from "../store/workspace.js";
 import { runDisplayQuery } from "../systems/display.js";
+import { fence, tableNames } from "./fence.js";
+import { reachOf } from "./sql.js";
 import { toPdf } from "./pdf.js";
 
 /**
@@ -105,6 +107,9 @@ function defineExportTool(ws: Workspace, ctx: ModuleContext): void {
         typeof input.rowCap === "number" && input.rowCap > 0
           ? Math.floor(input.rowCap)
           : undefined;
+      // The same reach as the sql tool: an export is a read of the same tables.
+      const verdict = fence(str(input, "query"), tableNames(ws.db), reachOf(ctx));
+      if (!verdict.ok) throw new Error(verdict.reason);
       const result = runDisplayQuery(ws.reader, str(input, "query"), {
         ...(rowCap !== undefined ? { rowCap } : {}),
       });

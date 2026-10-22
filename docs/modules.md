@@ -49,22 +49,35 @@ new slug, the pages written for it, its jobs made and left off. Make one
 under Settings, Modules, or with `modules.instantiate`. A module with both
 a server and a blueprint has its tools scoped to its instances.
 
-## KOS's own tables
+## Whose tables are whose
 
-The workspace database holds a project's tables, namespaced to its slug
-and the agent's to read and write through `sql`, and KOS's own:
-conversations and transcripts, jobs, the approval queue, the permission
-rules, memory, the audit log. The agent does not reach those through
-`sql`, reads included, and the shell refuses a command line that names
+The workspace database holds each project's tables, namespaced to its
+slug, and KOS's own: conversations and transcripts, jobs, the approval
+queue, the permission rules, memory, the audit log. A chat reaches the
+tables of the project it belongs to through `sql` and `export.query`,
+and nothing else: not another project's (a refusal says whose the table
+is and to hand the question there), not KOS's own (read through the
+tools for the job, `cron.list`, `chats.list` and `chats.read`,
+`tasks.list`, `blobs.list`, `memory.recall`, `discord.threads`), and not
+the schema itself (`sqlite_master`, `PRAGMA`). A chat with no project has
+no tables; it asks KOS at the root, which routes the question to the
+project that owns the data. Each turn's prompt lists its own project's
+tables with their columns, so the model types names it has seen and
+nothing it has not. The shell refuses a command line that names
 `kos.sqlite` rather than asking you to let it through: the road around
-the fence would otherwise be one yes away. What those tables hold is
-read through the tools for the job, `cron.list`, `chats.list` and
-`chats.read`, `tasks.list`, `blobs.list`, `memory.recall`,
-`discord.threads`, and the turn's guidance says so. Maintenance, where
-KOS repairs itself, is the exception: there `sql` reads KOS's tables
-and writes them with your yes, the shell asks as for any command that
-writes, and the trust tables (approvals, permissions, the kill switch)
-are never written by a model from anywhere.
+the fence would otherwise be one yes away.
+
+The guidance draws the line at ownership: your own table is your work,
+read it and write it as the work needs; anything that looks wrong, a job
+that failed, a table that is not what you expected, a count that makes no
+sense, is handed to Maintenance (`chats.handoff` to
+`@project:maintenance`) with what was seen, not investigated. Maintenance
+is where KOS repairs itself and the one chat that browses: there `sql`
+reads KOS's tables and every project's, and the schema, and writes with
+your yes; the shell asks as for any command that writes; the trust tables
+(approvals, permissions, the kill switch) are never written by a model
+from anywhere. Its orchestrator carries a brief to match, and its answer
+comes back to the chat that handed the matter over as a note.
 
 ## Promotion
 

@@ -359,6 +359,22 @@ describe("Kernel", () => {
     expect(kernel.sessions.get(target.id).filter((m) => m.role === "user").at(-1)?.origin).toEqual({ via: "dispatch", from: { kind: "chat", id: projectChat, name: "Club" } });
   });
 
+  it("shows a turn its own project's tables, Maintenance every project's, and a loose chat none; Maintenance carries its own brief", async () => {
+    kernel = await boot(stubInference([]));
+    const books = kernel.standUpProject({ name: "Books", type: "tracker" });
+    const garden = kernel.standUpProject({ name: "Garden", type: "notes" });
+    kernel.workspace.db.exec("CREATE TABLE books_items (id INTEGER PRIMARY KEY, title TEXT)");
+    kernel.workspace.db.exec("CREATE TABLE garden_beds (id INTEGER PRIMARY KEY)");
+    expect(kernel.schemasFor(books.slug).map((s) => [s.slug, s.tables.map((t) => t.name)])).toEqual([["books", ["books_items"]]]);
+    expect(kernel.schemasFor(garden.slug).map((s) => s.slug)).toEqual(["garden"]);
+    expect(kernel.schemasFor(undefined)).toEqual([]);
+    expect(kernel.schemasFor("nowhere")).toEqual([]);
+    expect(kernel.schemasFor("maintenance").map((s) => s.slug).sort()).toEqual(["books", "garden"]);
+    // The repair shop's orchestrator says what it is for; any other project's says the ordinary thing.
+    expect(kernel.ensureProjectConversation("maintenance").brief).toContain("where KOS repairs itself");
+    expect(kernel.ensureProjectConversation(books.slug).brief).toContain('orchestrator for the project "Books"');
+  });
+
   it("refuses to pass work back to a chat it came through, or on a fourth time", async () => {
     // Each turn hands the work on to the next chat in the script, through the tool, as an agent would.
     // Which chat a turn is comes from its brief: the kernel's own notion of

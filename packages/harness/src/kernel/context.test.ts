@@ -65,6 +65,9 @@ describe("assembleSystemPrompt", () => {
     const prompt = assembleSystemPrompt({ baseSystem: "You are KOS.", profile: DEFAULT_PROFILE, projects: [], recall: { facts: [], events: [] } });
     expect(prompt.system.startsWith("You are KOS.\n\n## Voice\n")).toBe(true);
     expect(prompt.system).toContain("Never an em dash.");
+    // Your own table is your work; anything odd goes to Maintenance, not under the hood.
+    expect(prompt.system).toContain("hand it to Maintenance (chats.handoff to @project:maintenance)");
+    expect(prompt.system).not.toContain("Prefer sql SELECT for inspection");
     expect(prompt.system).not.toContain("—");
   });
 
