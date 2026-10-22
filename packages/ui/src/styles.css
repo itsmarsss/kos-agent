@@ -1735,7 +1735,12 @@ select {
 .ops-page--full {
   height: 100vh;
   height: 100dvh;
-  flex: 1;
+  /* Its own definite height, not flex-grown. main is only min-height: 100vh
+     now (the frame moved here in #446), so `flex: 1` -> flex-basis 0 made the
+     page grow to its content height instead of one viewport, and the whole
+     document scrolled instead of the list inside it. flex: none keeps the
+     height above as the used height. */
+  flex: none;
   /* The whole width. The page's 1200px cap is for reading; with the nav
      folded to a rail it left a blank strip down the window's right edge. */
   max-width: none;
