@@ -1129,6 +1129,50 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   /**
+   * A thread under the channel a project (or blob) is bound to, made now
+   * rather than waiting for the next layout, so a chat the orchestrator just
+   * created has a home on Discord at once. Returns the thread's id, or
+   * nothing when that channel is not on the server yet.
+   */
+  async ensureThread(channelKey: string, conversationId: string, title: string): Promise<string | undefined> {
+    const channelId = this.boundIds.get(channelKey);
+    if (!channelId) return undefined;
+    const channel = await this.client.channels.fetch(channelId).catch(() => null);
+    const threads = (channel as { threads?: { create?: (o: unknown) => Promise<{ id: string }> } } | null)?.threads;
+    if (!threads?.create) return undefined;
+    const made = await threads.create({ name: title.trim().slice(0, 100) || "Chat", autoArchiveDuration: 10080, reason: `KOS: ${conversationId}` }).catch(() => undefined);
+    if (!made) return undefined;
+    this.boundThreads.add(conversationId);
+    return made.id;
+  }
+
+  /**
+   * A live, editable line for a turn's story in a channel or thread, the way
+   * acknowledge gives one for a DM: the bot's own message, suppressed so it
+   * does not buzz, formatted as the DM story is (steps as subtext, references
+   * linked). The answer is its own message, posted after. Nothing when the
+   * target cannot be posted in.
+   */
+  async openStory(targetId: string): Promise<{ edit(text: string): Promise<void>; remove(): Promise<void> } | undefined> {
+    const channel = (await this.client.channels.fetch(targetId).catch(() => null)) as
+      | { isSendable?: () => boolean; send?: (p: unknown) => Promise<{ edit: (p: unknown) => Promise<unknown>; delete: () => Promise<unknown> }> }
+      | null;
+    if (!channel?.send || (channel.isSendable && !channel.isSendable())) return undefined;
+    const posted = await channel.send({ content: THINKING, flags: MessageFlags.SuppressNotifications }).catch(() => undefined);
+    if (!posted) return undefined;
+    return {
+      edit: async (text: string) => {
+        const content = storyText(text, this.dashboardUrl, this.timezone, this.labelOf);
+        if (!content.trim()) return;
+        await posted.edit({ content }).catch(() => undefined);
+      },
+      remove: async () => {
+        await posted.delete().catch(() => undefined);
+      },
+    };
+  }
+
+  /**
    * Say something in a channel or thread of the server, as the blob when
    * the message is a blob's, as KOS otherwise. A turn taken on the
    * dashboard is shown here through this, so a thread is the chat it stands
