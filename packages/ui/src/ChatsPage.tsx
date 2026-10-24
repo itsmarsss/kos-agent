@@ -507,6 +507,16 @@ export function ChatsPage({
   };
   /** A channel opens on Discord; everything else has a page here. */
   const channelLink = (name: string): string | undefined => channels.find((c) => c.name.toLowerCase() === name.toLowerCase())?.url;
+  // The guild base of a Discord URL (https://discord.com/channels/<guild>),
+  // taken from any channel's own url, so a thread links by its id the way a
+  // channel links by name.
+  const discordBase = useMemo(() => {
+    const u = channels.find((c) => c.url)?.url;
+    const cut = u ? u.lastIndexOf("/") : -1;
+    return cut > 0 ? u!.slice(0, cut) : undefined;
+  }, [channels]);
+  const roomLink = (room: { kind: string; id?: string; name?: string }): string | undefined =>
+    room.id && discordBase ? `${discordBase}/${room.id}` : room.kind === "channel" && room.name ? channelLink(room.name) : undefined;
   const channelHref = (kind: string, id: string): string | undefined => (kind === "channel" ? channelLink(id) : undefined);
 
   /**
@@ -1166,7 +1176,7 @@ export function ChatsPage({
             <Markdown text={e.text} />
           </div>
         )}
-        {e.origin && <OriginLine origin={e.origin} linkFor={channelLink} />}
+        {e.origin && <OriginLine origin={e.origin} linkFor={roomLink} />}
         {/* Outside the bubble, under it: an attachment is a thing that came
             with the message, not part of the sentence. The files the message
             mentions sit there too, for the same reason. */}
@@ -2156,7 +2166,7 @@ export function ChatsPage({
                   <div className="bubble bubble--you">
                     <Markdown text={live.said} />
                   </div>
-                  {live.origin ? <OriginLine origin={live.origin} linkFor={channelLink} /> : live.from && live.from !== "dashboard" && <span className="turn-via">via {live.from}</span>}
+                  {live.origin ? <OriginLine origin={live.origin} linkFor={roomLink} /> : live.from && live.from !== "dashboard" && <span className="turn-via">via {live.from}</span>}
                   {live.files && live.files.length > 0 && <AttachmentStrip items={live.files} />}
                 </div>
               )}
@@ -2360,7 +2370,7 @@ export function ChatsPage({
                       </div>
                       {/* Where it came from, as it will read once sent: a
                           message waiting from Discord is one here too. */}
-                      {p.origin && <OriginLine origin={p.origin} linkFor={channelLink} />}
+                      {p.origin && <OriginLine origin={p.origin} linkFor={roomLink} />}
                       {/* What came with it, by name: the files are kept when the turn runs. */}
                       {p.attachments.length > 0 && <AttachmentStrip items={p.attachments} />}
                       <div className="queued-actions">
