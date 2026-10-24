@@ -28,6 +28,7 @@ import {
 } from "@kos/harness";
 
 import { envFilePath } from "./env.js";
+import { ThreadMirror } from "./threadmirror.js";
 import { claimHandle, type HandleClaim } from "./imessagelock.js";
 import { clearDaemonState, writeDaemonState } from "./state.js";
 
@@ -555,14 +556,53 @@ export async function runHost(options: HostOptions): Promise<void> {
       await sync(true);
       setInterval(() => void sync(false), 5 * 60_000).unref();
       /*
-       * The server shows every exchange, wherever it happened. A turn taken
-       * on the dashboard, by a schedule or by a dispatch lands in the
-       * channel or thread for that chat: the owner's words quoted, the
-       * answer as KOS or as the blob. A turn that came in from Discord is
-       * already there, so it is skipped.
+       * The server shows every exchange, wherever it happened, as it happens.
+       * A turn taken on the dashboard, handed off, or dispatched by an
+       * orchestrator lands in the channel or thread for that chat: the
+       * incoming message when the turn starts (the thread made on demand if
+       * it is not there yet), the steps narrated in place, the answer when it
+       * is ready. A turn that came in from Discord is already shown there and
+       * is left to the presence running it; a scheduled job posts its one
+       * result under its own name through the handler below.
        */
-      kernel.bus.on("turn:said", async (said) => {
+      const mirror = new ThreadMirror({
+        targetFor: (conv) => adapter?.mirrorTarget(conv, kernel.threadBindings()),
+        projectOf: (conv) => {
+          try {
+            return kernel.conversations.get(conv)?.projectSlug ?? undefined;
+          } catch {
+            return undefined;
+          }
+        },
+        ensureThread: (key, conv, title) => adapter!.ensureThread(key, conv, title),
+        bindThread: (threadId, conv) => kernel.bindThread(threadId, conv),
+        titleOf: (conv) => kernel.titleOf(conv),
+        speakerFor: (from) => kernel.speakerFor(from),
+        ownerSender: () => adapter!.ownerSender(),
+        senderFor: (conv) => kernel.senderFor(conv),
+        filesFor: (files) =>
+          files.flatMap((f) => {
+            try {
+              return [{ name: f.name, mediaType: "application/octet-stream", data: readFileSync(kernel.workspace.resolve(f.path)).toString("base64"), path: f.path }];
+            } catch {
+              return [];
+            }
+          }),
+        postIn: (target, msg) => adapter!.postIn(target, msg),
+        openStory: (target) => adapter!.openStory(target),
+        warn: (message) => console.warn(`[discord] thread mirror: ${message}`),
+      });
+      kernel.progress.subscribe((event) => mirror.onProgress(event));
+      /*
+       * A turn's exchange, told once it has happened. The mirror handles the
+       * turns it has been narrating in a thread (it posts the answer and
+       * closes the story); everything else, a scheduled job's result or a
+       * resumed Discord turn, runs the handler below.
+       */
+      kernel.bus.on("turn:said", (said) => {
         if (!adapter) return;
+        mirror.onSaid(said, async () => {
+          if (!adapter) return;
         // A turn from Discord is answered by the presence that took it; one
         // that waited on an approval was answered "waiting on you" there, and
         // the answer after the decision has only this way back.
@@ -605,6 +645,7 @@ export async function runHost(options: HostOptions): Promise<void> {
           }
         }
         if (said.reply.trim()) await adapter.postIn(target, { text: said.reply, ...(from ? { from } : {}) });
+        });
       });
       // A slash command typed on the dashboard is a small line in the chat's
       // channel or thread, with the first line of what it answered.

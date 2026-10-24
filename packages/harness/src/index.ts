@@ -51,3 +51,12 @@ export {
   type McpServerConfig,
 } from "./tools/mcp.js";
 export { SettingsStore } from "./store/settings.js";
+
+// Live turn narration and the progress stream, so a surface outside the
+// kernel (the host's Discord thread mirror) can tell a turn's story as it
+// runs and post the incoming message and reply around it.
+export { TurnNarrator, STEP_MARK } from "./channels/narrate.js";
+export type { ProgressEvent, ProgressListener } from "./kernel/progress.js";
+export type { Sender } from "./channels/types.js";
+export type { MessageFrom, MessageOrigin, MessageRoom } from "./models/types.js";
+export type { Attachment } from "./kernel/attachments.js";
