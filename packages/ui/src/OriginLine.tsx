@@ -24,11 +24,11 @@ export function originWords(origin: MessageOrigin): { text: string; href?: strin
 }
 
 /**
- * The line under an owner bubble that says where the words came from. A
- * channel named in it is a link to the channel, when the page knows where
- * it is.
+ * The line under an owner bubble that says where the words came from. The
+ * room named in it, a channel or a thread, is a link to it on Discord when
+ * the page can work out where it is: a channel by name, a thread by its id.
  */
-export function OriginLine({ origin, linkFor }: { origin: MessageOrigin; linkFor?: (channel: string) => string | undefined }): ReactElement | null {
+export function OriginLine({ origin, linkFor }: { origin: MessageOrigin; linkFor?: (room: NonNullable<MessageOrigin["room"]>) => string | undefined }): ReactElement | null {
   const words = originWords(origin);
   if (!words) return null;
   if (words.href) {
@@ -38,8 +38,7 @@ export function OriginLine({ origin, linkFor }: { origin: MessageOrigin; linkFor
       </a>
     );
   }
-  const room = origin.room?.kind === "channel" && origin.room.name ? origin.room.name : undefined;
-  const href = room && words.room ? linkFor?.(room) : undefined;
+  const href = origin.room && words.room ? linkFor?.(origin.room) : undefined;
   if (!href || !words.room) return <span className="turn-via">{words.text}</span>;
   const at = words.text.indexOf(words.room);
   return (

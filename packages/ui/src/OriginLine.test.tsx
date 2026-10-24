@@ -28,7 +28,7 @@ describe("where a message came from, in words", () => {
 describe("the line under a bubble", () => {
   it("links the channel it names when the page knows where it is, and leaves the rest as words", () => {
     const { container } = render(
-      <OriginLine origin={{ via: "discord", room: { kind: "channel", name: "verity" } }} linkFor={(name) => (name === "verity" ? "https://discord.com/channels/g/c1" : undefined)} />,
+      <OriginLine origin={{ via: "discord", room: { kind: "channel", name: "verity" } }} linkFor={(r) => (r.name === "verity" ? "https://discord.com/channels/g/c1" : undefined)} />,
     );
     const line = container.querySelector(".turn-via")!;
     expect(line.textContent).toBe("via #verity on Discord");
@@ -39,5 +39,19 @@ describe("the line under a bubble", () => {
     const { container: plain } = render(<OriginLine origin={{ via: "discord", room: { kind: "channel", name: "elsewhere" } }} linkFor={() => undefined} />);
     expect(plain.querySelector(".turn-via a")).toBeNull();
     expect(plain.querySelector(".turn-via")?.textContent).toBe("via #elsewhere on Discord");
+  });
+
+  it("links a thread by its id, so 'via thread X' opens the thread on Discord", () => {
+    const { container } = render(
+      <OriginLine
+        origin={{ via: "discord", room: { kind: "thread", id: "t9", name: "School Tables" } }}
+        linkFor={(r) => (r.kind === "thread" && r.id ? `https://discord.com/channels/g/${r.id}` : undefined)}
+      />,
+    );
+    const line = container.querySelector(".turn-via")!;
+    expect(line.textContent).toBe("via thread School Tables on Discord");
+    const link = line.querySelector("a")!;
+    expect(link.textContent).toBe("thread School Tables");
+    expect(link.getAttribute("href")).toBe("https://discord.com/channels/g/t9");
   });
 });
