@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { plainName, priorForSdk, sdkName } from "./sdkchat.js";
+import { joinSaid, plainName, priorForSdk, sdkName } from "./sdkchat.js";
 
 /**
  * The names are the containment boundary.
@@ -74,5 +74,17 @@ describe("carrying the conversation", () => {
     );
     expect(out).toContain("Owner: hello");
     expect(out).not.toContain("tool_use");
+  });
+});
+
+describe("joining what was said across steps", () => {
+  it("puts a space between a sentence end and the next start, and nowhere one already is", () => {
+    expect(joinSaid("Flagging that first.", "Plan file exists.")).toBe("Flagging that first. Plan file exists.");
+    expect(joinSaid("the weekend has now passed.", "Plan revised and sent.")).toBe("the weekend has now passed. Plan revised and sent.");
+    expect(joinSaid("", "First.")).toBe("First.");
+    expect(joinSaid("Only this.", "")).toBe("Only this.");
+    // A side that already ends or starts with whitespace is left exactly as is.
+    expect(joinSaid("line one\n", "line two")).toBe("line one\nline two");
+    expect(joinSaid("checking the", " plan")).toBe("checking the plan");
   });
 });
