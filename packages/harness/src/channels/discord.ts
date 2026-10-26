@@ -823,6 +823,11 @@ export class DiscordAdapter implements ChannelAdapter {
   /** Gateway MessageCreate handler. Internal; separated for tests. */
   async receiveMessage(message: Message): Promise<void> {
     if (message.author.bot) return;
+    // A Discord system message is not something anyone said: starting a
+    // thread, pinning, a join. The "thread created" one carries the thread's
+    // name as its content, so without this KOS read "Test" as a question and
+    // answered it. Only a plain message or a reply is a turn.
+    if (message.system) return;
     // In a server, only the owner's server, only its bound channels, and
     // only the owner: anyone else in the channel is read as the room's
     // own talk, which KOS stays out of.

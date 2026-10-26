@@ -704,6 +704,10 @@ describe("DiscordAdapter authorization", () => {
     // A thread under a project's channel is a chat of that project, titled as the thread.
     await adapter.receiveMessage(inGuild("owner-id", "g1", { id: "t9", name: "Seeds", isThread: () => true, parent: { topic: "kos:project:garden · Garden" } }));
     expect(messages[2]).toMatchObject({ conversationId: "discord:thread:t9", newIn: { projectSlug: "garden", title: "Seeds" }, room: { kind: "thread", id: "t9", name: "Seeds" } });
+    // A system message (starting a thread, its name as the content) is nobody's words and starts no turn.
+    const threadCreated = { ...inGuild("owner-id", "g1", project, "Test"), system: true } as unknown as Message;
+    await adapter.receiveMessage(threadCreated);
+    expect(messages).toHaveLength(3);
     // A thread under a blob's channel is the blob's own thread.
     await adapter.receiveMessage(inGuild("owner-id", "g1", { id: "t10", name: "x", isThread: () => true, parent: { topic: "kos:agent:recap · Recap" } }));
     expect(messages[3]).toMatchObject({ conversationId: "agent:recap" });
