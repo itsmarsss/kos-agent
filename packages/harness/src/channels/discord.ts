@@ -1828,7 +1828,24 @@ export class DiscordAdapter implements ChannelAdapter {
    * itself, no previews.
    */
   private words(text: string): string {
-    return noPreviews(linkMentions(this.memberMentions(this.channelMentions(tablesToCode(withTimes(text, this.timezone)))), this.dashboardUrl, this.labelOf));
+    return noPreviews(linkMentions(this.memberMentions(this.blobMentions(this.channelMentions(tablesToCode(withTimes(text, this.timezone))))), this.dashboardUrl, this.labelOf));
+  }
+
+  /**
+   * `@blob:<name>` (or `@agent:<name>`) as the blob's own channel, `<#id>`,
+   * so on Discord it reads as #name and opens the channel rather than a
+   * dashboard link. A blob with no channel on the server yet is left for
+   * linkMentions to tidy. Run before linkMentions, which would otherwise
+   * turn the reference into a masked link first.
+   */
+  private blobMentions(text: string): string {
+    if (this.boundIds.size === 0) return text;
+    return outsideCode(text, (part) =>
+      part.replace(/@(?:blob|agent):(?:\[([^\]]+)\]|([A-Za-z0-9._-]+))/g, (whole, bracketed?: string, plain?: string) => {
+        const id = this.boundIds.get(`agent:${(bracketed ?? plain ?? "").trim()}`);
+        return id ? `<#${id}>` : whole;
+      }),
+    );
   }
 
   /** "#general" as `<#id>` when the server has a channel of that name; code and mentions already made are left alone. */
