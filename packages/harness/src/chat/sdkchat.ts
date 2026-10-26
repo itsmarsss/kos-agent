@@ -180,6 +180,22 @@ export function plainName(name: string): string {
 }
 
 /** The SDK's name for one of KOS's tools. */
+/**
+ * Glue two spoken pieces so a sentence end never runs into the next start.
+ *
+ * The SDK answers across several assistant messages, one per step around a
+ * tool call, and they were concatenated with nothing between them: "Flagging
+ * that first." and "Plan file exists" became "first.Plan file exists". A
+ * single space is added only when neither side already has whitespace, so a
+ * sentence split mid-word keeps its own spacing and a boundary gets one.
+ */
+export function joinSaid(before: string, piece: string): string {
+  if (!before) return piece;
+  if (!piece) return before;
+  if (/\s$/.test(before) || /^\s/.test(piece)) return before + piece;
+  return `${before} ${piece}`;
+}
+
 export function sdkName(name: string): string {
   return `mcp__${SERVER}__${name.replace(/\./g, "_")}`;
 }
@@ -316,7 +332,7 @@ export async function runSdkChat(
       const content = (m["message"] as { content?: unknown[] })?.content ?? [];
       for (const block of content) {
         const b = block as { type?: string; text?: string };
-        if (b.type === "text" && b.text) text += b.text;
+        if (b.type === "text" && b.text) text = joinSaid(text, b.text);
       }
       continue;
     }
