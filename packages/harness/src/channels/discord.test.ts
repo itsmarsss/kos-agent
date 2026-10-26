@@ -1601,3 +1601,18 @@ describe("settling a prompt decided somewhere else", () => {
     await expect(adapter.settleApproval("404", "denied")).resolves.toBeUndefined();
   });
 });
+
+describe("mentioning a blob on Discord", () => {
+  it("turns @blob:<name> (and @agent:<name>) into the blob's own channel, and leaves one with no channel to the link tidy", () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1" });
+    const internals = adapter as unknown as { boundIds: Map<string, string>; words(t: string): string };
+    internals.boundIds.set("agent:follow-ups", "chan9");
+    // The blob with a channel reads as that channel; the form @agent: works too.
+    expect(internals.words("@blob:follow-ups left nothing")).toBe("<#chan9> left nothing");
+    expect(internals.words("ask @agent:follow-ups")).toBe("ask <#chan9>");
+    // A blob with no channel on the server is tidied by linkMentions (no base url: bold name).
+    expect(internals.words("@blob:nowhere")).toBe("**nowhere**");
+    // Inside code it is left exactly as written.
+    expect(internals.words("`@blob:follow-ups`")).toBe("`@blob:follow-ups`");
+  });
+});
