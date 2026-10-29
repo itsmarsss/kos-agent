@@ -1663,3 +1663,37 @@ describe("Run now from Discord", () => {
     expect(edits).toEqual(["reply:Not authorized."]);
   });
 });
+
+describe("/run from Discord", () => {
+  it("fires the job the command names, by its conversation id", async () => {
+    const ran: number[] = [];
+    const adapter = new DiscordAdapter({
+      token: "t",
+      guildId: "g1",
+      ownerId: "owner-id",
+      onRunCron: async (id) => {
+        ran.push(id);
+        return { name: "Morning brief", ok: true };
+      },
+    });
+    adapter.setAuthorizer((senderId) => senderId === "owner-id");
+    adapter.onCommand({ list: () => [], current: () => undefined, target: () => undefined, home: () => "h", stop: () => false, create: () => ({ id: "x", title: "x" }) });
+    const edits: string[] = [];
+    const cmd = {
+      isButton: () => false,
+      isAutocomplete: () => false,
+      isChatInputCommand: () => true,
+      commandName: "run",
+      user: { id: "owner-id" },
+      options: { data: [{ value: "cron:7" }] },
+      deferReply: async () => undefined,
+      editReply: async (p: { content?: string }) => {
+        edits.push(String(p.content));
+      },
+      reply: async () => undefined,
+    } as unknown as Interaction;
+    await adapter.receiveInteraction(cmd);
+    expect(ran).toEqual([7]);
+    expect(edits).toEqual(["Ran Morning brief."]);
+  });
+});

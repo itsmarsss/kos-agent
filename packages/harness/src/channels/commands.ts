@@ -82,6 +82,11 @@ export const COMMANDS: SlashSpec[] = [
     description: "Start a chat and send what you say next to it",
     argument: { name: "title", description: "what it is for", autocomplete: false },
   },
+  {
+    name: "run",
+    description: "Run a scheduled job now",
+    argument: { name: "job", description: "which job", autocomplete: true },
+  },
 ];
 
 /**
@@ -98,11 +103,11 @@ function label(chat: { title: string; kind: string }): string {
 }
 
 /** Chats matching what has been typed so far, for the picker. */
-export function completions(ctx: SlashContext, typed: string): SlashChoice[] {
+export function completions(ctx: SlashContext, typed: string, onlyKind?: string): SlashChoice[] {
   const needle = typed.trim().toLowerCase();
   return ctx
     .list()
-    .filter((c) => !needle || c.title.toLowerCase().includes(needle))
+    .filter((c) => (!onlyKind || c.kind === onlyKind) && (!needle || c.title.toLowerCase().includes(needle)))
     // Discord shows at most twenty-five.
     .slice(0, 25)
     .map((c) => ({ name: label(c), value: c.id }));

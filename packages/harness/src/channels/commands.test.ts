@@ -185,7 +185,8 @@ describe("slash commands", () => {
   it("declares every command it answers, and answers every one declared", () => {
     // A command Discord offers and the daemon does not know is a dead entry
     // in the owner's picker.
-    for (const spec of COMMANDS) {
+    // /run fires a job asynchronously, so the adapter answers it, not runCommand.
+    for (const spec of COMMANDS.filter((c) => c.name !== "run")) {
       const said = runCommand(ctxWith(chats), spec.name, "a");
       expect(said.card?.title, spec.name).not.toBe("No such command");
       // Every one answers with a card, so they read as one set of commands
@@ -195,5 +196,16 @@ describe("slash commands", () => {
     expect(runCommand(ctxWith(chats), "nonsense").card?.title).toBe(
       "No such command",
     );
+  });
+});
+
+describe("picking a job for /run", () => {
+  const withJob = [...chats, { id: "cron:7", title: "Morning brief", kind: "schedule" }];
+  it("offers only schedules, by their conversation id", () => {
+    const got = completions(ctxWith(withJob), "", "schedule");
+    expect(got.map((c) => c.value)).toEqual(["cron:7"]);
+    expect(got[0]?.name).toContain("Morning brief");
+    // Without the filter, everything shows.
+    expect(completions(ctxWith(withJob), "").length).toBeGreaterThan(1);
   });
 });
