@@ -58,6 +58,8 @@ export const DENY_PREFIX = "kos:deny:";
 export const ALWAYS_PREFIX = "kos:always:";
 /** A button the agent put there, as opposed to one the risk gate did. */
 export const PRESS_PREFIX = "kos:press:";
+/** A button that runs a scheduled job now: `kos:cron:<id>`. */
+export const CRON_PREFIX = "kos:cron:";
 /** The form a press opened, named for the button it came from. */
 export const MODAL_PREFIX = "kos:form:";
 /** How long a form is left open before the interaction is let go. */
@@ -304,6 +306,8 @@ export interface DiscordAdapterOptions {
    * member writes or presses there reaches the chat as that guest's.
    */
   guestsAllowed?: (key: string) => boolean;
+  /** Run a scheduled job now, for the owner's Run now button and /run; the name and outcome come back for the ack. */
+  onRunCron?: (id: number) => Promise<{ name: string; ok: boolean; error?: string } | undefined>;
   /**
    * When a channel's members reach its chat, by what it is bound to: on
    * every message, or only when KOS is addressed, with what was said in
@@ -673,6 +677,8 @@ export function buildButtons(
       const built = new ButtonBuilder().setLabel(button.label.slice(0, 80));
       if (button.url) {
         built.setStyle(ButtonStyle.Link).setURL(button.url);
+      } else if (button.cron !== undefined) {
+        built.setStyle(STYLES[button.style ?? "secondary"] ?? ButtonStyle.Secondary).setCustomId(`${CRON_PREFIX}${button.cron}`);
       } else {
         built
           .setStyle(STYLES[button.style ?? "secondary"] ?? ButtonStyle.Secondary)
@@ -736,6 +742,7 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly timezone?: string;
   private readonly labelOf?: LabelOf;
   private readonly guestsAllowed?: (key: string) => boolean;
+  private readonly onRunCron?: (id: number) => Promise<{ name: string; ok: boolean; error?: string } | undefined>;
   private readonly listenOf?: (key: string) => Listen;
   /** The last message each mention-gated channel's chat heard, so the next one carries only what came after. */
   private readonly lastHeard = new Map<string, string>();
@@ -766,6 +773,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (options.timezone) this.timezone = options.timezone;
     if (options.labelOf) this.labelOf = options.labelOf;
     if (options.guestsAllowed) this.guestsAllowed = options.guestsAllowed;
+    if (options.onRunCron) this.onRunCron = options.onRunCron;
     if (options.listenOf) this.listenOf = options.listenOf;
     this.client = new Client({
       intents: [
@@ -1579,6 +1587,26 @@ export class DiscordAdapter implements ChannelAdapter {
     }
 
     if (!interaction.isButton()) return;
+
+    // Run now: fire the scheduled job the button names, the same path as the
+    // dashboard's Run now, so the result shows on both surfaces. The owner's
+    // alone; a guest cannot fire a job.
+    if (interaction.customId.startsWith(CRON_PREFIX)) {
+      if (!this.isAuthorized(interaction.user.id)) {
+        await interaction.reply({ content: "Not authorized.", flags: MessageFlags.Ephemeral }).catch(() => undefined);
+        return;
+      }
+      const id = Number(interaction.customId.slice(CRON_PREFIX.length));
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => undefined);
+      const outcome = Number.isInteger(id) ? await this.onRunCron?.(id).catch(() => undefined) : undefined;
+      const content = !outcome
+        ? "No such job, or running is not available here."
+        : outcome.ok
+          ? `Ran ${outcome.name}.`
+          : `${outcome.name} ran, but something failed: ${outcome.error ?? "unknown"}`;
+      await interaction.editReply({ content }).catch(() => undefined);
+      return;
+    }
 
     // A button the agent put on a message of its own, rather than one the risk
     // gate put on an approval prompt.

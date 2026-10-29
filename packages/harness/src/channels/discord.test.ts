@@ -1616,3 +1616,50 @@ describe("mentioning a blob on Discord", () => {
     expect(internals.words("`@blob:follow-ups`")).toBe("`@blob:follow-ups`");
   });
 });
+
+describe("Run now from Discord", () => {
+  it("builds a cron button with the job in its custom id", () => {
+    const rows = buildButtons([{ label: "Run now", cron: 7 }]);
+    const built = (rows[0] as unknown as { components: { data: { custom_id?: string; label?: string } }[] }).components[0]!.data;
+    expect(built.custom_id).toBe("kos:cron:7");
+    expect(built.label).toBe("Run now");
+  });
+
+  it("fires the job for the owner and refuses a stranger", async () => {
+    const ran: number[] = [];
+    const adapter = new DiscordAdapter({
+      token: "t",
+      guildId: "g1",
+      ownerId: "owner-id",
+      onRunCron: async (id) => {
+        ran.push(id);
+        return { name: "Morning brief", ok: true };
+      },
+    });
+    adapter.setAuthorizer((senderId) => senderId === "owner-id");
+    const edits: string[] = [];
+    const press = (authorId: string) =>
+      ({
+        isButton: () => true,
+        isAutocomplete: () => false,
+        isChatInputCommand: () => false,
+        customId: "kos:cron:5",
+        user: { id: authorId },
+        reply: async (p: { content?: string }) => {
+          edits.push(`reply:${p.content}`);
+        },
+        deferReply: async () => undefined,
+        editReply: async (p: { content?: string }) => {
+          edits.push(`edit:${p.content}`);
+        },
+      }) as unknown as Interaction;
+    await adapter.receiveInteraction(press("owner-id"));
+    expect(ran).toEqual([5]);
+    expect(edits).toEqual(["edit:Ran Morning brief."]);
+    // A stranger is refused and nothing runs.
+    edits.length = 0;
+    await adapter.receiveInteraction(press("someone-else"));
+    expect(ran).toEqual([5]);
+    expect(edits).toEqual(["reply:Not authorized."]);
+  });
+});
