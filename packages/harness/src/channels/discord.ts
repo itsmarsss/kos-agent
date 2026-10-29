@@ -1553,7 +1553,7 @@ export class DiscordAdapter implements ChannelAdapter {
       if (!this.commands || !this.isAuthorized(interaction.user.id)) return;
       const typed = String(interaction.options.getFocused() ?? "");
       try {
-        await interaction.respond(completions(this.commands, typed));
+        await interaction.respond(interaction.commandName === "run" ? completions(this.commands, typed, "schedule") : completions(this.commands, typed));
       } catch {
         // The window for answering an autocomplete is short; a late answer
         // is dropped rather than being an error.
@@ -1571,6 +1571,21 @@ export class DiscordAdapter implements ChannelAdapter {
         return;
       }
       const argument = interaction.options.data[0]?.value;
+      // /run fires a scheduled job, which is async and goes to onRunCron
+      // rather than runCommand (bookkeeping the process answers at once).
+      if (interaction.commandName === "run") {
+        const arg = argument === undefined ? "" : String(argument);
+        const id = Number(arg.startsWith("cron:") ? arg.slice("cron:".length) : arg);
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => undefined);
+        const outcome = Number.isInteger(id) ? await this.onRunCron?.(id).catch(() => undefined) : undefined;
+        const content = !outcome
+          ? "No such job. Pick one from the list /run offers."
+          : outcome.ok
+            ? `Ran ${outcome.name}.`
+            : `${outcome.name} ran, but something failed: ${outcome.error ?? "unknown"}`;
+        await interaction.editReply({ content }).catch(() => undefined);
+        return;
+      }
       const said = runCommand(
         this.commands,
         interaction.commandName,
