@@ -429,6 +429,13 @@ export async function runHost(options: HostOptions): Promise<void> {
       labelOf: (kind, id) => kernel.labelFor(kind, id),
       // A channel the owner opened to guests takes what its members say.
       guestsAllowed: (key) => kernel.channelAudiences()[key] === "guests",
+      // Run now from Discord: the same path as the dashboard, so the result shows on both.
+      onRunCron: async (id) => {
+        const job = kernel.crons.get(id);
+        if (!job) return undefined;
+        const r = await kernel.fireCron(id);
+        return { name: job.name, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
+      },
       // A channel the owner set to listen on mention reaches its chat only when addressed.
       listenOf: (key) => kernel.channelListening()[key] ?? "always",
       // Who speaks from a chat, so a blob's story in its channel is the blob's.
@@ -614,7 +621,9 @@ export async function runHost(options: HostOptions): Promise<void> {
         const target = adapter.mirrorTarget(home, kernel.threadBindings());
         if (!target) return;
         if (job) {
-          if (said.reply.trim()) await adapter.postIn(target, { text: `-# ${job.name}\n${said.reply}` });
+          // The result, with a Run now button so the owner can fire the job
+          // again from here; it runs the same path the dashboard's Run now does.
+          if (said.reply.trim()) await adapter.postIn(target, { text: `-# ${job.name}\n${said.reply}`, buttons: [{ label: "Run now", cron: job.id }] });
           return;
         }
         const from = kernel.senderFor(said.conversationId);

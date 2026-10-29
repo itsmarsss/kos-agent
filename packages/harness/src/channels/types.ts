@@ -131,6 +131,8 @@ export interface MessageButton {
   label: string;
   id?: string;
   url?: string;
+  /** Runs a scheduled job by its id when pressed, the same as Run now on the dashboard. Owner only. */
+  cron?: number;
   style?: "primary" | "secondary" | "success" | "danger";
   /**
    * Open a form on press, and send what was typed rather than only the fact
