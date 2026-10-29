@@ -617,15 +617,28 @@ export async function runHost(options: HostOptions): Promise<void> {
         // A scheduled run of a project's job shows in the project's channel,
         // under the job's name: a daily post is what a schedule is for.
         const job = said.conversationId.startsWith("cron:") ? kernel.crons.get(Number(said.conversationId.slice("cron:".length))) : undefined;
-        const home = job?.projectSlug ? `project:${job.projectSlug}` : said.conversationId;
-        const target = adapter.mirrorTarget(home, kernel.threadBindings());
-        if (!target) return;
         if (job) {
+          /*
+           * A scheduled run goes to the job's own thread: the same
+           * conversation the dashboard shows its runs in, so the two stay in
+           * sync and the project channel stays the orchestrator's. A job made
+           * since the last layout gets its thread now; failing that, the
+           * project's channel. The nudge itself reaches the owner through the
+           * job's notify, not this record.
+           */
+          let where = adapter.mirrorTarget(said.conversationId, kernel.threadBindings());
+          if (!where && job.projectSlug) {
+            where = await adapter.ensureThread(`project:${job.projectSlug}`, said.conversationId, job.name).catch(() => undefined);
+            if (where) kernel.bindThread(where, said.conversationId);
+          }
+          where ??= job.projectSlug ? adapter.mirrorTarget(`project:${job.projectSlug}`, kernel.threadBindings()) : undefined;
           // The result, with a Run now button so the owner can fire the job
           // again from here; it runs the same path the dashboard's Run now does.
-          if (said.reply.trim()) await adapter.postIn(target, { text: `-# ${job.name}\n${said.reply}`, buttons: [{ label: "Run now", cron: job.id }] });
+          if (where && said.reply.trim()) await adapter.postIn(where, { text: `-# ${job.name}\n${said.reply}`, buttons: [{ label: "Run now", cron: job.id }] });
           return;
         }
+        const target = adapter.mirrorTarget(said.conversationId, kernel.threadBindings());
+        if (!target) return;
         const from = kernel.senderFor(said.conversationId);
         if (said.origin === "owner" && said.text.trim() && said.channel !== "discord") {
           // The files that came with the words go too, read back from where
