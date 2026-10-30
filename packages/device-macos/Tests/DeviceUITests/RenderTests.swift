@@ -81,6 +81,29 @@ struct RenderTests {
     _ = try render("home-offline", HomeView(model: model))
   }
 
+  @Test func homeWithThePermissionsDrawerOpen() throws {
+    let model = home {
+      $0.link = .connected
+      $0.host = "127.0.0.1:4317"
+      $0.dashboard = URL(string: "http://127.0.0.1:4317")
+      $0.deviceName = "Studio MacBook"
+      $0.screenGranted = true
+      $0.inputGranted = true
+    }
+    _ = try render("home-drawer", HomeView(model: model, permissionsOpen: true))
+  }
+
+  @Test func appPicker() throws {
+    let apps = [
+      AppEntry(id: "com.apple.Safari", name: "Safari", icon: nil, running: true),
+      AppEntry(id: "com.apple.mail", name: "Mail", icon: nil, running: true),
+      AppEntry(id: "com.apple.Notes", name: "Notes", icon: nil),
+      AppEntry(id: "com.figma.Desktop", name: "Figma", icon: nil),
+    ]
+    let size = try render("picker", AppPicker(apps: apps) { _ in })
+    #expect(size.width == 290)
+  }
+
   @Test func sessionBar() throws {
     let model = SessionBarModel(task: "Export the deck from Keynote as a PDF")
     _ = try render("bar", SessionBar(model: model))
