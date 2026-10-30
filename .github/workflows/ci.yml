@@ -49,3 +49,22 @@ jobs:
 
       - name: Verify ripgrep is present in the image
         run: docker run --rm --entrypoint rg kos:ci --version
+
+  # KOS Device: the app on a computer KOS may use. Native, so it builds and
+  # tests on macOS, apart from the TypeScript checks above.
+  device-macos:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: packages/device-macos
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: swift --version
+
+      - run: swift build
+
+      - run: swift test
+
+      - name: Bundle the app
+        run: ./scripts/bundle.sh
