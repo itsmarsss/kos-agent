@@ -14,6 +14,10 @@ final class ConsentPrompt: NSObject {
     let requester: String
     let chat: URL?
     let offered: [Int]
+    /// The owner's longest session, the most a custom length may be.
+    let longest: Int
+    /// Seconds before it says no by itself.
+    let wait: Int
   }
 
   enum Answer: Equatable {
@@ -22,8 +26,6 @@ final class ConsentPrompt: NSObject {
     case unanswered
     case withdrawn
   }
-
-  static let timeout = 60
 
   private var panel: NSPanel?
   private var model: ConsentModel?
@@ -44,7 +46,9 @@ final class ConsentPrompt: NSObject {
   }
 
   private func present(_ request: Request) {
-    let model = ConsentModel(task: request.task, requester: request.requester, chat: request.chat, offered: request.offered, timeout: Self.timeout)
+    let model = ConsentModel(
+      task: request.task, requester: request.requester, chat: request.chat, offered: request.offered,
+      longest: request.longest, timeout: request.wait)
     model.allow = { [weak self] minutes in self?.finish(.allowed(minutes: minutes)) }
     model.deny = { [weak self] in self?.finish(.denied) }
     self.model = model

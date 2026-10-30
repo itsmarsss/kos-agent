@@ -211,6 +211,26 @@ describe("a session", () => {
     expect(hub.takeEnding("c1")).toBe("owner");
   });
 
+  it("takes the longer time the owner gave it on the device", async () => {
+    const { hub } = setup();
+    const fake = await online(hub);
+    const session = await hub.begin({ conversation: "c1", device: hub.find(undefined)!, task: "t", requester: "r", minutes: 5 });
+    const later = session.until + 15 * 60_000;
+    fake.event("session.extended", { session: session.id, until: later });
+    expect(hub.sessionOf("c1")?.until).toBe(later);
+    fake.event("session.extended", { session: session.id, until: session.until - 1 });
+    expect(hub.sessionOf("c1")?.until).toBe(later);
+  });
+
+  it("keeps the owner's settings, and refuses ones out of range", () => {
+    const { hub } = setup();
+    expect(hub.settings()).toEqual({ askMinutes: 15, unattended: false });
+    expect(hub.updateSettings({ askMinutes: 30, unattended: true })).toEqual({ askMinutes: 30, unattended: true });
+    expect(() => hub.updateSettings({ askMinutes: 0 })).toThrow(/1 to 480/);
+    expect(() => hub.updateSettings({ askMinutes: 2.5 })).toThrow(/whole number/);
+    expect(hub.settings().askMinutes).toBe(30);
+  });
+
   it("ends when the device drops, and every one ends at the kill switch", async () => {
     const { hub } = setup();
     const laptop = await online(hub, "Laptop");

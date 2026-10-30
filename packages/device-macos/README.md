@@ -37,11 +37,25 @@ The app asks for two, in System Settings, Privacy & Security:
 
 The window shows both, and Grant opens the right switch.
 
-The app is signed ad hoc, so macOS ties these grants to this exact build.
-After a rebuild the old build's row still shows in System Settings, switched
-on, and does nothing for the new one. Press Grant in the window: it clears
-this app's old row and macOS asks again for this build. Screen Recording
-applies once the app starts again; the window offers Restart.
+Signed ad hoc (the default), macOS ties these grants, and the app's keychain
+access, to this exact build: after a rebuild the old build's row still shows
+in System Settings, switched on, and does nothing for the new one. Press
+Grant in the window: it clears this app's old row and macOS asks again.
+Screen Recording applies once the app starts again; the window offers
+Restart.
+
+To keep them across builds, give KOS Device a signing key of its own:
+
+```sh
+./scripts/signing.sh setup   # asks for a PIN of your choosing, twice
+```
+
+Every build is then the same app to macOS. A build asks for the PIN, not your
+login password, and then macOS asks for the permissions one last time. The
+key lives in a keychain of its own, locked by that PIN, so nothing running as
+you can sign code with it and inherit the grants; it locks again after five
+minutes and when the Mac sleeps. `./scripts/signing.sh remove` goes back to ad
+hoc.
 
 ## While KOS has the Mac
 

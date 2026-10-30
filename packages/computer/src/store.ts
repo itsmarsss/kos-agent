@@ -20,7 +20,27 @@ CREATE TABLE IF NOT EXISTS devices (
   paired_at INTEGER NOT NULL,
   last_seen INTEGER
 );
+CREATE TABLE IF NOT EXISTS device_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 `;
+
+/**
+ * The owner's rules for computer use on the KOS side. The device keeps its
+ * own (how long a session may last, whether it asks), and wins: these only
+ * say what KOS asks for, and whether work nobody started may ask at all.
+ * A trust table too, since `unattended` lets a schedule reach a computer.
+ */
+export interface ComputerSettings {
+  /** How long KOS asks for when a chat does not say. */
+  askMinutes: number;
+  /** Whether a schedule, a blob's own timer or a guest's message may start a session. */
+  unattended: boolean;
+}
+
+export const DEFAULT_SETTINGS: ComputerSettings = { askMinutes: 15, unattended: false };
+export const MAX_ASK_MINUTES = 480;
 
 export interface Device {
   id: string;
@@ -107,5 +127,26 @@ export class DeviceStore {
 
   seen(id: string): void {
     this.db.prepare(`UPDATE devices SET last_seen = ? WHERE id = ?`).run(this.now(), id);
+  }
+
+  settings(): ComputerSettings {
+    const rows = this.db.prepare(`SELECT key, value FROM device_settings`).all() as { key: string; value: string }[];
+    const saved = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    const minutes = Number(saved.askMinutes);
+    return {
+      askMinutes: Number.isInteger(minutes) && minutes >= 1 && minutes <= MAX_ASK_MINUTES ? minutes : DEFAULT_SETTINGS.askMinutes,
+      unattended: saved.unattended === "true",
+    };
+  }
+
+  /** Change some of the settings; anything out of range is refused, not clamped. */
+  setSettings(patch: Partial<ComputerSettings>): ComputerSettings {
+    if (patch.askMinutes !== undefined && !(Number.isInteger(patch.askMinutes) && patch.askMinutes >= 1 && patch.askMinutes <= MAX_ASK_MINUTES)) {
+      throw new Error(`askMinutes is a whole number of minutes from 1 to ${MAX_ASK_MINUTES}`);
+    }
+    const put = this.db.prepare(`INSERT INTO device_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`);
+    if (patch.askMinutes !== undefined) put.run("askMinutes", String(patch.askMinutes));
+    if (patch.unattended !== undefined) put.run("unattended", String(patch.unattended));
+    return this.settings();
   }
 }

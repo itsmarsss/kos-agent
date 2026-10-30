@@ -32,7 +32,14 @@ final class Settings {
   private enum Key {
     static let askFirst = "askBeforeEachSession"
     static let hiddenApps = "hiddenApps"
+    static let longest = "longestSessionMinutes"
+    static let promptWait = "promptWaitSeconds"
+    static let idle = "idleMinutes"
+    static let connect = "connectWhenOpened"
   }
+
+  static let promptWaitChoices = [30, 60, 120, 300]
+  static let idleChoices = [1, 3, 5, 10, 15]
 
   private let defaults: UserDefaults
   /// Told whenever a setting changes, so KOS hears the new consent and captures leave the right apps out.
@@ -40,7 +47,10 @@ final class Settings {
 
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
-    defaults.register(defaults: [Key.askFirst: true, Key.hiddenApps: Self.defaultHiddenApps])
+    defaults.register(defaults: [
+      Key.askFirst: true, Key.hiddenApps: Self.defaultHiddenApps, Key.longest: Durations.defaultLongest,
+      Key.promptWait: 60, Key.idle: 3, Key.connect: true,
+    ])
   }
 
   /// On: the owner allows each session here. Off: KOS's approval queue decides.
@@ -53,6 +63,44 @@ final class Settings {
   }
 
   var consent: Consent { askFirst ? .device : .kos }
+
+  /// The longest a session may run, whatever KOS asks for.
+  var longestMinutes: Int {
+    get { Self.oneOf(Durations.longestChoices, defaults.integer(forKey: Key.longest), else: Durations.defaultLongest) }
+    set { store(newValue, in: Durations.longestChoices, key: Key.longest) }
+  }
+
+  /// How long the prompt waits for an answer before saying no.
+  var promptWaitSeconds: Int {
+    get { Self.oneOf(Self.promptWaitChoices, defaults.integer(forKey: Key.promptWait), else: 60) }
+    set { store(newValue, in: Self.promptWaitChoices, key: Key.promptWait) }
+  }
+
+  /// How long a session may sit with nothing done before it ends.
+  var idleMinutes: Int {
+    get { Self.oneOf(Self.idleChoices, defaults.integer(forKey: Key.idle), else: 3) }
+    set { store(newValue, in: Self.idleChoices, key: Key.idle) }
+  }
+
+  /// Dial KOS as soon as the app opens; off, it waits for Connect.
+  var connectWhenOpened: Bool {
+    get { defaults.bool(forKey: Key.connect) }
+    set {
+      defaults.set(newValue, forKey: Key.connect)
+      onChange?()
+    }
+  }
+
+  private func store(_ value: Int, in choices: [Int], key: String) {
+    guard choices.contains(value) else { return }
+    defaults.set(value, forKey: key)
+    onChange?()
+  }
+
+  /// A stored choice, or the default when what is stored is not one of the choices.
+  private static func oneOf(_ choices: [Int], _ value: Int, else fallback: Int) -> Int {
+    choices.contains(value) ? value : fallback
+  }
 
   /// Bundle ids KOS never sees and never acts on.
   var hiddenApps: [String] {

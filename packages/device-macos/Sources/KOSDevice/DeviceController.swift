@@ -41,6 +41,7 @@ final class DeviceController {
     overlay.onPause = { [weak self] in self?.pause() }
     overlay.onResume = { [weak self] in self?.resume() }
     overlay.onStop = { [weak self] in self?.stop() }
+    overlay.onExtend = { [weak self] in self?.extend() }
   }
 
   var live: LiveSession? { sessions.live }
@@ -99,10 +100,11 @@ final class DeviceController {
     }
 
     let minutes: Int
+    let longest = settings.longestMinutes
     if settings.askFirst {
       let request = ConsentPrompt.Request(
         task: task, requester: params.requester, chat: params.conversation.flatMap(chatLink),
-        offered: Durations.offered(requested: params.minutes))
+        offered: Durations.offered(requested: params.minutes, longest: longest), longest: longest, wait: settings.promptWaitSeconds)
       switch await consent.ask(request) {
       case .allowed(let chosen):
         minutes = chosen
@@ -111,23 +113,24 @@ final class DeviceController {
         throw DeviceError(.denied, "The owner declined on this Mac.")
       case .unanswered:
         sessions.deny(params.session)
-        throw DeviceError(.denied, "Nobody answered on this Mac within a minute.")
+        throw DeviceError(.denied, "Nobody answered on this Mac in time.")
       case .withdrawn:
         sessions.deny(params.session)
         throw DeviceError(.noSession, "The request was withdrawn.")
       }
     } else {
       // The owner chose, on this Mac, to let KOS's approval queue decide.
-      minutes = Durations.unattended(requested: params.minutes)
+      minutes = Durations.unattended(requested: params.minutes, longest: longest)
     }
 
     let id = Displays.underCursor()
     let space = Space(display: Displays.bounds(id), maxEdge: edge)
+    sessions.idleLimit = TimeInterval(settings.idleMinutes * 60)
     let session = try sessions.grant(
       params.session, task: task, requester: params.requester, conversation: params.conversation, minutes: minutes, space: space, now: Date())
     display = id
     maxEdge = edge
-    overlay.show(display: id, task: task)
+    overlay.show(display: id, task: task, until: session.until)
     owner.start(grace: Self.handOverGrace)
     ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated { self?.tick() }
@@ -185,6 +188,14 @@ final class DeviceController {
 
   func stop() {
     end(.owner)
+  }
+
+  /// The owner gave KOS fifteen more minutes; KOS hears the new end.
+  func extend() {
+    guard let id = sessions.live?.id, let until = sessions.extend(now: Date()) else { return }
+    overlay.setUntil(until)
+    emit(.sessionExtended, SessionExtendedEvent(session: id, until: until))
+    onChange?()
   }
 
   /// The line to KOS dropped: nothing outlives it.

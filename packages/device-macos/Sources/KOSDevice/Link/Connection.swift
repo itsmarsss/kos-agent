@@ -20,6 +20,8 @@ final class Connection: NSObject {
     case replaced
     /// KOS speaks another protocol version.
     case outdated
+    /// The owner disconnected on purpose; nothing redials until they connect.
+    case disconnected
   }
 
   private enum Close {
@@ -60,6 +62,8 @@ final class Connection: NSObject {
   private var handshakeTimer: Timer?
   private let path = NWPathMonitor()
   private var pathWasDown = false
+  /// Set while the owner has disconnected on purpose: no redial, no reconnect on a network change.
+  private var heldOff = false
 
   override init() {
     super.init()
@@ -73,8 +77,17 @@ final class Connection: NSObject {
 
   func start(_ pairing: Pairing) {
     self.pairing = pairing
+    heldOff = false
     backoff.reset()
     dial()
+  }
+
+  /// Keeps the pairing, but not the line: KOS sees this Mac offline until Connect.
+  func hold(_ pairing: Pairing) {
+    self.pairing = pairing
+    heldOff = true
+    hangUp(code: .normalClosure)
+    status = .disconnected
   }
 
   /// Hangs up for good: unpairing or quitting.
@@ -86,6 +99,7 @@ final class Connection: NSObject {
 
   func redialNow() {
     guard pairing != nil else { return }
+    heldOff = false
     backoff.reset()
     dial()
   }
@@ -148,7 +162,7 @@ final class Connection: NSObject {
   }
 
   private func scheduleRedial() {
-    guard pairing != nil else { return }
+    guard pairing != nil, !heldOff else { return }
     let delay = backoff.next()
     redial = Task { [weak self] in
       try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
@@ -159,7 +173,7 @@ final class Connection: NSObject {
 
   private func networkChanged(up: Bool) {
     defer { pathWasDown = !up }
-    guard up, pathWasDown, pairing != nil, !proven else { return }
+    guard up, pathWasDown, pairing != nil, !proven, !heldOff else { return }
     redialNow()
   }
 

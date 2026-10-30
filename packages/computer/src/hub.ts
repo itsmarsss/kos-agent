@@ -4,7 +4,7 @@ import { publicKeyFromRaw, type HostKey } from "./keys.js";
 import { DeviceError, DeviceLink, type Socket } from "./link.js";
 import { PairingCodes, type PairingCode } from "./pairing.js";
 import { CLOSE, PROTOCOL_VERSION, type Consent, type DeviceEvent, type EndReason, type Grant, type Method, type Permissions, type Size } from "./protocol.js";
-import type { Device, DeviceStore } from "./store.js";
+import { MAX_ASK_MINUTES, type ComputerSettings, type Device, type DeviceStore } from "./store.js";
 
 /**
  * The devices KOS can reach, and the sessions it holds on them.
@@ -63,9 +63,9 @@ export class PairError extends Error {
   }
 }
 
-const BEGIN_TIMEOUT_MS = 75_000;
+// The device may wait up to five minutes for the owner, as they set it there.
+const BEGIN_TIMEOUT_MS = 315_000;
 const CALL_TIMEOUT_MS = 20_000;
-const MAX_MINUTES = 120;
 
 export class DeviceHub {
   readonly codes: PairingCodes;
@@ -149,6 +149,8 @@ export class DeviceHub {
     if (!session || session.device !== link.device?.id) return;
     if (event.name === "session.paused") session.paused = true;
     else if (event.name === "session.resumed") session.paused = false;
+    // The owner gave it more time on the device.
+    else if (event.name === "session.extended" && typeof event.data.until === "number" && event.data.until > session.until) session.until = event.data.until;
     else if (event.name === "session.ended") this.drop(session, endReason(event.data.reason));
     this.changed();
   }
@@ -233,7 +235,7 @@ export class DeviceHub {
     if (other) throw new DeviceError("busy", `${input.device.name} is in use by another chat`);
 
     const id = `ses_${randomBytes(9).toString("base64url")}`;
-    const minutes = Math.max(1, Math.min(MAX_MINUTES, Math.round(input.minutes)));
+    const minutes = Math.max(1, Math.min(MAX_ASK_MINUTES, Math.round(input.minutes)));
     const result = await link.call(
       "session.begin",
       // The chat's id lets the device link the owner straight to the chat that is asking.
@@ -336,6 +338,16 @@ export class DeviceHub {
 
   get paired(): number {
     return this.deps.store.list().length;
+  }
+
+  settings(): ComputerSettings {
+    return this.deps.store.settings();
+  }
+
+  updateSettings(patch: Partial<ComputerSettings>): ComputerSettings {
+    const next = this.deps.store.setSettings(patch);
+    this.changed();
+    return next;
   }
 }
 

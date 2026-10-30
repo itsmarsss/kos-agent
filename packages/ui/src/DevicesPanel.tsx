@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 
-import { api, type DeviceCode, type PairedDevice } from "./api.js";
+import { api, type ComputerSettings, type DeviceCode, type PairedDevice } from "./api.js";
 import { ConfirmButton, Pill } from "./kit.js";
 import { agoWords } from "./schedulewords.js";
+import { Select } from "./Select.js";
 import { Field } from "./SettingField.js";
 
 /**
@@ -15,6 +16,39 @@ import { Field } from "./SettingField.js";
  */
 
 const POLL_MS = 3000;
+
+const ASK_MINUTES = [5, 15, 30, 60, 120, 240, 480];
+
+function minutesLabel(m: number): string {
+  return m < 60 ? `${m} minutes` : m === 60 ? "1 hour" : `${m / 60} hours`;
+}
+
+/** What KOS asks for, and whether work the owner did not start may ask at all. */
+function SessionRules({ settings, onChange }: { settings: ComputerSettings; onChange: (patch: Partial<ComputerSettings>) => void }): ReactElement {
+  const options = [...new Set([...ASK_MINUTES, settings.askMinutes])].sort((a, b) => a - b);
+  return (
+    <div className="set-group device-rules">
+      <h3>Sessions</h3>
+      <Field label="KOS asks for" hint="How long a session KOS asks for when the chat does not say. Each computer can allow less: its own longest session wins.">
+        <Select
+          label="KOS asks for"
+          value={String(settings.askMinutes)}
+          options={options.map((m) => ({ value: String(m), label: minutesLabel(m) }))}
+          onChange={(v) => onChange({ askMinutes: Number(v) })}
+        />
+      </Field>
+      <Field
+        label="Work you did not start may use a computer"
+        hint="Off by default: a schedule, a blob's own timer or a guest in a channel cannot start a session. On, they can ask, and the computer still asks you first, or your approval queue does if you set it to."
+      >
+        <label className="set-toggle">
+          <input type="checkbox" checked={settings.unattended} onChange={(e) => onChange({ unattended: e.target.checked })} />
+          <span>{settings.unattended ? "On" : "Off"}</span>
+        </label>
+      </Field>
+    </div>
+  );
+}
 
 /** The link KOS Device opens itself on, with this dashboard's address in it. */
 export function pairingLink(origin: string, code: string): string {
@@ -132,6 +166,7 @@ function PairingCode({ code, now, onDone }: { code: DeviceCode; now: number; onD
 
 export function DevicesPanel(): ReactElement {
   const [devices, setDevices] = useState<PairedDevice[] | null>(null);
+  const [settings, setSettings] = useState<ComputerSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState<DeviceCode | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -143,6 +178,7 @@ export function DevicesPanel(): ReactElement {
       (r) => {
         setError(null);
         setDevices(r.devices);
+        setSettings(r.settings);
         // A device that appears while a code is up is the one that used it.
         const before = known.current;
         known.current = new Set(r.devices.map((d) => d.id));
@@ -164,6 +200,11 @@ export function DevicesPanel(): ReactElement {
     }, POLL_MS);
     return () => clearInterval(timer);
   }, [load]);
+
+  const change = (patch: Partial<ComputerSettings>): void => {
+    if (settings) setSettings({ ...settings, ...patch });
+    void api.setComputerSettings(patch).then(setSettings, (err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+  };
 
   const add = (): void => {
     setJoined(null);
@@ -192,6 +233,7 @@ export function DevicesPanel(): ReactElement {
           </button>
         </div>
       )}
+      {settings && <SessionRules settings={settings} onChange={change} />}
     </>
   );
 }

@@ -29,13 +29,15 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     self.settings = settings
     super.init()
     model.name = Host.current().localizedName ?? "Mac"
+    model.longestChoices = Durations.longestChoices
+    model.promptWaitChoices = Settings.promptWaitChoices
+    model.idleChoices = Settings.idleChoices
     model.actions.pair = { [weak self] in self?.pair() }
     model.actions.grant = { [weak self] grant in self?.grant(grant) }
     model.actions.restart = { SystemPermissions.relaunch() }
     model.actions.hide = { [weak self] id in self?.settings.hiddenApps.append(id) }
     model.actions.unhide = { [weak self] id in self?.settings.hiddenApps.removeAll { $0.caseInsensitiveCompare(id) == .orderedSame } }
     model.actions.close = { [weak self] in self?.window.performClose(nil) }
-    model.actions.minimize = { [weak self] in self?.window.miniaturize(nil) }
     watches = [
       // A pasted pairing link fills the address and the code.
       model.$address.sink { [weak self] text in self?.readLink(text) },
@@ -77,6 +79,16 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     model.screenGranted = now.screen
     model.inputGranted = now.input
     model.askFirst = settings.askFirst
+    model.longestMinutes = settings.longestMinutes
+    model.promptWaitSeconds = settings.promptWaitSeconds
+    model.idleMinutes = settings.idleMinutes
+    model.connectWhenOpened = settings.connectWhenOpened
+    let login: LoginState = switch LaunchAtLogin.state {
+    case .on: .on
+    case .off: .off
+    case .needsApproval: .needsApproval
+    }
+    if login != model.openAtLogin { model.openAtLogin = login }
     let hidden = settings.hiddenApps.map { entry($0, running: false) }
     if hidden != model.hidden { model.hidden = hidden }
     let running = Set(NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.compactMap(\.bundleIdentifier))
@@ -196,10 +208,8 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     window.contentView = host
     window.titlebarAppearsTransparent = true
     window.titleVisibility = .hidden
-    // KOS's own lights are drawn in the window; the system's would sit on top of them.
-    for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-      window.standardWindowButton(button)?.isHidden = true
-    }
+    // Not resizable, so the green light has nothing to do.
+    window.standardWindowButton(.zoomButton)?.isEnabled = false
     window.title = "KOS Device"
     window.isMovableByWindowBackground = true
     window.appearance = NSAppearance(named: .darkAqua)

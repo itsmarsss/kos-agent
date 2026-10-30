@@ -4433,6 +4433,9 @@ li:hover .chats-item-when { opacity: 0; }
 .set-inline { display: flex; align-items: center; gap: 0.6rem; }
 .set-inline .kos-input { flex: 1; min-width: 0; }
 
+/* KOS's side of a session's rules, apart from the list of computers above it. */
+.device-rules { margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+
 /* A pairing code, made to be read off one screen and typed on another. */
 .device-pair {
   display: flex;

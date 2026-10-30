@@ -33,7 +33,12 @@ public struct Sessions: Sendable {
     case live(LiveSession)
   }
 
-  public static let idleLimit: TimeInterval = 180
+  /// How long a live session may sit with no call before it ends: the owner's setting, three minutes unless changed.
+  public var idleLimit: TimeInterval = 180
+
+  /// How much one press of +15 gives, and the furthest a session may run from now.
+  public static let extension_: TimeInterval = 15 * 60
+  public static let furthest: TimeInterval = 8 * 60 * 60
 
   public private(set) var phase: Phase = .idle
 
@@ -109,34 +114,46 @@ public struct Sessions: Sendable {
   public func due(_ now: Date) -> EndReason? {
     guard let session = live else { return nil }
     if now >= session.until { return .expired }
-    if now.timeIntervalSince(session.lastActivity) >= Self.idleLimit { return .idle }
+    if now.timeIntervalSince(session.lastActivity) >= idleLimit { return .idle }
     return nil
+  }
+
+  /// The owner gave the live session more time: its new end, or nothing when none is live.
+  public mutating func extend(now: Date) -> Date? {
+    guard case .live(let session) = phase else { return nil }
+    let until = min(session.until.addingTimeInterval(Self.extension_), now.addingTimeInterval(Self.furthest))
+    phase = .live(LiveSession(
+      id: session.id, task: session.task, requester: session.requester, conversation: session.conversation,
+      until: until, space: session.space, paused: session.paused, lastActivity: now))
+    return until
   }
 }
 
-/// How long the owner may allow a session for.
+/// How long the owner may allow a session for, under the longest they set on this Mac.
 public enum Durations {
-  public static let choices = [5, 15, 30, 60]
-  public static let longest = 60
+  public static let choices = [5, 15, 30, 60, 120, 240, 480]
+  /// What the owner may set as the longest session.
+  public static let longestChoices = [15, 30, 60, 120, 240, 480]
+  public static let defaultLongest = 60
 
-  /// The choices up to what KOS asked for, with what it asked for itself as the longest.
-  public static func offered(requested: Double) -> [Int] {
-    let asked = capped(requested)
+  /// The choices up to what KOS asked for, with what it asked for itself as the longest, never past `longest`.
+  public static func offered(requested: Double, longest: Int = defaultLongest) -> [Int] {
+    let asked = capped(requested, longest: longest)
     return choices.filter { $0 < asked } + [asked]
   }
 
   /// What a session gets when the owner chose to let KOS's approval queue decide.
-  public static func unattended(requested: Double) -> Int {
-    capped(requested)
+  public static func unattended(requested: Double, longest: Int = defaultLongest) -> Int {
+    capped(requested, longest: longest)
   }
 
   public static func validate(_ minutes: Double) throws {
     guard minutes.isFinite, minutes > 0 else { throw DeviceError.badRequest("minutes must be more than zero.") }
   }
 
-  /// Whole minutes, at least one and at most an hour.
-  private static func capped(_ minutes: Double) -> Int {
+  /// Whole minutes, at least one and at most `longest`.
+  private static func capped(_ minutes: Double, longest: Int) -> Int {
     guard minutes.isFinite, minutes > 0 else { return 1 }
-    return Int(min(Double(longest), minutes).rounded(.up))
+    return Int(min(Double(max(1, longest)), minutes).rounded(.up))
   }
 }

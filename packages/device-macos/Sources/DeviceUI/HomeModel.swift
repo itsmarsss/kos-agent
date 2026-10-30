@@ -14,6 +14,19 @@ public enum LinkState: Equatable {
   /// Another copy of KOS Device took the line.
   case replaced
   case outdated
+  /// The owner disconnected on purpose.
+  case disconnected
+}
+
+public enum HomePage: Equatable {
+  case home, settings
+}
+
+/// Opening at login, as macOS has it.
+public enum LoginState: Equatable {
+  case on, off
+  /// Waiting for the owner to allow it under Login Items.
+  case needsApproval
 }
 
 public enum Grant: CaseIterable, Hashable {
@@ -95,7 +108,14 @@ public struct HomeActions {
   public var stop: () -> Void = {}
   public var restart: () -> Void = {}
   public var close: () -> Void = {}
-  public var minimize: () -> Void = {}
+  public var connect: () -> Void = {}
+  public var disconnect: () -> Void = {}
+  public var setLongest: (Int) -> Void = { _ in }
+  public var setPromptWait: (Int) -> Void = { _ in }
+  public var setIdle: (Int) -> Void = { _ in }
+  public var setOpenAtLogin: (Bool) -> Void = { _ in }
+  public var openLoginItems: () -> Void = {}
+  public var setConnectWhenOpened: (Bool) -> Void = { _ in }
 
   public init() {}
 }
@@ -132,6 +152,18 @@ public final class HomeModel: ObservableObject {
 
   /// The content's natural height, for the window to follow, animated.
   @Published public var contentHeight: CGFloat = 0
+
+  @Published public var page: HomePage = .home
+
+  // The owner's settings for this Mac, and what each may be.
+  @Published public var longestMinutes = 60
+  @Published public var promptWaitSeconds = 60
+  @Published public var idleMinutes = 3
+  @Published public var openAtLogin: LoginState = .off
+  @Published public var connectWhenOpened = true
+  public var longestChoices = [15, 30, 60, 120, 240, 480]
+  public var promptWaitChoices = [30, 60, 120, 300]
+  public var idleChoices = [1, 3, 5, 10, 15]
 
   public var actions = HomeActions()
 
