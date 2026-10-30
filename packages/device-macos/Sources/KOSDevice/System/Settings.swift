@@ -18,6 +18,17 @@ final class Settings {
     "com.lastpass.LastPass",
   ]
 
+  /// What the default hidden apps are called, for when one is not on this Mac to ask.
+  static let knownNames = [
+    "com.1password.1password": "1Password",
+    "com.agilebits.onepassword7": "1Password 7",
+    "com.bitwarden.desktop": "Bitwarden",
+    "com.apple.keychainaccess": "Keychain Access",
+    "com.apple.Passwords": "Passwords",
+    "com.dashlane.Dashlane": "Dashlane",
+    "com.lastpass.LastPass": "LastPass",
+  ]
+
   private enum Key {
     static let askFirst = "askBeforeEachSession"
     static let hiddenApps = "hiddenApps"

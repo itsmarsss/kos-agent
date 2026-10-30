@@ -16,10 +16,11 @@ final class OverlayController {
     hide()
     guard let nsScreen = Displays.screen(for: display) else { return }
     let overlay = ScreenOverlay(screen: nsScreen, display: display)
-    let bar = HUDPanel(screen: nsScreen, task: task)
-    bar.onPause = { [weak self] in self?.onPause?() }
-    bar.onResume = { [weak self] in self?.onResume?() }
-    bar.onStop = { [weak self] in self?.onStop?() }
+    let bar = HUDPanel(
+      screen: nsScreen, task: task,
+      pause: { [weak self] in self?.onPause?() },
+      resume: { [weak self] in self?.onResume?() },
+      stop: { [weak self] in self?.onStop?() })
     overlay.show()
     bar.alphaValue = 0
     bar.orderFrontRegardless()

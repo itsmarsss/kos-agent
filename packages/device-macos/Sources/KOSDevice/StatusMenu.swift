@@ -8,19 +8,14 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     var paired: Pairing?
     var link: Connection.Status
     var session: LiveSession?
-    var askFirst: Bool
   }
 
   var snapshot: () -> Snapshot
-  var onPair: (() -> Void)?
-  var onUnpair: (() -> Void)?
+  var onOpen: (() -> Void)?
   var onReconnect: (() -> Void)?
   var onPause: (() -> Void)?
   var onResume: (() -> Void)?
   var onStop: (() -> Void)?
-  var onAskFirst: ((Bool) -> Void)?
-  var onHiddenApps: (() -> Void)?
-  var onPermissions: (() -> Void)?
 
   private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
   private let menu = NSMenu()
@@ -65,21 +60,14 @@ final class StatusMenu: NSObject, NSMenuDelegate {
       menu.addItem(action("Stop", #selector(stop)))
     }
     menu.addItem(.separator())
-    if now.paired == nil {
-      menu.addItem(action("Pair with KOS…", #selector(pair)))
-    } else {
+    if now.paired != nil {
       switch now.link {
       case .offline, .replaced, .untrusted: menu.addItem(action("Reconnect", #selector(reconnect)))
       case .connecting, .connected, .outdated: break
       }
-      menu.addItem(action("Pair again…", #selector(pair)))
-      menu.addItem(action("Unpair…", #selector(unpair)))
     }
-    let ask = action("Ask before each session", #selector(toggleAsk))
-    ask.state = now.askFirst ? .on : .off
-    menu.addItem(ask)
-    menu.addItem(action("Hidden apps…", #selector(hiddenApps)))
-    menu.addItem(action("Permissions…", #selector(permissions)))
+    // Pairing, permissions, asking first and hidden apps all live in the one window.
+    menu.addItem(action(now.paired == nil ? "Pair with KOS…" : "Open KOS Device…", #selector(open)))
     menu.addItem(.separator())
     menu.addItem(NSMenuItem(title: "Quit KOS Device", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
   }
@@ -109,13 +97,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     return item
   }
 
-  @objc private func pair() { onPair?() }
-  @objc private func unpair() { onUnpair?() }
+  @objc private func open() { onOpen?() }
   @objc private func reconnect() { onReconnect?() }
   @objc private func pause() { onPause?() }
   @objc private func resume() { onResume?() }
   @objc private func stop() { onStop?() }
-  @objc private func toggleAsk() { onAskFirst?(!snapshot().askFirst) }
-  @objc private func hiddenApps() { onHiddenApps?() }
-  @objc private func permissions() { onPermissions?() }
 }
