@@ -26,6 +26,7 @@ import {
   SurfaceDownError,
   type NotifyPayload,
 } from "@kos/harness";
+import { createComputerUse } from "@kos/computer";
 
 import { envFilePath } from "./env.js";
 import { ThreadMirror } from "./threadmirror.js";
@@ -213,9 +214,24 @@ export async function runHost(options: HostOptions): Promise<void> {
     return made;
   };
 
+  /*
+   * Computer use: devices the owner paired dial in and KOS drives them. Its
+   * own package; the kernel only loads it as a module. KOS's key is kept
+   * outside the workspace, so the agent never reads it.
+   */
+  const computer = createComputerUse({
+    hostKeyPath: process.env.KOS_DEVICE_KEY_FILE?.trim() || join(homedir(), ".kos", "device-host.key"),
+    ...(process.env.KOS_SECRET_DEVICE_HOST ? { hostKeyEnv: process.env.KOS_SECRET_DEVICE_HOST } : {}),
+    caller: () => kernel.callerConversationId,
+    titleOf: (id) => kernel.titleOf(id),
+    halted: () => kernel.killSwitch.halted,
+  });
+
   const kernel = await Kernel.boot({
     rootDir: options.rootDir,
     allowedHosts: options.allowedHosts,
+    extraModules: [computer.module],
+    features: [{ name: "computer", description: "Use a paired computer: its screen, pointer and keyboard" }],
     ...(notify ? { notify } : {}),
     // The server's channels as tools, so KOS opens or closes one when the
     // owner says so. The adapter is made after boot; these reach for it then.
@@ -348,6 +364,7 @@ export async function runHost(options: HostOptions): Promise<void> {
     ...(options.hookSecret ? { hookSecret: options.hookSecret } : {}),
     host: options.host,
     meta,
+    extensions: [computer.routes],
     ...(sms
       ? {
           smsInbound: async ({ url, params, signature }) => {
@@ -360,6 +377,11 @@ export async function runHost(options: HostOptions): Promise<void> {
           },
         }
       : {}),
+  });
+
+  // The one upgrade the dashboard server takes: a paired device's socket.
+  server.on("upgrade", (req, socket, head) => {
+    if (!computer.upgrade(req, socket, head)) socket.destroy();
   });
 
   await new Promise<void>((resolveListen, reject) => {
@@ -817,6 +839,7 @@ export async function runHost(options: HostOptions): Promise<void> {
   const shutdown = (): void => {
     console.log("shutting down…");
     clearDaemonState(kernel.workspace.root);
+    computer.close();
     server.close();
     void (async () => {
       try {
