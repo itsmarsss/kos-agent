@@ -157,7 +157,7 @@ describe("a session", () => {
     const fake = await online(hub);
     const device = hub.find(undefined)!;
     const session = await hub.begin({ conversation: "c1", device, task: "open Figma", requester: "Design", minutes: 15 });
-    expect(fake.calls[0]).toMatchObject({ method: "session.begin", params: { task: "open Figma", requester: "Design", minutes: 15, session: session.id } });
+    expect(fake.calls[0]).toMatchObject({ method: "session.begin", params: { task: "open Figma", requester: "Design", conversation: "c1", minutes: 15, session: session.id } });
     expect(session.space).toEqual({ width: 1232, height: 800 });
     await hub.act("c1", "pointer.click", { x: 5, y: 6, button: "left", count: 1 });
     expect(fake.calls.at(-1)).toEqual({ method: "pointer.click", params: { x: 5, y: 6, button: "left", count: 1, session: session.id } });

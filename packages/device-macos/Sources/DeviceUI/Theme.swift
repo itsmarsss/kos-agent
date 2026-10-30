@@ -15,6 +15,8 @@ public enum Theme {
   public static let muted = Color(hex: 0x8B93A7)
   public static let faint = Color(hex: 0x5C6578)
   public static let accent = Color(hex: 0x7C9CFF)
+  /// The accent under the pointer.
+  public static let accentLit = Color(hex: 0x9BB4FF)
   public static let violet = Color(hex: 0xA57CFF)
   public static let ok = Color(hex: 0x3ECF8E)
   public static let warn = Color(hex: 0xE6B84D)

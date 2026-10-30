@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     controller.send = { [unowned self] message in connection.send(message) }
     controller.onChange = { [unowned self] in changed() }
+    controller.chatLink = { [unowned self] id in try? pairing?.kosAddress().chat(id) }
     settings.onChange = { [unowned self] in
       reportStateIfChanged()
       home.refreshSystem()
@@ -138,8 +139,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = home.model
     model.link = linkState()
     model.host = pairing.map { (try? $0.kosAddress().display) ?? $0.address }
+    model.dashboard = try? pairing?.kosAddress().base
     if case .connected(let name) = connection.status { model.deviceName = name } else if pairing == nil { model.deviceName = nil }
-    model.session = controller.live.map { SessionSummary(task: $0.task, requester: $0.requester, until: $0.until, paused: $0.paused) }
+    model.session = controller.live.map { live in
+      SessionSummary(
+        task: live.task, requester: live.requester, chat: live.conversation.flatMap { try? pairing?.kosAddress().chat($0) },
+        until: live.until, paused: live.paused)
+    }
     model.askFirst = settings.askFirst
   }
 

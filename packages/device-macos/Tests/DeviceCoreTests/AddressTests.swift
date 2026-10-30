@@ -30,6 +30,12 @@ struct AddressTests {
     #expect(throws: DeviceError.self) { try KOSAddress(text) }
   }
 
+  @Test func linksToTheDashboardsOwnPages() throws {
+    let kos = try KOSAddress("http://127.0.0.1:4417")
+    #expect(kos.devicesPage.absoluteString == "http://127.0.0.1:4417/#/settings/devices")
+    #expect(kos.chat("primary:owner").absoluteString == "http://127.0.0.1:4417/#/chats/primary%3Aowner")
+  }
+
   @Test func derivesTheSocketAndPairingAddresses() throws {
     let local = try KOSAddress("http://127.0.0.1:4317/")
     #expect(local.socketURL.absoluteString == "ws://127.0.0.1:4317/api/devices/socket")

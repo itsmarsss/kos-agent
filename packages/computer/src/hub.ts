@@ -236,7 +236,8 @@ export class DeviceHub {
     const minutes = Math.max(1, Math.min(MAX_MINUTES, Math.round(input.minutes)));
     const result = await link.call(
       "session.begin",
-      { session: id, task: input.task, requester: input.requester, minutes, ...(input.maxEdge ? { maxEdge: input.maxEdge } : {}) },
+      // The chat's id lets the device link the owner straight to the chat that is asking.
+      { session: id, task: input.task, requester: input.requester, conversation: input.conversation, minutes, ...(input.maxEdge ? { maxEdge: input.maxEdge } : {}) },
       this.deps.beginTimeoutMs ?? BEGIN_TIMEOUT_MS,
     );
     const grant = readGrant(result);

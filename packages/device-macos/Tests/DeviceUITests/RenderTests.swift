@@ -46,6 +46,7 @@ struct RenderTests {
       $0.code = "RFMA-DGDT"
       $0.name = "Studio MacBook"
       $0.note = "Check this is your KOS, then press Pair."
+      $0.devicesPage = URL(string: "http://127.0.0.1:4417/#/settings/devices")
     }
     let size = try render("home-unpaired", HomeView(model: model))
     #expect(size.width == 460)
@@ -59,7 +60,10 @@ struct RenderTests {
       $0.deviceName = "Studio MacBook"
       $0.screenGranted = true
       $0.inputGranted = true
-      $0.session = SessionSummary(task: "Export the deck from Keynote as a PDF", requester: "Design", until: Date().addingTimeInterval(900), paused: false)
+      $0.dashboard = URL(string: "http://127.0.0.1:4417")
+      $0.session = SessionSummary(
+        task: "Export the deck from Keynote as a PDF", requester: "Design", chat: URL(string: "http://127.0.0.1:4417/#/chats/c1"),
+        until: Date().addingTimeInterval(900), paused: false)
     }
     let size = try render("home-in-use", HomeView(model: model))
     #expect(size.height < 900)
@@ -86,7 +90,9 @@ struct RenderTests {
   }
 
   @Test func consent() throws {
-    let model = ConsentModel(task: "Open the Figma file from yesterday and export the cover frame", requester: "Design", offered: [5, 15], timeout: 60)
+    let model = ConsentModel(
+      task: "Open the Figma file from yesterday and export the cover frame", requester: "Design",
+      chat: URL(string: "http://127.0.0.1:4417/#/chats/c1"), offered: [5, 15], timeout: 60)
     model.remaining = 44
     let size = try render("consent", ConsentView(model: model))
     #expect(size.width == 380)

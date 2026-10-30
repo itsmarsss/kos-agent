@@ -12,6 +12,7 @@ final class ConsentPrompt: NSObject {
   struct Request {
     let task: String
     let requester: String
+    let chat: URL?
     let offered: [Int]
   }
 
@@ -43,7 +44,7 @@ final class ConsentPrompt: NSObject {
   }
 
   private func present(_ request: Request) {
-    let model = ConsentModel(task: request.task, requester: request.requester, offered: request.offered, timeout: Self.timeout)
+    let model = ConsentModel(task: request.task, requester: request.requester, chat: request.chat, offered: request.offered, timeout: Self.timeout)
     model.allow = { [weak self] minutes in self?.finish(.allowed(minutes: minutes)) }
     model.deny = { [weak self] in self?.finish(.denied) }
     self.model = model

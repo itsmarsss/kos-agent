@@ -29,6 +29,8 @@ public struct SessionBeginParams: Decodable, Sendable {
   public let session: String
   public let task: String
   public let requester: String
+  /// The chat asking, by id, so the owner can open it on the dashboard.
+  public let conversation: String?
   public let minutes: Double
   public let maxEdge: Double?
 }

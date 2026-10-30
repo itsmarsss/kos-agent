@@ -13,6 +13,8 @@ final class DeviceController {
   var send: ((Data) -> Void)?
   /// The session started, paused, resumed or ended: the menu redraws.
   var onChange: (() -> Void)?
+  /// A chat on the paired KOS's dashboard, by its id.
+  var chatLink: (String) -> URL? = { _ in nil }
 
   private var sessions = Sessions()
   private var display: CGDirectDisplayID?
@@ -27,7 +29,7 @@ final class DeviceController {
   private var ticker: Timer?
 
   /// How long after the owner hands control over that the pointer is not watched.
-  private static let handOverGrace: TimeInterval = 1.5
+  private static let handOverGrace: TimeInterval = 3
 
   init(settings: Settings, overlay: OverlayController) {
     self.settings = settings
@@ -98,7 +100,9 @@ final class DeviceController {
 
     let minutes: Int
     if settings.askFirst {
-      let request = ConsentPrompt.Request(task: task, requester: params.requester, offered: Durations.offered(requested: params.minutes))
+      let request = ConsentPrompt.Request(
+        task: task, requester: params.requester, chat: params.conversation.flatMap(chatLink),
+        offered: Durations.offered(requested: params.minutes))
       switch await consent.ask(request) {
       case .allowed(let chosen):
         minutes = chosen
@@ -119,7 +123,8 @@ final class DeviceController {
 
     let id = Displays.underCursor()
     let space = Space(display: Displays.bounds(id), maxEdge: edge)
-    let session = try sessions.grant(params.session, task: task, requester: params.requester, minutes: minutes, space: space, now: Date())
+    let session = try sessions.grant(
+      params.session, task: task, requester: params.requester, conversation: params.conversation, minutes: minutes, space: space, now: Date())
     display = id
     maxEdge = edge
     overlay.show(display: id, task: task)

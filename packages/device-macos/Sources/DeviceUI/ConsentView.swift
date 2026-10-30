@@ -9,6 +9,8 @@ import SwiftUI
 public final class ConsentModel: ObservableObject {
   public let task: String
   public let requester: String
+  /// The chat asking, on the dashboard, to read before allowing.
+  public let chat: URL?
   /// Whole minutes the owner may choose from, longest last.
   public let offered: [Int]
   public let timeout: Int
@@ -17,9 +19,10 @@ public final class ConsentModel: ObservableObject {
   public var allow: (Int) -> Void = { _ in }
   public var deny: () -> Void = {}
 
-  public init(task: String, requester: String, offered: [Int], timeout: Int) {
+  public init(task: String, requester: String, chat: URL? = nil, offered: [Int], timeout: Int) {
     self.task = task
     self.requester = requester
+    self.chat = chat
     self.offered = offered
     self.timeout = timeout
     minutes = offered.last ?? 5
@@ -52,10 +55,13 @@ public struct ConsentView: View {
       VStack(spacing: 5) {
         Text("KOS wants to use this Mac").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text)
         HStack(spacing: 4) {
-          Text("Asked from").foregroundStyle(Theme.muted)
-          Text(model.requester).foregroundStyle(Theme.accent).fontWeight(.medium)
+          Text("Asked from").foregroundStyle(Theme.muted).font(.system(size: 12.5))
+          if let chat = model.chat {
+            KOSLink(model.requester, to: chat, size: 12.5)
+          } else {
+            Text(model.requester).foregroundStyle(Theme.accent).fontWeight(.medium).font(.system(size: 12.5))
+          }
         }
-        .font(.system(size: 12.5))
       }
 
       Text(model.task)
@@ -123,14 +129,29 @@ public struct ConsentView: View {
     let selected: Bool
 
     func makeBody(configuration: Configuration) -> some View {
-      configuration.label
-        .font(.system(size: 12, weight: selected ? .semibold : .medium))
-        .foregroundStyle(selected ? Theme.accent : Theme.muted)
-        .padding(.horizontal, 11)
-        .padding(.vertical, 6)
-        .background(selected ? Theme.accent.opacity(0.14) : Theme.panel2, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(selected ? Theme.accent.opacity(0.45) : Theme.line))
-        .contentShape(Rectangle())
+      Choice(selected: selected, configuration: configuration)
+    }
+
+    private struct Choice: View {
+      let selected: Bool
+      let configuration: ButtonStyleConfiguration
+      @State private var hovering = false
+
+      var body: some View {
+        configuration.label
+          .font(.system(size: 12, weight: selected ? .semibold : .medium))
+          .foregroundStyle(selected ? Theme.accent : hovering ? Theme.text : Theme.muted)
+          .padding(.horizontal, 11)
+          .padding(.vertical, 6)
+          .background(selected ? Theme.accent.opacity(0.14) : hovering ? Theme.line.opacity(0.7) : Theme.panel2, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+          .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(selected ? Theme.accent.opacity(0.45) : hovering ? Theme.lineStrong : Theme.line))
+          .scaleEffect(configuration.isPressed ? 0.97 : 1)
+          .contentShape(Rectangle())
+          .onHover { hovering = $0 }
+          .pointingHand()
+          .animation(.easeOut(duration: 0.14), value: hovering)
+          .animation(.easeOut(duration: 0.14), value: selected)
+      }
     }
   }
 }

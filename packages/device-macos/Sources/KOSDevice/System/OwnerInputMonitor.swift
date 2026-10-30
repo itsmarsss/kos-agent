@@ -4,13 +4,13 @@ import AppKit
 ///
 /// Events KOS posted are recognised by the injector and ignored. A click, a
 /// scroll or a key from anyone else is the owner taking over, at once. The
-/// pointer has to travel a few points first, so a resting palm on the
-/// trackpad does not stop KOS, and for a moment after the owner hands
-/// control over (Allow, Resume) the pointer is not watched at all: their hand
-/// is still on the way off.
+/// pointer has to travel as far as a deliberate move does first: a nudge,
+/// or a hand coming off the trackpad, paused the very first live session a
+/// moment after Allow. And for a few seconds after the owner hands control
+/// over (Allow, Resume) the pointer is not watched at all.
 @MainActor
 final class OwnerInputMonitor {
-  private static let travel: CGFloat = 8
+  private static let travel: CGFloat = 40
   private static let travelWindow: TimeInterval = 0.5
 
   private var monitors: [Any] = []

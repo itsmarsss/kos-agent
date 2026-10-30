@@ -10,6 +10,8 @@ public struct LiveSession: Equatable, Sendable {
   public let id: String
   public let task: String
   public let requester: String
+  /// The chat that asked, by id, when KOS said.
+  public let conversation: String?
   public let until: Date
   public let space: Space
   public fileprivate(set) var paused = false
@@ -48,10 +50,12 @@ public struct Sessions: Sendable {
     phase = .asking(id)
   }
 
-  public mutating func grant(_ id: String, task: String, requester: String, minutes: Int, space: Space, now: Date) throws -> LiveSession {
+  public mutating func grant(
+    _ id: String, task: String, requester: String, conversation: String? = nil, minutes: Int, space: Space, now: Date
+  ) throws -> LiveSession {
     guard phase == .asking(id) else { throw DeviceError(.noSession, "Nothing was asked for under that id.") }
     let session = LiveSession(
-      id: id, task: task, requester: requester, until: now.addingTimeInterval(TimeInterval(minutes * 60)),
+      id: id, task: task, requester: requester, conversation: conversation, until: now.addingTimeInterval(TimeInterval(minutes * 60)),
       space: space, lastActivity: now)
     phase = .live(session)
     return session

@@ -132,7 +132,7 @@ without that session live.
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `session.begin` | `session`, `task`, `requester`, `minutes`, `maxEdge?` | `granted`, `until`, `space {width,height}` |
+| `session.begin` | `session`, `task`, `requester`, `conversation?`, `minutes`, `maxEdge?` | `granted`, `until`, `space {width,height}` |
 | `session.end` | `session` | `{}` |
 | `screen.capture` | `session`, `region? {x,y,width,height}` | `image` (base64), `mediaType`, `width`, `height`, `cursor {x,y}`, `app?` |
 | `pointer.move` | `session`, `x`, `y` | `cursor` |
@@ -143,7 +143,9 @@ without that session live.
 | `keys.press` | `session`, `keys` (one combination, `cmd+shift+t`), `repeat?` | `cursor` |
 
 `session.begin` is answered when the owner decides, or in 60 s as `denied`.
-`minutes` is what KOS asks for; the owner may choose less.
+`minutes` is what KOS asks for; the owner may choose less. `requester` is the
+asking chat's title and `conversation` its id, so the device can link the
+owner to it on the dashboard (`<KOS address>/#/chats/<id>`).
 
 **Coordinates** are in the session's `space`: the screen in points, scaled
 down to fit `maxEdge` (default 1280) on its long side. A capture without a

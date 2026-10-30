@@ -46,6 +46,22 @@ public struct KOSAddress: Equatable, Sendable {
 
   public var pairURL: URL { base.appendingPathComponent("api/devices/pair") }
 
+  /// The dashboard's Devices page, where codes are made.
+  public var devicesPage: URL { page("settings/devices") }
+
+  /// A chat on the dashboard, by its id.
+  public func chat(_ conversation: String) -> URL {
+    page("chats/\(conversation.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-_."))) ?? conversation)")
+  }
+
+  /// A page of the dashboard: its routes live after the hash.
+  private func page(_ route: String) -> URL {
+    var parts = URLComponents(url: base, resolvingAgainstBaseURL: false)!
+    parts.path = "/"
+    parts.percentEncodedFragment = "/\(route)"
+    return parts.url ?? base
+  }
+
   public var socketURL: URL {
     var parts = URLComponents(url: base.appendingPathComponent("api/devices/socket"), resolvingAgainstBaseURL: false)!
     parts.scheme = parts.scheme == "https" ? "wss" : "ws"

@@ -43,12 +43,15 @@ public struct AppEntry: Identifiable, Equatable {
 public struct SessionSummary: Equatable {
   public let task: String
   public let requester: String
+  /// The chat that asked, on the dashboard.
+  public let chat: URL?
   public let until: Date
   public let paused: Bool
 
-  public init(task: String, requester: String, until: Date, paused: Bool) {
+  public init(task: String, requester: String, chat: URL? = nil, until: Date, paused: Bool) {
     self.task = task
     self.requester = requester
+    self.chat = chat
     self.until = until
     self.paused = paused
   }
@@ -75,6 +78,10 @@ public final class HomeModel: ObservableObject {
   @Published public var link: LinkState = .notPaired
   /// KOS's address as the owner reads it, once paired.
   @Published public var host: String?
+  /// The dashboard, once paired.
+  @Published public var dashboard: URL?
+  /// The Devices page of the KOS being typed in, while pairing.
+  @Published public var devicesPage: URL?
   /// This Mac's name in KOS, once paired.
   @Published public var deviceName: String?
   @Published public var session: SessionSummary?
@@ -99,6 +106,9 @@ public final class HomeModel: ObservableObject {
   @Published public var busy = false
 
   public var actions = HomeActions()
+
+  /// How KOS Device keeps the Mac safe, in the repository's own words.
+  public static let safety = URL(string: "https://github.com/itsmarsss/kos-agent/blob/main/docs/computer.md#security-model")!
 
   public init() {}
 
@@ -184,7 +194,15 @@ public struct HomeView: View {
         Spacer()
         Text("until \(session.until.formatted(date: .omitted, time: .shortened))").font(.system(size: 11.5)).foregroundStyle(Theme.muted)
       }
-      Text("“\(session.task)”, asked from \(session.requester)").font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(2)
+      Text("“\(session.task)”").font(.system(size: 12.5)).foregroundStyle(Theme.text).lineLimit(2)
+      HStack(spacing: 4) {
+        Text("Asked from").font(.system(size: 12)).foregroundStyle(Theme.muted)
+        if let chat = session.chat {
+          KOSLink(session.requester, to: chat)
+        } else {
+          Text(session.requester).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.text)
+        }
+      }
       HStack {
         Spacer()
         if session.paused {
@@ -202,8 +220,14 @@ public struct HomeView: View {
   private var pairingCard: some View {
     Card {
       Text("Pair with your KOS").font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.text)
-      Text("From KOS: Settings, Devices, Add a device. Open its link or paste it here.")
-        .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+      HStack(alignment: .firstTextBaseline, spacing: 6) {
+        Text("From KOS: Settings, Devices, Add a device. Open its link or paste it here.")
+          .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+        if let page = model.devicesPage {
+          Spacer(minLength: 4)
+          KOSLink("Devices", to: page)
+        }
+      }
       KOSField("KOS address or pairing link", placeholder: "https://kos.example.ts.net", text: $model.address, mono: true)
       HStack(alignment: .top, spacing: 10) {
         KOSField("Code", placeholder: "K7QX-M2PA", text: $model.code, mono: true).frame(width: 140)
@@ -239,7 +263,11 @@ public struct HomeView: View {
       if let host = model.host {
         HStack(spacing: 6) {
           Image(systemName: "network").font(.system(size: 11)).foregroundStyle(Theme.faint)
-          Text(host).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
+          if let dashboard = model.dashboard {
+            KOSLink(host, to: dashboard)
+          } else {
+            Text(host).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
+          }
         }
       }
       HStack(spacing: 8) {
@@ -357,15 +385,34 @@ public struct HomeView: View {
         }
       }
       Divider().overlay(Theme.line)
-      HStack(spacing: 8) {
+      HStack(alignment: .top, spacing: 8) {
         Image(systemName: "hand.raised").font(.system(size: 12)).foregroundStyle(Theme.faint)
-        Text("Touch the mouse, trackpad or keyboard and KOS pauses at once. It never types into password fields.")
-          .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 6) {
+          Text("Touch the mouse, trackpad or keyboard and KOS pauses at once. It never types into password fields.")
+            .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+          KOSLink("How this keeps your Mac safe", to: HomeModel.safety, size: 11.5)
+        }
       }
     }
   }
 
   private func chip(_ app: AppEntry) -> some View {
+    AppChip(app: app) { model.actions.unhide(app.id) }
+  }
+
+  private var addMenu: some View {
+    AddAppMenu(apps: model.addable) { model.actions.hide($0) }
+  }
+}
+
+/// A hidden app: lit under the pointer, its cross red, so removing it reads before the click.
+private struct AppChip: View {
+  let app: AppEntry
+  let remove: () -> Void
+  @State private var hovering = false
+  @State private var onCross = false
+
+  var body: some View {
     HStack(spacing: 5) {
       if let icon = app.icon {
         Image(nsImage: icon).resizable().frame(width: 14, height: 14)
@@ -373,26 +420,41 @@ public struct HomeView: View {
         Image(systemName: "app.dashed").font(.system(size: 11)).foregroundStyle(Theme.faint)
       }
       Text(app.name).font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
-      Button {
-        model.actions.unhide(app.id)
-      } label: {
-        Image(systemName: "xmark").font(.system(size: 8.5, weight: .bold)).foregroundStyle(Theme.faint)
+      Button(action: remove) {
+        Image(systemName: "xmark")
+          .font(.system(size: 8.5, weight: .bold))
+          .foregroundStyle(onCross ? Theme.danger : hovering ? Theme.muted : Theme.faint)
+          .frame(width: 14, height: 14)
+          .background(onCross ? Theme.danger.opacity(0.15) : .clear, in: Circle())
       }
       .buttonStyle(.plain)
+      .onHover { onCross = $0 }
+      .pointingHand()
       .accessibilityLabel("Stop hiding \(app.name)")
     }
     .padding(.leading, 7)
-    .padding(.trailing, 8)
+    .padding(.trailing, 5)
     .padding(.vertical, 4)
-    .background(Theme.panel2, in: Capsule())
-    .overlay(Capsule().strokeBorder(Theme.line))
+    .background(hovering ? Theme.line.opacity(0.6) : Theme.panel2, in: Capsule())
+    .overlay(Capsule().strokeBorder(onCross ? Theme.danger.opacity(0.45) : hovering ? Theme.lineStrong : Theme.line))
+    .onHover { hovering = $0 }
+    .animation(.easeOut(duration: 0.14), value: hovering)
+    .animation(.easeOut(duration: 0.14), value: onCross)
+    .help(app.id)
   }
+}
 
-  private var addMenu: some View {
+/// The apps open now that could be hidden, as a menu under a link-coloured label.
+private struct AddAppMenu: View {
+  let apps: [AppEntry]
+  let hide: (String) -> Void
+  @State private var hovering = false
+
+  var body: some View {
     Menu {
-      if model.addable.isEmpty { Text("No other apps are open") }
-      ForEach(model.addable) { app in
-        Button(app.name) { model.actions.hide(app.id) }
+      if apps.isEmpty { Text("No other apps are open") }
+      ForEach(apps) { app in
+        Button(app.name) { hide(app.id) }
       }
     } label: {
       Label("Add app", systemImage: "plus").font(.system(size: 12, weight: .semibold))
@@ -400,8 +462,14 @@ public struct HomeView: View {
     .menuStyle(.borderlessButton)
     .menuIndicator(.hidden)
     .fixedSize()
-    .tint(Theme.accent)
-    .foregroundStyle(Theme.accent)
+    .tint(hovering ? Theme.accentLit : Theme.accent)
+    .foregroundStyle(hovering ? Theme.accentLit : Theme.accent)
+    .padding(.horizontal, 6)
+    .padding(.vertical, 3)
+    .background(hovering ? Theme.accent.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+    .onHover { hovering = $0 }
+    .pointingHand()
+    .animation(.easeOut(duration: 0.14), value: hovering)
   }
 }
 

@@ -76,6 +76,8 @@ final class HomeWindow: NSObject, NSWindowDelegate {
   // MARK: Pairing
 
   private func readLink(_ text: String) {
+    let typed = text.trimmingCharacters(in: .whitespaces)
+    model.devicesPage = typed.isEmpty ? nil : (try? KOSAddress(typed))?.devicesPage
     guard let link = try? PairingLink.parse(text) else { return }
     model.address = link.address.base.absoluteString
     model.code = link.code
