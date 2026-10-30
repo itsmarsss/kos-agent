@@ -62,6 +62,21 @@ describe("summaries for the browser", () => {
   });
 });
 
+describe("summaries for a computer", () => {
+  it("say what each step does on the screen", () => {
+    expect(summarizeAction("computer.start", { device: "Studio MacBook", task: "export the deck" })).toBe("Use Studio MacBook: export the deck");
+    expect(summarizeAction("computer.start", { device: "dev_qgaNFoIB", task: "smoke test" })).toBe("Use a computer: smoke test");
+    expect(summarizeAction("computer.act", { action: "left_click", coordinate: [800, 769] })).toBe("Click at (800, 769)");
+    expect(summarizeAction("computer.act", { action: "double_click", coordinate: [1, 2], text: "shift" })).toBe("Double-click at (1, 2) holding shift");
+    expect(summarizeAction("computer.act", { action: "left_click_drag", start_coordinate: [1, 2], coordinate: [3, 4] })).toBe("Drag from (1, 2) to (3, 4)");
+    expect(summarizeAction("computer.act", { action: "scroll", scroll_direction: "up", scroll_amount: 5 })).toBe("Scroll up 5");
+    expect(summarizeAction("computer.act", { action: "type", text: "hello" })).toBe("Type “hello”");
+    expect(summarizeAction("computer.act", { action: "key", text: "cmd+s" })).toBe("Press cmd+s");
+    expect(summarizeAction("computer.act", { action: "screenshot" })).toBe("Look at the screen");
+    expect(summarizeAction("computer.end", {})).toBe("Give the computer back");
+  });
+});
+
 describe("summaries for the rest of the toolkit", () => {
   it("names the conversation work is handed to", () => {
     // These reach the reader now that each step is streamed, so the raw
