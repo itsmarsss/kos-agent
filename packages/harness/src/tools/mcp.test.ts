@@ -21,7 +21,6 @@ import {
   setMcpServerEnabled,
   upsertMcpServers,
   type McpConfig,
-  type McpModuleOptions,
 } from "./mcp.js";
 
 /**
@@ -68,7 +67,7 @@ function fakeServer(): { transport: () => InMemoryTransport; seen: Record<string
   };
 }
 
-function harness(config: McpConfig, fake = fakeServer(), extra: Partial<McpModuleOptions> = {}) {
+function harness(config: McpConfig, fake = fakeServer()) {
   const registry = new ToolRegistry();
   const reports: string[] = [];
   const module = createMcpModule({
@@ -77,7 +76,6 @@ function harness(config: McpConfig, fake = fakeServer(), extra: Partial<McpModul
     config: () => config,
     transportFor: (name) => (name === "broken" ? undefined : fake.transport()),
     report: (m) => reports.push(m),
-    ...extra,
   });
   // Letting go is the module's own deactivate now, not a second handle.
   const close = async (): Promise<void> => { await module.deactivate!(); };
@@ -225,24 +223,6 @@ describe("reloading when the set of servers changes", () => {
     expect(Object.keys(module.status()).sort()).toEqual(["a", "c"]);
     await module.deactivate!();
     expect(registry.has("mcp.a.add")).toBe(false);
-  });
-});
-
-describe("a say before each call", () => {
-  it("amends what goes to the server, per server and tool", async () => {
-    const asked: string[] = [];
-    const h = harness({ servers: { fake: { command: "unused" } } }, fakeServer(), {
-      before: async (server, tool, input) => {
-        asked.push(`${server}.${tool}`);
-        return { ...input, b: 40 };
-      },
-    });
-    await h.module.activate({ registerTool: (d, f, r, m) => h.registry.register(d, f, r, m) });
-    const result = await h.registry.execute("mcp.fake.add", { a: 1, b: 2 });
-    expect(result.isError).toBe(false);
-    expect(result.content).toBe("41");
-    expect(asked).toEqual(["fake.add"]);
-    expect(h.fake.seen).toEqual([{ a: 1, b: 40 }]);
   });
 });
 

@@ -42,6 +42,7 @@ import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
 import { createHttpModule } from "../tools/http.js";
 import { createMcpModule, readMcpConfig } from "../tools/mcp.js";
+import { retireBrowserEngine } from "../ops/browsersettings.js";
 import { adoptFixes } from "./caretaker.js";
 import { createModulesModule } from "../tools/modules.js";
 import { EventBus } from "../modules/events.js";
@@ -180,6 +181,8 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const daemons = new DaemonStore(workspace.db);
   const permissions = new PermissionStore(workspace.db);
   const settings = new SettingsStore(workspace.db);
+  const retired = retireBrowserEngine(workspace.root, settings, workspace.db);
+  if (retired) console.log(`browser: KOS drives Chrome itself now; the ${retired} server is out of mcp.json, its settings and trusted sites kept`);
   /*
    * Servers from mcp.json, and the workspace's own modules the owner has
    * switched on, each run from its folder in the jail. A module that
@@ -188,8 +191,6 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const mcp = createMcpModule({
     workspaceRoot: workspace.root,
     secrets,
-    // The browser engine's calls get Chrome and the caller's own tab first.
-    before: (server, tool, input) => (kernelRef ? kernelRef.prepareBrowserCall(server, tool, input) : Promise.resolve(input)),
     config: () => {
       const servers = { ...readMcpConfig(workspace.root).servers };
       const enabled = parseModuleSettings(settings.get(MODULES_KEY)).enabled;
@@ -372,13 +373,13 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     }),
     systemsModule,
     sitesModule,
-    // A visit, or a run of gestures, in one call: made of the engine's tools.
+    // The browser: a visit, or a run of gestures, in one call, on the caller's own tab.
     createBrowserModule({
-      call: (tool, args) => (kernelRef ? kernelRef.callBrowser(tool, args) : Promise.reject(new Error("not booted"))),
-      look: () => (kernelRef ? kernelRef.lookAtBrowser() : Promise.resolve(undefined)),
+      tab: () => (kernelRef ? kernelRef.browserTab() : Promise.reject(new Error("not booted"))),
       tabs: () => kernelRef?.browserTabs() ?? [],
+      mine: () => kernelRef?.browserTabsOfCaller() ?? [],
       useTab: (tab) => (kernelRef ? kernelRef.useBrowserTab(tab) : Promise.reject(new Error("not booted"))),
-      newTab: (url) => (kernelRef ? kernelRef.newBrowserTab(url) : Promise.reject(new Error("not booted"))),
+      newTab: () => (kernelRef ? kernelRef.newBrowserTab() : Promise.reject(new Error("not booted"))),
       watch: (input) => (kernelRef ? kernelRef.watchPage(input) : Promise.reject(new Error("not booted"))),
     }),
     createBuildsModule({
@@ -732,6 +733,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       : {}),
     ...(options.restart ? { restart: options.restart } : {}),
     ...(options.discord ? { discord: options.discord } : {}),
+    ...(options.chrome ? { chrome: options.chrome } : {}),
   });
   // A chat deleted anywhere (the dashboard, chats.delete) is announced, so
   // the thread that stood for it on Discord goes with it.

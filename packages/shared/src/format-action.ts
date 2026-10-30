@@ -288,6 +288,8 @@ export function summarizeAction(
     return `Visit ${urls.length ? urls.join(", ") : fmtVal(a.url)}`;
   }
   if (tool === "browser.handoff") return `Needs your hands: ${fmtVal(a.reason)}`;
+  if (tool === "browser.look") return "Look at the page";
+  if (tool === "browser.eval") return `Run script in the page: ${fmtVal(a.code)}`;
   if (tool === "browser.tabs") return "List the browser's tabs";
   if (tool === "browser.use_tab") return `Switch to tab ${fmtVal(a.tab)}`;
   if (tool === "browser.new_tab") return a.url !== undefined ? `Open a new tab at ${fmtVal(a.url)}` : "Open a new tab";
@@ -297,13 +299,14 @@ export function summarizeAction(
     const said = steps.slice(0, 4).map((s) => {
       const key = Object.keys(s)[0] ?? "step";
       const v = s[key];
-      const what = typeof v === "string" ? v : typeof v === "number" ? `${v}ms` : v && typeof v === "object" && typeof (v as Record<string, unknown>)["selector"] === "string" ? String((v as Record<string, unknown>)["selector"]) : "";
+      const target = v && typeof v === "object" ? ((v as Record<string, unknown>)["target"] ?? (v as Record<string, unknown>)["selector"]) : undefined;
+      const what = typeof v === "string" ? v : typeof v === "number" ? `${v}ms` : typeof target === "string" ? target : "";
       return `${key}${what ? ` ${what}` : ""}`;
     });
     return `On the page: ${said.join(", ")}${steps.length > 4 ? `, +${steps.length - 4} more` : ""}`;
   }
-  // The browser engine's actions read as what they do to the page; the
-  // approval's small print says which site, since the call does not.
+  // The old engine's actions, as transcripts from before KOS drove the
+  // browser itself still hold them.
   const browser = /^mcp\.[^.]+\.agent_browser_(.+)$/.exec(tool);
   if (browser) {
     const action = browser[1]!;

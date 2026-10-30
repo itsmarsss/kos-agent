@@ -63,21 +63,18 @@ function parentDir(path: string): string {
  */
 export interface PermissionContext {
   browser?: {
-    /** The browser engine's tool-name prefix, "mcp.browser.". */
+    /** The browser's tool-name prefix, "browser.". */
     prefix: string;
     /** The host of the caller's tab, when it has one. */
     site?: string;
     /** Tools of the family that are never remembered. */
     strict?: string[];
-    /** KOS's own browser tools, which act on the same tab and belong to the same trust. */
-    members?: string[];
   };
 }
 
 function browserTool(tool: string, context?: PermissionContext): boolean {
   const browser = context?.browser;
-  if (!browser) return false;
-  return tool.startsWith(browser.prefix) || (browser.members?.includes(tool) ?? false);
+  return browser !== undefined && tool.startsWith(browser.prefix);
 }
 
 /** The name a rule is kept under: a browser action's whole family, else the tool itself. */

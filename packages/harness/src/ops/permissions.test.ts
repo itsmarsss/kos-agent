@@ -113,30 +113,25 @@ describe("remembered decisions", () => {
 });
 
 describe("trusting a site for the browser", () => {
-  const context = { browser: { prefix: "mcp.browser.", site: "example.com", strict: ["mcp.browser.agent_browser_eval"] } };
+  const context = { browser: { prefix: "browser.", site: "example.com", strict: ["browser.eval"] } };
 
   it("names a browser action by the site its tab is on, as one family", () => {
-    expect(scopeOf("mcp.browser.agent_browser_click", { selector: "@e5" }, context)).toBe("site:example.com");
-    expect(familyOf("mcp.browser.agent_browser_click", context)).toBe("mcp.browser.*");
-    expect(scopeOf("mcp.browser.agent_browser_click", { selector: "@e5" }, { browser: { prefix: "mcp.browser." } })).toBeUndefined();
-    expect(scopeOf("mcp.browser.agent_browser_eval", { script: "x" }, context)).toBeUndefined();
+    expect(scopeOf("browser.act", { steps: [{ click: "@e5" }] }, context)).toBe("site:example.com");
+    expect(familyOf("browser.act", context)).toBe("browser.*");
+    expect(scopeOf("browser.act", { steps: [{ click: "@e5" }] }, { browser: { prefix: "browser." } })).toBeUndefined();
+    expect(scopeOf("browser.eval", { code: "x" }, context)).toBeUndefined();
     expect(scopeOf("files.write", { path: "a/b.txt" }, context)).toBe("dir:a");
     expect(familyOf("files.write", context)).toBe("files.write");
   });
 
   it("remembers one yes for every action on that site, and nowhere else", () => {
     const store = new PermissionStore(new Database(":memory:"), () => 1);
-    const rule = store.ruleFor("mcp.browser.agent_browser_click", { selector: "@e5" }, null, context);
-    expect(rule).toEqual({ tool: "mcp.browser.*", scope: "site:example.com", project: null });
+    const rule = store.ruleFor("browser.act", { steps: [{ click: "@e5" }] }, null, context);
+    expect(rule).toEqual({ tool: "browser.*", scope: "site:example.com", project: null });
     store.add(rule!);
-    expect(store.allows("mcp.browser.agent_browser_fill", { selector: "@e2", value: "x" }, undefined, context)).toBe(true);
-    expect(store.allows("mcp.browser.agent_browser_eval", { script: "x" }, undefined, context)).toBe(false);
-    expect(store.allows("mcp.browser.agent_browser_click", { selector: "@e5" }, undefined, { browser: { ...context.browser, site: "other.example" } })).toBe(false);
-    expect(store.allows("mcp.browser.agent_browser_click", { selector: "@e5" }, undefined, { browser: { prefix: "mcp.browser." } })).toBe(false);
-    // KOS's own composite acts on the same tab: same trust.
-    const withMembers = { browser: { ...context.browser, members: ["browser.act"] } };
-    expect(familyOf("browser.act", withMembers)).toBe("mcp.browser.*");
-    expect(store.allows("browser.act", { steps: [] }, undefined, withMembers)).toBe(true);
-    expect(store.allows("browser.act", { steps: [] }, undefined, context)).toBe(false);
+    expect(store.allows("browser.act", { steps: [{ fill: { target: "@e2", text: "x" } }] }, undefined, context)).toBe(true);
+    expect(store.allows("browser.eval", { code: "x" }, undefined, context)).toBe(false);
+    expect(store.allows("browser.act", { steps: [] }, undefined, { browser: { ...context.browser, site: "other.example" } })).toBe(false);
+    expect(store.allows("browser.act", { steps: [] }, undefined, { browser: { prefix: "browser." } })).toBe(false);
   });
 });

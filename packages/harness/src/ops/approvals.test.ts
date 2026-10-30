@@ -34,8 +34,8 @@ describe("ApprovalQueue", () => {
   });
 
   it("keeps the rule and the picture a call was queued with, and adds the columns to an older table", () => {
-    const action = queue.enqueue({ tool: "mcp.browser.agent_browser_click", args: { selector: "@e5" }, riskTier: "risky", rule: { tool: "mcp.browser.*", scope: "site:shop.example", project: null }, picture: "UElD", why: "  I'll add it to the cart now. " });
-    expect(action.rule).toEqual({ tool: "mcp.browser.*", scope: "site:shop.example", project: null });
+    const action = queue.enqueue({ tool: "browser.act", args: { steps: [{ click: "@e5" }] }, riskTier: "risky", rule: { tool: "browser.*", scope: "site:shop.example", project: null }, picture: "UElD", why: "  I'll add it to the cart now. " });
+    expect(action.rule).toEqual({ tool: "browser.*", scope: "site:shop.example", project: null });
     expect(action.picture).toBe(true);
     expect(action.why).toBe("I'll add it to the cart now.");
     expect(queue.pictureOf(action.id)).toBe("UElD");

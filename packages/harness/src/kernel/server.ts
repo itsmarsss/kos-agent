@@ -76,8 +76,8 @@ import {
   type McpListing,
   type SkillListing,
 } from "../catalog/catalog.js";
-import { mcpToolName, readMcpConfig, removeMcpServer, serversFromJson, setMcpServerEnabled, upsertMcpServers } from "../tools/mcp.js";
-import { CHROME_ENV, DEFAULT_SEARCH, EXTENSIONS_ENV, HEADED_ENV, SEARCH_ENV, browserEngine } from "../browser/live.js";
+import { DEFAULT_SEARCH } from "@kos/browser";
+import { readMcpConfig, removeMcpServer, serversFromJson, setMcpServerEnabled, upsertMcpServers } from "../tools/mcp.js";
 import { proxyToDaemon } from "../daemons/proxy.js";
 import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId } from "./session.js";
 
@@ -1688,10 +1688,7 @@ export async function handleApiRequest(
   }
 
   if (method === "GET" && path === "/api/browser/status") {
-    // The tool-name prefix lets the dashboard tell a browser step from any
-    // other MCP call, so the live view can open itself when one starts.
-    const engine = browserEngine(readMcpConfig(kernel.workspace.root));
-    return ok({ ...kernel.browser.status(), ...(engine ? { prefix: mcpToolName(engine.server, "") } : {}) });
+    return ok(kernel.browser.status());
   }
 
   if (method === "POST" && path === "/api/browser/input") {
@@ -1754,35 +1751,28 @@ export async function handleApiRequest(
 
   /*
    * How Chrome is run: shown or not, which binary, unpacked extensions,
-   * and where the address bar searches. Kept as KOS's own keys in the
-   * engine's entry in mcp.json, beside the port that names it as the
-   * engine; a change takes effect when the browser next starts.
+   * and where the address bar searches. A change takes effect when the
+   * browser next starts.
    */
   if (method === "GET" && path === "/api/browser/settings") {
     return ok(browserSettings(kernel));
   }
 
   if (method === "POST" && path === "/api/browser/settings") {
-    const config = readMcpConfig(kernel.workspace.root);
-    const engine = browserEngine(config);
-    if (!engine) return { status: 400, body: { error: "no browser engine is configured; add the browser under Settings > MCP servers" } };
-    const entry = config.servers[engine.server]!;
-    const env = { ...(entry.env ?? {}) };
-    const set = (key: string, value: string): void => {
-      if (value) env[key] = value;
-      else delete env[key];
-    };
-    if (typeof body.headed === "boolean") env[HEADED_ENV] = body.headed ? "1" : "0";
-    if (typeof body.chrome === "string") set(CHROME_ENV, body.chrome.trim());
-    if (Array.isArray(body.extensions)) {
-      set(EXTENSIONS_ENV, body.extensions.filter((p): p is string => typeof p === "string").map((p) => p.trim()).filter(Boolean).join(","));
+    const config = { ...kernel.browserConfig() };
+    if (typeof body.headed === "boolean") config.headed = body.headed;
+    if (typeof body.chrome === "string") {
+      const chrome = body.chrome.trim();
+      if (chrome) config.chrome = chrome;
+      else delete config.chrome;
     }
+    if (Array.isArray(body.extensions)) config.extensions = body.extensions.filter((p): p is string => typeof p === "string");
     if (typeof body.search === "string") {
       const search = body.search.trim();
       if (search && !search.includes("%s")) return { status: 400, body: { error: "search wants a URL with %s where the words go" } };
-      set(SEARCH_ENV, search);
+      config.search = search || DEFAULT_SEARCH;
     }
-    upsertMcpServers(kernel.workspace.root, { [engine.server]: { ...entry, env } });
+    kernel.setBrowserConfig(config);
     return ok(browserSettings(kernel));
   }
 
@@ -3178,7 +3168,6 @@ function browserStep(tool: string): boolean {
 
 /** How the browser is set to run, as Settings > Browser shows it. */
 export function browserSettings(kernel: Kernel): {
-  engine: string | null;
   headed: boolean;
   chrome: string;
   /** The binary that would run: the one named if it exists, else the first found. */
@@ -3186,15 +3175,14 @@ export function browserSettings(kernel: Kernel): {
   extensions: string[];
   search: string;
 } {
-  const engine = browserEngine(readMcpConfig(kernel.workspace.root));
+  const config = kernel.browserConfig();
   const launch = kernel.browser.launch();
   return {
-    engine: engine?.server ?? null,
-    headed: engine?.headed ?? false,
-    chrome: engine?.chrome ?? "",
+    headed: config.headed,
+    chrome: config.chrome ?? "",
     ...(launch.found ? { found: launch.found } : {}),
-    extensions: engine?.extensions ?? [],
-    search: engine?.search ?? DEFAULT_SEARCH,
+    extensions: config.extensions,
+    search: config.search,
   };
 }
 
