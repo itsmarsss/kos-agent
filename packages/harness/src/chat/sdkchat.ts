@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   createSdkMcpServer,
   query,
@@ -6,6 +8,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 
 import type { ToolBox } from "../agent/loop.js";
+import { toolUse } from "../kernel/caller.js";
 import { credentials } from "../builds/runner.js";
 import { toZodShape } from "./schema.js";
 
@@ -207,6 +210,9 @@ export function sdkName(name: string): string {
  * mapped back before execution so the registry still sees files.read.
  */
 function serverFor(tools: ToolBox, record: (call: SdkToolCall) => void) {
+  // An id per call, unique across turns: it is the call's id in the stored
+  // history, and what keeps the picture a step took with that step's card.
+  const turn = randomUUID().slice(0, 8);
   let n = 0;
   const defined = tools.defs().map((spec) =>
     tool(
@@ -214,9 +220,10 @@ function serverFor(tools: ToolBox, record: (call: SdkToolCall) => void) {
       spec.description,
       toZodShape(spec.inputSchema),
       async (args: Record<string, unknown>) => {
-        const result = await tools.execute(spec.name, args ?? {});
+        const id = `sdk-${turn}-${++n}`;
+        const result = await toolUse.run(id, () => tools.execute(spec.name, args ?? {}));
         record({
-          id: `sdk-${++n}`,
+          id,
           name: spec.name,
           input: args ?? {},
           result: result.content,
