@@ -113,6 +113,13 @@ the named job, and nothing else.
 throwaway database copy, then promoted if safe or queued for your approval.
 Modules it writes do not run until you switch them on.
 
+**Uses your computer, when you let it.** Pair a Mac running KOS Device
+(Settings, Devices) and a chat can see its screen, move its pointer and type.
+You allow each session on the Mac; while it runs, a glowing border, KOS's
+own cursor and a Stop bar show it, and touching the mouse or keyboard hands
+control back. The device dials out, so the host Mac and a laptop across the
+internet are the same case. [docs/computer.md](docs/computer.md).
+
 **Promotes what it built.** A project can become a blueprint module: its
 schema, pages and jobs, none of its data. A new instance is a new project
 from it. [docs/modules.md](docs/modules.md).
@@ -132,6 +139,7 @@ from it. [docs/modules.md](docs/modules.md).
 | **Audit** | Every call logged with arguments, result, risk tier, caller |
 | **Secrets** | Held outside the workspace, referenced by name, injected at call time, redacted from logs. Child processes get an allow-listed environment |
 | **Outside code** | MCP servers and workspace modules are risky by default; you floor tools safe one at a time, by name or glob. The harness never guesses a tool is safe |
+| **Computers** | Reached only through KOS Device, which dials out and proves KOS's key on every connection. Each session is allowed on the computer, is visible the whole time, pauses when you touch the mouse or keyboard, never types into a password field, and cannot see apps you hide |
 | **One owner** | iMessage reads one thread, SMS answers one number, Discord one account. A stranger is dropped, never answered |
 
 Nothing in the repository holds a credential, a phone number or a handle.
@@ -202,6 +210,8 @@ MCP server to Claude Code or any agent that takes one.
 | `packages/ui` | The dashboard: a React shell that also renders agent-authored page specs |
 | `packages/cli` | The `kos` command: host, REPL, service, modules, evals, doctor |
 | `packages/client` | `@kos/client` and the caller client |
+| `packages/computer` | `@kos/computer`: pairing, the device socket, sessions and the `computer.*` tools |
+| `packages/device-macos` | KOS Device, the menu bar app on a Mac KOS may use (Swift) |
 | `packages/shared` | Contracts both sides import |
 
 - **The kernel is primitives; a feature is a module.** Files, SQL, shell,
