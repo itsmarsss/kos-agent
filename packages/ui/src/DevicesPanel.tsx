@@ -27,7 +27,7 @@ function minutesLabel(m: number): string {
 function SessionRules({ settings, onChange }: { settings: ComputerSettings; onChange: (patch: Partial<ComputerSettings>) => void }): ReactElement {
   const options = [...new Set([...ASK_MINUTES, settings.askMinutes])].sort((a, b) => a - b);
   return (
-    <div className="set-group">
+    <div className="set-group device-rules">
       <h3>Sessions</h3>
       <Field label="KOS asks for" hint="How long a session KOS asks for when the chat does not say. Each computer can allow less: its own longest session wins.">
         <Select
