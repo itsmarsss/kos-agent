@@ -168,7 +168,12 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     sockets?.close();
     server?.closeAllConnections();
     server?.close();
-    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    // Chrome's helpers can still be writing the profile as it goes; a temp folder left behind is no failure.
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+    } catch {
+      /* left for the system to clear */
+    }
   });
 
   it("pairs, proves both keys, and keeps the connection with pings", () => {
