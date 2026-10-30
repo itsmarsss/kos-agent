@@ -73,10 +73,7 @@ $("pair-form").addEventListener("submit", (e) => {
     $("error").hidden = true;
     try {
       const text = $<HTMLInputElement>("link").value;
-      const { url } = parsePairing(text);
-      // The one site the extension may reach on its own: the KOS it pairs with. Asked here, on the owner's click.
-      const allowed = await chrome.permissions.request({ origins: [`${url}/*`] });
-      if (!allowed) throw new Error("The extension needs to reach your KOS to pair with it.");
+      parsePairing(text);
       $<HTMLButtonElement>("pair").disabled = true;
       await act({ type: "pair", link: text, name: $<HTMLInputElement>("name").value.trim() });
     } catch (err) {

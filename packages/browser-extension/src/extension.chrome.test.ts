@@ -107,11 +107,9 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
 
   beforeAll(async () => {
     server = createServer((req, res) => {
-      // KOS's pairing, as the real one answers it; the page KOS's tab opens.
-      res.setHeader("access-control-allow-origin", "*");
-      res.setHeader("access-control-allow-headers", "content-type");
-      if (req.method === "OPTIONS") return void res.writeHead(204).end();
+      // KOS's pairing, as the real one answers it (readable from any origin, no preflight); the page KOS's tab opens.
       if (req.url === "/api/devices/pair" && req.method === "POST") {
+        res.setHeader("access-control-allow-origin", "*");
         let body = "";
         req.on("data", (c) => (body += c));
         req.on("end", () => {
@@ -153,7 +151,7 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     }
     devtools = await Devtools.open(version!.webSocketDebuggerUrl);
     const { id } = (await devtools.send("Extensions.loadUnpacked", { path: DIST })) as { id: string };
-    // Paired from the popup, as the owner would, past the permission prompt a test cannot answer.
+    // Paired from the popup's own message, as its Pair button sends it.
     await devtools.send("Target.createTarget", { url: `chrome-extension://${id}/popup.html` });
     const popup = await devtools.attach((u) => u.endsWith("/popup.html"));
     await devtools.loaded(popup);

@@ -369,9 +369,10 @@ async function popupState(): Promise<PopupState> {
 async function pair(text: string, name: string): Promise<void> {
   const { url, code } = parsePairing(text);
   const keys = await deviceKeys();
+  // Sent as plain text, a request a page may make without asking first; KOS reads it as JSON, and lets any origin read its answer.
   const res = await fetch(`${url}/api/devices/pair`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "text/plain" },
     body: JSON.stringify({ code, name, platform: "chrome", publicKey: await publicKey(keys) }),
   });
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
