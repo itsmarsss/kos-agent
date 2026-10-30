@@ -132,38 +132,27 @@ added while the host runs is brought up at once and the page says whether
 it answered. Tools are risky until floored safe by name or glob in the
 file's `tools` map; the Settings page shows the floors it has.
 
-### The browser engine
+### The browser
 
-KOS's own `browser.visit` (open a page and get what is on it, in one call)
-and `browser.act` (a run of clicks, fills and keys, then the page after)
-are made of the engine's tools and run on the caller's tab; they share its
-site trust, and `browser.act` asks like any other action until the site is
-trusted. The engine hands pages to the model capped
-(`AGENT_BROWSER_MAX_OUTPUT`) and wrapped in content boundaries, so page
-text is marked as the page's.
+KOS drives a Chrome of its own, through @kos/browser (see
+[browser.md](browser.md)); it is not an MCP server. `browser.visit` opens
+a page and hands back a picture of it with an index of what can be acted
+on, each control with a ref that stays the same while the page does;
+`browser.act` runs a list of steps (click, fill, type, press, select,
+check, hover, scroll, wait, back, a dialog's answer) and looks again;
+`browser.look` looks without doing anything; `browser.eval` runs script in
+the page. They share the site trust of the caller's tab: looking is safe,
+acting asks until the site is trusted, and a script asks every time. Only
+http and https pages open for an agent. What the page says is handed to
+the model between markers that say so.
 
-KOS runs one Chrome of its own, headless, on the DevTools port named by
-`AGENT_BROWSER_CDP` in the `browser` pick's environment (9225). The engine
-(agent-browser) attaches to that Chrome over CDP, one session per
-conversation, pinned to a tab KOS makes for it in a window of its own, so
-every agent's page paints at once and the live view can show any of them.
-That environment variable is also how KOS knows which server is the
-browser; any engine that attaches over CDP could take its place. KOS's own
-keys beside it: `KOS_BROWSER_VIEWPORT` (`1600x1000`), the size each tab is
-set to through the engine's viewport tool; `KOS_BROWSER_CHROME`, a binary
-to run instead of the first one found; `KOS_BROWSER_HEADED=1` to show the
-window on the machine as well; `KOS_BROWSER_EXTENSIONS`, unpacked
-extension folders (comma or newline separated) passed as
-`--load-extension`, which Google Chrome 137 and later ignores in its own
-builds while Chromium and Chrome for Testing honour it; and
-`KOS_BROWSER_SEARCH`, where the dashboard's address bar sends words, a
-URL with `%s` (DuckDuckGo by default). Settings > Browser edits these
-four. Logins and installed extensions live in `.kos/browser-profile`
-under the workspace and survive restarts. A change to a server's entry
-(command, args, env, floors) takes effect on the next reload from
-Settings; the server is brought up again with the new one. The KOS keys
-take effect when Chrome next starts (Restart the browser in Settings). A
-changed port wants a host restart.
+Chrome runs headless on DevTools port 9225, with its profile in
+`.kos/browser-profile` under the workspace, one tab per conversation in a
+window of its own. Settings > Browser has its window (shown or not), the
+binary, unpacked extension folders (loaded at each start, Google Chrome
+included) and the address bar's search; a change takes effect when Chrome
+next starts. Sign-ins survive restarts: Chrome drops a cookie with no
+expiry when it quits, so KOS gives each one an expiry of its own.
 
 KOS's tab tools beside the visit and act: `browser.tabs` lists the open
 tabs and whose each is, `browser.use_tab` moves the caller to one (the

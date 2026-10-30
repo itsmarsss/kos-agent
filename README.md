@@ -210,6 +210,7 @@ MCP server to Claude Code or any agent that takes one.
 | `packages/ui` | The dashboard: a React shell that also renders agent-authored page specs |
 | `packages/cli` | The `kos` command: host, REPL, service, modules, evals, doctor |
 | `packages/client` | `@kos/client` and the caller client |
+| `packages/browser` | `@kos/browser`: KOS's Chrome, its live view, and the hands the `browser.*` tools are made of |
 | `packages/computer` | `@kos/computer`: pairing, the device socket, sessions and the `computer.*` tools |
 | `packages/device-macos` | KOS Device, the menu bar app on a Mac KOS may use (Swift) |
 | `packages/shared` | Contracts both sides import |

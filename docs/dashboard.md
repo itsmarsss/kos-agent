@@ -159,7 +159,7 @@ drive; it reads the page again on its next step.
 captcha or a payment, it asks for your hands rather than guessing. The
 window opens on that tab with the ask across the top: Take over, do the
 thing, then **Done**. The agent's turn waits for you and carries on with
-the page as you left it; logins stay in the browser's profile, so every
+the page as you left it; sign-ins stay in the browser's profile, through restarts, so every
 agent is signed in from then on. **Can't** sends it back empty-handed.
 The same ask sits in the Inbox with an "Open the browser" button.
 
@@ -167,17 +167,14 @@ A visit hands the agent a picture of the tab, the title and a short index
 of what can be acted on (role, label, ref), the way you would look at a
 page yourself; the whole element tree or the page's text come on request.
 One visit can take up to four pages in a row, so a two-site question is
-one call. The engine is an MCP server (`agent-browser`, pinned to a
-version, under Settings › MCP servers, one click from the picks). Looking
-is safe by default: opening a page, reading it, scrolling, waiting,
-switching tabs. Acting asks you first: clicks,
+one call. KOS drives the browser itself (@kos/browser); there is nothing
+to install. Looking is safe by default: opening a page, reading it,
+scrolling, waiting, switching tabs. Acting asks you first: clicks,
 typing, form fields, running script. The approval shows a picture of the
 page the action is aimed at and names the site. **Always** on one of those
 trusts that site for every browser action from then on (running script in
 the page is the exception and always asks); the rule shows under Settings
-› Permissions as `mcp.browser.*` on `site:<host>`, revocable like any
-other. Change the floors per tool there if you want it to act on its own
-everywhere.
+› Permissions as `browser.*` on `site:<host>`, revocable like any other.
 
 ## Inbox
 
