@@ -406,6 +406,14 @@ describe("the owner's tabs, and an agent's second one", () => {
     await expect(live.ensure()).rejects.toThrow(/closed/);
   });
 
+  it("stops the Chrome it started when KOS stops, even one it had lost touch with", async () => {
+    const { live, host } = setup();
+    await live.ensure();
+    for (const l of host.exits) l();
+    await live.shutdown();
+    expect(host.stops).toBe(1);
+  });
+
   it("loads the configured extensions over the protocol once attached", async () => {
     const { live, chrome } = setup({ extensions: ["/x/one", "/x/two"] });
     await live.ensure();

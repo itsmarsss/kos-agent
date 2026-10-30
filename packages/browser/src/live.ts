@@ -646,7 +646,9 @@ export class BrowserLive {
   /**
    * KOS stopping: sign-ins kept, and Chrome closed properly and waited for,
    * since a Chrome killed with KOS loses what it had not yet written (the
-   * cookies of the last half minute among it). A few seconds at most.
+   * cookies of the last half minute among it). A few seconds at most. A
+   * Chrome KOS started never outlives it: one this end had lost touch with
+   * is told to quit by signal, which it also takes as a proper close.
    */
   async shutdown(): Promise<void> {
     if (this.cdp.open) {
@@ -657,6 +659,7 @@ export class BrowserLive {
       })();
       await Promise.race([closing, new Promise((r) => setTimeout(r, SHUTDOWN_MS * 2))]);
     }
+    this.options.chrome.stop();
     this.close();
   }
 
