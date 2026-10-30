@@ -7,8 +7,8 @@ import { existsSync, mkdirSync } from "node:fs";
  * KOS runs a single browser and every agent works in a tab of it: a tab is
  * cheap and a browser is not, and one browser means one set of logins, one
  * window to watch, one thing to keep alive. KOS owns it so that it is
- * there before the engine wants it, is found again after the engine's
- * daemon forgets it, and dies with the host rather than lingering.
+ * there before an agent wants it, is found again after it crashes, and
+ * dies with the host rather than lingering.
  *
  * Headless by default (the dashboard is the window), with every tab in a
  * window of its own: Chrome paints only a window's front tab, so two tabs in
@@ -24,14 +24,15 @@ export interface ChromeLaunch {
   /** Each tab's window. The page is this size less the window's own frame. */
   windowSize?: { width: number; height: number };
   /**
-   * Unpacked extension folders. Google Chrome 137 and later ignores these in
-   * its own branded builds; Chromium and Chrome for Testing honour them.
+   * Unpacked extension folders. Loaded over the protocol once Chrome is up,
+   * since Google Chrome 137 and later ignores --load-extension; the launch
+   * only allows that.
    */
   extensions?: string[];
 }
 
 export interface ChromeOptions {
-  /** The DevTools port. Fixed, so the engine's config can name it. */
+  /** The DevTools port. Fixed, so a Chrome left running is found again on it. */
   port: number;
   /** Where cookies, logins and installed extensions live between runs. */
   profileDir: string;
@@ -82,7 +83,8 @@ export function chromeArgs(options: Pick<ChromeOptions, "port" | "profileDir"> &
     "--disable-renderer-backgrounding",
     "--disable-backgrounding-occluded-windows",
     "--disable-features=TranslateUI",
-    ...(extensions.length ? [`--load-extension=${extensions.join(",")}`] : []),
+    // Lets KOS load the extensions over CDP (Extensions.loadUnpacked).
+    ...(extensions.length ? ["--enable-unsafe-extension-debugging"] : []),
     "about:blank",
   ];
 }
@@ -162,6 +164,23 @@ export class ChromeHost {
   }
 
   /**
+   * Until the Chrome KOS started has exited, so what it writes as it closes
+   * (its cookies among it) is on disk before KOS goes. One KOS adopted is
+   * not its child, so for that one, until nothing answers on the port.
+   */
+  async waitExit(ms = GONE_MS): Promise<void> {
+    const child = this.child;
+    if (!child || child.exitCode !== null) return this.waitGone();
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      child.once("exit", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+
+  /**
    * Until nothing answers on the port, so a restart does not adopt the
    * Chrome on its way out. An adopted Chrome is not KOS's child, so this
    * is the only way to know it has gone.
@@ -187,7 +206,7 @@ export class ChromeHost {
     }
     const launch = this.options.launch?.() ?? {};
     const binary = findChrome(launch.binary, this.options.exists);
-    if (!binary) throw new Error("no Chrome found; set KOS_BROWSER_CHROME on the browser server to its path");
+    if (!binary) throw new Error("no Chrome found; name its path under Settings > Browser");
     mkdirSync(this.options.profileDir, { recursive: true });
     const spawn = this.options.spawn ?? nodeSpawn;
     const child = spawn(binary, chromeArgs({ port: this.options.port, profileDir: this.options.profileDir, ...launch }), { stdio: "ignore", env: this.options.env ?? process.env });

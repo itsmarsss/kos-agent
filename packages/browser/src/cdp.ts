@@ -3,7 +3,7 @@
  *
  * KOS's eyes on the browser are Chrome's own: a tab list, a screencast of
  * any tab, and input to any tab, all over one WebSocket to the browser.
- * The whole of CDP is thousands of methods; this uses a dozen, and wants
+ * The whole of CDP is thousands of methods; this uses a few dozen, and wants
  * nothing from a library beyond what forty lines give it: ids on requests,
  * replies matched by id, events handed on, sessions flattened so a tab's
  * commands carry its sessionId.
@@ -81,7 +81,7 @@ export class CdpClient {
   }
 
   /** Send a command; to a tab when `sessionId` names its session. */
-  send(method: string, params: Record<string, unknown> = {}, sessionId?: string): Promise<Record<string, unknown>> {
+  send(method: string, params: Record<string, unknown> = {}, sessionId?: string, timeoutMs = REPLY_MS): Promise<Record<string, unknown>> {
     const socket = this.socket;
     if (!socket) return Promise.reject(new Error("not connected to the browser"));
     const id = this.nextId++;
@@ -89,7 +89,7 @@ export class CdpClient {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`${method} timed out`));
-      }, REPLY_MS);
+      }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
     });
