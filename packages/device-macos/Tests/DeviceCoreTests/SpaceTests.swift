@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import DeviceCore
 
@@ -74,5 +75,34 @@ struct SpaceTests {
     // Most of the screen: scaled down to the edge.
     let large = Space.captureSize(of: Rect(x: 0, y: 0, width: 1000, height: 500), backingScale: 2, maxEdge: 1280)
     #expect(large == Size(width: 1280, height: 640))
+  }
+}
+
+@Suite("A window's space")
+struct WindowSpaceTests {
+  @Test func keepsItsCoordinatesWhenTheWindowMoves() {
+    let window = Space(display: Rect(x: 200, y: 100, width: 800, height: 600))
+    let moved = window.moved(to: Rect(x: 500, y: 300, width: 800, height: 600))
+    #expect(moved.size == window.size)
+    #expect(moved.toGlobal(Point(x: 10, y: 20)) == Point(x: 510, y: 320))
+  }
+
+  @Test func scalesWithTheWindowWhenItIsResized() {
+    let window = Space(display: Rect(x: 0, y: 0, width: 800, height: 600))
+    let wider = window.moved(to: Rect(x: 0, y: 0, width: 1600, height: 1200))
+    // The middle of the picture is still the middle of the window.
+    #expect(wider.toGlobal(Point(x: 400, y: 300)) == Point(x: 800, y: 600))
+  }
+
+  @Test func aSessionFollowsItsWindow() throws {
+    var sessions = Sessions()
+    try sessions.ask("s1")
+    let start = Rect(x: 100, y: 100, width: 640, height: 480)
+    _ = try sessions.grant(
+      "s1", task: "t", requester: "r", minutes: 5, target: .window(id: 7, pid: 42, app: "Notes", title: "List"),
+      space: Space(display: start), now: Date())
+    sessions.follow(Rect(x: 300, y: 100, width: 640, height: 480))
+    #expect(sessions.live?.space.toGlobal(Point(x: 0, y: 0)) == Point(x: 300, y: 100))
+    #expect(sessions.live?.target.info == .window(app: "Notes", title: "List"))
   }
 }

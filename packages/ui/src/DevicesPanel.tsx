@@ -75,7 +75,8 @@ export function describeDevice(d: PairedDevice, now = Date.now()): string {
   ].filter(Boolean);
   if (d.session) {
     const until = new Date(d.session.until).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-    parts.push(`${d.session.paused ? "Paused by you" : "In use"}: ${d.session.title}, "${d.session.task}", until ${until}`);
+    const where = d.session.target?.kind === "window" ? `, in ${d.session.target.app ?? "one window"}` : "";
+    parts.push(`${d.session.paused ? "Paused by you" : "In use"}: ${d.session.title}, "${d.session.task}"${where}, until ${until}`);
   }
   return parts.join(" · ");
 }

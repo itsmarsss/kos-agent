@@ -99,9 +99,11 @@ struct MessagesTests {
   }
 
   @Test func theBeginAnswerSaysGranted() throws {
-    let body = try json(Outbound.reply(id: 1, result: SessionBeginResult(until: 1_000, space: Size(width: 1232, height: 800))))
+    let body = try json(Outbound.reply(id: 1, result: SessionBeginResult(
+      until: 1_000, space: Size(width: 1232, height: 800), target: .window(app: "Figma", title: "Cover"))))
     let result = try #require(body["result"] as? [String: Any])
     #expect(result["granted"] as? Bool == true)
+    #expect(result["target"] as? [String: String] == ["kind": "window", "app": "Figma", "title": "Cover"])
     #expect(result["until"] as? Int == 1_000)
     #expect(result["space"] as? [String: Double] == ["width": 1232, "height": 800])
   }

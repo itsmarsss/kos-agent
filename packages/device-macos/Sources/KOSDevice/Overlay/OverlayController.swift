@@ -13,7 +13,8 @@ final class OverlayController {
   private var screen: ScreenOverlay?
   private var hud: HUDPanel?
 
-  func show(display: CGDirectDisplayID, task: String, until: Date) {
+  /// `window`, when given, is what the border wraps; the overlay is on the display it is on.
+  func show(display: CGDirectDisplayID, task: String, until: Date, window: CGRect? = nil) {
     hide()
     guard let nsScreen = Displays.screen(for: display) else { return }
     let overlay = ScreenOverlay(screen: nsScreen, display: display)
@@ -23,6 +24,7 @@ final class OverlayController {
       resume: { [weak self] in self?.onResume?() },
       stop: { [weak self] in self?.onStop?() },
       extend: { [weak self] in self?.onExtend?() })
+    overlay.focus(on: window)
     overlay.show()
     bar.alphaValue = 0
     bar.orderFrontRegardless()
@@ -49,6 +51,13 @@ final class OverlayController {
 
   func setUntil(_ until: Date) {
     hud?.setUntil(until)
+  }
+
+  /// The window moved: the border follows it. False when it is off this display now, for the overlay to move.
+  func follow(window frame: CGRect) -> Bool {
+    guard let screen, screen.covers(CGPoint(x: frame.midX, y: frame.midY)) else { return false }
+    screen.focus(on: frame)
+    return true
   }
 
   func pointer(at global: CGPoint) {

@@ -87,6 +87,21 @@ describe("the computer tools", () => {
     expect(textOf(result)).toMatch(/Using Studio MacBook for 15 minutes.*1232x800.*Finder is in front/s);
   });
 
+  it("offer the app KOS names, and say when only its window was shared", async () => {
+    const { call, pair } = setup();
+    const fake = pair();
+    fake.answers.set("session.begin", () => ({
+      ok: true,
+      result: { granted: true, until: Date.now() + 15 * 60_000, space: { width: 900, height: 600 }, target: { kind: "window", app: "Figma", title: "Cover" } },
+    }));
+    const result = await call("computer.start", { task: "export the cover", app: "Figma" });
+    expect(fake.calls[0]).toMatchObject({ method: "session.begin", params: { target: { app: "Figma" } } });
+    expect(textOf(result)).toMatch(/the Figma window "Cover" on Studio MacBook, and only it/);
+    const session = fake.calls[0]!.params.session as string;
+    fake.event("session.ended", { session, reason: "window" });
+    await expect(call("computer.act", { action: "screenshot" })).rejects.toThrow(/the window it was given closed/);
+  });
+
   it("turn each action into the device's call, then look", async () => {
     const { call, pair } = setup();
     const fake = pair();

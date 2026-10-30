@@ -1,5 +1,6 @@
 import AppKit
 import DeviceCore
+import DeviceUI
 
 /// What a call from KOS does on this Mac, and the session around it.
 ///
@@ -27,6 +28,8 @@ final class DeviceController {
   private let consent = ConsentPrompt()
   private var queue: Task<Void, Never>?
   private var ticker: Timer?
+  /// While KOS works in one window: keeps the session's coordinates and the border on it.
+  private var follower: Timer?
 
   /// How long after the owner hands control over that the pointer is not watched.
   private static let handOverGrace: TimeInterval = 3
@@ -100,14 +103,23 @@ final class DeviceController {
     }
 
     let minutes: Int
+    let picked: String
     let longest = settings.longestMinutes
+    // What KOS may work in: the screen, or one of the windows open now. KOS's suggestion, if it made one, comes first.
+    let windows = await WindowCatalog.windows(hiding: settings)
+    let hint = params.target?.app?.trimmingCharacters(in: .whitespaces).lowercased()
+    let suggested = hint.flatMap { h in windows.first { $0.app.lowercased().contains(h) || $0.bundle.lowercased() == h } }
     if settings.askFirst {
+      let choices = [TargetChoice(id: TargetChoice.screen, title: "Entire screen", app: nil, icon: nil)]
+        + windows.map { TargetChoice(id: String($0.id), title: $0.title, app: $0.app, icon: NSRunningApplication(processIdentifier: $0.pid)?.icon) }
       let request = ConsentPrompt.Request(
         task: task, requester: params.requester, chat: params.conversation.flatMap(chatLink),
-        offered: Durations.offered(requested: params.minutes, longest: longest), longest: longest, wait: settings.promptWaitSeconds)
+        offered: Durations.offered(requested: params.minutes, longest: longest), longest: longest, wait: settings.promptWaitSeconds,
+        targets: choices, target: suggested.map { String($0.id) } ?? TargetChoice.screen, suggested: suggested?.app)
       switch await consent.ask(request) {
-      case .allowed(let chosen):
+      case .allowed(let chosen, let target):
         minutes = chosen
+        picked = target
       case .denied:
         sessions.deny(params.session)
         throw DeviceError(.denied, "The owner declined on this Mac.")
@@ -119,24 +131,82 @@ final class DeviceController {
         throw DeviceError(.noSession, "The request was withdrawn.")
       }
     } else {
-      // The owner chose, on this Mac, to let KOS's approval queue decide.
+      // The owner chose, on this Mac, to let KOS's approval queue decide: the window KOS named, if open, else the screen.
       minutes = Durations.unattended(requested: params.minutes, longest: longest)
+      picked = suggested.map { String($0.id) } ?? TargetChoice.screen
     }
 
-    let id = Displays.underCursor()
-    let space = Space(display: Displays.bounds(id), maxEdge: edge)
+    let target: SessionTarget
+    let frame: CGRect
+    let id: CGDirectDisplayID
+    if let window = windows.first(where: { String($0.id) == picked }) {
+      frame = WindowCatalog.frame(of: window.id) ?? window.frame
+      target = .window(id: window.id, pid: window.pid, app: window.app, title: window.title)
+      id = Self.display(at: CGPoint(x: frame.midX, y: frame.midY))
+    } else {
+      id = Displays.underCursor()
+      frame = CGDisplayBounds(id)
+      target = .screen(display: id)
+    }
+    let space = Space(display: Rect(frame), maxEdge: edge)
     sessions.idleLimit = TimeInterval(settings.idleMinutes * 60)
     let session = try sessions.grant(
-      params.session, task: task, requester: params.requester, conversation: params.conversation, minutes: minutes, space: space, now: Date())
+      params.session, task: task, requester: params.requester, conversation: params.conversation, minutes: minutes,
+      target: target, space: space, now: Date())
     display = id
     maxEdge = edge
-    overlay.show(display: id, task: task, until: session.until)
+    if case .window = target {
+      overlay.show(display: id, task: task, until: session.until, window: frame)
+      // Up front, as a shared window is, so KOS's first look is at it.
+      if let window = windows.first(where: { String($0.id) == picked }) { await WindowCatalog.raise(window) }
+    } else {
+      overlay.show(display: id, task: task, until: session.until)
+    }
     owner.start(grace: Self.handOverGrace)
     ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated { self?.tick() }
     }
+    if case .window = target {
+      follower = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+        MainActor.assumeIsolated { self?.followWindow() }
+      }
+    }
     onChange?()
-    return SessionBeginResult(until: Int64(session.until.timeIntervalSince1970 * 1000), space: space.size)
+    return SessionBeginResult(until: Int64(session.until.timeIntervalSince1970 * 1000), space: space.size, target: target.info)
+  }
+
+  private static func display(at point: CGPoint) -> CGDirectDisplayID {
+    var id = CGMainDisplayID()
+    var count: UInt32 = 0
+    _ = CGGetDisplaysWithPoint(point, 1, &id, &count)
+    return count > 0 ? id : CGMainDisplayID()
+  }
+
+  /// The window KOS works in moved, was resized, went to another display, or closed: the session follows, or ends.
+  private func followWindow() {
+    guard let session = sessions.live, case .window(let id, _, _, _) = session.target else { return }
+    guard let frame = WindowCatalog.frame(of: id) else { return end(.window) }
+    sessions.follow(Rect(frame))
+    if !overlay.follow(window: frame) {
+      let next = Self.display(at: CGPoint(x: frame.midX, y: frame.midY))
+      display = next
+      overlay.show(display: next, task: session.task, until: session.until, window: frame)
+      overlay.setPaused(session.paused)
+    }
+  }
+
+  /// Before KOS acts in its window: the window as it is now, in front, or the session is over.
+  private func bringForward(_ session: LiveSession) async throws -> LiveSession {
+    guard case .window(let id, let pid, let app, let title) = session.target else { return session }
+    guard let frame = WindowCatalog.frame(of: id) else {
+      end(.window)
+      throw DeviceError(.noSession, "The window KOS was given has closed.")
+    }
+    sessions.follow(Rect(frame))
+    if !WindowCatalog.isFront(id) || NSWorkspace.shared.frontmostApplication?.processIdentifier != pid {
+      await WindowCatalog.raise(WindowCatalog.Entry(id: id, pid: pid, app: app, bundle: "", title: title, frame: frame))
+    }
+    return sessions.live ?? session
   }
 
   /// KOS ended it. Already over is fine: an end crossing an expiry is not an error.
@@ -159,6 +229,8 @@ final class DeviceController {
     owner.stop()
     ticker?.invalidate()
     ticker = nil
+    follower?.invalidate()
+    follower = nil
     display = nil
     overlay.hide()
     if let reason { emit(.sessionEnded, SessionEndedEvent(session: id, reason: reason)) }
@@ -222,7 +294,7 @@ final class DeviceController {
 
     case .pointerMove:
       let p = try call.params(MoveParams.self)
-      let session = try authorize(p.session, needs: .input)
+      let session = try await bringForward(try authorize(p.session, needs: .input))
       let target = try globalPoint(p.x, p.y, in: session)
       try refuseHidden(at: target)
       await overlay.clear([target])
@@ -231,7 +303,7 @@ final class DeviceController {
 
     case .pointerClick:
       let p = try call.params(ClickParams.self)
-      let session = try authorize(p.session, needs: .input)
+      let session = try await bringForward(try authorize(p.session, needs: .input))
       let count = p.count ?? 1
       guard (1...3).contains(count) else { throw DeviceError.badRequest("count must be 1, 2 or 3.") }
       let modifiers = try KeyCombo.modifiers(named: p.modifiers ?? [])
@@ -244,7 +316,7 @@ final class DeviceController {
 
     case .pointerDrag:
       let p = try call.params(DragParams.self)
-      let session = try authorize(p.session, needs: .input)
+      let session = try await bringForward(try authorize(p.session, needs: .input))
       let from = try globalPoint(p.from.x, p.from.y, in: session)
       let to = try globalPoint(p.to.x, p.to.y, in: session)
       try refuseHidden(at: from)
@@ -255,7 +327,7 @@ final class DeviceController {
 
     case .pointerScroll:
       let p = try call.params(ScrollParams.self)
-      let session = try authorize(p.session, needs: .input)
+      let session = try await bringForward(try authorize(p.session, needs: .input))
       guard p.dx.isFinite, p.dy.isFinite, abs(p.dx) <= Limits.scrollLines, abs(p.dy) <= Limits.scrollLines else {
         throw DeviceError.badRequest("dx and dy are lines, at most \(Int(Limits.scrollLines)) either way.")
       }
@@ -267,7 +339,7 @@ final class DeviceController {
 
     case .keysType:
       let p = try call.params(TypeParams.self)
-      let session = try authorize(p.session, needs: .input)
+      let session = try await bringForward(try authorize(p.session, needs: .input))
       guard p.text.count <= Limits.typedCharacters else {
         throw DeviceError.badRequest("text is at most \(Limits.typedCharacters) characters; send it in parts.")
       }
@@ -277,7 +349,7 @@ final class DeviceController {
 
     case .keysPress:
       let p = try call.params(PressParams.self)
-      let session = try authorize(p.session, needs: .input)
+      let session = try await bringForward(try authorize(p.session, needs: .input))
       let combo = try KeyCombo.parse(p.keys)
       let times = p.repeat ?? 1
       guard (1...Limits.pressRepeats).contains(times) else {
@@ -292,8 +364,18 @@ final class DeviceController {
     }
   }
 
-  private func capture(_ session: LiveSession, region: Rect?) async throws -> CaptureResult {
+  private func capture(_ authorized: LiveSession, region: Rect?) async throws -> CaptureResult {
     guard let display else { throw DeviceError(.noSession, "The session has no display.") }
+    // A window is pictured where it is now, whatever covers it; it need not be in front to be seen.
+    var session = authorized
+    if case .window(let id, _, _, _) = session.target {
+      guard let frame = WindowCatalog.frame(of: id) else {
+        end(.window)
+        throw DeviceError(.noSession, "The window KOS was given has closed.")
+      }
+      sessions.follow(Rect(frame))
+      session = sessions.live ?? session
+    }
     var source: CGRect?
     var pixels = session.space.size
     if let region {
@@ -302,7 +384,12 @@ final class DeviceController {
       let scale = Displays.screen(for: display)?.backingScaleFactor ?? 2
       pixels = Space.captureSize(of: part, backingScale: scale, maxEdge: maxEdge)
     }
-    let shot = try await capturer.capture(display: display, region: source, pixels: pixels, hiding: settings.hiddenApps)
+    let shot: ScreenCapturer.Shot
+    if case .window(let id, _, _, _) = session.target {
+      shot = try await capturer.capture(window: id, frame: session.space.display.cg, region: source, pixels: pixels)
+    } else {
+      shot = try await capturer.capture(display: display, region: source, pixels: pixels, hiding: settings.hiddenApps)
+    }
     let front = Targets.frontmost()
     // A hidden app is not named either: KOS learns nothing of it.
     let app = settings.isHidden(front?.bundleIdentifier) ? nil : Targets.describe(front)
