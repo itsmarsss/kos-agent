@@ -113,7 +113,7 @@ struct MessagesTests {
   }
 
   @Test func everyMethodIsTheProtocolsSpelling() {
-    #expect(Method.allCases.map(\.rawValue) == [
+    #expect(CallMethod.allCases.map(\.rawValue) == [
       "session.begin", "session.end", "screen.capture", "pointer.move", "pointer.click", "pointer.drag",
       "pointer.scroll", "keys.type", "keys.press",
     ])

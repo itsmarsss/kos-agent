@@ -71,6 +71,16 @@ public struct KeyCombo: Equatable, Sendable {
     throw DeviceError.badRequest("\(last) is not a key KOS Device knows.")
   }
 
+  /// Modifiers held through a click, named the way combinations name them.
+  public static func modifiers(named names: [String]) throws -> Modifiers {
+    try names.reduce(into: Modifiers()) { held, name in
+      guard let modifier = modifier(named: name.trimmingCharacters(in: .whitespaces)) else {
+        throw DeviceError.badRequest("\(name) is not a modifier. Use cmd, shift, ctrl, alt or fn.")
+      }
+      held.insert(modifier)
+    }
+  }
+
   private static func normalized(_ name: String) -> String {
     var n = name.lowercased().replacingOccurrences(of: "_", with: "")
     // xdotool's left and right variants (Control_L, Super_R) are the same key here.

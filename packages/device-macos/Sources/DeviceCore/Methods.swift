@@ -1,7 +1,7 @@
 import Foundation
 
 /// The calls KOS may make (docs/computer.md, Calls).
-public enum Method: String, CaseIterable, Sendable {
+public enum CallMethod: String, CaseIterable, Sendable {
   case sessionBegin = "session.begin"
   case sessionEnd = "session.end"
   case screenCapture = "screen.capture"

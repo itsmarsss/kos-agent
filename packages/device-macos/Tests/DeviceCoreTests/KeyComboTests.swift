@@ -80,6 +80,12 @@ struct KeyComboTests {
     #expect(throws: DeviceError.self) { try KeyCombo.parse(text) }
   }
 
+  @Test func readsTheModifiersHeldThroughAClick() throws {
+    #expect(try KeyCombo.modifiers(named: ["shift", "Cmd"]) == [.shift, .command])
+    #expect(try KeyCombo.modifiers(named: []) == [])
+    #expect(throws: DeviceError.self) { try KeyCombo.modifiers(named: ["a"]) }
+  }
+
   @Test func modifierFlagsAreCoreGraphicsBits() {
     #expect(Modifiers.shift.rawValue == 0x20000)
     #expect(Modifiers.control.rawValue == 0x40000)
