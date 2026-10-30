@@ -11,8 +11,6 @@ final class OverlayWindow: NSWindow {
     isReleasedWhenClosed = false
     level = .screenSaver
     collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-    // Kept out of other apps' screen shares and recordings too, not only out of KOS's captures.
-    sharingType = .none
     animationBehavior = .none
   }
 

@@ -198,7 +198,7 @@ final class Connection: NSObject {
     switch message {
     case .challenge(let version, let nonce):
       guard version == protocolVersion else {
-        task.cancel(with: .init(rawValue: Close.unsupported) ?? .protocolError, reason: nil)
+        hangUp(code: .init(rawValue: Close.unsupported) ?? .protocolError)
         status = .outdated
         return
       }

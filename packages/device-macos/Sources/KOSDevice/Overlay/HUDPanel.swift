@@ -37,7 +37,6 @@ final class HUDPanel: NSPanel {
     isReleasedWhenClosed = false
     level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
     collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-    sharingType = .none
     appearance = NSAppearance(named: .darkAqua)
     build(task: text)
     place(bottom: false, animated: false)
@@ -103,6 +102,8 @@ final class HUDPanel: NSPanel {
     stopButton.target = self
     stopButton.action = #selector(stop)
     stopButton.bezelColor = Palette.stop
+    // As wide as "Resume", so the bar keeps its size when it pauses.
+    pauseButton.widthAnchor.constraint(equalToConstant: 76).isActive = true
     for button in [pauseButton, stopButton] {
       button.bezelStyle = .rounded
       button.controlSize = .small
