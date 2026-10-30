@@ -385,6 +385,9 @@ export async function runHost(options: HostOptions): Promise<void> {
       : {}),
   });
 
+  // A chat that borrowed the owner's Chrome browses there.
+  kernel.setBrowserElsewhere(computer.chrome);
+
   // The two upgrades the dashboard server takes: the dashboard's own socket, and a paired device's.
   const live = createDashboardSocket(kernel, { ...(options.token ? { token: options.token } : {}) });
   server.on("upgrade", (req, socket, head) => {

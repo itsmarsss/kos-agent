@@ -29,6 +29,26 @@ export interface TabInfo {
   current?: boolean;
 }
 
+/**
+ * A browser other than KOS's own that a conversation may be working in: the
+ * owner's Chrome, through the KOS extension. While a conversation is, its
+ * browser tools work there, on the tabs that browser gives it.
+ */
+export interface BrowserElsewhere {
+  /** Whether the conversation is working in it now. */
+  active(conversationId: string): boolean;
+  /** The conversation's tab there, opened when it has none. */
+  tab(conversationId: string): Promise<Tab>;
+  tabs(conversationId: string): TabInfo[];
+  tabsOf(conversationId: string): string[];
+  useTab(conversationId: string, tab: string): Promise<void>;
+  newTab(conversationId: string): Promise<string>;
+  /** The host of the conversation's tab there, for its site's trust. */
+  siteOf(conversationId: string): string | undefined;
+  /** A picture of the conversation's tab there, if it has one. */
+  picture(conversationId: string, maxWidth: number): Promise<string | undefined>;
+}
+
 export interface BrowserToolsDeps {
   /** The caller's own tab, made the first time it browses. */
   tab: () => Promise<Tab>;

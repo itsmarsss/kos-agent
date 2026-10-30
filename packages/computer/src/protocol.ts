@@ -27,7 +27,12 @@ export type Consent = "device" | "kos";
 export interface Permissions {
   screen: boolean;
   input: boolean;
+  /** A browser's: it may work in tabs. */
+  tabs?: boolean;
 }
+
+/** The platform the KOS extension says it is: a Chrome, which offers tabs rather than a screen. */
+export const BROWSER_PLATFORM = "chrome";
 
 export interface Display {
   id: number;
@@ -115,7 +120,7 @@ export interface Reply {
 
 export type EventName = "session.paused" | "session.resumed" | "session.extended" | "session.ended";
 
-export type EndReason = "owner" | "expired" | "idle" | "quit" | "host" | "window";
+export type EndReason = "owner" | "expired" | "idle" | "quit" | "host" | "window" | "detached";
 
 export interface DeviceEvent {
   t: "event";
@@ -132,14 +137,23 @@ export type Method =
   | "pointer.drag"
   | "pointer.scroll"
   | "keys.type"
-  | "keys.press";
+  | "keys.press"
+  | "tabs.list"
+  | "tabs.open"
+  | "tabs.close"
+  | "cdp.send";
+
+/** A device whose host may put it to sleep keeps the connection with these. */
+export interface Ping {
+  t: "ping";
+}
 
 /** What a device sends once it is in. */
-export type FromDevice = Hello | StateUpdate | Reply | DeviceEvent;
+export type FromDevice = Hello | StateUpdate | Reply | DeviceEvent | Ping;
 
-/** What a session works in: the whole screen, or one window of one app. */
+/** What a session works in: the whole screen, one window of one app, or a browser's tabs. */
 export interface Target {
-  kind: "screen" | "window";
+  kind: "screen" | "window" | "tabs";
   app?: string;
   title?: string;
 }
@@ -176,9 +190,12 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 const isString = (v: unknown): v is string => typeof v === "string";
 const isBool = (v: unknown): v is boolean => typeof v === "boolean";
 
+/** A computer's grants, or a browser's: one that says it offers tabs need not speak of a screen. */
 function readPermissions(v: unknown): Permissions | undefined {
-  if (!isObject(v) || !isBool(v.screen) || !isBool(v.input)) return undefined;
-  return { screen: v.screen, input: v.input };
+  if (!isObject(v)) return undefined;
+  if (v.tabs === true && v.screen === undefined && v.input === undefined) return { screen: false, input: false, tabs: true };
+  if (!isBool(v.screen) || !isBool(v.input) || (v.tabs !== undefined && !isBool(v.tabs))) return undefined;
+  return { screen: v.screen, input: v.input, ...(v.tabs !== undefined ? { tabs: v.tabs } : {}) };
 }
 
 function readDisplays(v: unknown): Display[] | undefined {
@@ -258,6 +275,8 @@ export function readFrame(text: string): FromDevice | undefined {
       }
       return reply;
     }
+    case "ping":
+      return { t: "ping" };
     case "event": {
       if (!isString(raw.name) || !isObject(raw.data)) return undefined;
       return { t: "event", name: raw.name, data: raw.data };

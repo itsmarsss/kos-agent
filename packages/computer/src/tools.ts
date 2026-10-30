@@ -1,5 +1,6 @@
 import { isAttended, type KosModule, type ModuleContext, type ToolRisk } from "@kos/harness";
 
+import type { OwnerChrome } from "./chrome.js";
 import type { DeviceHub, Session } from "./hub.js";
 import { DeviceError } from "./link.js";
 import type { Capture, Point } from "./protocol.js";
@@ -15,10 +16,17 @@ import type { Capture, Point } from "./protocol.js";
  *
  * The tools exist only while a device is paired: a chat on a KOS with no
  * computer is not offered four tools that cannot work.
+ *
+ * chrome.*: a paired Chrome (the KOS extension), as two. `start` asks the
+ * owner there for a session, and while it lasts the chat's browser tools
+ * work in that Chrome instead of KOS's own; `end` gives it back. Offered only
+ * while a Chrome is paired.
  */
 
 export interface ComputerToolsDeps {
   hub: DeviceHub;
+  /** The owner's Chrome as a browser the chat's tools work in. */
+  chrome: OwnerChrome;
   /** The conversation calling, read at call time. */
   caller(): string | undefined;
   /** A conversation's title, which the owner reads on the device's prompt. */
@@ -58,7 +66,9 @@ const CLICKS: Partial<Record<Action, { button: string; count: number; said: stri
 const SETTLE_MS = 450;
 const MAX_WAIT_S = 10;
 
-const TOOL_NAMES = ["computer.devices", "computer.start", "computer.act", "computer.end"];
+const COMPUTER_TOOLS = ["computer.devices", "computer.start", "computer.act", "computer.end"];
+const CHROME_TOOLS = ["chrome.start", "chrome.end"];
+const TOOL_NAMES = [...COMPUTER_TOOLS, ...CHROME_TOOLS];
 const VERSION = "0.1.0";
 
 export const COMPUTER_MANIFEST: KosModule["manifest"] = {
@@ -146,7 +156,7 @@ function readCapture(result: Record<string, unknown>): Capture {
 export function computerModule(deps: ComputerToolsDeps): KosModule {
   const { hub } = deps;
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  let registered = false;
+  const registered = { computer: false, browser: false };
   let unsubscribe: (() => void)[] = [];
 
   const conversation = (): string => {
@@ -175,17 +185,17 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
   const startRisk: ToolRisk = {
     floor: "safe",
     escalate: (input) => {
-      const device = hub.find(str(input.device));
+      const device = hub.find(str(input.device), "computer");
       return device && hub.consentOf(device.id) === "kos" ? "this computer lets KOS start sessions without asking on it" : false;
     },
     why: "uses the computer: sees the screen and moves the pointer and keys",
   };
 
-  const register = (ctx: ModuleContext): void => {
+  const registerComputer = (ctx: ModuleContext): void => {
     ctx.registerTool(
       {
         name: "computer.devices",
-        description: "The computers paired with KOS: whether each is online, how a session on it is allowed, and whether one is in use.",
+        description: "The computers and Chromes paired with KOS: whether each is online, how a session on it is allowed, and whether one is in use.",
         inputSchema: { type: "object", properties: {} },
       },
       () => {
@@ -196,7 +206,8 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
             const state = d.online ? "online" : "offline";
             const consent = d.consent === "kos" ? "starts through KOS's approvals" : d.consent === "device" ? "asks on the computer" : "";
             const busy = d.session ? `in use by ${deps.titleOf(d.session.conversation)}${d.session.paused ? ", paused by the owner" : ""}` : "free";
-            return `${d.name} (${d.id}, ${d.platform}): ${[state, consent, d.online ? busy : ""].filter(Boolean).join(", ")}`;
+            const what = d.kind === "browser" ? "the owner's Chrome, for chrome.start" : d.platform;
+            return `${d.name} (${d.id}, ${what}): ${[state, consent, d.online ? busy : ""].filter(Boolean).join(", ")}`;
           })
           .join("\n");
       },
@@ -233,9 +244,10 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         const task = str(input.task);
         if (!task) throw new Error("say what you will do in `task`");
         const named = str(input.device);
-        const device = hub.find(named);
+        const device = hub.find(named, "computer");
         if (!device) {
-          const known = hub.list().map((d) => d.name).join(", ");
+          if (named && hub.find(named, "browser")) throw new Error(`${named} is the owner's Chrome, not a computer; chrome.start works in it`);
+          const known = hub.list().filter((d) => d.kind === "computer").map((d) => d.name).join(", ");
           throw new Error(named ? `no computer called ${named}; paired: ${known || "none"}` : `more than one computer could be meant; name one of: ${known}`);
         }
         const minutes = typeof input.minutes === "number" ? input.minutes : settings.askMinutes;
@@ -322,6 +334,65 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
     );
   };
 
+  const registerChrome = (ctx: ModuleContext): void => {
+    ctx.registerTool(
+      {
+        name: "chrome.start",
+        description:
+          "Work in the owner's own Chrome, signed in to their accounts, instead of KOS's: the owner allows it there, seeing `task`, so say " +
+          "plainly what you will do. While the session lasts, this chat's browser tools (browser.visit, browser.act, browser.look, browser.tabs, " +
+          "browser.use_tab, browser.new_tab) work in that Chrome: in a window of KOS's own there, and in tabs the owner handed you. Acting there " +
+          "is trusted apart from KOS's Chrome, so a site the owner trusted for KOS's is asked about again. Use it when the work needs the owner's " +
+          "own sign-ins or a tab they are looking at; KOS's own Chrome is the default. Give it back with chrome.end when done.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            task: { type: "string", description: "What you will do, in a few words, as the owner will read it." },
+            chrome: { type: "string", description: "The paired Chrome's name or id; optional when only one is online." },
+            minutes: { type: "number", minimum: 1, maximum: 120, description: "How long you need it; the owner may allow less." },
+          },
+          required: ["task"],
+        },
+      },
+      async (input) => {
+        const chat = conversation();
+        const settings = hub.settings();
+        if (!isAttended() && !settings.unattended) {
+          throw new Error("Work the owner did not start (a schedule, a guest's message) may not use the owner's Chrome. The owner allows that in Settings, Devices. Tell the owner instead.");
+        }
+        const task = str(input.task);
+        if (!task) throw new Error("say what you will do in `task`");
+        const named = str(input.chrome);
+        const device = hub.find(named, "browser");
+        if (!device) {
+          const known = hub.list().filter((d) => d.kind === "browser").map((d) => d.name).join(", ");
+          throw new Error(named ? `no Chrome called ${named}; paired: ${known || "none"}` : `more than one Chrome could be meant; name one of: ${known}`);
+        }
+        let session: Session;
+        try {
+          session = await hub.begin({ conversation: chat, device, task, requester: deps.titleOf(chat), minutes: typeof input.minutes === "number" ? input.minutes : settings.askMinutes });
+        } catch (err) {
+          throw new Error(refusalText(err));
+        }
+        const handed = await deps.chrome.begun(chat).catch(() => []);
+        const left = Math.max(1, Math.round((session.until - Date.now()) / 60_000));
+        const tabs = handed.length ? ` Tabs the owner handed you: ${handed.map((t) => `${t.title || t.url}`).join("; ")} (browser.tabs lists them, browser.use_tab goes to one).` : "";
+        return `Working in ${device.name} for ${left} minute${left === 1 ? "" : "s"}: your browser tools act there now, in KOS's own window in it unless you use a handed tab.${tabs} The owner can take over or stop it there at any time.`;
+      },
+      { floor: "safe", why: "works in the owner's own Chrome, signed in as them" },
+    );
+
+    ctx.registerTool(
+      {
+        name: "chrome.end",
+        description: "Give the owner's Chrome back: end this chat's session there; your browser tools go back to KOS's own Chrome. Do it as soon as the work there is done.",
+        inputSchema: { type: "object", properties: {} },
+      },
+      () => (hub.end(conversation()) ? "Ended. The owner has their Chrome back; the browser tools work in KOS's own again." : "There was no session to end."),
+      { floor: "safe" },
+    );
+  };
+
   /** One action that is not a look, done; what was done, in words. */
   const perform = async (chat: string, session: Session, action: Action, input: Record<string, unknown>): Promise<string> => {
     const at = pair(input.coordinate, "coordinate");
@@ -380,16 +451,18 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
   return {
     manifest: COMPUTER_MANIFEST,
     activate(ctx) {
-      // Offered only while a computer is paired; pairing the first or
-      // unpairing the last adds or takes back the tools at once.
+      // Offered only while a device of their kind is paired; pairing the
+      // first or unpairing the last adds or takes back the tools at once.
       const sync = (): void => {
-        const want = hub.paired > 0;
-        if (want && !registered) {
-          register(ctx);
-          registered = true;
-        } else if (!want && registered) {
-          for (const name of TOOL_NAMES) ctx.unregisterTool?.(name);
-          registered = false;
+        for (const kind of ["computer", "browser"] as const) {
+          const want = hub.list().some((d) => d.kind === kind);
+          if (want && !registered[kind]) {
+            (kind === "computer" ? registerComputer : registerChrome)(ctx);
+            registered[kind] = true;
+          } else if (!want && registered[kind]) {
+            for (const name of kind === "computer" ? COMPUTER_TOOLS : CHROME_TOOLS) ctx.unregisterTool?.(name);
+            registered[kind] = false;
+          }
         }
       };
       sync();
@@ -398,7 +471,8 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
     deactivate() {
       for (const off of unsubscribe) off();
       unsubscribe = [];
-      registered = false;
+      registered.computer = false;
+      registered.browser = false;
       hub.endAll("host");
     },
   };

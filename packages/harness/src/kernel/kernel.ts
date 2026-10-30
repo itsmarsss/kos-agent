@@ -39,7 +39,7 @@ import {
   type Tab,
 } from "@kos/browser";
 import { BROWSER_KEY, BROWSER_PORT, browserConfig } from "../ops/browsersettings.js";
-import type { TabInfo } from "../tools/browser.js";
+import type { BrowserElsewhere, TabInfo } from "../tools/browser.js";
 import { PageWatchStore, type WatchLook } from "../ops/watches.js";
 import type { BuiltinFeature } from "../modules/builtins.js";
 import { MODULES_KEY, parseModuleSettings, withBuiltinEnabled } from "../modules/workspace.js";
@@ -404,6 +404,8 @@ export class Kernel {
   private readonly saidSince = new Map<string, string>();
   /** The browser KOS drives, watched from the dashboard; made once the workspace is known. */
   readonly browser: BrowserLive;
+  /** The owner's own Chrome, when computer use offers it. */
+  private elsewhere: BrowserElsewhere | undefined;
   /** The owner's Discord server, when KOS lives in one; what a "#channel" in a message is comes from here. */
   readonly discord: DiscordServices | undefined;
   /** What the browser showed after each step, for the thread. */
@@ -3081,8 +3083,22 @@ export class Kernel {
    */
   private browserContext(tool: string, conversationId?: string): PermissionContext | undefined {
     if (!tool.startsWith(BROWSER_PREFIX)) return undefined;
-    const site = conversationId ? this.browser.siteOf(conversationId) : undefined;
-    return { browser: { prefix: BROWSER_PREFIX, ...(site ? { site } : {}), strict: BROWSER_STRICT } };
+    const away = this.away(conversationId);
+    const site = conversationId ? (away ? away.siteOf(conversationId) : this.browser.siteOf(conversationId)) : undefined;
+    return { browser: { prefix: BROWSER_PREFIX, ...(site ? { site } : {}), strict: BROWSER_STRICT, ...(away ? { yours: true } : {}) } };
+  }
+
+  /**
+   * The owner's own Chrome, when a package offers it (the KOS extension,
+   * through computer use): a conversation working in it browses there.
+   */
+  setBrowserElsewhere(place: BrowserElsewhere): void {
+    this.elsewhere = place;
+  }
+
+  /** The browser a conversation is working in, when it is not KOS's own. */
+  private away(conversationId: string | undefined): BrowserElsewhere | undefined {
+    return conversationId && this.elsewhere?.active(conversationId) ? this.elsewhere : undefined;
   }
 
   /**
@@ -3202,6 +3218,8 @@ export class Kernel {
   /** The caller's own tab, made the first time it browses, with its hands and a way to picture it. */
   async browserTab(): Promise<Tab> {
     const conversationId = this.callerConversationId ?? "root";
+    const away = this.away(conversationId);
+    if (away) return away.tab(conversationId);
     const tab = await this.browser.tabFor(conversationId);
     this.browser.touch(conversationId);
     return { page: await this.browser.page(tab), capture: (maxWidth) => this.browser.capture(tab, maxWidth) };
@@ -3209,12 +3227,15 @@ export class Kernel {
 
   /** The ids of the caller's tabs. */
   browserTabsOfCaller(): string[] {
-    return this.browser.tabsOf(this.callerConversationId ?? "root");
+    const conversationId = this.callerConversationId ?? "root";
+    return (this.away(conversationId) ?? this.browser).tabsOf(conversationId);
   }
 
   /** The open tabs as the caller is told of them: whose each is, and which is its own. */
   browserTabs(): TabInfo[] {
     const me = this.callerConversationId;
+    const away = this.away(me);
+    if (away && me) return away.tabs(me);
     const current = me ? this.browser.tabOf(me) : undefined;
     return this.browser.tabs().map((t) => ({
       id: t.id,
@@ -3228,8 +3249,11 @@ export class Kernel {
 
   /** The caller moves to an open tab, which is its own from then on. */
   async useBrowserTab(tab: string): Promise<void> {
+    const conversationId = this.callerConversationId ?? "root";
+    const away = this.away(conversationId);
+    if (away) return away.useTab(conversationId, tab);
     await this.browser.ensure();
-    this.browser.useTab(this.callerConversationId ?? "root", tab);
+    this.browser.useTab(conversationId, tab);
   }
 
   /**
@@ -3244,7 +3268,10 @@ export class Kernel {
 
   /** A new blank tab of the caller's own, which it is then on. */
   async newBrowserTab(): Promise<string> {
-    return this.browser.openTab("about:blank", this.callerConversationId ?? "root");
+    const conversationId = this.callerConversationId ?? "root";
+    const away = this.away(conversationId);
+    if (away) return away.newTab(conversationId);
+    return this.browser.openTab("about:blank", conversationId);
   }
 
   /** Chrome closed and started again with the settings as they are now. */
@@ -3273,10 +3300,10 @@ export class Kernel {
       if (picture) this.frames.add({ conversationId, ...(toolUseId ? { toolUseId } : {}), tool, picture });
       return;
     }
+    const away = this.away(conversationId);
     const tab = this.browser.tabOf(conversationId);
-    if (!tab) return;
-    void this.browser
-      .capture(tab, 640)
+    if (!away && !tab) return;
+    void (away ? away.picture(conversationId, 640) : this.browser.capture(tab!, 640))
       .then((picture) => {
         if (picture) this.frames.add({ conversationId, ...(toolUseId ? { toolUseId } : {}), tool, picture });
       })
@@ -3286,6 +3313,8 @@ export class Kernel {
   /** The page a browser action is aimed at, pictured for the approval. */
   private async browserPicture(tool: string, conversationId?: string): Promise<string | undefined> {
     if (!conversationId || !this.browserContext(tool, conversationId)) return undefined;
+    const away = this.away(conversationId);
+    if (away) return away.picture(conversationId, 900);
     const tab = this.browser.tabOf(conversationId);
     return tab ? this.browser.capture(tab) : undefined;
   }

@@ -25,6 +25,7 @@ export {
   type SearchModuleOptions,
 } from "./search.js";
 export { systemsModule } from "./systems.js";
+export type { BrowserElsewhere, TabInfo } from "./browser.js";
 export { tasksModule } from "./tasks.js";
 export { exportModule, toCsv, toMarkdown } from "./export.js";
 export { createShellModule, runShell, type ShellResult } from "./shell.js";

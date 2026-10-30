@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>KOS</title>
+    <link rel="stylesheet" href="kos.css" />
+  </head>
+  <body>
+    <header><img src="icon32.png" alt="" width="18" height="18" /><strong>KOS</strong></header>
+    <section id="pairing" class="stack" hidden>
+      <p class="hint">Pair this Chrome with your KOS. In KOS: Settings, Devices, Add a device, then paste the link here.</p>
+      <form id="pair-form" class="stack">
+        <input id="link" type="text" placeholder="kos-device://pair?url=…&amp;code=…" spellcheck="false" autocomplete="off" required />
+        <input id="name" type="text" placeholder="Name for this Chrome" spellcheck="false" />
+        <button type="submit" id="pair" class="btn btn--primary">Pair</button>
+      </form>
+    </section>
+    <section id="paired" class="stack" hidden>
+      <p class="status"><span id="status-dot" class="dot"></span><span id="status"></span></p>
+      <p id="status-detail" class="hint" hidden></p>
+      <div id="session" class="card" hidden>
+        <p class="label">KOS is working</p>
+        <p id="task" class="task"></p>
+        <p id="requester" class="hint"></p>
+        <div class="row"><button type="button" id="take" class="btn"></button><button type="button" id="stop" class="btn btn--stop">Stop</button></div>
+      </div>
+      <button type="button" id="hand" class="btn btn--wide" hidden></button>
+      <button type="button" id="unpair" class="link">Unpair</button>
+    </section>
+    <p id="error" class="error" hidden></p>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

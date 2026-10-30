@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { publicKeyFromRaw, type HostKey } from "./keys.js";
 import { DeviceError, DeviceLink, type Socket } from "./link.js";
 import { PairingCodes, type PairingCode } from "./pairing.js";
-import { CLOSE, PROTOCOL_VERSION, type Consent, type DeviceEvent, type EndReason, type Grant, type Method, type Permissions, type Size, type Target } from "./protocol.js";
+import { BROWSER_PLATFORM, CLOSE, PROTOCOL_VERSION, type Consent, type DeviceEvent, type EndReason, type Grant, type Method, type Permissions, type Size, type Target } from "./protocol.js";
 import { MAX_ASK_MINUTES, type ComputerSettings, type Device, type DeviceStore } from "./store.js";
 
 /**
@@ -34,6 +34,7 @@ export interface DeviceStatus {
   id: string;
   name: string;
   platform: string;
+  kind: DeviceKind;
   pairedAt: number;
   lastSeen: number | null;
   online: boolean;
@@ -56,6 +57,16 @@ export interface HubDeps {
   callTimeoutMs?: number;
 }
 
+/** A computer KOS Device runs on, or a Chrome the KOS extension runs in. */
+export type DeviceKind = "computer" | "browser";
+
+export function kindOf(device: { platform: string }): DeviceKind {
+  return device.platform === BROWSER_PLATFORM ? "browser" : "computer";
+}
+
+/** Told of what a device says beyond its sessions' lives: a browser's page events, tabs closed or handed. */
+export type DeviceListener = (device: string, event: DeviceEvent, session: Session | undefined) => void;
+
 export class PairError extends Error {
   constructor(
     readonly status: number,
@@ -76,6 +87,7 @@ export class DeviceHub {
   /** Why a conversation's last session ended, so its next call can say so. */
   private readonly endings = new Map<string, EndReason | "offline" | "removed">();
   private readonly listeners = new Set<() => void>();
+  private readonly deviceListeners = new Set<DeviceListener>();
 
   constructor(private readonly deps: HubDeps) {
     this.codes = new PairingCodes(this.now);
@@ -91,6 +103,12 @@ export class DeviceHub {
 
   private changed(): void {
     for (const l of this.listeners) l();
+  }
+
+  /** Told of each event a device sends that is not about a session's life. */
+  onDeviceEvent(listener: DeviceListener): () => void {
+    this.deviceListeners.add(listener);
+    return () => this.deviceListeners.delete(listener);
   }
 
   issueCode(): PairingCode {
@@ -147,8 +165,15 @@ export class DeviceHub {
   }
 
   private event(link: DeviceLink, event: DeviceEvent): void {
-    const session = typeof event.data.session === "string" ? this.sessions.get(event.data.session) : undefined;
-    if (!session || session.device !== link.device?.id) return;
+    const device = link.device?.id;
+    if (!device) return;
+    const named = typeof event.data.session === "string" ? this.sessions.get(event.data.session) : undefined;
+    const session = named?.device === device ? named : undefined;
+    if (!event.name.startsWith("session.")) {
+      for (const l of this.deviceListeners) l(device, event, session);
+      return;
+    }
+    if (!session) return;
     if (event.name === "session.paused") session.paused = true;
     else if (event.name === "session.resumed") session.paused = false;
     // The owner gave it more time on the device.
@@ -173,6 +198,7 @@ export class DeviceHub {
       id: d.id,
       name: d.name,
       platform: d.platform,
+      kind: kindOf(d),
       pairedAt: d.pairedAt,
       lastSeen: d.lastSeen,
       online: link?.ready === true,
@@ -188,8 +214,8 @@ export class DeviceHub {
    * an offline one could not be used anyway; nothing named means the one
    * online, or the only one there is.
    */
-  find(nameOrId: string | undefined): Device | undefined {
-    const devices = this.deps.store.list();
+  find(nameOrId: string | undefined, kind?: DeviceKind): Device | undefined {
+    const devices = this.deps.store.list().filter((d) => !kind || kindOf(d) === kind);
     const online = (ds: Device[]): Device[] => ds.filter((d) => this.links.get(d.id)?.ready);
     const one = (ds: Device[]): Device | undefined => (ds.length === 1 ? ds[0] : online(ds).length === 1 ? online(ds)[0] : undefined);
     const raw = (nameOrId ?? "").trim().toLowerCase();
@@ -232,7 +258,8 @@ export class DeviceHub {
     }
     const link = this.links.get(input.device.id);
     if (!link?.ready) throw new DeviceError("offline", `${input.device.name} is offline: KOS Device is not running on it, or cannot reach KOS`);
-    const missing = missingPermissions(link.state?.permissions);
+    const browser = kindOf(input.device) === "browser";
+    const missing = browser ? undefined : missingPermissions(link.state?.permissions);
     if (missing) throw new DeviceError("permission", `${input.device.name} has not granted ${missing} to KOS Device yet`);
     const other = [...this.sessions.values()].find((s) => s.device === input.device.id);
     if (other) throw new DeviceError("busy", `${input.device.name} is in use by another chat`);
@@ -249,7 +276,7 @@ export class DeviceHub {
       },
       this.deps.beginTimeoutMs ?? BEGIN_TIMEOUT_MS,
     );
-    const grant = readGrant(result);
+    const grant = browser ? readBrowserGrant(result) : readGrant(result);
     if (!grant) throw new DeviceError("denied", "the owner did not allow it on the device");
     const session: Session = {
       id,
@@ -269,7 +296,7 @@ export class DeviceHub {
   }
 
   /** Something done in the conversation's session; the device's result. */
-  async act(conversation: string, method: Exclude<Method, "session.begin" | "session.end">, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  async act(conversation: string, method: Exclude<Method, "session.begin" | "session.end">, params: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>> {
     if (this.deps.halted()) {
       this.endAll("host");
       throw new DeviceError("halted", "KOS is halted by the kill switch");
@@ -283,7 +310,7 @@ export class DeviceHub {
       throw new DeviceError("offline", "the device went offline");
     }
     try {
-      return await link.call(method, { ...params, session: session.id }, this.deps.callTimeoutMs ?? CALL_TIMEOUT_MS);
+      return await link.call(method, { ...params, session: session.id }, timeoutMs ?? this.deps.callTimeoutMs ?? CALL_TIMEOUT_MS);
     } catch (err) {
       if (err instanceof DeviceError && err.code === "no_session") this.drop(session, "host");
       if (err instanceof DeviceError && err.code === "paused") session.paused = true;
@@ -367,6 +394,12 @@ function missingPermissions(p: Permissions | undefined): string | undefined {
   return undefined;
 }
 
+/** A browser's grant: its time, and no screen; what it shares is its tabs. */
+function readBrowserGrant(result: Record<string, unknown>): Grant | undefined {
+  if (result.granted !== true || typeof result.until !== "number") return undefined;
+  return { granted: true, until: result.until, space: { width: 0, height: 0 }, target: { kind: "tabs" } };
+}
+
 function readGrant(result: Record<string, unknown>): Grant | undefined {
   const space = result.space as Record<string, unknown> | undefined;
   if (result.granted !== true || typeof result.until !== "number" || typeof space?.width !== "number" || typeof space.height !== "number") return undefined;
@@ -381,5 +414,5 @@ function readTarget(v: unknown): Target {
 }
 
 function endReason(v: unknown): EndReason {
-  return v === "owner" || v === "expired" || v === "idle" || v === "quit" || v === "window" ? v : "host";
+  return v === "owner" || v === "expired" || v === "idle" || v === "quit" || v === "window" || v === "detached" ? v : "host";
 }

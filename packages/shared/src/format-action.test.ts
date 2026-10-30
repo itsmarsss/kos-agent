@@ -61,6 +61,8 @@ describe("summaries for the browser", () => {
     expect(summarizeAction("browser.act", { steps: [{ fill: { selector: "@e2", text: "jane" } }, { click: "@e5" }, { wait: 500 }] })).toBe("On the page: fill @e2, click @e5, wait 500ms");
     expect(summarizeAction("browser.act", { steps: [{ fill: { target: "@e2", text: "jane" } }, { press: "Enter" }] })).toBe("On the page: fill @e2, press Enter");
     expect(summarizeAction("browser.look", {})).toBe("Look at the page");
+    expect(summarizeAction("chrome.start", { task: "check the cart" })).toBe("Work in your Chrome: check the cart");
+    expect(summarizeAction("chrome.end", {})).toBe("Give your Chrome back");
     expect(summarizeAction("browser.eval", { code: "document.title" })).toMatch(/^Run script in the page: document\.title/);
   });
 });

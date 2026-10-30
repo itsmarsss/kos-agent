@@ -1,8 +1,9 @@
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 
-import { requireServices, type ApiExtension, type KosModule } from "@kos/harness";
+import { requireServices, type ApiExtension, type BrowserElsewhere, type KosModule } from "@kos/harness";
 
+import { OwnerChrome } from "./chrome.js";
 import { DeviceHub } from "./hub.js";
 import { loadHostKey } from "./keys.js";
 import { deviceRoutes, deviceSocketServer } from "./routes.js";
@@ -29,6 +30,8 @@ export interface ComputerUseOptions {
 
 export interface ComputerUse {
   module: KosModule;
+  /** The owner's Chrome, for the kernel to send a chat's browser tools to while it works there. */
+  chrome: BrowserElsewhere;
   routes: ApiExtension;
   upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): boolean;
   close(): void;
@@ -36,6 +39,7 @@ export interface ComputerUse {
 
 export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   let hub: DeviceHub | undefined;
+  let chrome: OwnerChrome | undefined;
   let active: KosModule | undefined;
   const sockets = deviceSocketServer(() => (active ? hub : undefined));
 
@@ -49,9 +53,11 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
         hostKey: loadHostKey({ path: options.hostKeyPath, ...(options.hostKeyEnv ? { env: options.hostKeyEnv } : {}) }),
         halted: options.halted,
       });
+      chrome ??= new OwnerChrome(hub);
       const events = ctx.events;
       active = computerModule({
         hub,
+        chrome,
         caller: options.caller,
         titleOf: options.titleOf,
         ...(events ? { onHalt: (handler: () => void) => events.on("halt:changed", (e) => (e.halted ? handler() : undefined)) } : {}),
@@ -65,8 +71,21 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
     },
   };
 
+  // Before the module is active there is no session, so no chat is in the owner's Chrome.
+  const elsewhere: BrowserElsewhere = {
+    active: (c) => (active && chrome ? chrome.active(c) : false),
+    tab: (c) => chrome!.tab(c),
+    tabs: (c) => chrome?.tabs(c) ?? [],
+    tabsOf: (c) => chrome?.tabsOf(c) ?? [],
+    useTab: (c, t) => chrome!.useTab(c, t),
+    newTab: (c) => chrome!.newTab(c),
+    siteOf: (c) => chrome?.siteOf(c),
+    picture: async (c, w) => chrome?.picture(c, w),
+  };
+
   return {
     module,
+    chrome: elsewhere,
     routes: deviceRoutes(() => (active ? hub : undefined), options.titleOf),
     upgrade: (req, socket, head) => sockets.upgrade(req, socket, head),
     close() {

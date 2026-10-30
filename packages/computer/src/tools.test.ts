@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { attendance, openDatabase, type ModuleContext, type ToolRisk } from "@kos/harness";
 
 import { FakeDevice } from "./device.fixture.js";
+import { OwnerChrome } from "./chrome.js";
 import { DeviceHub } from "./hub.js";
 import { rawPublicKey } from "./keys.js";
 import { DeviceStore } from "./store.js";
@@ -32,6 +33,7 @@ function setup() {
   };
   const mod = computerModule({
     hub,
+    chrome: new OwnerChrome(hub),
     caller: () => "c1",
     titleOf: (id) => (id === "c1" ? "Design" : id),
     onHalt: (handler) => {

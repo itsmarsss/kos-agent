@@ -3,7 +3,8 @@ export { loadHostKey, nonce, publicKeyFromRaw, rawPublicKey, signText, verifyTex
 export { DeviceStore, cleanName, DEFAULT_SETTINGS, MAX_ASK_MINUTES, type ComputerSettings, type Device } from "./store.js";
 export { PairingCodes, CODE_TTL_MS, type PairingCode } from "./pairing.js";
 export { DeviceError, DeviceLink, type Socket } from "./link.js";
-export { DeviceHub, PairError, type DeviceStatus, type HubDeps, type Session } from "./hub.js";
+export { DeviceHub, PairError, kindOf, type DeviceKind, type DeviceListener, type DeviceStatus, type HubDeps, type Session } from "./hub.js";
+export { OwnerChrome } from "./chrome.js";
 export { COMPUTER_MANIFEST, computerModule, refusalText, type ComputerToolsDeps } from "./tools.js";
 export { PREFIX, deviceRoutes, deviceSocketServer, type DeviceSocketServer } from "./routes.js";
 export { createComputerUse, type ComputerUse, type ComputerUseOptions } from "./computeruse.js";

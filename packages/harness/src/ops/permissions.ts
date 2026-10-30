@@ -69,6 +69,11 @@ export interface PermissionContext {
     site?: string;
     /** Tools of the family that are never remembered. */
     strict?: string[];
+    /**
+     * The tab is in the owner's own Chrome, signed in as them: trusted apart
+     * from KOS's Chrome, so a site trusted there is not trusted here.
+     */
+    yours?: boolean;
   };
 }
 
@@ -86,7 +91,7 @@ export function scopeOf(tool: string, input: Record<string, unknown>, context?: 
   if (browserTool(tool, context)) {
     const browser = context!.browser!;
     if (browser.strict?.includes(tool)) return undefined;
-    return browser.site ? `site:${browser.site}` : undefined;
+    return browser.site ? `${browser.yours ? "your-chrome" : "site"}:${browser.site}` : undefined;
   }
   if (tool.startsWith("files.")) {
     const path = typeof input["path"] === "string" ? input["path"] : typeof input["from"] === "string" ? input["from"] : "";

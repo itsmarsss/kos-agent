@@ -15,6 +15,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
+    "@kos/browser": "workspace:*",
     "@kos/harness": "workspace:*",
     "ws": "^8.21.0"
   },
