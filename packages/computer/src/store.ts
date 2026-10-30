@@ -64,11 +64,20 @@ export class DeviceStore {
 
   add(input: { name: string; platform: string; publicKey: string }): Device {
     const id = `dev_${randomBytes(9).toString("base64url")}`;
-    const name = cleanName(input.name) || "Computer";
+    const name = this.unique(cleanName(input.name) || "Computer");
     this.db
       .prepare(`INSERT INTO devices (id, name, platform, public_key, paired_at) VALUES (?, ?, ?, ?, ?)`)
       .run(id, name, input.platform.slice(0, 20), input.publicKey, this.now());
     return this.get(id)!;
+  }
+
+  /** A name no other device has: "Studio MacBook", then "Studio MacBook 2", so the owner can say which. */
+  private unique(name: string): string {
+    const taken = new Set(this.list().map((d) => d.name.toLowerCase()));
+    if (!taken.has(name.toLowerCase())) return name;
+    let n = 2;
+    while (taken.has(`${name} ${n}`.toLowerCase())) n++;
+    return `${name} ${n}`;
   }
 
   get(id: string): Device | undefined {

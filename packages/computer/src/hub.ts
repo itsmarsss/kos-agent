@@ -178,20 +178,22 @@ export class DeviceHub {
     };
   }
 
-  /** The device a name or id means: exact id, then exact name, then the one name it alone starts. */
+  /**
+   * The device a name or id means: the id, else the name exactly, else the
+   * one name containing it. Where several fit, the one online is meant, since
+   * an offline one could not be used anyway; nothing named means the one
+   * online, or the only one there is.
+   */
   find(nameOrId: string | undefined): Device | undefined {
     const devices = this.deps.store.list();
+    const online = (ds: Device[]): Device[] => ds.filter((d) => this.links.get(d.id)?.ready);
+    const one = (ds: Device[]): Device | undefined => (ds.length === 1 ? ds[0] : online(ds).length === 1 ? online(ds)[0] : undefined);
     const raw = (nameOrId ?? "").trim().toLowerCase();
-    if (!raw) {
-      const online = devices.filter((d) => this.links.get(d.id)?.ready);
-      return online.length === 1 ? online[0] : devices.length === 1 ? devices[0] : undefined;
-    }
+    if (!raw) return one(devices);
     const byId = devices.find((d) => d.id.toLowerCase() === raw);
     if (byId) return byId;
     const exact = devices.filter((d) => d.name.toLowerCase() === raw);
-    if (exact.length === 1) return exact[0];
-    const partial = devices.filter((d) => d.name.toLowerCase().includes(raw));
-    return partial.length === 1 ? partial[0] : undefined;
+    return exact.length ? one(exact) : one(devices.filter((d) => d.name.toLowerCase().includes(raw)));
   }
 
   /** How a device's sessions are allowed: on the device itself, or through KOS's approvals. */

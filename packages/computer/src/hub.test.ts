@@ -82,6 +82,19 @@ describe("pairing a device", () => {
   });
 });
 
+describe("naming a device", () => {
+  it("numbers a name already taken, and means the online one when a name fits two", async () => {
+    const { hub } = setup();
+    const first = await online(hub, "Studio MacBook");
+    const second = await online(hub, "Studio MacBook");
+    expect(hub.list().map((d) => d.name)).toEqual(["Studio MacBook", "Studio MacBook 2"]);
+    first.drop();
+    expect(hub.find("studio")?.id).toBe(second.id);
+    expect(hub.find(undefined)?.id).toBe(second.id);
+    expect(hub.find("Studio MacBook")?.id).toBe(first.id);
+  });
+});
+
 describe("a device connecting", () => {
   it("is in once it signs KOS's nonce, and KOS's welcome proves KOS", async () => {
     const { hub } = setup();
