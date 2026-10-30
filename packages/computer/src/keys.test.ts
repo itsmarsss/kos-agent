@@ -18,6 +18,14 @@ describe("keys", () => {
     expect(publicKeyFromRaw("c2hvcnQ=")).toBeUndefined();
   });
 
+  it("verify a signature CryptoKit made, as KOS Device signs its hello", () => {
+    // Made once by Curve25519.Signing on macOS over this exact payload.
+    const publicKey = "s84AWscKSp1OSNYFxq/ZgnaCmzCGF1Q3Y3H1sYGlCK0=";
+    const signature = "arfmxHSwPBrHphS5bb4+FQ5K5zVJSrCFVZx2FPvsENBF9QfrHAgfnjv9IOwz+YrQYewuBAJgAskwXndmLS37CA==";
+    expect(verifyText(publicKey, "kos-device/1|device|bm9uY2U=|dev_fixture", signature)).toBe(true);
+    expect(verifyText(publicKey, "kos-device/1|device|bm9uY2U=|dev_other", signature)).toBe(false);
+  });
+
   it("keep KOS's key in a file only the owner reads, and the same one next time", () => {
     const path = join(mkdtempSync(join(tmpdir(), "kos-keys-")), "nested", "device-host.key");
     const first = loadHostKey({ path });
