@@ -9,6 +9,7 @@ import {
   type SettingsPayload, type ModuleInfo, type SkillInfo, type McpServerInfo, type PermissionRule, type BrowserSettings, type RestartState, type Status } from "./api.js";
 import type { FaceLook } from "./api.js";
 import { KOS_SEED } from "./Face.js";
+import { Field } from "./SettingField.js";
 import { FaceEditor } from "./FaceEditor.js";
 import { ModelSettings } from "./ModelSettings.js";
 import { useOpenTab } from "./opentab.js";
@@ -18,6 +19,7 @@ import { matchesSkillView, skillViews } from "./skillviews.js";
 import { McpAdd, SkillsAdd } from "./ExtensionBrowser.js";
 import { isDensity, isTheme, readDensity, readTheme, setDensity, setTheme, type Density, type Theme } from "./theme.js";
 import { SpendPanel } from "./SpendPanel.js";
+import { DevicesPanel } from "./DevicesPanel.js";
 
 /**
  * Everything you would otherwise have opened a dotfile to change.
@@ -72,6 +74,7 @@ type SectionId =
   | "mcp"
   | "browser"
   | "permissions"
+  | "devices"
   | "workspace";
 
 /**
@@ -90,6 +93,7 @@ const SECTIONS: { id: SectionId; group: string; label: string; blurb: string }[]
   { id: "mcp", group: "Extensions", label: "MCP servers", blurb: "Outside tools, by the protocol they speak" },
   { id: "browser", group: "Extensions", label: "Browser", blurb: "The Chrome KOS drives: its window, extensions and search" },
   { id: "permissions", group: "Access", label: "Permissions", blurb: "Decisions you made at a prompt and kept" },
+  { id: "devices", group: "Access", label: "Devices", blurb: "Computers KOS may use, and pairing one" },
   { id: "network", group: "Access", label: "Network", blurb: "Ports, binding, and what the agent may reach" },
   { id: "spend", group: "Housekeeping", label: "Spend", blurb: "Tokens used and what they cost" },
   { id: "workspace", group: "Housekeeping", label: "Workspace", blurb: "Where everything lives" },
@@ -99,61 +103,6 @@ const GROUPS = [...new Set(SECTIONS.map((s) => s.group))];
 
 function isSection(id: string | undefined): id is SectionId {
   return SECTIONS.some((s) => s.id === id);
-}
-
-/** One setting: a label, the control, and why you would touch it. */
-function Field({
-  label,
-  hint,
-  children,
-  badge,
-  row,
-  meta,
-}: {
-  label: string;
-  hint?: string;
-  children: ReactNode;
-  badge?: ReactNode;
-  /** A line under the hint, in the words column: where it came from, say. */
-  meta?: ReactNode;
-  /**
-   * The control beside the words rather than under them. For a list of
-   * things with a switch each: stacked, every item was a name, then a
-   * checkbox on a line of its own, then its description, and four of them
-   * read as twelve lines.
-   */
-  row?: boolean;
-}): ReactElement {
-  // A row's words open on click: a skill's description can run to a
-  // paragraph of triggers, and fourteen of those is a wall.
-  const [open, setOpen] = useState(false);
-  if (row) {
-    return (
-      <div className={`set-field set-field--row${open ? " is-open" : ""}`}>
-        <button type="button" className="set-field-text" onClick={() => setOpen((v) => !v)} title={open ? "Less" : "More"}>
-          <div className="set-label">
-            <span>{label}</span>
-            {badge}
-          </div>
-          {hint && <p className="set-hint">{hint}</p>}
-          {open && meta}
-        </button>
-        <div className="set-field-control">{children}</div>
-      </div>
-    );
-  }
-  // The kit's field, so a setting reads like a field anywhere else.
-  return (
-    <div className="kos-field set-field">
-      <span className="kos-field-label">
-        {label}
-        {badge}
-      </span>
-      {children}
-      {hint && <span className="hint">{hint}</span>}
-      {meta}
-    </div>
-  );
 }
 
 /**
@@ -1658,6 +1607,11 @@ export function SettingsPage({
                 </button>
               </Field>
             ))}
+          </Section>
+        )}
+        {active === "devices" && (
+          <Section title="Devices" blurb="Computers KOS may see and work. Each runs KOS Device, which asks you on the computer before every session, shows you whenever KOS is in control, and pauses the moment you touch the mouse or keyboard.">
+            <DevicesPanel />
           </Section>
         )}
         {active === "spend" && (
