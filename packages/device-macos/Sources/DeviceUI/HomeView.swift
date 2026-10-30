@@ -65,6 +65,7 @@ public struct HomeActions {
   public var pause: () -> Void = {}
   public var resume: () -> Void = {}
   public var stop: () -> Void = {}
+  public var restart: () -> Void = {}
 
   public init() {}
 }
@@ -81,6 +82,8 @@ public final class HomeModel: ObservableObject {
   @Published public var inputGranted = false
   /// A grant asked for once: the next press goes to its switch in System Settings.
   @Published public var asked: Set<Grant> = []
+  /// Screen Recording was asked for and is not seen yet: macOS applies it on a fresh start.
+  public var needsRestart: Bool { asked.contains(.screen) && !screenGranted }
   @Published public var askFirst = true
   @Published public var hidden: [AppEntry] = []
   /// Running apps that could be hidden.
@@ -139,13 +142,22 @@ public struct HomeView: View {
 
   private var header: some View {
     HStack(alignment: .center, spacing: 12) {
-      KOSFace(size: 42)
+      KOSFace(size: 42, mood: faceMood)
       VStack(alignment: .leading, spacing: 2) {
         Text("KOS Device").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text)
         Text("Only in sessions you allow.").font(.system(size: 12)).foregroundStyle(Theme.muted)
       }
       Spacer(minLength: 8)
       linkPill
+    }
+  }
+
+  /// How KOS looks in the header: at work in a session, sagging when it cannot be reached.
+  private var faceMood: BlobMood {
+    if model.session != nil { return model.session?.paused == true ? .idle : .working }
+    switch model.link {
+    case .offline, .untrusted, .outdated: return .error
+    default: return .idle
     }
   }
 
@@ -276,6 +288,17 @@ public struct HomeView: View {
       grantRow(.screen, icon: "rectangle.dashed.badge.record", title: "Screen Recording", detail: "Shows KOS the screen it is working on.")
       Divider().overlay(Theme.line)
       grantRow(.input, icon: "cursorarrow.click.2", title: "Accessibility", detail: "Moves the pointer and types, and notices when you take over.")
+      if model.needsRestart {
+        HStack(spacing: 10) {
+          Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.warn)
+          Text("Switched Screen Recording on? macOS applies it when KOS Device starts again.")
+            .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+          Spacer(minLength: 8)
+          Button("Restart", action: model.actions.restart).buttonStyle(KOSButtonStyle(.secondary))
+        }
+        .padding(10)
+        .background(Theme.warn.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+      }
     }
   }
 

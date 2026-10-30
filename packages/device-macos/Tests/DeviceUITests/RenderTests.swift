@@ -70,7 +70,8 @@ struct RenderTests {
       $0.link = .offline("KOS is not answering.")
       $0.host = "https://kos.example.ts.net"
       $0.deviceName = "Studio MacBook"
-      $0.screenGranted = true
+      $0.inputGranted = true
+      $0.asked = [.screen]
       $0.askFirst = false
     }
     _ = try render("home-offline", HomeView(model: model))

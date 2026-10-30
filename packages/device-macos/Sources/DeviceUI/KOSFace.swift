@@ -1,74 +1,135 @@
+import AppKit
 import SwiftUI
 
-/// KOS's face, the same blob the dashboard draws for KOS (packages/shared
-/// face.ts, seed "kos"): its body and two upright eyes on a 100 by 100 grid.
-/// It blinks now and then, so the app reads as someone rather than a form.
+/// KOS's face, alive: the dashboard's blob, drawn every frame from BlobMotion.
+///
+/// It looks at the pointer wherever it is on the screen, squashes when the
+/// pointer is over it, and wobbles, pleased, when it is clicked. With Reduce
+/// Motion on it holds still.
 public struct KOSFace: View {
   private let size: CGFloat
-  private let blinks: Bool
-  @State private var shut = false
+  private let mood: BlobMood
+  @StateObject private var driver = BlobDriver()
+  @Environment(\.accessibilityReduceMotion) private var still
 
-  public init(size: CGFloat = 40, blinks: Bool = true) {
+  public init(size: CGFloat = 40, mood: BlobMood = .idle) {
     self.size = size
-    self.blinks = blinks
+    self.mood = mood
   }
 
   public var body: some View {
-    ZStack {
-      Outline().fill(Color(hex: 0x3585ED))
-      Eye(x: 41.62, shut: shut).fill(Color(hex: 0x141D29))
-      Eye(x: 58.38, shut: shut).fill(Color(hex: 0x141D29))
+    TimelineView(.animation(paused: still)) { context in
+      let frame = driver.frame(at: context.date.timeIntervalSinceReferenceDate, mood: mood, still: still)
+      Canvas { canvas, area in Self.draw(frame, in: &canvas, size: area.width) }
     }
     .frame(width: size, height: size)
-    .task {
-      guard blinks else { return }
-      while !Task.isCancelled {
-        try? await Task.sleep(nanoseconds: UInt64.random(in: 2_800_000_000...5_200_000_000))
-        withAnimation(.easeIn(duration: 0.07)) { shut = true }
-        try? await Task.sleep(nanoseconds: 110_000_000)
-        withAnimation(.easeOut(duration: 0.12)) { shut = false }
-      }
-    }
+    .background(PointerProbe(driver: driver))
+    .onHover { driver.hover = $0 }
+    .onTapGesture { driver.poke() }
     .accessibilityHidden(true)
   }
 
-  /// The body's outline, as face.ts smooths it for KOS.
-  private struct Outline: Shape {
-    func path(in rect: CGRect) -> Path {
-      let s = rect.width / 100
-      func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x * s, y: rect.minY + y * s) }
-      var path = Path()
-      path.move(to: p(89.90, 52.00))
-      let curves: [(CGFloat, CGFloat, CGFloat, CGFloat, CGFloat, CGFloat)] = [
-        (90.06, 56.85, 89.57, 62.06, 87.85, 66.54), (86.14, 71.02, 83.21, 75.44, 79.61, 78.87),
-        (76.01, 82.30, 71.19, 85.25, 66.26, 87.11), (61.32, 88.96, 55.42, 90.00, 50.00, 90.00),
-        (44.58, 90.00, 38.68, 88.96, 33.74, 87.11), (28.81, 85.25, 23.99, 82.30, 20.39, 78.87),
-        (16.79, 75.44, 13.86, 71.02, 12.15, 66.54), (10.43, 62.06, 9.94, 56.85, 10.10, 52.00),
-        (10.26, 47.15, 11.19, 41.94, 13.14, 37.46), (15.08, 32.98, 18.19, 28.56, 21.79, 25.13),
-        (25.39, 21.70, 30.03, 18.75, 34.73, 16.89), (39.43, 15.04, 44.91, 14.00, 50.00, 14.00),
-        (55.09, 14.00, 60.57, 15.04, 65.27, 16.89), (69.97, 18.75, 74.61, 21.70, 78.21, 25.13),
-        (81.81, 28.56, 84.92, 32.98, 86.86, 37.46), (88.81, 41.94, 89.74, 47.15, 89.90, 52.00),
-      ]
-      for c in curves { path.addCurve(to: p(c.4, c.5), control1: p(c.0, c.1), control2: p(c.2, c.3)) }
-      path.closeSubpath()
-      return path
+  private static let body = Color(hex: 0x3585ED)
+  private static let ink = Color(hex: 0x141D29)
+
+  private static func draw(_ frame: BlobFrame, in canvas: inout GraphicsContext, size: CGFloat) {
+    let c = BlobMotion.center
+    let group = CGAffineTransform(translationX: -c.x, y: -c.y)
+      .concatenating(CGAffineTransform(a: 1, b: 0, c: tan(frame.skew * .pi / 180), d: 1, tx: 0, ty: 0))
+      .concatenating(CGAffineTransform(scaleX: frame.scaleX, y: frame.scaleY))
+      .concatenating(CGAffineTransform(translationX: c.x + frame.lean, y: c.y + frame.lift))
+      .concatenating(CGAffineTransform(scaleX: size / 100, y: size / 100))
+    canvas.fill(smooth(frame.outline).applying(group), with: .color(body))
+
+    for (index, base) in [BlobMotion.eyeLeft, BlobMotion.eyeRight].enumerated() {
+      let at = BlobMotion.eye(base)
+      let slant = index == 0 ? frame.slant : -frame.slant
+      let place = CGAffineTransform(scaleX: frame.wide, y: frame.happy ? frame.wide : frame.wide * frame.open)
+        .concatenating(CGAffineTransform(rotationAngle: slant * .pi / 180))
+        .concatenating(CGAffineTransform(translationX: at.x + frame.lookX, y: at.y + frame.lookY))
+        .concatenating(group)
+      if frame.happy {
+        // Pleased: the eyes become arcs, the way a face with no mouth smiles.
+        var grin = Path()
+        grin.move(to: CGPoint(x: -3.8, y: 1.4))
+        grin.addQuadCurve(to: CGPoint(x: 3.8, y: 1.4), control: CGPoint(x: 0, y: -3.4))
+        canvas.stroke(grin.applying(place), with: .color(ink), style: StrokeStyle(lineWidth: 2.4 * size / 100, lineCap: .round))
+      } else {
+        let pill = Path(roundedRect: CGRect(x: -2.7, y: -4.8, width: 5.4, height: 9.6), cornerRadius: 2.7)
+        canvas.fill(pill.applying(place), with: .color(ink))
+      }
     }
   }
 
-  /// One eye, a rounded bar 5.4 by 9.6 centred at (x, 48); shut, a line.
-  private struct Eye: Shape {
-    let x: CGFloat
-    var shut: Bool
-    var animatableData: CGFloat {
-      get { shut ? 1 : 0 }
-      set { shut = newValue > 0.5 }
+  /// A closed Catmull-Rom curve through the points, as cubic Béziers, so no corner ever shows.
+  private static func smooth(_ pts: [CGPoint]) -> Path {
+    var path = Path()
+    guard let first = pts.first else { return path }
+    let n = pts.count
+    path.move(to: first)
+    for i in 0..<n {
+      let p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n]
+      path.addCurve(
+        to: p2,
+        control1: CGPoint(x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6),
+        control2: CGPoint(x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6))
     }
+    path.closeSubpath()
+    return path
+  }
+}
 
-    func path(in rect: CGRect) -> Path {
-      let s = rect.width / 100
-      let height: CGFloat = shut ? 1.4 : 9.6
-      let eye = CGRect(x: rect.minX + (x - 2.7) * s, y: rect.minY + (48 - height / 2) * s, width: 5.4 * s, height: height * s)
-      return Path(roundedRect: eye, cornerRadius: min(eye.width, eye.height) / 2)
+/// The motion between frames, and the pointer as the face sees it.
+@MainActor
+final class BlobDriver: ObservableObject {
+  private var motion = BlobMotion(now: Date.timeIntervalSinceReferenceDate)
+  private var last: TimeInterval?
+  private var pointerAt: TimeInterval = -.infinity
+  private var lastPointer: CGPoint?
+  weak var view: NSView?
+
+  var hover: Bool {
+    get { motion.hover }
+    set { motion.hover = newValue }
+  }
+
+  func poke() {
+    motion.poke(now: Date.timeIntervalSinceReferenceDate)
+  }
+
+  func frame(at now: TimeInterval, mood: BlobMood, still: Bool) -> BlobFrame {
+    motion.mood = mood
+    let dt = last.map { now - $0 } ?? 0.016
+    last = now
+    return motion.step(now: now, dt: still ? 0.016 : dt, pointer: still ? nil : pointer(now: now))
+  }
+
+  /// Where the pointer is from the face's centre, y down, while it has moved in the last few seconds.
+  private func pointer(now: TimeInterval) -> CGVector? {
+    guard let view, let window = view.window else { return nil }
+    let screenPoint = NSEvent.mouseLocation
+    if screenPoint != lastPointer {
+      lastPointer = screenPoint
+      pointerAt = now
     }
+    guard now - pointerAt < 6 else { return nil }
+    let inView = view.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+    let dy = view.isFlipped ? inView.y - view.bounds.midY : view.bounds.midY - inView.y
+    return CGVector(dx: inView.x - view.bounds.midX, dy: dy)
+  }
+}
+
+/// An empty view behind the face, so the driver can ask where the face is on the screen.
+private struct PointerProbe: NSViewRepresentable {
+  let driver: BlobDriver
+
+  func makeNSView(context: Context) -> NSView {
+    let view = NSView()
+    driver.view = view
+    return view
+  }
+
+  func updateNSView(_ nsView: NSView, context: Context) {
+    driver.view = nsView
   }
 }

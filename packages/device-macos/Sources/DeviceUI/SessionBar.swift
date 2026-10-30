@@ -30,7 +30,7 @@ public struct SessionBar: View {
   public var body: some View {
     HStack(spacing: 12) {
       ZStack(alignment: .bottomTrailing) {
-        KOSFace(size: 26)
+        KOSFace(size: 26, mood: model.paused ? .idle : .working)
         Circle()
           .fill(tone)
           .frame(width: 8, height: 8)

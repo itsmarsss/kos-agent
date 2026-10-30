@@ -20,6 +20,14 @@ enum SystemPermissions {
       case .input: return "Privacy_Accessibility"
       }
     }
+
+    /// The grant's name to tccutil.
+    fileprivate var service: String {
+      switch self {
+      case .screen: return "ScreenCapture"
+      case .input: return "Accessibility"
+      }
+    }
   }
 
   static func current() -> Permissions {
@@ -33,8 +41,20 @@ enum SystemPermissions {
     }
   }
 
-  /// Adds this app to the grant's list in System Settings, with macOS's own prompt the first time.
+  /// Adds this app to the grant's list in System Settings, with macOS's own prompt.
+  ///
+  /// An ad hoc build is a new identity to macOS each time it is built, and
+  /// an older build's row in the list looks like this one but answers for
+  /// the old build: switching it on and off does nothing for this one. So
+  /// this app's own row is cleared first, and macOS asks for this build.
   static func request(_ kind: Kind) {
+    if let bundle = Bundle.main.bundleIdentifier {
+      let reset = Process()
+      reset.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+      reset.arguments = ["reset", kind.service, bundle]
+      try? reset.run()
+      reset.waitUntilExit()
+    }
     switch kind {
     case .screen:
       _ = CGRequestScreenCaptureAccess()
@@ -42,6 +62,15 @@ enum SystemPermissions {
       let prompt = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
       _ = AXIsProcessTrustedWithOptions([prompt: true] as CFDictionary)
     }
+  }
+
+  /// Quits and opens again: macOS lets a new grant of Screen Recording apply only to a fresh start.
+  static func relaunch() {
+    let reopen = Process()
+    reopen.executableURL = URL(fileURLWithPath: "/bin/sh")
+    reopen.arguments = ["-c", "sleep 0.8; /usr/bin/open \"$0\"", Bundle.main.bundlePath]
+    try? reopen.run()
+    NSApp.terminate(nil)
   }
 
   static func openSettings(_ kind: Kind) {

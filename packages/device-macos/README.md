@@ -38,8 +38,10 @@ The app asks for two, in System Settings, Privacy & Security:
 The window shows both, and Grant opens the right switch.
 
 The app is signed ad hoc, so macOS ties these grants to this exact build.
-After a rebuild, macOS may show the grants as on while they no longer apply:
-switch KOS Device off and on again in both lists.
+After a rebuild the old build's row still shows in System Settings, switched
+on, and does nothing for the new one. Press Grant in the window: it clears
+this app's old row and macOS asks again for this build. Screen Recording
+applies once the app starts again; the window offers Restart.
 
 ## While KOS has the Mac
 

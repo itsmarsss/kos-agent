@@ -42,7 +42,7 @@ public struct ConsentView: View {
           .fill(Theme.accent.opacity(glow ? 0.22 : 0.08))
           .frame(width: 84, height: 84)
           .blur(radius: 10)
-        KOSFace(size: 54)
+        KOSFace(size: 54, mood: .needsYou)
       }
       .padding(.top, 6)
       .onAppear {

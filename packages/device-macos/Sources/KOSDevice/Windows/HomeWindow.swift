@@ -27,6 +27,7 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     model.name = Host.current().localizedName ?? "Mac"
     model.actions.pair = { [weak self] in self?.pair() }
     model.actions.grant = { [weak self] grant in self?.grant(grant) }
+    model.actions.restart = { SystemPermissions.relaunch() }
     model.actions.hide = { [weak self] id in self?.settings.hiddenApps.append(id) }
     model.actions.unhide = { [weak self] id in self?.settings.hiddenApps.removeAll { $0.caseInsensitiveCompare(id) == .orderedSame } }
     // A pasted pairing link fills the address and the code.
