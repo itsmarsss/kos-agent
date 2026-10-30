@@ -72,6 +72,23 @@ describe("toResponsesInput", () => {
     ).toEqual([{ type: "function_call_output", call_id: "c1", output: "ok" }]);
   });
 
+  it("carries a tool result's picture with its words", () => {
+    const [item] = toResponsesInput([
+      {
+        role: "user",
+        content: [{ type: "tool_result", toolUseId: "c1", content: "The screen.", images: [{ mediaType: "image/jpeg", data: "AAAA" }] }],
+      },
+    ]);
+    expect(item).toEqual({
+      type: "function_call_output",
+      call_id: "c1",
+      output: [
+        { type: "input_text", text: "The screen." },
+        { type: "input_image", image_url: "data:image/jpeg;base64,AAAA", detail: "auto" },
+      ],
+    });
+  });
+
   it("keeps a whole exchange in order", () => {
     const messages: ModelMessage[] = [
       { role: "user", content: [{ type: "text", text: "go" }] },

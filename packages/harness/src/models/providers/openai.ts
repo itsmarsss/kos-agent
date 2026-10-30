@@ -7,6 +7,7 @@ import type {
   ModelMessage,
   ModelResponse,
   StopReason,
+  ToolResultBlock,
 } from "../types.js";
 
 const DEFAULT_MAX_TOKENS = 16000;
@@ -80,11 +81,20 @@ function toInputItems(message: ModelMessage): ResponseInputItem[] {
 
   const results = message.content.filter((b) => b.type === "tool_result");
   for (const block of results) {
-    const result = block as { toolUseId: string; content: string };
+    const result = block as ToolResultBlock;
+    // A tool that looked (a browser tab, a computer's screen) answers with a
+    // picture; sent as text alone, the model was told it had looked and saw
+    // nothing.
+    const images = result.images ?? [];
     out.push({
       type: "function_call_output",
       call_id: result.toolUseId,
-      output: result.content,
+      output: images.length
+        ? [
+            { type: "input_text" as const, text: result.content },
+            ...images.map((img) => ({ type: "input_image" as const, image_url: `data:${img.mediaType};base64,${img.data}`, detail: "auto" as const })),
+          ]
+        : result.content,
     });
   }
   if (results.length === 0) {
