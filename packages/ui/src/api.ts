@@ -339,6 +339,12 @@ export interface PairedDevice {
   session?: { conversation: string; title: string; task: string; until: number; paused: boolean };
 }
 
+/** KOS's side of computer use; each computer keeps its own limits, and they win. */
+export interface ComputerSettings {
+  askMinutes: number;
+  unattended: boolean;
+}
+
 export interface DeviceCode {
   code: string;
   expiresAt: number;
@@ -1349,7 +1355,8 @@ export const api = {
   createCaller: (name: string, readTags: string[], writeGlobal: boolean) =>
     post<{ caller: CallerInfo; token: string }>("/api/callers", { name, readTags, writeGlobal }),
   revokeCaller: (id: number) => post<{ id: number; revoked: boolean }>("/api/callers/revoke", { id }),
-  devices: () => get<{ devices: PairedDevice[] }>("/api/devices"),
+  devices: () => get<{ devices: PairedDevice[]; settings: ComputerSettings }>("/api/devices"),
+  setComputerSettings: (patch: Partial<ComputerSettings>) => post<ComputerSettings>("/api/devices/settings", patch),
   deviceCode: () => post<DeviceCode>("/api/devices/pairings"),
   renameDevice: (id: string, name: string) => post<PairedDevice>("/api/devices/rename", { id, name }),
   removeDevice: (id: string) => post<{ removed: string }>("/api/devices/remove", { id }),

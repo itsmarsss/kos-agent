@@ -48,7 +48,18 @@ export function deviceRoutes(hubOf: () => DeviceHub | undefined, titleOf: (conve
         case `GET ${PREFIX}`:
           return ok({
             devices: hub.list().map((d) => (d.session ? { ...d, session: { ...d.session, title: titleOf(d.session.conversation) } } : d)),
+            settings: hub.settings(),
           });
+        case `POST ${PREFIX}/settings`: {
+          const patch: { askMinutes?: number; unattended?: boolean } = {};
+          if (body.askMinutes !== undefined) patch.askMinutes = Number(body.askMinutes);
+          if (body.unattended !== undefined) patch.unattended = body.unattended === true;
+          try {
+            return ok(hub.updateSettings(patch));
+          } catch (err) {
+            return bad(400, err instanceof Error ? err.message : String(err));
+          }
+        }
         case `POST ${PREFIX}/pairings`:
           return ok(hub.issueCode());
         case `POST ${PREFIX}/rename`: {

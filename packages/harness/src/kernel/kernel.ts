@@ -851,6 +851,8 @@ export class Kernel {
         const tools = this.guardedTools({
           userId,
           conversationId: sessionId,
+          // A schedule's prompt, a blob's own timer, a guest: the owner did not start this one.
+          attended: opts.origin !== "system",
           onQueued: (action) => suspend?.(action),
           // null is unrestricted; an array is the exact scope, empty included.
           // An explicit override wins: it says what this caller is, and the
@@ -2787,6 +2789,8 @@ export class Kernel {
     onQueued?: (action: PendingAction) => void;
     /** False for unattended work, which queues an approval and moves on. */
     waitForApproval?: boolean;
+    /** False when the owner did not start the turn. */
+    attended?: boolean;
   } = {}): GuardedTools {
     return new GuardedTools({
       registry: this.registry,
@@ -2809,6 +2813,7 @@ export class Kernel {
       ...(opts.allow !== undefined ? { allow: opts.allow } : {}),
       ...(opts.grant?.length ? { grant: opts.grant } : {}),
       ...(opts.waitForApproval === false ? { waitForApproval: false } : {}),
+      ...(opts.attended === false ? { attended: false } : {}),
       onQueued: (action) => {
         opts.onQueued?.(action);
         this.onApprovalRequested?.(action);
@@ -3403,6 +3408,7 @@ export class Kernel {
           // Unattended: queue what needs a decision and finish, rather than
           // holding a queue slot until the owner wakes up.
           waitForApproval: false,
+          attended: false,
         }),
         inference: this.inference,
         buildSystem: (j) => this.cronSystemPrompt(j),

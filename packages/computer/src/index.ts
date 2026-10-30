@@ -1,6 +1,6 @@
 export * from "./protocol.js";
 export { loadHostKey, nonce, publicKeyFromRaw, rawPublicKey, signText, verifyText, type HostKey } from "./keys.js";
-export { DeviceStore, cleanName, type Device } from "./store.js";
+export { DeviceStore, cleanName, DEFAULT_SETTINGS, MAX_ASK_MINUTES, type ComputerSettings, type Device } from "./store.js";
 export { PairingCodes, CODE_TTL_MS, type PairingCode } from "./pairing.js";
 export { DeviceError, DeviceLink, type Socket } from "./link.js";
 export { DeviceHub, PairError, type DeviceStatus, type HubDeps, type Session } from "./hub.js";

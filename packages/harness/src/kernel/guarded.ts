@@ -5,7 +5,7 @@ import type { ApprovalQueue, PendingAction } from "../ops/approvals.js";
 import type { PermissionContext } from "../ops/permissions.js";
 import { injectSecrets } from "../secrets/inject.js";
 import type { SecretsRegistry } from "../secrets/secrets.js";
-import { caller } from "./caller.js";
+import { attendance, caller } from "./caller.js";
 
 export interface GuardedToolsDeps {
   registry: ToolRegistry;
@@ -35,6 +35,8 @@ export interface GuardedToolsDeps {
   onQueued?: (action: PendingAction) => void;
   /** The conversation making the call, so approving resumes the right agent. */
   conversationId?: string;
+  /** False when the owner did not start this turn (a schedule, a guest); see `attendance`. */
+  attended?: boolean;
   /** Decisions the owner has made before. A match runs without asking. */
   permissions?: {
     allows(tool: string, input: Record<string, unknown>, project?: string, context?: PermissionContext): boolean;
@@ -202,8 +204,9 @@ export class GuardedTools implements ToolBox {
 
     // Every handler runs inside the caller store, so a tool that asks which
     // conversation is calling gets this one, not whichever turn started last.
+    const attended = this.deps.attended !== false;
     const run = (n: string, i: Record<string, unknown>): Promise<ToolExecution> =>
-      conversationId ? caller.run(conversationId, () => registry.execute(n, i)) : registry.execute(n, i);
+      attendance.run(attended, () => (conversationId ? caller.run(conversationId, () => registry.execute(n, i)) : registry.execute(n, i)));
 
     const repeated = this.repeatGuard(name, input);
     if (repeated) return { content: repeated, isError: true };

@@ -57,9 +57,13 @@ uses the host's tailnet name.
   owner on the device itself. The owner may switch that off on the device for
   unattended use; KOS then asks through its approval queue instead. Nothing
   KOS sends can change the device's settings.
-- **A session is bounded**: one at a time, ended at its time limit, after
-  three idle minutes, on Stop, when the app quits, and when the connection
-  drops. KOS's kill switch ends every session.
+- **A session is bounded**: one at a time, ended at its time limit, when
+  idle, on Stop, when the app quits, and when the connection drops. KOS's
+  kill switch ends every session. The device sets the longest session and the
+  idle limit; KOS only says how long it asks for.
+- **Work the owner did not start stays off.** A schedule, a blob's own timer
+  or a guest in a channel cannot start a session unless the owner allows it
+  in Settings, Devices, and then the device still asks.
 - Keys: the device's lives in its Keychain; KOS's lives outside the workspace
   (`~/.kos/device-host.key`, `KOS_DEVICE_KEY_FILE` to move it, or
   `KOS_DEVICE_HOST_KEY` as base64 PKCS#8 for a container), so the agent never
@@ -169,6 +173,7 @@ Device: `{ "t": "event", "name": "session.paused", "data": { "session": "...", "
 | --- | --- |
 | `session.paused` | `session`, `reason` (`owner`: they touched the mouse or keyboard) |
 | `session.resumed` | `session` |
+| `session.extended` | `session`, `until` (the owner gave it more time on the device) |
 | `session.ended` | `session`, `reason` (`owner`, `expired`, `idle`, `quit`, `host`) |
 
 ### Errors

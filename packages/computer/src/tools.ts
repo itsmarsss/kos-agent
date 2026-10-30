@@ -1,4 +1,4 @@
-import type { KosModule, ModuleContext, ToolRisk } from "@kos/harness";
+import { isAttended, type KosModule, type ModuleContext, type ToolRisk } from "@kos/harness";
 
 import type { DeviceHub, Session } from "./hub.js";
 import { DeviceError } from "./link.js";
@@ -55,7 +55,6 @@ const CLICKS: Partial<Record<Action, { button: string; count: number; said: stri
   triple_click: { button: "left", count: 3, said: "Triple-clicked" },
 };
 
-const DEFAULT_MINUTES = 15;
 const SETTLE_MS = 450;
 const MAX_WAIT_S = 10;
 
@@ -214,13 +213,18 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
           properties: {
             task: { type: "string", description: "What you will do, in a few words, as the owner will read it." },
             device: { type: "string", description: "The computer's name or id; optional when only one is online." },
-            minutes: { type: "number", minimum: 1, maximum: 120, description: `How long you need it; default ${DEFAULT_MINUTES}.` },
+            minutes: { type: "number", minimum: 1, maximum: 480, description: "How long you need it; the owner's default when left out. The computer may allow less." },
           },
           required: ["task"],
         },
       },
       async (input) => {
         const chat = conversation();
+        const settings = hub.settings();
+        // Nobody who could answer the prompt asked for this turn: a schedule, a blob's own timer, a guest.
+        if (!isAttended() && !settings.unattended) {
+          throw new Error("Work the owner did not start (a schedule, a guest's message) may not use a computer. The owner allows that in Settings, Devices. Tell the owner instead.");
+        }
         const task = str(input.task);
         if (!task) throw new Error("say what you will do in `task`");
         const named = str(input.device);
@@ -229,7 +233,7 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
           const known = hub.list().map((d) => d.name).join(", ");
           throw new Error(named ? `no computer called ${named}; paired: ${known || "none"}` : `more than one computer could be meant; name one of: ${known}`);
         }
-        const minutes = typeof input.minutes === "number" ? input.minutes : DEFAULT_MINUTES;
+        const minutes = typeof input.minutes === "number" ? input.minutes : settings.askMinutes;
         let session: Session;
         try {
           session = await hub.begin({ conversation: chat, device, task, requester: deps.titleOf(chat), minutes });

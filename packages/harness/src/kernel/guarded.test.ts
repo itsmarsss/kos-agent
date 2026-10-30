@@ -10,7 +10,7 @@ import { PermissionStore } from "../ops/permissions.js";
 import { RISKY } from "../risk/tiers.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
-import { caller } from "./caller.js";
+import { caller, isAttended } from "./caller.js";
 import { GuardedTools, type GuardedToolsDeps } from "./guarded.js";
 
 describe("GuardedTools", () => {
@@ -38,6 +38,14 @@ describe("GuardedTools", () => {
   function guarded(over: Partial<GuardedToolsDeps> = {}): GuardedTools {
     return new GuardedTools({ registry, secrets, audit, approvals, ...over });
   }
+
+  it("tells a tool whether the owner started the turn calling it", async () => {
+    registry.register({ name: "probe", description: "p", inputSchema: { type: "object" } }, () => (isAttended() ? "attended" : "unattended"));
+    expect((await guarded({ conversationId: "c1" }).execute("probe", {})).content).toBe("attended");
+    expect((await guarded({ conversationId: "cron:3", attended: false }).execute("probe", {})).content).toBe("unattended");
+    // Outside any call, nothing is known to be unattended.
+    expect(isAttended()).toBe(true);
+  });
 
   it("offers a granted tool past the allow-list, restricted or not", () => {
     registry.register({ name: "memory.recall", description: "m", inputSchema: { type: "object" } }, () => "ok");

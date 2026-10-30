@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
-import { openDatabase, type ModuleContext, type ToolRisk } from "@kos/harness";
+import { attendance, openDatabase, type ModuleContext, type ToolRisk } from "@kos/harness";
 
 import { FakeDevice } from "./device.fixture.js";
 import { DeviceHub } from "./hub.js";
@@ -127,6 +127,19 @@ describe("the computer tools", () => {
     await expect(call("computer.act", { action: "screenshot" })).rejects.toThrow(/taken over.*Do not retry/);
     fake.event("session.ended", { session, reason: "owner" });
     await expect(call("computer.act", { action: "screenshot" })).rejects.toThrow(/the owner stopped it/);
+  });
+
+  it("ask for the owner's default length, and refuse work the owner did not start unless allowed", async () => {
+    const { call, pair, hub } = setup();
+    const fake = pair();
+    hub.updateSettings({ askMinutes: 45 });
+    await attendance.run(false, async () => {
+      await expect(call("computer.start", { task: "nightly check" })).rejects.toThrow(/did not start.*Settings, Devices/);
+    });
+    expect(fake.calls).toEqual([]);
+    hub.updateSettings({ unattended: true });
+    await attendance.run(false, () => call("computer.start", { task: "nightly check" }));
+    expect(fake.calls[0]).toMatchObject({ method: "session.begin", params: { minutes: 45 } });
   });
 
   it("tell the agent what is paired, and end at the kill switch", async () => {

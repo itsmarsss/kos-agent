@@ -41,9 +41,20 @@ describe("a paired computer, in words", () => {
 });
 
 describe("the Devices panel", () => {
+  it("lets the owner keep work they did not start off their computers", async () => {
+    vi.spyOn(api, "devices").mockResolvedValue({ devices: [laptop], settings: { askMinutes: 15, unattended: false } });
+    const set = vi.spyOn(api, "setComputerSettings").mockResolvedValue({ askMinutes: 15, unattended: true });
+    render(<DevicesPanel />);
+    const toggle = await screen.findByRole("checkbox");
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(toggle);
+    expect(set).toHaveBeenCalledWith({ unattended: true });
+  });
+
   it("lists the computers and stops a session from here", async () => {
     vi.spyOn(api, "devices").mockResolvedValue({
       devices: [{ ...laptop, session: { conversation: "c", title: "Design", task: "t", until: Date.now() + 60_000, paused: false } }],
+      settings: { askMinutes: 15, unattended: false },
     });
     const stop = vi.spyOn(api, "stopDevice").mockResolvedValue({ stopped: true });
     render(<DevicesPanel />);
@@ -54,7 +65,7 @@ describe("the Devices panel", () => {
   });
 
   it("makes a code to pair with, and puts it away once a computer used it", async () => {
-    const devices = vi.spyOn(api, "devices").mockResolvedValue({ devices: [] });
+    const devices = vi.spyOn(api, "devices").mockResolvedValue({ devices: [], settings: { askMinutes: 15, unattended: false } });
     vi.spyOn(api, "deviceCode").mockResolvedValue({ code: "K7QX-M2PA", expiresAt: Date.now() + 10 * 60_000 });
     vi.useFakeTimers({ shouldAdvanceTime: true });
     render(<DevicesPanel />);
@@ -63,7 +74,7 @@ describe("the Devices panel", () => {
     expect(screen.getByText("Open KOS Device").getAttribute("href")).toMatch(/^kos-device:\/\/pair\?url=.*&code=K7QX-M2PA$/);
     expect(screen.getByText(/Good for 10 more minutes, once/)).toBeTruthy();
 
-    devices.mockResolvedValue({ devices: [laptop] });
+    devices.mockResolvedValue({ devices: [laptop], settings: { askMinutes: 15, unattended: false } });
     await vi.advanceTimersByTimeAsync(3_100);
     await waitFor(() => expect(screen.getByText("Paired Studio MacBook.")).toBeTruthy());
     expect(screen.queryByLabelText("Pairing code")).toBeNull();

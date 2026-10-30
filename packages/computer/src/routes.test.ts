@@ -45,6 +45,14 @@ describe("the device routes", () => {
     expect(await routes.handle({ method: "GET", path: `${PREFIX}/nope` })).toBeUndefined();
   });
 
+  it("read and change the owner's settings", async () => {
+    const hub = newHub();
+    const routes = deviceRoutes(() => hub, (id) => id);
+    expect(await routes.handle({ method: "GET", path: PREFIX })).toMatchObject({ body: { settings: { askMinutes: 15, unattended: false } } });
+    expect(await routes.handle({ method: "POST", path: `${PREFIX}/settings`, body: { askMinutes: 60 } })).toMatchObject({ body: { askMinutes: 60 } });
+    expect(await routes.handle({ method: "POST", path: `${PREFIX}/settings`, body: { askMinutes: 9999 } })).toMatchObject({ status: 400 });
+  });
+
   it("say so when computer use is switched off", async () => {
     const routes = deviceRoutes(() => undefined, (id) => id);
     expect(await routes.handle({ method: "GET", path: PREFIX })).toMatchObject({ status: 503 });

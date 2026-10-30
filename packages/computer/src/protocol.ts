@@ -113,7 +113,7 @@ export interface Reply {
   error?: { code: ErrorCode | string; message: string };
 }
 
-export type EventName = "session.paused" | "session.resumed" | "session.ended";
+export type EventName = "session.paused" | "session.resumed" | "session.extended" | "session.ended";
 
 export type EndReason = "owner" | "expired" | "idle" | "quit" | "host";
 

@@ -21,3 +21,18 @@ export const caller = new AsyncLocalStorage<string>();
  * transcript can put the picture under the right card.
  */
 export const toolUse = new AsyncLocalStorage<string>();
+
+/**
+ * Whether the owner started the turn making the current call.
+ *
+ * Their own message is attended. A schedule, a blob's own timer, a guest in
+ * a channel are not: nobody who could answer a prompt asked for the work.
+ * A tool that reaches past the workspace (a computer) reads it to refuse
+ * work nobody is watching unless the owner allowed that.
+ */
+export const attendance = new AsyncLocalStorage<boolean>();
+
+/** True unless the current call is part of a turn the owner did not start. */
+export function isAttended(): boolean {
+  return attendance.getStore() ?? true;
+}
