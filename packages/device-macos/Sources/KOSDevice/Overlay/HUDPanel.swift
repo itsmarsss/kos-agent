@@ -14,13 +14,17 @@ final class HUDPanel: NSPanel {
   private let visibleFrame: CGRect
   private(set) var atBottom = false
 
-  init(screen: NSScreen, task text: String, pause: @escaping () -> Void, resume: @escaping () -> Void, stop: @escaping () -> Void) {
+  init(
+    screen: NSScreen, task text: String, until: Date,
+    pause: @escaping () -> Void, resume: @escaping () -> Void, stop: @escaping () -> Void, extend: @escaping () -> Void
+  ) {
     screenFrame = screen.frame
     visibleFrame = screen.visibleFrame
-    bar = SessionBarModel(task: text)
+    bar = SessionBarModel(task: text, until: until)
     bar.pause = pause
     bar.resume = resume
     bar.stop = stop
+    bar.extend = extend
     let host = FirstClickHost(rootView: SessionBar(model: bar))
     super.init(contentRect: CGRect(origin: .zero, size: host.fittingSize), styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
     isFloatingPanel = true
@@ -42,6 +46,10 @@ final class HUDPanel: NSPanel {
 
   func setPaused(_ paused: Bool) {
     bar.paused = paused
+  }
+
+  func setUntil(_ until: Date) {
+    bar.until = until
   }
 
   /// Moves to the other edge when `global` (top-left origin) falls under the bar or near it.

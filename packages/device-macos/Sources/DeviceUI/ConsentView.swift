@@ -13,17 +13,22 @@ public final class ConsentModel: ObservableObject {
   public let chat: URL?
   /// Whole minutes the owner may choose from, longest last.
   public let offered: [Int]
+  /// The most a custom length may be: the owner's longest session.
+  public let longest: Int
   public let timeout: Int
   @Published public var minutes: Int
+  /// A length of the owner's own, set with the stepper.
+  @Published public var custom = false
   @Published public var remaining: Int
   public var allow: (Int) -> Void = { _ in }
   public var deny: () -> Void = {}
 
-  public init(task: String, requester: String, chat: URL? = nil, offered: [Int], timeout: Int) {
+  public init(task: String, requester: String, chat: URL? = nil, offered: [Int], longest: Int? = nil, timeout: Int) {
     self.task = task
     self.requester = requester
     self.chat = chat
     self.offered = offered
+    self.longest = max(1, longest ?? offered.last ?? 60)
     self.timeout = timeout
     minutes = offered.last ?? 5
     remaining = timeout
@@ -76,15 +81,24 @@ public struct ConsentView: View {
 
       VStack(alignment: .leading, spacing: 7) {
         Text("For").font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.muted)
-        HStack(spacing: 6) {
+        FlowRow(spacing: 6) {
           ForEach(model.offered, id: \.self) { minutes in
-            Button("\(minutes) min") { model.minutes = minutes }
-              .buttonStyle(Segment(selected: model.minutes == minutes))
+            Button(minutesWords(minutes)) {
+              model.custom = false
+              model.minutes = minutes
+            }
+            .buttonStyle(ChipStyle(selected: !model.custom && model.minutes == minutes))
           }
-          Spacer(minLength: 0)
+          Button("Custom") { model.custom = true }
+            .buttonStyle(ChipStyle(selected: model.custom))
+        }
+        if model.custom {
+          MinutesStepper(minutes: $model.minutes, longest: model.longest)
+            .transition(.opacity.combined(with: .move(edge: .top)))
         }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
+      .animation(.spring(response: 0.32, dampingFraction: 0.88), value: model.custom)
 
       Text("It will see this screen and use the mouse and keyboard. Touch either to pause it. It never types into password fields or sees the apps you hid.")
         .font(.system(size: 11.5))
@@ -98,7 +112,7 @@ public struct ConsentView: View {
             .buttonStyle(KOSButtonStyle(.secondary))
             .keyboardShortcut(.cancelAction)
           Spacer()
-          Button("Allow for \(model.minutes) min") { model.allow(model.minutes) }
+          Button("Allow for \(minutesWords(model.minutes))") { model.allow(model.minutes) }
             .buttonStyle(KOSButtonStyle(.primary))
             .keyboardShortcut(.defaultAction)
         }
@@ -123,35 +137,31 @@ public struct ConsentView: View {
     .background(Theme.bg)
     .environment(\.colorScheme, .dark)
   }
+}
 
-  /// One choice of a few, the chosen one lit.
-  private struct Segment: ButtonStyle {
-    let selected: Bool
+/// A length of the owner's own: five minutes a step, one at a time under ten, never past the longest.
+struct MinutesStepper: View {
+  @Binding var minutes: Int
+  let longest: Int
 
-    func makeBody(configuration: Configuration) -> some View {
-      Choice(selected: selected, configuration: configuration)
+  var body: some View {
+    HStack(spacing: 10) {
+      step("minus", enabled: minutes > 1) { minutes = max(1, minutes - (minutes <= 10 ? 1 : 5)) }
+      Text(minutesWords(minutes))
+        .font(.system(size: 13, weight: .semibold, design: .rounded))
+        .monospacedDigit()
+        .foregroundStyle(Theme.text)
+        .frame(minWidth: 64)
+      step("plus", enabled: minutes < longest) { minutes = min(longest, minutes + (minutes < 10 ? 1 : 5)) }
+      Text("up to \(minutesWords(longest))").font(.system(size: 11)).foregroundStyle(Theme.faint)
     }
+  }
 
-    private struct Choice: View {
-      let selected: Bool
-      let configuration: ButtonStyleConfiguration
-      @State private var hovering = false
-
-      var body: some View {
-        configuration.label
-          .font(.system(size: 12, weight: selected ? .semibold : .medium))
-          .foregroundStyle(selected ? Theme.accent : hovering ? Theme.text : Theme.muted)
-          .padding(.horizontal, 11)
-          .padding(.vertical, 6)
-          .background(selected ? Theme.accent.opacity(0.14) : hovering ? Theme.line.opacity(0.7) : Theme.panel2, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-          .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(selected ? Theme.accent.opacity(0.45) : hovering ? Theme.lineStrong : Theme.line))
-          .scaleEffect(configuration.isPressed ? 0.97 : 1)
-          .contentShape(Rectangle())
-          .onHover { hovering = $0 }
-          .pointingHand()
-          .animation(.easeOut(duration: 0.14), value: hovering)
-          .animation(.easeOut(duration: 0.14), value: selected)
-      }
+  private func step(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      Image(systemName: symbol).font(.system(size: 11, weight: .bold))
     }
+    .buttonStyle(KOSButtonStyle(.secondary))
+    .disabled(!enabled)
   }
 }

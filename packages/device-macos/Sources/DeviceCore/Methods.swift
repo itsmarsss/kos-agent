@@ -16,6 +16,7 @@ public enum CallMethod: String, CaseIterable, Sendable {
 public enum EventName: String, Sendable {
   case sessionPaused = "session.paused"
   case sessionResumed = "session.resumed"
+  case sessionExtended = "session.extended"
   case sessionEnded = "session.ended"
 }
 
@@ -154,6 +155,17 @@ public struct SessionResumedEvent: Encodable, Sendable {
 
   public init(session: String) {
     self.session = session
+  }
+}
+
+/// The owner gave the session more time; `until` in epoch milliseconds, as session.begin answers it.
+public struct SessionExtendedEvent: Encodable, Sendable {
+  public let session: String
+  public let until: Int64
+
+  public init(session: String, until: Date) {
+    self.session = session
+    self.until = Int64(until.timeIntervalSince1970 * 1000)
   }
 }
 

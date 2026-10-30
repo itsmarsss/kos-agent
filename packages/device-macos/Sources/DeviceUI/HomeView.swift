@@ -21,6 +21,7 @@ public struct HomeView: View {
 
   /// What changes the layout, so one animation carries every change, wherever it came from.
   private struct Layout: Equatable {
+    let page: HomePage
     let pairing: Bool
     let session: Bool
     let allGranted: Bool
@@ -31,7 +32,7 @@ public struct HomeView: View {
 
   private var layout: Layout {
     Layout(
-      pairing: model.pairing, session: model.session != nil, allGranted: model.allGranted,
+      page: model.page, pairing: model.pairing, session: model.session != nil, allGranted: model.allGranted,
       permissionsOpen: permissionsOpen, needsRestart: model.needsRestart, link: model.link)
   }
 
@@ -39,7 +40,38 @@ public struct HomeView: View {
 
   public var body: some View {
     VStack(alignment: .leading, spacing: 14) {
-      WindowControls(close: model.actions.close, minimize: model.actions.minimize)
+      HStack {
+        WindowControls(close: model.actions.close, minimize: model.actions.minimize)
+        Spacer()
+        if model.page == .home {
+          IconButton(symbol: "gearshape", label: "Settings") { model.page = .settings }
+            .transition(.opacity)
+        }
+      }
+      ZStack(alignment: .top) {
+        if model.page == .home {
+          home.transition(.asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .leading)).combined(with: .opacity))
+        } else {
+          SettingsPage(model: model).transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)).combined(with: .opacity))
+        }
+      }
+    }
+    .padding(.horizontal, Theme.gutter)
+    .padding(.top, 15)
+    .padding(.bottom, Theme.gutter)
+    .frame(width: 460)
+    .fixedSize(horizontal: false, vertical: true)
+    .background(GeometryReader { geo in Color.clear.preference(key: HeightKey.self, value: geo.size.height) })
+    .onPreferenceChange(HeightKey.self) { height in MainActor.assumeIsolated { model.contentHeight = height } }
+    .animation(Self.motion, value: layout)
+    .frame(maxHeight: .infinity, alignment: .top)
+    .background(Theme.bg)
+    .ignoresSafeArea()
+    .environment(\.colorScheme, .dark)
+  }
+
+  private var home: some View {
+    VStack(alignment: .leading, spacing: 14) {
       header.padding(.top, 2)
       if let session = model.session {
         sessionCard(session).transition(.opacity.combined(with: .move(edge: .top)))
@@ -56,18 +88,6 @@ public struct HomeView: View {
       section("Permissions") { permissionsCard }
       section("On this Mac") { rulesCard }
     }
-    .padding(.horizontal, Theme.gutter)
-    .padding(.top, 15)
-    .padding(.bottom, Theme.gutter)
-    .frame(width: 460)
-    .fixedSize(horizontal: false, vertical: true)
-    .background(GeometryReader { geo in Color.clear.preference(key: HeightKey.self, value: geo.size.height) })
-    .onPreferenceChange(HeightKey.self) { height in MainActor.assumeIsolated { model.contentHeight = height } }
-    .animation(Self.motion, value: layout)
-    .frame(maxHeight: .infinity, alignment: .top)
-    .background(Theme.bg)
-    .ignoresSafeArea()
-    .environment(\.colorScheme, .dark)
   }
 
   private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -96,6 +116,7 @@ public struct HomeView: View {
     if let session = model.session { return session.paused ? .idle : .working }
     switch model.link {
     case .offline, .untrusted, .outdated: return .error
+    case .disconnected: return .asleep
     default: return .idle
     }
   }
@@ -109,6 +130,7 @@ public struct HomeView: View {
     case .untrusted: return Pill("Not KOS", tone: .danger, dot: true)
     case .replaced: return Pill("Elsewhere", tone: .warn, dot: true)
     case .outdated: return Pill("Update", tone: .warn, dot: true)
+    case .disconnected: return Pill("Disconnected", tone: .muted, dot: true)
     }
   }
 
@@ -197,6 +219,14 @@ public struct HomeView: View {
         }
       }
       HStack(spacing: 8) {
+        switch model.link {
+        case .disconnected:
+          Button("Connect", action: model.actions.connect).buttonStyle(KOSButtonStyle(.primary))
+        default:
+          Button("Disconnect", action: model.actions.disconnect)
+            .buttonStyle(KOSButtonStyle(.ghost))
+            .help("KOS sees this Mac offline until you connect again; the pairing stays.")
+        }
         Spacer()
         switch model.link {
         case .offline, .untrusted, .replaced:
@@ -219,6 +249,7 @@ public struct HomeView: View {
     case .untrusted: return "This KOS could not prove who it is"
     case .replaced: return "Connected from another copy"
     case .outdated: return "KOS is newer than this app"
+    case .disconnected: return "Not connected"
     case .notPaired: return "Not paired"
     }
   }
@@ -231,6 +262,7 @@ public struct HomeView: View {
     case .untrusted: return "Its signature did not match the key from pairing, so nothing it says is acted on."
     case .replaced: return "Another KOS Device with this pairing took the line. Reconnect to take it back."
     case .outdated: return "Update KOS Device to keep using it with this KOS."
+    case .disconnected: return "KOS can't reach this Mac until you connect. The pairing stays."
     case .notPaired: return ""
     }
   }

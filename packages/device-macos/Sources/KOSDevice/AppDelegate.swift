@@ -44,6 +44,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     home.model.actions.pause = { [unowned self] in controller.pause() }
     home.model.actions.resume = { [unowned self] in controller.resume() }
     home.model.actions.stop = { [unowned self] in controller.stop() }
+    home.model.actions.connect = { [unowned self] in connect() }
+    home.model.actions.disconnect = { [unowned self] in disconnect() }
+    home.model.actions.setLongest = { [unowned self] in settings.longestMinutes = $0 }
+    home.model.actions.setPromptWait = { [unowned self] in settings.promptWaitSeconds = $0 }
+    home.model.actions.setIdle = { [unowned self] in settings.idleMinutes = $0 }
+    home.model.actions.setConnectWhenOpened = { [unowned self] in settings.connectWhenOpened = $0 }
+    home.model.actions.setOpenAtLogin = { [unowned self] on in
+      if let refused = LaunchAtLogin.set(on) { alert("macOS did not change it.", refused) }
+      home.refreshSystem()
+    }
+    home.model.actions.openLoginItems = { LaunchAtLogin.openLoginItems() }
+    menu.onExtend = { [unowned self] in controller.extend() }
+    menu.onConnect = { [unowned self] in connect() }
+    menu.onDisconnect = { [unowned self] in disconnect() }
     menu.onOpen = { [unowned self] in home.show() }
     menu.onReconnect = { [unowned self] in connection.redialNow() }
     menu.onPause = { [unowned self] in controller.pause() }
@@ -57,7 +71,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     if let saved = PairingStore.load() {
       pairing = saved
-      connection.start(saved)
+      // Connected at once unless the owner said to wait for Connect.
+      if settings.connectWhenOpened { connection.start(saved) } else { connection.hold(saved) }
     }
     changed()
     // Nothing to do until it is paired and granted: say so, once, at launch.
@@ -149,6 +164,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     model.askFirst = settings.askFirst
   }
 
+  private func connect() {
+    guard let pairing else { return }
+    connection.start(pairing)
+    changed()
+  }
+
+  /// KOS sees this Mac offline until Connect; any session ends with the line.
+  private func disconnect() {
+    guard let pairing else { return }
+    connection.hold(pairing)
+    changed()
+  }
+
   private func linkState() -> LinkState {
     guard pairing != nil else { return .notPaired }
     switch connection.status {
@@ -158,6 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     case .untrusted: return .untrusted
     case .replaced: return .replaced
     case .outdated: return .outdated
+    case .disconnected: return .disconnected
     }
   }
 

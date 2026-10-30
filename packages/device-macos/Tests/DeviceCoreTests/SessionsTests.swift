@@ -109,6 +109,36 @@ struct SessionsTests {
   }
 }
 
+@Suite("Session time")
+struct SessionTimeTests {
+  private func live(_ sessions: inout Sessions, at start: Date, minutes: Int) throws {
+    try sessions.ask("s1")
+    _ = try sessions.grant("s1", task: "t", requester: "r", minutes: minutes, space: Space(display: Rect(x: 0, y: 0, width: 100, height: 100)), now: start)
+  }
+
+  @Test func endsWhenIdleForAsLongAsTheOwnerSet() throws {
+    var sessions = Sessions()
+    sessions.idleLimit = 60
+    let start = Date(timeIntervalSince1970: 1_000)
+    try live(&sessions, at: start, minutes: 30)
+    #expect(sessions.due(start.addingTimeInterval(59)) == nil)
+    #expect(sessions.due(start.addingTimeInterval(60)) == .idle)
+  }
+
+  @Test func plusFifteenAddsAQuarterHourAndNoMoreThanEight() throws {
+    var sessions = Sessions()
+    let start = Date(timeIntervalSince1970: 1_000)
+    try live(&sessions, at: start, minutes: 10)
+    let first = sessions.extend(now: start)
+    #expect(first == start.addingTimeInterval(25 * 60))
+    for _ in 0..<40 { _ = sessions.extend(now: start) }
+    #expect(sessions.live?.until == start.addingTimeInterval(8 * 60 * 60))
+    _ = sessions.end()
+    let none = sessions.extend(now: start)
+    #expect(none == nil)
+  }
+}
+
 @Suite("Session lengths")
 struct DurationsTests {
   @Test func offersUpToWhatKOSAskedFor() {
@@ -118,10 +148,13 @@ struct DurationsTests {
     #expect(Durations.offered(requested: 0.5) == [1])
   }
 
-  @Test func neverMoreThanAnHour() {
+  @Test func neverPastTheLongestTheOwnerSet() {
     #expect(Durations.offered(requested: 240) == [5, 15, 30, 60])
     #expect(Durations.unattended(requested: 240) == 60)
     #expect(Durations.unattended(requested: 10) == 10)
+    #expect(Durations.offered(requested: 240, longest: 480) == [5, 15, 30, 60, 120, 240])
+    #expect(Durations.offered(requested: 90, longest: 120) == [5, 15, 30, 60, 90])
+    #expect(Durations.unattended(requested: 600, longest: 240) == 240)
   }
 
   @Test func minutesMustBePositive() {

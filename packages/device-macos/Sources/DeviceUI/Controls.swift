@@ -207,6 +207,70 @@ private struct PointingHand: ViewModifier {
   }
 }
 
+/// One choice of a few, as chips: the chosen one lit, the rest answering the pointer.
+public struct KOSChoices<Value: Hashable>: View {
+  private let options: [(value: Value, label: String)]
+  private let selected: Value
+  private let choose: (Value) -> Void
+
+  public init(_ options: [(value: Value, label: String)], selected: Value, choose: @escaping (Value) -> Void) {
+    self.options = options
+    self.selected = selected
+    self.choose = choose
+  }
+
+  public var body: some View {
+    HStack(spacing: 6) {
+      ForEach(options, id: \.value) { option in
+        Button(option.label) { choose(option.value) }
+          .buttonStyle(ChipStyle(selected: option.value == selected))
+      }
+    }
+  }
+}
+
+/// A chip: lit when chosen, lighter under the pointer, a touch smaller pressed.
+public struct ChipStyle: ButtonStyle {
+  private let selected: Bool
+
+  public init(selected: Bool) {
+    self.selected = selected
+  }
+
+  public func makeBody(configuration: Configuration) -> some View {
+    Chip(selected: selected, configuration: configuration)
+  }
+
+  private struct Chip: View {
+    let selected: Bool
+    let configuration: ButtonStyleConfiguration
+    @State private var hovering = false
+
+    var body: some View {
+      configuration.label
+        .font(.system(size: 12, weight: selected ? .semibold : .medium))
+        .foregroundStyle(selected ? Theme.accent : hovering ? Theme.text : Theme.muted)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5.5)
+        .background(selected ? Theme.accent.opacity(0.14) : hovering ? Theme.line.opacity(0.7) : Theme.panel2, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(selected ? Theme.accent.opacity(0.45) : hovering ? Theme.lineStrong : Theme.line))
+        .scaleEffect(configuration.isPressed ? 0.97 : 1)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .pointingHand()
+        .animation(.easeOut(duration: 0.14), value: hovering)
+        .animation(.easeOut(duration: 0.14), value: selected)
+    }
+  }
+}
+
+/// Minutes in the shortest words: "45 min", "2 h", "1 h 30".
+public func minutesWords(_ minutes: Int) -> String {
+  if minutes < 60 { return "\(minutes) min" }
+  let hours = minutes / 60, rest = minutes % 60
+  return rest == 0 ? "\(hours) h" : "\(hours) h \(rest)"
+}
+
 /// A text field on a dark well, with its label above it.
 public struct KOSField: View {
   private let label: String

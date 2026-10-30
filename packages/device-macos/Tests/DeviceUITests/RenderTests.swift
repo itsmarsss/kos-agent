@@ -93,6 +93,33 @@ struct RenderTests {
     _ = try render("home-drawer", HomeView(model: model, permissionsOpen: true))
   }
 
+  @Test func settingsPage() throws {
+    let model = home {
+      $0.link = .connected
+      $0.page = .settings
+      $0.longestMinutes = 120
+      $0.openAtLogin = .needsApproval
+    }
+    _ = try render("settings", HomeView(model: model))
+  }
+
+  @Test func consentWithALengthOfTheOwnersOwn() throws {
+    let model = ConsentModel(task: "Tidy the desktop into folders", requester: "Home", offered: [5, 15, 30, 60, 120], longest: 240, timeout: 60)
+    model.custom = true
+    model.minutes = 45
+    _ = try render("consent-custom", ConsentView(model: model))
+  }
+
+  @Test func disconnectedByTheOwner() throws {
+    let model = home {
+      $0.link = .disconnected
+      $0.host = "127.0.0.1:4317"
+      $0.screenGranted = true
+      $0.inputGranted = true
+    }
+    _ = try render("home-disconnected", HomeView(model: model))
+  }
+
   @Test func appPicker() throws {
     let apps = [
       AppEntry(id: "com.apple.Safari", name: "Safari", icon: nil, running: true),
@@ -105,7 +132,7 @@ struct RenderTests {
   }
 
   @Test func sessionBar() throws {
-    let model = SessionBarModel(task: "Export the deck from Keynote as a PDF")
+    let model = SessionBarModel(task: "Export the deck from Keynote as a PDF", until: Date().addingTimeInterval(12 * 60))
     _ = try render("bar", SessionBar(model: model))
     model.paused = true
     let size = try render("bar-paused", SessionBar(model: model))

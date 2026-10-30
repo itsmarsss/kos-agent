@@ -6,12 +6,16 @@ import SwiftUI
 public final class SessionBarModel: ObservableObject {
   @Published public var task: String
   @Published public var paused = false
+  /// When the session ends unless the owner gives it more.
+  @Published public var until: Date
   public var pause: () -> Void = {}
   public var resume: () -> Void = {}
   public var stop: () -> Void = {}
+  public var extend: () -> Void = {}
 
-  public init(task: String) {
+  public init(task: String, until: Date) {
     self.task = task
+    self.until = until
   }
 }
 
@@ -41,14 +45,24 @@ public struct SessionBar: View {
         Text(model.paused ? "Paused. You have control." : "KOS is using this Mac")
           .font(.system(size: 12.5, weight: .semibold))
           .foregroundStyle(Theme.text)
-        Text(model.task)
-          .font(.system(size: 11))
-          .foregroundStyle(Theme.muted)
-          .lineLimit(1)
-          .truncationMode(.tail)
-          .frame(maxWidth: 300, alignment: .leading)
+        HStack(spacing: 6) {
+          Text(model.task)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: 230, alignment: .leading)
+            .fixedSize(horizontal: true, vertical: false)
+          // Re-read each quarter minute: a countdown that ticks every second would only pull the eye.
+          TimelineView(.periodic(from: .now, by: 15)) { context in
+            Text("· \(left(at: context.date))").monospacedDigit()
+          }
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(Theme.muted)
       }
       Spacer(minLength: 4)
+      Button("+15 min", action: model.extend)
+        .buttonStyle(KOSButtonStyle(.ghost))
+        .help("Give KOS fifteen more minutes")
       Button(model.paused ? "Resume" : "Pause", action: model.paused ? model.resume : model.pause)
         .buttonStyle(KOSButtonStyle(.secondary))
         // As wide as "Resume", so the bar keeps its size when it pauses.
@@ -66,5 +80,10 @@ public struct SessionBar: View {
     .onAppear {
       withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { beat = true }
     }
+  }
+
+  private func left(at now: Date) -> String {
+    let minutes = Int((model.until.timeIntervalSince(now) / 60).rounded(.up))
+    return minutes <= 1 ? "under a minute left" : "\(minutesWords(minutes)) left"
   }
 }

@@ -16,6 +16,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
   var onPause: (() -> Void)?
   var onResume: (() -> Void)?
   var onStop: (() -> Void)?
+  var onExtend: (() -> Void)?
+  var onConnect: (() -> Void)?
+  var onDisconnect: (() -> Void)?
 
   private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
   private let menu = NSMenu()
@@ -57,13 +60,19 @@ final class StatusMenu: NSObject, NSMenuDelegate {
       menu.addItem(.separator())
       menu.addItem(info(session.paused ? "Paused: \(session.task)" : "Using this Mac: \(session.task)"))
       menu.addItem(action(session.paused ? "Resume" : "Pause", session.paused ? #selector(resume) : #selector(pause)))
+      menu.addItem(action("Give it 15 more minutes", #selector(extend)))
       menu.addItem(action("Stop", #selector(stop)))
     }
     menu.addItem(.separator())
     if now.paired != nil {
       switch now.link {
-      case .offline, .replaced, .untrusted: menu.addItem(action("Reconnect", #selector(reconnect)))
-      case .connecting, .connected, .outdated: break
+      case .offline, .replaced, .untrusted:
+        menu.addItem(action("Reconnect", #selector(reconnect)))
+        menu.addItem(action("Disconnect", #selector(disconnect)))
+      case .disconnected:
+        menu.addItem(action("Connect", #selector(connect)))
+      case .connecting, .connected, .outdated:
+        menu.addItem(action("Disconnect", #selector(disconnect)))
       }
     }
     // Pairing, permissions, asking first and hidden apps all live in the one window.
@@ -82,6 +91,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     case .untrusted: return "This KOS could not prove who it is"
     case .replaced: return "Connected from another copy of KOS Device"
     case .outdated: return "KOS speaks a newer protocol. Update KOS Device."
+    case .disconnected: return "Disconnected: KOS can't reach this Mac"
     }
   }
 
@@ -102,4 +112,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
   @objc private func pause() { onPause?() }
   @objc private func resume() { onResume?() }
   @objc private func stop() { onStop?() }
+  @objc private func extend() { onExtend?() }
+  @objc private func connect() { onConnect?() }
+  @objc private func disconnect() { onDisconnect?() }
 }

@@ -29,6 +29,9 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     self.settings = settings
     super.init()
     model.name = Host.current().localizedName ?? "Mac"
+    model.longestChoices = Durations.longestChoices
+    model.promptWaitChoices = Settings.promptWaitChoices
+    model.idleChoices = Settings.idleChoices
     model.actions.pair = { [weak self] in self?.pair() }
     model.actions.grant = { [weak self] grant in self?.grant(grant) }
     model.actions.restart = { SystemPermissions.relaunch() }
@@ -77,6 +80,16 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     model.screenGranted = now.screen
     model.inputGranted = now.input
     model.askFirst = settings.askFirst
+    model.longestMinutes = settings.longestMinutes
+    model.promptWaitSeconds = settings.promptWaitSeconds
+    model.idleMinutes = settings.idleMinutes
+    model.connectWhenOpened = settings.connectWhenOpened
+    let login: LoginState = switch LaunchAtLogin.state {
+    case .on: .on
+    case .off: .off
+    case .needsApproval: .needsApproval
+    }
+    if login != model.openAtLogin { model.openAtLogin = login }
     let hidden = settings.hiddenApps.map { entry($0, running: false) }
     if hidden != model.hidden { model.hidden = hidden }
     let running = Set(NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.compactMap(\.bundleIdentifier))

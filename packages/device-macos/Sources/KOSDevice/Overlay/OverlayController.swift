@@ -8,19 +8,21 @@ final class OverlayController {
   var onPause: (() -> Void)?
   var onResume: (() -> Void)?
   var onStop: (() -> Void)?
+  var onExtend: (() -> Void)?
 
   private var screen: ScreenOverlay?
   private var hud: HUDPanel?
 
-  func show(display: CGDirectDisplayID, task: String) {
+  func show(display: CGDirectDisplayID, task: String, until: Date) {
     hide()
     guard let nsScreen = Displays.screen(for: display) else { return }
     let overlay = ScreenOverlay(screen: nsScreen, display: display)
     let bar = HUDPanel(
-      screen: nsScreen, task: task,
+      screen: nsScreen, task: task, until: until,
       pause: { [weak self] in self?.onPause?() },
       resume: { [weak self] in self?.onResume?() },
-      stop: { [weak self] in self?.onStop?() })
+      stop: { [weak self] in self?.onStop?() },
+      extend: { [weak self] in self?.onExtend?() })
     overlay.show()
     bar.alphaValue = 0
     bar.orderFrontRegardless()
@@ -43,6 +45,10 @@ final class OverlayController {
   func setPaused(_ paused: Bool) {
     screen?.setPaused(paused)
     hud?.setPaused(paused)
+  }
+
+  func setUntil(_ until: Date) {
+    hud?.setUntil(until)
   }
 
   func pointer(at global: CGPoint) {
