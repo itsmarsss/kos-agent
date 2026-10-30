@@ -32,6 +32,10 @@ jobs:
 
       - run: pnpm lint
 
+      # The extension's test drives the built extension in the runner's Chrome.
+      - name: Build the KOS extension
+        run: pnpm -C packages/browser-extension build
+
       - run: pnpm test
 
       - name: Build UI assets
