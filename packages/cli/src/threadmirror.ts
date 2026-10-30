@@ -137,10 +137,12 @@ export class ThreadMirror {
 
   private async start(event: Extract<ProgressEvent, { kind: "turn-start" }>): Promise<void> {
     const conv = event.conversationId;
-    // A turn from Discord is already shown there; a scheduled job posts its
-    // one result under its own name through the existing handler; a turn with
-    // nothing to show (a system turn, no words) is not a conversation to tell.
-    if (event.from === "discord" || conv.startsWith("cron:") || !event.said?.trim()) return;
+    // A turn from Discord is already shown there. A turn with no words is
+    // the harness prompting itself, which is what a scheduled run is: it
+    // posts its one result, with a Run now button, through the existing
+    // handler. Anything the owner says in a job's thread is a conversation
+    // like any other and is told here.
+    if (event.from === "discord" || !event.said?.trim()) return;
     let target = this.deps.targetFor(conv);
     if (!target) {
       const slug = this.deps.projectOf(conv);

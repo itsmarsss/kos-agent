@@ -126,10 +126,11 @@ describe("mirroring a turn's story into a thread", () => {
     expect(h.edits.at(-1)).toContain("Reading the roster");
   });
 
-  it("leaves a turn from Discord, a scheduled job, and a system turn to the host", async () => {
+  it("leaves a turn from Discord, a scheduled run, and a system turn to the host", async () => {
     const h = harness();
     h.mirror.onProgress(start("c-thread", { from: "discord" }));
-    h.mirror.onProgress(start("cron:3", { from: "schedule" }));
+    // A scheduled run is the harness prompting itself: its turn-start carries no words.
+    h.mirror.onProgress({ kind: "turn-start", conversationId: "cron:3" });
     h.mirror.onProgress(start("c-thread", { said: "" }));
     await h.mirror.settle();
     expect(h.posts).toEqual([]);
@@ -138,5 +139,17 @@ describe("mirroring a turn's story into a thread", () => {
     for (const id of ["c-thread", "cron:3"]) h.mirror.onSaid({ conversationId: id, text: "x", reply: "y", origin: "owner", channel: null }, async () => { backs += 1; });
     await h.mirror.settle();
     expect(backs).toBe(2);
+  });
+
+  it("tells what the owner says in a job's thread like any other conversation", async () => {
+    const h = harness({ targetFor: (id) => (id === "cron:7" ? "t-job" : undefined) });
+    h.mirror.onProgress(start("cron:7", { from: "dashboard", origin: { via: "dashboard" }, said: "why did this say Task 4?" }));
+    await h.mirror.settle();
+    expect(h.posts[0]).toEqual({ target: "t-job", text: "why did this say Task 4?", from: "Owner" });
+    let fellBack = false;
+    h.mirror.onSaid({ conversationId: "cron:7", text: "why did this say Task 4?", reply: "Because it was due.", origin: "owner", channel: null }, async () => { fellBack = true; });
+    await h.mirror.settle();
+    expect(fellBack).toBe(false);
+    expect(h.posts.map((p) => p.text)).toEqual(["why did this say Task 4?", "Because it was due."]);
   });
 });

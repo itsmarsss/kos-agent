@@ -121,14 +121,30 @@ export class CronScheduler {
     return task.getNextRuns(count).map((d) => d.getTime());
   }
 
-  /** Run a job now, applying the kill switch and rate-limit guards. */
+  /** Jobs running right now, by id, whichever path fired them. */
+  private readonly firing = new Set<number>();
+
+  /** Run a job now, applying the kill switch, the rate limit, and the one-at-a-time guard. */
   async fire(job: CronJob): Promise<FireOutcome> {
     if (this.options.killSwitch?.halted) {
       return { fired: false, reason: "halted" };
     }
+    /*
+     * A job never runs twice at once, whichever path fired it.
+     *
+     * This guard used to sit one level up, in the cron service, which Run
+     * now goes through; the schedule's own tick calls this directly, so
+     * pressing Run now during a scheduled run started a second run and sent
+     * a second nudge. A self-prompt job that fires itself, or A firing B
+     * firing A, stops here too, because the first is still in flight.
+     */
+    if (this.firing.has(job.id)) {
+      return { fired: false, reason: "error", error: `${job.name} is already running` };
+    }
     if (job.type === "self_prompt" && this.rateLimited()) {
       return { fired: false, reason: "rate_limited" };
     }
+    this.firing.add(job.id);
     try {
       if (job.type === "self_prompt") this.selfPromptFires.push(this.now());
       const result = await this.run(job);
@@ -141,6 +157,8 @@ export class CronScheduler {
         reason: "error",
         error: err instanceof Error ? err.message : String(err),
       };
+    } finally {
+      this.firing.delete(job.id);
     }
   }
 

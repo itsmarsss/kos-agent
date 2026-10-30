@@ -79,6 +79,29 @@ describe("CronScheduler", () => {
     expect(await sched.fire(sp)).toEqual({ fired: false, reason: "rate_limited" });
   });
 
+  it("never runs a job twice at once, whichever path fires it, and runs it again once done", async () => {
+    let release: () => void = () => undefined;
+    let runs = 0;
+    const sched = new CronScheduler(store, () => {
+      runs += 1;
+      return new Promise((r) => {
+        release = () => r("ok");
+      });
+    });
+    const slow = job({ id: 3, name: "slow" });
+    const first = sched.fire(slow);
+    // A second fire while the first is in flight: the tick and Run now share this.
+    expect(await sched.fire(slow)).toEqual({ fired: false, reason: "error", error: "slow is already running" });
+    expect(runs).toBe(1);
+    release();
+    expect(await first).toEqual({ fired: true, result: "ok" });
+    // Another job is not held up by it, and the same job runs again once it is done.
+    const again = sched.fire(slow);
+    release();
+    expect(await again).toEqual({ fired: true, result: "ok" });
+    expect(runs).toBe(2);
+  });
+
   it("reports runner errors without throwing", async () => {
     const sched = new CronScheduler(store, async () => {
       throw new Error("kaboom");

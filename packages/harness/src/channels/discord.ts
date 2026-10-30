@@ -27,7 +27,7 @@ import { isReadable, type Attachment } from "../kernel/attachments.js";
 import type { Access, Audience, ChannelMessage, Listen, MakePlace, MemberInfo, NamedMember, Reaction, ServerPlace, ServerRole } from "../tools/discord.js";
 import type { MessageRoom } from "../models/types.js";
 import type { Guest } from "./types.js";
-import { COMMANDS, completions, runCommand, type SlashContext } from "./commands.js";
+import { COMMANDS, completions, jobCompletions, jobNamed, runCommand, type SlashContext } from "./commands.js";
 import { linkMentions, linkPaths, outsideCode, plainMentions, type LabelOf } from "./mentions.js";
 import { tablesToCode } from "./tables.js";
 import { STEP_MARK } from "./narrate.js";
@@ -60,6 +60,21 @@ export const ALWAYS_PREFIX = "kos:always:";
 export const PRESS_PREFIX = "kos:press:";
 /** A button that runs a scheduled job now: `kos:cron:<id>`. */
 export const CRON_PREFIX = "kos:cron:";
+
+/** How a Run now went, for the ack only the owner sees. `fired: false` means it did not start. */
+export interface RunNowOutcome {
+  name: string;
+  ok: boolean;
+  fired?: boolean;
+  error?: string;
+}
+
+/** What the owner is told after Run now, from the button or /run. */
+export function runNowReply(outcome: RunNowOutcome | undefined): string {
+  if (!outcome) return "No such job. Pick one from the list /run offers.";
+  if (outcome.fired === false) return `${outcome.name} did not run: ${outcome.error ?? "unknown"}`;
+  return outcome.ok ? `Ran ${outcome.name}.` : `${outcome.name} ran, but something failed: ${outcome.error ?? "unknown"}`;
+}
 /** The form a press opened, named for the button it came from. */
 export const MODAL_PREFIX = "kos:form:";
 /** How long a form is left open before the interaction is let go. */
@@ -307,7 +322,7 @@ export interface DiscordAdapterOptions {
    */
   guestsAllowed?: (key: string) => boolean;
   /** Run a scheduled job now, for the owner's Run now button and /run; the name and outcome come back for the ack. */
-  onRunCron?: (id: number) => Promise<{ name: string; ok: boolean; error?: string } | undefined>;
+  onRunCron?: (id: number) => Promise<RunNowOutcome | undefined>;
   /**
    * When a channel's members reach its chat, by what it is bound to: on
    * every message, or only when KOS is addressed, with what was said in
@@ -742,7 +757,7 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly timezone?: string;
   private readonly labelOf?: LabelOf;
   private readonly guestsAllowed?: (key: string) => boolean;
-  private readonly onRunCron?: (id: number) => Promise<{ name: string; ok: boolean; error?: string } | undefined>;
+  private readonly onRunCron?: (id: number) => Promise<RunNowOutcome | undefined>;
   private readonly listenOf?: (key: string) => Listen;
   /** The last message each mention-gated channel's chat heard, so the next one carries only what came after. */
   private readonly lastHeard = new Map<string, string>();
@@ -1543,6 +1558,26 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   /** Gateway InteractionCreate handler. Internal; separated for tests. */
+  /**
+   * Run now, from the button or /run: the job fired through the same path as
+   * the dashboard's Run now, and only the owner told how it went. Firing can
+   * take as long as the job does, so the answer is deferred and edited in.
+   */
+  private async runNow(interaction: { deferReply(options: unknown): Promise<unknown>; editReply(options: unknown): Promise<unknown> }, id: number | undefined): Promise<void> {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => undefined);
+    let content: string;
+    if (!this.onRunCron) content = "Running jobs is not available here.";
+    else if (id === undefined) content = runNowReply(undefined);
+    else {
+      try {
+        content = runNowReply(await this.onRunCron(id));
+      } catch (err) {
+        content = `Could not run it: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+    await interaction.editReply({ content }).catch(() => undefined);
+  }
+
   async receiveInteraction(interaction: Interaction): Promise<void> {
     /*
      * Slash commands are answered here and never reach the model: they are
@@ -1553,7 +1588,7 @@ export class DiscordAdapter implements ChannelAdapter {
       if (!this.commands || !this.isAuthorized(interaction.user.id)) return;
       const typed = String(interaction.options.getFocused() ?? "");
       try {
-        await interaction.respond(interaction.commandName === "run" ? completions(this.commands, typed, "schedule") : completions(this.commands, typed));
+        await interaction.respond(interaction.commandName === "run" ? jobCompletions(this.commands, typed) : completions(this.commands, typed));
       } catch {
         // The window for answering an autocomplete is short; a late answer
         // is dropped rather than being an error.
@@ -1574,16 +1609,7 @@ export class DiscordAdapter implements ChannelAdapter {
       // /run fires a scheduled job, which is async and goes to onRunCron
       // rather than runCommand (bookkeeping the process answers at once).
       if (interaction.commandName === "run") {
-        const arg = argument === undefined ? "" : String(argument);
-        const id = Number(arg.startsWith("cron:") ? arg.slice("cron:".length) : arg);
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => undefined);
-        const outcome = Number.isInteger(id) ? await this.onRunCron?.(id).catch(() => undefined) : undefined;
-        const content = !outcome
-          ? "No such job. Pick one from the list /run offers."
-          : outcome.ok
-            ? `Ran ${outcome.name}.`
-            : `${outcome.name} ran, but something failed: ${outcome.error ?? "unknown"}`;
-        await interaction.editReply({ content }).catch(() => undefined);
+        await this.runNow(interaction, jobNamed(this.commands, argument === undefined ? undefined : String(argument)));
         return;
       }
       const said = runCommand(
@@ -1612,14 +1638,7 @@ export class DiscordAdapter implements ChannelAdapter {
         return;
       }
       const id = Number(interaction.customId.slice(CRON_PREFIX.length));
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => undefined);
-      const outcome = Number.isInteger(id) ? await this.onRunCron?.(id).catch(() => undefined) : undefined;
-      const content = !outcome
-        ? "No such job, or running is not available here."
-        : outcome.ok
-          ? `Ran ${outcome.name}.`
-          : `${outcome.name} ran, but something failed: ${outcome.error ?? "unknown"}`;
-      await interaction.editReply({ content }).catch(() => undefined);
+      await this.runNow(interaction, Number.isInteger(id) ? id : undefined);
       return;
     }
 

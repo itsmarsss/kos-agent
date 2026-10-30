@@ -433,8 +433,22 @@ export async function runHost(options: HostOptions): Promise<void> {
       onRunCron: async (id) => {
         const job = kernel.crons.get(id);
         if (!job) return undefined;
-        const r = await kernel.fireCron(id);
-        return { name: job.name, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
+        try {
+          const r = await kernel.fireCron(id);
+          if (!r.outcome.fired) {
+            // Did not start: say why in words, not as a failure of the job.
+            const why =
+              r.outcome.reason === "halted"
+                ? "KOS is halted by the kill switch"
+                : r.outcome.reason === "rate_limited"
+                  ? "this hour's limit on self-prompting jobs is reached"
+                  : r.error;
+            return { name: job.name, ok: false, fired: false, ...(why ? { error: why } : {}) };
+          }
+          return { name: job.name, ok: r.ok, fired: true, ...(r.error ? { error: r.error } : {}) };
+        } catch (err) {
+          return { name: job.name, ok: false, fired: false, error: err instanceof Error ? err.message : String(err) };
+        }
       },
       // A channel the owner set to listen on mention reaches its chat only when addressed.
       listenOf: (key) => kernel.channelListening()[key] ?? "always",
@@ -464,6 +478,11 @@ export async function runHost(options: HostOptions): Promise<void> {
      * costs a turn.
      */
     adapter.onCommand({
+      // The jobs /run can fire, by id: the owner's first, then KOS's own, as the Schedule page lists them.
+      jobs: () => {
+        const all = kernel.crons.list().map((j) => ({ id: j.id, name: j.name, enabled: j.enabled }));
+        return [...all.filter((j) => !j.name.startsWith("kos.")), ...all.filter((j) => j.name.startsWith("kos."))];
+      },
       list: () =>
         kernel.conversations
           .list(kernel.profile.ownerId)
@@ -617,7 +636,9 @@ export async function runHost(options: HostOptions): Promise<void> {
         // A scheduled run of a project's job shows in the project's channel,
         // under the job's name: a daily post is what a schedule is for.
         const job = said.conversationId.startsWith("cron:") ? kernel.crons.get(Number(said.conversationId.slice("cron:".length))) : undefined;
-        if (job) {
+        // Only a run the harness started gets the run format. Anything the
+        // owner says in a job's thread is a conversation, told by the mirror.
+        if (job && said.origin === "system") {
           /*
            * A scheduled run goes to the job's own thread: the same
            * conversation the dashboard shows its runs in, so the two stay in

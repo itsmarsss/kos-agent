@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { COMMANDS, completions, runCommand, type SlashContext } from "./commands.js";
+import { COMMANDS, completions, jobCompletions, jobNamed, runCommand, type SlashContext } from "./commands.js";
 
 function ctxWith(
   chats: { id: string; title: string; kind: string }[],
@@ -200,12 +200,33 @@ describe("slash commands", () => {
 });
 
 describe("picking a job for /run", () => {
-  const withJob = [...chats, { id: "cron:7", title: "Morning brief", kind: "schedule" }];
-  it("offers only schedules, by their conversation id", () => {
-    const got = completions(ctxWith(withJob), "", "schedule");
-    expect(got.map((c) => c.value)).toEqual(["cron:7"]);
-    expect(got[0]?.name).toContain("Morning brief");
-    // Without the filter, everything shows.
-    expect(completions(ctxWith(withJob), "").length).toBeGreaterThan(1);
+  const jobs = [
+    { id: 7, name: "Morning brief", enabled: true },
+    { id: 9, name: "School Evening Nudge", enabled: false },
+    { id: 12, name: "School Morning Digest", enabled: true },
+  ];
+  const withJobs = (): SlashContext => ({ ...ctxWith(chats), jobs: () => jobs });
+
+  it("offers the jobs themselves by id, never run ones included, paused ones marked", () => {
+    const all = jobCompletions(withJobs(), "");
+    expect(all.map((c) => c.value)).toEqual(["7", "9", "12"]);
+    expect(all[1]?.name).toBe("\u23f1 School Evening Nudge (paused)");
+    expect(jobCompletions(withJobs(), "digest").map((c) => c.value)).toEqual(["12"]);
+    // The chat list leaves schedules out; the job list is its own.
+    expect(completions(withJobs(), "").map((c) => c.value)).not.toContain("7");
+    expect(jobCompletions(ctxWith(chats), "")).toEqual([]);
+  });
+
+  it("resolves what /run was given to an id, and a typed name to its id at once", () => {
+    const ctx = withJobs();
+    expect(jobNamed(ctx, "7")).toBe(7);
+    expect(jobNamed(ctx, "cron:12")).toBe(12);
+    expect(jobNamed(ctx, "morning brief")).toBe(7);
+    expect(jobNamed(ctx, "evening")).toBe(9);
+    // Two jobs match "school": not a guess, nothing.
+    expect(jobNamed(ctx, "school")).toBeUndefined();
+    expect(jobNamed(ctx, "nothing like it")).toBeUndefined();
+    expect(jobNamed(ctx, "")).toBeUndefined();
+    expect(jobNamed(ctx, undefined)).toBeUndefined();
   });
 });
