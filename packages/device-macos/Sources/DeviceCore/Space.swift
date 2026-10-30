@@ -1,13 +1,14 @@
 import Foundation
 
-/// The coordinates of a session: the display in points, scaled down to fit
-/// `maxEdge` on its long side and never up.
+/// The coordinates of a session: what KOS was given (a display, or one
+/// window) in points, scaled down to fit `maxEdge` on its long side and
+/// never up.
 ///
 /// A plain capture is exactly this size in pixels, so a point in the
 /// picture KOS was shown is the point it clicks. Every mapping to the real
 /// screen goes through here, so there is one place a click can land wrong.
 public struct Space: Equatable, Sendable {
-  /// The display in global points, top-left origin (CoreGraphics' global space).
+  /// What KOS was given, in global points, top-left origin (CoreGraphics' global space).
   public let display: Rect
   public let size: Size
 
@@ -18,6 +19,17 @@ public struct Space: Equatable, Sendable {
     size = Size(width: (display.width * factor).rounded(), height: (display.height * factor).rounded())
   }
 
+  private init(display: Rect, size: Size) {
+    self.display = display
+    self.size = size
+  }
+
+  /// The same coordinates over a window that moved or was resized: a point
+  /// KOS names still means the same place in the window.
+  public func moved(to frame: Rect) -> Space {
+    Space(display: frame, size: size)
+  }
+
   private var scaleX: Double { size.width / display.width }
   private var scaleY: Double { size.height / display.height }
 
@@ -25,7 +37,7 @@ public struct Space: Equatable, Sendable {
   public func validate(_ p: Point) throws -> Point {
     guard p.x.isFinite, p.y.isFinite, Rect(x: 0, y: 0, width: size.width, height: size.height).contains(p) else {
       throw DeviceError.badRequest(
-        "(\(Self.format(p.x)), \(Self.format(p.y))) is off the screen. It is \(Self.format(size.width)) by \(Self.format(size.height)).")
+        "(\(Self.format(p.x)), \(Self.format(p.y))) is outside the picture, which is \(Self.format(size.width)) by \(Self.format(size.height)).")
     }
     return p
   }

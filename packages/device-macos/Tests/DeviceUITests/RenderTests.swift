@@ -110,6 +110,19 @@ struct RenderTests {
     _ = try render("consent-custom", ConsentView(model: model))
   }
 
+  @Test func consentWithAWindowPicker() throws {
+    let model = ConsentModel(task: "Export the cover frame", requester: "Design", offered: [5, 15], longest: 60, timeout: 60)
+    model.targets = [
+      TargetChoice(id: TargetChoice.screen, title: "Entire screen", app: nil, icon: nil),
+      TargetChoice(id: "11", title: "Cover", app: "Figma", icon: nil),
+      TargetChoice(id: "12", title: "Inbox", app: "Mail", icon: nil),
+    ]
+    model.target = "11"
+    model.suggested = "Figma"
+    let size = try render("consent-picker", ConsentView(model: model))
+    #expect(size.width == 420)
+  }
+
   @Test func disconnectedByTheOwner() throws {
     let model = home {
       $0.link = .disconnected

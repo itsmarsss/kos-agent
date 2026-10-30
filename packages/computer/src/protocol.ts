@@ -115,7 +115,7 @@ export interface Reply {
 
 export type EventName = "session.paused" | "session.resumed" | "session.extended" | "session.ended";
 
-export type EndReason = "owner" | "expired" | "idle" | "quit" | "host";
+export type EndReason = "owner" | "expired" | "idle" | "quit" | "host" | "window";
 
 export interface DeviceEvent {
   t: "event";
@@ -137,11 +137,19 @@ export type Method =
 /** What a device sends once it is in. */
 export type FromDevice = Hello | StateUpdate | Reply | DeviceEvent;
 
+/** What a session works in: the whole screen, or one window of one app. */
+export interface Target {
+  kind: "screen" | "window";
+  app?: string;
+  title?: string;
+}
+
 /** What `session.begin` answers when the owner allows it. */
 export interface Grant {
   granted: true;
   until: number;
   space: Size;
+  target: Target;
 }
 
 /** What `screen.capture` answers. */

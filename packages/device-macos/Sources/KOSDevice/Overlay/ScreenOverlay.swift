@@ -59,6 +59,28 @@ final class ScreenOverlay {
     cursor.showTyping()
   }
 
+  /// Wraps the border round one window (global, top-left) instead of the screen; nothing is the screen again.
+  func focus(on window: CGRect?) {
+    CATransaction.begin()
+    CATransaction.setAnimationDuration(0.18)
+    if let window {
+      // Just outside the window's edge, so the light frames it rather than covering it.
+      let outside = window.insetBy(dx: -3, dy: -3)
+      let origin = local(CGPoint(x: outside.minX, y: outside.maxY))
+      border.aroundWindow = true
+      border.frame = CGRect(origin: origin, size: outside.size)
+    } else {
+      border.aroundWindow = false
+      border.frame = stage.bounds
+    }
+    CATransaction.commit()
+  }
+
+  /// Whether a global point is on this overlay's display.
+  func covers(_ global: CGPoint) -> Bool {
+    displayFrame.contains(global)
+  }
+
   /// A global point (top-left origin) in the overlay's layer space (bottom-left origin, this display).
   private func local(_ global: CGPoint) -> CGPoint {
     CGPoint(x: global.x - displayFrame.minX, y: displayFrame.height - (global.y - displayFrame.minY))

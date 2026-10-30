@@ -3,6 +3,21 @@ import Foundation
 /// Why a session ended, as KOS is told it.
 public enum EndReason: String, Codable, Sendable {
   case owner, expired, idle, quit, host
+  /// The window the session worked in closed.
+  case window
+}
+
+/// What a session works in: a whole display, or one window of one app.
+public enum SessionTarget: Equatable, Sendable {
+  case screen(display: UInt32)
+  case window(id: UInt32, pid: Int32, app: String, title: String)
+
+  public var info: TargetInfo {
+    switch self {
+    case .screen: return .screen
+    case .window(_, _, let app, let title): return .window(app: app, title: title)
+    }
+  }
 }
 
 /// A session the owner allowed.
@@ -13,7 +28,8 @@ public struct LiveSession: Equatable, Sendable {
   /// The chat that asked, by id, when KOS said.
   public let conversation: String?
   public let until: Date
-  public let space: Space
+  public let target: SessionTarget
+  public fileprivate(set) var space: Space
   public fileprivate(set) var paused = false
   public fileprivate(set) var lastActivity: Date
 }
@@ -56,11 +72,13 @@ public struct Sessions: Sendable {
   }
 
   public mutating func grant(
-    _ id: String, task: String, requester: String, conversation: String? = nil, minutes: Int, space: Space, now: Date
+    _ id: String, task: String, requester: String, conversation: String? = nil, minutes: Int,
+    target: SessionTarget = .screen(display: 0), space: Space, now: Date
   ) throws -> LiveSession {
     guard phase == .asking(id) else { throw DeviceError(.noSession, "Nothing was asked for under that id.") }
     let session = LiveSession(
       id: id, task: task, requester: requester, conversation: conversation, until: now.addingTimeInterval(TimeInterval(minutes * 60)),
+      target: target,
       space: space, lastActivity: now)
     phase = .live(session)
     return session
@@ -124,8 +142,15 @@ public struct Sessions: Sendable {
     let until = min(session.until.addingTimeInterval(Self.extension_), now.addingTimeInterval(Self.furthest))
     phase = .live(LiveSession(
       id: session.id, task: session.task, requester: session.requester, conversation: session.conversation,
-      until: until, space: session.space, paused: session.paused, lastActivity: now))
+      until: until, target: session.target, space: session.space, paused: session.paused, lastActivity: now))
     return until
+  }
+
+  /// The window the session works in moved or was resized: the same coordinates, over its new frame.
+  public mutating func follow(_ frame: Rect) {
+    guard case .live(var session) = phase, session.space.display != frame else { return }
+    session.space = session.space.moved(to: frame)
+    phase = .live(session)
   }
 }
 

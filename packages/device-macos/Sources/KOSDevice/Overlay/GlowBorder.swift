@@ -13,6 +13,13 @@ final class GlowBorder: CALayer {
   private let rimMask = CAShapeLayer()
   private let sweep = CAGradientLayer()
   private let topCornerRadius: CGFloat
+  /// Round at every corner, as a window is, rather than at the screen's top only.
+  var aroundWindow = false {
+    didSet { setNeedsLayout() }
+  }
+
+  /// A macOS window's corner, which the glow follows when it wraps one.
+  static let windowCornerRadius: CGFloat = 12
 
   private static let bloomWidth: CGFloat = 10
   private static let rimWidth: CGFloat = 3.5
@@ -50,7 +57,10 @@ final class GlowBorder: CALayer {
     super.layoutSublayers()
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    let path = Self.edgePath(in: bounds, topRadius: topCornerRadius)
+    let path = aroundWindow
+      ? CGPath(roundedRect: bounds.insetBy(dx: Self.rimWidth / 2, dy: Self.rimWidth / 2),
+               cornerWidth: Self.windowCornerRadius, cornerHeight: Self.windowCornerRadius, transform: nil)
+      : Self.edgePath(in: bounds, topRadius: topCornerRadius)
     bloom.frame = bounds
     bloom.path = path
     bloom.shadowPath = path.copy(strokingWithWidth: Self.bloomWidth, lineCap: .round, lineJoin: .round, miterLimit: 0)

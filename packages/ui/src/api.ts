@@ -336,7 +336,7 @@ export interface PairedDevice {
   permissions?: { screen: boolean; input: boolean };
   version?: string;
   os?: string;
-  session?: { conversation: string; title: string; task: string; until: number; paused: boolean };
+  session?: { conversation: string; title: string; task: string; until: number; paused: boolean; target?: { kind: "screen" | "window"; app?: string; title?: string } };
 }
 
 /** KOS's side of computer use; each computer keeps its own limits, and they win. */

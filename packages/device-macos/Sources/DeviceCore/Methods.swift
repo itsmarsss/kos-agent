@@ -32,6 +32,7 @@ public struct SessionBeginParams: Decodable, Sendable {
   public let requester: String
   /// The chat asking, by id, so the owner can open it on the dashboard.
   public let conversation: String?
+  public let target: TargetHint?
   public let minutes: Double
   public let maxEdge: Double?
 }
@@ -92,11 +93,33 @@ public struct SessionBeginResult: Encodable, Sendable {
   /// When the session ends on its own, epoch milliseconds.
   public let until: Int64
   public let space: Size
+  /// What the owner gave KOS: the screen, or one window.
+  public let target: TargetInfo
 
-  public init(until: Int64, space: Size) {
+  public init(until: Int64, space: Size, target: TargetInfo) {
     self.until = until
     self.space = space
+    self.target = target
   }
+}
+
+/// What a session works in, as KOS is told.
+public struct TargetInfo: Encodable, Equatable, Sendable {
+  public let kind: String
+  public let app: String?
+  public let title: String?
+
+  public static let screen = TargetInfo(kind: "screen", app: nil, title: nil)
+
+  public static func window(app: String, title: String) -> TargetInfo {
+    TargetInfo(kind: "window", app: app, title: title)
+  }
+}
+
+/// What KOS would like to work in; the owner picks on the Mac.
+public struct TargetHint: Decodable, Sendable {
+  /// An app's name or bundle id: one of its windows is offered first.
+  public let app: String?
 }
 
 public struct EmptyResult: Encodable, Sendable {
