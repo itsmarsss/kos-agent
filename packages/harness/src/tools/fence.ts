@@ -38,6 +38,7 @@ export const KERNEL_TABLES = new Set([
   "conversations",
   "crons",
   "daemons",
+  "devices",
   "health_state",
   "improvements",
   "instance_config",
@@ -57,8 +58,8 @@ export const KERNEL_TABLES = new Set([
 /** Families of KOS's own tables: the memory stores and their index shadows, and SQLite's. */
 export const KERNEL_TABLE_PREFIXES = ["memory_", "sqlite_"];
 
-/** Written by nobody but the owner, through the dashboard. */
-export const TRUST_TABLES = new Set(["pending_actions", "permission_rules", "kill_switch"]);
+/** Written by nobody but the owner, through the dashboard. `devices` is the computers KOS may drive. */
+export const TRUST_TABLES = new Set(["pending_actions", "permission_rules", "kill_switch", "devices"]);
 
 /** The one project that reaches everything, by its slug, for the tools that judge reach. */
 export const MAINTENANCE_SLUG = MAINTENANCE.slug;

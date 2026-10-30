@@ -95,4 +95,12 @@ describe("the fence around the tables", () => {
     expect(fence("UPDATE pending_actions SET status = 'approved'", existing, reach("books")).reason).toMatch(/trust tables/);
     expect(fence("SELECT * FROM pending_actions", existing, reach("maintenance")).ok).toBe(true);
   });
+
+  it("never lets a chat pair a computer by writing its key in", () => {
+    const tables = [...existing, "devices"];
+    const pair = fence("INSERT INTO devices (id, name, platform, public_key, paired_at) VALUES ('dev_x', 'x', 'macos', 'k', 0)", tables, reach("maintenance"));
+    expect(pair.ok).toBe(false);
+    expect(pair.reason).toMatch(/trust tables/);
+    expect(fence("SELECT name FROM devices", tables, reach("books")).ok).toBe(false);
+  });
 });
