@@ -56,21 +56,22 @@ export function pairingLink(origin: string, code: string): string {
 }
 
 function platformName(platform: string): string {
-  return platform === "macos" ? "macOS" : platform;
+  return platform === "macos" ? "macOS" : platform === "chrome" ? "Chrome" : platform;
 }
 
 /** What is missing for KOS to use it, in the owner's words. */
 function missing(d: PairedDevice): string | undefined {
-  if (!d.permissions) return undefined;
+  if (!d.permissions || d.kind === "browser") return undefined;
   const lacks = [!d.permissions.screen && "Screen Recording", !d.permissions.input && "Accessibility"].filter(Boolean);
   return lacks.length ? `Needs ${lacks.join(" and ")} on the computer` : undefined;
 }
 
 export function describeDevice(d: PairedDevice, now = Date.now()): string {
-  if (!d.online) return d.lastSeen ? `Offline, last seen ${agoWords(d.lastSeen, now)}` : "Never connected. Open KOS Device on it.";
+  const browser = d.kind === "browser";
+  if (!d.online) return d.lastSeen ? `Offline, last seen ${agoWords(d.lastSeen, now)}` : browser ? "Never connected. Pair it from the KOS extension." : "Never connected. Open KOS Device on it.";
   const parts = [
-    [platformName(d.platform), d.os].filter(Boolean).join(" "),
-    d.consent === "kos" ? "starts through your approvals" : "asks on the computer",
+    browser ? `Chrome${d.os ? ` on ${d.os}` : ""}` : [platformName(d.platform), d.os].filter(Boolean).join(" "),
+    browser ? "asks in Chrome" : d.consent === "kos" ? "starts through your approvals" : "asks on the computer",
     missing(d),
   ].filter(Boolean);
   if (d.session) {
@@ -144,7 +145,7 @@ function PairingCode({ code, now, onDone }: { code: DeviceCode; now: number; onD
       </p>
       <p className="hint">
         {left > 0
-          ? `On the computer, open KOS Device and paste the link, or enter ${origin} and this code. Good for ${left} more minute${left === 1 ? "" : "s"}, once.`
+          ? `On a Mac, open KOS Device and paste the link, or enter ${origin} and this code. In Chrome, paste the link into the KOS extension. Good for ${left} more minute${left === 1 ? "" : "s"}, once.`
           : "This code has expired. Make another."}
       </p>
       <div className="set-inline">
@@ -217,7 +218,7 @@ export function DevicesPanel(): ReactElement {
   return (
     <>
       {devices.length === 0 && !code && (
-        <p className="hint">No computers yet. Install KOS Device on a Mac, then add it here.</p>
+        <p className="hint">Nothing paired yet. Install KOS Device on a Mac, or the KOS extension in Chrome, then add it here.</p>
       )}
       {joined && <p className="hint">Paired {joined}.</p>}
       <div className="set-rows">

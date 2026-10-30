@@ -326,15 +326,17 @@ export interface PairedDevice {
   id: string;
   name: string;
   platform: string;
+  /** A computer KOS Device runs on, or a Chrome the KOS extension runs in. */
+  kind: "computer" | "browser";
   pairedAt: number;
   lastSeen: number | null;
   online: boolean;
   /** How a session starts: asked on the computer, or through KOS's approvals. */
   consent?: "device" | "kos";
-  permissions?: { screen: boolean; input: boolean };
+  permissions?: { screen: boolean; input: boolean; tabs?: boolean };
   version?: string;
   os?: string;
-  session?: { conversation: string; title: string; task: string; until: number; paused: boolean; target?: { kind: "screen" | "window"; app?: string; title?: string } };
+  session?: { conversation: string; title: string; task: string; until: number; paused: boolean; target?: { kind: "screen" | "window" | "tabs"; app?: string; title?: string } };
 }
 
 /** KOS's side of computer use; each computer keeps its own limits, and they win. */

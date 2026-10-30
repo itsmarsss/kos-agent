@@ -14,6 +14,7 @@ const laptop: PairedDevice = {
   id: "dev_1",
   name: "Studio MacBook",
   platform: "macos",
+  kind: "computer",
   pairedAt: 0,
   lastSeen: 0,
   online: true,
@@ -36,6 +37,12 @@ describe("a paired computer, in words", () => {
     expect(
       describeDevice({ ...laptop, session: { conversation: "c", title: "Design", task: "t", until: Date.now() + 60_000, paused: false, target: { kind: "window", app: "Figma" } } }),
     ).toMatch(/In use: Design, "t", in Figma, until/);
+  });
+
+  it("says a Chrome is a Chrome, that asks in Chrome and needs no grants", () => {
+    const chrome: PairedDevice = { ...laptop, name: "Chrome", platform: "chrome", kind: "browser", os: "macOS", permissions: { screen: false, input: false, tabs: true } };
+    expect(describeDevice(chrome)).toBe("Chrome on macOS · asks in Chrome");
+    expect(describeDevice({ ...chrome, online: false, lastSeen: null })).toMatch(/Pair it from the KOS extension/);
   });
 
   it("opens KOS Device with this dashboard's address and the code", () => {
