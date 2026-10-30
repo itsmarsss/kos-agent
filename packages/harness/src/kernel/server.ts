@@ -3134,10 +3134,11 @@ function streamBuilds(
  * stream; a tab's screencast runs while anyone watches it.
  */
 /**
- * Each browser step's card gets the frame taken after it. By the call's id
- * where the engine gave one; otherwise in order, since frames are kept only
- * for steps that ran and the cards of steps that ran come in that same
- * order. A card still waiting, or refused, took no frame and is skipped.
+ * Each step that looked gets its card's picture: any step by the call's id
+ * (a browser step, a computer's screen); a browser step whose engine gave no
+ * id, in order, since frames are kept only for steps that ran and the cards
+ * of steps that ran come in that same order. A card still waiting, or
+ * refused, took no frame and is skipped.
  */
 export function withFrames(events: ChatEvent[], frames: { id: number; toolUseId: string | null; tool: string }[]): ChatEvent[] {
   if (frames.length === 0) return events;
@@ -3145,8 +3146,9 @@ export function withFrames(events: ChatEvent[], frames: { id: number; toolUseId:
   const unkeyed = frames.filter((f) => !f.toolUseId);
   let next = 0;
   return events.map((e) => {
-    if (e.kind !== "tool" || !browserStep(e.name)) return e;
+    if (e.kind !== "tool") return e;
     if (e.toolUseId && byId.has(e.toolUseId)) return { ...e, frameId: byId.get(e.toolUseId)! };
+    if (!browserStep(e.name)) return e;
     if (e.pendingId || (e.result && (e.result.startsWith(DENIED_PREFIX) || e.result.startsWith("Queued for approval")))) return e;
     const frame = unkeyed[next];
     if (!frame) return e;

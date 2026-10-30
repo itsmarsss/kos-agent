@@ -557,6 +557,15 @@ describe("handleApiRequest", () => {
     expect(withFrames(events, frames).map((e) => (e.kind === "tool" ? e.frameId : null))).toEqual([11, undefined, undefined, 12, undefined]);
   });
 
+  it("gives any step its picture by the call's id, not only a browser step's", () => {
+    const events = [
+      { kind: "tool" as const, name: "computer.act", summary: "", args: {}, result: "Clicked", toolUseId: "call_1" },
+      { kind: "tool" as const, name: "computer.end", summary: "", args: {}, result: "Ended", toolUseId: "call_2" },
+    ];
+    const frames = [{ id: 21, toolUseId: "call_1", tool: "computer.act" }];
+    expect(withFrames(events, frames).map((e) => (e.kind === "tool" ? e.frameId : null))).toEqual([21, undefined]);
+  });
+
   it("toggles the kill switch", async () => {
     await handleApiRequest(kernel, { method: "POST", path: "/api/kill", body: { halted: true } });
     expect(kernel.killSwitch.halted).toBe(true);
