@@ -134,4 +134,14 @@ describe("trusting a site for the browser", () => {
     expect(store.allows("browser.act", { steps: [] }, undefined, { browser: { ...context.browser, site: "other.example" } })).toBe(false);
     expect(store.allows("browser.act", { steps: [] }, undefined, { browser: { prefix: "browser." } })).toBe(false);
   });
+
+  it("keeps the owner's own Chrome apart: a site trusted in KOS's is asked about again there", () => {
+    const store = new PermissionStore(new Database(":memory:"), () => 1);
+    store.add(store.ruleFor("browser.act", { steps: [] }, null, context)!);
+    const yours = { browser: { ...context.browser, yours: true } };
+    expect(scopeOf("browser.act", { steps: [] }, yours)).toBe("your-chrome:example.com");
+    expect(store.allows("browser.act", { steps: [] }, undefined, yours)).toBe(false);
+    store.add(store.ruleFor("browser.act", { steps: [] }, null, yours)!);
+    expect(store.allows("browser.act", { steps: [] }, undefined, yours)).toBe(true);
+  });
 });

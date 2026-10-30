@@ -264,7 +264,7 @@ export class GuardedTools implements ToolBox {
         args: input,
         riskTier: "risky",
         // The rule's own words first; the old labels only where a rule has none.
-        reason: assessment.reason ?? (assessment.escalated ? "argument escalation" : site ? `on ${site}` : "risky tool"),
+        reason: `${assessment.reason ?? (assessment.escalated ? "argument escalation" : site ? `on ${site}` : "risky tool")}${context?.browser?.yours ? ", in your Chrome" : ""}`,
         ...(userId ? { userId } : {}),
         ...(conversationId ? { conversationId } : {}),
         ...(rule ? { rule } : {}),

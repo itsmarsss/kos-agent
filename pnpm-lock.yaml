@@ -60,6 +60,9 @@ importers:
 
   packages/computer:
     dependencies:
+      '@kos/browser':
+        specifier: workspace:*
+        version: link:../browser
       '@kos/harness':
         specifier: workspace:*
         version: link:../harness
