@@ -1132,8 +1132,6 @@ export const api = {
       tabs: BrowserTabInfo[];
       search: string;
     }>("/api/browser/status"),
-  /** A watcher's click or key, passed to one tab. */
-  browserInput: (tab: string, message: Record<string, unknown>) => post<{ sent: boolean }>("/api/browser/input", { tab, ...message }),
   /** The address bar and the arrows: a tab sent somewhere, or back, forward, reloaded. */
   browserNavigate: (tab: string, to: { url: string } | { action: "back" | "forward" | "reload" }) => post<{ went: boolean }>("/api/browser/navigate", { tab, ...to }),
   /** A tab of the owner's own, nobody's until an agent is sent to it. */

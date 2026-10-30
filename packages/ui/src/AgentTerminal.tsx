@@ -7,6 +7,7 @@ import { ease, spring } from "./motion.js";
 import { api, type BuildRecord, type PendingAction } from "./api.js";
 import { ChevronDown, ChevronRight } from "./icons.js";
 import { Decision } from "./Decision.js";
+import { socket } from "./socket.js";
 
 /**
  * One build, read like a terminal.
@@ -162,15 +163,10 @@ export function AgentTerminal({
     // Streamed, so output appears as it happens rather than in the stutter of
     // a poll. The approvals still come from the endpoint: they change rarely
     // and belong to the queue rather than to the build.
-    const source = new EventSource("/api/agents/stream");
-    source.onmessage = (e) => {
-      try {
-        const record = JSON.parse(e.data as string) as BuildRecord;
-        if (!cancelled && record.id === id) setBuild(record);
-      } catch {
-        // A frame we cannot read is one frame, not a broken log.
-      }
-    };
+    const unwatch = socket.watch("builds", {}, (message) => {
+      const record = "build" in message ? (message.build as BuildRecord) : null;
+      if (!cancelled && record?.id === id) setBuild(record);
+    });
 
     const loadAsks = (): void => {
       void api
@@ -192,7 +188,7 @@ export function AgentTerminal({
 
     return () => {
       cancelled = true;
-      source.close();
+      unwatch();
       clearInterval(t);
     };
   }, [id]);

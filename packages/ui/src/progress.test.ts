@@ -6,31 +6,42 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearProgress, onTurnEnd, seedProgress, settleProgress, useProgress } from "./progress.js";
 
 /**
- * The store is a module singleton behind one EventSource, so these drive it
- * through the exported handles and read it through the hook, which is how the
- * app sees it.
+ * The store is a module singleton watching the dashboard's one socket, so
+ * these drive it through the exported handles and read it through the hook,
+ * which is how the app sees it.
  */
-class FakeSource {
+class FakeSocket {
+  static OPEN = 1;
+  readyState = 1;
+  binaryType = "";
+  onopen: (() => void) | null = null;
   onmessage: ((e: { data: string }) => void) | null = null;
-  onerror: (() => void) | null = null;
+  onclose: (() => void) | null = null;
+  send(): void {}
   close(): void {}
 }
 
-let source: FakeSource;
+let source: FakeSocket;
 
 function deliver(event: Record<string, unknown>): void {
   act(() => {
-    source.onmessage?.({ data: JSON.stringify(event) });
+    source.onmessage?.({ data: JSON.stringify({ channel: "events", event }) });
   });
 }
 
 describe("progress handover", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    vi.stubGlobal("EventSource", function EventSourceStub(this: FakeSource) {
-      source = new FakeSource();
-      return source;
-    });
+    vi.stubGlobal(
+      "WebSocket",
+      Object.assign(
+        function WebSocketStub() {
+          source = new FakeSocket();
+          return source;
+        },
+        { OPEN: 1 },
+      ),
+    );
   });
 
   afterEach(() => {
@@ -117,10 +128,16 @@ describe("progress handover", () => {
 describe("hearing a turn end", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    vi.stubGlobal("EventSource", function EventSourceStub(this: FakeSource) {
-      source = new FakeSource();
-      return source;
-    });
+    vi.stubGlobal(
+      "WebSocket",
+      Object.assign(
+        function WebSocketStub() {
+          source = new FakeSocket();
+          return source;
+        },
+        { OPEN: 1 },
+      ),
+    );
   });
 
   afterEach(() => {

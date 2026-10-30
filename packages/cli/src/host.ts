@@ -19,6 +19,7 @@ import {
   connectChannel,
   conversationKind,
   createDashboardServer,
+  createDashboardSocket,
   createPressHandler,
   primarySessionId,
   surfaceSessionId,
@@ -384,9 +385,10 @@ export async function runHost(options: HostOptions): Promise<void> {
       : {}),
   });
 
-  // The one upgrade the dashboard server takes: a paired device's socket.
+  // The two upgrades the dashboard server takes: the dashboard's own socket, and a paired device's.
+  const live = createDashboardSocket(kernel, { ...(options.token ? { token: options.token } : {}) });
   server.on("upgrade", (req, socket, head) => {
-    if (!computer.upgrade(req, socket, head)) socket.destroy();
+    if (!live.upgrade(req, socket, head) && !computer.upgrade(req, socket, head)) socket.destroy();
   });
 
   await new Promise<void>((resolveListen, reject) => {
@@ -845,6 +847,7 @@ export async function runHost(options: HostOptions): Promise<void> {
     console.log("shutting down…");
     clearDaemonState(kernel.workspace.root);
     computer.close();
+    live.close();
     server.close();
     void (async () => {
       try {

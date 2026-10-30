@@ -16,6 +16,7 @@ export {
   type KernelOptions,
 } from "./kernel.js";
 export { connectChannel, type ConnectChannelOptions } from "./channel.js";
+export { SOCKET_PATH, createDashboardSocket, type DashboardSocket, type DashboardSocketOptions } from "./socket.js";
 export {
   createDashboardServer,
   handleApiRequest,

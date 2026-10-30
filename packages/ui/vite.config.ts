@@ -13,6 +13,14 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      // The live socket checks its page's origin, so through the proxy it is
+      // the API's own, as it is when KOS serves the dashboard itself.
+      "/api/socket": {
+        target: apiTarget,
+        ws: true,
+        changeOrigin: true,
+        configure: (proxy) => proxy.on("proxyReqWs", (req) => req.setHeader("origin", new URL(apiTarget).origin)),
+      },
       "/api": { target: apiTarget, changeOrigin: true },
     },
   },

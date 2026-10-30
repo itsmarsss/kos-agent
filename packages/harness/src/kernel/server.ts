@@ -1691,18 +1691,6 @@ export async function handleApiRequest(
     return ok(kernel.browser.status());
   }
 
-  if (method === "POST" && path === "/api/browser/input") {
-    const tab = typeof body.tab === "string" ? body.tab : "";
-    if (!tab) return { status: 400, body: { error: "tab required" } };
-    try {
-      const { tab: _tab, ...message } = body;
-      await kernel.browser.input(tab, message);
-      return ok({ sent: true });
-    } catch (err) {
-      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
-    }
-  }
-
   /*
    * The owner's own hands on the browser's chrome, as against its pages:
    * an address bar, back and forward, a new tab, a closed one. A tab the
@@ -2994,7 +2982,8 @@ function bearerOf(req: ApiRequest): string | undefined {
   return auth?.startsWith("Bearer ") ? auth.slice(7) : undefined;
 }
 
-function authorized(req: ApiRequest, token: string): boolean {
+/** Whether a request carries the dashboard's token, as a bearer or as x-kos-token. */
+export function authorized(req: ApiRequest, token: string): boolean {
   const headers = req.headers ?? {};
   const auth = header(headers, "authorization");
   if (auth?.startsWith("Bearer ") && auth.slice(7) === token) return true;
@@ -3073,57 +3062,6 @@ async function readBody(stream: NodeJS.ReadableStream): Promise<unknown> {
 
 
 /**
- * Turn progress as server-sent events.
- *
- * A turn runs for tens of seconds across several tool calls, and a reader
- * polling every five seconds sees none of it. The stream carries what step the
- * agent is on; anything that has to survive a reconnect stays in the polled
- * conversation list, so a dropped connection loses nothing but liveness.
- */
-/**
- * A build's log, as it happens.
- *
- * Polling is fine for a list and wrong for a log: output arrives in bursts,
- * and a page that samples every second and a half renders them as stutter.
- */
-function streamBuilds(
-  kernel: Kernel,
-  req: IncomingMessage,
-  res: ServerResponse,
-  options: DashboardServerOptions,
-): void {
-  res.writeHead(200, {
-    "content-type": "text/event-stream; charset=utf-8",
-    "cache-control": "no-cache",
-    connection: "keep-alive",
-    ...corsHeaders(req, options),
-  });
-  res.write(": connected\n\n");
-
-  const send = (id: number): void => {
-    const build = kernel.builds.get(id);
-    if (build) res.write(`data: ${JSON.stringify(build)}\n\n`);
-  };
-  // Everything currently known, so a reader that arrives mid-build sees the
-  // whole log rather than only what happens next.
-  for (const build of kernel.builds.list()) send(build.id);
-
-  const unwatch = kernel.builds.watch(send);
-  const beat = setInterval(() => res.write(": beat\n\n"), 25_000);
-  const close = (): void => {
-    clearInterval(beat);
-    unwatch();
-  };
-  req.on("close", close);
-  res.on("close", close);
-}
-
-/**
- * The browser KOS is driving, as it happens: the tabs and whose they are,
- * and the frames of the one tab this watcher asked for. One watcher is one
- * stream; a tab's screencast runs while anyone watches it.
- */
-/**
  * Each step that looked gets its card's picture: any step by the call's id
  * (a browser step, a computer's screen); a browser step whose engine gave no
  * id, in order, since frames are kept only for steps that ran and the cards
@@ -3186,68 +3124,6 @@ export function browserSettings(kernel: Kernel): {
   };
 }
 
-function streamBrowser(
-  kernel: Kernel,
-  req: IncomingMessage,
-  res: ServerResponse,
-  options: DashboardServerOptions,
-): void {
-  res.writeHead(200, {
-    "content-type": "text/event-stream; charset=utf-8",
-    "cache-control": "no-cache",
-    connection: "keep-alive",
-    ...corsHeaders(req, options),
-  });
-  res.write(": connected\n\n");
-  // Frames only for the tab asked for; the tab list and status for everyone.
-  const tab = queryParams(req.url).get("tab") ?? undefined;
-  const unsubscribe = kernel.browser.subscribe((event) => {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
-  }, tab);
-  const beat = setInterval(() => res.write(": beat\n\n"), 25_000);
-  const close = (): void => {
-    clearInterval(beat);
-    unsubscribe();
-  };
-  req.on("close", close);
-  res.on("close", close);
-}
-
-function streamProgress(
-  kernel: Kernel,
-  req: IncomingMessage,
-  res: ServerResponse,
-  options: DashboardServerOptions,
-): void {
-  res.writeHead(200, {
-    "content-type": "text/event-stream; charset=utf-8",
-    "cache-control": "no-cache",
-    connection: "keep-alive",
-    ...corsHeaders(req, options),
-  });
-  res.write(": connected\n\n");
-
-  // Catch the reader up on whatever is already running before sending them
-  // anything new. Without this a reload during a turn showed an empty space
-  // where the thinking and the tool calls had been, until the turn ended.
-  for (const event of kernel.progress.snapshot()) {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
-  }
-
-  const unsubscribe = kernel.progress.subscribe((event) => {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
-  });
-  // Proxies and browsers drop a silent stream; a comment costs nothing and is
-  // ignored by EventSource.
-  const beat = setInterval(() => res.write(": beat\n\n"), 25_000);
-
-  const close = (): void => {
-    clearInterval(beat);
-    unsubscribe();
-  };
-  req.on("close", close);
-  res.on("close", close);
-}
 
 
 /**
@@ -3442,23 +3318,6 @@ export function createDashboardServer(
       if (method === "OPTIONS") {
         res.writeHead(204, corsHeaders(req, options));
         res.end();
-        return;
-      }
-
-      // Server-sent events need the raw response, so this cannot go through
-      // the JSON handler that every other route uses.
-      if (method === "GET" && path === "/api/builds/stream") {
-        streamBuilds(kernel, req, res, options);
-        return;
-      }
-
-      if (method === "GET" && path === "/api/events") {
-        streamProgress(kernel, req, res, options);
-        return;
-      }
-
-      if (method === "GET" && path === "/api/browser/live") {
-        streamBrowser(kernel, req, res, options);
         return;
       }
 

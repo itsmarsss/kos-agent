@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { MessageOrigin } from "./api.js";
+import { socket } from "./socket.js";
 
 /**
  * What each conversation is doing, streamed from the host.
@@ -154,13 +155,14 @@ function reduce(live: Live, event: ProgressEvent): Live {
 }
 
 /**
- * The shared store. One EventSource, opened with the first reader and closed
- * with the last, and a map that outlives any particular view.
+ * The shared store. One watch of the dashboard's socket, opened with the
+ * first reader and closed with the last, and a map that outlives any
+ * particular view.
  */
 class ProgressStore {
   private map: ProgressMap = {};
   private readonly listeners = new Set<(m: ProgressMap) => void>();
-  private source: EventSource | null = null;
+  private stop: (() => void) | null = null;
 
   subscribe(listener: (m: ProgressMap) => void): () => void {
     this.listeners.add(listener);
@@ -213,16 +215,10 @@ class ProgressStore {
   }
 
   private open(): void {
-    if (this.source) return;
-    const source = new EventSource("/api/events");
-    this.source = source;
-    source.onmessage = (message) => {
-      let event: ProgressEvent;
-      try {
-        event = JSON.parse(message.data as string) as ProgressEvent;
-      } catch {
-        return;
-      }
+    if (this.stop) return;
+    const unwatch = socket.watch("events", {}, (message) => {
+      if (!("event" in message)) return;
+      const event = message.event as ProgressEvent;
       const id = event.conversationId;
       if (event.kind === "note") {
         // Not part of the live turn: it arrives after one, from work that
@@ -255,18 +251,24 @@ class ProgressStore {
         this.map = { ...this.map, [id]: reduce(live, event) };
       }
       this.emit();
-    };
+    });
     // A dropped connection is not evidence that work stopped; the seed from
-    // the conversation list puts back anything still running.
-    source.onerror = () => {
+    // the conversation list puts back anything still running, and the
+    // socket, back, catches the store up on the rest.
+    const unstate = socket.onState((up) => {
+      if (up || Object.keys(this.map).length === 0) return;
       this.map = {};
       this.emit();
+    });
+    this.stop = () => {
+      unwatch();
+      unstate();
     };
   }
 
   private close(): void {
-    this.source?.close();
-    this.source = null;
+    this.stop?.();
+    this.stop = null;
   }
 }
 

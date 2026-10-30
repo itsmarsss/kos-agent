@@ -4,6 +4,7 @@ import { tabName, toAddress } from "./address.js";
 import { api } from "./api.js";
 import { keyMessages, mouseMessage, toViewport, wheelMessage, type BrowserInputMessage } from "./browserinput.js";
 import { EDGE, EDGES, clampBox, cornerBox, readBox, resizedBox, saveBox, type Box, type Edge, type MinSize } from "./floatbox.js";
+import { socket, type FrameMessage } from "./socket.js";
 import { StatusDot } from "./StatusDot.js";
 
 /**
@@ -15,14 +16,14 @@ import { StatusDot } from "./StatusDot.js";
  * it, to catch it doing something it should not, and to know what a reply
  * was looking at. The address bar under the strip is yours: an address or
  * a search, back, forward, reload, a new tab, a closed one. Take over, and
- * your mouse and keys go to the page too; let go, and the agent carries
- * on. The window floats and remembers its place like the quick-question
- * one.
+ * the tab is yours: your mouse and keys go to the page, and the agent's
+ * hands wait until you let go. The window floats and remembers its place
+ * like the quick-question one.
  */
 
 export interface BrowserFrame {
   seq: number;
-  data: string;
+  image: Blob;
   width: number;
   height: number;
   at: number;
@@ -33,6 +34,10 @@ export interface BrowserTab {
   title: string;
   url: string;
   owner?: string;
+  /** Taken by the owner: an agent's hands wait. */
+  held?: true;
+  /** An agent is waiting for the owner to let go. */
+  waiting?: true;
 }
 
 export interface BrowserStatus {
@@ -43,11 +48,7 @@ export interface BrowserStatus {
   search: string;
 }
 
-type LiveEvent =
-  | { type: "status"; status: BrowserStatus }
-  | { type: "tabs"; tabs: BrowserTab[] }
-  | { type: "frame"; tab: string; frame: BrowserFrame }
-  | { type: "gone"; tab: string };
+type LiveEvent = { type: "status"; status: BrowserStatus } | { type: "tabs"; tabs: BrowserTab[] } | { type: "gone"; tab: string } | { type: "error"; error: string };
 
 export interface BrowserLiveState {
   status: BrowserStatus | null;
@@ -80,23 +81,25 @@ export function useBrowserLive(on: boolean, tab: string | null): BrowserLiveStat
     }
     if (!shown) return;
     setState((cur) => ({ ...cur, frame: null, gone: false }));
-    const source = new EventSource(`/api/browser/live${tab ? `?tab=${encodeURIComponent(tab)}` : ""}`);
-    source.onmessage = (message) => {
-      let event: LiveEvent;
-      try {
-        event = JSON.parse(message.data as string) as LiveEvent;
-      } catch {
+    const unwatch = socket.watch("browser", tab ? { tab } : {}, (message) => {
+      if (message.type === "frame") {
+        const f = message as FrameMessage;
+        if (f.tab === tab) setState((cur) => ({ ...cur, frame: { seq: f.seq, image: f.image, width: f.width, height: f.height, at: f.at }, lost: false }));
         return;
       }
+      const event = message as unknown as LiveEvent;
       setState((cur) => {
-        if (event.type === "frame") return event.tab === tab ? { ...cur, frame: event.frame, lost: false } : cur;
         if (event.type === "status") return { ...cur, status: event.status, tabs: event.status.tabs, lost: false };
         if (event.type === "tabs") return { ...cur, tabs: event.tabs };
-        return event.tab === tab ? { ...cur, gone: true } : cur;
+        if (event.type === "gone") return event.tab === tab ? { ...cur, gone: true } : cur;
+        return cur;
       });
+    });
+    const unstate = socket.onState((up) => setState((cur) => ({ ...cur, lost: !up && cur.status !== null })));
+    return () => {
+      unwatch();
+      unstate();
     };
-    source.onerror = () => setState((cur) => ({ ...cur, lost: true }));
-    return () => source.close();
   }, [on, tab, shown]);
   return state;
 }
@@ -106,9 +109,21 @@ const MIN: MinSize = { width: 360, height: 300 };
 const DEFAULT_SEARCH = "https://duckduckgo.com/?q=%s";
 
 function sendInput(tab: string, message: BrowserInputMessage): void {
-  void api.browserInput(tab, { ...message }).catch(() => {
-    /* the stream tells the status; a lost click is not worth a toast */
-  });
+  socket.send({ op: "input", tab, ...message });
+}
+
+/** Moves of the mouse, sent at most once a frame: the newest one is all the page needs. */
+function moveSender(): (tab: string, message: BrowserInputMessage) => void {
+  let pending: { tab: string; message: BrowserInputMessage } | null = null;
+  return (tab, message) => {
+    const first = pending === null;
+    pending = { tab, message };
+    if (!first) return;
+    requestAnimationFrame(() => {
+      if (pending) sendInput(pending.tab, pending.message);
+      pending = null;
+    });
+  };
 }
 
 /** A tab's name in the strip: whose it is, then what it shows. */
@@ -159,6 +174,7 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
   const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
   const resize = useRef<{ edge: Edge; x: number; y: number; box: Box } | null>(null);
   const frameSize = useRef({ width: 0, height: 0 });
+  const sendMove = useRef(moveSender()).current;
 
   /** Show one tab, and keep showing it until another is picked. */
   const pin = useCallback((id: string): void => {
@@ -183,6 +199,19 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
 
   // The address bar shows the tab it is on; an edit is dropped on a change of tab.
   useEffect(() => setTyped(null), [tab]);
+
+  // Taking over holds the tab: an agent's hands wait until you let go, close the window, or leave.
+  // Taken again after a dropped connection, which let go of it.
+  useEffect(() => {
+    if (!open || !driving || !tab) return;
+    const unstate = socket.onState((up) => {
+      if (up) socket.send({ op: "take", tab });
+    });
+    return () => {
+      unstate();
+      socket.send({ op: "release", tab });
+    };
+  }, [open, driving, tab]);
 
   useEffect(() => {
     const onResize = (): void => setBox((b) => clampBox(b, MIN));
@@ -213,10 +242,12 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
     const frame = live.frame;
     if (!el || !frame) return;
     let cancelled = false;
-    const img = new Image();
-    img.onload = () => {
-      if (cancelled) return;
-      frameSize.current = { width: frame.width || img.naturalWidth, height: frame.height || img.naturalHeight };
+    void createImageBitmap(frame.image).then((img) => {
+      if (cancelled) {
+        img.close();
+        return;
+      }
+      frameSize.current = { width: frame.width || img.width, height: frame.height || img.height };
       const dpr = window.devicePixelRatio || 1;
       const w = el.clientWidth;
       const h = el.clientHeight;
@@ -225,17 +256,20 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
         el.height = Math.round(h * dpr);
       }
       const ctx = el.getContext("2d");
-      if (!ctx) return;
+      if (!ctx) {
+        img.close();
+        return;
+      }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = "high";
-      const scale = Math.min(w / img.naturalWidth, h / img.naturalHeight);
-      const dw = img.naturalWidth * scale;
-      const dh = img.naturalHeight * scale;
+      const scale = Math.min(w / img.width, h / img.height);
+      const dw = img.width * scale;
+      const dh = img.height * scale;
       ctx.clearRect(0, 0, w, h);
       ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
-    };
-    img.src = `data:image/jpeg;base64,${frame.data}`;
+      img.close();
+    }, () => undefined);
     return () => {
       cancelled = true;
     };
@@ -370,7 +404,11 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
             {current ? tabName(current) : "Browser"}
           </span>
           {driving ? (
-            <span className="browserwin-doing browserwin-doing--you">you have the wheel{owner ? ` on ${owner}'s tab` : ""}</span>
+            <span className="browserwin-doing browserwin-doing--you">
+              {current?.waiting ? `${owner || "KOS"} is waiting for you to let go` : `you have the wheel${owner ? ` on ${owner}'s tab` : ""}`}
+            </span>
+          ) : current?.held ? (
+            <span className="browserwin-doing browserwin-doing--you">taken over in another window</span>
           ) : doing ? (
             <span className="browserwin-doing">{doing}</span>
           ) : owner ? (
@@ -391,7 +429,7 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
             aria-pressed={driving}
             disabled={!current}
             onClick={() => setDriving((v) => !v)}
-            title={driving ? "Give the tab back to the agent" : "Click and type in this tab yourself"}
+            title={driving ? "Give the tab back: the agent carries on" : "The tab is yours: the agent waits while you click and type"}
           >
             {driving ? "Let go" : "Take over"}
           </button>
@@ -528,7 +566,7 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
             if (driving && tab) sendInput(tab, mouseMessage("mouseReleased", place(e), e));
           }}
           onPointerMove={(e) => {
-            if (driving && tab) sendInput(tab, mouseMessage("mouseMoved", place(e), e));
+            if (driving && tab) sendMove(tab, mouseMessage("mouseMoved", place(e), e));
           }}
           onWheel={(e) => {
             if (!driving || !tab) return;

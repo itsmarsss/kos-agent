@@ -94,6 +94,9 @@ importers:
       sqlite-vec:
         specifier: ^0.1.9
         version: 0.1.9
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.0
       zod:
         specifier: ^4.5.4
         version: 4.5.4
@@ -101,6 +104,9 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.12
         version: 7.6.13
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
 
   packages/shared: {}
 
