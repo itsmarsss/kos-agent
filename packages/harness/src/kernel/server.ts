@@ -51,7 +51,6 @@ import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
 import { MODULES_KEY, parseModuleSettings, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
 import { instantiateBlueprint } from "../modules/blueprint.js";
 import { installModule, originOf, removeModule, run, updateModule } from "../modules/install.js";
-import { isBuiltinFeature } from "../modules/builtins.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillEnabled } from "../skills/settings.js";
 import {
   conversationKind,
@@ -130,6 +129,19 @@ export interface DaemonMeta {
   imessage?: SurfaceState;
 }
 
+/**
+ * Routes a package outside the kernel answers, under a prefix of its own.
+ *
+ * Everything under the prefix is the owner's and sits behind the dashboard
+ * token like any route, except the `open` paths: those carry their own proof
+ * (a one-time code, a signature) for a caller that has no token to send.
+ */
+export interface ApiExtension {
+  prefix: string;
+  open?: string[];
+  handle(req: ApiRequest): Promise<ApiResponse | undefined> | ApiResponse | undefined;
+}
+
 export interface DashboardServerOptions {
   /** Directory of built UI assets (vite dist). When set, non-/api paths are served. */
   staticDir?: string;
@@ -169,6 +181,8 @@ export interface DashboardServerOptions {
    * which the provider cannot send. Unset means the route does not exist.
    */
   smsInbound?: (input: { url: string; params: Record<string, string>; signature: string | undefined }) => Promise<boolean>;
+  /** Routes answered by packages outside the kernel. */
+  extensions?: ApiExtension[];
 }
 
 /** Widget types that may carry a guarded mutation target. */
@@ -574,11 +588,17 @@ export async function handleApiRequest(
     return { status: 404, body: { error: "not found" } };
   }
 
+  const extension = options.extensions?.find((e) => path === e.prefix || path.startsWith(`${e.prefix}/`));
+  const notFound: ApiResponse = { status: 404, body: { error: "not found" } };
+  if (extension?.open?.includes(path)) return (await extension.handle(req)) ?? notFound;
+
   // A configured token guards every route. Reads leak workspace state just as
   // surely as writes change it. With no token the server is loopback-only.
   if (options.token && !authorized(req, options.token)) {
     return { status: 401, body: { error: "unauthorized" } };
   }
+
+  if (extension) return (await extension.handle(req)) ?? notFound;
 
   if (method === "GET" && path === "/api/health") {
     return ok({
@@ -1189,7 +1209,7 @@ export async function handleApiRequest(
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const enabled = body.enabled === true;
     // A built-in feature switches in place; a workspace module brings a server up or down.
-    if (isBuiltinFeature(name)) {
+    if (kernel.isFeature(name)) {
       await kernel.setBuiltinEnabled(name, enabled);
       return ok({ name, enabled, builtin: true });
     }
@@ -3114,10 +3134,11 @@ function streamBuilds(
  * stream; a tab's screencast runs while anyone watches it.
  */
 /**
- * Each browser step's card gets the frame taken after it. By the call's id
- * where the engine gave one; otherwise in order, since frames are kept only
- * for steps that ran and the cards of steps that ran come in that same
- * order. A card still waiting, or refused, took no frame and is skipped.
+ * Each step that looked gets its card's picture: any step by the call's id
+ * (a browser step, a computer's screen); a browser step whose engine gave no
+ * id, in order, since frames are kept only for steps that ran and the cards
+ * of steps that ran come in that same order. A card still waiting, or
+ * refused, took no frame and is skipped.
  */
 export function withFrames(events: ChatEvent[], frames: { id: number; toolUseId: string | null; tool: string }[]): ChatEvent[] {
   if (frames.length === 0) return events;
@@ -3125,8 +3146,9 @@ export function withFrames(events: ChatEvent[], frames: { id: number; toolUseId:
   const unkeyed = frames.filter((f) => !f.toolUseId);
   let next = 0;
   return events.map((e) => {
-    if (e.kind !== "tool" || !browserStep(e.name)) return e;
+    if (e.kind !== "tool") return e;
     if (e.toolUseId && byId.has(e.toolUseId)) return { ...e, frameId: byId.get(e.toolUseId)! };
+    if (!browserStep(e.name)) return e;
     if (e.pendingId || (e.result && (e.result.startsWith(DENIED_PREFIX) || e.result.startsWith("Queued for approval")))) return e;
     const frame = unkeyed[next];
     if (!frame) return e;

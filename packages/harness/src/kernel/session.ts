@@ -1,5 +1,6 @@
 import type { Db } from "../store/db.js";
 import type { ContentBlock, ModelMessage } from "../models/types.js";
+import { withoutPictures } from "../agent/pictures.js";
 
 /**
  * Durable multi-turn chat sessions. Each channel/user pair has a session id;
@@ -296,7 +297,7 @@ export class SessionStore {
 
   /** Replace the full history, trimmed to the retention budget. */
   set(sessionId: string, messages: ModelMessage[]): void {
-    this.write(sessionId, this.trim(messages));
+    this.write(sessionId, this.trim(withoutPictures(messages)));
   }
 
   /**
@@ -311,7 +312,7 @@ export class SessionStore {
      * result, and then did the identical work over the result. The second
      * pass could only ever agree with the first.
      */
-    const trimmed = this.trim(messages);
+    const trimmed = this.trim(withoutPictures(messages));
     this.write(sessionId, trimmed);
     return trimmed;
   }
@@ -335,7 +336,7 @@ export class SessionStore {
   /** Set the chat aside and put these messages in its place: a compaction's summary. */
   replace(sessionId: string, messages: ModelMessage[], why: EarlierWhy): void {
     this.setAside(sessionId, why);
-    this.write(sessionId, this.trim(messages));
+    this.write(sessionId, this.trim(withoutPictures(messages)));
   }
 
   /** What was set aside, oldest first. */

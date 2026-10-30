@@ -46,7 +46,7 @@ import { adoptFixes } from "./caretaker.js";
 import { createModulesModule } from "../tools/modules.js";
 import { EventBus } from "../modules/events.js";
 import { MODULES_KEY, enabledServers, parseModuleSettings } from "../modules/workspace.js";
-import { isBuiltinFeature } from "../modules/builtins.js";
+import { BUILTIN_FEATURES } from "../modules/builtins.js";
 import { isContained } from "../sandbox/jail.js";
 import { PermissionStore } from "../ops/permissions.js";
 import { createDaemonsModule } from "../tools/daemons.js";
@@ -537,8 +537,11 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     ...(options.extraModules ?? []),
   ];
   const bus = new EventBus((message) => console.error(`[events] ${message}`));
+  killSwitch.onChange((halted) => bus.emit({ kind: "halt:changed", halted }));
   const loader = new ModuleLoader(toolRegistryContext(registry, services, bus));
-  const loadReport = await loader.load(modules, { skip: parseModuleSettings(settings.get(MODULES_KEY)).disabledBuiltins.filter(isBuiltinFeature) });
+  const features = [...BUILTIN_FEATURES, ...(options.features ?? [])];
+  const switchable = new Set(features.map((f) => f.name));
+  const loadReport = await loader.load(modules, { skip: parseModuleSettings(settings.get(MODULES_KEY)).disabledBuiltins.filter((name) => switchable.has(name)) });
 
   // A blob's job was named agent:<name> when blobs were agents, then
   // blob:<name>; it is blob.<name> now, as KOS's own jobs are kos.<name>.
@@ -722,6 +725,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     inference,
     system: options.system ?? DEFAULT_SYSTEM,
     sessionless: options.sessionless === true,
+    features,
     ...(options.notify ? { notify: options.notify } : {}),
     ...(options.onApprovalRequested
       ? { onApprovalRequested: options.onApprovalRequested }

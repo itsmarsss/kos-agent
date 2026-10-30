@@ -29,6 +29,9 @@ importers:
       '@kos/client':
         specifier: workspace:*
         version: link:../client
+      '@kos/computer':
+        specifier: workspace:*
+        version: link:../computer
       '@kos/harness':
         specifier: workspace:*
         version: link:../harness
@@ -40,6 +43,19 @@ importers:
         version: 4.5.4
 
   packages/client: {}
+
+  packages/computer:
+    dependencies:
+      '@kos/harness':
+        specifier: workspace:*
+        version: link:../harness
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.0
+    devDependencies:
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
 
   packages/harness:
     dependencies:

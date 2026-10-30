@@ -323,6 +323,27 @@ export interface PermissionRule {
   createdAt: number;
 }
 
+/** A computer paired with KOS Device, as the device routes tell of it. */
+export interface PairedDevice {
+  id: string;
+  name: string;
+  platform: string;
+  pairedAt: number;
+  lastSeen: number | null;
+  online: boolean;
+  /** How a session starts: asked on the computer, or through KOS's approvals. */
+  consent?: "device" | "kos";
+  permissions?: { screen: boolean; input: boolean };
+  version?: string;
+  os?: string;
+  session?: { conversation: string; title: string; task: string; until: number; paused: boolean };
+}
+
+export interface DeviceCode {
+  code: string;
+  expiresAt: number;
+}
+
 /** What a job's runs have cost, once it has run. */
 export interface JobSpend {
   /** Finished runs on record. */
@@ -490,7 +511,7 @@ export type ChatEvent =
       isError?: boolean;
       /** Set when the call is waiting on approval rather than having run. */
       pendingId?: string;
-      /** A picture of the browser after this step, at /api/frames/:id. */
+      /** A picture of what this step saw (a browser tab, a computer's screen), at /api/frames/:id. */
       frameId?: number;
     }
   | {
@@ -1328,6 +1349,11 @@ export const api = {
   createCaller: (name: string, readTags: string[], writeGlobal: boolean) =>
     post<{ caller: CallerInfo; token: string }>("/api/callers", { name, readTags, writeGlobal }),
   revokeCaller: (id: number) => post<{ id: number; revoked: boolean }>("/api/callers/revoke", { id }),
+  devices: () => get<{ devices: PairedDevice[] }>("/api/devices"),
+  deviceCode: () => post<DeviceCode>("/api/devices/pairings"),
+  renameDevice: (id: string, name: string) => post<PairedDevice>("/api/devices/rename", { id, name }),
+  removeDevice: (id: string) => post<{ removed: string }>("/api/devices/remove", { id }),
+  stopDevice: (id: string) => post<{ stopped: boolean }>("/api/devices/stop", { id }),
   permissions: () => get<{ rules: PermissionRule[] }>("/api/permissions"),
   revokePermission: (id: number) => post<{ id: number; revoked: boolean }>("/api/permissions/revoke", { id }),
   deny: (id: number) =>

@@ -18,6 +18,7 @@ export { connectChannel, type ConnectChannelOptions } from "./channel.js";
 export {
   createDashboardServer,
   handleApiRequest,
+  type ApiExtension,
   type ApiRequest,
   type ApiResponse,
   type DashboardServerOptions,

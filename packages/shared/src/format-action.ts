@@ -64,6 +64,52 @@ function kindOfField(tool: string, key: string): string | undefined {
   return undefined;
 }
 
+const COMPUTER_CLICKS: Record<string, string> = {
+  left_click: "Click",
+  right_click: "Right-click",
+  middle_click: "Middle-click",
+  double_click: "Double-click",
+  triple_click: "Triple-click",
+};
+
+/** A point as the tools take one, [x, y], in words. */
+function at(v: unknown): string {
+  return Array.isArray(v) && v.length === 2 ? `(${v.map((n) => fmtVal(n)).join(", ")})` : "";
+}
+
+/** A computer step as what it does on the screen; a device id names nothing the owner knows, so it is left out. */
+function computerStep(tool: string, a: Record<string, unknown>): string {
+  if (tool === "computer.devices") return "List the paired computers";
+  if (tool === "computer.end") return "Give the computer back";
+  if (tool === "computer.start") {
+    const device = typeof a.device === "string" && !a.device.startsWith("dev_") ? a.device : "a computer";
+    return `Use ${device}: ${fmtVal(a.task)}`;
+  }
+  const action = typeof a.action === "string" ? a.action : "";
+  const click = COMPUTER_CLICKS[action];
+  if (click) return `${click} at ${at(a.coordinate)}${typeof a.text === "string" && a.text ? ` holding ${a.text}` : ""}`;
+  switch (action) {
+    case "screenshot":
+      return "Look at the screen";
+    case "zoom":
+      return "Look closer at part of the screen";
+    case "mouse_move":
+      return `Move the pointer to ${at(a.coordinate)}`;
+    case "left_click_drag":
+      return `Drag from ${at(a.start_coordinate)} to ${at(a.coordinate)}`;
+    case "scroll":
+      return `Scroll ${fmtVal(a.scroll_direction ?? "down")}${typeof a.scroll_amount === "number" ? ` ${a.scroll_amount}` : ""}`;
+    case "type":
+      return `Type “${fmtVal(a.text)}”`;
+    case "key":
+      return `Press ${fmtVal(a.text)}`;
+    case "wait":
+      return `Wait ${fmtVal(a.duration ?? 1)}s`;
+    default:
+      return `On the computer: ${fmtVal(action)}`;
+  }
+}
+
 /** One-line summary for a tool + args, with names for the ids the caller can name. */
 export function summarizeAction(
   tool: string,
@@ -234,6 +280,7 @@ export function summarizeAction(
     default:
       break;
   }
+  if (tool.startsWith("computer.")) return computerStep(tool, a);
   // KOS's own browser tools: a visit, a run of steps, or the owner's hands.
   if (tool === "browser.visit") {
     // One visit may take several pages; the card names them all.

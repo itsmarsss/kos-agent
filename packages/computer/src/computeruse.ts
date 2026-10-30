@@ -1,0 +1,77 @@
+import type { IncomingMessage } from "node:http";
+import type { Duplex } from "node:stream";
+
+import { requireServices, type ApiExtension, type KosModule } from "@kos/harness";
+
+import { DeviceHub } from "./hub.js";
+import { loadHostKey } from "./keys.js";
+import { deviceRoutes, deviceSocketServer } from "./routes.js";
+import { DeviceStore } from "./store.js";
+import { COMPUTER_MANIFEST, computerModule } from "./tools.js";
+
+/**
+ * Computer use, as one thing a host plugs in: a module for the kernel to
+ * load, routes for the dashboard server, and the device socket for its
+ * upgrades. The kernel knows none of it; switched off in Settings, the
+ * module takes its tools back, ends every session and the routes say so.
+ */
+
+export interface ComputerUseOptions {
+  /** Where KOS's own key is kept when the environment does not give one. Outside the workspace. */
+  hostKeyPath: string;
+  /** KOS's key as base64 PKCS#8, for a host whose home does not persist. */
+  hostKeyEnv?: string;
+  /** The conversation calling a tool, read at call time. */
+  caller(): string | undefined;
+  titleOf(conversation: string): string;
+  halted(): boolean;
+}
+
+export interface ComputerUse {
+  module: KosModule;
+  routes: ApiExtension;
+  upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): boolean;
+  close(): void;
+}
+
+export function createComputerUse(options: ComputerUseOptions): ComputerUse {
+  let hub: DeviceHub | undefined;
+  let active: KosModule | undefined;
+  const sockets = deviceSocketServer(() => (active ? hub : undefined));
+
+  const module: KosModule = {
+    manifest: COMPUTER_MANIFEST,
+    async activate(ctx) {
+      // Made on first activation, when the store exists; kept across a switch
+      // off and on so the devices' connections are the only thing that resets.
+      hub ??= new DeviceHub({
+        store: new DeviceStore(requireServices(ctx).db),
+        hostKey: loadHostKey({ path: options.hostKeyPath, ...(options.hostKeyEnv ? { env: options.hostKeyEnv } : {}) }),
+        halted: options.halted,
+      });
+      const events = ctx.events;
+      active = computerModule({
+        hub,
+        caller: options.caller,
+        titleOf: options.titleOf,
+        ...(events ? { onHalt: (handler: () => void) => events.on("halt:changed", (e) => (e.halted ? handler() : undefined)) } : {}),
+      });
+      await active.activate(ctx);
+    },
+    async deactivate() {
+      await active?.deactivate?.();
+      active = undefined;
+      hub?.closeAll();
+    },
+  };
+
+  return {
+    module,
+    routes: deviceRoutes(() => (active ? hub : undefined), options.titleOf),
+    upgrade: (req, socket, head) => sockets.upgrade(req, socket, head),
+    close() {
+      hub?.closeAll();
+      sockets.close();
+    },
+  };
+}

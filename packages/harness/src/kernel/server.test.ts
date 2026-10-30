@@ -557,6 +557,15 @@ describe("handleApiRequest", () => {
     expect(withFrames(events, frames).map((e) => (e.kind === "tool" ? e.frameId : null))).toEqual([11, undefined, undefined, 12, undefined]);
   });
 
+  it("gives any step its picture by the call's id, not only a browser step's", () => {
+    const events = [
+      { kind: "tool" as const, name: "computer.act", summary: "", args: {}, result: "Clicked", toolUseId: "call_1" },
+      { kind: "tool" as const, name: "computer.end", summary: "", args: {}, result: "Ended", toolUseId: "call_2" },
+    ];
+    const frames = [{ id: 21, toolUseId: "call_1", tool: "computer.act" }];
+    expect(withFrames(events, frames).map((e) => (e.kind === "tool" ? e.frameId : null))).toEqual([21, undefined]);
+  });
+
   it("toggles the kill switch", async () => {
     await handleApiRequest(kernel, { method: "POST", path: "/api/kill", body: { halted: true } });
     expect(kernel.killSwitch.halted).toBe(true);
@@ -1190,6 +1199,28 @@ describe("handleApiRequest", () => {
         );
         expect(allowed.status).toBe(200);
       }
+    });
+
+    it("lets an extension's open paths answer without the token, and holds the rest behind it", async () => {
+      const seen: string[] = [];
+      const extensions = [{
+        prefix: "/api/devices",
+        open: ["/api/devices/pair"],
+        handle: (req: { path: string }) => {
+          seen.push(req.path);
+          return req.path === "/api/devices/none" ? undefined : { status: 200, body: { path: req.path } };
+        },
+      }];
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/devices/pair" }, { token: "secret", extensions })).status).toBe(200);
+      expect((await handleApiRequest(kernel, { method: "GET", path: "/api/devices" }, { token: "secret", extensions })).status).toBe(401);
+      expect(seen).toEqual(["/api/devices/pair"]);
+      const owner = { "x-kos-token": "secret" };
+      expect((await handleApiRequest(kernel, { method: "GET", path: "/api/devices", headers: owner }, { token: "secret", extensions })).body).toEqual({ path: "/api/devices" });
+      expect((await handleApiRequest(kernel, { method: "GET", path: "/api/devices/none", headers: owner }, { token: "secret", extensions })).status).toBe(404);
+      // A prefix is a path segment: /api/devicesX is not the extension's.
+      expect(seen).not.toContain("/api/devicesX");
+      await handleApiRequest(kernel, { method: "GET", path: "/api/devicesX", headers: owner }, { token: "secret", extensions });
+      expect(seen).not.toContain("/api/devicesX");
     });
 
     it("leaves the no-token loopback case open", async () => {
