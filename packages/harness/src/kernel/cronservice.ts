@@ -9,9 +9,9 @@ import { cronSessionId } from "./session.js";
  * Scheduled jobs, as the kernel sees them: when the scheduler runs, what
  * one run costs in bookkeeping, and what firing a job by hand means.
  *
- * The scheduler decides when; this decides what a run is: a run-log row,
- * a health verdict, the backup job that runs outside the tool path, and
- * the stop that keeps a job from firing while it is already firing. What
+ * The scheduler decides when, and keeps a job from running twice at once
+ * whichever path fires it; this decides what a run is: a run-log row, a
+ * health verdict, and the backup job that runs outside the tool path. What
  * a run does inside its conversation stays with the kernel, which owns
  * threads and tools, and comes in as one closure.
  */
@@ -50,7 +50,6 @@ export const BACKUP_JOB = "kos.backup";
 
 export class CronService {
   private scheduler?: CronScheduler;
-  private readonly firing = new Set<number>();
 
   constructor(private readonly deps: CronServiceDeps) {}
 
@@ -111,33 +110,16 @@ export class CronService {
     const job = this.deps.crons.get(id);
     if (!job) throw new Error(`no such cron: ${id}`);
     if (!this.scheduler) this.start();
-    /*
-     * A job cannot fire while it is already firing.
-     *
-     * A self-prompt job whose prompt asks KOS to run a job can name itself,
-     * and each run would start another before the first had finished. The
-     * rate limit bounds how many self-prompts happen in an hour, which is a
-     * cap on the damage rather than a stop; this is the stop. It also breaks
-     * the longer loop, A firing B firing A, because A is still in flight.
-     */
-    if (this.firing.has(id)) {
-      const outcome: FireOutcome = { fired: false, reason: "error", error: `${job.name} is already running` };
-      return { outcome, ok: false, error: outcome.error! };
+    // A job already running is turned away by the scheduler, which every path goes through.
+    const outcome = await this.scheduler!.fire(job);
+    if (!outcome.fired) {
+      return { outcome, ok: false, error: outcome.error ?? outcome.reason };
     }
-    this.firing.add(id);
-    try {
-      const outcome = await this.scheduler!.fire(job);
-      if (!outcome.fired) {
-        return { outcome, ok: false, error: outcome.error ?? outcome.reason };
-      }
-      // "It fired" is not "it worked": a job every one of whose actions
-      // errored fires perfectly well, and reporting that as a success is how
-      // a broken job gets confirmed as healthy by the person checking it.
-      const failure = cronFailure(outcome.result as CronExecResult);
-      return failure ? { outcome, ok: false, error: failure } : { outcome, ok: true };
-    } finally {
-      this.firing.delete(id);
-    }
+    // "It fired" is not "it worked": a job every one of whose actions
+    // errored fires perfectly well, and reporting that as a success is how
+    // a broken job gets confirmed as healthy by the person checking it.
+    const failure = cronFailure(outcome.result as CronExecResult);
+    return failure ? { outcome, ok: false, error: failure } : { outcome, ok: true };
   }
 
   /** One run, on the record: the run log and the health report both hear how it went. */

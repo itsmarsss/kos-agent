@@ -1369,23 +1369,26 @@ export class Kernel {
       },
     ]);
     const failed = results.filter((r) => r.isError).length;
+    const summary = failed
+      ? `Ran ${results.length} action${results.length === 1 ? "" : "s"}; ${failed} failed.`
+      : `Ran ${results.length} action${results.length === 1 ? "" : "s"}.`;
     this.sessions.record(id, [
       ...this.sessions.get(id),
       { role: "user", content: [{ type: "text", text: "The schedule fired." }] },
       ...calls,
-      {
-        role: "assistant",
-        content: [
-          {
-            type: "text",
-            text: failed
-              ? `Ran ${results.length} action${results.length === 1 ? "" : "s"}; ${failed} failed.`
-              : `Ran ${results.length} action${results.length === 1 ? "" : "s"}.`,
-          },
-        ],
-      },
+      { role: "assistant", content: [{ type: "text", text: summary }] },
     ]);
     this.conversations.touch(id);
+    /*
+     * Told to the surfaces, so the run shows in the job's thread with a Run
+     * now button, when the owner fired it by hand or something failed. A
+     * quiet scheduled tick says nothing: an actions job may run every minute,
+     * and its work (a notify, a post) already speaks for itself. A blob's
+     * job runs in the blob's own thread and is left out.
+     */
+    if (id.startsWith("cron:") && (failed > 0 || this.firedByHand.has(job.id))) {
+      this.said(id, "The schedule fired.", summary, "system", undefined, []);
+    }
   }
 
   private async runJobTurn(prompt: string, job: CronJob): Promise<string> {
@@ -3973,8 +3976,12 @@ export class Kernel {
   }
 
   /** Run one job now, through the same path the schedule uses. */
+  /** Jobs fired by hand right now (Run now on the dashboard or Discord, /run), so a quiet actions job's run is still shown. */
+  private readonly firedByHand = new Set<number>();
+
   fireCron(id: number): Promise<CronFireResult> {
-    return this.cron.fire(id);
+    this.firedByHand.add(id);
+    return this.cron.fire(id).finally(() => this.firedByHand.delete(id));
   }
 
   /** Jobs the running scheduler actually holds, as opposed to rows in the table. */

@@ -50,6 +50,12 @@ export interface SlashContext {
    * name they cannot click is a name they have to go and find.
    */
   link?(conversationId: string): string | undefined;
+  /**
+   * The scheduled jobs /run can fire, by id. From the jobs themselves, not
+   * from conversations: a job that has never run has no thread yet, and the
+   * chat list leaves schedules out on purpose.
+   */
+  jobs?(): { id: number; name: string; enabled: boolean }[];
 }
 
 export interface SlashSpec {
@@ -103,14 +109,46 @@ function label(chat: { title: string; kind: string }): string {
 }
 
 /** Chats matching what has been typed so far, for the picker. */
-export function completions(ctx: SlashContext, typed: string, onlyKind?: string): SlashChoice[] {
+export function completions(ctx: SlashContext, typed: string): SlashChoice[] {
   const needle = typed.trim().toLowerCase();
   return ctx
     .list()
-    .filter((c) => (!onlyKind || c.kind === onlyKind) && (!needle || c.title.toLowerCase().includes(needle)))
+    .filter((c) => !needle || c.title.toLowerCase().includes(needle))
     // Discord shows at most twenty-five.
     .slice(0, 25)
     .map((c) => ({ name: label(c), value: c.id }));
+}
+
+/** A job as the /run picker shows it, marked when paused. */
+function jobLabel(job: { name: string; enabled: boolean }): string {
+  const name = `\u23f1 ${job.name}${job.enabled ? "" : " (paused)"}`;
+  return name.length > 90 ? `${name.slice(0, 89)}\u2026` : name;
+}
+
+/** Jobs matching what has been typed, for /run: shown by name, chosen by id. */
+export function jobCompletions(ctx: SlashContext, typed: string): SlashChoice[] {
+  const needle = typed.trim().toLowerCase();
+  return (ctx.jobs?.() ?? [])
+    .filter((j) => !needle || j.name.toLowerCase().includes(needle))
+    .slice(0, 25)
+    .map((j) => ({ name: jobLabel(j), value: String(j.id) }));
+}
+
+/**
+ * The job a /run argument names, as an id. The picker hands over the id; a
+ * name typed by hand is resolved to its id at once, exactly or by the one
+ * job it alone matches, and never kept as a name.
+ */
+export function jobNamed(ctx: SlashContext, argument: string | undefined): number | undefined {
+  const raw = (argument ?? "").trim().replace(/^cron:/, "");
+  if (!raw) return undefined;
+  if (/^\d+$/.test(raw)) return Number(raw);
+  const lower = raw.toLowerCase();
+  const jobs = ctx.jobs?.() ?? [];
+  const exact = jobs.find((j) => j.name.toLowerCase() === lower);
+  if (exact) return exact.id;
+  const partial = jobs.filter((j) => j.name.toLowerCase().includes(lower));
+  return partial.length === 1 ? partial[0]!.id : undefined;
 }
 
 /**

@@ -27,6 +27,8 @@ import {
   buildModal,
   chunkText,
   parseApprovalCustomId,
+  runNowReply,
+  type RunNowOutcome,
 } from "./discord.js";
 import type { ApprovalDecision, ButtonPress, InboundMessage } from "./types.js";
 
@@ -1665,7 +1667,7 @@ describe("Run now from Discord", () => {
 });
 
 describe("/run from Discord", () => {
-  it("fires the job the command names, by its conversation id", async () => {
+  function setup(outcome: (id: number) => RunNowOutcome | undefined) {
     const ran: number[] = [];
     const adapter = new DiscordAdapter({
       token: "t",
@@ -1673,27 +1675,101 @@ describe("/run from Discord", () => {
       ownerId: "owner-id",
       onRunCron: async (id) => {
         ran.push(id);
-        return { name: "Morning brief", ok: true };
+        return outcome(id);
       },
     });
     adapter.setAuthorizer((senderId) => senderId === "owner-id");
-    adapter.onCommand({ list: () => [], current: () => undefined, target: () => undefined, home: () => "h", stop: () => false, create: () => ({ id: "x", title: "x" }) });
+    adapter.onCommand({
+      list: () => [],
+      jobs: () => [
+        { id: 7, name: "Morning brief", enabled: true },
+        { id: 9, name: "School Evening Nudge", enabled: true },
+      ],
+      current: () => undefined,
+      target: () => undefined,
+      home: () => "h",
+      stop: () => false,
+      create: () => ({ id: "x", title: "x" }),
+    });
     const edits: string[] = [];
-    const cmd = {
-      isButton: () => false,
+    const respond: unknown[] = [];
+    const command = (value: string | undefined) =>
+      ({
+        isButton: () => false,
+        isAutocomplete: () => false,
+        isChatInputCommand: () => true,
+        commandName: "run",
+        user: { id: "owner-id" },
+        options: { data: value === undefined ? [] : [{ value }] },
+        deferReply: async () => undefined,
+        editReply: async (p: { content?: string }) => {
+          edits.push(String(p.content));
+        },
+        reply: async () => undefined,
+      }) as unknown as Interaction;
+    const autocomplete = (typed: string) =>
+      ({
+        isAutocomplete: () => true,
+        commandName: "run",
+        user: { id: "owner-id" },
+        options: { getFocused: () => typed },
+        respond: async (choices: unknown) => {
+          respond.push(choices);
+        },
+      }) as unknown as Interaction;
+    return { adapter, ran, edits, respond, command, autocomplete };
+  }
+
+  it("offers the jobs by id in its picker, and fires the one picked", async () => {
+    const h = setup(() => ({ name: "Morning brief", ok: true, fired: true }));
+    await h.adapter.receiveInteraction(h.autocomplete("morn"));
+    expect(h.respond).toEqual([[{ name: "\u23f1 Morning brief", value: "7" }]]);
+    await h.adapter.receiveInteraction(h.command("7"));
+    expect(h.ran).toEqual([7]);
+    expect(h.edits).toEqual(["Ran Morning brief."]);
+  });
+
+  it("takes a job typed by name, and says so when nothing matches", async () => {
+    const h = setup(() => ({ name: "School Evening Nudge", ok: true, fired: true }));
+    await h.adapter.receiveInteraction(h.command("evening nudge"));
+    expect(h.ran).toEqual([9]);
+    await h.adapter.receiveInteraction(h.command("no such thing"));
+    expect(h.ran).toEqual([9]);
+    expect(h.edits.at(-1)).toBe("No such job. Pick one from the list /run offers.");
+  });
+});
+
+describe("what Run now tells the owner", () => {
+  it("tells a run that did not start from one that ran and failed", () => {
+    expect(runNowReply(undefined)).toBe("No such job. Pick one from the list /run offers.");
+    expect(runNowReply({ name: "Brief", ok: true, fired: true })).toBe("Ran Brief.");
+    expect(runNowReply({ name: "Brief", ok: false, fired: false, error: "Brief is already running" })).toBe("Brief did not run: Brief is already running");
+    expect(runNowReply({ name: "Brief", ok: false, fired: true, error: "notify failed" })).toBe("Brief ran, but something failed: notify failed");
+  });
+
+  it("reports an error thrown while running, not a missing job", async () => {
+    const adapter = new DiscordAdapter({
+      token: "t",
+      guildId: "g1",
+      ownerId: "owner-id",
+      onRunCron: async () => {
+        throw new Error("the queue is closed");
+      },
+    });
+    adapter.setAuthorizer((senderId) => senderId === "owner-id");
+    const edits: string[] = [];
+    await adapter.receiveInteraction({
+      isButton: () => true,
       isAutocomplete: () => false,
-      isChatInputCommand: () => true,
-      commandName: "run",
+      isChatInputCommand: () => false,
+      customId: "kos:cron:5",
       user: { id: "owner-id" },
-      options: { data: [{ value: "cron:7" }] },
       deferReply: async () => undefined,
       editReply: async (p: { content?: string }) => {
         edits.push(String(p.content));
       },
       reply: async () => undefined,
-    } as unknown as Interaction;
-    await adapter.receiveInteraction(cmd);
-    expect(ran).toEqual([7]);
-    expect(edits).toEqual(["Ran Morning brief."]);
+    } as unknown as Interaction);
+    expect(edits).toEqual(["Could not run it: the queue is closed"]);
   });
 });
