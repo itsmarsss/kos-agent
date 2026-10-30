@@ -4432,6 +4432,25 @@ li:hover .chats-item-when { opacity: 0; }
 }
 .set-inline { display: flex; align-items: center; gap: 0.6rem; }
 .set-inline .kos-input { flex: 1; min-width: 0; }
+
+/* A pairing code, made to be read off one screen and typed on another. */
+.device-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+}
+.device-code {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 1.6rem;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+}
 .set-select { max-width: 20rem; }
 .set-badge {
   padding: 0.05rem 0.4rem;

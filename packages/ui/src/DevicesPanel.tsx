@@ -1,0 +1,197 @@
+import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
+
+import { api, type DeviceCode, type PairedDevice } from "./api.js";
+import { ConfirmButton, Pill } from "./kit.js";
+import { agoWords } from "./schedulewords.js";
+import { Field } from "./SettingField.js";
+
+/**
+ * The computers KOS may use, and pairing one.
+ *
+ * A computer is paired by a code made here and typed (or a link opened) in
+ * KOS Device on it. The list is polled while it is open, so a device coming
+ * online, a session starting or the owner pausing it on the computer shows
+ * without a reload.
+ */
+
+const POLL_MS = 3000;
+
+/** The link KOS Device opens itself on, with this dashboard's address in it. */
+export function pairingLink(origin: string, code: string): string {
+  return `kos-device://pair?url=${encodeURIComponent(origin)}&code=${encodeURIComponent(code)}`;
+}
+
+function platformName(platform: string): string {
+  return platform === "macos" ? "macOS" : platform;
+}
+
+/** What is missing for KOS to use it, in the owner's words. */
+function missing(d: PairedDevice): string | undefined {
+  if (!d.permissions) return undefined;
+  const lacks = [!d.permissions.screen && "Screen Recording", !d.permissions.input && "Accessibility"].filter(Boolean);
+  return lacks.length ? `Needs ${lacks.join(" and ")} on the computer` : undefined;
+}
+
+export function describeDevice(d: PairedDevice, now = Date.now()): string {
+  if (!d.online) return d.lastSeen ? `Offline, last seen ${agoWords(d.lastSeen, now)}` : "Never connected. Open KOS Device on it.";
+  const parts = [
+    [platformName(d.platform), d.os].filter(Boolean).join(" "),
+    d.consent === "kos" ? "starts through your approvals" : "asks on the computer",
+    missing(d),
+  ].filter(Boolean);
+  if (d.session) {
+    const until = new Date(d.session.until).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    parts.push(`${d.session.paused ? "Paused by you" : "In use"}: ${d.session.title}, "${d.session.task}", until ${until}`);
+  }
+  return parts.join(" · ");
+}
+
+function DeviceRow({ device, onChanged }: { device: PairedDevice; onChanged: () => void }): ReactElement {
+  const [name, setName] = useState<string | null>(null);
+  const save = (): void => {
+    const next = name?.trim();
+    setName(null);
+    if (next && next !== device.name) void api.renameDevice(device.id, next).then(onChanged, onChanged);
+  };
+  const state = device.session ? (
+    <Pill tone={device.session.paused ? "warn" : "accent"}>{device.session.paused ? "paused" : "in use"}</Pill>
+  ) : (
+    <Pill tone={device.online ? "ok" : "muted"}>{device.online ? "online" : "offline"}</Pill>
+  );
+  return (
+    <Field label={device.name} badge={state} hint={describeDevice(device)} row>
+      {name !== null ? (
+        <input
+          className="kos-input"
+          value={name}
+          autoFocus
+          aria-label="Device name"
+          onChange={(e) => setName(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") save();
+            if (e.key === "Escape") setName(null);
+          }}
+        />
+      ) : (
+        <div className="set-inline">
+          {device.session && (
+            <button type="button" className="btn btn--sm" onClick={() => void api.stopDevice(device.id).then(onChanged, onChanged)}>
+              Stop
+            </button>
+          )}
+          <button type="button" className="btn btn--sm btn--ghost" onClick={() => setName(device.name)}>
+            Rename
+          </button>
+          <ConfirmButton
+            label="Remove"
+            text={`Unpair ${device.name}? KOS forgets its key and cannot use it until you pair it again.`}
+            onConfirm={() => void api.removeDevice(device.id).then(onChanged, onChanged)}
+          />
+        </div>
+      )}
+    </Field>
+  );
+}
+
+function PairingCode({ code, now, onDone }: { code: DeviceCode; now: number; onDone: () => void }): ReactElement {
+  const origin = window.location.origin;
+  const link = pairingLink(origin, code.code);
+  const left = Math.max(0, Math.ceil((code.expiresAt - now) / 60_000));
+  const [copied, setCopied] = useState<string | null>(null);
+  const copy = (what: string, text: string): void => {
+    void navigator.clipboard.writeText(text).then(() => setCopied(what));
+  };
+  return (
+    <div className="device-pair">
+      <p className="device-code" aria-label="Pairing code">
+        {code.code}
+      </p>
+      <p className="hint">
+        {left > 0
+          ? `On the computer, open KOS Device and paste the link, or enter ${origin} and this code. Good for ${left} more minute${left === 1 ? "" : "s"}, once.`
+          : "This code has expired. Make another."}
+      </p>
+      <div className="set-inline">
+        <a className="btn btn--primary btn--sm" href={link}>
+          Open KOS Device
+        </a>
+        <button type="button" className="btn btn--sm" onClick={() => copy("link", link)}>
+          {copied === "link" ? "Link copied" : "Copy link"}
+        </button>
+        <button type="button" className="btn btn--sm btn--ghost" onClick={() => copy("code", code.code)}>
+          {copied === "code" ? "Code copied" : "Copy code"}
+        </button>
+        <button type="button" className="btn btn--sm btn--ghost" onClick={onDone}>
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function DevicesPanel(): ReactElement {
+  const [devices, setDevices] = useState<PairedDevice[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [code, setCode] = useState<DeviceCode | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [joined, setJoined] = useState<string | null>(null);
+  const known = useRef<Set<string> | null>(null);
+
+  const load = useCallback(() => {
+    void api.devices().then(
+      (r) => {
+        setError(null);
+        setDevices(r.devices);
+        // A device that appears while a code is up is the one that used it.
+        const before = known.current;
+        known.current = new Set(r.devices.map((d) => d.id));
+        const fresh = before ? r.devices.find((d) => !before.has(d.id)) : undefined;
+        if (fresh) {
+          setCode(null);
+          setJoined(fresh.name);
+        }
+      },
+      (err: unknown) => setError(err instanceof Error ? err.message : String(err)),
+    );
+  }, []);
+
+  useEffect(() => {
+    load();
+    const timer = setInterval(() => {
+      load();
+      setNow(Date.now());
+    }, POLL_MS);
+    return () => clearInterval(timer);
+  }, [load]);
+
+  const add = (): void => {
+    setJoined(null);
+    void api.deviceCode().then(setCode, (err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+  };
+
+  if (error) return <p className="hint">{error}</p>;
+  if (!devices) return <p className="hint">Loading…</p>;
+  return (
+    <>
+      {devices.length === 0 && !code && (
+        <p className="hint">No computers yet. Install KOS Device on a Mac, then add it here.</p>
+      )}
+      {joined && <p className="hint">Paired {joined}.</p>}
+      <div className="set-rows">
+        {devices.map((d) => (
+          <DeviceRow key={d.id} device={d} onChanged={load} />
+        ))}
+      </div>
+      {code ? (
+        <PairingCode code={code} now={now} onDone={() => setCode(null)} />
+      ) : (
+        <div className="set-inline">
+          <button type="button" className="btn btn--sm" onClick={add}>
+            Add a device
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
