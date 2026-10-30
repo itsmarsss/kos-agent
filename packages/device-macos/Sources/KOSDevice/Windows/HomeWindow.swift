@@ -19,7 +19,11 @@ final class HomeWindow: NSObject, NSWindowDelegate {
   private let settings: Settings
   private lazy var window: NSWindow = makeWindow()
   private var refresher: Timer?
-  private var addressWatch: AnyCancellable?
+  private var watches: [AnyCancellable] = []
+  /// Apps installed on this Mac, by bundle id, found when the window opens.
+  private var installed: Set<String> = []
+  /// Each app's entry, made once, so the lists keep the same icons and compare equal.
+  private var entries: [String: AppEntry] = [:]
 
   init(settings: Settings) {
     self.settings = settings
@@ -30,8 +34,14 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     model.actions.restart = { SystemPermissions.relaunch() }
     model.actions.hide = { [weak self] id in self?.settings.hiddenApps.append(id) }
     model.actions.unhide = { [weak self] id in self?.settings.hiddenApps.removeAll { $0.caseInsensitiveCompare(id) == .orderedSame } }
-    // A pasted pairing link fills the address and the code.
-    addressWatch = model.$address.sink { [weak self] text in self?.readLink(text) }
+    model.actions.close = { [weak self] in self?.window.performClose(nil) }
+    model.actions.minimize = { [weak self] in self?.window.miniaturize(nil) }
+    watches = [
+      // A pasted pairing link fills the address and the code.
+      model.$address.sink { [weak self] text in self?.readLink(text) },
+      // The window follows the content's height, top edge fixed, so a card opening slides rather than jumps.
+      model.$contentHeight.removeDuplicates().sink { [weak self] height in self?.fit(height) },
+    ]
   }
 
   var isVisible: Bool { window.isVisible }
@@ -45,6 +55,7 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     } else if model.note.isEmpty {
       say("")
     }
+    findInstalledApps()
     refreshSystem()
     refresher?.invalidate()
     refresher = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
@@ -66,11 +77,54 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     model.screenGranted = now.screen
     model.inputGranted = now.input
     model.askFirst = settings.askFirst
-    model.hidden = settings.hiddenApps.map(Self.entry)
-    model.addable = NSWorkspace.shared.runningApplications
-      .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != nil && !settings.isHidden($0.bundleIdentifier) }
-      .map { Self.entry($0.bundleIdentifier!) }
-      .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    let hidden = settings.hiddenApps.map { entry($0, running: false) }
+    if hidden != model.hidden { model.hidden = hidden }
+    let running = Set(NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.compactMap(\.bundleIdentifier))
+    let mine = Bundle.main.bundleIdentifier
+    let pickable = installed.union(running)
+      .filter { $0 != mine && !settings.isHidden($0) }
+      .map { entry($0, running: running.contains($0)) }
+      .sorted { a, b in a.running != b.running ? a.running : a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending }
+    if pickable != model.pickable { model.pickable = pickable }
+  }
+
+  /// Every app in the usual places, read off the main thread; the picker lists them as they arrive.
+  private func findInstalledApps() {
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    let places = ["/Applications", "/Applications/Utilities", "/System/Applications", "/System/Applications/Utilities"]
+      .map { URL(fileURLWithPath: $0) } + [home.appendingPathComponent("Applications")]
+    Task.detached(priority: .utility) {
+      var found: Set<String> = []
+      for place in places {
+        let apps = (try? FileManager.default.contentsOfDirectory(at: place, includingPropertiesForKeys: nil)) ?? []
+        for app in apps where app.pathExtension == "app" {
+          if let id = Bundle(url: app)?.bundleIdentifier { found.insert(id) }
+        }
+      }
+      let apps = found
+      await MainActor.run { [weak self] in
+        guard let self, apps != self.installed else { return }
+        self.installed = apps
+        self.refreshSystem()
+      }
+    }
+  }
+
+  private func fit(_ height: CGFloat) {
+    guard height > 0 else { return }
+    let frame = window.frame
+    let content = window.contentRect(forFrameRect: frame)
+    let target = window.frameRect(forContentRect: CGRect(x: content.minX, y: content.maxY - height, width: content.width, height: height))
+    guard abs(target.height - frame.height) > 0.5 else { return }
+    if window.isVisible {
+      NSAnimationContext.runAnimationGroup { context in
+        context.duration = 0.32
+        context.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.9, 0.3, 1)
+        window.animator().setFrame(target, display: true)
+      }
+    } else {
+      window.setFrame(target, display: false)
+    }
   }
 
   // MARK: Pairing
@@ -133,10 +187,19 @@ final class HomeWindow: NSObject, NSWindowDelegate {
   // MARK: Window
 
   private func makeWindow() -> NSWindow {
-    let window = NSWindow(contentViewController: NSHostingController(rootView: HomeView(model: model)))
-    window.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
+    let host = NSHostingView(rootView: HomeView(model: model))
+    // The window's size is set from the content's height, animated; the host must not fight it.
+    host.sizingOptions = []
+    let window = NSWindow(
+      contentRect: CGRect(x: 0, y: 0, width: 460, height: max(model.contentHeight, 600)),
+      styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
+    window.contentView = host
     window.titlebarAppearsTransparent = true
     window.titleVisibility = .hidden
+    // KOS's own lights are drawn in the window; the system's would sit on top of them.
+    for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+      window.standardWindowButton(button)?.isHidden = true
+    }
     window.title = "KOS Device"
     window.isMovableByWindowBackground = true
     window.appearance = NSAppearance(named: .darkAqua)
@@ -146,7 +209,17 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     return window
   }
 
-  private static func entry(_ bundleId: String) -> AppEntry {
+  /// An app's entry: its name and icon looked up once, its open state as of now.
+  private func entry(_ bundleId: String, running: Bool) -> AppEntry {
+    let known = entries[bundleId] ?? Self.lookUp(bundleId)
+    entries[bundleId] = known
+    guard known.running != running else { return known }
+    let now = AppEntry(id: known.id, name: known.name, icon: known.icon, installed: known.installed, running: running)
+    entries[bundleId] = now
+    return now
+  }
+
+  private static func lookUp(_ bundleId: String) -> AppEntry {
     guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else {
       let name = Settings.knownNames[bundleId] ?? bundleId.split(separator: ".").last.map(String.init) ?? bundleId
       return AppEntry(id: bundleId, name: name, icon: nil, installed: false)

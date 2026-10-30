@@ -5,147 +5,76 @@ import SwiftUI
 /// and the owner's own rules for this Mac.
 ///
 /// Three windows (pairing, permissions, hidden apps) became one, so the
-/// owner sees the whole state in a glance and never hunts the menu for it.
-/// The model holds what is shown; the app fills it and does what the actions
-/// say. Nothing here reaches the system.
-
-public enum LinkState: Equatable {
-  case notPaired
-  case connecting
-  case connected
-  case offline(String)
-  /// The far end could not sign with the key pinned at pairing.
-  case untrusted
-  /// Another copy of KOS Device took the line.
-  case replaced
-  case outdated
-}
-
-public enum Grant: CaseIterable {
-  case screen, input
-}
-
-public struct AppEntry: Identifiable, Equatable {
-  public let id: String
-  public let name: String
-  public let icon: NSImage?
-  /// On this Mac now. A hidden app that is not stays hidden, should it arrive.
-  public let installed: Bool
-
-  public init(id: String, name: String, icon: NSImage?, installed: Bool = true) {
-    self.id = id
-    self.name = name
-    self.icon = icon
-    self.installed = installed
-  }
-}
-
-public struct SessionSummary: Equatable {
-  public let task: String
-  public let requester: String
-  /// The chat that asked, on the dashboard.
-  public let chat: URL?
-  public let until: Date
-  public let paused: Bool
-
-  public init(task: String, requester: String, chat: URL? = nil, until: Date, paused: Bool) {
-    self.task = task
-    self.requester = requester
-    self.chat = chat
-    self.until = until
-    self.paused = paused
-  }
-}
-
-public struct HomeActions {
-  public var pair: () -> Void = {}
-  public var unpair: () -> Void = {}
-  public var reconnect: () -> Void = {}
-  public var grant: (Grant) -> Void = { _ in }
-  public var setAskFirst: (Bool) -> Void = { _ in }
-  public var hide: (String) -> Void = { _ in }
-  public var unhide: (String) -> Void = { _ in }
-  public var pause: () -> Void = {}
-  public var resume: () -> Void = {}
-  public var stop: () -> Void = {}
-  public var restart: () -> Void = {}
-
-  public init() {}
-}
-
-@MainActor
-public final class HomeModel: ObservableObject {
-  @Published public var link: LinkState = .notPaired
-  /// KOS's address as the owner reads it, once paired.
-  @Published public var host: String?
-  /// The dashboard, once paired.
-  @Published public var dashboard: URL?
-  /// The Devices page of the KOS being typed in, while pairing.
-  @Published public var devicesPage: URL?
-  /// This Mac's name in KOS, once paired.
-  @Published public var deviceName: String?
-  @Published public var session: SessionSummary?
-  @Published public var screenGranted = false
-  @Published public var inputGranted = false
-  /// A grant asked for once: the next press goes to its switch in System Settings.
-  @Published public var asked: Set<Grant> = []
-  /// Screen Recording was asked for and is not seen yet: macOS applies it on a fresh start.
-  public var needsRestart: Bool { asked.contains(.screen) && !screenGranted }
-  @Published public var askFirst = true
-  @Published public var hidden: [AppEntry] = []
-  /// Running apps that could be hidden.
-  @Published public var addable: [AppEntry] = []
-
-  // The pairing form.
-  @Published public var showPairing = false
-  @Published public var address = ""
-  @Published public var code = ""
-  @Published public var name = ""
-  @Published public var note = ""
-  @Published public var noteFailed = false
-  @Published public var busy = false
-
-  public var actions = HomeActions()
-
-  /// How KOS Device keeps the Mac safe, in the repository's own words.
-  public static let safety = URL(string: "https://github.com/itsmarsss/kos-agent/blob/main/docs/computer.md#security-model")!
-
-  public init() {}
-
-  public func granted(_ grant: Grant) -> Bool {
-    grant == .screen ? screenGranted : inputGranted
-  }
-}
-
+/// owner sees the whole state in a glance. What changes, changes in place:
+/// cards cross-fade, the permissions fold away once granted, and the window
+/// follows the content's height rather than jumping to it.
 public struct HomeView: View {
   @ObservedObject private var model: HomeModel
+  /// The permissions drawer, opened by hand once both are granted.
+  @State private var permissionsOpen = false
 
-  public init(model: HomeModel) {
+  /// `permissionsOpen` starts the drawer open, as a window opened to manage them would.
+  public init(model: HomeModel, permissionsOpen: Bool = false) {
     self.model = model
+    _permissionsOpen = State(initialValue: permissionsOpen)
   }
+
+  /// What changes the layout, so one animation carries every change, wherever it came from.
+  private struct Layout: Equatable {
+    let pairing: Bool
+    let session: Bool
+    let allGranted: Bool
+    let permissionsOpen: Bool
+    let needsRestart: Bool
+    let link: LinkState
+  }
+
+  private var layout: Layout {
+    Layout(
+      pairing: model.pairing, session: model.session != nil, allGranted: model.allGranted,
+      permissionsOpen: permissionsOpen, needsRestart: model.needsRestart, link: model.link)
+  }
+
+  static let motion = Animation.spring(response: 0.36, dampingFraction: 0.88)
 
   public var body: some View {
     VStack(alignment: .leading, spacing: 14) {
-      header
-      if let session = model.session { sessionCard(session) }
-      VStack(alignment: .leading, spacing: 8) {
-        SectionLabel("KOS")
-        if model.link == .notPaired || model.showPairing { pairingCard } else { connectionCard }
+      WindowControls(close: model.actions.close, minimize: model.actions.minimize)
+      header.padding(.top, 2)
+      if let session = model.session {
+        sessionCard(session).transition(.opacity.combined(with: .move(edge: .top)))
       }
-      VStack(alignment: .leading, spacing: 8) {
-        SectionLabel("Permissions")
-        permissionsCard
+      section("KOS") {
+        ZStack(alignment: .top) {
+          if model.pairing {
+            pairingCard.transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+          } else {
+            connectionCard.transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+          }
+        }
       }
-      VStack(alignment: .leading, spacing: 8) {
-        SectionLabel("On this Mac")
-        rulesCard
-      }
+      section("Permissions") { permissionsCard }
+      section("On this Mac") { rulesCard }
     }
-    .padding(Theme.gutter)
-    .padding(.top, 8)
+    .padding(.horizontal, Theme.gutter)
+    .padding(.top, 15)
+    .padding(.bottom, Theme.gutter)
     .frame(width: 460)
+    .fixedSize(horizontal: false, vertical: true)
+    .background(GeometryReader { geo in Color.clear.preference(key: HeightKey.self, value: geo.size.height) })
+    .onPreferenceChange(HeightKey.self) { height in MainActor.assumeIsolated { model.contentHeight = height } }
+    .animation(Self.motion, value: layout)
+    .frame(maxHeight: .infinity, alignment: .top)
     .background(Theme.bg)
+    .ignoresSafeArea()
     .environment(\.colorScheme, .dark)
+  }
+
+  private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      SectionLabel(title)
+      content()
+    }
   }
 
   // MARK: Header
@@ -164,7 +93,7 @@ public struct HomeView: View {
 
   /// How KOS looks in the header: at work in a session, sagging when it cannot be reached.
   private var faceMood: BlobMood {
-    if model.session != nil { return model.session?.paused == true ? .idle : .working }
+    if let session = model.session { return session.paused ? .idle : .working }
     switch model.link {
     case .offline, .untrusted, .outdated: return .error
     default: return .idle
@@ -253,12 +182,9 @@ public struct HomeView: View {
 
   private var connectionCard: some View {
     Card {
-      HStack(alignment: .firstTextBaseline) {
-        VStack(alignment: .leading, spacing: 3) {
-          Text(connectionTitle).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.text)
-          Text(connectionDetail).font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-        }
-        Spacer(minLength: 8)
+      VStack(alignment: .leading, spacing: 3) {
+        Text(connectionTitle).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.text)
+        Text(connectionDetail).font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
       }
       if let host = model.host {
         HStack(spacing: 6) {
@@ -311,39 +237,58 @@ public struct HomeView: View {
 
   // MARK: Permissions
 
+  /// Asked for until both are granted; then one line, opening into a drawer to manage them.
   private var permissionsCard: some View {
     Card {
-      grantRow(.screen, icon: "rectangle.dashed.badge.record", title: "Screen Recording", detail: "Shows KOS the screen it is working on.")
-      Divider().overlay(Theme.line)
-      grantRow(.input, icon: "cursorarrow.click.2", title: "Accessibility", detail: "Moves the pointer and types, and notices when you take over.")
-      if model.needsRestart {
-        HStack(spacing: 10) {
-          Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.warn)
-          Text("Switched Screen Recording on? macOS applies it when KOS Device starts again.")
-            .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-          Spacer(minLength: 8)
-          Button("Restart", action: model.actions.restart).buttonStyle(KOSButtonStyle(.secondary))
+      if model.allGranted {
+        DrawerHeader(open: permissionsOpen) { permissionsOpen.toggle() }
+      }
+      if !model.allGranted || permissionsOpen {
+        VStack(alignment: .leading, spacing: 10) {
+          if model.allGranted { Divider().overlay(Theme.line) }
+          grantRow(.screen)
+          Divider().overlay(Theme.line)
+          grantRow(.input)
+          if model.needsRestart {
+            restartNotice.transition(.opacity.combined(with: .move(edge: .top)))
+          }
         }
-        .padding(10)
-        .background(Theme.warn.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .transition(.opacity.combined(with: .move(edge: .top)))
       }
     }
   }
 
-  private func grantRow(_ grant: Grant, icon: String, title: String, detail: String) -> some View {
-    HStack(spacing: 12) {
-      Image(systemName: icon)
+  private var restartNotice: some View {
+    HStack(spacing: 10) {
+      Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.warn)
+      Text("Switched Screen Recording on? macOS applies it when KOS Device starts again.")
+        .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+      Spacer(minLength: 8)
+      Button("Restart", action: model.actions.restart).buttonStyle(KOSButtonStyle(.secondary))
+    }
+    .padding(10)
+    .background(Theme.warn.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+  }
+
+  private func grantRow(_ grant: Grant) -> some View {
+    let granted = model.granted(grant)
+    return HStack(spacing: 12) {
+      Image(systemName: grant.icon)
         .font(.system(size: 15, weight: .medium))
-        .foregroundStyle(model.granted(grant) ? Theme.ok : Theme.accent)
+        .foregroundStyle(granted ? Theme.ok : Theme.accent)
         .frame(width: 32, height: 32)
-        .background((model.granted(grant) ? Theme.ok : Theme.accent).opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background((granted ? Theme.ok : Theme.accent).opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
       VStack(alignment: .leading, spacing: 2) {
-        Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
-        Text(detail).font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+        Text(grant.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
+        Text(grant.detail).font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
       }
       Spacer(minLength: 8)
-      if model.granted(grant) {
-        Pill("Granted", tone: .ok)
+      if granted {
+        // Turning one off is as easy as turning it on: its switch, one click away.
+        VStack(alignment: .trailing, spacing: 4) {
+          Pill("On", tone: .ok)
+          KOSLink("System Settings", to: grant.settings, size: 11)
+        }
       } else {
         Button(model.asked.contains(grant) ? "Open Settings" : "Grant") { model.actions.grant(grant) }
           .buttonStyle(KOSButtonStyle(.primary))
@@ -371,12 +316,14 @@ public struct HomeView: View {
         HStack {
           Text("Hidden from KOS").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
           Spacer()
-          addMenu
+          AddAppButton(apps: model.pickable) { model.actions.hide($0) }
         }
         Text("Blanked from every picture KOS gets, and closed to its clicks and keys.")
           .font(.system(size: 11.5)).foregroundStyle(Theme.muted)
         FlowRow(spacing: 6) {
-          ForEach(model.hidden.filter(\.installed)) { app in chip(app) }
+          ForEach(model.hidden.filter(\.installed)) { app in
+            AppChip(app: app) { model.actions.unhide(app.id) }
+          }
         }
         let absent = model.hidden.filter { !$0.installed }.map(\.name)
         if !absent.isEmpty {
@@ -395,113 +342,46 @@ public struct HomeView: View {
       }
     }
   }
-
-  private func chip(_ app: AppEntry) -> some View {
-    AppChip(app: app) { model.actions.unhide(app.id) }
-  }
-
-  private var addMenu: some View {
-    AddAppMenu(apps: model.addable) { model.actions.hide($0) }
-  }
 }
 
-/// A hidden app: lit under the pointer, its cross red, so removing it reads before the click.
-private struct AppChip: View {
-  let app: AppEntry
-  let remove: () -> Void
-  @State private var hovering = false
-  @State private var onCross = false
-
-  var body: some View {
-    HStack(spacing: 5) {
-      if let icon = app.icon {
-        Image(nsImage: icon).resizable().frame(width: 14, height: 14)
-      } else {
-        Image(systemName: "app.dashed").font(.system(size: 11)).foregroundStyle(Theme.faint)
-      }
-      Text(app.name).font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
-      Button(action: remove) {
-        Image(systemName: "xmark")
-          .font(.system(size: 8.5, weight: .bold))
-          .foregroundStyle(onCross ? Theme.danger : hovering ? Theme.muted : Theme.faint)
-          .frame(width: 14, height: 14)
-          .background(onCross ? Theme.danger.opacity(0.15) : .clear, in: Circle())
-      }
-      .buttonStyle(.plain)
-      .onHover { onCross = $0 }
-      .pointingHand()
-      .accessibilityLabel("Stop hiding \(app.name)")
-    }
-    .padding(.leading, 7)
-    .padding(.trailing, 5)
-    .padding(.vertical, 4)
-    .background(hovering ? Theme.line.opacity(0.6) : Theme.panel2, in: Capsule())
-    .overlay(Capsule().strokeBorder(onCross ? Theme.danger.opacity(0.45) : hovering ? Theme.lineStrong : Theme.line))
-    .onHover { hovering = $0 }
-    .animation(.easeOut(duration: 0.14), value: hovering)
-    .animation(.easeOut(duration: 0.14), value: onCross)
-    .help(app.id)
-  }
-}
-
-/// The apps open now that could be hidden, as a menu under a link-coloured label.
-private struct AddAppMenu: View {
-  let apps: [AppEntry]
-  let hide: (String) -> Void
+/// The permissions, folded: both on, and a chevron to look closer.
+private struct DrawerHeader: View {
+  let open: Bool
+  let toggle: () -> Void
   @State private var hovering = false
 
   var body: some View {
-    Menu {
-      if apps.isEmpty { Text("No other apps are open") }
-      ForEach(apps) { app in
-        Button(app.name) { hide(app.id) }
+    Button(action: toggle) {
+      HStack(spacing: 12) {
+        Image(systemName: "checkmark.shield")
+          .font(.system(size: 15, weight: .medium))
+          .foregroundStyle(Theme.ok)
+          .frame(width: 32, height: 32)
+          .background(Theme.ok.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Screen Recording and Accessibility are on").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
+          Text(open ? "Each has a switch in System Settings." : "KOS can use them only in a session you allow.")
+            .font(.system(size: 11.5)).foregroundStyle(Theme.muted)
+        }
+        Spacer(minLength: 8)
+        Image(systemName: "chevron.down")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(hovering ? Theme.text : Theme.faint)
+          .rotationEffect(.degrees(open ? 180 : 0))
       }
-    } label: {
-      Label("Add app", systemImage: "plus").font(.system(size: 12, weight: .semibold))
+      .contentShape(Rectangle())
     }
-    .menuStyle(.borderlessButton)
-    .menuIndicator(.hidden)
-    .fixedSize()
-    .tint(hovering ? Theme.accentLit : Theme.accent)
-    .foregroundStyle(hovering ? Theme.accentLit : Theme.accent)
-    .padding(.horizontal, 6)
-    .padding(.vertical, 3)
-    .background(hovering ? Theme.accent.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+    .buttonStyle(.plain)
     .onHover { hovering = $0 }
     .pointingHand()
     .animation(.easeOut(duration: 0.14), value: hovering)
+    .animation(HomeView.motion, value: open)
   }
 }
 
-/// Lays its children in rows, wrapping when a row is full: chips of app names.
-struct FlowRow: Layout {
-  var spacing: CGFloat
-
-  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-    arrange(subviews, width: proposal.width ?? .infinity).size
-  }
-
-  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-    for (index, point) in arrange(subviews, width: bounds.width).points.enumerated() {
-      subviews[index].place(at: CGPoint(x: bounds.minX + point.x, y: bounds.minY + point.y), proposal: .unspecified)
-    }
-  }
-
-  private func arrange(_ subviews: Subviews, width: CGFloat) -> (points: [CGPoint], size: CGSize) {
-    var points: [CGPoint] = []
-    var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, widest: CGFloat = 0
-    for subview in subviews {
-      let size = subview.sizeThatFits(.unspecified)
-      if x > 0 && x + size.width > width {
-        x = 0
-        y += rowHeight + spacing
-        rowHeight = 0
-      }
-      points.append(CGPoint(x: x, y: y))
-      x += size.width + spacing
-      rowHeight = max(rowHeight, size.height)
-      widest = max(widest, x - spacing)
-    }
-    return (points, CGSize(width: widest, height: y + rowHeight))
+private struct HeightKey: PreferenceKey {
+  static let defaultValue: CGFloat = 0
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    value = max(value, nextValue())
   }
 }
