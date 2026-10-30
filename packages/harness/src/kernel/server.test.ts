@@ -1192,6 +1192,28 @@ describe("handleApiRequest", () => {
       }
     });
 
+    it("lets an extension's open paths answer without the token, and holds the rest behind it", async () => {
+      const seen: string[] = [];
+      const extensions = [{
+        prefix: "/api/devices",
+        open: ["/api/devices/pair"],
+        handle: (req: { path: string }) => {
+          seen.push(req.path);
+          return req.path === "/api/devices/none" ? undefined : { status: 200, body: { path: req.path } };
+        },
+      }];
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/devices/pair" }, { token: "secret", extensions })).status).toBe(200);
+      expect((await handleApiRequest(kernel, { method: "GET", path: "/api/devices" }, { token: "secret", extensions })).status).toBe(401);
+      expect(seen).toEqual(["/api/devices/pair"]);
+      const owner = { "x-kos-token": "secret" };
+      expect((await handleApiRequest(kernel, { method: "GET", path: "/api/devices", headers: owner }, { token: "secret", extensions })).body).toEqual({ path: "/api/devices" });
+      expect((await handleApiRequest(kernel, { method: "GET", path: "/api/devices/none", headers: owner }, { token: "secret", extensions })).status).toBe(404);
+      // A prefix is a path segment: /api/devicesX is not the extension's.
+      expect(seen).not.toContain("/api/devicesX");
+      await handleApiRequest(kernel, { method: "GET", path: "/api/devicesX", headers: owner }, { token: "secret", extensions });
+      expect(seen).not.toContain("/api/devicesX");
+    });
+
     it("leaves the no-token loopback case open", async () => {
       const res = await handleApiRequest(kernel, {
         method: "GET",

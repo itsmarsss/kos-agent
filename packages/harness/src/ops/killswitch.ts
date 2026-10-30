@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS kill_switch (
  * getter, so it satisfies the scheduler's KillSwitch interface directly.
  */
 export class PersistentKillSwitch {
+  private readonly listeners = new Set<(halted: boolean) => void>();
+
   constructor(
     private readonly db: Db,
     private readonly now: () => number = Date.now,
@@ -41,9 +43,17 @@ export class PersistentKillSwitch {
     this.set(false);
   }
 
+  /** Told when this process flips the switch; a flip from another process is seen by reading `halted`. */
+  onChange(listener: (halted: boolean) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
   private set(halted: boolean): void {
+    const was = this.halted;
     this.db
       .prepare(`UPDATE kill_switch SET halted = ?, updated_at = ? WHERE id = 1`)
       .run(halted ? 1 : 0, this.now());
+    if (was !== halted) for (const listener of this.listeners) listener(halted);
   }
 }

@@ -30,7 +30,7 @@ import { BrowserLive, browserEngine, launchFor, sessionFor, type BrowserDownload
 import { ENGINE_TOOL, type TabInfo } from "../tools/browser.js";
 import { PageWatchStore, type WatchLook } from "../ops/watches.js";
 import { settleDownload } from "../browser/downloads.js";
-import { BUILTIN_FEATURES, isBuiltinFeature } from "../modules/builtins.js";
+import type { BuiltinFeature } from "../modules/builtins.js";
 import { MODULES_KEY, parseModuleSettings, withBuiltinEnabled } from "../modules/workspace.js";
 import { bootKernel } from "./boot.js";
 import { ORCHESTRATOR_BRIEF } from "./orchestration.js";
@@ -134,6 +134,8 @@ export interface KernelOptions {
   notify?: (payload: NotifyPayload) => Promise<{ id?: string } | void>;
   /** Additional (e.g. agent-promoted or third-party) modules to load. */
   extraModules?: KosModule[];
+  /** Extra modules that switch off in Settings beside the built-in features, by module name. */
+  features?: BuiltinFeature[];
   /** Hosts the http.fetch tool may reach. */
   /** A function is re-read per call, so a host added in Settings works now. */
   allowedHosts?: string[] | (() => string[]);
@@ -339,6 +341,8 @@ export class Kernel {
   private readonly system: string;
   private readonly onApprovalRequested?: (action: PendingAction) => void;
   private readonly sessionless: boolean;
+  /** What switches off in Settings: the built-in features and any the host added. */
+  private readonly features: BuiltinFeature[];
   /** Scheduled jobs: when they run and what a run is on the record. */
   private readonly cron: CronService;
   /** Reads new conversation in the background and proposes claims. Off until the owner turns it on. */
@@ -446,6 +450,7 @@ export class Kernel {
     inference: Inference;
     system: string;
     sessionless: boolean;
+    features: BuiltinFeature[];
     notify?: (payload: NotifyPayload) => Promise<{ id?: string } | void>;
     onApprovalRequested?: (action: PendingAction) => void;
     restart?: () => Promise<void>;
@@ -603,17 +608,23 @@ export class Kernel {
     this.inference = args.inference;
     this.system = args.system;
     this.sessionless = args.sessionless;
+    this.features = args.features;
     this.onApprovalRequested = args.onApprovalRequested;
   }
 
   /** The built-in features and whether each is on right now. */
   builtins(): { name: string; description: string; enabled: boolean }[] {
-    return BUILTIN_FEATURES.map((f) => ({ ...f, enabled: this.loader.isActive(f.name) }));
+    return this.features.map((f) => ({ ...f, enabled: this.loader.isActive(f.name) }));
+  }
+
+  /** A feature that switches in place, built in or added by the host. */
+  isFeature(name: string): boolean {
+    return this.features.some((f) => f.name === name);
   }
 
   /** Switch a built-in feature on or off now: its tools come and go, no restart. */
   async setBuiltinEnabled(name: string, enabled: boolean): Promise<boolean> {
-    if (!isBuiltinFeature(name)) return false;
+    if (!this.isFeature(name)) return false;
     this.settings.set(MODULES_KEY, withBuiltinEnabled(parseModuleSettings(this.settings.get(MODULES_KEY)), name, enabled));
     const done = enabled ? await this.loader.enable(name) : await this.loader.disable(name);
     this.bus.emit({ kind: enabled ? "module:enabled" : "module:disabled", name });
@@ -2805,7 +2816,7 @@ export class Kernel {
       },
       onExecuted: (tool, result) => {
         this.afterToolRan(tool);
-        this.keepFrame(tool, opts.conversationId);
+        this.keepFrame(tool, opts.conversationId, result.images?.[0]?.data);
         this.bus.emit({ kind: "tool:end", tool, isError: result.isError === true, conversationId: opts.conversationId ?? null });
         if (opts.conversationId) {
           this.progress.emit({
@@ -3252,16 +3263,22 @@ export class Kernel {
   }
 
   /**
-   * After a browser step, a small picture of the tab, kept with the call's
-   * id so the thread can show what the agent saw under the step that saw
-   * it. Taken in the background: the step has run, and the reply should
-   * not wait on a screenshot.
+   * After a step that looked, its picture, kept with the call's id so the
+   * thread can show what the agent saw under the step that saw it. A browser
+   * step gets a small picture of its tab, taken in the background: the step
+   * has run, and the reply should not wait on a screenshot. Any other tool
+   * that answered with a picture (a computer's screen) keeps that one, since
+   * the stored history keeps none.
    */
-  private keepFrame(tool: string, conversationId?: string): void {
-    if (!conversationId || !this.browserContext(tool, conversationId)) return;
+  private keepFrame(tool: string, conversationId?: string, picture?: string): void {
+    if (!conversationId) return;
+    const toolUseId = toolUse.getStore();
+    if (!this.browserContext(tool, conversationId)) {
+      if (picture) this.frames.add({ conversationId, ...(toolUseId ? { toolUseId } : {}), tool, picture });
+      return;
+    }
     const tab = this.browser.tabOf(conversationId);
     if (!tab) return;
-    const toolUseId = toolUse.getStore();
     void this.browser
       .capture(tab, 640)
       .then((picture) => {

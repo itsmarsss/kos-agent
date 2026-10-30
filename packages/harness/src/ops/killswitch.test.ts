@@ -20,6 +20,18 @@ describe("PersistentKillSwitch", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  it("tells its listeners when it flips, and only then", () => {
+    const ks = new PersistentKillSwitch(ws.db);
+    const heard: boolean[] = [];
+    const off = ks.onChange((halted) => heard.push(halted));
+    ks.halt();
+    ks.halt();
+    ks.resume();
+    off();
+    ks.halt();
+    expect(heard).toEqual([true, false]);
+  });
+
   it("defaults to not halted and toggles", () => {
     const ks = new PersistentKillSwitch(ws.db);
     expect(ks.halted).toBe(false);
