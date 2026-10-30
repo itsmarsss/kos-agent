@@ -33,6 +33,10 @@ export interface BrowserTab {
   url: string;
   /** The conversation this tab was made for; absent for a stray. */
   owner?: string;
+  /** The owner has taken it: an agent's hands wait until they let go. */
+  held?: true;
+  /** An agent is waiting for the owner to let go of it. */
+  waiting?: true;
 }
 
 export interface BrowserStatus {
@@ -234,6 +238,8 @@ export interface BrowserLiveOptions {
   connect?: (url: string) => CdpSocket;
   /** Frames per second asked of a screencast. */
   maxFps?: number;
+  /** How long an agent waits on a tab the owner has taken. */
+  holdWaitMs?: number;
   /** How long a page may take to load. */
   pageLimits?: Partial<PageLimits>;
   now?: () => number;
@@ -270,6 +276,8 @@ interface Binding {
 const KEEP_LOGINS_MS = 60_000;
 /** How long Chrome may take to keep its cookies and close when KOS stops. */
 const SHUTDOWN_MS = 4_000;
+/** How long an agent waits for the owner to let go of a tab before it is told the owner still has it. */
+export const HOLD_WAIT_MS = 10 * 60_000;
 
 export class BrowserLive {
   private readonly cdp: CdpClient;
@@ -279,6 +287,10 @@ export class BrowserLive {
   private readonly bindings = new Map<string, Binding>();
   /** Each tab's hands, made on first use. */
   private readonly pages = new Map<string, Page>();
+  /** Tabs the owner has taken, each by which of their windows. */
+  private readonly held = new Map<string, string>();
+  /** Agents waiting on a held tab, woken when it is let go. */
+  private readonly waiters = new Map<string, Set<() => void>>();
   private keeping: ReturnType<typeof setInterval> | null = null;
   /** Downloads under way, by guid, until Chrome says they are done. */
   private readonly downloads = new Map<string, { url: string; suggestedFilename: string; conversationId?: string }>();
@@ -293,7 +305,7 @@ export class BrowserLive {
 
   constructor(private readonly options: BrowserLiveOptions) {
     this.cdp = new CdpClient(options.connect ?? ((url) => new WebSocket(url) as unknown as CdpSocket));
-    this.maxFps = options.maxFps ?? 12;
+    this.maxFps = options.maxFps ?? 30;
     this.now = options.now ?? Date.now;
     this.report = options.report ?? ((m) => console.error(`[browser] ${m}`));
     options.chrome.onExit(() => this.onChromeGone());
@@ -321,7 +333,14 @@ export class BrowserLive {
       .filter((t) => t.type === "page")
       .map((t) => {
         const owner = owners.get(t.id);
-        return { id: t.id, title: t.title, url: t.url, ...(owner ? { owner } : {}) };
+        return {
+          id: t.id,
+          title: t.title,
+          url: t.url,
+          ...(owner ? { owner } : {}),
+          ...(this.held.has(t.id) ? { held: true as const } : {}),
+          ...(this.waiters.get(t.id)?.size ? { waiting: true as const } : {}),
+        };
       });
   }
 
@@ -361,10 +380,70 @@ export class BrowserLive {
     let page = this.pages.get(tab);
     if (!page) {
       // The session is looked up at each call, so a tab re-attached after a detach is still reached.
-      page = new Page({ send: async (method, params, timeoutMs) => this.cdp.send(method, params, await this.sessionFor(tab), timeoutMs) }, this.now, this.options.pageLimits);
+      page = new Page(
+        { send: async (method, params, timeoutMs) => this.cdp.send(method, params, await this.sessionFor(tab), timeoutMs) },
+        { now: this.now, ...(this.options.pageLimits ? { limits: this.options.pageLimits } : {}), gate: () => this.whileHeld(tab) },
+      );
       this.pages.set(tab, page);
     }
     return page;
+  }
+
+  /**
+   * The owner takes a tab: their clicks and keys are the only ones on it, and
+   * an agent's hands wait until they let go. `holder` is the window that took
+   * it, so one closing lets go of what it held.
+   */
+  hold(tab: string, holder: string): void {
+    if (!this.targets.has(tab)) throw new Error("no such tab");
+    this.held.set(tab, holder);
+    this.emitTabs();
+  }
+
+  /** The owner lets go of a tab, from the window that took it. */
+  release(tab: string, holder: string): void {
+    if (this.held.get(tab) !== holder) return;
+    this.letGo(tab);
+  }
+
+  /** A window of the owner's closed: every tab it held is let go. */
+  releaseAll(holder: string): void {
+    for (const [tab, by] of [...this.held]) if (by === holder) this.letGo(tab);
+  }
+
+  private letGo(tab: string): void {
+    this.held.delete(tab);
+    const waiting = this.waiters.get(tab);
+    this.waiters.delete(tab);
+    for (const wake of waiting ?? []) wake();
+    this.emitTabs();
+  }
+
+  /**
+   * Until the owner lets go of a tab: at once when they have not taken it.
+   * True when it waited. One that waits longer than an agent should is told
+   * the owner still has it.
+   */
+  private async whileHeld(tab: string): Promise<boolean> {
+    if (!this.held.has(tab)) return false;
+    const waiting = this.waiters.get(tab) ?? new Set<() => void>();
+    this.waiters.set(tab, waiting);
+    let wake: () => void = () => undefined;
+    const freed = await new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), this.options.holdWaitMs ?? HOLD_WAIT_MS);
+      wake = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      waiting.add(wake);
+      this.emitTabs();
+    });
+    waiting.delete(wake);
+    if (!freed) {
+      this.emitTabs();
+      throw new Error("the owner has taken this tab and has not let go; tell them what you were doing, or try again later");
+    }
+    return true;
   }
 
   /**
@@ -416,6 +495,7 @@ export class BrowserLive {
 
   /** A tab is gone: whoever had it moves on. */
   private forget(target: string): void {
+    if (this.held.has(target)) this.letGo(target);
     this.targets.delete(target);
     this.sessions.delete(target);
     this.pages.delete(target);
@@ -624,6 +704,7 @@ export class BrowserLive {
 
   private onChromeGone(): void {
     this.stopKeeping();
+    for (const tab of [...this.held.keys()]) this.letGo(tab);
     this.options.chrome.lost();
     this.cdp.close();
     for (const [tab, watch] of this.watches) {

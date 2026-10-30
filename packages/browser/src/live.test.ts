@@ -413,6 +413,52 @@ describe("the owner's tabs, and an agent's second one", () => {
   });
 });
 
+describe("the owner taking a tab", () => {
+  it("holds an agent's hands until the owner lets go, and tells it the page may have changed", async () => {
+    const { live } = setup();
+    const tab = await live.tabFor("c1");
+    const page = await live.page(tab);
+    await page.ready();
+    live.hold(tab, "window-1");
+    expect(live.tabs().find((t) => t.id === tab)).toMatchObject({ held: true });
+    let ran = false;
+    const work = page.run(async () => {
+      ran = true;
+      return page.takeNotes();
+    });
+    await flush();
+    expect(ran).toBe(false);
+    expect(live.tabs().find((t) => t.id === tab)).toMatchObject({ held: true, waiting: true });
+    // Another window letting go of it changes nothing.
+    live.release(tab, "window-2");
+    await flush();
+    expect(ran).toBe(false);
+    live.release(tab, "window-1");
+    expect(await work).toEqual(["The owner had this tab and has let go; what is on it may have changed, so look before acting on it."]);
+    expect(live.tabs().find((t) => t.id === tab)).not.toHaveProperty("held");
+  });
+
+  it("lets go of what a window held when it closes, and tells an agent that waited too long", async () => {
+    const chrome = new FakeChrome();
+    const live = new BrowserLive({
+      config: () => DEFAULT_CONFIG,
+      chrome: fakeHost(),
+      connect: () => {
+        queueMicrotask(() => chrome.onopen?.({}));
+        return chrome;
+      },
+      holdWaitMs: 20,
+    });
+    const tab = await live.tabFor("c1");
+    const page = await live.page(tab);
+    live.hold(tab, "w");
+    await expect(page.run(async () => "never")).rejects.toThrow(/the owner has taken this tab/);
+    live.releaseAll("w");
+    expect(await page.run(async () => "now")).toBe("now");
+    expect(() => live.hold("nope", "w")).toThrow(/no such tab/);
+  });
+});
+
 describe("downloads and idle tabs", () => {
   it("has Chrome stage downloads by guid, and says whose each finished one is", async () => {
     const { live, chrome, downloads } = setup();

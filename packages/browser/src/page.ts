@@ -31,6 +31,17 @@ export interface PageLimits {
 }
 
 const LIMITS: PageLimits = { domMs: 20_000, loadMs: 30_000 };
+
+export interface PageOptions {
+  now?: () => number;
+  limits?: Partial<PageLimits>;
+  /**
+   * Waited on before each call and each step: while the owner has taken the
+   * tab, the agent's hands wait for them to let go. True when it waited, so
+   * the agent is told the page may have changed under it.
+   */
+  gate?: () => Promise<boolean>;
+}
 /** After an action: how long a navigation it started may take, and the network's quiet. */
 const SETTLE_NAV_MS = 10_000;
 const QUIET_MS = 350;
@@ -112,20 +123,32 @@ export class Page {
   private readonly wakers = new Set<() => void>();
 
   private readonly limits: PageLimits;
+  private readonly now: () => number;
+  private readonly gate: () => Promise<boolean>;
 
   constructor(
     private readonly session: Session,
-    private readonly now: () => number = Date.now,
-    limits: Partial<PageLimits> = {},
+    options: PageOptions = {},
   ) {
-    this.limits = { ...LIMITS, ...limits };
+    this.limits = { ...LIMITS, ...options.limits };
+    this.now = options.now ?? Date.now;
+    this.gate = options.gate ?? (async () => false);
   }
 
   /** Calls on one tab, one at a time: two at once would act on each other's page. */
   run<T>(work: () => Promise<T>): Promise<T> {
-    const next = this.queue.then(work, work);
+    const gated = async (): Promise<T> => {
+      await this.waitForOwner();
+      return work();
+    };
+    const next = this.queue.then(gated, gated);
     this.queue = next.catch(() => undefined);
     return next;
+  }
+
+  /** While the owner has the tab, nothing; once they let go, a word that the page may have changed. */
+  private async waitForOwner(): Promise<void> {
+    if (await this.gate()) this.heard.push("The owner had this tab and has let go; what is on it may have changed, so look before acting on it.");
   }
 
   /** An event from the tab's session. */
@@ -296,6 +319,7 @@ export class Page {
 
   /** One step on the page; what was done, in words. */
   async step(step: Step): Promise<string> {
+    await this.waitForOwner();
     if ("open" in step) {
       const went = await this.goto(step.open);
       return `opened ${step.open}${went.stillLoading ? " (still loading)" : ""}`;
