@@ -33,6 +33,9 @@ describe("a paired computer, in words", () => {
     expect(describeDevice({ ...laptop, session: { conversation: "c", title: "Design", task: "export the deck", until: Date.now() + 60_000, paused: true } })).toMatch(
       /Paused by you: Design, "export the deck", until/,
     );
+    expect(
+      describeDevice({ ...laptop, session: { conversation: "c", title: "Design", task: "t", until: Date.now() + 60_000, paused: false, target: { kind: "window", app: "Figma" } } }),
+    ).toMatch(/In use: Design, "t", in Figma, until/);
   });
 
   it("opens KOS Device with this dashboard's address and the code", () => {

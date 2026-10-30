@@ -111,6 +111,8 @@ function endingText(why: string): string {
       return "the computer went offline";
     case "removed":
       return "the computer was unpaired";
+    case "window":
+      return "the window it was given closed";
     default:
       return "KOS ended it";
   }
@@ -206,13 +208,16 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         name: "computer.start",
         description:
           "Start using a paired computer: its screen, pointer and keyboard. The owner allows it on the computer, seeing `task`, " +
-          "so say plainly what you will do. Returns the screen as a picture; then work it with computer.act and give it back with computer.end. " +
-          "Use it when the work needs a computer's own apps or files; the browser tools are quicker for a web page alone.",
+          "so say plainly what you will do. Name `app` when the work is in one app: the owner is offered its window first and may share " +
+          "only that window, which you then see and act in alone (it is brought to the front for you). Returns what was shared as a picture; " +
+          "then work it with computer.act and give it back with computer.end. Use it when the work needs a computer's own apps or files; " +
+          "the browser tools are quicker for a web page alone.",
         inputSchema: {
           type: "object",
           properties: {
             task: { type: "string", description: "What you will do, in a few words, as the owner will read it." },
             device: { type: "string", description: "The computer's name or id; optional when only one is online." },
+            app: { type: "string", description: "The app to work in, by name (\"Figma\") or bundle id; the owner may still share the whole screen." },
             minutes: { type: "number", minimum: 1, maximum: 480, description: "How long you need it; the owner's default when left out. The computer may allow less." },
           },
           required: ["task"],
@@ -236,12 +241,16 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         const minutes = typeof input.minutes === "number" ? input.minutes : settings.askMinutes;
         let session: Session;
         try {
-          session = await hub.begin({ conversation: chat, device, task, requester: deps.titleOf(chat), minutes });
+          const app = str(input.app);
+          session = await hub.begin({ conversation: chat, device, task, requester: deps.titleOf(chat), minutes, ...(app ? { app } : {}) });
         } catch (err) {
           throw new Error(refusalText(err));
         }
         const left = Math.max(1, Math.round((session.until - Date.now()) / 60_000));
-        return look(chat, `Using ${device.name} for ${left} minute${left === 1 ? "" : "s"}. Coordinates are pixels of this picture.`);
+        const shared = session.target.kind === "window"
+          ? `the ${session.target.app ?? "app"} window${session.target.title ? ` "${session.target.title}"` : ""} on ${device.name}, and only it`
+          : device.name;
+        return look(chat, `Using ${shared} for ${left} minute${left === 1 ? "" : "s"}. Coordinates are pixels of this picture.`);
       },
       startRisk,
     );

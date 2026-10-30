@@ -1,4 +1,26 @@
+import AppKit
 import SwiftUI
+
+/// One thing the owner can hand KOS: the whole screen, or a window of one app.
+public struct TargetChoice: Identifiable, Equatable {
+  public static let screen = "screen"
+
+  public let id: String
+  /// The window's title, or "Entire screen".
+  public let title: String
+  /// The app the window is of; nothing for the screen.
+  public let app: String?
+  public let icon: NSImage?
+  public var thumbnail: NSImage?
+
+  public init(id: String, title: String, app: String?, icon: NSImage?, thumbnail: NSImage? = nil) {
+    self.id = id
+    self.title = title
+    self.app = app
+    self.icon = icon
+    self.thumbnail = thumbnail
+  }
+}
 
 /// The owner's yes or no to a session: who asks, for what, for how long.
 ///
@@ -20,8 +42,15 @@ public final class ConsentModel: ObservableObject {
   /// A length of the owner's own, set with the stepper.
   @Published public var custom = false
   @Published public var remaining: Int
-  public var allow: (Int) -> Void = { _ in }
+  /// The screen and the windows the owner can hand KOS, and the one chosen.
+  @Published public var targets: [TargetChoice] = []
+  @Published public var target = TargetChoice.screen
+  /// The app KOS asked to work in, when it said.
+  public var suggested: String?
+  public var allow: (Int, String) -> Void = { _, _ in }
   public var deny: () -> Void = {}
+
+  var chosen: TargetChoice? { targets.first { $0.id == target } }
 
   public init(task: String, requester: String, chat: URL? = nil, offered: [Int], longest: Int? = nil, timeout: Int) {
     self.task = task
@@ -100,7 +129,11 @@ public struct ConsentView: View {
       .frame(maxWidth: .infinity, alignment: .leading)
       .animation(.spring(response: 0.32, dampingFraction: 0.88), value: model.custom)
 
-      Text("It will see this screen and use the mouse and keyboard. Touch either to pause it. It never types into password fields or sees the apps you hid.")
+      if model.targets.count > 1 { TargetPicker(model: model) }
+
+      Text(model.target == TargetChoice.screen
+        ? "It will see this screen and use the mouse and keyboard. Touch either to pause it. It never types into password fields or sees the apps you hid."
+        : "It will see only this window and act only in it, bringing it to the front first. Touch the mouse or keyboard to pause it.")
         .font(.system(size: 11.5))
         .foregroundStyle(Theme.muted)
         .fixedSize(horizontal: false, vertical: true)
@@ -112,7 +145,7 @@ public struct ConsentView: View {
             .buttonStyle(KOSButtonStyle(.secondary))
             .keyboardShortcut(.cancelAction)
           Spacer()
-          Button("Allow for \(minutesWords(model.minutes))") { model.allow(model.minutes) }
+          Button(allowLabel) { model.allow(model.minutes, model.target) }
             .buttonStyle(KOSButtonStyle(.primary))
             .keyboardShortcut(.defaultAction)
         }
@@ -133,9 +166,89 @@ public struct ConsentView: View {
       }
     }
     .padding(22)
-    .frame(width: 380)
+    .frame(width: model.targets.count > 1 ? 420 : 380)
     .background(Theme.bg)
     .environment(\.colorScheme, .dark)
+  }
+}
+
+extension ConsentView {
+  var allowLabel: String {
+    if let app = model.chosen?.app { return "Allow \(app) for \(minutesWords(model.minutes))" }
+    return "Allow for \(minutesWords(model.minutes))"
+  }
+}
+
+/// What to share, as a screen-sharing picker asks it: the whole screen, or one window, each as it looks now.
+struct TargetPicker: View {
+  @ObservedObject var model: ConsentModel
+
+  private let columns = [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)]
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 7) {
+      HStack(spacing: 4) {
+        Text("Share").font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.muted)
+        if let app = model.suggested {
+          Text("· KOS asked for \(app)").font(.system(size: 11.5)).foregroundStyle(Theme.faint)
+        }
+      }
+      ScrollView {
+        LazyVGrid(columns: columns, spacing: 8) {
+          ForEach(model.targets) { choice in
+            TargetTile(choice: choice, selected: choice.id == model.target) { model.target = choice.id }
+          }
+        }
+        .padding(1)
+      }
+      .frame(maxHeight: 236)
+    }
+  }
+}
+
+/// One window, or the screen: its picture, its app's icon and its title; lit when chosen.
+private struct TargetTile: View {
+  let choice: TargetChoice
+  let selected: Bool
+  let choose: () -> Void
+  @State private var hovering = false
+
+  var body: some View {
+    Button(action: choose) {
+      VStack(alignment: .leading, spacing: 6) {
+        ZStack {
+          RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.bg)
+          if let picture = choice.thumbnail {
+            Image(nsImage: picture).resizable().aspectRatio(contentMode: .fit).padding(4)
+          } else {
+            Image(systemName: choice.app == nil ? "display" : "macwindow").font(.system(size: 20)).foregroundStyle(Theme.faint)
+          }
+        }
+        .frame(height: 92)
+        HStack(spacing: 5) {
+          if let icon = choice.icon {
+            Image(nsImage: icon).resizable().frame(width: 14, height: 14)
+          } else if choice.app == nil {
+            Image(systemName: "display").font(.system(size: 11)).foregroundStyle(Theme.muted)
+          }
+          Text(choice.app.map { app in choice.title.isEmpty ? app : "\(app): \(choice.title)" } ?? choice.title)
+            .font(.system(size: 11.5, weight: selected ? .semibold : .medium))
+            .foregroundStyle(selected ? Theme.text : Theme.muted)
+            .lineLimit(1)
+            .truncationMode(.tail)
+        }
+      }
+      .padding(6)
+      .background(selected ? Theme.accent.opacity(0.12) : hovering ? Theme.panel2 : Theme.panel, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+      .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(selected ? Theme.accent.opacity(0.7) : hovering ? Theme.lineStrong : Theme.line, lineWidth: selected ? 1.5 : 1))
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .onHover { hovering = $0 }
+    .pointingHand()
+    .animation(.easeOut(duration: 0.14), value: hovering)
+    .animation(.easeOut(duration: 0.14), value: selected)
+    .help(choice.app.map { "\($0): \(choice.title)" } ?? choice.title)
   }
 }
 

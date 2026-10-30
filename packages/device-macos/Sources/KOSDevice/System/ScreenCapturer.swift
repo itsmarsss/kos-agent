@@ -53,6 +53,33 @@ final class ScreenCapturer {
     return Shot(jpeg: try Self.jpeg(image), width: image.width, height: image.height)
   }
 
+  /// One window alone, whatever is in front of it; `region` is in global points.
+  func capture(window id: CGWindowID, frame: CGRect, region: CGRect?, pixels: Size) async throws -> Shot {
+    let content: SCShareableContent
+    do {
+      content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
+    } catch {
+      throw DeviceError(.permission, "Screen Recording is not granted on this Mac.")
+    }
+    guard let window = content.windows.first(where: { $0.windowID == id }) else {
+      throw DeviceError(.noSession, "The window KOS was given has closed.")
+    }
+    let config = SCStreamConfiguration()
+    config.width = Int(pixels.width)
+    config.height = Int(pixels.height)
+    config.showsCursor = true
+    if let region {
+      config.sourceRect = CGRect(x: region.minX - frame.minX, y: region.minY - frame.minY, width: region.width, height: region.height)
+    }
+    let image: CGImage
+    do {
+      image = try await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: config)
+    } catch {
+      throw DeviceError(.internal, "The window could not be captured: \(error.localizedDescription)")
+    }
+    return Shot(jpeg: try Self.jpeg(image), width: image.width, height: image.height)
+  }
+
   private static func jpeg(_ image: CGImage) throws -> Data {
     let data = NSMutableData()
     guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else {

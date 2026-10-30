@@ -18,10 +18,15 @@ final class ConsentPrompt: NSObject {
     let longest: Int
     /// Seconds before it says no by itself.
     let wait: Int
+    /// The screen and the open windows, and which is chosen to start with.
+    let targets: [TargetChoice]
+    let target: String
+    /// The app KOS asked to work in.
+    let suggested: String?
   }
 
   enum Answer: Equatable {
-    case allowed(minutes: Int)
+    case allowed(minutes: Int, target: String)
     case denied
     case unanswered
     case withdrawn
@@ -49,7 +54,23 @@ final class ConsentPrompt: NSObject {
     let model = ConsentModel(
       task: request.task, requester: request.requester, chat: request.chat, offered: request.offered,
       longest: request.longest, timeout: request.wait)
-    model.allow = { [weak self] minutes in self?.finish(.allowed(minutes: minutes)) }
+    model.targets = request.targets
+    model.target = request.target
+    model.suggested = request.suggested
+    model.allow = { [weak self] minutes, target in self?.finish(.allowed(minutes: minutes, target: target)) }
+    // Each choice's picture, as it comes: the prompt does not wait on them.
+    for (index, choice) in request.targets.enumerated() {
+      Task { [weak model] in
+        let picture: NSImage?
+        if let window = UInt32(choice.id) {
+          picture = await WindowCatalog.thumbnail(of: window)
+        } else {
+          picture = await WindowCatalog.thumbnail(display: Displays.underCursor())
+        }
+        guard let model, model.targets.indices.contains(index), model.targets[index].id == choice.id else { return }
+        model.targets[index].thumbnail = picture
+      }
+    }
     model.deny = { [weak self] in self?.finish(.denied) }
     self.model = model
 

@@ -136,7 +136,7 @@ without that session live.
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `session.begin` | `session`, `task`, `requester`, `conversation?`, `minutes`, `maxEdge?` | `granted`, `until`, `space {width,height}` |
+| `session.begin` | `session`, `task`, `requester`, `conversation?`, `target? {app}`, `minutes`, `maxEdge?` | `granted`, `until`, `space {width,height}`, `target {kind, app?, title?}` |
 | `session.end` | `session` | `{}` |
 | `screen.capture` | `session`, `region? {x,y,width,height}` | `image` (base64), `mediaType`, `width`, `height`, `cursor {x,y}`, `app?` |
 | `pointer.move` | `session`, `x`, `y` | `cursor` |
@@ -146,7 +146,14 @@ without that session live.
 | `keys.type` | `session`, `text` (at most 4000 characters) | `cursor` |
 | `keys.press` | `session`, `keys` (one combination, `cmd+shift+t`), `repeat?` | `cursor` |
 
-`session.begin` is answered when the owner decides, or in 60 s as `denied`.
+**What is shared.** The owner picks, as a screen-sharing picker offers it: the
+entire screen, or one window. `target.app` is the app KOS would work in; its
+window is offered first. With a window, `space` is that window, a capture is
+that window alone (whatever covers it), every call lands in it after it is
+brought to the front, and the session ends (`window`) if it closes. The
+answer's `target` says which was shared.
+
+`session.begin` is answered when the owner decides, or when the prompt's wait (60 s unless the owner set it) runs out, as `denied`.
 `minutes` is what KOS asks for; the owner may choose less. `requester` is the
 asking chat's title and `conversation` its id, so the device can link the
 owner to it on the dashboard (`<KOS address>/#/chats/<id>`).
@@ -174,7 +181,7 @@ Device: `{ "t": "event", "name": "session.paused", "data": { "session": "...", "
 | `session.paused` | `session`, `reason` (`owner`: they touched the mouse or keyboard) |
 | `session.resumed` | `session` |
 | `session.extended` | `session`, `until` (the owner gave it more time on the device) |
-| `session.ended` | `session`, `reason` (`owner`, `expired`, `idle`, `quit`, `host`) |
+| `session.ended` | `session`, `reason` (`owner`, `expired`, `idle`, `quit`, `host`, `window`) |
 
 ### Errors
 

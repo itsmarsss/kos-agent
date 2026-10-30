@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { publicKeyFromRaw, type HostKey } from "./keys.js";
 import { DeviceError, DeviceLink, type Socket } from "./link.js";
 import { PairingCodes, type PairingCode } from "./pairing.js";
-import { CLOSE, PROTOCOL_VERSION, type Consent, type DeviceEvent, type EndReason, type Grant, type Method, type Permissions, type Size } from "./protocol.js";
+import { CLOSE, PROTOCOL_VERSION, type Consent, type DeviceEvent, type EndReason, type Grant, type Method, type Permissions, type Size, type Target } from "./protocol.js";
 import { MAX_ASK_MINUTES, type ComputerSettings, type Device, type DeviceStore } from "./store.js";
 
 /**
@@ -23,6 +23,8 @@ export interface Session {
   task: string;
   until: number;
   space: Size;
+  /** What the owner shared: the screen, or one window. */
+  target: Target;
   paused: boolean;
   startedAt: number;
 }
@@ -40,7 +42,7 @@ export interface DeviceStatus {
   version?: string;
   os?: string;
   /** The live session on it, when there is one. */
-  session?: { conversation: string; task: string; until: number; paused: boolean };
+  session?: { conversation: string; task: string; until: number; paused: boolean; target: Target };
 }
 
 export interface HubDeps {
@@ -176,7 +178,7 @@ export class DeviceHub {
       online: link?.ready === true,
       ...(link?.state ? { consent: link.state.consent, permissions: link.state.permissions } : {}),
       ...(link?.app ? { version: link.app.version, os: link.app.os } : {}),
-      ...(session ? { session: { conversation: session.conversation, task: session.task, until: session.until, paused: session.paused } } : {}),
+      ...(session ? { session: { conversation: session.conversation, task: session.task, until: session.until, paused: session.paused, target: session.target } } : {}),
     };
   }
 
@@ -220,7 +222,8 @@ export class DeviceHub {
   }
 
   /** Ask the owner, on the device, for a session; resolves when they answer. */
-  async begin(input: { conversation: string; device: Device; task: string; requester: string; minutes: number; maxEdge?: number }): Promise<Session> {
+  /** `app`, when given, is the app KOS would work in: the owner sees its window offered first, and picks. */
+  async begin(input: { conversation: string; device: Device; task: string; requester: string; minutes: number; app?: string; maxEdge?: number }): Promise<Session> {
     if (this.deps.halted()) throw new DeviceError("halted", "KOS is halted by the kill switch");
     const held = this.sessionOf(input.conversation);
     if (held) {
@@ -239,7 +242,11 @@ export class DeviceHub {
     const result = await link.call(
       "session.begin",
       // The chat's id lets the device link the owner straight to the chat that is asking.
-      { session: id, task: input.task, requester: input.requester, conversation: input.conversation, minutes, ...(input.maxEdge ? { maxEdge: input.maxEdge } : {}) },
+      {
+        session: id, task: input.task, requester: input.requester, conversation: input.conversation, minutes,
+        ...(input.app ? { target: { app: input.app } } : {}),
+        ...(input.maxEdge ? { maxEdge: input.maxEdge } : {}),
+      },
       this.deps.beginTimeoutMs ?? BEGIN_TIMEOUT_MS,
     );
     const grant = readGrant(result);
@@ -251,6 +258,7 @@ export class DeviceHub {
       task: input.task,
       until: grant.until,
       space: grant.space,
+      target: grant.target,
       paused: false,
       startedAt: this.now(),
     };
@@ -362,9 +370,16 @@ function missingPermissions(p: Permissions | undefined): string | undefined {
 function readGrant(result: Record<string, unknown>): Grant | undefined {
   const space = result.space as Record<string, unknown> | undefined;
   if (result.granted !== true || typeof result.until !== "number" || typeof space?.width !== "number" || typeof space.height !== "number") return undefined;
-  return { granted: true, until: result.until, space: { width: space.width, height: space.height } };
+  return { granted: true, until: result.until, space: { width: space.width, height: space.height }, target: readTarget(result.target) };
+}
+
+/** What the device says it shared; a device that does not say shared the screen. */
+function readTarget(v: unknown): Target {
+  const t = (v ?? {}) as Record<string, unknown>;
+  if (t.kind !== "window") return { kind: "screen" };
+  return { kind: "window", ...(typeof t.app === "string" ? { app: t.app } : {}), ...(typeof t.title === "string" ? { title: t.title } : {}) };
 }
 
 function endReason(v: unknown): EndReason {
-  return v === "owner" || v === "expired" || v === "idle" || v === "quit" ? v : "host";
+  return v === "owner" || v === "expired" || v === "idle" || v === "quit" || v === "window" ? v : "host";
 }
