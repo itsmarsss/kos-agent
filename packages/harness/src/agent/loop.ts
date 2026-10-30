@@ -9,6 +9,7 @@ import type {
   ToolDef,
 } from "../models/types.js";
 import { textOf, toolUsesOf } from "../models/types.js";
+import { keepRecentPictures } from "./pictures.js";
 import type { ToolExecution } from "./registry.js";
 
 /** Anything that can run inference for a task (the ModelRouter satisfies this). */
@@ -120,7 +121,7 @@ export async function runAgent(
     try {
       response = await inference.generate(task, {
         system: options.system,
-        messages,
+        messages: keepRecentPictures(messages),
         ...(tools.length ? { tools } : {}),
         ...(options.onDelta ? { onDelta: options.onDelta } : {}),
         ...(options.signal ? { signal: options.signal } : {}),
