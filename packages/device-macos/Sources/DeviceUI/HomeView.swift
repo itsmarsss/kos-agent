@@ -40,14 +40,17 @@ public struct HomeView: View {
 
   public var body: some View {
     VStack(alignment: .leading, spacing: 14) {
+      // The system's lights sit at the top left of this row; the gear balances them on the right.
       HStack {
-        WindowControls(close: model.actions.close, minimize: model.actions.minimize)
         Spacer()
         if model.page == .home {
           IconButton(symbol: "gearshape", label: "Settings") { model.page = .settings }
             .transition(.opacity)
         }
+        // macOS's own Close, without a menu bar to carry its shortcut.
+        Button("Close", action: model.actions.close).keyboardShortcut("w", modifiers: .command).opacity(0).frame(width: 0, height: 0)
       }
+      .frame(height: 26)
       ZStack(alignment: .top) {
         if model.page == .home {
           home.transition(.asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .leading)).combined(with: .opacity))
@@ -57,7 +60,7 @@ public struct HomeView: View {
       }
     }
     .padding(.horizontal, Theme.gutter)
-    .padding(.top, 15)
+    .padding(.top, 6)
     .padding(.bottom, Theme.gutter)
     .frame(width: 460)
     .fixedSize(horizontal: false, vertical: true)
@@ -270,6 +273,10 @@ public struct HomeView: View {
   // MARK: Permissions
 
   /// Asked for until both are granted; then one line, opening into a drawer to manage them.
+  ///
+  /// What opens fades in where it will sit, and what closes fades where it
+  /// was, inside its card: slid, it passed over the rows around it on its
+  /// way, and the card's own height is the motion anyway.
   private var permissionsCard: some View {
     Card {
       if model.allGranted {
@@ -282,13 +289,19 @@ public struct HomeView: View {
           Divider().overlay(Theme.line)
           grantRow(.input)
           if model.needsRestart {
-            restartNotice.transition(.opacity.combined(with: .move(edge: .top)))
+            restartNotice.transition(Self.inPlace)
           }
         }
-        .transition(.opacity.combined(with: .move(edge: .top)))
+        .transition(Self.inPlace)
       }
     }
+    .clipped()
   }
+
+  /// Appearing after the card has made room, leaving before it closes, never sliding.
+  static let inPlace = AnyTransition.asymmetric(
+    insertion: .opacity.animation(.easeOut(duration: 0.2).delay(0.1)),
+    removal: .opacity.animation(.easeIn(duration: 0.1)))
 
   private var restartNotice: some View {
     HStack(spacing: 10) {
