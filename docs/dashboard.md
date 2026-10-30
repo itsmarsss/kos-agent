@@ -152,8 +152,14 @@ to you.
 
 **Take over** gives you that tab: your clicks, scrolling and typing go to
 it instead of to the dashboard, with the window's border lit to say whose
-hand is on it. **Let go** hands it back. The agent does not stop while you
-drive; it reads the page again on its next step.
+hand is on it, and the agent's hands wait. An agent that reaches for the
+tab meanwhile waits for you (the title says so) and is told, once you let
+go, that the page may have changed. **Let go** hands it back; closing the
+window or the dashboard does too.
+
+The live view, the turn in progress and an agent's build log share one
+connection per dashboard tab, so any number of dashboard tabs can be open
+at once without one starving another.
 
 **Sign in with your hands.** When an agent reaches a login, a code, a
 captcha or a payment, it asks for your hands rather than guessing. The

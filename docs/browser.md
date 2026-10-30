@@ -55,6 +55,20 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   what it said. A crashed tab is loaded again. Calls on one tab run one
   at a time.
 
+## Watching and taking over
+
+The dashboard watches a tab as a screencast, up to 30 frames a second,
+over its one WebSocket (`/api/socket`), each frame as bytes rather than
+text; a frame that cannot go out at once is dropped, not queued, so what
+is on screen is never behind. The socket lets in the dashboard's own page
+only (a WebSocket is not held to the same-origin rule, so the origin is
+checked), and the dashboard's token when it has one.
+
+Taking over holds the tab: the owner's input is the only input on it, and
+an agent's next call on it, or its next step, waits until the owner lets
+go (ten minutes at most, then it is told the owner still has it). The
+window that took it letting go, closing, or losing its connection lets go.
+
 ## What an agent may do
 
 Only http and https pages (and `about:blank`) open for an agent; a file
