@@ -33,6 +33,8 @@ describe("handleApiRequest", () => {
       rootDir: root,
       secrets: new SecretsRegistry(),
       inference: stub,
+      // No Chrome here, and none on the port: a test never starts one, or reaches the owner's.
+      chrome: { port: 1, exists: () => false },
     });
   });
 
@@ -328,17 +330,9 @@ describe("handleApiRequest", () => {
     expect((await handleApiRequest(kernel, { method: "GET", path: "/api/file/download", url: `/api/file/download?path=${encodeURIComponent(dir)}` })).status).toBe(400);
   });
 
-  it("reports the browser view and refuses input while nothing is attached", async () => {
+  it("reports the browser view, and has nothing to drive while nothing is attached", async () => {
     const status = await handleApiRequest(kernel, { method: "GET", path: "/api/browser/status" });
-    expect(status.body).toMatchObject({ configured: false, chrome: "stopped", attached: false, tabs: [] });
-    const noTab = await handleApiRequest(kernel, { method: "POST", path: "/api/browser/input", body: { type: "input_mouse", eventType: "mousePressed", x: 1, y: 1 } });
-    expect(noTab.status).toBe(400);
-    expect((noTab.body as { error: string }).error).toMatch(/tab required/);
-    const refused = await handleApiRequest(kernel, { method: "POST", path: "/api/browser/input", body: { tab: "T1", type: "input_mouse", eventType: "mousePressed", x: 1, y: 1 } });
-    expect(refused.status).toBe(400);
-    expect((refused.body as { error: string }).error).toMatch(/no such tab/);
-    const junk = await handleApiRequest(kernel, { method: "POST", path: "/api/browser/input", body: { tab: "T1", type: "config", maxFps: 1 } });
-    expect(junk.status).toBe(400);
+    expect(status.body).toMatchObject({ chrome: "stopped", attached: false, tabs: [] });
     // The owner's chrome: nothing to drive without a tab, and no browser to open one in.
     expect((await handleApiRequest(kernel, { method: "POST", path: "/api/browser/navigate", body: { url: "https://x" } })).status).toBe(400);
     expect((await handleApiRequest(kernel, { method: "POST", path: "/api/browser/navigate", body: { tab: "T1" } })).status).toBe(400);
@@ -475,19 +469,9 @@ describe("handleApiRequest", () => {
     expect((await handleApiRequest(kernel, { method: "POST", path: "/api/host/restart/cancel", body: {} })).body).toMatchObject({ pending: false });
   });
 
-  it("keeps the browser's settings as KOS's keys on the engine's entry", async () => {
+  it("keeps the browser's settings as KOS's own", async () => {
     const none = await handleApiRequest(kernel, { method: "GET", path: "/api/browser/settings" });
-    expect(none.body).toMatchObject({ engine: null, headed: false, chrome: "", extensions: [], search: "https://duckduckgo.com/?q=%s" });
-    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/browser/settings", body: { headed: true } })).status).toBe(400);
-    expect((await handleApiRequest(kernel, { method: "POST", path: "/api/browser/restart", body: {} })).status).toBe(400);
-
-    // Written rather than added through the route, which would bring the server up.
-    const entry = { command: "npx", args: ["agent-browser"], env: { AGENT_BROWSER_CDP: "9225" } };
-    writeFileSync(join(root, "mcp.json"), JSON.stringify({ servers: { browser: { ...entry, enabled: false } } }));
-    // Off is off: the engine must be enabled to count.
-    expect(((await handleApiRequest(kernel, { method: "GET", path: "/api/browser/settings" })).body as { engine: string | null }).engine).toBeNull();
-    writeFileSync(join(root, "mcp.json"), JSON.stringify({ servers: { browser: entry } }));
-
+    expect(none.body).toMatchObject({ headed: false, chrome: "", extensions: [], search: "https://duckduckgo.com/?q=%s" });
     const bad = await handleApiRequest(kernel, { method: "POST", path: "/api/browser/settings", body: { search: "https://example.com" } });
     expect(bad.status).toBe(400);
     const saved = await handleApiRequest(kernel, {
@@ -495,24 +479,16 @@ describe("handleApiRequest", () => {
       path: "/api/browser/settings",
       body: { headed: true, chrome: " /opt/chrome ", extensions: ["/x/one", " ", "/x/two"], search: "https://www.google.com/search?q=%s" },
     });
-    expect(saved.body).toMatchObject({ engine: "browser", headed: true, chrome: "/opt/chrome", extensions: ["/x/one", "/x/two"], search: "https://www.google.com/search?q=%s" });
-    const env = (JSON.parse(readFileSync(join(root, "mcp.json"), "utf8")) as { servers: { browser: { env: Record<string, string> } } }).servers.browser.env;
-    expect(env).toEqual({
-      AGENT_BROWSER_CDP: "9225",
-      KOS_BROWSER_HEADED: "1",
-      KOS_BROWSER_CHROME: "/opt/chrome",
-      KOS_BROWSER_EXTENSIONS: "/x/one,/x/two",
-      KOS_BROWSER_SEARCH: "https://www.google.com/search?q=%s",
-    });
-    // Cleared keys go, not just empty.
+    expect(saved.body).toMatchObject({ headed: true, chrome: "/opt/chrome", extensions: ["/x/one", "/x/two"], search: "https://www.google.com/search?q=%s" });
+    expect(kernel.browserConfig()).toMatchObject({ headed: true, chrome: "/opt/chrome", extensions: ["/x/one", "/x/two"] });
+    // Cleared fields go back to the defaults.
     const cleared = await handleApiRequest(kernel, { method: "POST", path: "/api/browser/settings", body: { headed: false, chrome: "", extensions: [], search: "" } });
     expect(cleared.body).toMatchObject({ headed: false, chrome: "", extensions: [], search: "https://duckduckgo.com/?q=%s" });
-    expect((JSON.parse(readFileSync(join(root, "mcp.json"), "utf8")) as { servers: { browser: { env: Record<string, string> } } }).servers.browser.env).toEqual({ AGENT_BROWSER_CDP: "9225", KOS_BROWSER_HEADED: "0" });
-    writeFileSync(join(root, "mcp.json"), JSON.stringify({ servers: {} }));
+    expect(kernel.browserConfig()).not.toHaveProperty("chrome");
   });
 
   it("serves the picture an approval was queued with, and nothing for one without", async () => {
-    const pictured = kernel.approvals.enqueue({ tool: "mcp.browser.agent_browser_click", args: { selector: "@e5" }, riskTier: "risky", picture: Buffer.from("PIC").toString("base64") });
+    const pictured = kernel.approvals.enqueue({ tool: "browser.act", args: { steps: [{ click: "@e5" }] }, riskTier: "risky", picture: Buffer.from("PIC").toString("base64") });
     const plain = kernel.approvals.enqueue({ tool: "shell", args: { cmd: "ls" }, riskTier: "risky" });
     const list = (await handleApiRequest(kernel, { method: "GET", path: "/api/approvals" })).body as { id: number; picture: boolean; requestedAt: number; expiresAt: number }[];
     expect(list.map((a) => a.picture)).toEqual([true, false]);
@@ -546,6 +522,7 @@ describe("handleApiRequest", () => {
     const events = [
       { kind: "tool" as const, name: "browser.visit", summary: "", args: {}, result: "Opened" },
       { kind: "tool" as const, name: "sql", summary: "", args: {}, result: "rows" },
+      // A step from the old engine, in a transcript from before KOS drove the browser itself.
       { kind: "tool" as const, name: "mcp.browser.agent_browser_click", summary: "", args: {}, result: `${DENIED_PREFIX}4). no` },
       { kind: "tool" as const, name: "browser.act", summary: "", args: {}, result: "Done" },
       { kind: "tool" as const, name: "browser.act", summary: "", args: {}, pendingId: "9" },

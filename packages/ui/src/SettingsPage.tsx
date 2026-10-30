@@ -443,7 +443,7 @@ export function SettingsPage({
   const openTab = useOpenTab();
   const takeBrowser = useCallback((b: BrowserSettings) => {
     setBrowser(b);
-    setBrowserDraft(b.engine ? { headed: b.headed, chrome: b.chrome, extensions: b.extensions, search: b.search } : null);
+    setBrowserDraft({ headed: b.headed, chrome: b.chrome, extensions: b.extensions, search: b.search });
   }, []);
   useEffect(() => {
     if (active !== "browser") return;
@@ -1629,12 +1629,11 @@ export function SettingsPage({
             canSave={browserDirty}
             onSave={saveBrowser}
             extra={
-              <button type="button" className="btn" disabled={busy === "browser" || !browser?.engine} onClick={restartBrowser} title="Close Chrome and start it again with these settings">
+              <button type="button" className="btn" disabled={busy === "browser" || !browser} onClick={restartBrowser} title="Close Chrome and start it again with these settings; sign-ins stay">
                 Restart the browser
               </button>
             }
           >
-            {browser && !browser.engine && <p className="hint">No browser engine is set up. Add the browser under MCP servers first.</p>}
             {browserDraft && (
               <>
                 <div className="set-group">
@@ -1666,7 +1665,7 @@ export function SettingsPage({
                   <h3>Extensions</h3>
                   <p className="hint">
                     Extensions live in KOS's own Chrome profile and stay there. The sure way in is to show the window, open chrome://extensions in a tab of your own, and install from the Web Store or Load unpacked there.
-                    The folders below are loaded at start with Chrome's --load-extension flag, which Google Chrome 137 and later ignores; Chromium and Chrome for Testing still honour it.
+                    The folders below are loaded each time Chrome starts.
                   </p>
                   <Field label="Unpacked extension folders">
                     <TokenList
@@ -1681,7 +1680,6 @@ export function SettingsPage({
                     <button
                       type="button"
                       className="btn btn--sm"
-                      disabled={!browser?.engine}
                       onClick={() => void api.browserNewTab("chrome://extensions").then((r) => openTab(r.tab)).catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))}
                     >
                       Open chrome://extensions in a tab

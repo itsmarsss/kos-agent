@@ -418,57 +418,6 @@ export const MCP_PICKS: McpPick[] = [
     risk: "safe",
   },
   {
-    name: "browser",
-    blurb: "A real browser you can watch live from the dashboard and take over: open pages, read them, click, type. Looking is safe; acting asks you.",
-    needs: "node",
-    server: {
-      command: "npx",
-      // The mobile profile is where the viewport tool lives; KOS sizes each
-      // tab itself when it makes it (KOS_BROWSER_VIEWPORT).
-      // Pinned: "latest" was resolved over the network on every host start,
-      // and a new engine release would have changed the browser under KOS.
-      args: ["-y", "agent-browser@0.39.1", "mcp", "--tools", "core,mobile"],
-      // KOS runs the one Chrome on this port; the engine attaches to it,
-      // one session per conversation, each pinned to the tab KOS made.
-      env: {
-        AGENT_BROWSER_CDP: "9225",
-        AGENT_BROWSER_PIN_TAB: "1",
-        KOS_BROWSER_VIEWPORT: "1600x1000",
-        // A page is handed to the model capped, and wrapped in markers
-        // that say it is the page talking.
-        AGENT_BROWSER_MAX_OUTPUT: "24000",
-        AGENT_BROWSER_CONTENT_BOUNDARIES: "1",
-      },
-      tools: {
-        agent_browser_set_viewport: "safe",
-        agent_browser_set_media: "safe",
-        agent_browser_set_geo: "safe",
-        agent_browser_device: "safe",
-        agent_browser_open: "safe",
-        agent_browser_read: "safe",
-        agent_browser_snapshot: "safe",
-        agent_browser_screenshot: "safe",
-        agent_browser_get_text: "safe",
-        agent_browser_get_url: "safe",
-        agent_browser_get_title: "safe",
-        agent_browser_wait_ms: "safe",
-        agent_browser_wait_for_selector: "safe",
-        agent_browser_wait_for_text: "safe",
-        agent_browser_wait_for_load: "safe",
-        agent_browser_scroll: "safe",
-        agent_browser_back: "safe",
-        agent_browser_forward: "safe",
-        agent_browser_reload: "safe",
-        agent_browser_tab_list: "safe",
-        agent_browser_tab_new: "safe",
-        agent_browser_tab_switch: "safe",
-        agent_browser_tab_close: "safe",
-        agent_browser_close: "safe",
-        agent_browser_tools_profiles: "safe",
-      },
-    },
-  },
-  {
     name: "playwright",
     blurb: "Microsoft's Playwright browser server: pages, clicks, typing, snapshots. No live view.",
     needs: "node",

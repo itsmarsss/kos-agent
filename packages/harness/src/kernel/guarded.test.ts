@@ -87,29 +87,29 @@ describe("GuardedTools", () => {
   });
 
   it("trusts a browser action by the site its tab is on, pictures what it asks about, and never trusts script", async () => {
-    registry.register({ name: "mcp.browser.agent_browser_click", description: "d", inputSchema: { type: "object" } }, () => "clicked", { floor: "risky" });
-    registry.register({ name: "mcp.browser.agent_browser_eval", description: "d", inputSchema: { type: "object" } }, () => "ran", { floor: "risky" });
+    registry.register({ name: "browser.act", description: "d", inputSchema: { type: "object" } }, () => "clicked", { floor: "risky" });
+    registry.register({ name: "browser.eval", description: "d", inputSchema: { type: "object" } }, () => "ran", { floor: "risky" });
     const permissions = new PermissionStore(ws.db);
-    const context = { browser: { prefix: "mcp.browser.", site: "shop.example", strict: ["mcp.browser.agent_browser_eval"] } };
+    const context = { browser: { prefix: "browser.", site: "shop.example", strict: ["browser.eval"] } };
     const tools = guarded({
       permissions,
       projectSlug: () => undefined,
       waitForApproval: false,
-      permissionContext: (tool) => (tool.startsWith("mcp.browser.") ? context : undefined),
-      pictureFor: async (tool) => (tool.startsWith("mcp.browser.") ? "UElD" : undefined),
+      permissionContext: (tool) => (tool.startsWith("browser.") ? context : undefined),
+      pictureFor: async (tool) => (tool.startsWith("browser.") ? "UElD" : undefined),
     });
 
-    const asked = await tools.execute("mcp.browser.agent_browser_click", { selector: "@e5" });
+    const asked = await tools.execute("browser.act", { steps: [{ click: "@e5" }] });
     expect(asked.content).toMatch(/Queued for approval/);
     const queued = approvals.pending()[0]!;
-    expect(queued).toMatchObject({ reason: "on shop.example", rule: { tool: "mcp.browser.*", scope: "site:shop.example", project: null }, picture: true });
+    expect(queued).toMatchObject({ reason: "on shop.example", rule: { tool: "browser.*", scope: "site:shop.example", project: null }, picture: true });
     expect(approvals.pictureOf(queued.id)).toBe("UElD");
 
     // The owner's yes-and-remember: every browser action on that site runs.
     permissions.add(queued.rule!);
-    expect((await tools.execute("mcp.browser.agent_browser_click", { selector: "@e9" })).content).toBe("clicked");
+    expect((await tools.execute("browser.act", { steps: [{ click: "@e9" }] })).content).toBe("clicked");
     // Script in the page still asks.
-    expect((await tools.execute("mcp.browser.agent_browser_eval", { script: "1" })).content).toMatch(/Queued for approval/);
+    expect((await tools.execute("browser.eval", { code: "1" })).content).toMatch(/Queued for approval/);
     expect(approvals.pending().at(-1)?.rule).toBeNull();
   });
 

@@ -24,6 +24,8 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.0)(jsdom@29.1.1)(lightningcss@1.32.0)
 
+  packages/browser: {}
+
   packages/cli:
     dependencies:
       '@kos/client':
@@ -65,6 +67,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.106.0
         version: 0.106.0(zod@4.5.4)
+      '@kos/browser':
+        specifier: workspace:*
+        version: link:../browser
       '@kos/shared':
         specifier: workspace:*
         version: link:../shared
@@ -89,6 +94,9 @@ importers:
       sqlite-vec:
         specifier: ^0.1.9
         version: 0.1.9
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.0
       zod:
         specifier: ^4.5.4
         version: 4.5.4
@@ -96,6 +104,9 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.12
         version: 7.6.13
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
 
   packages/shared: {}
 

@@ -19,6 +19,7 @@ import {
   connectChannel,
   conversationKind,
   createDashboardServer,
+  createDashboardSocket,
   createPressHandler,
   primarySessionId,
   surfaceSessionId,
@@ -228,9 +229,13 @@ export async function runHost(options: HostOptions): Promise<void> {
     halted: () => kernel.killSwitch.halted,
   });
 
+  // KOS's Chrome answers on 9225; a second KOS on the machine names another port.
+  const browserPort = Number(process.env.KOS_BROWSER_PORT ?? "");
+
   const kernel = await Kernel.boot({
     rootDir: options.rootDir,
     allowedHosts: options.allowedHosts,
+    ...(Number.isInteger(browserPort) && browserPort > 0 && browserPort < 65_536 ? { chrome: { port: browserPort } } : {}),
     extraModules: [computer.module],
     features: [{ name: "computer", description: "Use a paired computer: its screen, pointer and keyboard" }],
     ...(notify ? { notify } : {}),
@@ -380,9 +385,10 @@ export async function runHost(options: HostOptions): Promise<void> {
       : {}),
   });
 
-  // The one upgrade the dashboard server takes: a paired device's socket.
+  // The two upgrades the dashboard server takes: the dashboard's own socket, and a paired device's.
+  const live = createDashboardSocket(kernel, { ...(options.token ? { token: options.token } : {}) });
   server.on("upgrade", (req, socket, head) => {
-    if (!computer.upgrade(req, socket, head)) socket.destroy();
+    if (!live.upgrade(req, socket, head) && !computer.upgrade(req, socket, head)) socket.destroy();
   });
 
   await new Promise<void>((resolveListen, reject) => {
@@ -841,6 +847,7 @@ export async function runHost(options: HostOptions): Promise<void> {
     console.log("shutting down…");
     clearDaemonState(kernel.workspace.root);
     computer.close();
+    live.close();
     server.close();
     void (async () => {
       try {
@@ -848,6 +855,7 @@ export async function runHost(options: HostOptions): Promise<void> {
         if (smsRuntime) await smsRuntime.stop();
         if (imessageRuntime) await imessageRuntime.stop();
         imessageClaim?.release();
+        await kernel.closeBrowser();
       } catch {
         // ignore
       }

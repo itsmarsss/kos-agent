@@ -29,10 +29,10 @@ function deps(action: PendingAction | undefined, awaited: boolean, over: Partial
 
 describe("remembering", () => {
   it("keeps the rule named when the call was queued, over one named now", async () => {
-    const action = pending({ tool: "mcp.browser.agent_browser_click", args: JSON.stringify({ selector: "@e5" }), rule: { tool: "mcp.browser.*", scope: "site:shop.example", project: null } });
+    const action = pending({ tool: "browser.act", args: JSON.stringify({ steps: [{ click: "@e5" }] }), rule: { tool: "browser.*", scope: "site:shop.example", project: null } });
     const { d, log } = deps(action, true);
     await new Decisions(d).approve(5, "owner", { remember: true });
-    expect(log).toContain("rule:mcp.browser.*:site:shop.example:null");
+    expect(log).toContain("rule:browser.*:site:shop.example:null");
     expect(log.filter((l) => l.startsWith("rule:"))).toHaveLength(1);
   });
 });

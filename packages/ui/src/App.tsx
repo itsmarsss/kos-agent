@@ -109,7 +109,6 @@ export function App(): React.ReactElement {
    * it while KOS is still browsing keeps it shut for that turn.
    */
   const [browserOpen, setBrowserOpen] = useState(false);
-  const [browserPrefix, setBrowserPrefix] = useState<string | null>(null);
   /** The browser's tabs as of the last poll, so a chip in a chat can name one. */
   const [browserTabs, setBrowserTabs] = useState<BrowserTabInfo[]>([]);
   /** A tab asked for from a chip or a button: the window opens on it. */
@@ -123,16 +122,15 @@ export function App(): React.ReactElement {
   }, []);
   /** Who is browsing right now, and what they are doing, if anyone is. */
   const browsing = useMemo((): { id: string; doing?: string } | null => {
-    if (!browserPrefix) return null;
     for (const [id, turn] of Object.entries(live)) {
       if (!turn || turn.ended) continue;
       for (let i = turn.steps.length - 1; i >= 0; i--) {
         const step = turn.steps[i]!;
-        if (step.kind === "tool" && step.tool.startsWith(browserPrefix)) return step.done ? { id } : { id, doing: step.summary };
+        if (step.kind === "tool" && step.tool.startsWith("browser.")) return step.done ? { id } : { id, doing: step.summary };
       }
     }
     return null;
-  }, [live, browserPrefix]);
+  }, [live]);
   /** Agents waiting for the owner's hands on their tab: the window opens itself for those. */
   const handoffs = useMemo(
     () =>
@@ -250,10 +248,7 @@ export function App(): React.ReactElement {
     ]);
     apply(s, setStatus);
     apply(ib, setInbox);
-    apply(br, (v) => {
-      setBrowserPrefix(v.prefix ?? null);
-      setBrowserTabs(v.tabs);
-    });
+    apply(br, (v) => setBrowserTabs(v.tabs));
     apply(a, setApprovals);
     apply(ag, (v) => setAgents(v.builds));
     apply(p, setProjects);

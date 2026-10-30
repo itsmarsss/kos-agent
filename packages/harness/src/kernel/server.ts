@@ -76,8 +76,8 @@ import {
   type McpListing,
   type SkillListing,
 } from "../catalog/catalog.js";
-import { mcpToolName, readMcpConfig, removeMcpServer, serversFromJson, setMcpServerEnabled, upsertMcpServers } from "../tools/mcp.js";
-import { CHROME_ENV, DEFAULT_SEARCH, EXTENSIONS_ENV, HEADED_ENV, SEARCH_ENV, browserEngine } from "../browser/live.js";
+import { DEFAULT_SEARCH } from "@kos/browser";
+import { readMcpConfig, removeMcpServer, serversFromJson, setMcpServerEnabled, upsertMcpServers } from "../tools/mcp.js";
 import { proxyToDaemon } from "../daemons/proxy.js";
 import { RETENTION_DEFAULTS, RETENTION_KEY, cronSessionId } from "./session.js";
 
@@ -1688,22 +1688,7 @@ export async function handleApiRequest(
   }
 
   if (method === "GET" && path === "/api/browser/status") {
-    // The tool-name prefix lets the dashboard tell a browser step from any
-    // other MCP call, so the live view can open itself when one starts.
-    const engine = browserEngine(readMcpConfig(kernel.workspace.root));
-    return ok({ ...kernel.browser.status(), ...(engine ? { prefix: mcpToolName(engine.server, "") } : {}) });
-  }
-
-  if (method === "POST" && path === "/api/browser/input") {
-    const tab = typeof body.tab === "string" ? body.tab : "";
-    if (!tab) return { status: 400, body: { error: "tab required" } };
-    try {
-      const { tab: _tab, ...message } = body;
-      await kernel.browser.input(tab, message);
-      return ok({ sent: true });
-    } catch (err) {
-      return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
-    }
+    return ok(kernel.browser.status());
   }
 
   /*
@@ -1754,35 +1739,28 @@ export async function handleApiRequest(
 
   /*
    * How Chrome is run: shown or not, which binary, unpacked extensions,
-   * and where the address bar searches. Kept as KOS's own keys in the
-   * engine's entry in mcp.json, beside the port that names it as the
-   * engine; a change takes effect when the browser next starts.
+   * and where the address bar searches. A change takes effect when the
+   * browser next starts.
    */
   if (method === "GET" && path === "/api/browser/settings") {
     return ok(browserSettings(kernel));
   }
 
   if (method === "POST" && path === "/api/browser/settings") {
-    const config = readMcpConfig(kernel.workspace.root);
-    const engine = browserEngine(config);
-    if (!engine) return { status: 400, body: { error: "no browser engine is configured; add the browser under Settings > MCP servers" } };
-    const entry = config.servers[engine.server]!;
-    const env = { ...(entry.env ?? {}) };
-    const set = (key: string, value: string): void => {
-      if (value) env[key] = value;
-      else delete env[key];
-    };
-    if (typeof body.headed === "boolean") env[HEADED_ENV] = body.headed ? "1" : "0";
-    if (typeof body.chrome === "string") set(CHROME_ENV, body.chrome.trim());
-    if (Array.isArray(body.extensions)) {
-      set(EXTENSIONS_ENV, body.extensions.filter((p): p is string => typeof p === "string").map((p) => p.trim()).filter(Boolean).join(","));
+    const config = { ...kernel.browserConfig() };
+    if (typeof body.headed === "boolean") config.headed = body.headed;
+    if (typeof body.chrome === "string") {
+      const chrome = body.chrome.trim();
+      if (chrome) config.chrome = chrome;
+      else delete config.chrome;
     }
+    if (Array.isArray(body.extensions)) config.extensions = body.extensions.filter((p): p is string => typeof p === "string");
     if (typeof body.search === "string") {
       const search = body.search.trim();
       if (search && !search.includes("%s")) return { status: 400, body: { error: "search wants a URL with %s where the words go" } };
-      set(SEARCH_ENV, search);
+      config.search = search || DEFAULT_SEARCH;
     }
-    upsertMcpServers(kernel.workspace.root, { [engine.server]: { ...entry, env } });
+    kernel.setBrowserConfig(config);
     return ok(browserSettings(kernel));
   }
 
@@ -3004,7 +2982,8 @@ function bearerOf(req: ApiRequest): string | undefined {
   return auth?.startsWith("Bearer ") ? auth.slice(7) : undefined;
 }
 
-function authorized(req: ApiRequest, token: string): boolean {
+/** Whether a request carries the dashboard's token, as a bearer or as x-kos-token. */
+export function authorized(req: ApiRequest, token: string): boolean {
   const headers = req.headers ?? {};
   const auth = header(headers, "authorization");
   if (auth?.startsWith("Bearer ") && auth.slice(7) === token) return true;
@@ -3083,57 +3062,6 @@ async function readBody(stream: NodeJS.ReadableStream): Promise<unknown> {
 
 
 /**
- * Turn progress as server-sent events.
- *
- * A turn runs for tens of seconds across several tool calls, and a reader
- * polling every five seconds sees none of it. The stream carries what step the
- * agent is on; anything that has to survive a reconnect stays in the polled
- * conversation list, so a dropped connection loses nothing but liveness.
- */
-/**
- * A build's log, as it happens.
- *
- * Polling is fine for a list and wrong for a log: output arrives in bursts,
- * and a page that samples every second and a half renders them as stutter.
- */
-function streamBuilds(
-  kernel: Kernel,
-  req: IncomingMessage,
-  res: ServerResponse,
-  options: DashboardServerOptions,
-): void {
-  res.writeHead(200, {
-    "content-type": "text/event-stream; charset=utf-8",
-    "cache-control": "no-cache",
-    connection: "keep-alive",
-    ...corsHeaders(req, options),
-  });
-  res.write(": connected\n\n");
-
-  const send = (id: number): void => {
-    const build = kernel.builds.get(id);
-    if (build) res.write(`data: ${JSON.stringify(build)}\n\n`);
-  };
-  // Everything currently known, so a reader that arrives mid-build sees the
-  // whole log rather than only what happens next.
-  for (const build of kernel.builds.list()) send(build.id);
-
-  const unwatch = kernel.builds.watch(send);
-  const beat = setInterval(() => res.write(": beat\n\n"), 25_000);
-  const close = (): void => {
-    clearInterval(beat);
-    unwatch();
-  };
-  req.on("close", close);
-  res.on("close", close);
-}
-
-/**
- * The browser KOS is driving, as it happens: the tabs and whose they are,
- * and the frames of the one tab this watcher asked for. One watcher is one
- * stream; a tab's screencast runs while anyone watches it.
- */
-/**
  * Each step that looked gets its card's picture: any step by the call's id
  * (a browser step, a computer's screen); a browser step whose engine gave no
  * id, in order, since frames are kept only for steps that ran and the cards
@@ -3178,7 +3106,6 @@ function browserStep(tool: string): boolean {
 
 /** How the browser is set to run, as Settings > Browser shows it. */
 export function browserSettings(kernel: Kernel): {
-  engine: string | null;
   headed: boolean;
   chrome: string;
   /** The binary that would run: the one named if it exists, else the first found. */
@@ -3186,80 +3113,17 @@ export function browserSettings(kernel: Kernel): {
   extensions: string[];
   search: string;
 } {
-  const engine = browserEngine(readMcpConfig(kernel.workspace.root));
+  const config = kernel.browserConfig();
   const launch = kernel.browser.launch();
   return {
-    engine: engine?.server ?? null,
-    headed: engine?.headed ?? false,
-    chrome: engine?.chrome ?? "",
+    headed: config.headed,
+    chrome: config.chrome ?? "",
     ...(launch.found ? { found: launch.found } : {}),
-    extensions: engine?.extensions ?? [],
-    search: engine?.search ?? DEFAULT_SEARCH,
+    extensions: config.extensions,
+    search: config.search,
   };
 }
 
-function streamBrowser(
-  kernel: Kernel,
-  req: IncomingMessage,
-  res: ServerResponse,
-  options: DashboardServerOptions,
-): void {
-  res.writeHead(200, {
-    "content-type": "text/event-stream; charset=utf-8",
-    "cache-control": "no-cache",
-    connection: "keep-alive",
-    ...corsHeaders(req, options),
-  });
-  res.write(": connected\n\n");
-  // Frames only for the tab asked for; the tab list and status for everyone.
-  const tab = queryParams(req.url).get("tab") ?? undefined;
-  const unsubscribe = kernel.browser.subscribe((event) => {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
-  }, tab);
-  const beat = setInterval(() => res.write(": beat\n\n"), 25_000);
-  const close = (): void => {
-    clearInterval(beat);
-    unsubscribe();
-  };
-  req.on("close", close);
-  res.on("close", close);
-}
-
-function streamProgress(
-  kernel: Kernel,
-  req: IncomingMessage,
-  res: ServerResponse,
-  options: DashboardServerOptions,
-): void {
-  res.writeHead(200, {
-    "content-type": "text/event-stream; charset=utf-8",
-    "cache-control": "no-cache",
-    connection: "keep-alive",
-    ...corsHeaders(req, options),
-  });
-  res.write(": connected\n\n");
-
-  // Catch the reader up on whatever is already running before sending them
-  // anything new. Without this a reload during a turn showed an empty space
-  // where the thinking and the tool calls had been, until the turn ended.
-  for (const event of kernel.progress.snapshot()) {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
-  }
-
-  const unsubscribe = kernel.progress.subscribe((event) => {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
-  });
-  // Proxies and browsers drop a silent stream; a comment costs nothing and is
-  // ignored by EventSource.
-  const beat = setInterval(() => res.write(": beat\n\n"), 25_000);
-
-  const close = (): void => {
-    clearInterval(beat);
-    unsubscribe();
-  };
-  req.on("close", close);
-  res.on("close", close);
-}
 
 
 /**
@@ -3454,23 +3318,6 @@ export function createDashboardServer(
       if (method === "OPTIONS") {
         res.writeHead(204, corsHeaders(req, options));
         res.end();
-        return;
-      }
-
-      // Server-sent events need the raw response, so this cannot go through
-      // the JSON handler that every other route uses.
-      if (method === "GET" && path === "/api/builds/stream") {
-        streamBuilds(kernel, req, res, options);
-        return;
-      }
-
-      if (method === "GET" && path === "/api/events") {
-        streamProgress(kernel, req, res, options);
-        return;
-      }
-
-      if (method === "GET" && path === "/api/browser/live") {
-        streamBrowser(kernel, req, res, options);
         return;
       }
 

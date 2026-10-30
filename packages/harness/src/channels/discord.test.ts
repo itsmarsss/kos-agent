@@ -583,12 +583,12 @@ describe("a prompt with a picture", () => {
     (adapter as unknown as { client: { users: unknown } }).client = {
       users: { fetch: async () => ({ send: async (p: Record<string, unknown>) => { payloads.push(p); return { edit: async () => undefined }; } }) },
     };
-    await adapter.requestApproval("owner-id", { id: "7", text: "x", tool: "mcp.browser.agent_browser_click", args: { selector: "@e5" }, reason: "on shop.example", picture: "UElD" });
+    await adapter.requestApproval("owner-id", { id: "7", text: "x", tool: "browser.act", args: { steps: [{ click: "@e5" }] }, reason: "on shop.example", picture: "UElD" });
     const files = payloads[0]?.files as { name: string; attachment: Buffer }[];
     expect(files).toHaveLength(1);
     expect(files[0]?.name).toBe("page.jpg");
     expect(files[0]?.attachment.toString("utf8")).toBe("PIC");
-    expect(String(payloads[0]?.content)).toContain("Click @e5");
+    expect(String(payloads[0]?.content)).toContain("click @e5");
     expect(String(payloads[0]?.content)).toContain("on shop.example");
   });
 });

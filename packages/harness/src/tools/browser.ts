@@ -1,36 +1,20 @@
+import { STEPS_MAX, VISIT_MAX, act, evaluate, look, stepsOf, touchesPage, urlFor, visit, type Seen, type Tab, type Then } from "@kos/browser";
+
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import type { WatchLook } from "../ops/watches.js";
 import { RISKY, SAFE } from "../risk/tiers.js";
 
 /**
- * The browser in fewer steps.
+ * The browser, as tools.
  *
- * The engine offers one tool per gesture, so visiting a page was three
- * model round trips (open, wait, look) and filling a form was one per
- * field. These two tools do a visit, or a run of gestures, inside one
- * call, through the engine's own tools, and hand back the page as it is
- * afterwards. Cheaper in tokens, faster in minutes, and the same tab,
- * the same trust: acting still asks unless the site is trusted.
+ * Few of them, each doing a whole thing: a visit opens a page and looks; a
+ * run of steps acts and looks; every one hands back the page as it is after,
+ * a picture with a short index of what can be acted on, so the next call can
+ * be the right one without a call in between to find out. The hands are
+ * @kos/browser's; this is what the model is told, and how much each costs in
+ * trust: looking is free, acting asks unless the site is trusted, and a
+ * script in the page asks every time.
  */
-
-/** The engine's tools, by the short names used here. */
-export const ENGINE_TOOL = {
-  url: "agent_browser_get_url",
-  open: "agent_browser_open",
-  waitForLoad: "agent_browser_wait_for_load",
-  waitMs: "agent_browser_wait_ms",
-  snapshot: "agent_browser_snapshot",
-  read: "agent_browser_read",
-  title: "agent_browser_get_title",
-  click: "agent_browser_click",
-  fill: "agent_browser_fill",
-  type: "agent_browser_type",
-  press: "agent_browser_press",
-  select: "agent_browser_select",
-  check: "agent_browser_check",
-  uncheck: "agent_browser_uncheck",
-  scroll: "agent_browser_scroll",
-} as const;
 
 /** A tab as the caller is told of it. */
 export interface TabInfo {
@@ -46,203 +30,54 @@ export interface TabInfo {
 }
 
 export interface BrowserToolsDeps {
-  /** Call one of the engine's tools for the current caller, on its own tab. */
-  call: (tool: string, args: Record<string, unknown>) => Promise<string>;
-  /** A picture of the caller's tab as it is, base64 JPEG, when there is one. */
-  look?: () => Promise<{ data: string } | undefined>;
+  /** The caller's own tab, made the first time it browses. */
+  tab: () => Promise<Tab>;
   /** The open tabs, each with whose it is. */
   tabs?: () => TabInfo[];
+  /** The ids of the caller's tabs, so a tab a step opened can be named. */
+  mine?: () => string[];
   /** Move the caller to an open tab; it is the caller's from then on. */
   useTab?: (tab: string) => Promise<void>;
   /** A new tab of the caller's own, which it is then on. Returns its id. */
-  newTab?: (url?: string) => Promise<string>;
+  newTab?: () => Promise<string>;
   /** Read a page in the caller's tab and compare it with the last reading under the same name. */
   watch?: (input: { url: string; name?: string; selector?: string }) => Promise<WatchLook>;
 }
 
-type Step =
-  | { open: string }
-  | { click: string }
-  | { fill: { selector: string; text: string } }
-  | { type: { selector: string; text: string } }
-  | { press: string }
-  | { select: { selector: string; values: string[] } }
-  | { check: string }
-  | { uncheck: string }
-  | { scroll: "up" | "down" }
-  | { wait: number };
-
-const STEP_KEYS = ["open", "click", "fill", "type", "press", "select", "check", "uncheck", "scroll", "wait"] as const;
-
-/** Steps that only look: going to a page, scrolling it, waiting for it. The rest act on it. */
-const READING_STEPS: ReadonlySet<string> = new Set(["open", "scroll", "wait"]);
-
-/**
- * Whether a run of steps does anything to the page. Decided on the raw
- * input, before the steps are parsed, so a shape the parser would refuse
- * counts as touching: an unreadable step never runs unasked.
- */
-export function touchesPage(input: Record<string, unknown>): boolean {
-  const steps = input["steps"];
-  if (!Array.isArray(steps) || steps.length === 0) return true;
-  return steps.some((s) => {
-    if (!s || typeof s !== "object" || Array.isArray(s)) return true;
-    const keys = Object.keys(s as object);
-    return keys.length !== 1 || !READING_STEPS.has(keys[0]!);
-  });
-}
-
-/** One step, checked: exactly one known key with the right shape of value. */
-export function parseStep(raw: unknown, at: number): Step {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`step ${at + 1}: must be an object with one of ${STEP_KEYS.join(", ")}`);
-  const keys = Object.keys(raw as object);
-  const key = keys.find((k) => (STEP_KEYS as readonly string[]).includes(k));
-  if (!key || keys.length !== 1) throw new Error(`step ${at + 1}: must have exactly one of ${STEP_KEYS.join(", ")}`);
-  const value = (raw as Record<string, unknown>)[key];
-  const str = (what: string): string => {
-    if (typeof value !== "string" || !value.trim()) throw new Error(`step ${at + 1}: ${key} wants ${what}`);
-    return value;
-  };
-  const pair = (second: "text"): { selector: string; text: string } => {
-    const v = value as Record<string, unknown> | null;
-    if (!v || typeof v !== "object" || typeof v["selector"] !== "string" || typeof v[second] !== "string") {
-      throw new Error(`step ${at + 1}: ${key} wants {selector, ${second}}`);
-    }
-    return { selector: v["selector"], text: v[second] as string };
-  };
-  switch (key) {
-    case "open":
-      return { open: str("a url") };
-    case "click":
-      return { click: str("a selector or @ref") };
-    case "fill":
-      return { fill: pair("text") };
-    case "type":
-      return { type: pair("text") };
-    case "press":
-      return { press: str("a key name") };
-    case "select": {
-      const v = value as Record<string, unknown> | null;
-      const values = v && Array.isArray(v["values"]) ? (v["values"] as unknown[]).filter((x): x is string => typeof x === "string") : typeof v?.["value"] === "string" ? [v["value"] as string] : [];
-      if (!v || typeof v["selector"] !== "string" || values.length === 0) throw new Error(`step ${at + 1}: select wants {selector, values}`);
-      return { select: { selector: v["selector"], values } };
-    }
-    case "check":
-      return { check: str("a selector or @ref") };
-    case "uncheck":
-      return { uncheck: str("a selector or @ref") };
-    case "scroll":
-      if (value !== "up" && value !== "down") throw new Error(`step ${at + 1}: scroll wants "up" or "down"`);
-      return { scroll: value };
-    case "wait": {
-      if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 30_000) throw new Error(`step ${at + 1}: wait wants milliseconds, up to 30000`);
-      return { wait: value };
-    }
-    default:
-      throw new Error(`step ${at + 1}: unknown step`);
-  }
-}
-
-/** A step as one engine call. */
-export function stepCall(step: Step): { tool: string; args: Record<string, unknown>; said: string } {
-  if ("open" in step) return { tool: ENGINE_TOOL.open, args: { url: step.open }, said: `opened ${step.open}` };
-  if ("click" in step) return { tool: ENGINE_TOOL.click, args: { selector: step.click }, said: `clicked ${step.click}` };
-  if ("fill" in step) return { tool: ENGINE_TOOL.fill, args: { selector: step.fill.selector, text: step.fill.text }, said: `filled ${step.fill.selector}` };
-  if ("type" in step) return { tool: ENGINE_TOOL.type, args: { selector: step.type.selector, text: step.type.text }, said: `typed into ${step.type.selector}` };
-  if ("press" in step) return { tool: ENGINE_TOOL.press, args: { key: step.press }, said: `pressed ${step.press}` };
-  if ("select" in step) return { tool: ENGINE_TOOL.select, args: { selector: step.select.selector, values: step.select.values }, said: `selected ${step.select.values.join(", ")} in ${step.select.selector}` };
-  if ("check" in step) return { tool: ENGINE_TOOL.check, args: { selector: step.check }, said: `checked ${step.check}` };
-  if ("uncheck" in step) return { tool: ENGINE_TOOL.uncheck, args: { selector: step.uncheck }, said: `unchecked ${step.uncheck}` };
-  if ("scroll" in step) return { tool: ENGINE_TOOL.scroll, args: { direction: step.scroll }, said: `scrolled ${step.scroll}` };
-  return { tool: ENGINE_TOOL.waitMs, args: { ms: step.wait }, said: `waited ${step.wait}ms` };
-}
-
-/** How the page is handed back after a visit or a run of steps. */
-/** What a visit hands back: the picture with a short index (look), the whole tree, the text, or nothing. */
-type Then = "look" | "snapshot" | "read" | "none";
+const THEN = { type: "string", enum: ["look", "snapshot", "read", "none"] };
 
 function thenOf(input: Record<string, unknown>, fallback: Then): Then {
   const v = input["then"];
   return v === "look" || v === "snapshot" || v === "read" || v === "none" ? v : fallback;
 }
 
-/** How many of the page's controls the index names before it says "and more". */
-export const INDEX_MAX = 50;
-
-/** `- role "label" [checked] [ref=e12]`, nested by indentation; the role is a word, the label quoted and optional. */
-const SNAPSHOT_LINE = /^\s*-\s+([a-z]+(?: [a-z]+)*)(?: "((?:[^"\\]|\\.)*)")?.*?\[ref=(e\d+)\]/;
-
-/** Controls a reader can name without a label: there is something to type into or press. */
-const CONTROLS = new Set(["textbox", "searchbox", "combobox", "button", "checkbox", "radio", "switch", "slider", "spinbutton", "menuitem", "tab", "option"]);
-
-/**
- * The page's controls as a short list, from the engine's interactive
- * snapshot: role, label and ref, one line each, duplicates folded, unlabeled
- * links left out, capped. A snapshot of a news page is 14 KB of tree; the
- * model needs the picture to understand the page and only this to act on it.
- */
-export function compactIndex(snapshot: string, max = INDEX_MAX): { lines: string[]; total: number } {
-  const seen = new Set<string>();
-  const all: string[] = [];
-  for (const raw of snapshot.split("\n")) {
-    const m = SNAPSHOT_LINE.exec(raw);
-    if (!m) continue;
-    const role = m[1]!.trim();
-    const label = m[2]?.trim() ?? "";
-    const ref = m[3]!;
-    if (!label && !CONTROLS.has(role)) continue;
-    const key = `${role}|${label}`;
-    if (label && seen.has(key)) continue;
-    seen.add(key);
-    all.push(label ? `${role} "${label}" @${ref}` : `${role} @${ref}`);
-  }
-  return { lines: all.slice(0, max), total: all.length };
+function str(input: Record<string, unknown>, key: string): string | undefined {
+  const v = input[key];
+  return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
 
-/** What a visit hands back: the words, and the picture when the tab can be seen. */
-interface PageSeen {
-  text: string;
-  images: { mediaType: string; data: string }[];
-}
-
-async function pageAfter(deps: BrowserToolsDeps, then: Then, scope?: string): Promise<PageSeen> {
-  if (then === "none") return { text: "", images: [] };
-  if (then === "read") return { text: await deps.call(ENGINE_TOOL.read, {}), images: [] };
-  const title = await deps.call(ENGINE_TOOL.title, {}).catch(() => "");
-  const snapshot = await deps.call(ENGINE_TOOL.snapshot, { interactive: true, compact: true, ...(scope ? { selector: scope } : {}) });
-  const head = title ? `Title: ${title.trim()}\n` : "";
-  if (then === "snapshot") return { text: `${head}${snapshot}`, images: [] };
-  // The picture carries the page; the index is only what can be acted on.
-  const shot = deps.look ? await deps.look().catch(() => undefined) : undefined;
-  const index = compactIndex(snapshot);
-  const more = index.total > index.lines.length ? ` (${index.lines.length} of ${index.total}; then: "snapshot" lists them all)` : "";
-  const list = index.lines.length ? `Can be acted on${more}:\n${index.lines.join("\n")}` : "Nothing to act on was found; then: \"snapshot\" or \"read\" may show more.";
-  return {
-    text: `${head}${shot ? "" : "(no picture of the tab was available)\n"}${list}`,
-    images: shot ? [{ mediaType: "image/jpeg", data: shot.data }] : [],
-  };
-}
-
-/** The urls a visit was given: `url`, or `urls` for several in one call, at most four. */
+/** The urls a visit was given: `url`, or `urls` for several in one call. */
 function urlsOf(input: Record<string, unknown>): string[] {
   const many = Array.isArray(input["urls"]) ? input["urls"].filter((u): u is string => typeof u === "string" && u.trim() !== "").map((u) => u.trim()) : [];
-  const one = typeof input["url"] === "string" && input["url"].trim() ? [input["url"].trim()] : [];
-  const urls = [...one, ...many.filter((u) => !one.includes(u))];
-  if (urls.length === 0) throw new Error("url required");
-  if (urls.length > 4) throw new Error("at most four urls in one visit");
-  return urls;
+  const one = str(input, "url");
+  return [...(one ? [one] : []), ...many.filter((u) => u !== one)];
+}
+
+function answer(seen: Seen): string | Seen {
+  return seen.images.length ? seen : seen.text;
 }
 
 export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
   return {
     manifest: {
       name: "browser",
-      version: "1.0.0",
+      version: "2.0.0",
       provides: [
-        { kind: "tool", name: "browser.visit", version: "1.0.0" },
-        { kind: "tool", name: "browser.act", version: "1.0.0" },
+        { kind: "tool", name: "browser.visit", version: "2.0.0" },
+        { kind: "tool", name: "browser.act", version: "2.0.0" },
+        { kind: "tool", name: "browser.look", version: "2.0.0" },
+        { kind: "tool", name: "browser.eval", version: "1.0.0" },
         { kind: "tool", name: "browser.handoff", version: "1.0.0" },
-        { kind: "tool", name: "browser.look", version: "1.0.0" },
         { kind: "tool", name: "browser.tabs", version: "1.0.0" },
         { kind: "tool", name: "browser.use_tab", version: "1.0.0" },
         { kind: "tool", name: "browser.new_tab", version: "1.0.0" },
@@ -254,38 +89,26 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         {
           name: "browser.visit",
           description:
-            "Open a page in your browser tab and see it, in one call: a picture of the tab, the title, and a short index of what " +
-            "can be acted on (role, label and @ref). Read the page from the picture; act with browser.act using the refs. " +
-            "`urls` visits up to four pages in one call, one after another. `then: \"read\"` returns the page as readable text " +
-            "instead (for articles); `then: \"snapshot\"` the whole interactive tree; `scope` limits the index to a CSS selector. " +
-            "It waits for the DOM; a page that draws itself afterwards may need {wait: ms} in browser.act, or `wait: \"load\"` here.",
+            "Open a page in your browser tab and see it, in one call: a picture of the tab, the title and url, and an index of " +
+            "what can be acted on, one line each with its @ref (a dialog's controls first). Read the page from the picture; act " +
+            `with browser.act using the refs, which stay the same while the page does. \`urls\` visits up to ${VISIT_MAX} pages in one ` +
+            'call. `then: "read"` returns the page as text with its links (for articles); `then: "snapshot"` the whole page as an ' +
+            "outline; `scope` limits either to what a CSS selector names. A page still loading after 20 seconds is handed back " +
+            'as it is, said to be still loading; `wait: "load"` waits for every resource first. Only http and https pages open.',
           inputSchema: {
             type: "object",
             properties: {
               url: { type: "string" },
-              urls: { type: "array", items: { type: "string" }, description: "several pages in one call, at most four" },
-              then: { type: "string", enum: ["look", "snapshot", "read", "none"] },
-              scope: { type: "string", description: "CSS selector to limit the index to" },
-              wait: { type: "string", enum: ["dom", "load"], description: "dom (default): the DOM is ready; load: every resource has loaded" },
+              urls: { type: "array", items: { type: "string" }, description: `several pages in one call, at most ${VISIT_MAX}` },
+              then: THEN,
+              scope: { type: "string", description: "CSS selector to limit what is handed back to" },
+              wait: { type: "string", enum: ["dom", "load"], description: "dom (default): the page can be read; load: every resource has loaded" },
             },
           },
         },
         async (input) => {
-          const urls = urlsOf(input);
-          const then = thenOf(input, "look");
-          const scope = typeof input["scope"] === "string" ? input["scope"] : undefined;
-          const state = input["wait"] === "load" ? "load" : "domcontentloaded";
-          const parts: string[] = [];
-          const images: PageSeen["images"] = [];
-          for (const url of urls) {
-            await deps.call(ENGINE_TOOL.open, { url });
-            await deps.call(ENGINE_TOOL.waitForLoad, { state }).catch(() => undefined);
-            const page = await pageAfter(deps, then, scope);
-            parts.push(`Opened ${url}\n${page.text}`.trim());
-            images.push(...page.images);
-          }
-          const text = parts.join("\n\n");
-          return images.length ? { text, images } : text;
+          const scope = str(input, "scope");
+          return answer(await visit(await deps.tab(), urlsOf(input), { then: thenOf(input, "look"), ...(scope ? { scope } : {}), until: input["wait"] === "load" ? "load" : "dom" }));
         },
         SAFE,
       );
@@ -294,65 +117,69 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         {
           name: "browser.act",
           description:
-            "Do several things on the current page in one call, in order, then get the page as it is afterwards. Each step is " +
-            "one of {open: url}, {click: selector}, {fill: {selector, text}}, {type: {selector, text}}, {press: key}, " +
-            "{select: {selector, values}}, {check: selector}, {uncheck: selector}, {scroll: \"up\"|\"down\"}, {wait: ms}. " +
-            "open, scroll and wait only look and run at once; a step that acts on the page (click, fill, type, press, select, check) asks the owner first. " +
-            "Selectors are @refs from the last snapshot or CSS. Use this for a form or a short sequence instead of one call per gesture. " +
-            "`then` is \"snapshot\" (default), \"read\" or \"none\".",
+            "Do several things on the current page in one call, in order, then see the page as it is afterwards. Each step is one " +
+            "of {click: target}, {fill: {target, text}} (replaces what is there), {type: {target, text}} (adds to it), " +
+            '{press: "Enter" | "Meta+a" | ...}, {select: {target, values}}, {check: target}, {uncheck: target}, {hover: target}, ' +
+            '{scroll: "up" | "down" | target}, {open: url}, {go: "back" | "forward" | "reload"}, {wait: ms | {text} | {selector} | {gone: text}}, ' +
+            '{dialog: "accept" | "dismiss"} (how to answer the next dialog; by default an alert is closed and a confirm dismissed). ' +
+            "A target is a @ref from the last look, or a CSS selector. Each step waits for the page to settle after it. A click " +
+            "that would land on something else (a banner over the button) is refused, naming what is in the way. Steps that only " +
+            "look or move (open, go, hover, scroll, wait, dialog) run at once; the rest ask the owner unless the site is trusted. " +
+            "If a step fails, the run stops and says what was done, why, and what the page offers now. `then` as for browser.visit.",
           inputSchema: {
             type: "object",
             properties: {
-              steps: { type: "array", items: { type: "object" }, minItems: 1, maxItems: 20 },
-              then: { type: "string", enum: ["look", "snapshot", "read", "none"] },
+              steps: { type: "array", items: { type: "object" }, minItems: 1, maxItems: STEPS_MAX },
+              then: THEN,
             },
             required: ["steps"],
           },
         },
         async (input) => {
-          const raw = Array.isArray(input["steps"]) ? input["steps"] : [];
-          if (raw.length === 0) throw new Error("steps required");
-          if (raw.length > 20) throw new Error("at most 20 steps in one call");
-          const steps = raw.map((s, i) => parseStep(s, i));
-          const done: string[] = [];
-          for (const step of steps) {
-            const call = stepCall(step);
-            try {
-              await deps.call(call.tool, call.args);
-            } catch (err) {
-              const why = err instanceof Error ? err.message : String(err);
-              throw new Error(`${done.length ? `Done: ${done.join("; ")}. ` : ""}Step ${done.length + 1} failed (${call.said.split(" ")[0]}): ${why}`);
-            }
-            done.push(call.said);
-          }
-          const page = await pageAfter(deps, thenOf(input, "look"));
-          const text = `Done: ${done.join("; ")}.\n${page.text}`.trim();
-          return page.images.length ? { text, images: page.images } : text;
+          const steps = stepsOf(input["steps"]);
+          const tab = await deps.tab();
+          const before = new Set(deps.mine?.() ?? []);
+          const seen = await act(tab, steps, thenOf(input, "look"));
+          const opened = (deps.mine?.() ?? []).filter((t) => !before.has(t));
+          const note = opened.length ? `\nIt opened ${opened.length === 1 ? `a tab, ${opened[0]}` : `tabs ${opened.join(", ")}`}; browser.use_tab works there.` : "";
+          return answer({ ...seen, text: `${seen.text}${note}` });
         },
         // Asks only when a step touches the page. A watcher that waits four
         // seconds for a table to render was asking the owner every six hours.
         { floor: "safe", escalate: (input) => (touchesPage(input) ? "clicks, types or fills on the page" : false) },
       );
 
-      /*
-       * Eyes. The snapshot says what is on the page; a picture says how it
-       * looks, which is the question when a snapshot is ambiguous, a layout
-       * matters, or a chart is the answer. Costly in tokens, so on request.
-       */
       ctx.registerTool(
         {
           name: "browser.look",
           description:
-            "See your tab as a picture, as it is right now. Use when the snapshot leaves you unsure what the page looks like " +
-            "(a layout, a chart, an image, a visual check); otherwise the snapshot is cheaper.",
-          inputSchema: { type: "object", properties: {} },
+            "See your tab as it is now, without doing anything to it: the picture and the index of what can be acted on, as " +
+            'browser.visit gives. `then: "snapshot"` for the whole outline instead, `then: "read"` for its text; `scope` narrows either.',
+          inputSchema: { type: "object", properties: { then: THEN, scope: { type: "string" } } },
         },
-        async () => {
-          const shot = deps.look ? await deps.look() : undefined;
-          if (!shot) throw new Error("no tab to look at; open a page first");
-          return { text: "The tab as it is now.", images: [{ mediaType: "image/jpeg", data: shot.data }] };
-        },
+        async (input) => answer(await look(await deps.tab(), thenOf(input, "look"), str(input, "scope"))),
         SAFE,
+      );
+
+      /*
+       * A script in the page can do anything the page can, as the owner,
+       * on whatever site the tab is on. Never trusted by site: it asks
+       * every time.
+       */
+      ctx.registerTool(
+        {
+          name: "browser.eval",
+          description:
+            "Run JavaScript in your tab's page and get its answer back as text (JSON for objects); top-level await works. For what " +
+            "the steps cannot do: reading a value a page keeps in a script, calling the page's own API. It asks the owner every time.",
+          inputSchema: { type: "object", properties: { code: { type: "string" } }, required: ["code"] },
+        },
+        async (input) => {
+          const code = str(input, "code");
+          if (!code) throw new Error("code required");
+          return evaluate(await deps.tab(), code);
+        },
+        RISKY,
       );
 
       /*
@@ -377,9 +204,8 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           },
         },
         async () => {
-          const url = await deps.call(ENGINE_TOOL.url, {}).catch(() => "");
-          const title = await deps.call(ENGINE_TOOL.title, {}).catch(() => "");
-          return `The owner has done it. The tab is now at ${url.trim() || "the same page"}${title.trim() ? ` (${title.trim()})` : ""}. Look again before you act.`;
+          const where = await (await deps.tab()).page.whereAmI();
+          return `The owner has done it. The tab is now at ${where.url || "the same page"}${where.title ? ` (${where.title})` : ""}. Look again before you act.`;
         },
         RISKY,
       );
@@ -411,22 +237,21 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         {
           name: "browser.use_tab",
           description:
-            "Work in a tab that is already open: one the owner pointed at with @tab:, or one from browser.tabs. It becomes " +
-            "your tab, and you get the page as it is. `then` as for browser.visit.",
+            "Work in a tab that is already open: one the owner pointed at with @tab:, one a step opened, or one from browser.tabs. " +
+            "It becomes your tab, and you see the page as it is. `then` as for browser.visit.",
           inputSchema: {
             type: "object",
-            properties: { tab: { type: "string", description: "the tab's id" }, then: { type: "string", enum: ["look", "snapshot", "read", "none"] } },
+            properties: { tab: { type: "string", description: "the tab's id" }, then: THEN },
             required: ["tab"],
           },
         },
         async (input) => {
-          const tab = typeof input["tab"] === "string" ? input["tab"].trim() : "";
+          const tab = str(input, "tab");
           if (!tab) throw new Error("tab required");
           if (!deps.useTab) throw new Error("no browser to switch tabs in");
           await deps.useTab(tab);
-          const page = await pageAfter(deps, thenOf(input, "look"));
-          const text = `Now on tab ${tab}.\n${page.text}`.trim();
-          return page.images.length ? { text, images: page.images } : text;
+          const seen = await look(await deps.tab(), thenOf(input, "look"));
+          return answer({ ...seen, text: `Now on tab ${tab}.\n${seen.text}`.trim() });
         },
         SAFE,
       );
@@ -437,19 +262,17 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           description:
             "Open a new tab of your own, at a url if given, and work in it from now on; your other tabs stay open and you can " +
             "go back to one with browser.use_tab. `then` as for browser.visit.",
-          inputSchema: {
-            type: "object",
-            properties: { url: { type: "string" }, then: { type: "string", enum: ["look", "snapshot", "read", "none"] } },
-          },
+          inputSchema: { type: "object", properties: { url: { type: "string" }, then: THEN } },
         },
         async (input) => {
           if (!deps.newTab) throw new Error("no browser to open a tab in");
-          const url = typeof input["url"] === "string" && input["url"].trim() ? input["url"].trim() : undefined;
-          const id = await deps.newTab(url);
-          if (url) await deps.call(ENGINE_TOOL.waitForLoad, { state: "domcontentloaded" }).catch(() => undefined);
-          const page = url ? await pageAfter(deps, thenOf(input, "look")) : { text: "", images: [] };
-          const text = `Opened tab ${id}${url ? ` at ${url}` : ""}.\n${page.text}`.trim();
-          return page.images.length ? { text, images: page.images } : text;
+          const raw = str(input, "url");
+          // Checked before the tab is made, so a refused address leaves nothing behind.
+          const url = raw ? urlFor(raw) : undefined;
+          const id = await deps.newTab();
+          if (!url) return `Opened tab ${id}; it is blank, and yours.`;
+          const seen = await visit(await deps.tab(), [url], { then: thenOf(input, "look") });
+          return answer({ ...seen, text: `Opened tab ${id}.\n${seen.text}`.trim() });
         },
         SAFE,
       );
@@ -467,7 +290,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
             "Watch a page for change: open the url in your tab, read it, and compare with what was read last time under the same " +
             "name (the url when no name is given). Says it is the first look, that nothing changed since when, or which lines went " +
             "and came. `selector` limits the reading to one part of the page. With `tell: true` a change is sent to the owner, so " +
-            "a scheduled job can be the single action {tool: \"browser.watch\", args: {url, tell: true}} and need no model.",
+            'a scheduled job can be the single action {tool: "browser.watch", args: {url, tell: true}} and need no model.',
           inputSchema: {
             type: "object",
             properties: {
@@ -480,16 +303,16 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           },
         },
         async (input) => {
-          const url = typeof input["url"] === "string" ? input["url"].trim() : "";
+          const url = str(input, "url");
           if (!url) throw new Error("url required");
           if (!deps.watch) throw new Error("no browser to watch with");
-          const name = typeof input["name"] === "string" && input["name"].trim() ? input["name"].trim() : undefined;
-          const selector = typeof input["selector"] === "string" && input["selector"].trim() ? input["selector"].trim() : undefined;
-          const look = await deps.watch({ url, ...(name ? { name } : {}), ...(selector ? { selector } : {}) });
-          const when = new Date(look.changedAt).toISOString();
-          if (look.first) return `First look at ${look.key}: kept for next time.`;
-          if (!look.changed) return `No change at ${look.key} since ${when}.`;
-          const said = `Changed: ${look.key}\n${look.url}\n${look.diff ?? ""}`.trim();
+          const name = str(input, "name");
+          const selector = str(input, "selector");
+          const seen = await deps.watch({ url, ...(name ? { name } : {}), ...(selector ? { selector } : {}) });
+          const when = new Date(seen.changedAt).toISOString();
+          if (seen.first) return `First look at ${seen.key}: kept for next time.`;
+          if (!seen.changed) return `No change at ${seen.key} since ${when}.`;
+          const said = `Changed: ${seen.key}\n${seen.url}\n${seen.diff ?? ""}`.trim();
           if (input["tell"] === true) await ctx.services?.notify?.({ text: said, target: { kind: "owner" } });
           return said;
         },

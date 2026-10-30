@@ -33,12 +33,15 @@ describe("finding and starting Chrome", () => {
     expect(args).toContain("--remote-debugging-port=9225");
     expect(args).toContain("--user-data-dir=/w/.kos/browser-profile");
     expect(args).toContain("--window-size=1600,1000");
-    expect(args.some((a) => a.startsWith("--load-extension"))).toBe(false);
+    expect(args).not.toContain("--enable-unsafe-extension-debugging");
     expect(chromeArgs({ port: 9225, profileDir: "/w", headed: true })[0]).not.toBe("--headless=new");
   });
 
-  it("loads the unpacked extensions it is given, and reads the launch afresh each start", async () => {
-    expect(chromeArgs({ port: 9225, profileDir: "/w", extensions: ["/x/one", "", "/x/two"] })).toContain("--load-extension=/x/one,/x/two");
+  it("allows extensions to be loaded over the protocol when it has some, and reads the launch afresh each start", async () => {
+    const withExtensions = chromeArgs({ port: 9225, profileDir: "/w", extensions: ["/x/one", "", "/x/two"] });
+    expect(withExtensions).toContain("--enable-unsafe-extension-debugging");
+    // Branded Chrome ignores the flag, so it is not relied on.
+    expect(withExtensions.some((a) => a.startsWith("--load-extension"))).toBe(false);
     let headed = false;
     // The port answers while a spawned Chrome lives, and not after it is stopped.
     let alive = false;
@@ -65,7 +68,7 @@ describe("finding and starting Chrome", () => {
     await host.ensure();
     const first = (spawn.mock.calls[0] as unknown[])[1] as string[];
     expect(first[0]).toBe("--headless=new");
-    expect(first).toContain("--load-extension=/x/one");
+    expect(first).toContain("--enable-unsafe-extension-debugging");
     headed = true;
     host.stop();
     await host.ensure();
@@ -85,6 +88,36 @@ describe("finding and starting Chrome", () => {
     });
     await host.waitGone();
     expect(answers).toBeLessThan(0);
+  });
+
+  it("waits for the Chrome it started to exit, so what it writes as it closes is written", async () => {
+    let child: FakeChild | undefined;
+    let up = false;
+    const host = new ChromeHost({
+      port: 9225,
+      profileDir: "/tmp/kos-chrome-test",
+      exists: () => true,
+      spawn: (() => {
+        child = new FakeChild();
+        up = true;
+        return child;
+      }) as never,
+      fetchJson: async () => {
+        if (!up) throw new Error("refused");
+        return { webSocketDebuggerUrl: "ws://new" };
+      },
+    });
+    await host.ensure();
+    let done = false;
+    const waiting = host.waitExit(5_000).then(() => {
+      done = true;
+    });
+    await Promise.resolve();
+    expect(done).toBe(false);
+    child!.exitCode = 0;
+    child!.emit("exit", 0);
+    await waiting;
+    expect(done).toBe(true);
   });
 
   it("adopts a Chrome already answering on the port", async () => {

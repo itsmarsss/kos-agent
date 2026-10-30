@@ -29,7 +29,7 @@ describe("the frame store", () => {
 
   it("keeps a frame with its call, serves the picture on its own, and maps a transcript's calls", () => {
     const a = frames.add({ conversationId: "c1", toolUseId: "tu_1", tool: "browser.visit", picture: "AAAA" });
-    const b = frames.add({ conversationId: "c1", tool: "mcp.browser.agent_browser_click", picture: "BBBB" });
+    const b = frames.add({ conversationId: "c1", tool: "browser.act", picture: "BBBB" });
     frames.add({ conversationId: "c2", toolUseId: "tu_9", tool: "browser.visit", picture: "CCCC" });
     expect(a).toEqual({ id: 1, conversationId: "c1", toolUseId: "tu_1", tool: "browser.visit", createdAt: 1 });
     expect(b.toolUseId).toBeNull();
