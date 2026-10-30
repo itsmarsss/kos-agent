@@ -36,7 +36,6 @@ export interface BrowserTab {
 }
 
 export interface BrowserStatus {
-  configured: boolean;
   chrome: "stopped" | "starting" | "running";
   attached: boolean;
   tabs: BrowserTab[];
@@ -325,23 +324,21 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
 
   const status = live.status;
   const current = live.tabs.find((t) => t.id === tab) ?? null;
-  const ready = !!status?.configured && !live.lost;
-  const state = live.lost || !status || !status.configured ? "off" : live.frame && !live.gone ? "working" : status.attached ? "on" : "off";
+  const ready = !!status && !live.lost;
+  const state = live.lost || !status ? "off" : live.frame && !live.gone ? "working" : status.attached ? "on" : "off";
   const label = live.lost
     ? "stream lost"
     : !status
       ? "connecting"
-      : !status.configured
-        ? "no browser engine configured"
-        : status.chrome !== "running"
-          ? "browser not started"
-          : live.gone
-            ? "that tab closed"
-            : live.frame
-              ? "live"
-              : current
-                ? "waiting for the first frame"
-                : "no tab open";
+      : status.chrome !== "running"
+        ? "browser not started"
+        : live.gone
+          ? "that tab closed"
+          : live.frame
+            ? "live"
+            : current
+              ? "waiting for the first frame"
+              : "no tab open";
   const url = current?.url && current.url !== "about:blank" ? current.url : "";
   const owner = current?.owner ? (titleFor(current.owner) ?? current.owner) : "";
   const placed: Box = maximized ? { left: EDGE, top: EDGE, width: window.innerWidth - EDGE * 2, height: window.innerHeight - EDGE * 2 } : box;
@@ -556,13 +553,11 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
           <p className="browserwin-empty">
             {live.lost
               ? "The live stream dropped. It comes back on its own when the browser does."
-              : status && !status.configured
-                ? "No browser engine is set up. Add the browser under Settings › MCP servers."
-                : live.gone
-                  ? "That tab closed. Pick another above."
-                  : !current
-                    ? "No tab open yet. Type an address above, press +, or wait for an agent to open a page."
-                    : "Waiting for the first frame…"}
+              : live.gone
+                ? "That tab closed. Pick another above."
+                : !current
+                  ? "No tab open yet. Type an address above, press +, or wait for an agent to open a page."
+                  : "Waiting for the first frame…"}
           </p>
         )}
       </div>
