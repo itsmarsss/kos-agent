@@ -217,11 +217,12 @@ export async function runHost(options: HostOptions): Promise<void> {
   /*
    * Computer use: devices the owner paired dial in and KOS drives them. Its
    * own package; the kernel only loads it as a module. KOS's key is kept
-   * outside the workspace, so the agent never reads it.
+   * outside the workspace, so the agent never reads it, and outside the
+   * KOS_SECRET_ names too, which the agent can put in a request.
    */
   const computer = createComputerUse({
     hostKeyPath: process.env.KOS_DEVICE_KEY_FILE?.trim() || join(homedir(), ".kos", "device-host.key"),
-    ...(process.env.KOS_SECRET_DEVICE_HOST ? { hostKeyEnv: process.env.KOS_SECRET_DEVICE_HOST } : {}),
+    ...(process.env.KOS_DEVICE_HOST_KEY ? { hostKeyEnv: process.env.KOS_DEVICE_HOST_KEY } : {}),
     caller: () => kernel.callerConversationId,
     titleOf: (id) => kernel.titleOf(id),
     halted: () => kernel.killSwitch.halted,

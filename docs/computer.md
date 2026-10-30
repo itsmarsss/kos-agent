@@ -61,8 +61,10 @@ uses the host's tailnet name.
   three idle minutes, on Stop, when the app quits, and when the connection
   drops. KOS's kill switch ends every session.
 - Keys: the device's lives in its Keychain; KOS's lives outside the workspace
-  (`~/.kos/device-host.key`, or `KOS_SECRET_DEVICE_HOST`), so the agent never
-  reads it.
+  (`~/.kos/device-host.key`, `KOS_DEVICE_KEY_FILE` to move it, or
+  `KOS_DEVICE_HOST_KEY` as base64 PKCS#8 for a container), so the agent never
+  reads it. It is not a `KOS_SECRET_` name: those the agent can place in a
+  request.
 
 ## Protocol
 

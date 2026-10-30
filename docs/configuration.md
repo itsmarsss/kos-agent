@@ -31,7 +31,11 @@ KOS_DASHBOARD_TOKEN=     bearer token for every API route; set one if reachable 
 KOS_HOOK_SECRET=         enables POST /api/hooks/<job>
 KOS_ALLOWED_HOSTS=       hosts http.fetch reads without asking; any other host asks you first, and a yes you remember stands for that host
 KOS_UI_DIST=             built UI, default packages/ui/dist
+KOS_DEVICE_KEY_FILE=     KOS's key for paired computers, default ~/.kos/device-host.key
+KOS_DEVICE_HOST_KEY=     the same key as base64 PKCS#8, for a container whose home does not last
 ```
+
+Computer use and pairing a device: [computer.md](computer.md).
 
 ## Channels
 
