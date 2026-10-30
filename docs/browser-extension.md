@@ -12,24 +12,33 @@ hands `@kos/browser` drives its own Chrome with.
 
 ## Using it
 
-1. Load it: chrome://extensions, Developer mode, Load unpacked, and pick
-   `packages/browser-extension/dist` (built with `pnpm -C
-   packages/browser-extension build`).
-2. Settings, Devices, Add a device in KOS gives a link. Paste it into the
-   extension's popup (the KOS icon) and press Pair.
-3. Ask from any chat: "in my Chrome, ...". The extension asks you first.
+1. Build it: `pnpm -C packages/browser-extension build` from the repo
+   (`pnpm build` does too).
+2. Load it: chrome://extensions, turn on Developer mode, Load unpacked, and
+   pick `packages/browser-extension/dist`. Pin the KOS icon from the puzzle
+   piece menu.
+3. In KOS: Settings, Devices, Add a device, Copy link. Click the KOS icon,
+   paste the link, press Pair. It shows Connected.
+4. Ask from any chat: "in my Chrome, ...". KOS calls `chrome.start`, the
+   extension asks you in a window of its own, and while the session lasts
+   that chat's browser tools work in your Chrome; `chrome.end` gives it back.
+
+To give KOS a tab you are on, click the KOS icon there and press Give this
+tab to KOS. The extension needs no access to your sites: it asks Chrome for
+the debugger, tabs, tab groups and its own storage, nothing more.
 
 While KOS works in your Chrome:
 
 - it works in a window of its own, its tabs grouped as **KOS**, and in any
-  tab you gave it with "Give this tab to KOS" in the popup; no other tab is
-  reachable;
+  tab you gave it; no other tab is reachable;
 - each of those tabs has a glowing border and a small bar saying what KOS
   is doing, with **Take over** and **Stop**;
 - Chrome's own bar says the extension is debugging the tab, as it does for
   any extension that drives one;
 - clicking or typing in one of its tabs yourself takes it over: KOS waits
   until you press **Hand back**;
+- acting on a page asks you, trusted per site apart from KOS's own Chrome
+  (a site trusted there is asked about again here, where you are signed in);
 - the session ends at its time limit, when idle, on Stop, when you close
   Chrome's debugging bar, and when the connection drops.
 
@@ -55,7 +64,9 @@ session, unattended work off unless allowed. In addition:
 The device protocol, version 1, with `app.platform` `"chrome"`,
 `permissions` `{ "tabs": true }` and no displays. Two frames are added for a
 device whose host may put it to sleep (a service worker): the device sends
-`{ "t": "ping" }` every 20 s and KOS answers `{ "t": "pong" }`.
+`{ "t": "ping" }` every 20 s and KOS answers `{ "t": "pong" }`. Pairing is
+sent as `text/plain` (a request a page makes without a preflight), and KOS's
+pair route may be read from any origin: the code is the proof.
 
 | Method | Params | Result |
 | --- | --- | --- |

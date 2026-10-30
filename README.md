@@ -213,6 +213,7 @@ MCP server to Claude Code or any agent that takes one.
 | `packages/browser` | `@kos/browser`: KOS's Chrome, its live view, and the hands the `browser.*` tools are made of |
 | `packages/computer` | `@kos/computer`: pairing, the device socket, sessions and the `computer.*` tools |
 | `packages/device-macos` | KOS Device, the menu bar app on a Mac KOS may use (Swift) |
+| `packages/browser-extension` | The KOS extension: KOS works in tabs you give it, in your own Chrome |
 | `packages/shared` | Contracts both sides import |
 
 - **The kernel is primitives; a feature is a module.** Files, SQL, shell,

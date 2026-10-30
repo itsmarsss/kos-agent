@@ -11,6 +11,8 @@ Two packages, one protocol:
 - `packages/computer` (`@kos/computer`): the KOS side. Pairing, the socket
   devices connect to, sessions, and the `computer.*` tools.
 - `packages/device-macos`: KOS Device for macOS, a menu bar app.
+- `packages/browser-extension`: the KOS extension, a device that offers a
+  Chrome's tabs instead of a screen (see [browser-extension.md](browser-extension.md)).
 
 The computer KOS runs on and a laptop across the internet are the same case:
 KOS Device on the host Mac dials `127.0.0.1`, on the laptop it dials the
