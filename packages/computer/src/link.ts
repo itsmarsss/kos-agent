@@ -140,6 +140,9 @@ export class DeviceLink {
         return this.deps.onState(this);
       case "event":
         return this.deps.onEvent(this, frame);
+      case "ping":
+        this.socket.send(JSON.stringify({ t: "pong" }));
+        return;
     }
   }
 

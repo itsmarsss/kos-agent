@@ -36,6 +36,8 @@ describe("the device routes", () => {
     const publicKey = rawPublicKey(generateKeyPairSync("ed25519").privateKey);
     const paired = await routes.handle({ method: "POST", path: `${PREFIX}/pair`, body: { code, name: "Laptop", platform: "macos", publicKey } });
     expect(paired).toMatchObject({ status: 200, body: { hostKey: hostKey.publicKey, protocol: 1 } });
+    // Readable from the KOS extension's own origin; the code is the proof.
+    expect(paired?.headers).toEqual({ "access-control-allow-origin": "*" });
     const id = (paired!.body as { device: string }).device;
     const again = await routes.handle({ method: "POST", path: `${PREFIX}/pair`, body: { code, name: "Laptop", platform: "macos", publicKey } });
     expect(again?.status).toBe(403);

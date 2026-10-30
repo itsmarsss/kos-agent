@@ -38,13 +38,18 @@ export function deviceRoutes(hubOf: () => DeviceHub | undefined, titleOf: (conve
       const id = typeof body.id === "string" ? body.id : "";
       const route = `${req.method} ${req.path}`;
       switch (route) {
-        case `POST ${PAIR_PATH}`:
+        case `POST ${PAIR_PATH}`: {
+          // Readable from any origin: the KOS extension pairs from its own, and
+          // the code is the proof, not where the request comes from. The answer
+          // is a device id and KOS's public key.
+          const anywhere = { "access-control-allow-origin": "*" };
           try {
-            return ok(hub.pair({ code: body.code, name: body.name, platform: body.platform, publicKey: body.publicKey }));
+            return { ...ok(hub.pair({ code: body.code, name: body.name, platform: body.platform, publicKey: body.publicKey })), headers: anywhere };
           } catch (err) {
-            if (err instanceof PairError) return bad(err.status, err.message);
+            if (err instanceof PairError) return { ...bad(err.status, err.message), headers: anywhere };
             throw err;
           }
+        }
         case `GET ${PREFIX}`:
           return ok({
             devices: hub.list().map((d) => (d.session ? { ...d, session: { ...d.session, title: titleOf(d.session.conversation) } } : d)),
