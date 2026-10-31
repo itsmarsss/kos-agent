@@ -107,6 +107,12 @@ struct RenderTests {
     _ = try render("consent-custom", ConsentView(model: model))
   }
 
+  @Test func consentNamesTheKOSWhenThereAreSeveral() throws {
+    let model = ConsentModel(task: "File the receipts from Downloads", requester: "Expenses", kos: "kos.work.ts.net", offered: [5, 15], timeout: 60)
+    _ = try render("consent-kos", ConsentView(model: model))
+    #expect(model.kos == "kos.work.ts.net")
+  }
+
   @Test func consentWithAWindowPicker() throws {
     let model = ConsentModel(task: "Export the cover frame", requester: "Design", offered: [5, 15], longest: 60, timeout: 60)
     model.targets = [

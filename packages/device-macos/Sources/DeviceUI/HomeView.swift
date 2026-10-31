@@ -357,8 +357,16 @@ public struct HomeView: View {
               KOSLink("Dashboard", to: dashboard)
             }
             switch entry.link {
-            case .offline, .untrusted, .replaced:
+            case .offline, .replaced:
               Button("Reconnect") { model.actions.reconnect(entry.id) }.buttonStyle(KOSButtonStyle(.secondary))
+            case .untrusted:
+              // Dialling again meets the same key; a fresh pairing with that KOS is what mends it.
+              Button("Pair again") {
+                model.address = entry.dashboard?.absoluteString ?? entry.host
+                model.code = ""
+                model.showPairing = true
+              }
+              .buttonStyle(KOSButtonStyle(.secondary))
             default:
               EmptyView()
             }
