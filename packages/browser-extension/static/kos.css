@@ -388,9 +388,9 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .md ul, .md ol { padding-left: 20px; display: flex; flex-direction: column; gap: 3px; }
 /* A list under an item sits close to it, and says its depth by its marker. */
 .md li > ul, .md li > ol { margin-top: 3px; padding-left: 16px; }
-.md ul ul { list-style-type: circle; }
-.md ul ul ul { list-style-type: square; }
-.md ol ol { list-style-type: lower-alpha; }
+.md li ul { list-style-type: circle; }
+.md li li ul { list-style-type: square; }
+.md li ol { list-style-type: lower-alpha; }
 .md code { padding: 1px 4px; border-radius: 4px; background: var(--panel-2); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .md pre { padding: 10px; overflow-x: auto; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); }
 .md pre code { padding: 0; background: none; font-size: 11.5px; }
