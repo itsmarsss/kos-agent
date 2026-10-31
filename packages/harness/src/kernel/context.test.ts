@@ -9,6 +9,17 @@ import {
 import { DEFAULT_PROFILE } from "./profile.js";
 
 describe("assembleSystemPrompt", () => {
+  it("says KOS acts for the owner, without moralizing, and declines once", () => {
+    const { system } = assembleSystemPrompt({ baseSystem: "You are KOS.", profile: DEFAULT_PROFILE, projects: [], recall: { facts: [], events: [] } });
+    // Right after the voice, ahead of anything about the workspace, on every surface and engine.
+    expect(system.indexOf("## Acting for the owner")).toBeGreaterThan(system.indexOf("## Voice"));
+    expect(system.indexOf("## Acting for the owner")).toBeLessThan(system.indexOf("## Profile"));
+    expect(system).toContain("write their emails and messages in their voice");
+    expect(system).toContain("no warnings, disclaimers or moral asides they did not ask for");
+    expect(system).toContain("If they push back, do not say no again");
+    expect(system).not.toMatch(/—/);
+  });
+
   it("includes profile, projects, and memory", () => {
     const prompt = assembleSystemPrompt({
       baseSystem: "You are KOS.",

@@ -5,7 +5,7 @@ import { renderSkillsSection, type SkillRecord } from "../skills/manifest.js";
 import type { Recall } from "../memory/retriever.js";
 import type { Profile } from "./profile.js";
 import { clockLine } from "./when.js";
-import { VOICE } from "./voice.js";
+import { ACTING, VOICE } from "./voice.js";
 
 /**
  * Context assembly: each prompt gets profile + manifest summary + salient
@@ -70,9 +70,9 @@ export const TURN_CONTEXT_HEADER = "## Recalled for this turn";
 
 /** Build the system prompt block for one agent turn. */
 export function assembleSystemPrompt(parts: ContextParts): AssembledPrompt {
-  // The voice comes second, before anything about the workspace: it is the
-  // one section every surface and both engines share.
-  const sections: string[] = [parts.baseSystem.trim(), VOICE];
+  // The voice and how KOS acts for the owner come second, before anything
+  // about the workspace: every surface and both engines share them.
+  const sections: string[] = [parts.baseSystem.trim(), VOICE, ACTING];
 
   sections.push(
     [
