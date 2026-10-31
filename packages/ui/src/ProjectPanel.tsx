@@ -2,12 +2,13 @@ import { useCallback, useEffect, useState, type CSSProperties, type ReactElement
 
 import { api, type ProjectDetail } from "./api.js";
 import { ColourChoice } from "./ColourPicker.js";
-import { hexOfHsl, hueOfHex, lightnessOfHex } from "./colour.js";
+import { hexOfHsl, hueOfHex } from "./colour.js";
 import { lookOf } from "./Face.js";
 import { FileIcon } from "./FileIcon.js";
 import { Pill, Tag } from "./kit.js";
 import { PanelSection } from "./PanelSection.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
+import { markInk } from "./ProjectMark.js";
 import { hrefFor } from "./routes.js";
 
 /**
@@ -30,11 +31,6 @@ export interface ProjectPanelProps {
 
 /** How often the panel re-reads the project, so a page an agent made shows up. */
 const POLL_MS = 5000;
-
-/** Ink for the mark on a picked colour: pale on a dark one, dark on a light one. */
-function markInk(colour: string): string {
-  return (lightnessOfHex(colour) ?? 60) < 55 ? "rgb(255 255 255 / 0.9)" : "rgb(0 0 0 / 0.7)";
-}
 
 function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
