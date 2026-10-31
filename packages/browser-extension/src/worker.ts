@@ -94,7 +94,7 @@ interface Asked {
 const PAGE_TEXT = 60_000;
 const PANEL_CALLS = new Set(["chat.show", "chat.status", "chat.ask", "chat.settled", "chat.chats", "chat.models"]);
 /** What a panel asks its KOS for, passed on as it is: the chats to switch to, a switch, the models, a model. */
-const PANEL_ASKS: Record<string, string> = { list: "chat.list", switch: "chat.switch", models: "chat.models", model: "chat.model" };
+const PANEL_ASKS: Record<string, string> = { list: "chat.list", switch: "chat.switch", models: "chat.models", model: "chat.model", auto: "chat.auto" };
 
 const WORLD = "kos";
 const BINDING = "kosOverlay";
@@ -124,6 +124,8 @@ const panels = new Set<Panel>();
 const reads = new Map<string, { panel: Panel; answer: (granted: boolean) => void }>();
 /** The tab beside the side panel, in the session the panel's chat asked for. */
 let beside: number | undefined;
+/** Where the owner put the bar on KOS's tabs, and whether they folded it: the same on every tab and page of the session. */
+let barPlace: Pick<OverlayState, "at" | "folded"> = {};
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const hostOf = (p: Pick<Paired, "url">): string => {
@@ -148,8 +150,9 @@ async function load(): Promise<void> {
   }
   settings = readSettings(local["settings"]);
   held = new Set(Array.isArray(local["held"]) ? (local["held"] as unknown[]).filter((v): v is string => typeof v === "string") : []);
-  const kept = await chrome.storage.session.get(["handed"]);
+  const kept = await chrome.storage.session.get(["handed", "bar"]);
   for (const tab of Array.isArray(kept["handed"]) ? (kept["handed"] as number[]) : []) handed.add(tab);
+  if (typeof kept["bar"] === "object" && kept["bar"] !== null) barPlace = kept["bar"] as typeof barPlace;
 }
 const ready = load();
 
@@ -463,7 +466,7 @@ function fromHidden(tab: number, params: Record<string, unknown>): boolean {
 // The owner's hands.
 
 function overlayState(): OverlayState {
-  return { task: session?.info.task ?? "", paused: session?.paused ?? false, until: session?.info.until ?? 0 };
+  return { task: session?.info.task ?? "", paused: session?.paused ?? false, until: session?.info.until ?? 0, ...barPlace };
 }
 
 async function paint(): Promise<void> {
@@ -504,6 +507,18 @@ async function fromOverlay(tab: number, world: number, payload: string): Promise
       if (settings.takeover === "clicksAndKeys" && message["type"] === "wheel") return;
       if (session && !session.paused && session.isOwners(message as unknown as PageInput, Date.now())) await pause();
       return;
+    case "place": {
+      const x = Number(message["x"]);
+      const y = Number(message["y"]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      barPlace = { ...barPlace, at: { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) } };
+      await chrome.storage.session.set({ bar: barPlace });
+      return paint();
+    }
+    case "fold":
+      barPlace = { ...barPlace, folded: message["folded"] === true };
+      await chrome.storage.session.set({ bar: barPlace });
+      return paint();
     case "take":
       return pause();
     case "handback":
@@ -749,8 +764,9 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
       return;
     }
     case "decide":
-      if (panel.kos) links.get(panel.kos)?.event("chat.decide", { approval: str(message["approval"]), approved: message["approved"] === true });
+      if (panel.kos) links.get(panel.kos)?.event("chat.decide", { approval: str(message["approval"]), approved: message["approved"] === true, ...(message["remember"] === true ? { remember: true } : {}) });
       return;
+    case "auto":
     case "list":
     case "switch":
     case "models":

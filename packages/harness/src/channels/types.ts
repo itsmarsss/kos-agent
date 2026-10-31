@@ -292,6 +292,8 @@ export interface ApprovalRequest {
    * yes to anyone.
    */
   asker?: Asker;
+  /** The rule a yes-and-remember keeps, when the call's shape can be named: a surface offers "always" by it. */
+  rule?: { tool: string; scope: string | null; project: string | null };
 }
 
 export interface Asker {

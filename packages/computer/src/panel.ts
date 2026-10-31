@@ -57,6 +57,9 @@ export interface PanelDeps {
   /** Point the panel at another chat; false when there is no such chat to continue. */
   switchTo?(conversation: string): boolean;
   models?(): Promise<PanelModels>;
+  /** Whether a chat acts in the owner's Chrome without asking each step. */
+  auto?(conversation: string): boolean;
+  setAuto?(conversation: string, on: boolean): void;
   /** Answer with this model from now on, as the dashboard's picker does. */
   setModel?(model: string): Promise<PanelModels>;
 }
@@ -161,7 +164,7 @@ export class ChromePanel implements ChannelAdapter {
     const last = messages.at(-1);
     const text = said?.text?.trim();
     const notice = text && !(last?.role === "kos" && last.text === text) ? { text, ...(said?.from ? { from: said.from.name } : {}), ...(waiting ? { waiting: true } : {}) } : undefined;
-    const params = { conversation: chat?.id ?? null, title: chat?.title ?? "Chrome", messages, ...(notice ? { notice } : {}) };
+    const params = { conversation: chat?.id ?? null, title: chat?.title ?? "Chrome", messages, auto: chat ? (this.deps.auto?.(chat.id) ?? false) : false, ...(notice ? { notice } : {}) };
     if (chrome) await this.tell(chrome, "chat.show", params);
     else await this.everyChrome("chat.show", params);
   }
@@ -189,9 +192,18 @@ export class ChromePanel implements ChannelAdapter {
       }
       case "chat.decide":
         if (typeof data["approval"] === "string" && typeof data["approved"] === "boolean") {
-          void this.decisions?.({ id: data["approval"], approved: data["approved"], deciderId: chrome });
+          const remember = data["approved"] && data["remember"] === true;
+          void this.decisions?.({ id: data["approval"], approved: data["approved"], deciderId: chrome, ...(remember ? { remember } : {}) });
         }
         return;
+      case "chat.auto": {
+        const chat = this.deps.current();
+        if (chat && typeof data["on"] === "boolean") {
+          this.deps.setAuto?.(chat.id, data["on"]);
+          void this.show(undefined);
+        }
+        return;
+      }
       case "chat.list":
         void this.tell(chrome, "chat.chats", { chats: this.deps.chats?.() ?? [], current: this.deps.current()?.id ?? null });
         return;
@@ -307,7 +319,28 @@ export function besideNote(beside: unknown): string {
 /** An approval as the panel shows it: the tool, what it would be given, and why. */
 function approvalOf(req: ApprovalRequest): Record<string, unknown> {
   const args = argsText(req.args);
-  return { id: req.id, tool: req.tool ?? "", ...(args ? { args } : {}), ...(req.why ? { why: req.why } : {}), ...(req.reason ? { reason: req.reason } : {}) };
+  const always = req.rule ? alwaysWords(req.rule.scope) : undefined;
+  return { id: req.id, tool: req.tool ?? "", ...(args ? { args } : {}), ...(req.why ? { why: req.why } : {}), ...(req.reason ? { reason: req.reason } : {}), ...(always ? { always } : {}) };
+}
+
+/** What a remembered yes covers, as a button says it: the site, the folder, the table, the program. */
+export function alwaysWords(scope: string | null): string {
+  if (scope === null) return "Always";
+  const [kind, ...rest] = scope.split(":");
+  const what = rest.join(":");
+  switch (kind) {
+    case "your-chrome":
+    case "site":
+      return `Always on ${what}`;
+    case "dir":
+      return what ? `Always in ${what}` : "Always in the workspace";
+    case "host":
+    case "table":
+    case "cmd":
+      return `Always for ${what}`;
+    default:
+      return "Always here";
+  }
 }
 
 function argsText(args: ApprovalRequest["args"]): string {
