@@ -55,7 +55,11 @@ Grant in the window: it clears this app's old row and macOS asks again.
 Screen Recording applies once the app starts again; the window offers
 Restart.
 
-To keep them across builds, give KOS Device a signing key of its own:
+This is a cost of building from source, not of the app. A release signed with
+an Apple Developer ID would carry the same identity from one update to the
+next, so its grants would carry over with nothing to set up; there is no such
+release yet. Until there is, if you rebuild often, give your builds a signing
+key of your own, once:
 
 ```sh
 ./scripts/signing.sh setup   # asks for a PIN of your choosing, twice
