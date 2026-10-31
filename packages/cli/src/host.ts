@@ -20,6 +20,7 @@ import {
   MODEL_SETTINGS_KEY,
   conversationEvents,
   conversationKind,
+  mentionsOf,
   parseModelSettings,
   createDashboardServer,
   createDashboardSocket,
@@ -265,22 +266,27 @@ export async function runHost(options: HostOptions): Promise<void> {
     halted: () => kernel.killSwitch.halted,
     panel: {
       current: chromeChat,
+      ensure: () => {
+        const made = kernel.conversationFor("chrome", kernel.profile.ownerId);
+        return { id: made.id, title: kernel.titleOf(made.id) };
+      },
       events: (id) => conversationEvents(kernel.sessions.get(id)),
       waiting: (id) => kernel.approvals.pending().filter((a) => a.conversationId === id).map(approvalRequest),
-      // The owner's own chats and the surfaces' streams, as /chats lists them: not a schedule's runs, an agent's thread or the router.
+      // The panel's own chats, as /chats there lists them: the Chrome stream and the chats made from it, nothing else of the owner's.
       chats: () =>
         kernel.conversations
           .list(kernel.profile.ownerId)
-          .filter((c) => ["chat", "surface"].includes(conversationKind(c, kernel.profile.ownerId)))
+          .filter((c) => c.channel === "chrome")
           .sort((a, b) => b.updatedAt - a.updatedAt)
           .slice(0, 40)
           .map((c) => ({ id: c.id, title: kernel.titleOf(c.id), updatedAt: c.updatedAt })),
       switchTo: (id) => {
         const c = kernel.conversations.get(id);
-        if (!c || !["chat", "surface"].includes(conversationKind(c, kernel.profile.ownerId))) return false;
+        if (c?.channel !== "chrome") return false;
         kernel.conversations.setActive("chrome", kernel.profile.ownerId, id);
         return true;
       },
+      mentions: (q, kind) => mentionsOf(kernel, q, 8, kind).map(({ kind: k, id, label, hint }) => ({ kind: k, id, label, ...(hint ? { hint } : {}) })),
       models: () => panelModels(),
       auto: (id) => kernel.actsWithoutAsking(id),
       setAuto: (id, on) => kernel.setActsWithoutAsking(id, on),
