@@ -64,6 +64,16 @@ export class Link {
     this.ws = null;
   }
 
+  /**
+   * The owner unpaired this Chrome: the KOS on this line forgets it too, as
+   * Remove on the dashboard does, rather than listing it offline for good.
+   * A socket sends what it was given before it closes, so the word goes first.
+   */
+  unpair(): void {
+    this.send({ t: "unpair" });
+    this.stop();
+  }
+
   /** An event for KOS; dropped while offline, since KOS asks again what it needs. */
   event(name: string, data: Record<string, unknown>): void {
     this.send({ t: "event", name, data });

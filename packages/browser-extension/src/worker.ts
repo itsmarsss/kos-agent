@@ -386,7 +386,7 @@ async function pair(text: string, name: string): Promise<void> {
 
 async function unpair(): Promise<void> {
   await end("owner");
-  link?.stop();
+  link?.unpair();
   link = undefined;
   paired = undefined;
   linkState = { state: "offline" };
