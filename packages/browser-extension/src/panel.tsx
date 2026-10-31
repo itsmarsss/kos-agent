@@ -30,6 +30,8 @@ interface Approval {
   args?: string;
   why?: string;
   reason?: string;
+  /** What a remembered yes covers, as its button says it ("Always on shop.example"), when it can be remembered. */
+  always?: string;
 }
 
 /** Something said in the chat's run that is not in its words, kept after the exchange it came in. */
@@ -55,6 +57,8 @@ interface Chat {
   consent?: ConsentRequest;
   /** Words a failed turn never took, back for the owner to send again. */
   unsent?: string;
+  /** This chat acts in the owner's Chrome without asking each step. */
+  auto: boolean;
 }
 
 /** A chat the panel may switch to. */
@@ -77,7 +81,7 @@ interface ReadAsk {
   host: string;
 }
 
-const EMPTY: Chat = { conversation: null, title: "Chrome", lines: [], sending: [], working: false, extras: [], asks: [] };
+const EMPTY: Chat = { conversation: null, title: "Chrome", lines: [], sending: [], working: false, extras: [], asks: [], auto: false };
 /** How long a KOS has to show the chat once the panel opens, and to take the owner's words once sent. */
 const SHOW_MS = 6_000;
 const TAKE_MS = 12_000;
@@ -259,6 +263,7 @@ function shown(c: Chat, message: Record<string, unknown>): Chat {
     ...c,
     conversation,
     title: String(message["title"] ?? "Chrome"),
+    auto: message["auto"] === true,
     lines,
     sending,
     extras,
@@ -416,7 +421,16 @@ function Panel(): ReactElement {
               </m.p>
             )}
           </AnimatePresence>
-          <Composer online={online} k={k} send={send} unsent={chat.unsent} models={models} chooseModel={(model) => say({ type: "model", model })} />
+          <Composer
+            online={online}
+            k={k}
+            send={send}
+            unsent={chat.unsent}
+            models={models}
+            chooseModel={(model) => say({ type: "model", model })}
+            auto={chat.conversation ? chat.auto : undefined}
+            setAuto={(on) => say({ type: "auto", on })}
+          />
         </>
       )}
     </div>
@@ -614,7 +628,7 @@ function Thread({
           </m.div>
         )}
         {chat.asks.map((a) => (
-          <AskCard key={`ask${a.id}`} approval={a} decide={(approved) => answer({ type: "decide", approval: a.id, approved })} />
+          <AskCard key={`ask${a.id}`} approval={a} decide={(approved, remember) => answer({ type: "decide", approval: a.id, approved, ...(remember ? { remember: true } : {}) })} />
         ))}
         {chat.consent && <ConsentCard key={`consent${chat.consent.id}`} request={chat.consent} answer={(allowed, minutes) => answer({ type: "consent.answer", id: chat.consent!.id, allowed, minutes })} />}
         {reads.map((r) => (
@@ -719,7 +733,7 @@ function Extra({ extra }: { extra: Extra }): ReactElement {
   );
 }
 
-function AskCard({ approval, decide }: { approval: Approval; decide: (approved: boolean) => void }): ReactElement {
+function AskCard({ approval, decide }: { approval: Approval; decide: (approved: boolean, remember?: boolean) => void }): ReactElement {
   return (
     <m.section className="card ask-card" layout {...enter}>
       <p className="label">KOS asks to run</p>
@@ -730,6 +744,11 @@ function AskCard({ approval, decide }: { approval: Approval; decide: (approved: 
         <button type="button" className="btn" onClick={() => decide(false)}>
           Deny
         </button>
+        {approval.always && (
+          <button type="button" className="btn" title="Approve, and stop asking for this" onClick={() => decide(true, true)}>
+            {approval.always}
+          </button>
+        )}
         <button type="button" className="btn btn--primary" onClick={() => decide(true)}>
           Approve
         </button>
@@ -791,6 +810,8 @@ function Composer({
   unsent,
   models,
   chooseModel,
+  auto,
+  setAuto,
 }: {
   online: boolean;
   k: KosState | undefined;
@@ -798,6 +819,9 @@ function Composer({
   unsent: string | undefined;
   models: Models | undefined;
   chooseModel: (model: string) => void;
+  /** Whether this chat acts without asking; undefined before there is a chat to set. */
+  auto: boolean | undefined;
+  setAuto: (on: boolean) => void;
 }): ReactElement {
   const [text, setText] = useState("");
   const box = useRef<HTMLTextAreaElement>(null);
@@ -835,11 +859,40 @@ function Composer({
       />
       <div className="composer-foot">
         <ModelChoice models={models} choose={chooseModel} />
+        {auto !== undefined && online && <AutoChoice on={auto} set={setAuto} />}
         <m.button type="button" className="send" aria-label="Send" disabled={!online || !text.trim()} onClick={go} whileTap={{ scale: 0.9 }} transition={spring}>
           <Icon path={ICONS.send} size={15} />
         </m.button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Whether this chat asks before each step in the owner's Chrome, or acts on
+ * its own: clicking, typing and going somewhere there. Running script in a
+ * page, and anything outside the owner's Chrome, asks either way; the
+ * border, Take over and Stop show either way.
+ */
+function AutoChoice({ on, set }: { on: boolean; set: (on: boolean) => void }): ReactElement {
+  return (
+    <m.button
+      type="button"
+      className="mode"
+      data-on={on || undefined}
+      aria-pressed={on}
+      title={on ? "Auto: KOS clicks and types in your Chrome for this chat without asking. Scripts in a page, files and messages still ask. Press to ask each step again." : "Ask: KOS asks before each step in your Chrome. Press to let this chat act on its own."}
+      onClick={() => set(!on)}
+      whileTap={{ scale: 0.94 }}
+      transition={spring}
+    >
+      <Icon path={on ? ICONS.bolt : ICONS.hand} size={11} />
+      <AnimatePresence mode="popLayout" initial={false}>
+        <m.span key={on ? "auto" : "ask"} initial={{ opacity: 0, y: 3 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -3 }} transition={ease}>
+          {on ? "Auto" : "Ask"}
+        </m.span>
+      </AnimatePresence>
+    </m.button>
   );
 }
 

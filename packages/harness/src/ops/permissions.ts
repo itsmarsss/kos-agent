@@ -82,6 +82,16 @@ function browserTool(tool: string, context?: PermissionContext): boolean {
   return browser !== undefined && tool.startsWith(browser.prefix);
 }
 
+/**
+ * A browser action in the owner's own Chrome that a chat they set to act
+ * without asking may take: clicking, typing, going somewhere. Never one of
+ * the strict tools, which ask every time however the chat is set.
+ */
+export function actsInYourChrome(tool: string, context?: PermissionContext): boolean {
+  const browser = context?.browser;
+  return browserTool(tool, context) && browser?.yours === true && !browser.strict?.includes(tool);
+}
+
 /** The name a rule is kept under: a browser action's whole family, else the tool itself. */
 export function familyOf(tool: string, context?: PermissionContext): string {
   return browserTool(tool, context) ? `${context!.browser!.prefix}*` : tool;

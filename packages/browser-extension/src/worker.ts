@@ -5,7 +5,7 @@ import { note, recent } from "./log.js";
 import { installOverlay, type OverlayState } from "./overlay.js";
 import { readPage } from "./page.js";
 import { adding, readPairings, removing, replacedBy, type Paired } from "./pairings.js";
-import { CallError, PROTOCOL } from "./protocol.js";
+import { CallError, PROTOCOL, toBase64 } from "./protocol.js";
 import { checkCommand, forwards, isInput, isWebUrl } from "./relay.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
 import { DEFAULTS, asksFirst, isHidden, readSettings, siteOf, type ExtensionSettings } from "./settings.js";
@@ -94,7 +94,7 @@ interface Asked {
 const PAGE_TEXT = 60_000;
 const PANEL_CALLS = new Set(["chat.show", "chat.status", "chat.ask", "chat.settled", "chat.chats", "chat.models"]);
 /** What a panel asks its KOS for, passed on as it is: the chats to switch to, a switch, the models, a model. */
-const PANEL_ASKS: Record<string, string> = { list: "chat.list", switch: "chat.switch", models: "chat.models", model: "chat.model" };
+const PANEL_ASKS: Record<string, string> = { list: "chat.list", switch: "chat.switch", models: "chat.models", model: "chat.model", auto: "chat.auto" };
 
 const WORLD = "kos";
 const BINDING = "kosOverlay";
@@ -115,7 +115,7 @@ let badgeShown = "";
 const handed = new Set<number>();
 const attached = new Set<number>();
 /** Each tab's overlay, by the world it runs in. */
-const overlays = new Map<number, number>();
+const overlays = new Map<number, Set<number>>();
 /** Each KOS tab's address as it changes, so one on a hidden site tells KOS nothing. */
 const tabUrls = new Map<number, string>();
 const consents = new Map<string, Asked>();
@@ -124,6 +124,8 @@ const panels = new Set<Panel>();
 const reads = new Map<string, { panel: Panel; answer: (granted: boolean) => void }>();
 /** The tab beside the side panel, in the session the panel's chat asked for. */
 let beside: number | undefined;
+/** Where the owner put the bar on KOS's tabs, and whether they folded it: the same on every tab and page of the session. */
+let barPlace: Pick<OverlayState, "at" | "folded"> = {};
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const hostOf = (p: Pick<Paired, "url">): string => {
@@ -148,8 +150,9 @@ async function load(): Promise<void> {
   }
   settings = readSettings(local["settings"]);
   held = new Set(Array.isArray(local["held"]) ? (local["held"] as unknown[]).filter((v): v is string => typeof v === "string") : []);
-  const kept = await chrome.storage.session.get(["handed"]);
+  const kept = await chrome.storage.session.get(["handed", "bar"]);
   for (const tab of Array.isArray(kept["handed"]) ? (kept["handed"] as number[]) : []) handed.add(tab);
+  if (typeof kept["bar"] === "object" && kept["bar"] !== null) barPlace = kept["bar"] as typeof barPlace;
 }
 const ready = load();
 
@@ -317,10 +320,13 @@ async function begin(params: Record<string, unknown>, origin: string): Promise<R
       session.tabs.add(there.id);
     }
     clearInterval(ticker);
+    let beat = 0;
     ticker = setInterval(() => {
       const reason = session?.over(Date.now(), settings.idleMinutes * 60_000);
       if (reason) return void end(reason);
       if (badgeText() !== badgeShown) void badge();
+      // The overlay goes by itself unless told the session is still on.
+      if (++beat % 3 === 0) for (const tab of overlays.keys()) void toOverlays(tab, "window.__kos && window.__kos.alive()");
     }, 1_000);
     note(`live for ${minutes} min`);
     await badge();
@@ -360,16 +366,32 @@ function askOwner(request: ConsentRequest, origin: string, panel?: Panel): Promi
   });
 }
 
+/** An expression in every frame's copy of the overlay on a tab, each given a moment and no more: a busy page holds nothing up. */
+async function toOverlays(tab: number, expression: string, withinMs = 1_500): Promise<void> {
+  const worlds = overlays.get(tab);
+  if (!worlds) return;
+  await Promise.all(
+    [...worlds].map((world) =>
+      Promise.race([
+        chrome.debugger.sendCommand({ tabId: tab }, "Runtime.evaluate", { expression, contextId: world }).catch(() => worlds.delete(world)),
+        new Promise((r) => setTimeout(r, withinMs)),
+      ]),
+    ),
+  );
+}
+
 async function end(reason: EndReason): Promise<void> {
   const ended = session;
   if (!ended) return;
   session = undefined;
   clearInterval(ticker);
-  for (const tab of [...attached]) {
-    const world = overlays.get(tab);
-    if (world !== undefined) await chrome.debugger.sendCommand({ tabId: tab }, "Runtime.evaluate", { expression: "window.__kos && window.__kos.remove()", contextId: world }).catch(() => undefined);
-    await chrome.debugger.detach({ tabId: tab }).catch(() => undefined);
-  }
+  // Every tab let go of together: the overlay off each frame, then the debugger.
+  await Promise.all(
+    [...attached].map(async (tab) => {
+      await toOverlays(tab, "window.__kos && window.__kos.remove()");
+      await chrome.debugger.detach({ tabId: tab }).catch(() => undefined);
+    }),
+  );
   attached.clear();
   overlays.clear();
   beside = undefined;
@@ -446,11 +468,42 @@ async function relay(params: Record<string, unknown>, origin: string): Promise<R
   if (s.paused && (isInput(method) || method === "Page.navigate")) throw new CallError("paused", "the owner has taken over this tab; wait for them to hand it back");
   await attach(tab);
   if (isInput(method)) s.dispatching(method, args, Date.now());
+  // KOS's pointer, shown where its hands are about to act.
+  if (method === "Input.dispatchMouseEvent" && typeof args["x"] === "number" && typeof args["y"] === "number") {
+    void toOverlays(tab, `window.__kos && window.__kos.point(${args["x"]}, ${args["y"]}, ${args["type"] === "mousePressed"})`, 300);
+  }
   try {
+    if (method === "Page.captureScreenshot") return await picture(tab, args);
     return ((await chrome.debugger.sendCommand({ tabId: tab }, method, args)) as Record<string, unknown> | undefined) ?? {};
   } catch (err) {
     throw new CallError("cdp", err instanceof Error ? err.message : String(err));
   }
+}
+
+/**
+ * A picture of a tab, without touching what the owner sees. Asked for with a
+ * clip and a scale, Chrome draws the page again at that size for the
+ * picture, which on a tab the owner is looking at flashes on every look. So
+ * the tab is taken as it is, and the picture cut and made smaller here.
+ */
+async function picture(tab: number, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const format = args["format"] === "png" ? "png" : "jpeg";
+  const quality = typeof args["quality"] === "number" ? Math.min(100, Math.max(1, args["quality"])) : 80;
+  const shot = (await chrome.debugger.sendCommand({ tabId: tab }, "Page.captureScreenshot", { format, ...(format === "jpeg" ? { quality: 95 } : {}) })) as { data?: string };
+  const clip = args["clip"] as { x?: number; y?: number; width?: number; height?: number; scale?: number } | undefined;
+  if (!shot.data || !clip?.width || !clip.height) return shot;
+  const metrics = (await chrome.debugger.sendCommand({ tabId: tab }, "Page.getLayoutMetrics", {})) as { cssVisualViewport?: { clientWidth?: number } };
+  const image = await createImageBitmap(await (await fetch(`data:image/${format};base64,${shot.data}`)).blob());
+  // Device pixels to the page's own: two on a Retina screen.
+  const ratio = image.width / (metrics.cssVisualViewport?.clientWidth || image.width);
+  const scale = clip.scale ?? 1;
+  const width = Math.max(1, Math.round(clip.width * scale));
+  const height = Math.max(1, Math.round(clip.height * scale));
+  const canvas = new OffscreenCanvas(width, height);
+  canvas.getContext("2d")!.drawImage(image, (clip.x ?? 0) * ratio, (clip.y ?? 0) * ratio, clip.width * ratio, clip.height * ratio, 0, 0, width, height);
+  image.close();
+  const blob = await canvas.convertToBlob({ type: `image/${format}`, quality: quality / 100 });
+  return { data: toBase64(new Uint8Array(await blob.arrayBuffer())) };
 }
 
 /** Whether a tab's event would tell KOS of a hidden site: the tab is on one, or the event is a way to one. */
@@ -463,12 +516,12 @@ function fromHidden(tab: number, params: Record<string, unknown>): boolean {
 // The owner's hands.
 
 function overlayState(): OverlayState {
-  return { task: session?.info.task ?? "", paused: session?.paused ?? false, until: session?.info.until ?? 0 };
+  return { task: session?.info.task ?? "", paused: session?.paused ?? false, until: session?.info.until ?? 0, ...barPlace };
 }
 
 async function paint(): Promise<void> {
   const expression = `window.__kos && window.__kos.set(${JSON.stringify(overlayState())})`;
-  for (const [tab, world] of overlays) await chrome.debugger.sendCommand({ tabId: tab }, "Runtime.evaluate", { expression, contextId: world }).catch(() => undefined);
+  await Promise.all([...overlays.keys()].map((tab) => toOverlays(tab, expression)));
 }
 
 async function pause(): Promise<void> {
@@ -496,7 +549,7 @@ async function fromOverlay(tab: number, world: number, payload: string): Promise
   }
   switch (message["kind"]) {
     case "hello":
-      overlays.set(tab, world);
+      overlays.set(tab, (overlays.get(tab) ?? new Set()).add(world));
       await chrome.debugger.sendCommand({ tabId: tab }, "Runtime.evaluate", { expression: `window.__kos && window.__kos.set(${JSON.stringify(overlayState())})`, contextId: world }).catch(() => undefined);
       return;
     case "input":
@@ -504,6 +557,18 @@ async function fromOverlay(tab: number, world: number, payload: string): Promise
       if (settings.takeover === "clicksAndKeys" && message["type"] === "wheel") return;
       if (session && !session.paused && session.isOwners(message as unknown as PageInput, Date.now())) await pause();
       return;
+    case "place": {
+      const x = Number(message["x"]);
+      const y = Number(message["y"]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      barPlace = { ...barPlace, at: { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) } };
+      await chrome.storage.session.set({ bar: barPlace });
+      return paint();
+    }
+    case "fold":
+      barPlace = { ...barPlace, folded: message["folded"] === true };
+      await chrome.storage.session.set({ bar: barPlace });
+      return paint();
     case "take":
       return pause();
     case "handback":
@@ -741,12 +806,17 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
           tell("tab.handed", { tab: String(there.id), url: there.url ?? "", title: there.title ?? "", focus: true });
         }
       }
-      link.event("chat.send", { text });
+      // Which tab the words were said beside, so "this page" means it; a hidden site only as hidden.
+      const [front] = await chrome.tabs.query({ active: true, windowId: panel.window });
+      const url = front?.url ?? "";
+      const where = !front ? undefined : !/^https?:\/\//.test(url) ? { kind: "other" } : isHidden(url, settings.hiddenSites) ? { kind: "hidden" } : { kind: "page", url, title: front.title ?? "" };
+      link.event("chat.send", { text, ...(where ? { beside: where } : {}) });
       return;
     }
     case "decide":
-      if (panel.kos) links.get(panel.kos)?.event("chat.decide", { approval: str(message["approval"]), approved: message["approved"] === true });
+      if (panel.kos) links.get(panel.kos)?.event("chat.decide", { approval: str(message["approval"]), approved: message["approved"] === true, ...(message["remember"] === true ? { remember: true } : {}) });
       return;
+    case "auto":
     case "list":
     case "switch":
     case "models":

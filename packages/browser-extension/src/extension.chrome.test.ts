@@ -31,6 +31,18 @@ function rawKey(raw: Buffer): KeyObject {
   return createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), raw]), format: "der", type: "spki" });
 }
 
+/** A JPEG's size, from its frame header. */
+function jpegSize(base64: string): { width: number; height: number } {
+  const b = Buffer.from(base64, "base64");
+  for (let i = 2; i < b.length - 9; ) {
+    if (b[i] !== 0xff) return { width: 0, height: 0 };
+    const marker = b[i + 1]!;
+    if (marker >= 0xc0 && marker <= 0xc3) return { height: b.readUInt16BE(i + 5), width: b.readUInt16BE(i + 7) };
+    i += 2 + b.readUInt16BE(i + 2);
+  }
+  return { width: 0, height: 0 };
+}
+
 /** A DevTools connection to the test's Chrome, for playing the owner and finding the extension's windows. */
 class Devtools {
   private id = 0;
@@ -134,6 +146,8 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
         });
         return;
       }
+      // A page made of frames, as SmartBook is: the overlay must leave every one of them when the session ends.
+      if (req.url === "/framed") return void res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>Framed</title><iframe src='/inner' style='width:400px;height:200px'></iframe>");
       res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>Shop</title><button id='buy' style='margin:80px;padding:20px'>Buy</button>");
     });
     sockets = new WebSocketServer({ server, path: "/api/devices/socket" });
@@ -246,6 +260,11 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     const overlay = await cdp("Runtime.evaluate", { expression: "(() => { const o = document.querySelector('kos-overlay'); return o ? o.getAttribute('aria-hidden') : 'none'; })()", returnByValue: true });
     expect(overlay["result"]).toMatchObject({ result: { value: "true" } });
     expect(await call("tabs.list", { session: "s1" })).toMatchObject({ ok: true, result: { tabs: [{ id: tab, title: "Shop" }] } });
+    // A picture asked for smaller comes back smaller, taken without drawing the page again (which flashed the owner's tab).
+    const metrics = (await cdp("Page.getLayoutMetrics"))["result"] as { cssVisualViewport: { clientWidth: number; clientHeight: number } };
+    const { clientWidth: w, clientHeight: h } = metrics.cssVisualViewport;
+    const shot = (await cdp("Page.captureScreenshot", { format: "jpeg", quality: 60, clip: { x: 0, y: 0, width: w, height: h, scale: 0.5 } }))["result"] as { data: string };
+    expect(jpegSize(shot.data)).toEqual({ width: Math.round(w * 0.5), height: Math.round(h * 0.5) });
   }, 30_000);
 
   it("knows its own click from the owner's, and the owner's takes the tab over", async () => {
@@ -272,8 +291,15 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "unhide", site: "127.0.0.1" })`)).toMatchObject({ ok: true });
   });
 
-  it("ends when KOS says, and lets go of the tab", async () => {
+  it("ends when KOS says, and lets go of the tab, leaving no overlay in any frame", async () => {
+    const framed = ((await call("tabs.open", { session: "s1", url: `${base}/framed` }))["result"] as { tab: string }).tab;
+    await call("cdp.send", { session: "s1", tab: framed, method: "Page.enable", params: {} });
+    const page = await devtools.attach((u) => u.endsWith("/framed"));
+    for (let i = 0; i < 50 && !(await devtools.evaluate(page, "!!document.querySelector('kos-overlay')")); i++) await until(() => false, 100);
+    expect(await devtools.evaluate(page, "!!document.querySelector('kos-overlay')")).toBe(true);
     expect(await call("session.end", { session: "s1" })).toMatchObject({ ok: true });
+    for (let i = 0; i < 50 && (await devtools.evaluate(page, "!!document.querySelector('kos-overlay')")); i++) await until(() => false, 100);
+    expect(await devtools.evaluate(page, "!!document.querySelector('kos-overlay')")).toBe(false);
     await until(() => events.some((e) => e.name === "session.ended"));
     expect(events.find((e) => e.name === "session.ended")?.data).toMatchObject({ session: "s1", reason: "host" });
     expect((await call("tabs.list", { session: "s1" }))["error"]).toMatchObject({ code: "no_session" });
@@ -290,7 +316,7 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     for (let i = 0; i < 100 && !(await devtools.evaluate(panel, "!!document.querySelector('.suggest button')")); i++) await until(() => false, 100);
     await devtools.evaluate(panel, "document.querySelector('.suggest button').click()");
     await until(() => events.some((e) => e.name === "chat.send"));
-    expect(events.find((e) => e.name === "chat.send")?.data).toEqual({ text: "Summarize this page" });
+    expect(events.find((e) => e.name === "chat.send")?.data).toMatchObject({ text: "Summarize this page", beside: { kind: expect.stringMatching(/page|other/) } });
     expect(await call("chat.show", { conversation: "chrome:owner", title: "Chrome", messages: [{ role: "you", text: "Summarize this page" }, { role: "kos", text: "It is a **shop**." }] })).toMatchObject({ ok: true });
     await until(() => false, 300);
     expect(await text()).toContain("It is a shop.");

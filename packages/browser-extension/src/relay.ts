@@ -18,9 +18,11 @@ export const COMMANDS: ReadonlySet<string> = new Set([
   "DOM.getNodeForLocation",
   "DOM.resolveNode",
   "DOM.scrollIntoViewIfNeeded",
+  "Input.dispatchDragEvent",
   "Input.dispatchKeyEvent",
   "Input.dispatchMouseEvent",
   "Input.insertText",
+  "Input.setInterceptDrags",
   "Inspector.enable",
   "Network.enable",
   "Page.captureScreenshot",
@@ -40,6 +42,7 @@ export const COMMANDS: ReadonlySet<string> = new Set([
 
 /** Events KOS's hands listen for; the rest stay in the browser. */
 const EVENTS: ReadonlySet<string> = new Set([
+  "Input.dragIntercepted",
   "Inspector.targetCrashed",
   "Network.loadingFailed",
   "Network.loadingFinished",
@@ -72,5 +75,5 @@ export function forwards(method: string): boolean {
 
 /** Pointer and key commands, which are KOS's own hands: told apart from the owner's. */
 export function isInput(method: string): boolean {
-  return method === "Input.dispatchMouseEvent" || method === "Input.dispatchKeyEvent" || method === "Input.insertText";
+  return method === "Input.dispatchMouseEvent" || method === "Input.dispatchKeyEvent" || method === "Input.insertText" || method === "Input.dispatchDragEvent";
 }

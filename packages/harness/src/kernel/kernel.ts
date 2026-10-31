@@ -98,7 +98,7 @@ import {
 } from "../systems/remove.js";
 import { Migrator } from "../systems/migrate.js";
 import { PageStore } from "../systems/pages.js";
-import { PermissionStore } from "../ops/permissions.js";
+import { PermissionStore, actsInYourChrome } from "../ops/permissions.js";
 import { offeredSkills, readSkills } from "../skills/manifest.js";
 import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import { CHAT_TOOLS } from "../tools/chats.js";
@@ -234,6 +234,9 @@ export function surfaceSessionId(channel: string, ownerId = "owner"): string {
  * work when the work is small and hands it on when it belongs somewhere
  * else. The chats tools are granted for exactly that second case.
  */
+/** The chats that act in the owner's Chrome without asking, by id. */
+const ACTS_ALONE_KEY = "browser.actsAlone";
+
 const SURFACE_BRIEF = [
   "This is the owner's continuous stream on this surface. Everything they say here arrives in this one thread, and everything you say goes back to them there.",
   "You have the full toolkit, so do small things here rather than making a conversation for each one.",
@@ -701,6 +704,8 @@ export class Kernel {
       room?: MessageRoom;
       /** Members the words name, by name and id, so the turn knows who @name is. */
       members?: { id: string; name: string }[];
+      /** Where it was said, as the surface knows it: told to this turn, never kept. */
+      context?: string;
       /** How it arrived when no surface carried it (schedule, dispatch); the channel otherwise says. */
       via?: string;
       /** Who sent it when not the owner at the keyboard: the chat that dispatched it, the schedule that fired. */
@@ -801,6 +806,7 @@ export class Kernel {
       guest?: Guest;
       room?: MessageRoom;
       members?: { id: string; name: string }[];
+      context?: string;
       via?: string;
       from?: MessageFrom;
       trail?: string[];
@@ -920,7 +926,7 @@ export class Kernel {
         const membersNote = opts.members?.length
           ? `Members named in this message: ${opts.members.map((m) => `@${m.name} is Discord member ${m.id}`).join("; ")}. discord.member tells who each is; keep anything about them by id.`
           : null;
-        const pulled = [mentioned, keptNote, guestNote, membersNote].filter((part): part is string => Boolean(part)).join("\n\n");
+        const pulled = [opts.context, mentioned, keptNote, guestNote, membersNote].filter((part): part is string => Boolean(part)).join("\n\n");
         const formatting = channelGuidance(opts.channel, this.surfaceStyle(opts.channel, conversation?.projectSlug ?? undefined));
         // Say when the toolkit has been narrowed. Withheld tools are simply
         // absent, so a scoped agent asked for something outside its reach does
@@ -2642,6 +2648,7 @@ export class Kernel {
     guest?: Guest;
     room?: MessageRoom;
     members?: { id: string; name: string }[];
+    context?: string;
   }): Promise<HandleResult & { conversationId: string; isCommand: boolean; from?: Sender }> {
     const conversation = input.conversationId
       ? this.boundConversation(input.conversationId, input.userId, input.channel, input.newIn)
@@ -2678,6 +2685,7 @@ export class Kernel {
         ...(input.attachments?.length ? { attachments: input.attachments } : {}),
         ...(input.room ? { room: input.room } : {}),
         ...(input.members?.length ? { members: input.members } : {}),
+        ...(input.context ? { context: input.context } : {}),
       });
       const from = this.senderFor(thread.id);
       return { ...res, ...(from ? { from } : {}), conversationId: thread.id, isCommand: false };
@@ -2699,6 +2707,7 @@ export class Kernel {
       channel: input.channel,
       ...(input.room ? { room: input.room } : {}),
       ...(input.members?.length ? { members: input.members } : {}),
+      ...(input.context ? { context: input.context } : {}),
       /*
        * The surface's own thread may hand work on, and keep blobs.
        *
@@ -2820,6 +2829,7 @@ export class Kernel {
       ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
       permissions: this.permissions,
       permissionContext: (tool) => this.browserContext(tool, opts.conversationId),
+      autoApproves: (tool, context) => opts.conversationId !== undefined && this.actsWithoutAsking(opts.conversationId) && actsInYourChrome(tool, context),
       pictureFor: (tool) => this.browserPicture(tool, opts.conversationId),
       projectSlug: () =>
         opts.conversationId
@@ -3081,6 +3091,27 @@ export class Kernel {
    * What a browser action's permission turns on: the browser's tool family,
    * the site the caller's tab is on, and the tools never trusted by site.
    */
+  /**
+   * Chats the owner set, from the Chrome side panel, to act in their Chrome
+   * without asking each step. Clicking, typing and going somewhere there run
+   * as a remembered decision does; the strict tools, and everything outside
+   * the owner's Chrome, ask as before. The border, Take over and Stop still
+   * show, and the session is still the owner's to allow.
+   */
+  actsWithoutAsking(conversationId: string): boolean {
+    return this.chatsActingAlone().includes(conversationId);
+  }
+
+  setActsWithoutAsking(conversationId: string, on: boolean): void {
+    const others = this.chatsActingAlone().filter((id) => id !== conversationId);
+    this.settings.set(ACTS_ALONE_KEY, on ? [...others, conversationId] : others);
+  }
+
+  private chatsActingAlone(): string[] {
+    const saved = this.settings.get(ACTS_ALONE_KEY);
+    return Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : [];
+  }
+
   private browserContext(tool: string, conversationId?: string): PermissionContext | undefined {
     if (!tool.startsWith(BROWSER_PREFIX)) return undefined;
     const away = this.away(conversationId);

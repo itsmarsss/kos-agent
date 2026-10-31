@@ -40,13 +40,22 @@ A tab's `Page` (`page.ts`) does what an agent asks of it:
   unread. The outline (`then: "snapshot"`) has everything, the reading
   (`then: "read"`) the page's text and links.
 - **Acting.** Clicks are real input events at the middle of the element,
-  after it is scrolled into view. A click that would land on something
-  else (a banner over the button) is refused, naming what is in the way
-  and its ref. Fill replaces a field's text, type adds to it; a field
+  after it is scrolled into view. When something sits over that point (a
+  bar the page keeps at its edge, over what was just scrolled there), the
+  element is brought to the middle of the view, then other parts of it are
+  tried; only one covered everywhere is refused, naming what is in the way
+  and its ref. A hit counts what a real press would: anything the pointer
+  passes through (`pointer-events: none`) is not in the way. Besides
+  clicks: `dblclick`, `rightclick`, and `drag` from one target to another,
+  pointer moves for a slider and, for a page using the browser's own drag
+  and drop, the drag Chrome would have started. A target may be a ref, a
+  CSS selector, or a text selector as Playwright writes one
+  (`button:has-text('Submit')`, `text=Submit`). Fill replaces a field's text, type adds to it; a field
   typing does not reach (a date) is set the way a framework notices.
   Keys go as Chrome wants them, with editing shortcuts as the commands
   they are. After each step the page is given time to settle: a
-  navigation the step started, then a quiet network.
+  navigation the step started, then a quiet network, so a run needs no
+  waits of its own after clicks.
 - **Never hanging.** Every wait has a deadline and ends in an answer: a
   page still loading at twenty seconds is handed back as it is, said to
   be still loading. A dialog is answered the moment it opens (an alert

@@ -225,7 +225,10 @@ A chat beside your tabs, in each Chrome paired through the KOS extension.
 Nothing to configure: it is there whenever a Chrome is paired and computer
 use is on, and every paired Chrome speaks as you, since only you can make a
 pairing code. Its words travel on the pairing's own line, so it reaches KOS
-wherever the extension does. See [browser-extension.md](browser-extension.md)
+wherever the extension does. Each message carries the tab it was said
+beside, which the turn is told and the chat does not keep: a surface can
+say where a message was said (`InboundMessage.context`) without it
+becoming part of the conversation. See [browser-extension.md](browser-extension.md)
 for what it reads and does in the tab beside it.
 
 ## SMS (Twilio)

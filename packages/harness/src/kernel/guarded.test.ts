@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ToolRegistry } from "../agent/registry.js";
 import { AuditLog } from "../ops/audit.js";
 import { ApprovalQueue } from "../ops/approvals.js";
-import { PermissionStore } from "../ops/permissions.js";
+import { PermissionStore, actsInYourChrome } from "../ops/permissions.js";
 import { RISKY } from "../risk/tiers.js";
 import { SecretsRegistry } from "../secrets/secrets.js";
 import { Workspace } from "../store/workspace.js";
@@ -63,6 +63,27 @@ describe("GuardedTools", () => {
     const tools = guarded({ conversationId: "c1", whyFor: (id) => (id === "c1" ? "I'll clear the build folder so the rebuild is clean. " : undefined), waitForApproval: false });
     await tools.execute("danger", { x: 1 });
     expect(approvals.pending()[0]?.why).toBe("I'll clear the build folder so the rebuild is clean.");
+  });
+
+  it("runs a chat's actions in the owner's Chrome without asking when the owner set it so, and nothing else", async () => {
+    for (const name of ["browser.act", "browser.eval", "files.rm"]) {
+      registry.register({ name, description: name, inputSchema: { type: "object" } }, () => "done", { floor: "risky" });
+    }
+    const yours = { browser: { prefix: "browser.", site: "shop.example", strict: ["browser.eval"], yours: true } };
+    const tools = guarded({
+      conversationId: "c1",
+      waitForApproval: false,
+      permissionContext: (tool) => (tool.startsWith("browser.") ? yours : undefined),
+      autoApproves: (tool, context) => actsInYourChrome(tool, context),
+    });
+    expect((await tools.execute("browser.act", { steps: [] })).content).toBe("done");
+    expect(audit.recent(5)[0]).toMatchObject({ tool: "browser.act", riskTier: "risky" });
+    // Running script in the page asks however the chat is set, and so does everything outside the owner's Chrome.
+    expect((await tools.execute("browser.eval", { js: "1" })).content).toMatch(/Queued for approval/);
+    expect((await tools.execute("files.rm", { path: "a" })).content).toMatch(/Queued for approval/);
+    expect(approvals.pending().map((a) => a.tool)).toEqual(["browser.eval", "files.rm"]);
+    // KOS's own browser is not the owner's Chrome.
+    expect(actsInYourChrome("browser.act", { browser: { prefix: "browser.", strict: [] } })).toBe(false);
   });
 
   it("runs a risky call the owner already decided, without asking", async () => {

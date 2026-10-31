@@ -38,9 +38,10 @@ Chrome, with `/new` behind the pen. The chat is the one KOS keeps, so a turn
 taken on the dashboard shows in the panel too, each turn's steps fold to a
 line you can open, and an approval the chat asks for is decided in place.
 
-- **Reading the page.** KOS reads the tab beside the panel with
-  `chrome.page` when your words are about it: its address, title, what you
-  selected and its text. Only the panel's chat can, only while the panel is
+- **Reading the page.** Each message says which tab it was said beside,
+  so "this page" is that tab and not one of KOS's own pages, and KOS reads
+  it with `chrome.page` when your words are about it: its address, title,
+  what you selected and its text. Only the panel's chat can, only while the panel is
   open on that chat, and never on a hidden site. The first time, the panel
   asks you to let KOS read pages (Chrome's grant, one press); Not now, or no
   answer in your wait, is a no that KOS hears and says.
@@ -84,13 +85,24 @@ While KOS works in your Chrome:
 - it works in a window of its own, its tabs grouped as **KOS**, and in any
   tab you gave it; no other tab is reachable;
 - each of those tabs has a glowing border and a small bar saying what KOS
-  is doing, with **Take over** and **Stop**;
+  is doing, with **Take over** and **Stop**; drag the bar anywhere, or
+  press KOS's face on it to fold it to the face, and it stays so for the
+  session. Only the page's top frame draws it, and it leaves by itself when
+  the extension stops checking in, so a session that ended leaves nothing;
+- KOS's own cursor glides to each point it acts at and ripples as it
+  presses, as on the Mac;
+- the pictures KOS takes are cut and shrunk by the extension from the tab
+  as it is, so taking one never redraws the page you are looking at;
 - Chrome's own bar says the extension is debugging the tab, as it does for
   any extension that drives one;
 - clicking or typing in one of its tabs yourself takes it over: KOS waits
   until you press **Hand back**;
 - acting on a page asks you, trusted per site apart from KOS's own Chrome
   (a site trusted there is asked about again here, where you are signed in);
+  in the side panel an approval offers **Always on** the site, and the
+  **Ask / Auto** chip beside the model lets that chat click, type and go
+  places in your Chrome without asking each step (running script in a page,
+  files, messages and everything else still ask);
 - the session ends at its time limit, when idle, on Stop, when you close
   Chrome's debugging bar, and when the connection to its KOS drops.
 
@@ -164,7 +176,7 @@ Events, besides `session.paused`, `session.resumed` and `session.ended`
 | `tab.closed` | `session`, `tab` |
 | `tab.handed` | `tab`, `url`, `title`, `focus?` (sent outside a session too; `focus` when the owner spoke from the side panel beside it) |
 | `chat.open` | `{}`: a panel opened on this KOS, and asks to be shown the chat |
-| `chat.send` | `text`: the owner's words in the panel |
+| `chat.send` | `text`: the owner's words in the panel; `beside?`: the tab they were said beside, `{ kind: "page", url, title }`, `{ kind: "hidden" }` or `{ kind: "other" }` (not a web page), told to that turn and not kept |
 | `chat.decide` | `approval`, `approved` |
 | `chat.list` | `{}`: asks for `chat.chats` |
 | `chat.switch` | `conversation`: the panel continues that chat, and is shown it |

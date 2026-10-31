@@ -205,6 +205,13 @@ describe("channelGuidance", () => {
     expect(channelGuidance("discord")).toMatch(/one-line question gets one line/);
   });
 
+  it("tells the side panel's reader to be short, in the markdown the panel draws", () => {
+    const g = channelGuidance("chrome")!;
+    expect(g).toContain("side panel of their own Chrome");
+    expect(g).toContain("markdown");
+    expect(channelGuidance("chrome", "Be terse.")).toBe("## Replying in the Chrome side panel\nBe terse.");
+  });
+
   it("returns nothing for surfaces with no special guidance", () => {
     expect(channelGuidance("cli")).toBeUndefined();
     expect(channelGuidance(undefined)).toBeUndefined();

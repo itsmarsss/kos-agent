@@ -316,6 +316,26 @@ describe("Kernel", () => {
     expect(users[1]?.origin).toEqual({ via: "discord", room: { kind: "channel", id: "c9", name: "kitchen" } });
   });
 
+  it("tells a turn where it was said, as the surface knows it, and keeps none of it", async () => {
+    const requests: GenerateRequest[] = [];
+    kernel = await boot({
+      async generate(_t, r) {
+        requests.push(r);
+        return { content: [{ type: "text", text: "A shop." }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+      },
+    });
+    const beside = 'Said in the side panel of the owner\'s Chrome, beside their tab "Mugs" (https://shop.example/mugs).';
+    const res = await kernel.handleChannelTurn({ text: "what is this page", userId: kernel.profile.ownerId, channel: "chrome", context: beside });
+    const sent = JSON.stringify(requests.at(-1));
+    expect(sent).toContain("beside their tab");
+    // The panel's own house style rides in the system prompt.
+    expect(sent).toContain("Replying in the Chrome side panel");
+    // The words are kept; where the owner was standing when they said them is not.
+    const kept = JSON.stringify(kernel.sessions.get(res.conversationId));
+    expect(kept).toContain("what is this page");
+    expect(kept).not.toContain("beside their tab");
+  });
+
   it("keeps a guest a guest in a project's own channel, and says who dispatched a turn", async () => {
     const requests: GenerateRequest[] = [];
     const reply = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });

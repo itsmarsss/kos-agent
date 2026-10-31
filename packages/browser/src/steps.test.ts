@@ -8,6 +8,11 @@ import { parseStep, touchesPage } from "./steps.js";
 describe("a run of steps", () => {
   it("takes each gesture in its one shape, with the older selector key still read", () => {
     expect(parseStep({ click: " @e4 " }, 0)).toEqual({ click: "@e4" });
+    expect(parseStep({ dblclick: "#row" }, 0)).toEqual({ dblclick: "#row" });
+    expect(parseStep({ rightclick: "@e2" }, 0)).toEqual({ rightclick: "@e2" });
+    expect(parseStep({ drag: { from: "@e1", to: " #bin " } }, 0)).toEqual({ drag: { from: "@e1", to: "#bin" } });
+    expect(() => parseStep({ drag: { from: "@e1" } }, 0)).toThrow(/drag wants \{from, to\}/);
+    expect(touchesPage({ steps: [{ drag: { from: "@e1", to: "@e2" } }] })).toBe(true);
     expect(parseStep({ fill: { target: "#q", text: "shoes" } }, 0)).toEqual({ fill: { target: "#q", text: "shoes" } });
     expect(parseStep({ fill: { selector: "#q", text: "" } }, 0)).toEqual({ fill: { target: "#q", text: "" } });
     expect(parseStep({ select: { target: "@e2", value: "Toronto" } }, 0)).toEqual({ select: { target: "@e2", values: ["Toronto"] } });
@@ -85,5 +90,15 @@ describe("keeping sign-ins", () => {
     expect(kept).toEqual([
       { name: "sid", value: "s", domain: ".shop.example", path: "/", secure: true, httpOnly: true, sameSite: "Lax", priority: "Medium", sourceScheme: "Secure", sourcePort: 443, expires: now / 1000 + KEEP_DAYS * 86_400 },
     ]);
+  });
+});
+
+describe("a text selector", () => {
+  it("reads the way a model writes one, and leaves CSS alone", async () => {
+    const { textSelector } = await import("./page.js");
+    expect(textSelector("button:has-text('High Confidence')")).toEqual({ base: "button", text: "High Confidence" });
+    expect(textSelector('text="Next"')).toEqual({ base: "", text: "Next" });
+    expect(textSelector("text=Next")).toEqual({ base: "", text: "Next" });
+    expect(textSelector("nav button")).toBeUndefined();
   });
 });

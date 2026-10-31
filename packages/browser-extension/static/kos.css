@@ -368,6 +368,11 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .model select { appearance: none; max-width: 180px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; outline: none; text-overflow: ellipsis; }
 .model select option { background: var(--panel); color: var(--text); }
 .model--fixed { cursor: default; }
+/* Ask before each step, or act on its own: quiet when asking, KOS's colour when on its own. */
+.mode { appearance: none; display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border: 0; border-radius: 999px; background: var(--panel-2); color: var(--muted); font: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer; transition: color 140ms ease, background 140ms ease; }
+.mode:hover { color: var(--text); background: var(--line); }
+.mode[data-on] { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.mode[data-on]:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
 .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
 .composer[data-off] { opacity: 0.6; }
 .composer textarea { flex: 1; max-height: 140px; padding: 5px 0; resize: none; border: 0; outline: none; background: none; color: var(--text); font: inherit; font-size: 13px; line-height: 1.45; }

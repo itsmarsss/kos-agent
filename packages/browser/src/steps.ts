@@ -10,6 +10,9 @@ export type Step =
   | { open: string }
   | { go: "back" | "forward" | "reload" }
   | { click: string }
+  | { dblclick: string }
+  | { rightclick: string }
+  | { drag: { from: string; to: string } }
   | { hover: string }
   | { fill: { target: string; text: string } }
   | { type: { target: string; text: string } }
@@ -21,7 +24,7 @@ export type Step =
   | { wait: number | { text: string } | { selector: string } | { gone: string } }
   | { dialog: { accept: boolean; text?: string } };
 
-export const STEP_KEYS = ["open", "go", "click", "hover", "fill", "type", "press", "select", "check", "uncheck", "scroll", "wait", "dialog"] as const;
+export const STEP_KEYS = ["open", "go", "click", "dblclick", "rightclick", "drag", "hover", "fill", "type", "press", "select", "check", "uncheck", "scroll", "wait", "dialog"] as const;
 
 /** Steps that only look or move about: they run without asking. The rest act on the page. */
 const READING_STEPS: ReadonlySet<string> = new Set(["open", "go", "hover", "scroll", "wait", "dialog"]);
@@ -69,7 +72,15 @@ export function parseStep(raw: unknown, at: number): Step {
     case "go":
       if (value !== "back" && value !== "forward" && value !== "reload") throw new Error(`${where}: go wants "back", "forward" or "reload"`);
       return { go: value };
+    case "drag": {
+      const from = record?.["from"];
+      const to = record?.["to"];
+      if (typeof from !== "string" || !from.trim() || typeof to !== "string" || !to.trim()) throw new Error(`${where}: drag wants {from, to}, each a @ref or CSS selector`);
+      return { drag: { from: from.trim(), to: to.trim() } };
+    }
     case "click":
+    case "dblclick":
+    case "rightclick":
     case "hover":
     case "check":
     case "uncheck": {

@@ -53,6 +53,12 @@ export interface InboundMessage {
   /** Members named in the words, each as the words now name them and by id, so the turn knows who @name is. */
   members?: { id: string; name: string }[];
   /**
+   * What the surface knows of where this was said that the words do not:
+   * the Chrome side panel, the tab beside it. Told to this turn and not
+   * kept, since it is true of the moment rather than of the conversation.
+   */
+  context?: string;
+  /**
    * Adapter-private handle (e.g. Discord Message) for reactions/edits.
    * Runtime must not inspect this; only the adapter's acknowledge() may.
    */
@@ -286,6 +292,8 @@ export interface ApprovalRequest {
    * yes to anyone.
    */
   asker?: Asker;
+  /** The rule a yes-and-remember keeps, when the call's shape can be named: a surface offers "always" by it. */
+  rule?: { tool: string; scope: string | null; project: string | null };
 }
 
 export interface Asker {

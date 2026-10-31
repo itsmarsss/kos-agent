@@ -241,6 +241,7 @@ export async function runHost(options: HostOptions): Promise<void> {
       ...(picture ? { picture } : {}),
       ...(action.why ? { why: action.why } : {}),
       ...(asker ? { asker } : {}),
+      ...(action.rule ? { rule: action.rule } : {}),
     };
   };
   /** What answers the panel's chat, and what it may be changed to: the dashboard picker's choices. */
@@ -281,6 +282,8 @@ export async function runHost(options: HostOptions): Promise<void> {
         return true;
       },
       models: () => panelModels(),
+      auto: (id) => kernel.actsWithoutAsking(id),
+      setAuto: (id, on) => kernel.setActsWithoutAsking(id, on),
       // The dashboard's picker, merged rather than replacing: the route's effort and the cheap route stay as they were.
       setModel: async (model) => {
         const saved = parseModelSettings(kernel.settings.get(MODEL_SETTINGS_KEY));

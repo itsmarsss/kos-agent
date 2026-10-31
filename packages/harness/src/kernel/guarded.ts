@@ -44,6 +44,8 @@ export interface GuardedToolsDeps {
   };
   /** What the caller knows about a call that its arguments do not: the browser's site. */
   permissionContext?: (tool: string) => PermissionContext | undefined;
+  /** The owner set this chat to act without asking, for this call: runs as a remembered decision does. */
+  autoApproves?: (tool: string, context?: PermissionContext) => boolean;
   /** A picture of what a call would act on, for the approval; base64 JPEG. */
   pictureFor?: (tool: string, input: Record<string, unknown>) => Promise<string | undefined>;
   /**
@@ -239,7 +241,7 @@ export class GuardedTools implements ToolBox {
        * shows it ran as risky.
        */
       const context = this.deps.permissionContext?.(name);
-      if (this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context)) {
+      if (this.deps.permissions?.allows(name, input, this.deps.projectSlug?.(), context) || this.deps.autoApproves?.(name, context)) {
         const allowedResult = await run(name, injectSecrets(input, secrets));
         audit.record({
           tool: name,

@@ -184,10 +184,24 @@ export function assembleSystemPrompt(parts: ContextParts): AssembledPrompt {
  * `<channel>-style` and have their own words here instead.
  */
 export function channelGuidance(channel?: string, custom?: string): string | undefined {
-  if (channel !== "discord") return undefined;
-  if (custom?.trim()) return ["## Replying on Discord", custom.trim()].join("\n");
-  return DISCORD_STYLE;
+  const style = channel ? STYLES[channel] : undefined;
+  if (!style) return undefined;
+  if (custom?.trim()) return [style.heading, custom.trim()].join("\n");
+  return style.house;
 }
+
+/**
+ * The side panel of the owner's Chrome: a narrow column beside the page they
+ * are on, read at a glance while they look at that page. Which tab it is
+ * comes with each message, since it changes as they move.
+ */
+const CHROME_PANEL_STYLE = [
+  "## Replying in the Chrome side panel",
+  "The owner is talking to you from the side panel of their own Chrome, a narrow column beside the page they",
+  "are looking at; each message says which tab that is. Your reply renders there as markdown: lists, bold,",
+  "links, inline code and fenced code. Lead with the answer, keep it to a few short lines, and prefer a short",
+  "list to a paragraph. Say what you found on the page, not that you read it.",
+].join("\n");
 
 const DISCORD_STYLE = [
   "## Replying on Discord",
@@ -241,6 +255,12 @@ const DISCORD_STYLE = [
   "When you continue after the owner approved or denied an action, reply in one line: what happened and the",
   "result. Do not recap the request, the approval, or what you were about to do.",
 ].join("\n");
+
+/** Each surface with a house style: the heading an owner's own style goes under, and the style itself. */
+const STYLES: Record<string, { heading: string; house: string }> = {
+  discord: { heading: "## Replying on Discord", house: DISCORD_STYLE },
+  chrome: { heading: "## Replying in the Chrome side panel", house: CHROME_PANEL_STYLE },
+};
 
 
 /**
