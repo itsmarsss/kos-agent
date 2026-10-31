@@ -1,7 +1,9 @@
+import { KOS_SEED, lookOf } from "@kos/shared";
 import { describe, expect, it } from "vitest";
 
 import { isPrivatePath, kosAddress, parsePairing, socketUrl } from "./address.js";
 import { CallError, deviceProof, fromBase64, hostProof, readFrame, toBase64 } from "./protocol.js";
+import { installOverlay } from "./overlay.js";
 import { checkCommand, forwards, isWebUrl } from "./relay.js";
 import { Session } from "./session.js";
 
@@ -93,5 +95,14 @@ describe("a session", () => {
     // KOS's input is remembered only for a moment.
     session.dispatching("Input.dispatchMouseEvent", { type: "mousePressed", x: 5, y: 5 }, 100);
     expect(session.isOwners({ type: "pointerdown", x: 5, y: 5 }, 5_000)).toBe(true);
+  });
+});
+
+describe("the look", () => {
+  it("draws KOS's face over a page in the colours the dashboard and the app give it", () => {
+    const kos = lookOf(KOS_SEED);
+    const source = installOverlay.toString();
+    expect(source).toContain(kos.fill);
+    expect(source).toContain(kos.ink);
   });
 });
