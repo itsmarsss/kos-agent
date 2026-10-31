@@ -1,21 +1,33 @@
 // The extension's dist/: the compiled scripts (tsc puts them there), the
-// static files beside them, KOS's face as the dashboard draws it (face.svg,
-// for the popup and the consent window), and the toolbar icons, drawn here
-// in the same blue with the same dark eyes, at each size Chrome asks for.
+// static files beside them, the popup and the consent window bundled with
+// what they import from @kos/shared (KOS's face and the dashboard's code
+// that moves it), and the toolbar icons, drawn here in the face's blue with
+// its dark eyes, at each size Chrome asks for.
 import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 
-import { KOS_SEED, faceSvg, lookOf } from "@kos/shared";
+import { KOS_SEED, lookOf } from "@kos/shared";
+import { build } from "esbuild";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dist = join(root, "dist");
 mkdirSync(dist, { recursive: true });
 for (const file of readdirSync(join(root, "static"))) copyFileSync(join(root, "static", file), join(dist, file));
 
+// The pages a person sees are bundled: a page cannot import a package by name. The worker stays tsc's own modules.
+await build({
+  entryPoints: [join(root, "src", "popup.ts"), join(root, "src", "consent.ts")],
+  outdir: dist,
+  bundle: true,
+  format: "esm",
+  platform: "browser",
+  target: "chrome137",
+  logLevel: "warning",
+});
+
 const kos = lookOf(KOS_SEED);
-writeFileSync(join(dist, "face.svg"), faceSvg(kos));
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 const [fillR, fillG, fillB] = rgb(kos.fill);
 const ink = rgb(kos.ink);

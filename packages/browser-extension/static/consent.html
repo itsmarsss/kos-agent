@@ -10,7 +10,7 @@
       .halo { position: relative; width: 84px; height: 84px; display: grid; place-items: center; }
       .halo::before { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--accent); filter: blur(12px); opacity: 0.12; animation: glow 1.6s ease-in-out infinite alternate; }
       @keyframes glow { to { opacity: 0.26; } }
-      .halo img { position: relative; }
+      .halo .blob { position: relative; }
       .title { display: flex; flex-direction: column; gap: 5px; }
       .title > strong { font-size: 17px; }
       .task-box {
@@ -29,10 +29,10 @@
   </head>
   <body class="consent">
     <div class="ask">
-      <div class="halo"><img src="face.svg" alt="" width="54" height="54" /></div>
+      <div id="halo" class="halo"></div>
       <div class="title">
         <strong>KOS wants to use this Chrome</strong>
-        <p class="hint">Asked from <strong id="requester"></strong></p>
+        <p class="hint">Asked from <strong id="requester"></strong><span id="kos"></span></p>
       </div>
       <p id="task" class="task-box"></p>
       <div class="section">

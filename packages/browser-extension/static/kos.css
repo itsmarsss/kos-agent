@@ -63,6 +63,7 @@ strong { font-weight: 600; }
 .faint { color: var(--faint); }
 .row { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
 .row .grow { flex: 1; }
+.row--start { justify-content: flex-start; }
 
 /* —— a line with a tile: a KOS, a tab —— */
 .line { display: flex; align-items: center; gap: 12px; min-width: 0; }
@@ -192,3 +193,99 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* —— KOS's face, alive: the dashboard's blob —— */
+.blob { position: relative; display: inline-block; width: var(--blob-size, 24px); height: var(--blob-size, 24px); flex: none; line-height: 0; user-select: none; }
+.blob svg { display: block; width: 100%; height: 100%; overflow: visible; }
+
+/* —— round buttons holding one symbol: the gear, the way back —— */
+.icon-btn {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.icon-btn:hover { color: var(--text); background: var(--panel-2); border-color: var(--line); }
+.icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.page-head { display: flex; align-items: center; gap: 10px; margin: -4px 0 -2px; }
+.page-head strong { font-size: 15px; }
+.section-head { display: flex; align-items: center; justify-content: space-between; min-height: 22px; }
+.btn--sm { padding: 3px 8px; font-size: 12px; }
+
+/* —— a row that opens what is under it —— */
+.drawer {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.drawer .line-text strong { font-size: 13px; }
+.chev { flex: none; color: var(--faint); transition: transform 200ms ease, color 140ms ease; display: grid; }
+.drawer:hover .chev { color: var(--text); }
+.drawer[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.drawer:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 6px; }
+
+/* —— a setting: what it is, what it does, its control —— */
+.setting { display: flex; align-items: flex-start; gap: 12px; }
+.setting--stacked { flex-direction: column; gap: 8px; }
+.setting-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.setting-text strong { font-size: 12.5px; }
+.setting-text span { color: var(--muted); font-size: 11.5px; }
+
+/* —— an on/off switch in KOS's colours —— */
+.switch {
+  appearance: none;
+  flex: none;
+  position: relative;
+  width: 34px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--line-strong);
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+.switch span { position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--text); transition: transform 150ms ease, background 150ms ease; }
+.switch[aria-checked="true"] { background: var(--accent); }
+.switch[aria-checked="true"] span { transform: translateX(14px); background: var(--on-accent); }
+.switch:hover { background: var(--faint); }
+.switch[aria-checked="true"]:hover { background: var(--accent-lit); }
+.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* —— the hidden sites: chips to remove, a field to add —— */
+.site-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.site-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  font-size: 12px;
+  font-weight: 500;
+}
+.site-chip button { appearance: none; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--faint); font-size: 14px; line-height: 1; cursor: pointer; }
+.site-chip button:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.add-site { display: flex; gap: 8px; }
+.add-site input { flex: 1; min-width: 0; }
+
+/* —— a question asked in place, before something is turned off —— */
+.confirm { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 8px; background: color-mix(in srgb, var(--warn) 8%, transparent); }

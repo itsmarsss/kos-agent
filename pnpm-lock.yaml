@@ -37,6 +37,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      esbuild:
+        specifier: ^0.21.5
+        version: 0.21.5
       ws:
         specifier: ^8.21.0
         version: 8.21.0

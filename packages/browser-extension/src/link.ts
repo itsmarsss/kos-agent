@@ -11,9 +11,12 @@ import { CallError, PROTOCOL, deviceProof, hostProof, readFrame } from "./protoc
 
 export type LinkState = "connecting" | "online" | "offline" | "refused";
 
+/** Who allows a session: the owner here, or that KOS's approval queue. */
+export type Consent = "device" | "kos";
+
 export interface Hello {
   app: { version: string; platform: "chrome"; os: string };
-  consent: "device";
+  consent: Consent;
   permissions: Record<string, boolean>;
   displays: never[];
 }
@@ -72,6 +75,11 @@ export class Link {
   unpair(): void {
     this.send({ t: "unpair" });
     this.stop();
+  }
+
+  /** The owner changed who allows a session from this KOS: KOS hears it at once, not at the next connection. */
+  consent(consent: Consent): void {
+    this.send({ t: "state", consent });
   }
 
   /** An event for KOS; dropped while offline, since KOS asks again what it needs. */
