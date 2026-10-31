@@ -34,6 +34,11 @@ const COVERED = `<!doctype html><title>Covered</title>
 <button id="under" onclick="document.title='clicked'">Buy</button>
 <div role="dialog" aria-label="Cookies" style="position:fixed;inset:0;background:#fff">We use cookies <button onclick="this.parentElement.remove()">Accept</button></div>`;
 
+// A layer drawn over the page that the pointer goes through, as KOS's own border in the owner's Chrome is.
+const VEILED = `<!doctype html><title>Veiled</title>
+<button id="under" onclick="document.title='clicked'">Buy</button>
+<div class="glow" style="position:fixed;inset:0;pointer-events:none;box-shadow:inset 0 0 0 2px #7c9cff"></div>`;
+
 const TWO = `<!doctype html><title>Two</title><main><p>The second page.</p><a href="https://example.com/far">Far away</a></main>`;
 
 const chrome = findChrome(undefined);
@@ -48,7 +53,7 @@ describe.skipIf(!chrome)("the hands on a real Chrome", () => {
 
   beforeAll(async () => {
     server = createServer((req, res) => {
-      const body = req.url === "/covered" ? COVERED : req.url === "/two" ? TWO : req.url?.startsWith("/slow") ? "" : FORM;
+      const body = req.url === "/covered" ? COVERED : req.url === "/veiled" ? VEILED : req.url === "/two" ? TWO : req.url?.startsWith("/slow") ? "" : FORM;
       if (req.url?.startsWith("/slow")) {
         // A response that never ends: a page waiting on it is still loading.
         res.writeHead(200, { "content-type": "text/html" });
@@ -128,6 +133,13 @@ describe.skipIf(!chrome)("the hands on a real Chrome", () => {
     expect(seen.text).toMatch(/In the dialog "Cookies":\n {2}button "Accept"/);
     const done = await act(tab, stepsOf([{ click: "div[role=dialog] button" }, { click: "#under" }]), "none");
     expect(done.text).toContain("clicked #under");
+  });
+
+  it("clicks through a layer the pointer passes through, as a real click does", async () => {
+    await visit(tab, [`${base}/veiled`], { then: "none" });
+    const done = await act(tab, stepsOf([{ click: "#under" }]), "none");
+    expect(done.text).toContain("clicked #under");
+    expect(await tab.page.evaluate("document.title")).toBe("clicked");
   });
 
   it("follows a link, goes back, and reads a page with its links", async () => {
