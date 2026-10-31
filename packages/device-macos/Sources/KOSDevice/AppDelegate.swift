@@ -172,7 +172,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let askFirst = replaced.first.map { settings.askFirst(for: $0.deviceId) } ?? true
     for old in replaced {
       controller.lineDropped(from: old.deviceId)
-      lines.removeValue(forKey: old.deviceId)?.stop()
+      // That KOS made a new device for this pairing; the old one goes from its list rather than sitting there offline.
+      lines.removeValue(forKey: old.deviceId)?.unpair {}
       lastState[old.deviceId] = nil
       settings.forget(kos: old.deviceId)
     }
@@ -187,17 +188,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     guard let paired = pairing(id) else { return }
     let question = NSAlert()
     question.messageText = "Unpair this Mac from \(Self.name(paired))?"
-    question.informativeText = "That KOS will not reach this Mac again until you pair it anew. Any other KOS stays paired."
+    question.informativeText = "That KOS forgets this Mac too, and cannot reach it again until you pair it anew. If it is offline now, remove this Mac in its Settings, Devices. Any other KOS stays paired."
     question.addButton(withTitle: "Unpair")
     question.addButton(withTitle: "Cancel")
     NSApp.activate(ignoringOtherApps: true)
     if question.runModal() == .alertFirstButtonReturn { forget(id, sayRemoved: false) }
   }
 
+  /// This Mac and that KOS part: the owner unpaired it here, and that KOS is
+  /// told so it forgets this Mac too; or that KOS removed it, and is not.
   private func forget(_ id: String, sayRemoved: Bool) {
     let name = pairing(id).map(Self.name) ?? "KOS"
     controller.lineDropped(from: id)
-    lines.removeValue(forKey: id)?.stop()
+    if let line = lines.removeValue(forKey: id) {
+      if sayRemoved { line.stop() } else { line.unpair {} }
+    }
     lastState[id] = nil
     pairings = Pairings.removing(id, from: pairings)
     settings.forget(kos: id)

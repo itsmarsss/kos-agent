@@ -130,6 +130,11 @@ protocol version not spoken.
 After the welcome the device sends `{ "t": "state", ... }` with `consent`,
 `permissions` and `displays` whenever one changes.
 
+When the owner unpairs the device on the device, it sends `{ "t": "unpair" }`
+before it hangs up. KOS forgets it, as Remove on the dashboard does: any
+session ends and the line closes with `4003`. A device can only unpair itself,
+on a line it has proved.
+
 ### Calls
 
 KOS: `{ "t": "call", "id": 7, "method": "pointer.click", "params": { ... } }`

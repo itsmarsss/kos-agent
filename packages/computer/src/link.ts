@@ -50,6 +50,8 @@ export interface LinkDeps {
   onReady(link: DeviceLink): void;
   onState(link: DeviceLink): void;
   onEvent(link: DeviceLink, event: DeviceEvent): void;
+  /** The owner unpaired it on the device: only ever its own pairing, on a line it proved. */
+  onUnpair(link: DeviceLink): void;
   onClose(link: DeviceLink): void;
   helloTimeoutMs?: number;
 }
@@ -143,6 +145,8 @@ export class DeviceLink {
       case "ping":
         this.socket.send(JSON.stringify({ t: "pong" }));
         return;
+      case "unpair":
+        return this.deps.onUnpair(this);
     }
   }
 

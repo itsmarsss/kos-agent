@@ -97,6 +97,31 @@ final class Connection: NSObject {
     status = .disconnected
   }
 
+  /// Tells the KOS on this line that the owner unpaired it here, so it forgets
+  /// this device too, then hangs up for good. Off the line, or with no word
+  /// back in two seconds, it hangs up anyway: the owner's unpair never waits on KOS.
+  func unpair(then done: @escaping () -> Void) {
+    guard proven, let task, let message = try? Outbound.unpair() else {
+      stop()
+      return done()
+    }
+    Log.line.notice("\(self.label, privacy: .public): telling KOS this device is unpaired")
+    var finished = false
+    let finish = { [weak self] in
+      guard !finished else { return }
+      finished = true
+      self?.stop()
+      done()
+    }
+    task.send(.string(String(decoding: message, as: UTF8.self))) { _ in
+      Task { @MainActor in finish() }
+    }
+    Task { @MainActor in
+      try? await Task.sleep(nanoseconds: 2_000_000_000)
+      finish()
+    }
+  }
+
   /// Hangs up for good: unpairing or quitting. The line is not used again; a new pairing gets a new one.
   func stop() {
     Log.line.notice("\(self.label, privacy: .public): hung up for good")

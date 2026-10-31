@@ -92,6 +92,7 @@ struct MessagesTests {
   }
 
   @Test func writesAnEvent() throws {
+    #expect(try json(Outbound.unpair()) as NSDictionary == ["t": "unpair"] as NSDictionary)
     let body = try json(Outbound.event(.sessionEnded, data: SessionEndedEvent(session: "s1", reason: .idle)))
     #expect(body["t"] as? String == "event")
     #expect(body["name"] as? String == "session.ended")

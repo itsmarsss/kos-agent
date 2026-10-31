@@ -140,6 +140,7 @@ export class DeviceHub {
       onReady: (link) => this.ready(link),
       onState: () => this.changed(),
       onEvent: (link, event) => this.event(link, event),
+      onUnpair: (link) => void this.remove(link.device!.id),
       onClose: (link) => this.gone(link),
     });
   }
