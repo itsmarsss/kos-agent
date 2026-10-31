@@ -10,7 +10,7 @@
       .halo { position: relative; width: 84px; height: 84px; display: grid; place-items: center; }
       .halo::before { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--accent); filter: blur(12px); opacity: 0.12; animation: glow 1.6s ease-in-out infinite alternate; }
       @keyframes glow { to { opacity: 0.26; } }
-      .halo .blob { position: relative; }
+      .halo .face-holder { position: relative; }
       .title { display: flex; flex-direction: column; gap: 5px; }
       .title > strong { font-size: 17px; }
       .task-box {
@@ -24,28 +24,13 @@
       }
       .ask .section { width: 100%; text-align: left; }
       .ask .row { width: 100%; }
-      .count { font-variant-numeric: tabular-nums; }
+      .count { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; text-align: left; font-variant-numeric: tabular-nums; }
+      .count-bar { width: 72px; height: 2px; border-radius: 1px; background: var(--line); overflow: hidden; }
+      .count-bar > span { display: block; height: 100%; background: var(--warn); transform-origin: left; }
     </style>
   </head>
   <body class="consent">
-    <div class="ask">
-      <div id="halo" class="halo"></div>
-      <div class="title">
-        <strong>KOS wants to use this Chrome</strong>
-        <p class="hint">Asked from <strong id="requester"></strong><span id="kos"></span></p>
-      </div>
-      <p id="task" class="task-box"></p>
-      <div class="section">
-        <p class="label">For how long</p>
-        <div id="minutes" class="chips"></div>
-      </div>
-      <p class="hint">KOS works in a window of its own and in tabs you give it, nowhere else. Click or type in one of its tabs to take over; Stop ends it.</p>
-      <div class="row">
-        <span id="count" class="hint count grow"></span>
-        <button type="button" id="deny" class="btn">Deny</button>
-        <button type="button" id="allow" class="btn btn--primary">Allow</button>
-      </div>
-    </div>
+    <div id="root"></div>
     <script type="module" src="consent.js"></script>
   </body>
 </html>

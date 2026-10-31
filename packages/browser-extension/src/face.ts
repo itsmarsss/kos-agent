@@ -11,6 +11,8 @@ import { mountBlob, type BlobHandle, type BlobMood } from "@kos/shared/blobmotio
 export interface KosFace {
   el: HTMLSpanElement;
   setMood(mood: BlobMood): void;
+  /** Stops moving it, for a face leaving the page. */
+  dispose(): void;
 }
 
 export function kosFace(size: number, mood: BlobMood): KosFace {
@@ -42,5 +44,5 @@ export function kosFace(size: number, mood: BlobMood): KosFace {
   el.addEventListener("pointerenter", () => handle.hover(true));
   el.addEventListener("pointerleave", () => handle.hover(false));
   el.addEventListener("pointerdown", () => handle.poke());
-  return { el, setMood: (m) => handle.setMood(m) };
+  return { el, setMood: (m) => handle.setMood(m), dispose: () => handle.dispose() };
 }

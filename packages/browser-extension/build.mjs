@@ -1,8 +1,9 @@
 // The extension's dist/: the compiled scripts (tsc puts them there), the
 // static files beside them, the popup and the consent window bundled with
-// what they import from @kos/shared (KOS's face and the dashboard's code
-// that moves it), and the toolbar icons, drawn here in the face's blue with
-// its dark eyes, at each size Chrome asks for.
+// what they import (React, motion, and from @kos/shared KOS's face and the
+// dashboard's code that moves it) in a chunk the pages share, and the
+// toolbar icons, drawn here in the face's blue with its dark eyes, at each
+// size Chrome asks for.
 import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,12 +19,17 @@ for (const file of readdirSync(join(root, "static"))) copyFileSync(join(root, "s
 
 // The pages a person sees are bundled: a page cannot import a package by name. The worker stays tsc's own modules.
 await build({
-  entryPoints: [join(root, "src", "popup.ts"), join(root, "src", "consent.ts")],
+  entryPoints: [join(root, "src", "popup.tsx"), join(root, "src", "consent.tsx")],
   outdir: dist,
   bundle: true,
+  splitting: true,
+  chunkNames: "chunks/[name]-[hash]",
   format: "esm",
   platform: "browser",
   target: "chrome137",
+  // React's production build, without its development checks.
+  define: { "process.env.NODE_ENV": '"production"' },
+  minify: true,
   logLevel: "warning",
 });
 
