@@ -79,17 +79,21 @@ public struct KOSButtonStyle: ButtonStyle {
   public enum Kind { case primary, secondary, ghost, danger }
 
   private let kind: Kind
+  private let capsule: Bool
 
-  public init(_ kind: Kind = .secondary) {
+  /// `capsule` for a button inside something round, such as the session bar, whose corners a 7 point radius would fight.
+  public init(_ kind: Kind = .secondary, capsule: Bool = false) {
     self.kind = kind
+    self.capsule = capsule
   }
 
   public func makeBody(configuration: Configuration) -> some View {
-    StyledButton(kind: kind, configuration: configuration)
+    StyledButton(kind: kind, radius: capsule ? 999 : 7, configuration: configuration)
   }
 
   private struct StyledButton: View {
     let kind: Kind
+    let radius: CGFloat
     let configuration: ButtonStyleConfiguration
     @Environment(\.isEnabled) private var enabled
     @State private var hovering = false
@@ -101,8 +105,8 @@ public struct KOSButtonStyle: ButtonStyle {
         .foregroundStyle(foreground(lit))
         .padding(.horizontal, 12)
         .padding(.vertical, 6.5)
-        .background(background(lit: lit, pressed: configuration.isPressed), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(border(lit)))
+        .background(background(lit: lit, pressed: configuration.isPressed), in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(border(lit)))
         .scaleEffect(configuration.isPressed ? 0.97 : 1)
         .opacity(enabled ? 1 : 0.45)
         .contentShape(Rectangle())

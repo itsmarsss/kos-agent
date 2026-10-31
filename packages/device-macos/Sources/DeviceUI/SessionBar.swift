@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The bar at the top of the screen while KOS has this Mac: who, for what,
-/// and the two buttons that matter.
+/// and the two buttons that matter, as capsules inside the bar's own.
 @MainActor
 public final class SessionBarModel: ObservableObject {
   @Published public var task: String
@@ -61,13 +61,13 @@ public struct SessionBar: View {
       }
       Spacer(minLength: 4)
       Button("+15 min", action: model.extend)
-        .buttonStyle(KOSButtonStyle(.ghost))
+        .buttonStyle(KOSButtonStyle(.ghost, capsule: true))
         .help("Give KOS fifteen more minutes")
       Button(model.paused ? "Resume" : "Pause", action: model.paused ? model.resume : model.pause)
-        .buttonStyle(KOSButtonStyle(.secondary))
+        .buttonStyle(KOSButtonStyle(.secondary, capsule: true))
         // As wide as "Resume", so the bar keeps its size when it pauses.
         .frame(minWidth: 76)
-      Button("Stop", action: model.stop).buttonStyle(KOSButtonStyle(.danger))
+      Button("Stop", action: model.stop).buttonStyle(KOSButtonStyle(.danger, capsule: true))
     }
     .padding(.leading, 12)
     .padding(.trailing, 8)
