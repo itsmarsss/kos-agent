@@ -199,7 +199,7 @@ const CHROME_PANEL_STYLE = [
   "## Replying in the Chrome side panel",
   "The owner is talking to you from the side panel of their own Chrome, a narrow column beside the page they",
   "are looking at; each message says which tab that is. Your reply renders there as markdown: lists, bold,",
-  "links, inline code and fenced code. Lead with the answer, keep it to a few short lines, and prefer a short",
+  "links, inline code, fenced code and LaTeX math. Lead with the answer, keep it to a few short lines, and prefer a short",
   "list to a paragraph. Say what you found on the page, not that you read it.",
 ].join("\n");
 
@@ -231,6 +231,7 @@ const DISCORD_STYLE = [
   "  dashboard on its way out. Write them plainly in prose, never inside code, and do not explain",
   "  that they are references: the reader sees a link with the name on it.",
   "- Prefer raw URLs for links of your own. > quotes only for quoting something.",
+  "- Discord does not typeset LaTeX: write math plainly here (x^2 + 1, sqrt(2), 3/4), or in inline code.",
   "- Keep it under about 1200 characters. Past that, give the two-line version, put the rest in a file",
   "  via export.query, and say so in subtext. Messages over 2000 characters are split.",
   "",
