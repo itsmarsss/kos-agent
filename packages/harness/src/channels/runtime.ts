@@ -35,6 +35,8 @@ export interface TurnContext {
   room?: MessageRoom;
   /** Members named in the words, by name and id. */
   members?: { id: string; name: string }[];
+  /** Where it was said, for this turn alone. */
+  context?: string;
 }
 
 /** Handles one user turn and returns the reply text. */
@@ -353,6 +355,7 @@ export class ChannelRuntime {
         ...(msg.newIn ? { newIn: msg.newIn } : {}),
         ...(msg.room ? { room: msg.room } : {}),
         ...(msg.members?.length ? { members: msg.members } : {}),
+        ...(msg.context ? { context: msg.context } : {}),
         ...(msg.attachments?.length ? { attachments: msg.attachments } : {}),
         ...guest,
       });

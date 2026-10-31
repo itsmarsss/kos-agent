@@ -53,6 +53,12 @@ export interface InboundMessage {
   /** Members named in the words, each as the words now name them and by id, so the turn knows who @name is. */
   members?: { id: string; name: string }[];
   /**
+   * What the surface knows of where this was said that the words do not:
+   * the Chrome side panel, the tab beside it. Told to this turn and not
+   * kept, since it is true of the moment rather than of the conversation.
+   */
+  context?: string;
+  /**
    * Adapter-private handle (e.g. Discord Message) for reactions/edits.
    * Runtime must not inspect this; only the adapter's acknowledge() may.
    */

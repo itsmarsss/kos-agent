@@ -701,6 +701,8 @@ export class Kernel {
       room?: MessageRoom;
       /** Members the words name, by name and id, so the turn knows who @name is. */
       members?: { id: string; name: string }[];
+      /** Where it was said, as the surface knows it: told to this turn, never kept. */
+      context?: string;
       /** How it arrived when no surface carried it (schedule, dispatch); the channel otherwise says. */
       via?: string;
       /** Who sent it when not the owner at the keyboard: the chat that dispatched it, the schedule that fired. */
@@ -801,6 +803,7 @@ export class Kernel {
       guest?: Guest;
       room?: MessageRoom;
       members?: { id: string; name: string }[];
+      context?: string;
       via?: string;
       from?: MessageFrom;
       trail?: string[];
@@ -920,7 +923,7 @@ export class Kernel {
         const membersNote = opts.members?.length
           ? `Members named in this message: ${opts.members.map((m) => `@${m.name} is Discord member ${m.id}`).join("; ")}. discord.member tells who each is; keep anything about them by id.`
           : null;
-        const pulled = [mentioned, keptNote, guestNote, membersNote].filter((part): part is string => Boolean(part)).join("\n\n");
+        const pulled = [opts.context, mentioned, keptNote, guestNote, membersNote].filter((part): part is string => Boolean(part)).join("\n\n");
         const formatting = channelGuidance(opts.channel, this.surfaceStyle(opts.channel, conversation?.projectSlug ?? undefined));
         // Say when the toolkit has been narrowed. Withheld tools are simply
         // absent, so a scoped agent asked for something outside its reach does
@@ -2642,6 +2645,7 @@ export class Kernel {
     guest?: Guest;
     room?: MessageRoom;
     members?: { id: string; name: string }[];
+    context?: string;
   }): Promise<HandleResult & { conversationId: string; isCommand: boolean; from?: Sender }> {
     const conversation = input.conversationId
       ? this.boundConversation(input.conversationId, input.userId, input.channel, input.newIn)
@@ -2678,6 +2682,7 @@ export class Kernel {
         ...(input.attachments?.length ? { attachments: input.attachments } : {}),
         ...(input.room ? { room: input.room } : {}),
         ...(input.members?.length ? { members: input.members } : {}),
+        ...(input.context ? { context: input.context } : {}),
       });
       const from = this.senderFor(thread.id);
       return { ...res, ...(from ? { from } : {}), conversationId: thread.id, isCommand: false };
@@ -2699,6 +2704,7 @@ export class Kernel {
       channel: input.channel,
       ...(input.room ? { room: input.room } : {}),
       ...(input.members?.length ? { members: input.members } : {}),
+      ...(input.context ? { context: input.context } : {}),
       /*
        * The surface's own thread may hand work on, and keep blobs.
        *
