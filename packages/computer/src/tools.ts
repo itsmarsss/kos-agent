@@ -191,6 +191,20 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
     why: "uses the computer: sees the screen and moves the pointer and keys",
   };
 
+  /**
+   * The same for the owner's Chrome. Safe only because the extension asks the
+   * owner there; a Chrome where the owner turned that off leaves the start to
+   * KOS's approvals, or nobody would be asked at all.
+   */
+  const chromeStartRisk: ToolRisk = {
+    floor: "safe",
+    escalate: (input) => {
+      const device = hub.find(str(input.chrome), "browser");
+      return device && hub.consentOf(device.id) === "kos" ? "this Chrome lets KOS start sessions without asking in it" : false;
+    },
+    why: "works in the owner's own Chrome, signed in as them",
+  };
+
   const registerComputer = (ctx: ModuleContext): void => {
     ctx.registerTool(
       {
@@ -390,7 +404,7 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         const tabs = handed.length ? ` Tabs the owner handed you: ${handed.map((t) => `${t.title || t.url}`).join("; ")} (browser.tabs lists them, browser.use_tab goes to one).` : "";
         return `Working in the owner's Chrome (${device.name}) for ${left} minute${left === 1 ? "" : "s"}. Your browser.* tools act there now, not in KOS's own browser, until chrome.end: in KOS's own window in that Chrome unless you use a handed tab.${tabs} The owner can take over or stop it there at any time.`;
       },
-      { floor: "safe", why: "works in the owner's own Chrome, signed in as them" },
+      chromeStartRisk,
     );
 
     ctx.registerTool(

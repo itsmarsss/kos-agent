@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
-import { attendance, openDatabase, type ModuleContext } from "@kos/harness";
+import { attendance, openDatabase, type ModuleContext, type ToolRisk } from "@kos/harness";
 
 import { OwnerChrome } from "./chrome.js";
 import { FakeDevice } from "./device.fixture.js";
@@ -29,9 +29,11 @@ function setup() {
   });
   const chrome = new OwnerChrome(hub);
   const tools = new Map<string, Handler>();
+  const risks = new Map<string, ToolRisk | undefined>();
   const ctx: ModuleContext = {
-    registerTool: (def, handler) => {
+    registerTool: (def, handler, risk) => {
       tools.set(def.name, handler as Handler);
+      risks.set(def.name, risk);
     },
     unregisterTool: (name) => tools.delete(name),
   };
@@ -47,7 +49,7 @@ function setup() {
     fake.hello({ app: { version: "0.1.0", platform: "chrome", os: "macOS" }, permissions: { tabs: true }, displays: [] });
     return fake;
   };
-  return { hub, chrome, tools, pairChrome };
+  return { hub, chrome, tools, risks, pairChrome };
 }
 
 const flush = async (): Promise<void> => {
@@ -69,6 +71,15 @@ describe("a Chrome paired through the extension", () => {
     fake.send({ t: "ping" });
     expect(heard).toContain('{"t":"pong"}');
     expect(fake.closed).toBeUndefined();
+  });
+
+  it("asks through KOS's approvals only when the owner's Chrome does not ask itself", () => {
+    const { risks, pairChrome } = setup();
+    const fake = pairChrome();
+    const escalate = risks.get("chrome.start")!.escalate!;
+    expect(escalate({ task: "t" })).toBe(false);
+    fake.send({ t: "state", consent: "kos" });
+    expect(escalate({ task: "t" })).toMatch(/without asking/);
   });
 
   it("is offered chrome.start, not the computer's tools, and computer.start sends a Chrome there", async () => {
