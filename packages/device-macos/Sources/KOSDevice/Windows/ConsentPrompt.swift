@@ -23,6 +23,8 @@ final class ConsentPrompt: NSObject {
     let target: String
     /// The app KOS asked to work in.
     let suggested: String?
+    /// The owner wants a sound when KOS asks.
+    let chime: Bool
   }
 
   enum Answer: Equatable {
@@ -96,7 +98,7 @@ final class ConsentPrompt: NSObject {
     panel.makeKeyAndOrderFront(nil)
     self.panel = panel
     NSApp.requestUserAttention(.criticalRequest)
-    NSSound(named: "Glass")?.play()
+    if request.chime { NSSound(named: "Glass")?.play() }
 
     timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated { self?.tick() }

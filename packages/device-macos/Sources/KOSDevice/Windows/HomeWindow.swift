@@ -39,6 +39,7 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     model.actions.unhide = { [weak self] id in self?.settings.hiddenApps.removeAll { $0.caseInsensitiveCompare(id) == .orderedSame } }
     model.actions.close = { [weak self] in self?.window.performClose(nil) }
     model.actions.minimize = { [weak self] in self?.window.miniaturize(nil) }
+    model.actions.copyLog = { [weak self] in self?.copyLog() }
     watches = [
       // A pasted pairing link fills the address and the code.
       model.$address.sink { [weak self] text in self?.readLink(text) },
@@ -84,6 +85,10 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     model.promptWaitSeconds = settings.promptWaitSeconds
     model.idleMinutes = settings.idleMinutes
     model.connectWhenOpened = settings.connectWhenOpened
+    model.takeover = settings.takeover
+    model.pace = settings.pace
+    model.sounds = settings.sounds
+    model.timeInMenuBar = settings.timeInMenuBar
     let login: LoginState = switch LaunchAtLogin.state {
     case .on: .on
     case .off: .off
@@ -123,8 +128,22 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     }
   }
 
-  private func fit(_ height: CGFloat) {
-    guard height > 0 else { return }
+  /// This run's log onto the clipboard, for the owner to send when something went wrong.
+  private func copyLog() {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(Log.recent(), forType: .string)
+    model.logCopied = true
+    Task { [weak self] in
+      try? await Task.sleep(nanoseconds: 2_000_000_000)
+      self?.model.logCopied = false
+    }
+  }
+
+  private func fit(_ wanted: CGFloat) {
+    guard wanted > 0 else { return }
+    // No taller than the screen leaves room for: past that, the page scrolls.
+    let room = (window.screen ?? NSScreen.main)?.visibleFrame.height ?? 900
+    let height = min(wanted, room - 40)
     let frame = window.frame
     let content = window.contentRect(forFrameRect: frame)
     let target = window.frameRect(forContentRect: CGRect(x: content.minX, y: content.maxY - height, width: content.width, height: height))

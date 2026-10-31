@@ -1,4 +1,5 @@
 import DeviceCore
+import DeviceUI
 import Foundation
 
 /// The owner's choices for this device, kept on this device.
@@ -36,6 +37,10 @@ final class Settings {
     static let promptWait = "promptWaitSeconds"
     static let idle = "idleMinutes"
     static let connect = "connectWhenOpened"
+    static let takeover = "takeover"
+    static let pace = "pace"
+    static let sounds = "sounds"
+    static let timeInMenuBar = "timeInMenuBar"
   }
 
   static let promptWaitChoices = [30, 60, 120, 300]
@@ -50,6 +55,7 @@ final class Settings {
     defaults.register(defaults: [
       Key.askFirst: true, Key.hiddenApps: Self.defaultHiddenApps, Key.longest: Durations.defaultLongest,
       Key.promptWait: 60, Key.idle: 3, Key.connect: true,
+      Key.takeover: Takeover.deliberate.rawValue, Key.pace: Pace.shown.rawValue, Key.sounds: true, Key.timeInMenuBar: true,
     ])
   }
 
@@ -85,10 +91,36 @@ final class Settings {
   /// Dial KOS as soon as the app opens; off, it waits for Connect.
   var connectWhenOpened: Bool {
     get { defaults.bool(forKey: Key.connect) }
-    set {
-      defaults.set(newValue, forKey: Key.connect)
-      onChange?()
-    }
+    set { flag(newValue, Key.connect) }
+  }
+
+  /// What of the owner's own hand pauses KOS.
+  var takeover: Takeover {
+    get { defaults.string(forKey: Key.takeover).flatMap(Takeover.init(rawValue:)) ?? .deliberate }
+    set { flag(newValue.rawValue, Key.takeover) }
+  }
+
+  /// How KOS moves the pointer.
+  var pace: Pace {
+    get { defaults.string(forKey: Key.pace).flatMap(Pace.init(rawValue:)) ?? .shown }
+    set { flag(newValue.rawValue, Key.pace) }
+  }
+
+  /// A chime when KOS asks, when a session starts without asking, and when one ends.
+  var sounds: Bool {
+    get { defaults.bool(forKey: Key.sounds) }
+    set { flag(newValue, Key.sounds) }
+  }
+
+  /// The time a session has left, beside the icon in the menu bar.
+  var timeInMenuBar: Bool {
+    get { defaults.bool(forKey: Key.timeInMenuBar) }
+    set { flag(newValue, Key.timeInMenuBar) }
+  }
+
+  private func flag(_ value: Any, _ key: String) {
+    defaults.set(value, forKey: key)
+    onChange?()
   }
 
   private func store(_ value: Int, in choices: [Int], key: String) {

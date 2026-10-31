@@ -29,6 +29,31 @@ public enum LoginState: Equatable {
   case needsApproval
 }
 
+/// What of the owner's own hand pauses KOS.
+public enum Takeover: String, CaseIterable, Sendable {
+  /// Any movement of the pointer, however small.
+  case anyMove
+  /// A move as far as a deliberate one goes; a nudge does not.
+  case deliberate
+  /// Only a click, a scroll or a key; moving the pointer never pauses.
+  case clicksAndKeys
+
+  public var label: String {
+    switch self {
+    case .anyMove: return "Any move"
+    case .deliberate: return "A real move"
+    case .clicksAndKeys: return "Clicks and keys"
+    }
+  }
+}
+
+/// How KOS moves the pointer: so the owner can follow it, or quickly.
+public enum Pace: String, CaseIterable, Sendable {
+  case shown, quick
+
+  public var label: String { self == .shown ? "Show each move" : "Quick" }
+}
+
 public enum Grant: CaseIterable, Hashable {
   case screen, input
 
@@ -119,6 +144,12 @@ public struct HomeActions {
   public var setOpenAtLogin: (Bool) -> Void = { _ in }
   public var openLoginItems: () -> Void = {}
   public var setConnectWhenOpened: (Bool) -> Void = { _ in }
+  public var setTakeover: (Takeover) -> Void = { _ in }
+  public var setPace: (Pace) -> Void = { _ in }
+  public var setSounds: (Bool) -> Void = { _ in }
+  public var setTimeInMenuBar: (Bool) -> Void = { _ in }
+  /// This run's log onto the clipboard, to send.
+  public var copyLog: () -> Void = {}
 
   public init() {}
 }
@@ -166,6 +197,12 @@ public final class HomeModel: ObservableObject {
   @Published public var idleMinutes = 3
   @Published public var openAtLogin: LoginState = .off
   @Published public var connectWhenOpened = true
+  @Published public var takeover: Takeover = .deliberate
+  @Published public var pace: Pace = .shown
+  @Published public var sounds = true
+  @Published public var timeInMenuBar = true
+  /// The log was just copied: the button says so for a moment.
+  @Published public var logCopied = false
   public var longestChoices = [15, 30, 60, 120, 240, 480]
   public var promptWaitChoices = [30, 60, 120, 300]
   public var idleChoices = [1, 3, 5, 10, 15]

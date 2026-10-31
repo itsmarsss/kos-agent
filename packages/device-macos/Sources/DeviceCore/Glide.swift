@@ -15,17 +15,20 @@ public struct Glide: Equatable, Sendable {
   public static let longest = 0.45
   /// The distance, in points, at which a glide takes the longest time.
   public static let farDistance = 1500.0
+  /// How much of the time a quick glide takes, for an owner who would rather KOS got on with it.
+  public static let quickShare = 0.3
 
-  public static func duration(for distance: Double) -> Double {
+  public static func duration(for distance: Double, quick: Bool = false) -> Double {
     guard distance > 0 else { return 0 }
-    return shortest + (longest - shortest) * min(1, distance / farDistance)
+    let full = shortest + (longest - shortest) * min(1, distance / farDistance)
+    return quick ? full * quickShare : full
   }
 
-  /// The points after `from`, ending exactly on `to`.
-  public init(from: Point, to: Point, rate: Double = Glide.rate) {
+  /// The points after `from`, ending exactly on `to`; `quick`, the same path in under a third of the time.
+  public init(from: Point, to: Point, rate: Double = Glide.rate, quick: Bool = false) {
     interval = 1 / rate
     let distance = from.distance(to: to)
-    let steps = Int((Self.duration(for: distance) * rate).rounded())
+    let steps = Int((Self.duration(for: distance, quick: quick) * rate).rounded())
     guard steps > 1 else {
       points = [to]
       return

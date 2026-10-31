@@ -8,6 +8,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     var paired: Pairing?
     var link: Connection.Status
     var session: LiveSession?
+    /// The session's time left beside the icon.
+    var timeInMenuBar: Bool
   }
 
   var snapshot: () -> Snapshot
@@ -50,6 +52,16 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     image?.isTemplate = tint == nil
     item.button?.image = image
     item.button?.contentTintColor = tint
+    let left = now.timeInMenuBar ? now.session.map { Self.left(until: $0.until) } : nil
+    item.length = left == nil ? NSStatusItem.squareLength : NSStatusItem.variableLength
+    item.button?.title = left.map { " \($0)" } ?? ""
+    item.button?.imagePosition = left == nil ? .imageOnly : .imageLeading
+  }
+
+  /// Time left, as short as the menu bar wants it: "12m", "1h 05m".
+  static func left(until: Date, now: Date = Date()) -> String {
+    let minutes = max(1, Int((until.timeIntervalSince(now) / 60).rounded(.up)))
+    return minutes < 60 ? "\(minutes)m" : String(format: "%dh %02dm", minutes / 60, minutes % 60)
   }
 
   func menuNeedsUpdate(_ menu: NSMenu) {

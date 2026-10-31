@@ -38,42 +38,61 @@ public struct HomeView: View {
 
   static let motion = Animation.spring(response: 0.36, dampingFraction: 0.88)
 
+  /// The row with Close, Minimise and the gear: it stays put while the page under it scrolls.
+  static let controlsHeight: CGFloat = 14 + 28
+
   public var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      // Close and minimise in the gear's own style, not the system's lights
-      // or copies of them: round, quiet until the pointer is over them.
-      HStack(spacing: 4) {
-        IconButton(symbol: "xmark", label: "Close", tint: Theme.danger, action: model.actions.close)
-          .keyboardShortcut("w", modifiers: .command)
-        IconButton(symbol: "minus", label: "Minimise", action: model.actions.minimize)
-          .keyboardShortcut("m", modifiers: .command)
-        Spacer()
-        if model.page == .home {
-          IconButton(symbol: "gearshape", label: "Settings") { model.page = .settings }
-            .transition(.opacity)
-        }
+    VStack(alignment: .leading, spacing: 0) {
+      controls
+        .padding(.horizontal, Theme.gutter)
+        .padding(.top, 14)
+      // The window follows the page's height up to what the screen has room
+      // for; past that, the page scrolls under the controls.
+      ScrollView(.vertical) {
+        page
+          .padding(.horizontal, Theme.gutter)
+          .padding(.top, 14)
+          .padding(.bottom, Theme.gutter)
+          .frame(width: 460)
+          .fixedSize(horizontal: false, vertical: true)
+          .background(GeometryReader { geo in Color.clear.preference(key: HeightKey.self, value: geo.size.height) })
       }
-      .frame(height: 28)
-      ZStack(alignment: .top) {
-        if model.page == .home {
-          home.transition(.asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .leading)).combined(with: .opacity))
-        } else {
-          SettingsPage(model: model).transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)).combined(with: .opacity))
-        }
-      }
+      .scrollBounceBehavior(.basedOnSize)
     }
-    .padding(.horizontal, Theme.gutter)
-    .padding(.top, 14)
-    .padding(.bottom, Theme.gutter)
     .frame(width: 460)
-    .fixedSize(horizontal: false, vertical: true)
-    .background(GeometryReader { geo in Color.clear.preference(key: HeightKey.self, value: geo.size.height) })
-    .onPreferenceChange(HeightKey.self) { height in MainActor.assumeIsolated { model.contentHeight = height } }
+    .onPreferenceChange(HeightKey.self) { height in MainActor.assumeIsolated { model.contentHeight = height + Self.controlsHeight } }
     .animation(Self.motion, value: layout)
     .frame(maxHeight: .infinity, alignment: .top)
     .background(Theme.bg)
     .ignoresSafeArea()
     .environment(\.colorScheme, .dark)
+  }
+
+  private var controls: some View {
+    // Close and minimise in the gear's own style, not the system's lights
+    // or copies of them: round, quiet until the pointer is over them.
+    HStack(spacing: 4) {
+      IconButton(symbol: "xmark", label: "Close", tint: Theme.danger, action: model.actions.close)
+        .keyboardShortcut("w", modifiers: .command)
+      IconButton(symbol: "minus", label: "Minimise", action: model.actions.minimize)
+        .keyboardShortcut("m", modifiers: .command)
+      Spacer()
+      if model.page == .home {
+        IconButton(symbol: "gearshape", label: "Settings") { model.page = .settings }
+          .transition(.opacity)
+      }
+    }
+    .frame(height: 28)
+  }
+
+  private var page: some View {
+    ZStack(alignment: .top) {
+      if model.page == .home {
+        home.transition(.asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .leading)).combined(with: .opacity))
+      } else {
+        SettingsPage(model: model).transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .trailing)).combined(with: .opacity))
+      }
+    }
   }
 
   private var home: some View {

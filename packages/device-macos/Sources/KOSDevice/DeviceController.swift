@@ -39,6 +39,7 @@ final class DeviceController {
     self.overlay = overlay
     injector.onPointer = { [weak overlay] point in overlay?.pointer(at: point) }
     injector.onKeys = { [weak overlay] in overlay?.typing() }
+    injector.quick = { [weak settings] in settings?.pace == .quick }
     owner.onOwnerInput = { [weak self] in self?.pause() }
     owner.isFromKOS = { [weak injector] event in injector?.posted(event) ?? false }
     overlay.onPause = { [weak self] in self?.pause() }
@@ -116,7 +117,8 @@ final class DeviceController {
       let request = ConsentPrompt.Request(
         task: task, requester: params.requester, chat: params.conversation.flatMap(chatLink),
         offered: Durations.offered(requested: params.minutes, longest: longest), longest: longest, wait: settings.promptWaitSeconds,
-        targets: choices, target: suggested.map { String($0.id) } ?? TargetChoice.screen, suggested: suggested?.app)
+        targets: choices, target: suggested.map { String($0.id) } ?? TargetChoice.screen, suggested: suggested?.app,
+        chime: settings.sounds)
       switch await consent.ask(request) {
       case .allowed(let chosen, let target):
         minutes = chosen
@@ -138,6 +140,8 @@ final class DeviceController {
       // The owner chose, on this Mac, to let KOS's approval queue decide: the window KOS named, if open, else the screen.
       minutes = Durations.unattended(requested: params.minutes, longest: longest)
       picked = suggested.map { String($0.id) } ?? TargetChoice.screen
+      // Nothing asked, so a sound is the owner's first sign KOS has the Mac, beside the border.
+      if settings.sounds { NSSound(named: "Tink")?.play() }
     }
 
     let target: SessionTarget
@@ -167,7 +171,7 @@ final class DeviceController {
     } else {
       overlay.show(display: id, task: task, until: session.until)
     }
-    owner.start(grace: Self.handOverGrace)
+    owner.start(grace: Self.handOverGrace, travel: OwnerInputMonitor.travel(for: settings.takeover))
     ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated { self?.tick() }
     }
@@ -232,6 +236,7 @@ final class DeviceController {
     consent.cancel()
     guard let id = sessions.end() else { return }
     Log.session.notice("ended: \(reason?.rawValue ?? "by KOS or the line", privacy: .public)")
+    if settings.sounds, reason != .quit { NSSound(named: "Pop")?.play() }
     owner.stop()
     ticker?.invalidate()
     ticker = nil

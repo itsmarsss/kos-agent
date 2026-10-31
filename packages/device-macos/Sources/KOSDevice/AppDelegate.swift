@@ -10,7 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private let connection = Connection()
   private lazy var controller = DeviceController(settings: settings, overlay: overlay)
   private lazy var menu = StatusMenu { [unowned self] in
-    StatusMenu.Snapshot(paired: pairing, link: connection.status, session: controller.live)
+    StatusMenu.Snapshot(paired: pairing, link: connection.status, session: controller.live, timeInMenuBar: settings.timeInMenuBar)
   }
   private lazy var home = HomeWindow(settings: settings)
   private var pairing: Pairing?
@@ -54,6 +54,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     home.model.actions.setPromptWait = { [unowned self] in settings.promptWaitSeconds = $0 }
     home.model.actions.setIdle = { [unowned self] in settings.idleMinutes = $0 }
     home.model.actions.setConnectWhenOpened = { [unowned self] in settings.connectWhenOpened = $0 }
+    home.model.actions.setTakeover = { [unowned self] in settings.takeover = $0 }
+    home.model.actions.setPace = { [unowned self] in settings.pace = $0 }
+    home.model.actions.setSounds = { [unowned self] in settings.sounds = $0 }
+    home.model.actions.setTimeInMenuBar = { [unowned self] on in
+      settings.timeInMenuBar = on
+      menu.refresh()
+    }
     home.model.actions.setOpenAtLogin = { [unowned self] on in
       if let refused = LaunchAtLogin.set(on) { alert("macOS did not change it.", refused) }
       home.refreshSystem()
@@ -70,7 +77,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Permissions change in System Settings, displays come and go: KOS hears of it.
     stateTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-      MainActor.assumeIsolated { self?.reportStateIfChanged() }
+      MainActor.assumeIsolated {
+        self?.reportStateIfChanged()
+        // The time left beside the icon counts down.
+        if self?.controller.live != nil { self?.menu.refresh() }
+      }
     }
 
     Log.app.notice("launched, version \(Connection.appInfo.version, privacy: .public)")
