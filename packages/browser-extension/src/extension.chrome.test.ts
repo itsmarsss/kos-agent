@@ -88,6 +88,8 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
   let devtools: Devtools;
   let deviceKey: KeyObject | undefined;
   let device: WebSocket | undefined;
+  let popup = "";
+  let unpaired = false;
   const events: { name: string; data: Record<string, unknown> }[] = [];
   const replies = new Map<number, (r: Record<string, unknown>) => void>();
   let nextCall = 1;
@@ -140,6 +142,7 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
         } else if (m["t"] === "ping") ws.send(JSON.stringify({ t: "pong" }));
         else if (m["t"] === "reply") replies.get(Number(m["id"]))?.(m);
         else if (m["t"] === "event") events.push({ name: String(m["name"]), data: m["data"] as Record<string, unknown> });
+        else if (m["t"] === "unpair") unpaired = true;
       });
     });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -157,7 +160,7 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     const { id } = (await devtools.send("Extensions.loadUnpacked", { path: DIST })) as { id: string };
     // Paired from the popup's own message, as its Pair button sends it.
     await devtools.send("Target.createTarget", { url: `chrome-extension://${id}/popup.html` });
-    const popup = await devtools.attach((u) => u.endsWith("/popup.html"));
+    popup = await devtools.attach((u) => u.endsWith("/popup.html"));
     await devtools.loaded(popup);
     const link = `kos-device://pair?url=${encodeURIComponent(base)}&code=test-code`;
     const paired = (await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "pair", link: ${JSON.stringify(link)}, name: "Test Chrome" })`)) as { ok: boolean; error?: string };
@@ -238,5 +241,11 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     await until(() => events.some((e) => e.name === "session.ended"));
     expect(events.find((e) => e.name === "session.ended")?.data).toMatchObject({ session: "s1", reason: "host" });
     expect((await call("tabs.list", { session: "s1" }))["error"]).toMatchObject({ code: "no_session" });
+  });
+
+  it("tells KOS when the owner unpairs it here, so KOS forgets it too", async () => {
+    expect(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "unpair" })`)).toMatchObject({ ok: true });
+    await until(() => unpaired);
+    expect(unpaired).toBe(true);
   });
 });

@@ -1,6 +1,9 @@
 /**
  * What the owner sees on a tab KOS is using: a glowing border, and a small
- * bar saying what KOS is doing, with Take over and Stop.
+ * bar saying what KOS is doing, with Take over and Stop. The same pieces as
+ * KOS Device puts over a Mac: the border sweeping blue into violet, amber and
+ * still while the owner has it; the bar with KOS's face, two lines and the
+ * app's own buttons.
  *
  * Put in the page over the debugging connection, into a world of its own
  * (the page's scripts cannot reach it), so the extension needs no
@@ -29,6 +32,7 @@ export function installOverlay(): void {
   };
   let state: OverlayState = { task: "", paused: false, until: 0 };
   let host: HTMLElement | null = null;
+  let title: HTMLElement | null = null;
   let text: HTMLElement | null = null;
   let left: HTMLElement | null = null;
   let take: HTMLButtonElement | null = null;
@@ -36,12 +40,14 @@ export function installOverlay(): void {
 
   const minutes = (): string => {
     const m = Math.max(0, Math.ceil((state.until - Date.now()) / 60_000));
-    return state.until ? ` · ${m} min left` : "";
+    if (!state.until) return "";
+    return m <= 1 ? " · under a minute left" : ` · ${m} min left`;
   };
   const render = (): void => {
-    if (!host || !text || !take || !left) return;
+    if (!host || !title || !text || !take || !left) return;
     host.dataset["paused"] = state.paused ? "1" : "";
-    text.textContent = state.paused ? "You have this tab" : `KOS: ${state.task || "working"}`;
+    title.textContent = state.paused ? "Paused. You have this tab." : "KOS is using this tab";
+    text.textContent = state.task || "working";
     left.textContent = minutes();
     take.textContent = state.paused ? "Hand back" : "Take over";
     take.dataset["act"] = state.paused ? "handback" : "take";
@@ -53,27 +59,44 @@ export function installOverlay(): void {
     host.setAttribute("aria-hidden", "true");
     host.style.cssText = "all: initial; position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;";
     const shadow = host.attachShadow({ mode: "closed" });
+    // KOS's face as @kos/shared colours it, written in rather than imported,
+    // since this function runs in the page on its own; extension.test.ts keeps them in step.
+    const face = { fill: "#3585ed", ink: "#141d29" };
     shadow.innerHTML = `<style>
+      :host { --accent: #7c9cff; --violet: #a57cff; --warn: #e6b84d; --danger: #f07178; --tone: var(--accent); }
+      :host([data-paused="1"]) { --tone: var(--warn); }
       .glow { position: fixed; inset: 0; pointer-events: none; border-radius: 6px;
-        box-shadow: inset 0 0 0 2px rgba(139, 92, 246, 0.95), inset 0 0 22px 4px rgba(139, 92, 246, 0.45);
-        animation: breathe 2.4s ease-in-out infinite; }
-      :host([data-paused="1"]) .glow { box-shadow: inset 0 0 0 2px rgba(245, 158, 11, 0.9), inset 0 0 18px 2px rgba(245, 158, 11, 0.35); animation: none; }
-      @keyframes breathe { 50% { opacity: 0.55; } }
-      .bar { position: fixed; right: 14px; bottom: 14px; pointer-events: auto; display: flex; align-items: center; gap: 8px;
-        max-width: min(460px, calc(100vw - 28px)); padding: 6px 6px 6px 12px; border-radius: 999px;
-        background: rgba(17, 17, 24, 0.92); color: #ececf1; font: 500 12px/1.2 -apple-system, system-ui, sans-serif;
-        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(139, 92, 246, 0.5); }
-      .dot { width: 8px; height: 8px; border-radius: 50%; background: #8b5cf6; flex: none; animation: breathe 1.2s ease-in-out infinite; }
-      :host([data-paused="1"]) .dot { background: #f59e0b; animation: none; }
-      .text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .left { color: #a1a1aa; white-space: nowrap; }
-      button { all: unset; cursor: pointer; padding: 4px 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); font-weight: 600; white-space: nowrap; }
-      button:hover { background: rgba(255, 255, 255, 0.2); }
-      button.stop { background: rgba(239, 68, 68, 0.85); }
-      button.stop:hover { background: rgb(239, 68, 68); }
+        box-shadow: inset 0 0 0 2px var(--accent), inset 0 0 24px 4px rgba(124, 156, 255, 0.4);
+        animation: sweep 3.2s ease-in-out infinite; }
+      :host([data-paused="1"]) .glow { box-shadow: inset 0 0 0 2px var(--warn), inset 0 0 18px 2px rgba(230, 184, 77, 0.35); animation: none; }
+      @keyframes sweep { 50% { box-shadow: inset 0 0 0 2px var(--violet), inset 0 0 28px 6px rgba(165, 124, 255, 0.42); } }
+      .bar { position: fixed; right: 14px; bottom: 14px; pointer-events: auto; display: flex; align-items: center; gap: 12px;
+        max-width: min(480px, calc(100vw - 28px)); height: 48px; padding: 0 8px 0 12px; border-radius: 999px;
+        background: rgba(18, 21, 28, 0.96); color: #e7ebf3; font: 12.5px/1.25 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        border: 1px solid color-mix(in srgb, var(--tone) 55%, transparent);
+        box-shadow: 0 0 12px color-mix(in srgb, var(--tone) 35%, transparent), 0 8px 24px rgba(0, 0, 0, 0.35); }
+      .face { position: relative; flex: none; width: 26px; height: 26px; border-radius: 50% 50% 47% 53% / 52% 50% 50% 48%; background: ${face.fill};
+        display: flex; align-items: center; justify-content: center; gap: 5px; }
+      .face i { width: 3px; height: 6px; border-radius: 2px; background: ${face.ink}; margin-top: -2px; }
+      .face b { position: absolute; right: -2px; bottom: -2px; width: 8px; height: 8px; border-radius: 50%; background: var(--tone);
+        box-shadow: 0 0 0 1.5px #12151c; animation: beat 1.8s ease-in-out infinite; }
+      :host([data-paused="1"]) .face b { animation: none; }
+      @keyframes beat { 50% { opacity: 0.35; } }
+      .words { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+      .title { font-weight: 600; white-space: nowrap; }
+      .sub { display: flex; min-width: 0; color: #8b93a7; font-size: 11px; white-space: nowrap; }
+      .text { overflow: hidden; text-overflow: ellipsis; max-width: 230px; }
+      button { all: unset; cursor: pointer; padding: 6px 12px; border-radius: 7px; font-weight: 600; white-space: nowrap;
+        border: 1px solid #262b36; background: #181c26; transition: background 140ms ease, border-color 140ms ease; }
+      button:hover { border-color: #3a4150; background: rgba(38, 43, 54, 0.7); }
+      button.stop { color: var(--danger); background: rgba(240, 113, 120, 0.1); border-color: rgba(240, 113, 120, 0.25); }
+      button.stop:hover { background: rgba(240, 113, 120, 0.17); border-color: rgba(240, 113, 120, 0.45); }
+      @media (prefers-reduced-motion: reduce) { .glow, .face b { animation: none; } }
     </style>
     <div class="glow"></div>
-    <div class="bar"><span class="dot"></span><span class="text"></span><span class="left"></span><button data-act="take"></button><button class="stop" data-act="stop">Stop</button></div>`;
+    <div class="bar"><span class="face"><i></i><i></i><b></b></span><span class="words"><span class="title"></span><span class="sub"><span class="text"></span><span class="left"></span></span></span><button data-act="take"></button><button class="stop" data-act="stop">Stop</button></div>`;
+    title = shadow.querySelector(".title");
     text = shadow.querySelector(".text");
     left = shadow.querySelector(".left");
     take = shadow.querySelector('button[data-act]:not(.stop)');

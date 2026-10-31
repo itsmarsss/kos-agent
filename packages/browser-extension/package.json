@@ -7,6 +7,7 @@
     "build": "tsc -p tsconfig.json && node build.mjs"
   },
   "devDependencies": {
+    "@kos/shared": "workspace:*",
     "@types/chrome": "^0.1.0",
     "@types/ws": "^8.18.1",
     "ws": "^8.21.0"

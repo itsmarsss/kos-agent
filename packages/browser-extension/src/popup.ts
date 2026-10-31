@@ -2,8 +2,8 @@ import { parsePairing } from "./address.js";
 import type { PopupState } from "./worker.js";
 
 /**
- * The popup under the KOS icon: pairing, and while paired, whether KOS is
- * connected, what it is doing in this Chrome, and the owner's controls:
+ * The popup under the KOS icon: pairing, and while paired, where the line to
+ * KOS stands, what KOS is doing in this Chrome, and the owner's controls:
  * give it this tab or take it back, take over, hand back, stop, unpair.
  */
 
@@ -15,9 +15,17 @@ async function ask<T>(message: Record<string, unknown>): Promise<T> {
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
+/** Each line state, in a word and a tone, as the app's pills say them. */
+const LINK: Record<string, { word: string; tone: string }> = {
+  online: { word: "Connected", tone: "ok" },
+  connecting: { word: "Connecting", tone: "accent" },
+  offline: { word: "Offline", tone: "warn" },
+  refused: { word: "Not connected", tone: "danger" },
+};
+
 function minutesLeft(until: number): string {
   const m = Math.max(0, Math.ceil((until - Date.now()) / 60_000));
-  return `${m} min left`;
+  return m <= 1 ? "under a minute left" : m < 60 ? `${m} min left` : `${Math.floor(m / 60)} h ${m % 60 ? `${m % 60} ` : ""}left`;
 }
 
 async function activeTab(): Promise<chrome.tabs.Tab | undefined> {
@@ -26,26 +34,50 @@ async function activeTab(): Promise<chrome.tabs.Tab | undefined> {
 }
 
 async function render(state: PopupState): Promise<void> {
-  $("pairing").hidden = state.paired !== null;
-  $("paired").hidden = state.paired === null;
-  if (!state.paired) return;
-  const words: Record<string, string> = { online: "Connected", connecting: "Connecting…", offline: "Offline, trying again", refused: "Not connected" };
-  $("status-dot").dataset["state"] = state.link.state;
-  $("status").textContent = `${words[state.link.state] ?? state.link.state} to ${new URL(state.paired.url).host}`;
-  $("status-detail").textContent = state.link.detail ?? "";
-  $("status-detail").hidden = !state.link.detail;
+  const paired = state.paired;
+  $("pairing").hidden = paired !== null;
+  $("paired").hidden = paired === null;
+  const link = LINK[state.link.state] ?? { word: state.link.state, tone: "muted" };
+  $("pill").textContent = paired ? (state.session && !state.session.paused ? "In use" : link.word) : "Not paired";
+  $("pill").dataset["tone"] = paired ? (state.session && !state.session.paused ? "accent" : link.tone) : "muted";
+
   const session = state.session;
   $("session").hidden = !session;
   if (session) {
+    $("session").toggleAttribute("data-paused", session.paused);
+    $("live-title").textContent = session.paused ? "Paused. You have control." : "KOS is using this Chrome";
+    $("left").textContent = minutesLeft(session.until);
     $("task").textContent = session.task;
-    $("requester").textContent = `${session.requester} · ${minutesLeft(session.until)}`;
+    $("requester").textContent = session.requester;
     $("take").textContent = session.paused ? "Hand back" : "Take over";
   }
+  if (!paired) {
+    $("this-tab").hidden = true;
+    return;
+  }
+
+  const host = new URL(paired.url);
+  $("host").textContent = host.host;
+  $("as").textContent = `As ${paired.name}`;
+  $("kos-tile").dataset["tone"] = link.tone;
+  $<HTMLAnchorElement>("dashboard").href = paired.url;
+  $("status-detail").textContent = state.link.detail ?? "";
+  $("status-detail").hidden = !state.link.detail;
+
+  // The tab in front, and whether it is KOS's: only a web page can be given.
   const tab = await activeTab();
-  const given = tab?.id !== undefined && state.handed.includes(tab.id);
   const web = /^https?:\/\//.test(tab?.url ?? "");
-  $("hand").hidden = !web;
-  $("hand").textContent = given ? "Take this tab back from KOS" : "Give this tab to KOS";
+  $("this-tab").hidden = !web;
+  if (!web || !tab) return;
+  const given = tab.id !== undefined && state.handed.includes(tab.id);
+  $("tab-title").textContent = tab.title || new URL(tab.url!).host;
+  $("tab-host").textContent = given ? `${new URL(tab.url!).host} · KOS can work here` : new URL(tab.url!).host;
+  const icon = $<HTMLImageElement>("tab-icon");
+  icon.hidden = !tab.favIconUrl;
+  $("tab-glyph").toggleAttribute("hidden", Boolean(tab.favIconUrl));
+  if (tab.favIconUrl && icon.src !== tab.favIconUrl) icon.src = tab.favIconUrl;
+  $("hand").textContent = given ? "Take this tab back" : "Give this tab to KOS";
+  $("hand").className = given ? "btn btn--wide" : "btn btn--wide btn--primary";
   $("hand").dataset["give"] = given ? "" : "1";
 }
 

@@ -1,15 +1,24 @@
 // The extension's dist/: the compiled scripts (tsc puts them there), the
-// static files beside them, and the icons, drawn here: KOS's face, a violet
-// blob with two eyes, at each size Chrome asks for.
+// static files beside them, KOS's face as the dashboard draws it (face.svg,
+// for the popup and the consent window), and the toolbar icons, drawn here
+// in the same blue with the same dark eyes, at each size Chrome asks for.
 import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 
+import { KOS_SEED, faceSvg, lookOf } from "@kos/shared";
+
 const root = dirname(fileURLToPath(import.meta.url));
 const dist = join(root, "dist");
 mkdirSync(dist, { recursive: true });
 for (const file of readdirSync(join(root, "static"))) copyFileSync(join(root, "static", file), join(dist, file));
+
+const kos = lookOf(KOS_SEED);
+writeFileSync(join(dist, "face.svg"), faceSvg(kos));
+const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const [fillR, fillG, fillB] = rgb(kos.fill);
+const ink = rgb(kos.ink);
 
 const CRC = new Int32Array(256).map((_, n) => {
   let c = n;
@@ -40,15 +49,15 @@ function png(size) {
       const dx = x + 0.5 - c;
       const dy = y + 0.5 - c;
       const d = Math.hypot(dx, dy);
-      // Edge softened over a pixel; violet lighter at the top.
+      // Edge softened over a pixel; KOS's blue, a touch lighter at the top.
       const alpha = Math.max(0, Math.min(1, r - d + 0.5));
-      const t = (y + 0.5) / size;
-      let [red, green, blue] = [167 - 50 * t, 139 - 60 * t, 250 - 20 * t];
-      // Eyes: two rounded upright ovals.
-      for (const ex of [-0.17, 0.17]) {
-        const ox = (dx / size - ex) / 0.065;
+      const lift = 0.14 * (1 - (y + 0.5) / size);
+      let [red, green, blue] = [fillR, fillG, fillB].map((c) => c + (255 - c) * lift);
+      // Eyes: two dark upright ovals, larger than the face's own so a 16 px icon still has them.
+      for (const ex of [-0.15, 0.15]) {
+        const ox = (dx / size - ex) / 0.06;
         const oy = (dy / size + 0.04) / 0.11;
-        if (ox * ox + oy * oy <= 1) [red, green, blue] = [255, 255, 255];
+        if (ox * ox + oy * oy <= 1) [red, green, blue] = ink;
       }
       const i = 1 + x * 4;
       row[i] = red;

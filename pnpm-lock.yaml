@@ -28,6 +28,9 @@ importers:
 
   packages/browser-extension:
     devDependencies:
+      '@kos/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@types/chrome':
         specifier: ^0.1.0
         version: 0.1.43
