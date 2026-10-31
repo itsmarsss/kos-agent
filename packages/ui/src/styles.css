@@ -4387,6 +4387,65 @@ li:hover .chats-item-when { opacity: 0; }
 .set-rail-label { font-size: var(--text-md); font-weight: 500; }
 .set-rail-blurb { font-size: var(--text-sm); color: var(--faint); line-height: 1.35; }
 
+/* Settings fills the window, and the rail and the pane scroll each on their
+   own: a long section no longer carries the sections out of reach, and the
+   rail's search stays where it is. Below the two-column width the page
+   scrolls as one again. */
+.ops-page--split {
+  height: 100vh;
+  height: 100dvh;
+  flex: none;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+.ops-page--split .settings-page {
+  flex: 1;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
+}
+.ops-page--split .set-rail {
+  position: static;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 0.25rem 2rem 0;
+}
+.set-pane-scroll { min-width: 0; }
+.ops-page--split .set-pane-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 0.5rem 4rem 0;
+}
+@media (max-width: 52rem) {
+  .ops-page--split { height: auto; overflow: visible; padding-bottom: 2rem; }
+  .ops-page--split .set-rail,
+  .ops-page--split .set-pane-scroll { overflow: visible; }
+}
+
+/* Finding a setting: a search over the rail, its best matches in place of
+   the sections, and the setting it opens flashed where it sits. */
+.set-search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding-bottom: 0.6rem;
+  background: var(--bg);
+}
+.set-search-input { width: 100%; }
+.set-results { display: flex; flex-direction: column; gap: 0.15rem; }
+.set-result mark { background: none; color: var(--accent); font-weight: 700; }
+.set-results-none { padding: 0 0.7rem; }
+.is-found { border-radius: var(--radius); animation: set-found 1.8s ease-out; }
+@keyframes set-found {
+  0%, 35% { box-shadow: 0 0 0 2px var(--accent), 0 0 0 7px var(--accent-dim); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-found { animation: none; box-shadow: 0 0 0 2px var(--accent); }
+}
+
 .set-pane { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
 .set-card {
   background: var(--panel);
