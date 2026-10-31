@@ -131,6 +131,24 @@ describe("the computer tools", () => {
     expect(fake.calls.at(-1)).toMatchObject({ method: "screen.capture", params: { region: { x: 0, y: 0, width: 100, height: 50 } } });
   });
 
+  it("do a run of actions in one call, with one picture at the end, stopping at the first that fails", async () => {
+    const { call, pair } = setup();
+    const fake = pair();
+    await call("computer.start", { task: "t" });
+    const before = fake.calls.length;
+    const ran = await call("computer.act", {
+      actions: [
+        { action: "left_click", coordinate: [10, 20] },
+        { action: "type", text: "milk" },
+        { action: "key", text: "Return" },
+      ],
+    });
+    expect(fake.calls.slice(before).map((c) => c.method)).toEqual(["pointer.click", "keys.type", "keys.press", "screen.capture"]);
+    expect(textOf(ran)).toMatch(/^Clicked at \(10, 20\)\. Typed 4 characters\. Pressed Return\. The screen/);
+    await expect(call("computer.act", { actions: [{ action: "type", text: "a" }, { action: "left_click" }] })).rejects.toThrow(/^Done: Typed 1 character\. Action 2 \(left_click\) failed: left_click needs a coordinate/);
+    await expect(call("computer.act", { actions: [{ action: "zoom" }] })).rejects.toThrow(/Action 1: each is one of/);
+  });
+
   it("refuse what is off the screen, and say what to do when there is no session or the owner took over", async () => {
     const { call, pair } = setup();
     const fake = pair();
