@@ -410,5 +410,10 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .md-h1 { font-size: 15px; }
 .md-h2 { font-size: 14px; }
 .md-small { color: var(--faint); font-size: 11px; }
+/* LaTeX, typeset. A wide formula scrolls on its own rather than widening the column. */
+.md .katex { font-size: 1.05em; }
+.md .katex-display { margin: 4px 0; overflow-x: auto; overflow-y: hidden; }
+.md-math { overflow-x: auto; overflow-y: hidden; }
+.md-math .katex-display { margin: 0; }
 .mention { padding: 0 5px; border-radius: 5px; background: color-mix(in srgb, var(--violet) 16%, transparent); color: var(--violet); font-size: 12px; font-weight: 500; white-space: nowrap; }
 .panel-head .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

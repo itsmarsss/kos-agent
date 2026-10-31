@@ -8,11 +8,12 @@ import {
   type ReactNode,
 } from "react";
 
-import { CHANNEL_TOKEN, COMMAND_NAMES, TIME_TOKEN, formatTime, instantOf, styleOf } from "@kos/shared";
+import { CHANNEL_TOKEN, COMMAND_NAMES, MATH, TIME_TOKEN, displayMathAt, formatTime, instantOf, mathOf, styleOf } from "@kos/shared";
 
 import { Face } from "./Face.js";
 import { useOpenTab } from "./opentab.js";
 import { hrefFor } from "./routes.js";
+import { Tex } from "./Tex.js";
 
 /**
  * A small markdown renderer for chat.
@@ -20,7 +21,7 @@ import { hrefFor } from "./routes.js";
  * It builds React elements rather than HTML strings, so agent-authored text
  * can never inject markup: there is no dangerouslySetInnerHTML to get wrong.
  * The subset is what a conversation actually uses -- emphasis, code, lists,
- * quotes, headings, links -- and anything unrecognised stays literal text
+ * quotes, headings, links, LaTeX math -- and anything unrecognised stays literal text
  * rather than disappearing.
  */
 
@@ -241,12 +242,19 @@ const CODE = /`([^`]+)`/;
 const LINK = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/;
 const BARE_URL = /(https?:\/\/[^\s<>"']+)/;
 
-/** Ordered by precedence; code wins so `**x**` inside backticks stays literal. */
+/** Ordered by precedence; code wins so `**x**` inside backticks stays literal, and math is next so `$a_1$` is not italics. */
 const INLINE: Array<{
   re: RegExp;
   render: (m: RegExpExecArray, key: number) => ReactNode;
 }> = [
   { re: CODE, render: (m, k) => <code key={k}>{m[1]}</code> },
+  {
+    re: MATH,
+    render: (m, k) => {
+      const { tex, display } = mathOf(m);
+      return <Tex key={k} source={tex} display={display} />;
+    },
+  },
   {
     re: MENTION,
     render: (m, k) => (
@@ -348,6 +356,19 @@ function blocks(source: string): Block[] {
           </pre>
         ),
       });
+      continue;
+    }
+
+    const math = displayMathAt(lines, i);
+    if (math) {
+      out.push({
+        render: (k) => (
+          <div key={k} className="md-math-block">
+            <Tex source={math.tex} display />
+          </div>
+        ),
+      });
+      i = math.next;
       continue;
     }
 
@@ -515,6 +536,7 @@ function blocks(source: string): Block[] {
       i < lines.length &&
       (lines[i] ?? "").trim() !== "" &&
       !/^\s*```/.test(lines[i] ?? "") &&
+      !displayMathAt(lines, i) &&
       !/^#{1,3}\s/.test(lines[i] ?? "") &&
       !/^\s*>\s?/.test(lines[i] ?? "") &&
       !SUBTEXT.test(lines[i] ?? "") &&

@@ -17,6 +17,14 @@ const dist = join(root, "dist");
 mkdirSync(dist, { recursive: true });
 for (const file of readdirSync(join(root, "static"))) copyFileSync(join(root, "static", file), join(dist, file));
 
+// KaTeX's stylesheet and the fonts it names, for the formulas in KOS's replies. Chrome takes the woff2 of each.
+const katex = join(root, "node_modules", "katex", "dist");
+mkdirSync(join(dist, "katex", "fonts"), { recursive: true });
+copyFileSync(join(katex, "katex.min.css"), join(dist, "katex", "katex.min.css"));
+for (const font of readdirSync(join(katex, "fonts")).filter((f) => f.endsWith(".woff2"))) {
+  copyFileSync(join(katex, "fonts", font), join(dist, "katex", "fonts", font));
+}
+
 // The pages a person sees are bundled: a page cannot import a package by name. The worker stays tsc's own modules.
 await build({
   entryPoints: [join(root, "src", "popup.tsx"), join(root, "src", "consent.tsx"), join(root, "src", "panel.tsx")],

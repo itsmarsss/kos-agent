@@ -24,6 +24,31 @@ describe("the shell jail", () => {
     expect(p).toContain('(subpath "/Users/me/a\\"b")');
   });
 
+  it("narrows writes to the folders named, hides KOS's own files, and can cut the network", () => {
+    const p = sandboxProfile({
+      workspaceRoot: "/w",
+      homes: [],
+      writes: ["/w/scratch/run"],
+      hidden: ["/w/.kos", "/w/kos.sqlite"],
+      reads: ["/Users/me/Library/Python/3.9"],
+      network: false,
+    });
+    expect(p).toContain("(deny network*)");
+    expect(p).toContain('(allow file-write* (subpath "/w/scratch/run") (subpath "/private/w/scratch/run") (literal "/dev/null")');
+    expect(p).not.toMatch(/allow file-write\* \(subpath "\/w"\)/);
+    expect(p).toContain('(subpath "/Users/me/Library/Python/3.9")');
+    const hidden = p.indexOf('(deny file-read* (subpath "/w/.kos")');
+    expect(hidden).toBeGreaterThan(p.indexOf('(allow file-read* (subpath "/w")'));
+    // Its own folder is readable again after the hiding.
+    expect(p.lastIndexOf('(allow file-read* (subpath "/w/scratch/run")')).toBeGreaterThan(hidden);
+  });
+
+  it("keeps the network and the whole workspace writable unless told otherwise", () => {
+    const p = sandboxProfile({ workspaceRoot: "/w", homes: [] });
+    expect(p).not.toContain("network");
+    expect(p).toContain('(allow file-write* (subpath "/w")');
+  });
+
   it("uses the sandbox on macOS, the container when in one, and refuses elsewhere", () => {
     const mac = jailedCommand("ls", { workspaceRoot: "/w", homes: [], platform: "darwin", contained: false });
     expect(mac.file).toBe("/usr/bin/sandbox-exec");

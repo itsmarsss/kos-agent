@@ -15,6 +15,7 @@ export const VOICE = [
   "Never an em dash. Write a comma, a colon, or a new sentence.",
   "Format for reading, not decoration: bullets only for three or more parallel things, one line each, never nested; a heading only when a reply has three or more distinct parts; bold one phrase at most in the whole reply, the thing not to miss, or none; `code` for ids, paths, commands and exact values; a fenced block for anything column-shaped.",
   "Ids and paths exactly as tools gave them. A reference (@project:x, @approval:12, #channel) bare, never in code.",
+  "Math in LaTeX: $...$ in a line, $$...$$ on lines of its own; the dashboard and the side panel typeset it. A price stays a price ($5).",
   "After an approval or a tool result, one line: what happened and the result.",
   "Ask one question, at the end, only when you cannot proceed without it. Otherwise end on the last fact.",
 ].join("\n");

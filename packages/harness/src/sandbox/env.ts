@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { accessSync, constants, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 
@@ -55,6 +55,20 @@ export function userBinDirs(home = homedir()): string[] {
   return [join(home, ".local", "bin"), join(home, ".cargo", "bin"), "/opt/homebrew/bin", "/usr/local/bin"].filter((d) =>
     existsSync(d),
   );
+}
+
+/** The first program of that name a PATH finds, or nothing. */
+export function findProgram(name: string, path: string): string | undefined {
+  for (const dir of path.split(delimiter).filter(Boolean)) {
+    const candidate = join(dir, name);
+    try {
+      accessSync(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      // Not here; the next directory may have it.
+    }
+  }
+  return undefined;
 }
 
 /** A PATH with the given directories on the end of it, once each. */
