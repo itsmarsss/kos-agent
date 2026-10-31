@@ -52,15 +52,19 @@ uses the host's tailnet name.
 
 - **Pairing** is a one-time code made on the dashboard, good for ten minutes
   and one use. The device sends its public key with the code; KOS answers with
-  its own. Each side keeps the other's key.
+  its own. Each side keeps the other's key. A device may be paired with more
+  than one KOS: each pairing has its own keys, line and consent, and each KOS
+  sees the device as one of its own.
 - **Every connection** proves both keys: KOS signs the device's nonce, the
   device signs KOS's. A host that cannot sign is not KOS, whatever its address.
 - **Consent lives on the device.** By default every session is allowed by the
   owner on the device itself. The owner may switch that off on the device for
   unattended use; KOS then asks through its approval queue instead. Nothing
   KOS sends can change the device's settings.
-- **A session is bounded**: one at a time, ended at its time limit, when
-  idle, on Stop, when the app quits, and when the connection drops. KOS's
+- **A session is bounded**: one at a time across every KOS the device is
+  paired with (another that asks is answered `busy`), ended at its time limit,
+  when idle, on Stop, when the app quits, and when the connection to the KOS
+  that owns it drops. Only that KOS can act in it or end it. KOS's
   kill switch ends every session. The device sets the longest session and the
   idle limit; KOS only says how long it asks for.
 - **Work the owner did not start stays off.** A schedule, a blob's own timer
