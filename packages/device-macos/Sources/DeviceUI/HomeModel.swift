@@ -207,9 +207,6 @@ public final class HomeModel: ObservableObject {
   @Published public var noteFailed = false
   @Published public var busy = false
 
-  /// The content's natural height, for the window to follow, animated.
-  @Published public var contentHeight: CGFloat = 0
-
   @Published public var page: HomePage = .home
 
   // The owner's settings for this Mac, and what each may be.

@@ -39,30 +39,50 @@ public struct HomeView: View {
   }
 
   static let motion = Animation.spring(response: 0.36, dampingFraction: 0.88)
+  private static let top = "top"
 
-  /// The row with Close, Minimise and the gear: it stays put while the page under it scrolls.
-  static let controlsHeight: CGFloat = 14 + 28
+  /// The window's one height, whichever page and however many KOS: what one
+  /// KOS and nothing else needs. Grown to fit each page, two KOS or the
+  /// settings made it taller than a laptop's screen; past this, the page scrolls.
+  public static let height: CGFloat = 680
+
+  /// The page's own height, and the height there is to show it in.
+  @State private var pageHeight: CGFloat = 0
+  @State private var viewHeight: CGFloat = 0
 
   public var body: some View {
     VStack(alignment: .leading, spacing: 0) {
+      // Stays put while the page under it scrolls.
       controls
         .padding(.horizontal, Theme.gutter)
         .padding(.top, 14)
-      // The window follows the page's height up to what the screen has room
-      // for; past that, the page scrolls under the controls.
-      ScrollView(.vertical) {
-        page
-          .padding(.horizontal, Theme.gutter)
-          .padding(.top, 14)
-          .padding(.bottom, Theme.gutter)
-          .frame(width: 460)
-          .fixedSize(horizontal: false, vertical: true)
-          .background(GeometryReader { geo in Color.clear.preference(key: HeightKey.self, value: geo.size.height) })
+      ScrollViewReader { scroller in
+        ScrollView(.vertical) {
+          page
+            .padding(.horizontal, Theme.gutter)
+            .padding(.top, 14)
+            .padding(.bottom, Theme.gutter)
+            .frame(width: 460)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(GeometryReader { geo in Color.clear.preference(key: PageHeight.self, value: geo.size.height) })
+            .id(Self.top)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .background(GeometryReader { geo in Color.clear.preference(key: ViewHeight.self, value: geo.size.height) })
+        // Settings opens at its top, not wherever the home page was scrolled to.
+        .onChange(of: model.page) { scroller.scrollTo(Self.top, anchor: .top) }
       }
-      .scrollBounceBehavior(.basedOnSize)
+      .overlay(alignment: .bottom) {
+        // More below: the page fades out at the foot rather than stopping at an edge.
+        LinearGradient(colors: [Theme.bg.opacity(0), Theme.bg], startPoint: .top, endPoint: .bottom)
+          .frame(height: 28)
+          .opacity(pageHeight > viewHeight + 1 ? 1 : 0)
+          .allowsHitTesting(false)
+      }
     }
     .frame(width: 460)
-    .onPreferenceChange(HeightKey.self) { height in MainActor.assumeIsolated { model.contentHeight = height + Self.controlsHeight } }
+    .onPreferenceChange(PageHeight.self) { height in MainActor.assumeIsolated { pageHeight = height } }
+    .onPreferenceChange(ViewHeight.self) { height in MainActor.assumeIsolated { viewHeight = height } }
     .animation(Self.motion, value: layout)
     .frame(maxHeight: .infinity, alignment: .top)
     .background(Theme.bg)
@@ -513,7 +533,14 @@ private struct DrawerHeader: View {
   }
 }
 
-private struct HeightKey: PreferenceKey {
+private struct PageHeight: PreferenceKey {
+  static let defaultValue: CGFloat = 0
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    value = max(value, nextValue())
+  }
+}
+
+private struct ViewHeight: PreferenceKey {
   static let defaultValue: CGFloat = 0
   static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
     value = max(value, nextValue())

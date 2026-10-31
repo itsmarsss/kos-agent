@@ -43,8 +43,6 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     watches = [
       // A pasted pairing link fills the address and the code.
       model.$address.sink { [weak self] text in self?.readLink(text) },
-      // The window follows the content's height, top edge fixed, so a card opening slides rather than jumps.
-      model.$contentHeight.removeDuplicates().sink { [weak self] height in self?.fit(height) },
     ]
   }
 
@@ -138,26 +136,6 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     }
   }
 
-  private func fit(_ wanted: CGFloat) {
-    guard wanted > 0 else { return }
-    // No taller than the screen leaves room for: past that, the page scrolls.
-    let room = (window.screen ?? NSScreen.main)?.visibleFrame.height ?? 900
-    let height = min(wanted, room - 40)
-    let frame = window.frame
-    let content = window.contentRect(forFrameRect: frame)
-    let target = window.frameRect(forContentRect: CGRect(x: content.minX, y: content.maxY - height, width: content.width, height: height))
-    guard abs(target.height - frame.height) > 0.5 else { return }
-    if window.isVisible {
-      NSAnimationContext.runAnimationGroup { context in
-        context.duration = 0.32
-        context.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.9, 0.3, 1)
-        window.animator().setFrame(target, display: true)
-      }
-    } else {
-      window.setFrame(target, display: false)
-    }
-  }
-
   // MARK: Pairing
 
   private func readLink(_ text: String) {
@@ -222,7 +200,8 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     // The window's size is set from the content's height, animated; the host must not fight it.
     host.sizingOptions = []
     let window = NSWindow(
-      contentRect: CGRect(x: 0, y: 0, width: 460, height: max(model.contentHeight, 600)),
+      // One height for every page, on any screen with room for it; the page scrolls.
+      contentRect: CGRect(x: 0, y: 0, width: 460, height: min(HomeView.height, (NSScreen.main?.visibleFrame.height ?? 900) - 40)),
       styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
     window.contentView = host
     window.titlebarAppearsTransparent = true

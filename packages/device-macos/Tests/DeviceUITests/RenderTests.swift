@@ -12,15 +12,10 @@ import Testing
 @MainActor
 @Suite("Windows render")
 struct RenderTests {
-  private func render<V: View>(_ name: String, _ view: V, height: (() -> CGFloat)? = nil) throws -> CGSize {
+  /// `height`: drawn in a window that tall, as the home window is drawn at its one height.
+  private func render<V: View>(_ name: String, _ view: V, height: CGFloat? = nil) throws -> CGSize {
     let host = NSHostingView(rootView: view)
-    var size = host.fittingSize
-    if let height {
-      // The home window scrolls, so its own size says nothing: laid out once, it says the height it wants, as the app's window reads it.
-      host.frame = CGRect(x: 0, y: 0, width: 460, height: 2000)
-      host.layoutSubtreeIfNeeded()
-      size = CGSize(width: 460, height: height())
-    }
+    let size = height.map { CGSize(width: 460, height: $0) } ?? host.fittingSize
     host.frame = CGRect(origin: .zero, size: size)
     let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
     window.contentView = host
@@ -60,9 +55,8 @@ struct RenderTests {
       $0.note = "Check this is your KOS, then press Pair."
       $0.devicesPage = URL(string: "http://127.0.0.1:4417/#/settings/devices")
     }
-    let size = try render("home-unpaired", HomeView(model: model), height: { model.contentHeight })
-    #expect(size.width == 460)
-    #expect(size.height > 400 && size.height < 900)
+    let size = try render("home-unpaired", HomeView(model: model), height: HomeView.height)
+    #expect(size == CGSize(width: 460, height: HomeView.height))
   }
 
   @Test func homeWhenConnectedAndInUse() throws {
@@ -74,8 +68,7 @@ struct RenderTests {
         task: "Export the deck from Keynote as a PDF", requester: "Design", chat: URL(string: "http://127.0.0.1:4417/#/chats/c1"),
         until: Date().addingTimeInterval(900), paused: false)
     }
-    let size = try render("home-in-use", HomeView(model: model), height: { model.contentHeight })
-    #expect(size.height < 900)
+    _ = try render("home-in-use", HomeView(model: model), height: HomeView.height)
   }
 
   @Test func homeWhenOfflineAndMissingAGrant() throws {
@@ -84,7 +77,7 @@ struct RenderTests {
       $0.inputGranted = true
       $0.asked = [.screen]
     }
-    _ = try render("home-offline", HomeView(model: model), height: { model.contentHeight })
+    _ = try render("home-offline", HomeView(model: model), height: HomeView.height)
   }
 
   @Test func homeWithThePermissionsDrawerOpen() throws {
@@ -93,7 +86,7 @@ struct RenderTests {
       $0.screenGranted = true
       $0.inputGranted = true
     }
-    _ = try render("home-drawer", HomeView(model: model, permissionsOpen: true), height: { model.contentHeight })
+    _ = try render("home-drawer", HomeView(model: model, permissionsOpen: true), height: HomeView.height)
   }
 
   @Test func settingsPage() throws {
@@ -103,7 +96,8 @@ struct RenderTests {
       $0.longestMinutes = 120
       $0.openAtLogin = .needsApproval
     }
-    _ = try render("settings", HomeView(model: model), height: { model.contentHeight })
+    _ = try render("settings", HomeView(model: model), height: HomeView.height)
+    _ = try render("settings-full", HomeView(model: model), height: 1100)
   }
 
   @Test func consentWithALengthOfTheOwnersOwn() throws {
@@ -132,7 +126,7 @@ struct RenderTests {
       $0.screenGranted = true
       $0.inputGranted = true
     }
-    _ = try render("home-disconnected", HomeView(model: model), height: { model.contentHeight })
+    _ = try render("home-disconnected", HomeView(model: model), height: HomeView.height)
   }
 
   @Test func pairedWithTwoKOSOneInASession() throws {
@@ -144,8 +138,9 @@ struct RenderTests {
         task: "File the receipts from Downloads", requester: "Expenses", kos: "kos.work.ts.net", until: Date().addingTimeInterval(1200),
         paused: false)
     }
-    let size = try render("home-two-kos", HomeView(model: model), height: { model.contentHeight })
-    #expect(size.height > 700)
+    _ = try render("home-two-kos", HomeView(model: model), height: HomeView.height)
+    // All of it, as it scrolls.
+    _ = try render("home-two-kos-full", HomeView(model: model), height: 1000)
   }
 
   @Test func addingAnotherKOS() throws {
@@ -156,7 +151,7 @@ struct RenderTests {
       $0.screenGranted = true
       $0.inputGranted = true
     }
-    _ = try render("home-adding", HomeView(model: model), height: { model.contentHeight })
+    _ = try render("home-adding", HomeView(model: model), height: HomeView.height)
   }
 
   @Test func theKeychainRefusedThePairings() throws {
@@ -165,7 +160,7 @@ struct RenderTests {
       $0.screenGranted = true
       $0.inputGranted = true
     }
-    _ = try render("home-keychain", HomeView(model: model), height: { model.contentHeight })
+    _ = try render("home-keychain", HomeView(model: model), height: HomeView.height)
   }
 
   @Test func appPicker() throws {
