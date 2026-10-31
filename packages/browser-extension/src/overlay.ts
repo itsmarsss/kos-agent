@@ -147,7 +147,7 @@ export function installOverlay(): void {
       @keyframes ripple { from { opacity: 0.9; transform: scale(0.3); } to { opacity: 0; transform: scale(1.6); } }
       @media (prefers-reduced-motion: reduce) { .glow, .face b { animation: none; } .cursor { transition: opacity 240ms ease; } }
     </style>
-    <div class="cursor"><i></i><svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><path d="M3 2.5v15.2l4.2-4.1 2.7 6.1 2.6-1.1-2.7-6h5.9z" fill="${face.fill}" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg></div>
+    <div class="cursor"><i></i><svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><path d="M3 2.5v15.2l4.2-4.1 2.7 6.1 2.6-1.1-2.7-6h5.9z" style="fill: var(--accent)" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg></div>
     <div class="glow"></div>
     <div class="bar"><span class="face"><i></i><i></i><b></b></span><span class="words"><span class="title"></span><span class="sub"><span class="text"></span><span class="left"></span></span></span><button data-act="take"></button><button class="stop" data-act="stop">Stop</button></div>`;
     title = shadow.querySelector(".title");

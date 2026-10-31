@@ -1,3 +1,4 @@
+import { EASE, SPRING } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
 import { AnimatePresence, m, type Transition, type Variants } from "motion/react";
 import { useEffect, useRef, type ReactElement, type ReactNode } from "react";
@@ -5,13 +6,13 @@ import { useEffect, useRef, type ReactElement, type ReactNode } from "react";
 import { kosFace, type KosFace } from "../face.js";
 
 /**
- * The pieces the extension's pages are made of, in KOS Device's design and
- * the dashboard's motion: the same spring and ease as packages/ui/src/motion.ts,
- * so a drawer opening here moves as one does there and on the Mac.
+ * The pieces the extension's pages are made of, in KOS's design language
+ * (docs/design.md): the spring and ease are the shared tokens, so a drawer
+ * opening here moves as one does on the dashboard and on the Mac.
  */
 
-export const spring: Transition = { type: "spring", stiffness: 420, damping: 38, mass: 0.9 };
-export const ease: Transition = { duration: 0.18, ease: [0.32, 0.72, 0, 1] };
+export const spring: Transition = { type: "spring", ...SPRING };
+export const ease: Transition = { duration: EASE.duration, ease: [...EASE.curve] };
 
 /** A card lifting into place, its siblings after it. */
 export const rise: Variants = {

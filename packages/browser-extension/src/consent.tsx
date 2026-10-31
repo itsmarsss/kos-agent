@@ -62,28 +62,30 @@ function Consent(): ReactElement {
           </m.p>
         </>
       )}
-      <m.div className="row" variants={rise}>
+      <m.div className="decide" variants={rise}>
+        <div className="row row--between">
+          {request ? (
+            <>
+              <button type="button" id="deny" className="btn" onClick={() => void decide(false)}>
+                Deny
+              </button>
+              <button type="button" id="allow" className="btn btn--primary" autoFocus onClick={() => void decide(true)}>
+                Allow
+              </button>
+            </>
+          ) : (
+            <button type="button" id="deny" className="btn" onClick={() => window.close()}>
+              Close
+            </button>
+          )}
+        </div>
         {request && <Countdown waitMs={request.waitMs} />}
-        {request ? (
-          <>
-            <button type="button" id="deny" className="btn" onClick={() => void decide(false)}>
-              Deny
-            </button>
-            <button type="button" id="allow" className="btn btn--primary" autoFocus onClick={() => void decide(true)}>
-              Allow
-            </button>
-          </>
-        ) : (
-          <button type="button" id="deny" className="btn" onClick={() => window.close()}>
-            Close
-          </button>
-        )}
       </m.div>
     </m.div>
   );
 }
 
-/** The seconds until the ask says no by itself, with a bar running down beside them. */
+/** The seconds until the ask says no by itself, under a bar running down the width of the sheet. */
 function Countdown({ waitMs }: { waitMs: number }): ReactElement {
   const [opened] = useState(Date.now);
   const [now, setNow] = useState(Date.now);
@@ -93,12 +95,12 @@ function Countdown({ waitMs }: { waitMs: number }): ReactElement {
   }, []);
   const left = Math.max(0, Math.ceil((waitMs - (now - opened)) / 1000));
   return (
-    <span className="count grow">
-      <span className="hint">Says no in {left} s</span>
+    <div className="count">
       <span className="count-bar">
         <m.span initial={{ scaleX: 1 }} animate={{ scaleX: 0 }} transition={{ duration: waitMs / 1000, ease: "linear" }} />
       </span>
-    </span>
+      <span className="count-left">Says no by itself in {left} s</span>
+    </div>
   );
 }
 

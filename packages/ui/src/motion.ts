@@ -1,3 +1,4 @@
+import { EASE, SPRING } from "@kos/shared";
 import type { Transition, Variants } from "motion/react";
 
 /**
@@ -13,15 +14,10 @@ import type { Transition, Variants } from "motion/react";
  */
 
 /** Panels and anything that travels: settles without overshoot wobble. */
-export const spring: Transition = {
-  type: "spring",
-  stiffness: 420,
-  damping: 38,
-  mass: 0.9,
-};
+export const spring: Transition = { type: "spring", ...SPRING };
 
 /** Fades and small reveals. */
-export const ease: Transition = { duration: 0.18, ease: [0.32, 0.72, 0, 1] };
+export const ease: Transition = { duration: EASE.duration, ease: [...EASE.curve] };
 
 /** A row entering or leaving a list. */
 export const listItem: Variants = {

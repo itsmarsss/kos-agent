@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// The dashboard's colours and measures, so KOS Device reads as KOS.
+/// KOS's design tokens, so KOS Device reads as KOS (docs/design.md).
 ///
-/// The same tokens as packages/ui/src/styles.css, dark theme: KOS Device's
-/// windows are always dark, like the dashboard's default and like the
+/// The values are packages/shared/src/design.ts, declared here as the
+/// dashboard's styles.css and the extension's kos.css declare them, and held
+/// to it by design.test.ts. KOS Device's windows are always dark, like the
 /// border and cursor it draws over the screen.
 public enum Theme {
   public static let bg = Color(hex: 0x0C0E12)
@@ -24,8 +25,15 @@ public enum Theme {
   /// Text on an accent surface.
   public static let onAccent = Color(hex: 0x0B0E14)
 
-  public static let radius: CGFloat = 10
+  /// Corners: a keycap or code, a control, a card, a sheet.
+  public static let radiusXs: CGFloat = 4
+  public static let radiusSm: CGFloat = 7
+  public static let radiusMd: CGFloat = 10
+  public static let radiusLg: CGFloat = 14
   public static let gutter: CGFloat = 20
+
+  /// The one spring anything that moves into place uses, the web's spring too.
+  public static let spring = Animation.interpolatingSpring(mass: 0.9, stiffness: 420, damping: 38)
 }
 
 extension Color {
