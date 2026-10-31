@@ -165,14 +165,20 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           description:
             `${WHERE_SHORT} ` +
             "Do several things on the current page in one call, in order, then see the page as it is afterwards. Each step is one " +
-            "of {click: target}, {fill: {target, text}} (replaces what is there), {type: {target, text}} (adds to it), " +
+            "of {click: target}, {dblclick: target}, {rightclick: target}, {drag: {from: target, to: target}} (a slider, a card " +
+            "into a column, a file onto a drop zone), {fill: {target, text}} (replaces what is there), {type: {target, text}} (adds to it), " +
             '{press: "Enter" | "Meta+a" | ...}, {select: {target, values}}, {check: target}, {uncheck: target}, {hover: target}, ' +
             '{scroll: "up" | "down" | target}, {open: url}, {go: "back" | "forward" | "reload"}, {wait: ms | {text} | {selector} | {gone: text}}, ' +
             '{dialog: "accept" | "dismiss"} (how to answer the next dialog; by default an alert is closed and a confirm dismissed). ' +
-            "A target is a @ref from the last look, or a CSS selector. Each step waits for the page to settle after it. A click " +
-            "that would land on something else (a banner over the button) is refused, naming what is in the way. Steps that only " +
+            "A target is a @ref from the last look, a CSS selector, or a text selector: button:has-text('Submit'), text=Submit. " +
+            "Each step already waits for what it set off: a page it opened, the network going quiet. So do not add wait steps " +
+            "after clicks or keys; each one is time the owner watches. Wait only for something you know is slow, and then for what " +
+            "you expect, {wait: {text}}, rather than a number. Put a whole sequence you can foresee (answer, then submit, then " +
+            "next) in one call. A click the page covers (a bar at its edge, a banner) is tried with the target in the middle of " +
+            "the view and on other parts of it; only one covered everywhere is refused, naming what is in the way. Steps that only " +
             "look or move (open, go, hover, scroll, wait, dialog) run at once; the rest ask the owner unless the site is trusted. " +
-            "If a step fails, the run stops and says what was done, why, and what the page offers now. `then` as for browser.visit.",
+            "If a step fails, the run stops and says what was done, why, and what the page offers now. `then` as for browser.visit: " +
+            '"snapshot" or "read" when the words on the page are enough, which is quicker; "look" when how it looks matters.',
           inputSchema: {
             type: "object",
             properties: {
