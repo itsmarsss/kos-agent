@@ -303,7 +303,7 @@ describe("telling the turn's story on a surface with a presence", () => {
     });
     await runtime.start();
     await adapter.receive({ channel: "memory", senderId: "u1", text: "and this" });
-    expect(adapter.shown[0]).toBe("-# queued: a turn is running here, this one is next");
+    expect(adapter.shown[0]).toBe("-# KOS is mid-turn and will take this in");
     expect(adapter.shown.some((s) => s.includes("List the blobs"))).toBe(false);
     expect(adapter.shown.some((s) => s.includes("List x"))).toBe(true);
     expect(adapter.completed).toEqual([{ text: "Done." }]);

@@ -44,6 +44,8 @@ export interface GuardedToolsDeps {
   };
   /** What the caller knows about a call that its arguments do not: the browser's site. */
   permissionContext?: (tool: string) => PermissionContext | undefined;
+  /** What the owner said since the last call, while this turn runs: handed to the model with this call's result. */
+  heard?: () => string | undefined;
   /** The owner set this chat to act without asking, for this call: runs as a remembered decision does. */
   autoApproves?: (tool: string, context?: PermissionContext) => boolean;
   /** A picture of what a call would act on, for the approval; base64 JPEG. */
@@ -197,7 +199,18 @@ export class GuardedTools implements ToolBox {
     ].join(" ");
   }
 
-  async execute(
+  /**
+   * One call, and with its result whatever the owner said meanwhile: a tool
+   * result is the one thing a running turn reads between steps, on either
+   * engine, so it is where words said mid-turn are heard.
+   */
+  async execute(name: string, input: Record<string, unknown>): Promise<ToolExecution> {
+    const result = await this.call(name, input);
+    const said = this.deps.heard?.();
+    return said ? { ...result, content: `${result.content}${said}` } : result;
+  }
+
+  private async call(
     name: string,
     input: Record<string, unknown>,
   ): Promise<ToolExecution> {

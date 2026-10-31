@@ -49,7 +49,10 @@ export interface TurnContext {
  * is waiting on an approval and will carry on behind the answer, so the
  * story is kept open until it ends rather than closed with this reply.
  */
-export type TurnHandler = (ctx: TurnContext) => Promise<string | (OutboundMessage & { suspended?: boolean })>;
+export type TurnHandler = (ctx: TurnContext) => Promise<string | (OutboundMessage & { suspended?: boolean; steered?: boolean })>;
+
+/** Said where a message was taken into the turn already running, whose answer answers it too. */
+export const STEERED_LINE = "-# taken in by the turn already running";
 
 export interface DecisionContext {
   /** KOS user the decider resolved to. */
@@ -339,7 +342,7 @@ export class ChannelRuntime {
     // waits is not a message that was missed.
     const queued = !!presence && (this.isBusy?.(watch) ?? false);
     if (presence && queued) {
-      await presence.update("-# queued: a turn is running here, this one is next").catch(() => undefined);
+      await presence.update("-# KOS is mid-turn and will take this in").catch(() => undefined);
     }
     const story = presence ? this.narrate(presence, watch, queued) : undefined;
     const guest = msg.guest ? { guest: msg.guest } : {};
@@ -359,7 +362,13 @@ export class ChannelRuntime {
         ...(msg.attachments?.length ? { attachments: msg.attachments } : {}),
         ...guest,
       });
-      const { suspended = false, ...message } = typeof answer === "string" ? { text: answer } : answer;
+      const { suspended = false, steered = false, ...message } = typeof answer === "string" ? { text: answer } : answer;
+      // Heard by the turn already running: its answer is the answer, and here it is only said that it was heard.
+      if (steered) {
+        await story?.end();
+        if (presence) await presence.complete({ text: STEERED_LINE });
+        return;
+      }
       const reply: OutboundMessage = message;
       // A turn that answered with a card and nothing else still said
       // something; only an empty one needs standing in for.
