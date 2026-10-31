@@ -52,6 +52,15 @@ describe("Markdown", () => {
     expect(container.querySelector("a, img")).toBeNull();
   });
 
+  it("nests a list under the item it belongs to, and keeps the count", () => {
+    const out = html("1. Install\n   - brew install x\n   - or the app\n2. Run\n   1. once\n- loose");
+    expect(out).toContain(
+      '<ol class="md-list"><li>Install<ul class="md-list"><li>brew install x</li><li>or the app</li></ul></li><li>Run<ol class="md-list"><li>once</li></ol></li></ol>',
+    );
+    // A bullet at the top after a numbered list is a list of its own.
+    expect(out).toContain('<ul class="md-list"><li>loose</li></ul>');
+  });
+
   it("keeps markdown inside backticks literal", () => {
     // The whole point of code spans: `**x**` is two asterisks, not bold.
     const out = html("use `**not bold**` here");

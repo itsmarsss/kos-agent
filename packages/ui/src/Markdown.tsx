@@ -8,7 +8,20 @@ import {
   type ReactNode,
 } from "react";
 
-import { CHANNEL_TOKEN, COMMAND_NAMES, MATH, TIME_TOKEN, displayMathAt, formatTime, instantOf, mathOf, styleOf } from "@kos/shared";
+import {
+  CHANNEL_TOKEN,
+  COMMAND_NAMES,
+  MATH,
+  TIME_TOKEN,
+  displayMathAt,
+  formatTime,
+  instantOf,
+  listAt,
+  mathOf,
+  startsList,
+  styleOf,
+  type MdList,
+} from "@kos/shared";
 
 import { Face } from "./Face.js";
 import { useOpenTab } from "./opentab.js";
@@ -328,6 +341,28 @@ interface Block {
   render(key: number): ReactElement;
 }
 
+/** A list as the tree it is: each item's lines, then the lists under it. */
+function ListView({ list }: { list: MdList }): ReactElement {
+  const Tag = list.ordered ? "ol" : "ul";
+  return (
+    <Tag className="md-list" {...(list.ordered && list.start !== 1 ? { start: list.start } : {})}>
+      {list.items.map((item, n) => (
+        <li key={n}>
+          {item.text.split("\n").map((l, k) => (
+            <Fragment key={k}>
+              {k > 0 && <br />}
+              {inline(l)}
+            </Fragment>
+          ))}
+          {item.lists.map((sub, k) => (
+            <ListView key={k} list={sub} />
+          ))}
+        </li>
+      ))}
+    </Tag>
+  );
+}
+
 const SUBTEXT = /^\s*-#\s+/;
 
 /** Group lines into blocks, respecting fenced code. */
@@ -483,45 +518,10 @@ function blocks(source: string): Block[] {
       continue;
     }
 
-    const bullet = /^\s*[-*+]\s+/;
-    const numbered = /^\s*\d+[.)]\s+/;
-    if (bullet.test(line) || numbered.test(line)) {
-      const ordered = numbered.test(line);
-      const re = ordered ? numbered : bullet;
-      const start = ordered ? Number(/^\s*(\d+)/.exec(line)?.[1] ?? 1) : 1;
-      const items: string[] = [];
-      while (i < lines.length) {
-        const current = lines[i] ?? "";
-        if (re.test(current)) {
-          items.push(current.replace(re, ""));
-          i++;
-          continue;
-        }
-        // A blank line between items is a loose list, not the end of one.
-        // Ending the list there started a fresh <ol> per item, so a model
-        // that spaced its list out was rendered as "1. 1. 1.".
-        if (current.trim() === "") {
-          let j = i;
-          while (j < lines.length && (lines[j] ?? "").trim() === "") j++;
-          if (j < lines.length && re.test(lines[j] ?? "")) {
-            i = j;
-            continue;
-          }
-        }
-        break;
-      }
-      out.push({
-        render: (k) => {
-          const Tag = ordered ? "ol" : "ul";
-          return (
-            <Tag key={k} className="md-list" {...(start !== 1 ? { start } : {})}>
-              {items.map((item, n) => (
-                <li key={n}>{inline(item)}</li>
-              ))}
-            </Tag>
-          );
-        },
-      });
+    const list = listAt(lines, i);
+    if (list) {
+      out.push({ render: (k) => <ListView key={k} list={list.list} /> });
+      i = list.next;
       continue;
     }
 
@@ -540,8 +540,7 @@ function blocks(source: string): Block[] {
       !/^#{1,3}\s/.test(lines[i] ?? "") &&
       !/^\s*>\s?/.test(lines[i] ?? "") &&
       !SUBTEXT.test(lines[i] ?? "") &&
-      !bullet.test(lines[i] ?? "") &&
-      !numbered.test(lines[i] ?? "") &&
+      !startsList(lines[i] ?? "") &&
       !(isRow(lines[i] ?? "") && isDivider(lines[i + 1] ?? ""))
     ) {
       para.push(lines[i] ?? "");

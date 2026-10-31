@@ -3651,6 +3651,11 @@ li:hover .chats-item-when { opacity: 0; }
 .md-h { margin: 0.6rem 0 0.35rem; font-size: var(--text-xl); font-weight: 600; }
 .md-list { margin: 0 0 0.5rem; padding-left: 1.2rem; }
 .md-list li { margin: 0.1rem 0; }
+/* A list under an item sits close to it, and says its depth by its marker. */
+.md-list .md-list { margin: 0.1rem 0 0; }
+ul.md-list ul.md-list { list-style-type: circle; }
+ul.md-list ul.md-list ul.md-list { list-style-type: square; }
+ol.md-list ol.md-list { list-style-type: lower-alpha; }
 .md-quote {
   margin: 0 0 0.5rem;
   padding-left: 0.65rem;
