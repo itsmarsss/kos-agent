@@ -290,7 +290,7 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     for (let i = 0; i < 100 && !(await devtools.evaluate(panel, "!!document.querySelector('.suggest button')")); i++) await until(() => false, 100);
     await devtools.evaluate(panel, "document.querySelector('.suggest button').click()");
     await until(() => events.some((e) => e.name === "chat.send"));
-    expect(events.find((e) => e.name === "chat.send")?.data).toEqual({ text: "Summarize this page" });
+    expect(events.find((e) => e.name === "chat.send")?.data).toMatchObject({ text: "Summarize this page", beside: { kind: expect.stringMatching(/page|other/) } });
     expect(await call("chat.show", { conversation: "chrome:owner", title: "Chrome", messages: [{ role: "you", text: "Summarize this page" }, { role: "kos", text: "It is a **shop**." }] })).toMatchObject({ ok: true });
     await until(() => false, 300);
     expect(await text()).toContain("It is a shop.");

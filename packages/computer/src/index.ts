@@ -5,7 +5,7 @@ export { PairingCodes, CODE_TTL_MS, type PairingCode } from "./pairing.js";
 export { DeviceError, DeviceLink, type Socket } from "./link.js";
 export { DeviceHub, PairError, kindOf, type DeviceKind, type DeviceListener, type DeviceStatus, type HubDeps, type Session } from "./hub.js";
 export { OwnerChrome } from "./chrome.js";
-export { ChromePanel, panelLines, type PanelChat, type PanelChatItem, type PanelDeps, type PanelModels } from "./panel.js";
+export { ChromePanel, besideNote, panelLines, type PanelChat, type PanelChatItem, type PanelDeps, type PanelModels } from "./panel.js";
 export { COMPUTER_MANIFEST, computerModule, pageText, refusalText, type ComputerToolsDeps } from "./tools.js";
 export { PREFIX, deviceRoutes, deviceSocketServer, type DeviceSocketServer } from "./routes.js";
 export { createComputerUse, type ComputerUse, type ComputerUseOptions } from "./computeruse.js";

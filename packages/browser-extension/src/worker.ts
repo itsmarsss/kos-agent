@@ -741,7 +741,11 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
           tell("tab.handed", { tab: String(there.id), url: there.url ?? "", title: there.title ?? "", focus: true });
         }
       }
-      link.event("chat.send", { text });
+      // Which tab the words were said beside, so "this page" means it; a hidden site only as hidden.
+      const [front] = await chrome.tabs.query({ active: true, windowId: panel.window });
+      const url = front?.url ?? "";
+      const where = !front ? undefined : !/^https?:\/\//.test(url) ? { kind: "other" } : isHidden(url, settings.hiddenSites) ? { kind: "hidden" } : { kind: "page", url, title: front.title ?? "" };
+      link.event("chat.send", { text, ...(where ? { beside: where } : {}) });
       return;
     }
     case "decide":

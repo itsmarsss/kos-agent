@@ -38,9 +38,10 @@ Chrome, with `/new` behind the pen. The chat is the one KOS keeps, so a turn
 taken on the dashboard shows in the panel too, each turn's steps fold to a
 line you can open, and an approval the chat asks for is decided in place.
 
-- **Reading the page.** KOS reads the tab beside the panel with
-  `chrome.page` when your words are about it: its address, title, what you
-  selected and its text. Only the panel's chat can, only while the panel is
+- **Reading the page.** Each message says which tab it was said beside,
+  so "this page" is that tab and not one of KOS's own pages, and KOS reads
+  it with `chrome.page` when your words are about it: its address, title,
+  what you selected and its text. Only the panel's chat can, only while the panel is
   open on that chat, and never on a hidden site. The first time, the panel
   asks you to let KOS read pages (Chrome's grant, one press); Not now, or no
   answer in your wait, is a no that KOS hears and says.
@@ -164,7 +165,7 @@ Events, besides `session.paused`, `session.resumed` and `session.ended`
 | `tab.closed` | `session`, `tab` |
 | `tab.handed` | `tab`, `url`, `title`, `focus?` (sent outside a session too; `focus` when the owner spoke from the side panel beside it) |
 | `chat.open` | `{}`: a panel opened on this KOS, and asks to be shown the chat |
-| `chat.send` | `text`: the owner's words in the panel |
+| `chat.send` | `text`: the owner's words in the panel; `beside?`: the tab they were said beside, `{ kind: "page", url, title }`, `{ kind: "hidden" }` or `{ kind: "other" }` (not a web page), told to that turn and not kept |
 | `chat.decide` | `approval`, `approved` |
 | `chat.list` | `{}`: asks for `chat.chats` |
 | `chat.switch` | `conversation`: the panel continues that chat, and is shown it |
