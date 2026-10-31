@@ -3168,28 +3168,6 @@ li:hover .chats-item-when { opacity: 0; }
 .thinking-body p { margin: 0 0 0.5rem; }
 .thinking-body p:last-child { margin-bottom: 0; }
 
-/* New chat leads the list; search is secondary to it. */
-.chats-new { width: 100%; margin-bottom: 0.45rem; }
-/* The way to the archive, at the foot of the list and staying there while
-   the list scrolls under it. */
-.chats-archived {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  width: 100%;
-  background: none;
-  border: 0;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font: inherit;
-  font-size: var(--text-sm);
-  text-align: left;
-  padding: 0.55rem 0.5rem;
-  cursor: pointer;
-}
-.chats-archived:hover { color: var(--text); background: var(--panel-2); }
-.chats-archived.is-on { color: var(--accent); }
-
 /* —— message actions —— */
 .turn { display: flex; flex-direction: column; gap: 0.25rem; align-self: stretch; }
 .turn--you { align-items: flex-end; }
@@ -3972,7 +3950,6 @@ li:hover .chats-item-when { opacity: 0; }
   padding: 0.35rem 0;
   border-bottom: 1px solid var(--line);
 }
-.chats-item--pinned .chats-item-title { font-weight: 600; }
 .chats-badge {
   font-family: var(--mono);
   font-size: var(--text-base);
@@ -6104,72 +6081,6 @@ a.health {
   color: var(--accent);
 }
 
-/* The surfaces, as one row. A way in rather than a thread being worked in,
-   and given a row each they pushed the chats off the screen. */
-.chats-surfaces {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  padding: 0.45rem 0 0.1rem;
-}
-.chats-surface {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.32rem;
-  padding: 0.22rem 0.55rem;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted);
-  font-size: var(--text-sm);
-  text-decoration: none;
-  white-space: nowrap;
-}
-.chats-surface:hover { color: var(--text); border-color: var(--line-strong); }
-.chats-surface.is-active {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-.chats-surface-dot {
-  width: 0.4rem;
-  height: 0.4rem;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
-/* The way into the job threads, above the chats rather than under them. */
-.chats-scheduled {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  width: 100%;
-  background: none;
-  border: 0;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font: inherit;
-  font-size: var(--text-sm);
-  text-align: left;
-  padding: 0.5rem 0.5rem;
-  cursor: pointer;
-}
-.chats-scheduled:hover { color: var(--text); }
-.chats-scheduled.is-open { color: var(--text); }
-.chats-scheduled-mark { color: var(--faint); display: inline-flex; align-items: center; }
-.chats-scheduled-count {
-  margin-left: auto;
-  color: var(--faint);
-  font-size: var(--text-sm);
-}
-.chats-scheduled.is-open .chats-scheduled-count { color: var(--accent); }
-
-/* A heading inside the chat list, for threads that are not chats you began. */
-.chats-section {
-  padding: 0.7rem 0.5rem 0.25rem;
-  font-size: var(--text-sm);
-  color: var(--faint);
-  letter-spacing: 0.02em;
-}
 .chats-item--job .chats-item-title { color: var(--muted); }
 /* The opened section, above the chats. Capped and scrolling on its own, so
    a workspace with thirty schedules does not push the chats off the screen
@@ -7167,17 +7078,6 @@ a.health {
 }
 .chats-root:hover { border-color: var(--line-strong); background: var(--panel-2); }
 .chats-root.is-active { border-color: var(--accent); background: var(--accent-dim); }
-.chats-root-glyph {
-  flex: none;
-  width: 1.9rem;
-  height: 1.9rem;
-  display: grid;
-  place-items: center;
-  border-radius: 7px;
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: 0.95rem;
-}
 .chats-root-text { min-width: 0; display: flex; flex-direction: column; gap: 0.05rem; }
 .chats-root-title { display: flex; align-items: center; gap: 0.45rem; font-weight: 650; font-size: var(--text-md); }
 .chats-root-title kbd {
@@ -7215,9 +7115,6 @@ a.health {
 }
 .chats-group-add:hover { background: var(--panel-2); color: var(--text); }
 .chats-group-empty { margin: 0; padding: 0 0.5rem 0.5rem; color: var(--faint); font-size: var(--text-sm); line-height: 1.45; }
-.chats-newproject { display: flex; gap: 0.35rem; padding: 0.1rem 0 0.55rem; }
-.chats-newproject .chats-search { flex: 1; min-width: 0; }
-.chats-newproject .btn { flex: none; }
 
 /* Projects: one row each, opening the project's own page. */
 .chats-list ul.chats-projects {
@@ -7229,7 +7126,6 @@ a.health {
   gap: 0.05rem;
 }
 .chats-projects .chats-item { padding: 0.35rem 0.5rem; }
-.chats-item--pinned .chats-item-title { font-weight: 600; font-size: var(--text-md); }
 .chats-badge {
   flex: none;
   padding: 0.03rem 0.4rem;
@@ -7844,5 +7740,142 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 .insp-section .insp-rows { margin: 0; }
 .insp-stats { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
 
-/* A project row's kind gives way to its menu button on hover, rather than sitting under it. */
-.chats-row:hover .chats-badge, .chats-row:focus-within .chats-badge { opacity: 0; }
+
+/* —— the chats rail ——
+   A search with New chat beside it, the streams, then sections that fold,
+   all in one scroll, with the occasional places at the foot. Every row is
+   one shape: a lead the same width in every section (a face, a glyph, a
+   project's mark, a thread's dot), the name, and what it is doing. */
+.chats-list-head--root { flex-direction: row; align-items: center; gap: 0.35rem; border-bottom: 0; padding: 0.55rem 0 0.35rem; }
+.chats-find { position: relative; flex: 1; min-width: 0; display: flex; align-items: center; }
+.chats-find > svg { position: absolute; left: 0.6rem; color: var(--faint); pointer-events: none; }
+.chats-find .chats-search { padding-left: 1.85rem; padding-right: 1.7rem; }
+.chats-find-clear {
+  position: absolute;
+  right: 0.3rem;
+  width: 1.35rem;
+  height: 1.35rem;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--faint);
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.chats-find-clear:hover { color: var(--text); background: var(--panel-2); }
+.icon-btn.chats-compose {
+  /* As tall as the search beside it. */
+  width: 2.25rem;
+  height: 2.25rem;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.icon-btn.chats-compose:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 86%, white); color: var(--on-accent); }
+
+.chats-scroll { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 0.5rem; }
+.chats-list--root .chats-scroll ul { flex: none; overflow: visible; padding: 0; }
+.chats-list--root ul.chats-streams { padding: 0.1rem 0 0.3rem; }
+/* A stream has no menu, so its time stays put on hover. */
+.chats-streams li:hover .chats-item-when { opacity: 1; }
+
+.chats-lead {
+  flex: none;
+  align-self: center;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.chats-lead .status-dot { margin: 0; }
+.chats-lead--glyph { color: var(--faint); }
+.chats-item.is-active .chats-lead--glyph { color: var(--accent); }
+.chats-item-title--strong { font-weight: 600; }
+.chats-kbd {
+  flex: none;
+  align-self: center;
+  padding: 0.02rem 0.32rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+}
+.project-mark {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.rail-group-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.4rem 0 0.15rem;
+  background: var(--bg);
+}
+.rail-group-fold {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.4rem 0.2rem 0.25rem;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--faint);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+.rail-group-fold:hover:not(:disabled) { color: var(--muted); }
+.rail-group-fold:disabled { cursor: default; }
+.rail-group-caret { display: inline-flex; transition: transform 160ms ease; }
+.rail-group.is-open .rail-group-caret { transform: rotate(90deg); }
+.rail-group-fold:disabled .rail-group-caret { opacity: 0.4; }
+.rail-group-count,
+.rail-group-note { margin-left: auto; font-weight: 500; letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
+.rail-group-note { color: var(--accent); }
+.icon-btn.rail-group-add { width: 1.4rem; height: 1.4rem; font-size: 1.05rem; line-height: 1; color: var(--muted); }
+.chats-list--root .chats-jobs { max-height: none; overflow: visible; border-bottom: 0; padding: 0; }
+.chats-list--root .chats-group-empty { padding: 0.1rem 0.5rem 0.4rem; }
+
+.chats-foot { display: flex; gap: 0.25rem; padding: 0.35rem 0; border-top: 1px solid var(--line); }
+.chats-foot-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.5rem;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.chats-foot-btn:hover { color: var(--text); background: var(--panel-2); }
+.chats-foot-btn.is-on { color: var(--accent); }
+.chats-foot-btn .status-dot { margin-left: auto; }
