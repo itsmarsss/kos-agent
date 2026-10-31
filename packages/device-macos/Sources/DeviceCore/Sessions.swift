@@ -38,11 +38,11 @@ public struct LiveSession: Equatable, Sendable {
 ///
 /// One at a time, whichever KOS asks: the Mac has one screen and one pointer,
 /// so a second KOS paired with it hears it is busy, and only the KOS that
-/// asked may act in the session or end it. Nothing acts without one live; the owner pauses it by
-/// touching the computer and only the owner resumes it; it ends at its time
-/// limit or after three idle minutes. The app holds one of these and asks
-/// it before every action, so the rules are here and tested, not spread
-/// through the windows.
+/// asked may act in the session or end it. Nothing acts without one live; the
+/// owner pauses it by touching the computer and only the owner resumes it; it
+/// ends at its time limit or when idle. The app holds one of these and asks it
+/// before every action, so the rules are here and tested, not spread through
+/// the windows.
 public struct Sessions: Sendable {
   public enum Phase: Equatable, Sendable {
     case idle

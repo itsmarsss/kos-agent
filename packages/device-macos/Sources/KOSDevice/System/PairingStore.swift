@@ -50,17 +50,23 @@ enum PairingStore {
     return [one]
   }
 
+  /// The list, in place of the one kept: updated where it is, so a Keychain
+  /// that refuses the write leaves the old list rather than none.
   static func save(_ list: [Pairing]) throws {
-    SecItemDelete(query(account) as CFDictionary)
     guard !list.isEmpty else {
+      SecItemDelete(query(account) as CFDictionary)
       Log.pairing.notice("no pairings left")
       return
     }
-    var item = query(account)
-    item[kSecValueData as String] = try JSONEncoder().encode(list)
-    item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-    item[kSecAttrLabel as String] = "KOS Device pairings"
-    let status = SecItemAdd(item as CFDictionary, nil)
+    let data = try JSONEncoder().encode(list)
+    var status = SecItemUpdate(query(account) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+    if status == errSecItemNotFound {
+      var item = query(account)
+      item[kSecValueData as String] = data
+      item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+      item[kSecAttrLabel as String] = "KOS Device pairings"
+      status = SecItemAdd(item as CFDictionary, nil)
+    }
     guard status == errSecSuccess else {
       Log.pairing.error("the Keychain would not keep the pairings: \(status, privacy: .public) \(describe(status), privacy: .public)")
       throw DeviceError(.internal, "Could not keep the pairing in the Keychain: \(describe(status))")
