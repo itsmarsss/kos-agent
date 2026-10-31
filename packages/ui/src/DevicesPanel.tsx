@@ -231,7 +231,7 @@ export function DevicesPanel(): ReactElement {
       {code ? (
         <PairingCode code={code} now={now} onDone={() => setCode(null)} />
       ) : (
-        <div className="set-inline">
+        <div className="set-inline" data-setting="Add a device">
           <button type="button" className="btn btn--sm" onClick={add}>
             Add a device
           </button>

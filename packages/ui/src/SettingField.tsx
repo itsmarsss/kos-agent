@@ -28,7 +28,7 @@ export function Field({
   const [open, setOpen] = useState(false);
   if (row) {
     return (
-      <div className={`set-field set-field--row${open ? " is-open" : ""}`}>
+      <div className={`set-field set-field--row${open ? " is-open" : ""}`} data-setting={label}>
         <button type="button" className="set-field-text" onClick={() => setOpen((v) => !v)} title={open ? "Less" : "More"}>
           <div className="set-label">
             <span>{label}</span>
@@ -43,7 +43,7 @@ export function Field({
   }
   // The kit's field, so a setting reads like a field anywhere else.
   return (
-    <div className="kos-field set-field">
+    <div className="kos-field set-field" data-setting={label}>
       <span className="kos-field-label">
         {label}
         {badge}

@@ -20,6 +20,7 @@ import { McpAdd, SkillsAdd } from "./ExtensionBrowser.js";
 import { isDensity, isTheme, readDensity, readTheme, setDensity, setTheme, type Density, type Theme } from "./theme.js";
 import { SpendPanel } from "./SpendPanel.js";
 import { DevicesPanel } from "./DevicesPanel.js";
+import { GROUPS, SECTIONS, SETTINGS, isSettingsSection, searchSettings, type SettingEntry, type SettingHit, type SettingsSection } from "./settingsindex.js";
 
 /**
  * Everything you would otherwise have opened a dotfile to change.
@@ -59,51 +60,8 @@ const BEHAVIOUR_FALLBACK: Behaviour = {
  * Also a save key, not only a nav section: two independent saves can live on
  * one tab, and each needs its own busy and saved state.
  */
-type SectionId =
-  | "engine"
-  | "you"
-  | "providers"
-  | "models"
-  | "conversation"
-  | "behaviour"
-  | "appearance"
-  | "network"
-  | "spend"
-  | "skills"
-  | "modules"
-  | "mcp"
-  | "browser"
-  | "permissions"
-  | "devices"
-  | "workspace";
+type SectionId = SettingsSection | "engine";
 
-/**
- * The rail, grouped by what you came to do. Eleven subjects in one column did
- * not scan; five headings do, and each one names a reason to be here.
- */
-const SECTIONS: { id: SectionId; group: string; label: string; blurb: string }[] = [
-  { id: "you", group: "Account", label: "You", blurb: "Who KOS thinks it is working for" },
-  { id: "providers", group: "Account", label: "Providers", blurb: "API keys and channel credentials" },
-  { id: "models", group: "Account", label: "Models", blurb: "Which model answers, which builds, which is cheap" },
-  { id: "conversation", group: "Conduct", label: "Conversation", blurb: "How much history is kept" },
-  { id: "behaviour", group: "Conduct", label: "Behaviour", blurb: "How KOS acts when you are not watching" },
-  { id: "appearance", group: "Conduct", label: "Appearance", blurb: "Palette and density, for this browser" },
-  { id: "skills", group: "Extensions", label: "Skills", blurb: "What KOS knows how to do, and which are on" },
-  { id: "modules", group: "Extensions", label: "Modules", blurb: "Features built as servers, and which are running" },
-  { id: "mcp", group: "Extensions", label: "MCP servers", blurb: "Outside tools, by the protocol they speak" },
-  { id: "browser", group: "Extensions", label: "Browser", blurb: "The Chrome KOS drives: its window, extensions and search" },
-  { id: "permissions", group: "Access", label: "Permissions", blurb: "Decisions you made at a prompt and kept" },
-  { id: "devices", group: "Access", label: "Devices", blurb: "Computers KOS may use, and pairing one" },
-  { id: "network", group: "Access", label: "Network", blurb: "Ports, binding, and what the agent may reach" },
-  { id: "spend", group: "Housekeeping", label: "Spend", blurb: "Tokens used and what they cost" },
-  { id: "workspace", group: "Housekeeping", label: "Workspace", blurb: "Where everything lives" },
-];
-
-const GROUPS = [...new Set(SECTIONS.map((s) => s.group))];
-
-function isSection(id: string | undefined): id is SectionId {
-  return SECTIONS.some((s) => s.id === id);
-}
 
 /**
  * A bounded number. Typed or nudged, and never outside its range: these
@@ -334,6 +292,19 @@ function timezones(): string[] {
   }
 }
 
+/** Text with the letters a search matched marked. */
+function Marked({ text, marks }: { text: string; marks: number[] }): ReactElement {
+  const at = new Set(marks);
+  const runs: { text: string; marked: boolean }[] = [];
+  [...text].forEach((ch, i) => {
+    const marked = at.has(i);
+    const last = runs[runs.length - 1];
+    if (last && last.marked === marked) last.text += ch;
+    else runs.push({ text: ch, marked });
+  });
+  return <>{runs.map((r, i) => (r.marked ? <mark key={i}>{r.text}</mark> : <span key={i}>{r.text}</span>))}</>;
+}
+
 export function SettingsPage({
   section,
   onSection,
@@ -344,7 +315,7 @@ export function SettingsPage({
 } = {}): ReactElement {
   const [data, setData] = useState<SettingsPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [active, setActiveState] = useState<SectionId>(isSection(section) ? section : "you");
+  const [active, setActiveState] = useState<SectionId>(isSettingsSection(section) ? section : "you");
   const [theme, setThemeState] = useState<Theme>(readTheme);
   /** KOS's face, from the workspace; saved as it is changed. */
   const [kosFace, setKosFace] = useState<FaceLook>({});
@@ -363,12 +334,61 @@ export function SettingsPage({
   };
   const [density, setDensityState] = useState<Density>(readDensity);
   useEffect(() => {
-    if (isSection(section)) setActiveState(section);
+    if (isSettingsSection(section)) setActiveState(section);
   }, [section]);
   const setActive = (id: SectionId): void => {
     setActiveState(id);
     onSection?.(id);
   };
+  /** The search over every setting, and the one it last sent you to, to show. */
+  const [query, setQuery] = useState("");
+  const [picked, setPicked] = useState(0);
+  const [found, setFound] = useState<{ label: string; n: number } | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const paneRef = useRef<HTMLDivElement>(null);
+  const jump = (hit: SettingHit): void => {
+    setActive(hit.section);
+    setQuery("");
+    setFound(hit.label ? { label: hit.label, n: Date.now() } : null);
+  };
+  // A new section opens at its top; one a search sent you to, at the setting.
+  useEffect(() => {
+    if (!found && paneRef.current) paneRef.current.scrollTop = 0;
+  }, [active, found]);
+  useEffect(() => {
+    if (!found) return;
+    let tries = 0;
+    let timer = 0;
+    // The section may still be loading what the setting sits in; look again for a moment.
+    const look = (): void => {
+      const pane = paneRef.current;
+      const target =
+        pane?.querySelector<HTMLElement>(`[data-setting="${CSS.escape(found.label)}"]`) ??
+        [...(pane?.querySelectorAll<HTMLElement>("h3") ?? [])].find((h) => h.textContent?.trim() === found.label);
+      if (!target) {
+        if (tries++ < 20) timer = window.setTimeout(look, 100);
+        return;
+      }
+      target.scrollIntoView({ block: "center", behavior: "smooth" });
+      target.classList.remove("is-found");
+      void target.offsetWidth;
+      target.classList.add("is-found");
+      target.querySelector<HTMLElement>("input, select, textarea, button")?.focus({ preventScroll: true });
+    };
+    timer = window.setTimeout(look, 60);
+    return () => window.clearTimeout(timer);
+  }, [found]);
+  // "/" finds a setting, from anywhere on the page that is not a field.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const t = e.target as HTMLElement | null;
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey || t?.closest("input, textarea, select, [contenteditable]")) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const [how, setHow] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
   /** The last values the server confirmed, so an edit can be seen as one. */
   const [savedHow, setSavedHow] = useState<Behaviour>(BEHAVIOUR_FALLBACK);
@@ -659,11 +679,68 @@ export function SettingsPage({
   const accessKeys = Object.entries(data.settings).filter(
     ([, m]) => m.group === "access",
   );
+  // What the host describes (keys, ports) is found by its own words too.
+  const entries: SettingEntry[] = [
+    ...SETTINGS,
+    ...Object.values(data.secrets).map((meta) => ({ section: "providers" as const, label: meta.label, ...(meta.hint ? { words: meta.hint } : {}) })),
+    ...[...networkKeys, ...accessKeys].map(([, meta]) => ({ section: "network" as const, label: meta.label, ...(meta.hint ? { words: meta.hint } : {}) })),
+  ];
+  const hits = searchSettings(query, entries);
 
   return (
     <div className="settings-page">
       <nav className="set-rail" aria-label="Settings sections">
-        {GROUPS.map((group) => (
+        <div className="set-search">
+          <input
+            ref={searchRef}
+            className="kos-input set-search-input"
+            type="search"
+            placeholder="Find a setting  /"
+            aria-label="Find a setting"
+            value={query}
+            spellCheck={false}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPicked(0);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                setPicked((p) => Math.max(0, Math.min(hits.length - 1, p + (e.key === "ArrowDown" ? 1 : -1))));
+              } else if (e.key === "Enter" && hits[picked]) {
+                e.preventDefault();
+                jump(hits[picked]!);
+              } else if (e.key === "Escape") {
+                setQuery("");
+                e.currentTarget.blur();
+              }
+            }}
+          />
+        </div>
+        {query.trim() ? (
+          <div className="set-results" role="listbox" aria-label="Settings found">
+            {hits.length === 0 && <p className="hint set-results-none">Nothing called that. Try another word.</p>}
+            {hits.map((hit, i) => {
+              const sec = SECTIONS.find((s) => s.id === hit.section)!;
+              return (
+                <button
+                  key={`${hit.section}:${hit.label ?? ""}`}
+                  type="button"
+                  role="option"
+                  aria-selected={i === picked}
+                  className={`set-rail-item set-result ${i === picked ? "is-on" : ""}`}
+                  onMouseEnter={() => setPicked(i)}
+                  onClick={() => jump(hit)}
+                >
+                  <span className="set-rail-label">
+                    <Marked text={hit.label ?? sec.label} marks={hit.marks} />
+                  </span>
+                  <span className="set-rail-blurb">{hit.label ? `${sec.group} · ${sec.label}` : sec.blurb}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : GROUPS.map((group) => (
           <div key={group} className="set-rail-group">
             <h3 className="set-rail-head">{group}</h3>
             {SECTIONS.filter((s) => s.group === group).map((s) => (
@@ -683,6 +760,7 @@ export function SettingsPage({
 
       {/* Keyed on the tab, so moving between them is a change you can follow
           rather than one frame replaced by another. */}
+      <div className="set-pane-scroll" ref={paneRef}>
       <m.div
         className="set-pane"
         key={active}
@@ -1622,8 +1700,8 @@ export function SettingsPage({
 
         {active === "browser" && (
           <Section
-            title="Browser"
-            blurb="The one Chrome KOS runs, a tab per agent and tabs of your own. Headless by default: the Browser window on the sidebar is its screen. A change here takes effect when the browser next starts."
+            title="KOS's browser"
+            blurb="The one Chrome KOS runs on this host, separate from your own Chrome: a tab per agent and tabs of your own. Headless by default: the Browser window on the sidebar is its screen. A change here takes effect when the browser next starts."
             saving={busy === "browser"}
             saved={browserDirty ? "Not saved yet" : (saved["browser"] ?? null)}
             canSave={browserDirty}
@@ -1795,6 +1873,7 @@ export function SettingsPage({
           </Section>
         )}
       </m.div>
+      </div>
     </div>
   );
 }
