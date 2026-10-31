@@ -30,6 +30,7 @@ export { tasksModule } from "./tasks.js";
 export { exportModule, toCsv, toMarkdown } from "./export.js";
 export { createShellModule, runShell, type ShellResult } from "./shell.js";
 export { createPythonModule, type PythonResult } from "./python.js";
+export { createTexModule, type TexResult } from "./tex.js";
 export { createSkillsModule } from "./skills.js";
 export { SKILLS_DIR } from "../skills/manifest.js";
 export { createChatsModule, CHAT_TOOLS, type ChatToolDeps } from "./chats.js";
