@@ -11,25 +11,34 @@ document: a PDF is read as its text, page by page, on the way in, and a
 Word, Excel or PowerPoint file as its paragraphs, rows or slides; the same
 holds for one sent on Discord or found in the workspace or at a url.
 
-The list on the left:
+The list on the left, in one scroll:
 
+- **Search and New chat** sit at the top. Search filters every section at
+  once, opens them while it shows what matched, and hides the ones with
+  nothing; Escape clears it. New chat (the square beside it) opens the
+  landing.
 - **KOS** routes work across your chats. Ask it for something that belongs
-  in a project and it hands the work on.
-- **A project row** is that project's own chat, its orchestrator. Under it,
-  the agents it spawned, busy ones first. The row says how many agents and
-  whether one is working; the chevron folds them away. The + beside the
-  heading makes an empty project, the same dialog the Projects page has;
-  hover a row for Delete project (asked once beside it), which is the Details
-  drawer's delete without the trip there.
-- **Scheduled** holds the threads jobs run in, folded by default. Standing
-  blobs are not listed here: each has a page of its own under Blobs.
-- **Your chats**, newest first. Hover a row for Rename, Duplicate, Hand off
+  in a project and it hands the work on. Under it, each messaging surface's
+  own thread (Discord, iMessage), with when it last spoke.
+- **Projects**, by name, each with its mark in its colour. A row opens the
+  project's page, with its orchestrator and agents. A dot says one of its
+  threads is working. The + beside the heading makes an empty project, the
+  same dialog the Projects page has; hover a row for Delete project (asked
+  once beside it).
+- **Scheduled** holds the threads jobs run in, folded by default; folded,
+  its heading still says how many are running. Standing blobs are not
+  listed here: each has a page of its own under Blobs.
+- **Chats**, newest first. Hover a row for Rename, Duplicate, Hand off
   (KOS drafts a brief of the thread; you pick a chat or project, edit it,
   say what that chat should do with it, and it goes over as a message
   from this one; an agent does the same with `chats.handoff`, which asks
   you once per target), Archive,
   Delete (two presses).
-- **Archived**, at the foot, is where archived chats go. Archive from a
+- Every heading folds, and the rail remembers which you folded. Each row
+  has the same shape: a face, glyph, mark or dot, the name, then what it
+  is doing.
+- **Maintenance** and **Archived** wait at the foot. Maintenance is where
+  KOS repairs itself, so it is not among your projects. Archive from a
   chat's header gives you eight seconds to undo.
 
 In a chat:

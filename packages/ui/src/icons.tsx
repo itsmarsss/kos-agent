@@ -163,6 +163,34 @@ export const MoreIcon = (): ReactElement => (
   </Icon>
 );
 
+export const SearchIcon = ({ size = 14 }: { size?: number } = {}): ReactElement => (
+  <Icon title="Search" size={size}>
+    <circle cx="11" cy="11" r="7" />
+    <path d="m21 21-4.3-4.3" />
+  </Icon>
+);
+
+/** A pen on a page: start something new. */
+export const ComposeIcon = ({ size = 15 }: { size?: number } = {}): ReactElement => (
+  <Icon title="New" size={size}>
+    <path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6" />
+    <path d="M17.6 3.4a2 2 0 0 1 2.9 2.9L12 14.8 8.5 15.5l.7-3.5z" />
+  </Icon>
+);
+
+/** A channel on a messaging surface. */
+export const HashIcon = ({ size = 13 }: { size?: number } = {}): ReactElement => (
+  <Icon title="Channel" size={size}>
+    <path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16" />
+  </Icon>
+);
+
+export const WrenchIcon = ({ size = 14 }: { size?: number } = {}): ReactElement => (
+  <Icon title="Maintenance" size={size}>
+    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z" />
+  </Icon>
+);
+
 /** A line icon for each nav destination, so the sidebar reads as a rail when collapsed. */
 export function NavIcon({ name }: { name: string }): ReactElement {
   const p = (d: string): ReactElement => (

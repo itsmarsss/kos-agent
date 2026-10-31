@@ -11,11 +11,12 @@ import type {
 } from "./api.js";
 import { api, type ProjectDetail } from "./api.js";
 import { ColourChoice } from "./ColourPicker.js";
-import { hexOfHsl, hueOfHex, lightnessOfHex } from "./colour.js";
+import { hexOfHsl, hueOfHex } from "./colour.js";
 import { lookOf } from "./Face.js";
 import { FileIcon } from "./FileIcon.js";
 import { Card, ConfirmButton, Field, Pill, Tag } from "./kit.js";
 import { ease, spring } from "./motion.js";
+import { markInk } from "./ProjectMark.js";
 import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";
 
@@ -801,11 +802,6 @@ function Section(props: { title: string; children: React.ReactNode }): React.Rea
       {props.children}
     </Card>
   );
-}
-
-/** Ink for the mark on a picked colour: pale on a dark one, dark on a light one. */
-function markInk(colour: string): string {
-  return (lightnessOfHex(colour) ?? 60) < 55 ? "rgb(255 255 255 / 0.9)" : "rgb(0 0 0 / 0.7)";
 }
 
 function Block(props: { label: string; text: string }): React.ReactElement {
