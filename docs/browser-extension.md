@@ -85,13 +85,24 @@ While KOS works in your Chrome:
 - it works in a window of its own, its tabs grouped as **KOS**, and in any
   tab you gave it; no other tab is reachable;
 - each of those tabs has a glowing border and a small bar saying what KOS
-  is doing, with **Take over** and **Stop**;
+  is doing, with **Take over** and **Stop**; drag the bar anywhere, or
+  press KOS's face on it to fold it to the face, and it stays so for the
+  session. Only the page's top frame draws it, and it leaves by itself when
+  the extension stops checking in, so a session that ended leaves nothing;
+- KOS's own cursor glides to each point it acts at and ripples as it
+  presses, as on the Mac;
+- the pictures KOS takes are cut and shrunk by the extension from the tab
+  as it is, so taking one never redraws the page you are looking at;
 - Chrome's own bar says the extension is debugging the tab, as it does for
   any extension that drives one;
 - clicking or typing in one of its tabs yourself takes it over: KOS waits
   until you press **Hand back**;
 - acting on a page asks you, trusted per site apart from KOS's own Chrome
   (a site trusted there is asked about again here, where you are signed in);
+  in the side panel an approval offers **Always on** the site, and the
+  **Ask / Auto** chip beside the model lets that chat click, type and go
+  places in your Chrome without asking each step (running script in a page,
+  files, messages and everything else still ask);
 - the session ends at its time limit, when idle, on Stop, when you close
   Chrome's debugging bar, and when the connection to its KOS drops.
 

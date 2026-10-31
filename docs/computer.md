@@ -33,6 +33,9 @@ While KOS is in control:
 
 - a glowing border runs round the screen it is using;
 - its cursor glides to each point, marked as KOS's;
+- `computer.act` takes one action or, as `actions`, a short run of them
+  (click a field, type, press Return) with one picture at the end, so a
+  sequence it can see through costs one round trip;
 - a bar at the top says what it is doing, with Pause and Stop;
 - touching the mouse, trackpad or keyboard pauses it at once, and only you
   resume it, on the device;
