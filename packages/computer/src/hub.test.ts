@@ -256,6 +256,19 @@ describe("a session", () => {
     expect(hub.takeEnding("c1")).toBe("expired");
   });
 
+  it("is forgotten when the owner unpairs it on the device, with any session it had", async () => {
+    const { hub } = setup();
+    const fake = await online(hub);
+    const other = await online(hub, "Office iMac");
+    await hub.begin({ conversation: "c1", device: hub.find("Studio MacBook")!, task: "t", requester: "r", minutes: 5 });
+    fake.send({ t: "unpair" });
+    await settle();
+    expect(hub.list().map((d) => d.name)).toEqual(["Office iMac"]);
+    expect(hub.sessionOf("c1")).toBeUndefined();
+    expect(fake.closed?.code).toBe(CLOSE.unauthorized);
+    expect(other.closed).toBeUndefined();
+  });
+
   it("is stopped from the dashboard, and goes with a device that is unpaired", async () => {
     const { hub } = setup();
     const fake = await online(hub);

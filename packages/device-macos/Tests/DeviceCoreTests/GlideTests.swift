@@ -20,6 +20,15 @@ struct GlideTests {
     #expect(far.points.count == 54)
   }
 
+  @Test func aQuickGlideTakesTheSamePathInAThirdOfTheSteps() {
+    let shown = Glide(from: Point(x: 0, y: 0), to: Point(x: 1500, y: 0))
+    let quick = Glide(from: Point(x: 0, y: 0), to: Point(x: 1500, y: 0), quick: true)
+    #expect(quick.points.last == Point(x: 1500, y: 0))
+    #expect(quick.points.count == 16)
+    #expect(quick.points.count * 3 <= shown.points.count)
+    #expect(abs(Glide.duration(for: 1500, quick: true) - Glide.longest * Glide.quickShare) < 1e-9)
+  }
+
   @Test func standingStillIsOneStep() {
     let glide = Glide(from: Point(x: 5, y: 5), to: Point(x: 5, y: 5))
     #expect(glide.points == [Point(x: 5, y: 5)])

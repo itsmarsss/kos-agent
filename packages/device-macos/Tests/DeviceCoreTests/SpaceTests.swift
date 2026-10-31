@@ -96,7 +96,7 @@ struct WindowSpaceTests {
 
   @Test func aSessionFollowsItsWindow() throws {
     var sessions = Sessions()
-    try sessions.ask("s1")
+    try sessions.ask("s1", from: "kos")
     let start = Rect(x: 100, y: 100, width: 640, height: 480)
     _ = try sessions.grant(
       "s1", task: "t", requester: "r", minutes: 5, target: .window(id: 7, pid: 42, app: "Notes", title: "List"),

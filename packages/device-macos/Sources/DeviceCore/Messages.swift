@@ -159,6 +159,15 @@ public enum Outbound {
     try encode(EventBody(name: name.rawValue, data: data))
   }
 
+  /// The owner unpaired this device here: the KOS on this line forgets it too.
+  public static func unpair() throws -> Data {
+    try encode(UnpairBody())
+  }
+
+  private struct UnpairBody: Encodable {
+    let t = "unpair"
+  }
+
   private static func encode<T: Encodable>(_ value: T) throws -> Data {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.withoutEscapingSlashes]

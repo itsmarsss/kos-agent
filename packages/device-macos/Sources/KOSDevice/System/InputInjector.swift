@@ -22,9 +22,11 @@ final class InputInjector {
   var onKeys: (() -> Void)?
   /// Why to stop now, asked before each step; nothing to go on.
   var interruption: () -> DeviceError? = { nil }
+  /// The owner would rather KOS's pointer got there than be watched getting there.
+  var quick: () -> Bool = { false }
 
   func move(to target: CGPoint, holding button: MouseButton? = nil) async throws {
-    let glide = Glide(from: Point(Displays.cursor()), to: Point(target))
+    let glide = Glide(from: Point(Displays.cursor()), to: Point(target), quick: quick())
     for point in glide.points {
       try check()
       let type = button.map(Self.dragType) ?? .mouseMoved

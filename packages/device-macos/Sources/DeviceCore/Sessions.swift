@@ -36,11 +36,13 @@ public struct LiveSession: Equatable, Sendable {
 
 /// The one session this device may be in, and every rule about it.
 ///
-/// One at a time; nothing acts without one live; the owner pauses it by
-/// touching the computer and only the owner resumes it; it ends at its time
-/// limit or after three idle minutes. The app holds one of these and asks
-/// it before every action, so the rules are here and tested, not spread
-/// through the windows.
+/// One at a time, whichever KOS asks: the Mac has one screen and one pointer,
+/// so a second KOS paired with it hears it is busy, and only the KOS that
+/// asked may act in the session or end it. Nothing acts without one live; the
+/// owner pauses it by touching the computer and only the owner resumes it; it
+/// ends at its time limit or when idle. The app holds one of these and asks it
+/// before every action, so the rules are here and tested, not spread through
+/// the windows.
 public struct Sessions: Sendable {
   public enum Phase: Equatable, Sendable {
     case idle
@@ -57,18 +59,32 @@ public struct Sessions: Sendable {
   public static let furthest: TimeInterval = 8 * 60 * 60
 
   public private(set) var phase: Phase = .idle
+  /// The KOS the session is asked for by or live for, by its pairing's device id.
+  public private(set) var origin: String?
 
   public init() {}
+
+  /// Whether `origin` asked for the session there is, or holds it.
+  public func owns(_ origin: String) -> Bool {
+    phase != .idle && self.origin == origin
+  }
 
   public var live: LiveSession? {
     if case .live(let session) = phase { return session }
     return nil
   }
 
-  public mutating func ask(_ id: String) throws {
-    guard phase == .idle else { throw DeviceError(.busy, "Another session is live on this Mac.") }
+  public mutating func ask(_ id: String, from origin: String) throws {
+    switch phase {
+    case .idle: break
+    case .asking:
+      throw DeviceError(.busy, self.origin == origin ? "A session is already being asked for on this Mac." : "Another KOS is asking for this Mac right now.")
+    case .live:
+      throw DeviceError(.busy, self.origin == origin ? "Another session is live on this Mac." : "Another KOS is using this Mac.")
+    }
     guard !id.isEmpty else { throw DeviceError.badRequest("The session needs an id.") }
     phase = .asking(id)
+    self.origin = origin
   }
 
   public mutating func grant(
@@ -85,12 +101,14 @@ public struct Sessions: Sendable {
   }
 
   public mutating func deny(_ id: String) {
-    if phase == .asking(id) { phase = .idle }
+    guard phase == .asking(id) else { return }
+    phase = .idle
+    origin = nil
   }
 
-  /// A call under `id`, checked against the live session and counted as activity.
-  public mutating func authorize(_ id: String, now: Date) throws -> LiveSession {
-    guard case .live(var session) = phase, session.id == id else {
+  /// A call under `id` from `origin`, checked against the live session and counted as activity.
+  public mutating func authorize(_ id: String, from origin: String, now: Date) throws -> LiveSession {
+    guard case .live(var session) = phase, session.id == id, self.origin == origin else {
       throw DeviceError(.noSession, "No live session with that id.")
     }
     if due(now) != nil { throw DeviceError(.noSession, "The session is over.") }
@@ -120,7 +138,10 @@ public struct Sessions: Sendable {
   /// Ends whatever is live or being asked for; the id it ended.
   @discardableResult
   public mutating func end() -> String? {
-    defer { phase = .idle }
+    defer {
+      phase = .idle
+      origin = nil
+    }
     switch phase {
     case .idle: return nil
     case .asking(let id): return id

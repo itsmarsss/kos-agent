@@ -12,9 +12,10 @@ import Testing
 @MainActor
 @Suite("Windows render")
 struct RenderTests {
-  private func render<V: View>(_ name: String, _ view: V) throws -> CGSize {
+  /// `height`: drawn in a window that tall, as the home window is drawn at its one height.
+  private func render<V: View>(_ name: String, _ view: V, height: CGFloat? = nil) throws -> CGSize {
     let host = NSHostingView(rootView: view)
-    let size = host.fittingSize
+    let size = height.map { CGSize(width: 460, height: $0) } ?? host.fittingSize
     host.frame = CGRect(origin: .zero, size: size)
     let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
     window.contentView = host
@@ -26,6 +27,12 @@ struct RenderTests {
       try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name).png"))
     }
     return size
+  }
+
+  private func kos(
+    _ id: String = "d1", host: String = "127.0.0.1:4417", link: LinkState = .connected, askFirst: Bool = true
+  ) -> KOSEntry {
+    KOSEntry(id: id, host: host, dashboard: URL(string: "http://\(host)"), deviceName: "Studio MacBook", link: link, askFirst: askFirst)
   }
 
   private func home(_ configure: (HomeModel) -> Void) -> HomeModel {
@@ -48,59 +55,49 @@ struct RenderTests {
       $0.note = "Check this is your KOS, then press Pair."
       $0.devicesPage = URL(string: "http://127.0.0.1:4417/#/settings/devices")
     }
-    let size = try render("home-unpaired", HomeView(model: model))
-    #expect(size.width == 460)
-    #expect(size.height > 400 && size.height < 900)
+    let size = try render("home-unpaired", HomeView(model: model), height: HomeView.height)
+    #expect(size == CGSize(width: 460, height: HomeView.height))
   }
 
   @Test func homeWhenConnectedAndInUse() throws {
     let model = home {
-      $0.link = .connected
-      $0.host = "http://127.0.0.1:4417"
-      $0.deviceName = "Studio MacBook"
+      $0.kos = [kos()]
       $0.screenGranted = true
       $0.inputGranted = true
-      $0.dashboard = URL(string: "http://127.0.0.1:4417")
       $0.session = SessionSummary(
         task: "Export the deck from Keynote as a PDF", requester: "Design", chat: URL(string: "http://127.0.0.1:4417/#/chats/c1"),
         until: Date().addingTimeInterval(900), paused: false)
     }
-    let size = try render("home-in-use", HomeView(model: model))
-    #expect(size.height < 900)
+    _ = try render("home-in-use", HomeView(model: model), height: HomeView.height)
   }
 
   @Test func homeWhenOfflineAndMissingAGrant() throws {
     let model = home {
-      $0.link = .offline("KOS is not answering.")
-      $0.host = "https://kos.example.ts.net"
-      $0.deviceName = "Studio MacBook"
+      $0.kos = [kos(host: "kos.example.ts.net", link: .offline("KOS is not answering."), askFirst: false)]
       $0.inputGranted = true
       $0.asked = [.screen]
-      $0.askFirst = false
     }
-    _ = try render("home-offline", HomeView(model: model))
+    _ = try render("home-offline", HomeView(model: model), height: HomeView.height)
   }
 
   @Test func homeWithThePermissionsDrawerOpen() throws {
     let model = home {
-      $0.link = .connected
-      $0.host = "127.0.0.1:4317"
-      $0.dashboard = URL(string: "http://127.0.0.1:4317")
-      $0.deviceName = "Studio MacBook"
+      $0.kos = [kos(host: "127.0.0.1:4317")]
       $0.screenGranted = true
       $0.inputGranted = true
     }
-    _ = try render("home-drawer", HomeView(model: model, permissionsOpen: true))
+    _ = try render("home-drawer", HomeView(model: model, permissionsOpen: true), height: HomeView.height)
   }
 
   @Test func settingsPage() throws {
     let model = home {
-      $0.link = .connected
+      $0.kos = [kos()]
       $0.page = .settings
       $0.longestMinutes = 120
       $0.openAtLogin = .needsApproval
     }
-    _ = try render("settings", HomeView(model: model))
+    _ = try render("settings", HomeView(model: model), height: HomeView.height)
+    _ = try render("settings-full", HomeView(model: model), height: 1100)
   }
 
   @Test func consentWithALengthOfTheOwnersOwn() throws {
@@ -108,6 +105,12 @@ struct RenderTests {
     model.custom = true
     model.minutes = 45
     _ = try render("consent-custom", ConsentView(model: model))
+  }
+
+  @Test func consentNamesTheKOSWhenThereAreSeveral() throws {
+    let model = ConsentModel(task: "File the receipts from Downloads", requester: "Expenses", kos: "kos.work.ts.net", offered: [5, 15], timeout: 60)
+    _ = try render("consent-kos", ConsentView(model: model))
+    #expect(model.kos == "kos.work.ts.net")
   }
 
   @Test func consentWithAWindowPicker() throws {
@@ -125,12 +128,45 @@ struct RenderTests {
 
   @Test func disconnectedByTheOwner() throws {
     let model = home {
-      $0.link = .disconnected
-      $0.host = "127.0.0.1:4317"
+      $0.kos = [kos(host: "127.0.0.1:4317", link: .disconnected)]
       $0.screenGranted = true
       $0.inputGranted = true
     }
-    _ = try render("home-disconnected", HomeView(model: model))
+    _ = try render("home-disconnected", HomeView(model: model), height: HomeView.height)
+  }
+
+  @Test func pairedWithTwoKOSOneInASession() throws {
+    let model = home {
+      $0.kos = [kos(host: "127.0.0.1:4317"), kos("d2", host: "kos.work.ts.net", askFirst: false)]
+      $0.screenGranted = true
+      $0.inputGranted = true
+      $0.session = SessionSummary(
+        task: "File the receipts from Downloads", requester: "Expenses", kos: "kos.work.ts.net", until: Date().addingTimeInterval(1200),
+        paused: false)
+    }
+    _ = try render("home-two-kos", HomeView(model: model), height: HomeView.height)
+    // One open, the other a line, and the hidden apps open: all of it, as it scrolls.
+    _ = try render("home-two-kos-open", HomeView(model: model, openKOS: "d2", hiddenOpen: true), height: 1100)
+  }
+
+  @Test func addingAnotherKOS() throws {
+    let model = home {
+      $0.kos = [kos(host: "127.0.0.1:4317")]
+      $0.showPairing = true
+      $0.address = "https://kos.work.ts.net"
+      $0.screenGranted = true
+      $0.inputGranted = true
+    }
+    _ = try render("home-adding", HomeView(model: model), height: HomeView.height)
+  }
+
+  @Test func theKeychainRefusedThePairings() throws {
+    let model = home {
+      $0.keychainProblem = "The Keychain would not give KOS Device its pairings (User interaction is not allowed.)."
+      $0.screenGranted = true
+      $0.inputGranted = true
+    }
+    _ = try render("home-keychain", HomeView(model: model), height: HomeView.height)
   }
 
   @Test func appPicker() throws {

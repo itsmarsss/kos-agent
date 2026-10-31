@@ -148,8 +148,17 @@ export interface Ping {
   t: "ping";
 }
 
+/**
+ * The owner unpaired the device on the device itself. KOS forgets it, as
+ * Remove on the dashboard does; otherwise the device stayed listed, offline,
+ * long after the owner had let it go.
+ */
+export interface Unpair {
+  t: "unpair";
+}
+
 /** What a device sends once it is in. */
-export type FromDevice = Hello | StateUpdate | Reply | DeviceEvent | Ping;
+export type FromDevice = Hello | StateUpdate | Reply | DeviceEvent | Ping | Unpair;
 
 /** What a session works in: the whole screen, one window of one app, or a browser's tabs. */
 export interface Target {
@@ -277,6 +286,8 @@ export function readFrame(text: string): FromDevice | undefined {
     }
     case "ping":
       return { t: "ping" };
+    case "unpair":
+      return { t: "unpair" };
     case "event": {
       if (!isString(raw.name) || !isObject(raw.data)) return undefined;
       return { t: "event", name: raw.name, data: raw.data };

@@ -18,6 +18,8 @@ final class HomeWindow: NSObject, NSWindowDelegate {
 
   private let settings: Settings
   private lazy var window: NSWindow = makeWindow()
+  /// The window has a place on screen: one it was given before, or one it was centred in.
+  private var placed = false
   private var refresher: Timer?
   private var watches: [AnyCancellable] = []
   /// Apps installed on this Mac, by bundle id, found when the window opens.
@@ -38,11 +40,11 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     model.actions.hide = { [weak self] id in self?.settings.hiddenApps.append(id) }
     model.actions.unhide = { [weak self] id in self?.settings.hiddenApps.removeAll { $0.caseInsensitiveCompare(id) == .orderedSame } }
     model.actions.close = { [weak self] in self?.window.performClose(nil) }
+    model.actions.minimize = { [weak self] in self?.window.miniaturize(nil) }
+    model.actions.copyLog = { [weak self] in self?.copyLog() }
     watches = [
       // A pasted pairing link fills the address and the code.
       model.$address.sink { [weak self] text in self?.readLink(text) },
-      // The window follows the content's height, top edge fixed, so a card opening slides rather than jumps.
-      model.$contentHeight.removeDuplicates().sink { [weak self] height in self?.fit(height) },
     ]
   }
 
@@ -64,7 +66,11 @@ final class HomeWindow: NSObject, NSWindowDelegate {
       MainActor.assumeIsolated { self?.refreshSystem() }
     }
     NSApp.activate(ignoringOtherApps: true)
-    if !window.isVisible { window.center() }
+    // Where the owner left it last time; centred only the first time there is nowhere to go back to.
+    if !window.isVisible && !placed {
+      window.center()
+      placed = true
+    }
     window.makeKeyAndOrderFront(nil)
   }
 
@@ -78,11 +84,14 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     let now = SystemPermissions.current()
     model.screenGranted = now.screen
     model.inputGranted = now.input
-    model.askFirst = settings.askFirst
     model.longestMinutes = settings.longestMinutes
     model.promptWaitSeconds = settings.promptWaitSeconds
     model.idleMinutes = settings.idleMinutes
     model.connectWhenOpened = settings.connectWhenOpened
+    model.takeover = settings.takeover
+    model.pace = settings.pace
+    model.sounds = settings.sounds
+    model.timeInMenuBar = settings.timeInMenuBar
     let login: LoginState = switch LaunchAtLogin.state {
     case .on: .on
     case .off: .off
@@ -122,20 +131,14 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     }
   }
 
-  private func fit(_ height: CGFloat) {
-    guard height > 0 else { return }
-    let frame = window.frame
-    let content = window.contentRect(forFrameRect: frame)
-    let target = window.frameRect(forContentRect: CGRect(x: content.minX, y: content.maxY - height, width: content.width, height: height))
-    guard abs(target.height - frame.height) > 0.5 else { return }
-    if window.isVisible {
-      NSAnimationContext.runAnimationGroup { context in
-        context.duration = 0.32
-        context.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.9, 0.3, 1)
-        window.animator().setFrame(target, display: true)
-      }
-    } else {
-      window.setFrame(target, display: false)
+  /// This run's log onto the clipboard, for the owner to send when something went wrong.
+  private func copyLog() {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(Log.recent(), forType: .string)
+    model.logCopied = true
+    Task { [weak self] in
+      try? await Task.sleep(nanoseconds: 2_000_000_000)
+      self?.model.logCopied = false
     }
   }
 
@@ -198,24 +201,37 @@ final class HomeWindow: NSObject, NSWindowDelegate {
 
   // MARK: Window
 
+  private static let place = "KOS Device"
+
+  /// One height for every page, on any screen with room for it; the page scrolls.
+  private static func height(on screen: NSScreen?) -> CGFloat {
+    min(HomeView.height, (screen?.visibleFrame.height ?? 900) - 40)
+  }
+
   private func makeWindow() -> NSWindow {
     let host = NSHostingView(rootView: HomeView(model: model))
-    // The window's size is set from the content's height, animated; the host must not fight it.
+    // The window keeps one height and the page scrolls in it; the host must not size it to the page.
     host.sizingOptions = []
     let window = NSWindow(
-      contentRect: CGRect(x: 0, y: 0, width: 460, height: max(model.contentHeight, 600)),
+      contentRect: CGRect(x: 0, y: 0, width: 460, height: Self.height(on: NSScreen.main)),
       styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
     window.contentView = host
     window.titlebarAppearsTransparent = true
     window.titleVisibility = .hidden
-    // Not resizable, so the green light has nothing to do.
-    window.standardWindowButton(.zoomButton)?.isEnabled = false
+    // The window draws its own Close and Minimise; the system's lights stay out of the way.
+    for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+      window.standardWindowButton(button)?.isHidden = true
+    }
     window.title = "KOS Device"
     window.isMovableByWindowBackground = true
     window.appearance = NSAppearance(named: .darkAqua)
     window.backgroundColor = NSColor(srgbRed: 0x0C / 255, green: 0x0E / 255, blue: 0x12 / 255, alpha: 1)
     window.isReleasedWhenClosed = false
     window.delegate = self
+    // Its place is kept between runs; its size is not, since the window has one height.
+    placed = window.setFrameUsingName(Self.place)
+    window.setContentSize(CGSize(width: 460, height: Self.height(on: window.screen ?? NSScreen.main)))
+    window.setFrameAutosaveName(Self.place)
     return window
   }
 
