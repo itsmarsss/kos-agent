@@ -38,6 +38,7 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     model.actions.hide = { [weak self] id in self?.settings.hiddenApps.append(id) }
     model.actions.unhide = { [weak self] id in self?.settings.hiddenApps.removeAll { $0.caseInsensitiveCompare(id) == .orderedSame } }
     model.actions.close = { [weak self] in self?.window.performClose(nil) }
+    model.actions.minimize = { [weak self] in self?.window.miniaturize(nil) }
     watches = [
       // A pasted pairing link fills the address and the code.
       model.$address.sink { [weak self] text in self?.readLink(text) },
@@ -208,8 +209,10 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     window.contentView = host
     window.titlebarAppearsTransparent = true
     window.titleVisibility = .hidden
-    // Not resizable, so the green light has nothing to do.
-    window.standardWindowButton(.zoomButton)?.isEnabled = false
+    // The window draws its own Close and Minimise; the system's lights stay out of the way.
+    for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+      window.standardWindowButton(button)?.isHidden = true
+    }
     window.title = "KOS Device"
     window.isMovableByWindowBackground = true
     window.appearance = NSAppearance(named: .darkAqua)

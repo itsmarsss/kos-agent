@@ -91,10 +91,12 @@ struct SettingsPage: View {
   }
 }
 
-/// A round button holding one symbol: the gear, the way back.
+/// A round button holding one symbol: the gear, the way back, close and minimise.
 struct IconButton: View {
   let symbol: String
   let label: String
+  /// The colour it takes under the pointer, for one that does something final, like Close.
+  var tint: Color?
   let action: () -> Void
   @State private var hovering = false
 
@@ -102,10 +104,10 @@ struct IconButton: View {
     Button(action: action) {
       Image(systemName: symbol)
         .font(.system(size: 12.5, weight: .semibold))
-        .foregroundStyle(hovering ? Theme.text : Theme.muted)
+        .foregroundStyle(hovering ? (tint ?? Theme.text) : Theme.muted)
         .frame(width: 26, height: 26)
-        .background(hovering ? Theme.panel2 : .clear, in: Circle())
-        .overlay(Circle().strokeBorder(hovering ? Theme.line : .clear))
+        .background(hovering ? (tint?.opacity(0.14) ?? Theme.panel2) : .clear, in: Circle())
+        .overlay(Circle().strokeBorder(hovering ? (tint?.opacity(0.35) ?? Theme.line) : .clear))
     }
     .buttonStyle(.plain)
     .onHover { hovering = $0 }

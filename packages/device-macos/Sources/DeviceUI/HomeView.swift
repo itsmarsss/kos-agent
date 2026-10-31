@@ -40,17 +40,20 @@ public struct HomeView: View {
 
   public var body: some View {
     VStack(alignment: .leading, spacing: 14) {
-      // The system's lights sit at the top left of this row; the gear balances them on the right.
-      HStack {
+      // Close and minimise in the gear's own style, not the system's lights
+      // or copies of them: round, quiet until the pointer is over them.
+      HStack(spacing: 4) {
+        IconButton(symbol: "xmark", label: "Close", tint: Theme.danger, action: model.actions.close)
+          .keyboardShortcut("w", modifiers: .command)
+        IconButton(symbol: "minus", label: "Minimise", action: model.actions.minimize)
+          .keyboardShortcut("m", modifiers: .command)
         Spacer()
         if model.page == .home {
           IconButton(symbol: "gearshape", label: "Settings") { model.page = .settings }
             .transition(.opacity)
         }
-        // macOS's own Close, without a menu bar to carry its shortcut.
-        Button("Close", action: model.actions.close).keyboardShortcut("w", modifiers: .command).opacity(0).frame(width: 0, height: 0)
       }
-      .frame(height: 26)
+      .frame(height: 28)
       ZStack(alignment: .top) {
         if model.page == .home {
           home.transition(.asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .leading)).combined(with: .opacity))
@@ -60,7 +63,7 @@ public struct HomeView: View {
       }
     }
     .padding(.horizontal, Theme.gutter)
-    .padding(.top, 6)
+    .padding(.top, 14)
     .padding(.bottom, Theme.gutter)
     .frame(width: 460)
     .fixedSize(horizontal: false, vertical: true)

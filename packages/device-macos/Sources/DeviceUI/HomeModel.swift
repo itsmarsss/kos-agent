@@ -110,6 +110,7 @@ public struct HomeActions {
   public var stop: () -> Void = {}
   public var restart: () -> Void = {}
   public var close: () -> Void = {}
+  public var minimize: () -> Void = {}
   public var connect: () -> Void = {}
   public var disconnect: () -> Void = {}
   public var setLongest: (Int) -> Void = { _ in }
