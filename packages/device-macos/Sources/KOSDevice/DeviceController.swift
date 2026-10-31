@@ -4,18 +4,23 @@ import DeviceUI
 
 /// What a call from KOS does on this Mac, and the session around it.
 ///
-/// Every call is checked against the session first (`Sessions` holds the
+/// Calls come from any KOS this Mac is paired with, each named by its
+/// pairing's device id. There is one session at a time whichever asked, its
+/// events go back only to the KOS that owns it, and only that KOS's line
+/// dropping ends it. Every call is checked against the session first (`Sessions` holds the
 /// rules), then against the Mac: permissions, a password field with focus,
 /// an app on the hidden list. Actions run one at a time in the order they
 /// came; asking the owner and ending a session do not wait behind them.
 @MainActor
 final class DeviceController {
-  /// An event for KOS.
-  var send: ((Data) -> Void)?
+  /// An event for the KOS named first.
+  var send: ((String, Data) -> Void)?
   /// The session started, paused, resumed or ended: the menu redraws.
   var onChange: (() -> Void)?
-  /// A chat on the paired KOS's dashboard, by its id.
-  var chatLink: (String) -> URL? = { _ in nil }
+  /// A chat on a KOS's dashboard, by the KOS and the chat's id.
+  var chatLink: (String, String) -> URL? = { _, _ in nil }
+  /// What to call a KOS when the owner is asked, or nothing when it is the only one.
+  var kosName: (String) -> String? = { _ in nil }
 
   private var sessions = Sessions()
   private var display: CGDirectDisplayID?
@@ -49,20 +54,22 @@ final class DeviceController {
   }
 
   var live: LiveSession? { sessions.live }
+  /// The KOS the live session is for.
+  var liveOrigin: String? { sessions.live == nil ? nil : sessions.origin }
 
   // MARK: Calls
 
-  func handle(_ call: Call) async -> Data? {
+  func handle(_ call: Call, from origin: String) async -> Data? {
     guard let method = CallMethod(rawValue: call.method) else {
       return try? Outbound.reply(id: call.id, error: .badRequest("\(call.method) is not a method this device knows."))
     }
     switch method {
     case .sessionBegin:
-      return await answer(call) { try await self.begin(call.params(SessionBeginParams.self)) }
+      return await answer(call) { try await self.begin(call.params(SessionBeginParams.self), from: origin) }
     case .sessionEnd:
-      return await answer(call) { try self.endForKOS(call.params(SessionRef.self)) }
+      return await answer(call) { try self.endForKOS(call.params(SessionRef.self), from: origin) }
     default:
-      return await inTurn { await self.answer(call) { try await self.act(method, call) } }
+      return await inTurn { await self.answer(call) { try await self.act(method, call, from: origin) } }
     }
   }
 
@@ -89,7 +96,7 @@ final class DeviceController {
 
   // MARK: Session
 
-  private func begin(_ params: SessionBeginParams) async throws -> SessionBeginResult {
+  private func begin(_ params: SessionBeginParams, from origin: String) async throws -> SessionBeginResult {
     try Durations.validate(params.minutes)
     let edge = params.maxEdge ?? Limits.defaultMaxEdge
     guard Limits.maxEdgeRange.contains(edge) else {
@@ -98,7 +105,7 @@ final class DeviceController {
     let task = params.task.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !task.isEmpty else { throw DeviceError.badRequest("Say what the session is for in task.") }
     Log.session.notice("asked by \(params.requester, privacy: .public) for \(params.minutes, privacy: .public) min: \(task, privacy: .private)")
-    try sessions.ask(params.session)
+    try sessions.ask(params.session, from: origin)
     if let missing = SystemPermissions.missing(SystemPermissions.current()) {
       sessions.deny(params.session)
       throw DeviceError(.permission, missing)
@@ -111,11 +118,11 @@ final class DeviceController {
     let windows = await WindowCatalog.windows(hiding: settings)
     let hint = params.target?.app?.trimmingCharacters(in: .whitespaces).lowercased()
     let suggested = hint.flatMap { h in windows.first { $0.app.lowercased().contains(h) || $0.bundle.lowercased() == h } }
-    if settings.askFirst {
+    if settings.askFirst(for: origin) {
       let choices = [TargetChoice(id: TargetChoice.screen, title: "Entire screen", app: nil, icon: nil)]
         + windows.map { TargetChoice(id: String($0.id), title: $0.title, app: $0.app, icon: NSRunningApplication(processIdentifier: $0.pid)?.icon) }
       let request = ConsentPrompt.Request(
-        task: task, requester: params.requester, chat: params.conversation.flatMap(chatLink),
+        task: task, requester: params.requester, kos: kosName(origin), chat: params.conversation.flatMap { chatLink(origin, $0) },
         offered: Durations.offered(requested: params.minutes, longest: longest), longest: longest, wait: settings.promptWaitSeconds,
         targets: choices, target: suggested.map { String($0.id) } ?? TargetChoice.screen, suggested: suggested?.app,
         chime: settings.sounds)
@@ -218,8 +225,9 @@ final class DeviceController {
     return sessions.live ?? session
   }
 
-  /// KOS ended it. Already over is fine: an end crossing an expiry is not an error.
-  private func endForKOS(_ ref: SessionRef) throws -> EmptyResult {
+  /// KOS ended it. Already over is fine: an end crossing an expiry is not an error. Another KOS's session is not this one's to end.
+  private func endForKOS(_ ref: SessionRef, from origin: String) throws -> EmptyResult {
+    guard sessions.owns(origin) else { return EmptyResult() }
     switch sessions.phase {
     case .asking(let id) where id == ref.session:
       consent.cancel()
@@ -234,6 +242,7 @@ final class DeviceController {
   /// Ends the session; tells KOS why unless KOS is who ended it or the line is gone.
   private func end(_ reason: EndReason?) {
     consent.cancel()
+    let origin = sessions.origin
     guard let id = sessions.end() else { return }
     Log.session.notice("ended: \(reason?.rawValue ?? "by KOS or the line", privacy: .public)")
     if settings.sounds, reason != .quit { NSSound(named: "Pop")?.play() }
@@ -244,7 +253,7 @@ final class DeviceController {
     follower = nil
     display = nil
     overlay.hide()
-    if let reason { emit(.sessionEnded, SessionEndedEvent(session: id, reason: reason)) }
+    if let reason, let origin { emit(.sessionEnded, SessionEndedEvent(session: id, reason: reason), to: origin) }
     onChange?()
   }
 
@@ -258,7 +267,7 @@ final class DeviceController {
     guard let id = sessions.pause() else { return }
     Log.session.notice("paused: the owner took over")
     overlay.setPaused(true)
-    emit(.sessionPaused, SessionPausedEvent(session: id))
+    emit(.sessionPaused, SessionPausedEvent(session: id), to: sessions.origin)
     onChange?()
   }
 
@@ -267,7 +276,7 @@ final class DeviceController {
     Log.session.notice("resumed")
     overlay.setPaused(false)
     owner.ignorePointer(for: Self.handOverGrace)
-    emit(.sessionResumed, SessionResumedEvent(session: id))
+    emit(.sessionResumed, SessionResumedEvent(session: id), to: sessions.origin)
     onChange?()
   }
 
@@ -279,12 +288,13 @@ final class DeviceController {
   func extend() {
     guard let id = sessions.live?.id, let until = sessions.extend(now: Date()) else { return }
     overlay.setUntil(until)
-    emit(.sessionExtended, SessionExtendedEvent(session: id, until: until))
+    emit(.sessionExtended, SessionExtendedEvent(session: id, until: until), to: sessions.origin)
     onChange?()
   }
 
-  /// The line to KOS dropped: nothing outlives it.
-  func lineDropped() {
+  /// The line to a KOS dropped: its session does not outlive it. Another KOS's goes on.
+  func lineDropped(from origin: String) {
+    guard sessions.owns(origin) else { return }
     end(nil)
   }
 
@@ -292,22 +302,23 @@ final class DeviceController {
     end(.quit)
   }
 
-  private func emit<D: Encodable>(_ name: EventName, _ data: D) {
-    if let message = try? Outbound.event(name, data: data) { send?(message) }
+  private func emit<D: Encodable>(_ name: EventName, _ data: D, to origin: String?) {
+    guard let origin, let message = try? Outbound.event(name, data: data) else { return }
+    send?(origin, message)
   }
 
   // MARK: Actions
 
-  private func act(_ method: CallMethod, _ call: Call) async throws -> any Encodable {
+  private func act(_ method: CallMethod, _ call: Call, from origin: String) async throws -> any Encodable {
     switch method {
     case .screenCapture:
       let p = try call.params(CaptureParams.self)
-      let session = try authorize(p.session, needs: .screen)
+      let session = try authorize(p.session, from: origin, needs: .screen)
       return try await capture(session, region: p.region)
 
     case .pointerMove:
       let p = try call.params(MoveParams.self)
-      let session = try await bringForward(try authorize(p.session, needs: .input))
+      let session = try await bringForward(try authorize(p.session, from: origin, needs: .input))
       let target = try globalPoint(p.x, p.y, in: session)
       try refuseHidden(at: target)
       await overlay.clear([target])
@@ -316,7 +327,7 @@ final class DeviceController {
 
     case .pointerClick:
       let p = try call.params(ClickParams.self)
-      let session = try await bringForward(try authorize(p.session, needs: .input))
+      let session = try await bringForward(try authorize(p.session, from: origin, needs: .input))
       let count = p.count ?? 1
       guard (1...3).contains(count) else { throw DeviceError.badRequest("count must be 1, 2 or 3.") }
       let modifiers = try KeyCombo.modifiers(named: p.modifiers ?? [])
@@ -329,7 +340,7 @@ final class DeviceController {
 
     case .pointerDrag:
       let p = try call.params(DragParams.self)
-      let session = try await bringForward(try authorize(p.session, needs: .input))
+      let session = try await bringForward(try authorize(p.session, from: origin, needs: .input))
       let from = try globalPoint(p.from.x, p.from.y, in: session)
       let to = try globalPoint(p.to.x, p.to.y, in: session)
       try refuseHidden(at: from)
@@ -340,7 +351,7 @@ final class DeviceController {
 
     case .pointerScroll:
       let p = try call.params(ScrollParams.self)
-      let session = try await bringForward(try authorize(p.session, needs: .input))
+      let session = try await bringForward(try authorize(p.session, from: origin, needs: .input))
       guard p.dx.isFinite, p.dy.isFinite, abs(p.dx) <= Limits.scrollLines, abs(p.dy) <= Limits.scrollLines else {
         throw DeviceError.badRequest("dx and dy are lines, at most \(Int(Limits.scrollLines)) either way.")
       }
@@ -352,7 +363,7 @@ final class DeviceController {
 
     case .keysType:
       let p = try call.params(TypeParams.self)
-      let session = try await bringForward(try authorize(p.session, needs: .input))
+      let session = try await bringForward(try authorize(p.session, from: origin, needs: .input))
       guard p.text.count <= Limits.typedCharacters else {
         throw DeviceError.badRequest("text is at most \(Limits.typedCharacters) characters; send it in parts.")
       }
@@ -362,7 +373,7 @@ final class DeviceController {
 
     case .keysPress:
       let p = try call.params(PressParams.self)
-      let session = try await bringForward(try authorize(p.session, needs: .input))
+      let session = try await bringForward(try authorize(p.session, from: origin, needs: .input))
       let combo = try KeyCombo.parse(p.keys)
       let times = p.repeat ?? 1
       guard (1...Limits.pressRepeats).contains(times) else {
@@ -413,13 +424,13 @@ final class DeviceController {
 
   // MARK: Checks
 
-  /// The live session for this call, counted as activity, with what the action needs granted.
-  private func authorize(_ id: String, needs permission: SystemPermissions.Kind) throws -> LiveSession {
+  /// The live session for this call from `origin`, counted as activity, with what the action needs granted.
+  private func authorize(_ id: String, from origin: String, needs permission: SystemPermissions.Kind) throws -> LiveSession {
     if let reason = sessions.due(Date()) {
       end(reason)
       throw DeviceError(.noSession, "The session is over.")
     }
-    let session = try sessions.authorize(id, now: Date())
+    let session = try sessions.authorize(id, from: origin, now: Date())
     guard SystemPermissions.isGranted(permission) else {
       throw DeviceError(.permission, "\(permission.title) is not granted on this Mac.")
     }

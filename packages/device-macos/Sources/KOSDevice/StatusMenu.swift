@@ -1,26 +1,29 @@
 import AppKit
 import DeviceCore
 
-/// The menu bar item: where KOS Device is, the live session with Pause and Stop, and the owner's settings.
+/// The menu bar item: where KOS Device stands with each KOS, the live session with Pause and Stop, and the window.
 @MainActor
 final class StatusMenu: NSObject, NSMenuDelegate {
   struct Snapshot {
-    var paired: Pairing?
-    var link: Connection.Status
+    /// Each KOS this Mac is paired with, by name, and its line.
+    var kos: [(name: String, link: Connection.Status)]
     var session: LiveSession?
+    /// Which KOS the session is for, when there are several.
+    var sessionKOS: String?
     /// The session's time left beside the icon.
     var timeInMenuBar: Bool
   }
 
   var snapshot: () -> Snapshot
   var onOpen: (() -> Void)?
+  /// Each of these acts on every KOS it can: one at a time is the window's.
   var onReconnect: (() -> Void)?
+  var onConnect: (() -> Void)?
+  var onDisconnect: (() -> Void)?
   var onPause: (() -> Void)?
   var onResume: (() -> Void)?
   var onStop: (() -> Void)?
   var onExtend: (() -> Void)?
-  var onConnect: (() -> Void)?
-  var onDisconnect: (() -> Void)?
 
   private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
   private let menu = NSMenu()
@@ -39,13 +42,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     let now = snapshot()
     let symbol: String
     var tint: NSColor?
-    switch (now.session, now.link) {
-    case (let session?, _):
+    if let session = now.session {
       symbol = "cursorarrow.rays"
       tint = session.paused ? Palette.amber : Palette.accent
-    case (nil, .connected):
+    } else if now.kos.contains(where: { if case .connected = $0.link { return true } else { return false } }) {
       symbol = "cursorarrow"
-    default:
+    } else {
       symbol = "cursorarrow.slash"
     }
     let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "KOS Device")
@@ -67,44 +69,52 @@ final class StatusMenu: NSObject, NSMenuDelegate {
   func menuNeedsUpdate(_ menu: NSMenu) {
     menu.removeAllItems()
     let now = snapshot()
-    menu.addItem(info(statusLine(now)))
+    if now.kos.isEmpty {
+      menu.addItem(info("Not paired with KOS"))
+    } else {
+      for kos in now.kos { menu.addItem(info(Self.line(kos.name, kos.link))) }
+    }
     if let session = now.session {
       menu.addItem(.separator())
-      menu.addItem(info(session.paused ? "Paused: \(session.task)" : "Using this Mac: \(session.task)"))
+      let task = session.paused ? "Paused: \(session.task)" : "Using this Mac: \(session.task)"
+      menu.addItem(info(now.sessionKOS.map { "\(task), for \($0)" } ?? task))
       menu.addItem(action(session.paused ? "Resume" : "Pause", session.paused ? #selector(resume) : #selector(pause)))
       menu.addItem(action("Give it 15 more minutes", #selector(extend)))
       menu.addItem(action("Stop", #selector(stop)))
     }
     menu.addItem(.separator())
-    if now.paired != nil {
-      switch now.link {
-      case .offline, .replaced, .untrusted:
-        menu.addItem(action("Reconnect", #selector(reconnect)))
-        menu.addItem(action("Disconnect", #selector(disconnect)))
-      case .disconnected:
-        menu.addItem(action("Connect", #selector(connect)))
-      case .connecting, .connected, .outdated:
-        menu.addItem(action("Disconnect", #selector(disconnect)))
-      }
-    }
-    // Pairing, permissions, asking first and hidden apps all live in the one window.
-    menu.addItem(action(now.paired == nil ? "Pair with KOS…" : "Open KOS Device…", #selector(open)))
+    let links = now.kos.map(\.link)
+    let several = links.count > 1
+    if links.contains(where: Self.redialable) { menu.addItem(action(several ? "Reconnect All" : "Reconnect", #selector(reconnect))) }
+    if links.contains(.disconnected) { menu.addItem(action(several ? "Connect All" : "Connect", #selector(connect))) }
+    if links.contains(where: { $0 != .disconnected }) { menu.addItem(action(several ? "Disconnect All" : "Disconnect", #selector(disconnect))) }
+    // Pairing, permissions, each KOS's rules and the hidden apps all live in the one window.
+    menu.addItem(action(now.kos.isEmpty ? "Pair with KOS…" : "Open KOS Device…", #selector(open)))
     menu.addItem(.separator())
     menu.addItem(NSMenuItem(title: "Quit KOS Device", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
   }
 
-  private func statusLine(_ now: Snapshot) -> String {
-    guard let paired = now.paired else { return "Not paired with KOS" }
-    let place = (try? paired.kosAddress().display) ?? paired.address
-    switch now.link {
-    case .connecting: return "Connecting to \(place)…"
-    case .connected(let name): return "Connected to KOS as \(name)"
-    case .offline(let reason): return "Offline: \(reason)"
-    case .untrusted: return "This KOS could not prove who it is"
-    case .replaced: return "Connected from another copy of KOS Device"
-    case .outdated: return "KOS speaks a newer protocol. Update KOS Device."
-    case .disconnected: return "Disconnected: KOS can't reach this Mac"
+  /// A line that dropped or was taken, which Reconnect dials again.
+  static func redialable(_ link: Connection.Status) -> Bool {
+    switch link {
+    case .offline, .replaced, .untrusted: return true
+    default: return false
     }
+  }
+
+  /// One KOS's line, in words.
+  private static func line(_ name: String, _ link: Connection.Status) -> String {
+    let words: String
+    switch link {
+    case .connecting: words = "Connecting…"
+    case .connected(let deviceName): words = "Connected as \(deviceName)"
+    case .offline(let reason): words = "Offline: \(reason)"
+    case .untrusted: words = "Could not prove it is KOS"
+    case .replaced: words = "Connected from another copy of KOS Device"
+    case .outdated: words = "Speaks a newer protocol. Update KOS Device."
+    case .disconnected: words = "Disconnected"
+    }
+    return "\(name): \(words)"
   }
 
   private func info(_ text: String) -> NSMenuItem {

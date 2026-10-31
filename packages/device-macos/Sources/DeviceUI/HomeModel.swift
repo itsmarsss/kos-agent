@@ -4,8 +4,8 @@ import SwiftUI
 /// What KOS Device's window shows, filled by the app. The view only reads it
 /// and calls the actions; nothing here reaches the system.
 
+/// Where the line to one KOS stands.
 public enum LinkState: Equatable {
-  case notPaired
   case connecting
   case connected
   case offline(String)
@@ -103,17 +103,43 @@ public struct AppEntry: Identifiable, Equatable {
   }
 }
 
+/// One KOS this Mac is paired with, as its card shows it.
+public struct KOSEntry: Identifiable, Equatable {
+  /// This Mac's device id in that KOS.
+  public let id: String
+  /// Its address as the owner reads it.
+  public let host: String
+  public let dashboard: URL?
+  /// What this Mac is called there.
+  public let deviceName: String
+  public let link: LinkState
+  /// Sessions from this KOS are allowed here, each time.
+  public let askFirst: Bool
+
+  public init(id: String, host: String, dashboard: URL?, deviceName: String, link: LinkState, askFirst: Bool) {
+    self.id = id
+    self.host = host
+    self.dashboard = dashboard
+    self.deviceName = deviceName
+    self.link = link
+    self.askFirst = askFirst
+  }
+}
+
 public struct SessionSummary: Equatable {
   public let task: String
   public let requester: String
+  /// Which KOS it is for, when there are several.
+  public let kos: String?
   /// The chat that asked, on the dashboard.
   public let chat: URL?
   public let until: Date
   public let paused: Bool
 
-  public init(task: String, requester: String, chat: URL? = nil, until: Date, paused: Bool) {
+  public init(task: String, requester: String, kos: String? = nil, chat: URL? = nil, until: Date, paused: Bool) {
     self.task = task
     self.requester = requester
+    self.kos = kos
     self.chat = chat
     self.until = until
     self.paused = paused
@@ -122,12 +148,15 @@ public struct SessionSummary: Equatable {
 
 public struct HomeActions {
   public var pair: () -> Void = {}
-  public var unpair: () -> Void = {}
-  public var reconnect: () -> Void = {}
+  /// Each by the KOS's id.
+  public var unpair: (String) -> Void = { _ in }
+  public var reconnect: (String) -> Void = { _ in }
+  public var connect: (String) -> Void = { _ in }
+  public var disconnect: (String) -> Void = { _ in }
+  public var setAskFirst: (String, Bool) -> Void = { _, _ in }
   /// Read the pairing from the Keychain again, after it refused.
   public var retryKeychain: () -> Void = {}
   public var grant: (Grant) -> Void = { _ in }
-  public var setAskFirst: (Bool) -> Void = { _ in }
   public var hide: (String) -> Void = { _ in }
   public var unhide: (String) -> Void = { _ in }
   public var pause: () -> Void = {}
@@ -136,8 +165,6 @@ public struct HomeActions {
   public var restart: () -> Void = {}
   public var close: () -> Void = {}
   public var minimize: () -> Void = {}
-  public var connect: () -> Void = {}
-  public var disconnect: () -> Void = {}
   public var setLongest: (Int) -> Void = { _ in }
   public var setPromptWait: (Int) -> Void = { _ in }
   public var setIdle: (Int) -> Void = { _ in }
@@ -156,15 +183,10 @@ public struct HomeActions {
 
 @MainActor
 public final class HomeModel: ObservableObject {
-  @Published public var link: LinkState = .notPaired
-  /// KOS's address as the owner reads it, once paired.
-  @Published public var host: String?
-  /// The dashboard, once paired.
-  @Published public var dashboard: URL?
+  /// Every KOS this Mac is paired with, in the order they were paired.
+  @Published public var kos: [KOSEntry] = []
   /// The Devices page of the KOS being typed in, while pairing.
   @Published public var devicesPage: URL?
-  /// This Mac's name in KOS, once paired.
-  @Published public var deviceName: String?
   @Published public var session: SessionSummary?
   /// The Keychain would not give up the pairing: why, until a try succeeds.
   @Published public var keychainProblem: String?
@@ -172,7 +194,6 @@ public final class HomeModel: ObservableObject {
   @Published public var inputGranted = false
   /// A grant asked for once: the next press goes to its switch in System Settings.
   @Published public var asked: Set<Grant> = []
-  @Published public var askFirst = true
   @Published public var hidden: [AppEntry] = []
   /// Apps that could be hidden: those installed and those open, not hidden yet.
   @Published public var pickable: [AppEntry] = []
@@ -223,6 +244,14 @@ public final class HomeModel: ObservableObject {
   /// Screen Recording was asked for and is not seen yet: macOS applies it on a fresh start.
   public var needsRestart: Bool { asked.contains(.screen) && !screenGranted }
 
-  /// Pairing, rather than standing paired.
-  public var pairing: Bool { link == .notPaired || showPairing }
+  /// The pairing form is up: nothing is paired yet, or another KOS is being added.
+  public var pairing: Bool { kos.isEmpty || showPairing }
+
+  /// Where this Mac stands with KOS as a whole: the best of its lines.
+  public var overall: LinkState? {
+    let links = kos.map(\.link)
+    if links.contains(.connected) { return .connected }
+    if links.contains(.connecting) { return .connecting }
+    return links.first { $0 != .disconnected } ?? links.first
+  }
 }

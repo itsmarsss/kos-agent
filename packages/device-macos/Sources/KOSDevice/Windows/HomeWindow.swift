@@ -80,7 +80,6 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     let now = SystemPermissions.current()
     model.screenGranted = now.screen
     model.inputGranted = now.input
-    model.askFirst = settings.askFirst
     model.longestMinutes = settings.longestMinutes
     model.promptWaitSeconds = settings.promptWaitSeconds
     model.idleMinutes = settings.idleMinutes

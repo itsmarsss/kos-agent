@@ -4,10 +4,13 @@ import Testing
 
 private let space = Space(display: Rect(x: 0, y: 0, width: 1512, height: 982))
 private let start = Date(timeIntervalSince1970: 1_000_000)
+/// Two KOS paired with one Mac, by their pairings' device ids.
+private let home = "kos-home"
+private let work = "kos-work"
 
 private func liveSessions(minutes: Int = 15) throws -> Sessions {
   var sessions = Sessions()
-  try sessions.ask("s1")
+  try sessions.ask("s1", from: home)
   _ = try sessions.grant("s1", task: "Open the file", requester: "School", minutes: minutes, space: space, now: start)
   return sessions
 }
@@ -25,55 +28,71 @@ private func code(_ body: () throws -> Void) -> ErrorCode? {
 
 @Suite("Sessions")
 struct SessionsTests {
+  @Test func oneKOSAtATimeAndOnlyItActsInTheSession() throws {
+    var sessions = try liveSessions()
+    // A second KOS hears the Mac is busy, and cannot act in the session even knowing its id.
+    #expect(throws: DeviceError(.busy, "Another KOS is using this Mac.")) { try sessions.ask("w1", from: work) }
+    #expect(code { _ = try sessions.authorize("s1", from: work, now: start) } == .noSession)
+    #expect(sessions.owns(home) && !sessions.owns(work))
+    _ = try sessions.authorize("s1", from: home, now: start)
+
+    sessions.end()
+    #expect(!sessions.owns(home) && sessions.origin == nil)
+    try sessions.ask("w1", from: work)
+    #expect(throws: DeviceError(.busy, "Another KOS is asking for this Mac right now.")) { try sessions.ask("s2", from: home) }
+    sessions.deny("w1")
+    #expect(sessions.phase == .idle && sessions.origin == nil)
+  }
+
   @Test func nothingActsWithoutALiveSession() {
     var sessions = Sessions()
-    #expect(code { _ = try sessions.authorize("s1", now: start) } == .noSession)
+    #expect(code { _ = try sessions.authorize("s1", from: home, now: start) } == .noSession)
   }
 
   @Test func aGrantedSessionAuthorizesItsOwnCalls() throws {
     var sessions = try liveSessions()
-    let live = try sessions.authorize("s1", now: start.addingTimeInterval(5))
+    let live = try sessions.authorize("s1", from: home, now: start.addingTimeInterval(5))
     #expect(live.task == "Open the file")
     #expect(live.until == start.addingTimeInterval(15 * 60))
-    #expect(code { _ = try sessions.authorize("other", now: start) } == .noSession)
+    #expect(code { _ = try sessions.authorize("other", from: home, now: start) } == .noSession)
   }
 
   @Test func oneAtATime() throws {
     var sessions = try liveSessions()
-    #expect(code { try sessions.ask("s2") } == .busy)
+    #expect(code { try sessions.ask("s2", from: home) } == .busy)
     var asking = Sessions()
-    try asking.ask("s1")
-    #expect(code { try asking.ask("s2") } == .busy)
+    try asking.ask("s1", from: home)
+    #expect(code { try asking.ask("s2", from: home) } == .busy)
   }
 
   @Test func aGrantMustAnswerWhatWasAsked() throws {
     var sessions = Sessions()
     #expect(code { _ = try sessions.grant("s1", task: "", requester: "", minutes: 5, space: space, now: start) } == .noSession)
-    try sessions.ask("s1")
+    try sessions.ask("s1", from: home)
     #expect(code { _ = try sessions.grant("s2", task: "", requester: "", minutes: 5, space: space, now: start) } == .noSession)
   }
 
   @Test func aDenialFreesTheDevice() throws {
     var sessions = Sessions()
-    try sessions.ask("s1")
+    try sessions.ask("s1", from: home)
     sessions.deny("s1")
     #expect(sessions.phase == .idle)
-    try sessions.ask("s2")
+    try sessions.ask("s2", from: home)
   }
 
   @Test func theOwnerPausesAndOnlyTheOwnerResumes() throws {
     var sessions = try liveSessions()
     #expect(sessions.pause() == "s1")
     #expect(sessions.pause() == nil)
-    #expect(code { _ = try sessions.authorize("s1", now: start) } == .paused)
+    #expect(code { _ = try sessions.authorize("s1", from: home, now: start) } == .paused)
     #expect(sessions.resume(now: start) == "s1")
     #expect(sessions.resume(now: start) == nil)
-    _ = try sessions.authorize("s1", now: start)
+    _ = try sessions.authorize("s1", from: home, now: start)
   }
 
   @Test func endsAtItsTimeLimit() throws {
     var sessions = try liveSessions(minutes: 5)
-    _ = try sessions.authorize("s1", now: start.addingTimeInterval(170))
+    _ = try sessions.authorize("s1", from: home, now: start.addingTimeInterval(170))
     #expect(sessions.due(start.addingTimeInterval(4 * 60)) == nil)
     #expect(sessions.due(start.addingTimeInterval(5 * 60)) == .expired)
   }
@@ -81,14 +100,14 @@ struct SessionsTests {
   @Test func endsAfterThreeIdleMinutes() throws {
     var sessions = try liveSessions(minutes: 30)
     #expect(sessions.due(start.addingTimeInterval(179)) == nil)
-    _ = try sessions.authorize("s1", now: start.addingTimeInterval(120))
+    _ = try sessions.authorize("s1", from: home, now: start.addingTimeInterval(120))
     #expect(sessions.due(start.addingTimeInterval(299)) == nil)
     #expect(sessions.due(start.addingTimeInterval(300)) == .idle)
   }
 
   @Test func aCallAfterItIsDueIsRefused() throws {
     var sessions = try liveSessions(minutes: 5)
-    #expect(code { _ = try sessions.authorize("s1", now: start.addingTimeInterval(301)) } == .noSession)
+    #expect(code { _ = try sessions.authorize("s1", from: home, now: start.addingTimeInterval(301)) } == .noSession)
   }
 
   @Test func resumingRestartsTheIdleClock() throws {
@@ -104,7 +123,7 @@ struct SessionsTests {
     #expect(sessions.end() == nil)
     #expect(sessions.live == nil)
     var asking = Sessions()
-    try asking.ask("s9")
+    try asking.ask("s9", from: home)
     #expect(asking.end() == "s9")
   }
 }
@@ -112,7 +131,7 @@ struct SessionsTests {
 @Suite("Session time")
 struct SessionTimeTests {
   private func live(_ sessions: inout Sessions, at start: Date, minutes: Int) throws {
-    try sessions.ask("s1")
+    try sessions.ask("s1", from: home)
     _ = try sessions.grant("s1", task: "t", requester: "r", minutes: minutes, space: Space(display: Rect(x: 0, y: 0, width: 100, height: 100)), now: start)
   }
 

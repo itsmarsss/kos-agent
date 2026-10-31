@@ -97,12 +97,14 @@ final class Connection: NSObject {
     status = .disconnected
   }
 
-  /// Hangs up for good: unpairing or quitting.
+  /// Hangs up for good: unpairing or quitting. The line is not used again; a new pairing gets a new one.
   func stop() {
     Log.line.notice("\(self.label, privacy: .public): hung up for good")
     pairing = nil
     hangUp(code: .normalClosure)
     status = .offline("Not paired")
+    path.cancel()
+    session.invalidateAndCancel()
   }
 
   func redialNow() {

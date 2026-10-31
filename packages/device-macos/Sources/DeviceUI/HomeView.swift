@@ -27,13 +27,15 @@ public struct HomeView: View {
     let allGranted: Bool
     let permissionsOpen: Bool
     let needsRestart: Bool
-    let link: LinkState
+    let kos: [KOSEntry]
+    let keychainProblem: Bool
   }
 
   private var layout: Layout {
     Layout(
       page: model.page, pairing: model.pairing, session: model.session != nil, allGranted: model.allGranted,
-      permissionsOpen: permissionsOpen, needsRestart: model.needsRestart, link: model.link)
+      permissionsOpen: permissionsOpen, needsRestart: model.needsRestart, kos: model.kos,
+      keychainProblem: model.keychainProblem != nil)
   }
 
   static let motion = Animation.spring(response: 0.36, dampingFraction: 0.88)
@@ -101,17 +103,7 @@ public struct HomeView: View {
       if let session = model.session {
         sessionCard(session).transition(.opacity.combined(with: .move(edge: .top)))
       }
-      section("KOS") {
-        ZStack(alignment: .top) {
-          if let problem = model.keychainProblem {
-            keychainCard(problem).transition(.opacity)
-          } else if model.pairing {
-            pairingCard.transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
-          } else {
-            connectionCard.transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
-          }
-        }
-      }
+      kosSection
       section("Permissions") { permissionsCard }
       section("On this Mac") { rulesCard }
     }
@@ -141,7 +133,7 @@ public struct HomeView: View {
   /// How KOS looks in the header: at work in a session, sagging when it cannot be reached.
   private var faceMood: BlobMood {
     if let session = model.session { return session.paused ? .idle : .working }
-    switch model.link {
+    switch model.overall {
     case .offline, .untrusted, .outdated: return .error
     case .disconnected: return .asleep
     default: return .idle
@@ -149,8 +141,8 @@ public struct HomeView: View {
   }
 
   private var linkPill: Pill {
-    switch model.link {
-    case .notPaired: return Pill("Not paired", tone: .muted, dot: true)
+    guard let overall = model.overall else { return Pill("Not paired", tone: .muted, dot: true) }
+    switch overall {
     case .connecting: return Pill("Connecting", tone: .accent, dot: true)
     case .connected: return Pill(model.session == nil ? "Ready" : "In use", tone: model.session == nil ? .ok : .accent, dot: true)
     case .offline: return Pill("Offline", tone: .warn, dot: true)
@@ -180,6 +172,9 @@ public struct HomeView: View {
         } else {
           Text(session.requester).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.text)
         }
+        if let kos = session.kos {
+          Text("on \(kos)").font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
+        }
       }
       HStack {
         Spacer()
@@ -195,11 +190,48 @@ public struct HomeView: View {
 
   // MARK: KOS
 
+  /// Every KOS this Mac is paired with, a card each, and the way to add one.
+  ///
+  /// Each is its own line, keys and trust: one at home can start sessions
+  /// through its approvals while one at work asks here every time. The Mac
+  /// has one screen, so while one KOS has a session the others hear it is busy.
+  private var kosSection: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack {
+        SectionLabel(model.kos.count > 1 ? "KOS · \(model.kos.count)" : "KOS")
+        Spacer()
+        if !model.pairing && model.keychainProblem == nil {
+          Button {
+            model.showPairing = true
+          } label: {
+            Label("Add a KOS", systemImage: "plus")
+          }
+          .buttonStyle(KOSButtonStyle(.ghost))
+          .help("Pair this Mac with another KOS as well, say one at work beside one at home.")
+          .transition(.opacity)
+        }
+      }
+      if let problem = model.keychainProblem {
+        keychainCard(problem).transition(.opacity)
+      } else {
+        ForEach(model.kos) { entry in
+          kosCard(entry).transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+        }
+        if model.pairing {
+          pairingCard.transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+        }
+      }
+    }
+  }
+
   private var pairingCard: some View {
     Card {
-      Text("Pair with your KOS").font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.text)
+      Text(model.kos.isEmpty ? "Pair with your KOS" : "Pair with another KOS")
+        .font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.text)
       HStack(alignment: .firstTextBaseline, spacing: 6) {
-        Text("From KOS: Settings, Devices, Add a device. Open its link or paste it here.")
+        Text(model.kos.isEmpty
+          ? "From KOS: Settings, Devices, Add a device. Open its link or paste it here."
+          : "From that KOS: Settings, Devices, Add a device. Pairing one already here replaces it.")
           .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
         if let page = model.devicesPage {
           Spacer(minLength: 4)
@@ -218,7 +250,7 @@ public struct HomeView: View {
           .foregroundStyle(model.noteFailed ? Theme.danger : Theme.muted)
           .fixedSize(horizontal: false, vertical: true)
         Spacer(minLength: 8)
-        if model.showPairing && model.link != .notPaired {
+        if !model.kos.isEmpty {
           Button("Cancel") { model.showPairing = false }.buttonStyle(KOSButtonStyle(.ghost))
         }
         Button("Pair", action: model.actions.pair)
@@ -239,8 +271,8 @@ public struct HomeView: View {
           .frame(width: 32, height: 32)
           .background(Theme.warn.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         VStack(alignment: .leading, spacing: 3) {
-          Text("Can't read the pairing").font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.text)
-          Text("\(problem) If macOS asks whether KOS Device may use its Keychain item, choose Always Allow. The pairing is still there.")
+          Text("Can't read the pairings").font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.text)
+          Text("\(problem) If macOS asks whether KOS Device may use its Keychain item, choose Always Allow. The pairings are still there.")
             .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
         }
       }
@@ -251,68 +283,91 @@ public struct HomeView: View {
     }
   }
 
-  private var connectionCard: some View {
+  /// One KOS: which it is, how its line stands, whether it asks first, and what to do with it.
+  private func kosCard(_ entry: KOSEntry) -> some View {
     Card {
-      VStack(alignment: .leading, spacing: 3) {
-        Text(connectionTitle).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.text)
-        Text(connectionDetail).font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-      }
-      if let host = model.host {
-        HStack(spacing: 6) {
-          Image(systemName: "network").font(.system(size: 11)).foregroundStyle(Theme.faint)
-          if let dashboard = model.dashboard {
-            KOSLink(host, to: dashboard)
-          } else {
-            Text(host).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
-          }
+      HStack(alignment: .top, spacing: 12) {
+        Image(systemName: "server.rack")
+          .font(.system(size: 13, weight: .medium))
+          .foregroundStyle(tint(entry.link))
+          .frame(width: 32, height: 32)
+          .background(tint(entry.link).opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        VStack(alignment: .leading, spacing: 3) {
+          Text(entry.host)
+            .font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.text)
+            .lineLimit(1).truncationMode(.middle)
+          Text(status(entry)).font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
         }
+        Spacer(minLength: 8)
+        pill(entry.link)
+      }
+      Divider().overlay(Theme.line)
+      HStack(alignment: .top, spacing: 12) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Ask before each session").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text)
+          Text(entry.askFirst
+            ? "This KOS asks here, with the task and how long, every time."
+            : "Off: this KOS's approval queue decides instead. The border and Stop still show.")
+            .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+        }
+        Spacer(minLength: 8)
+        KOSSwitch(isOn: entry.askFirst) { model.actions.setAskFirst(entry.id, $0) }
       }
       HStack(spacing: 8) {
-        switch model.link {
-        case .disconnected:
-          Button("Connect", action: model.actions.connect).buttonStyle(KOSButtonStyle(.primary))
-        default:
-          Button("Disconnect", action: model.actions.disconnect)
+        if entry.link == .disconnected {
+          Button("Connect") { model.actions.connect(entry.id) }.buttonStyle(KOSButtonStyle(.primary))
+        } else {
+          Button("Disconnect") { model.actions.disconnect(entry.id) }
             .buttonStyle(KOSButtonStyle(.ghost))
-            .help("KOS sees this Mac offline until you connect again; the pairing stays.")
+            .help("This KOS sees this Mac offline until you connect again; the pairing stays.")
         }
         Spacer()
-        switch model.link {
+        if let dashboard = entry.dashboard {
+          KOSLink("Dashboard", to: dashboard)
+        }
+        switch entry.link {
         case .offline, .untrusted, .replaced:
-          Button("Reconnect", action: model.actions.reconnect).buttonStyle(KOSButtonStyle(.secondary))
+          Button("Reconnect") { model.actions.reconnect(entry.id) }.buttonStyle(KOSButtonStyle(.secondary))
         default:
           EmptyView()
         }
-        Button("Pair again") { model.showPairing = true }.buttonStyle(KOSButtonStyle(.ghost))
-        Button("Unpair", action: model.actions.unpair).buttonStyle(KOSButtonStyle(.danger))
+        Button("Unpair") { model.actions.unpair(entry.id) }.buttonStyle(KOSButtonStyle(.danger))
       }
     }
   }
 
-  private var connectionTitle: String {
-    let name = model.deviceName.map { "as \($0)" } ?? ""
-    switch model.link {
-    case .connected: return "Connected to KOS \(name)".trimmingCharacters(in: .whitespaces)
-    case .connecting: return "Connecting to KOS…"
-    case .offline: return "Can't reach KOS"
-    case .untrusted: return "This KOS could not prove who it is"
-    case .replaced: return "Connected from another copy"
-    case .outdated: return "KOS is newer than this app"
-    case .disconnected: return "Not connected"
-    case .notPaired: return "Not paired"
+  private func pill(_ link: LinkState) -> Pill {
+    switch link {
+    case .connecting: return Pill("Connecting", tone: .accent, dot: true)
+    case .connected: return Pill("Connected", tone: .ok, dot: true)
+    case .offline: return Pill("Offline", tone: .warn, dot: true)
+    case .untrusted: return Pill("Not KOS", tone: .danger, dot: true)
+    case .replaced: return Pill("Elsewhere", tone: .warn, dot: true)
+    case .outdated: return Pill("Update", tone: .warn, dot: true)
+    case .disconnected: return Pill("Disconnected", tone: .muted, dot: true)
     }
   }
 
-  private var connectionDetail: String {
-    switch model.link {
-    case .connected: return "KOS can ask for a session. You decide here."
-    case .connecting: return "Dialling out; nothing listens on this Mac."
-    case .offline(let why): return why
-    case .untrusted: return "Its signature did not match the key from pairing, so nothing it says is acted on."
+  private func tint(_ link: LinkState) -> Color {
+    switch link {
+    case .connected: return Theme.ok
+    case .connecting: return Theme.accent
+    case .untrusted: return Theme.danger
+    case .disconnected: return Theme.muted
+    case .offline, .replaced, .outdated: return Theme.warn
+    }
+  }
+
+  /// How the line to one KOS stands, in a sentence.
+  private func status(_ entry: KOSEntry) -> String {
+    switch entry.link {
+    case .connected: return "Connected as \(entry.deviceName)."
+    case .connecting: return "Connecting. Dialling out; nothing listens on this Mac."
+    case .offline(let why): return "Can't reach it: \(why)"
+    case .untrusted: return "It could not sign with the key from pairing, so nothing it says is acted on."
     case .replaced: return "Another KOS Device with this pairing took the line. Reconnect to take it back."
-    case .outdated: return "Update KOS Device to keep using it with this KOS."
-    case .disconnected: return "KOS can't reach this Mac until you connect. The pairing stays."
-    case .notPaired: return ""
+    case .outdated: return "It is newer than this app. Update KOS Device to keep using it."
+    case .disconnected: return "Not connected. It can't reach this Mac until you connect; the pairing stays."
     }
   }
 
@@ -391,18 +446,6 @@ public struct HomeView: View {
 
   private var rulesCard: some View {
     Card {
-      HStack(alignment: .top, spacing: 12) {
-        VStack(alignment: .leading, spacing: 2) {
-          Text("Ask before each session").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
-          Text(model.askFirst
-            ? "KOS asks here, with the task and how long, every time."
-            : "Off: KOS's approval queue decides instead. The border and Stop still show.")
-            .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-        }
-        Spacer(minLength: 8)
-        KOSSwitch(isOn: model.askFirst, set: model.actions.setAskFirst)
-      }
-      Divider().overlay(Theme.line)
       VStack(alignment: .leading, spacing: 8) {
         HStack {
           Text("Hidden from KOS").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text)

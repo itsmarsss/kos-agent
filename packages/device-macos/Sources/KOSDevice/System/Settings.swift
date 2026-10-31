@@ -32,6 +32,7 @@ final class Settings {
 
   private enum Key {
     static let askFirst = "askBeforeEachSession"
+    static let askFirstByKOS = "askBeforeEachSessionByKOS"
     static let hiddenApps = "hiddenApps"
     static let longest = "longestSessionMinutes"
     static let promptWait = "promptWaitSeconds"
@@ -59,16 +60,33 @@ final class Settings {
     ])
   }
 
-  /// On: the owner allows each session here. Off: KOS's approval queue decides.
-  var askFirst: Bool {
-    get { defaults.bool(forKey: Key.askFirst) }
-    set {
-      defaults.set(newValue, forKey: Key.askFirst)
-      onChange?()
-    }
+  /// On: the owner allows each session from `kos`, a pairing's device id,
+  /// here. Off: that KOS's approval queue decides. A KOS the owner has not
+  /// set follows the one switch there was before a Mac could pair with
+  /// several; one paired since starts on.
+  func askFirst(for kos: String) -> Bool {
+    askFirstByKOS[kos] ?? defaults.bool(forKey: Key.askFirst)
   }
 
-  var consent: Consent { askFirst ? .device : .kos }
+  func setAskFirst(_ on: Bool, for kos: String) {
+    var map = askFirstByKOS
+    map[kos] = on
+    defaults.set(map, forKey: Key.askFirstByKOS)
+    onChange?()
+  }
+
+  func consent(for kos: String) -> Consent { askFirst(for: kos) ? .device : .kos }
+
+  /// A KOS unpaired: nothing of it is kept.
+  func forget(kos: String) {
+    var map = askFirstByKOS
+    map[kos] = nil
+    defaults.set(map, forKey: Key.askFirstByKOS)
+  }
+
+  private var askFirstByKOS: [String: Bool] {
+    defaults.dictionary(forKey: Key.askFirstByKOS) as? [String: Bool] ?? [:]
+  }
 
   /// The longest a session may run, whatever KOS asks for.
   var longestMinutes: Int {

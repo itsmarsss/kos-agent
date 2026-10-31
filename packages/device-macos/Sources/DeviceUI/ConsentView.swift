@@ -31,6 +31,8 @@ public struct TargetChoice: Identifiable, Equatable {
 public final class ConsentModel: ObservableObject {
   public let task: String
   public let requester: String
+  /// Which KOS asks, when this Mac is paired with more than one.
+  public let kos: String?
   /// The chat asking, on the dashboard, to read before allowing.
   public let chat: URL?
   /// Whole minutes the owner may choose from, longest last.
@@ -52,9 +54,10 @@ public final class ConsentModel: ObservableObject {
 
   var chosen: TargetChoice? { targets.first { $0.id == target } }
 
-  public init(task: String, requester: String, chat: URL? = nil, offered: [Int], longest: Int? = nil, timeout: Int) {
+  public init(task: String, requester: String, kos: String? = nil, chat: URL? = nil, offered: [Int], longest: Int? = nil, timeout: Int) {
     self.task = task
     self.requester = requester
+    self.kos = kos
     self.chat = chat
     self.offered = offered
     self.longest = max(1, longest ?? offered.last ?? 60)
@@ -94,6 +97,9 @@ public struct ConsentView: View {
             KOSLink(model.requester, to: chat, size: 12.5)
           } else {
             Text(model.requester).foregroundStyle(Theme.accent).fontWeight(.medium).font(.system(size: 12.5))
+          }
+          if let kos = model.kos {
+            Text("on \(kos)").foregroundStyle(Theme.muted).font(.system(size: 12.5)).lineLimit(1).truncationMode(.middle)
           }
         }
       }
