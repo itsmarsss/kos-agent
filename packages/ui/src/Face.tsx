@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type ReactElement } from "react";
 
-import { FILL_SAT, KOS_SEED, lightnessOf, lookOf as specOf, type FaceLook } from "@kos/shared";
+import { FILL_SAT, KOS_SEED, eyeAt, lightnessOf, lookOf as specOf, outline, smoothPath, type BlobShape, type BlobWhim, type FaceLook } from "@kos/shared";
+import { GAITS, mountBlob, type BlobHandle } from "@kos/shared/blobmotion";
 
-import { GAITS, eyeAt, mountBlob, outline, smoothPath, type BlobHandle, type BlobShape, type BlobWhim } from "./blob.js";
 import { desaturateHex } from "./colour.js";
 
 export { FILL_SAT, KOS_SEED, lightnessOf };
