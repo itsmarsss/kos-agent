@@ -5,6 +5,7 @@ import { installOverlay, type OverlayState } from "./overlay.js";
 import { CallError, PROTOCOL } from "./protocol.js";
 import { checkCommand, forwards, isInput, isWebUrl } from "./relay.js";
 import { Session, type EndReason, type PageInput } from "./session.js";
+import { CONSENT_MS } from "./timing.js";
 
 /**
  * The extension's worker: paired with one KOS, it answers that KOS's calls
@@ -46,8 +47,6 @@ export interface ConsentRequest {
 const IDLE_MS = 5 * 60_000;
 /** The most a session may run for, whatever KOS asks. */
 const LONGEST_MINUTES = 120;
-/** How long the owner has to answer before the ask counts as no. */
-const CONSENT_MS = 60_000;
 const WORLD = "kos";
 const BINDING = "kosOverlay";
 const GROUP = "KOS";
@@ -191,7 +190,7 @@ function askOwner(request: ConsentRequest): Promise<{ allowed: boolean; minutes:
     const entry: { request: ConsentRequest; answer: (a: { allowed: boolean; minutes: number }) => void; window?: number } = { request, answer: settle };
     consents.set(request.id, entry);
     void chrome.windows
-      .create({ url: chrome.runtime.getURL(`consent.html?id=${encodeURIComponent(request.id)}`), type: "popup", width: 440, height: 400, focused: true })
+      .create({ url: chrome.runtime.getURL(`consent.html?id=${encodeURIComponent(request.id)}`), type: "popup", width: 440, height: 500, focused: true })
       .then((win) => {
         entry.window = win?.id;
       })
