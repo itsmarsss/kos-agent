@@ -2577,42 +2577,9 @@ export async function handleApiRequest(
 
   if (method === "GET" && path === "/api/mentions") {
     const params = queryParams(req.url);
-    const q = params.get("q") ?? "";
-    const kind = params.get("kind");
-    const kinds = ["project", "page", "file", "schedule", "chat", "site", "blob", "agent", "build", "tab", "channel", "approval"];
-    // The palette and the @ menu ask the same question of the same index, so
-    // a thing reachable by one is reachable by the other. Asked from inside a
-    // project, that project's own things come first.
-    const limit = clampLimit(params.get("limit"), 12);
     const project = params.get("project") ?? undefined;
     return ok({
-      mentions: findMentions(
-        {
-          projects: kernel.manifest.list(),
-          pages: kernel.pages.list(),
-          crons: kernel.crons.list(),
-          workspace: kernel.workspace,
-          chats: kernel.conversations
-            .list(kernel.profile.ownerId)
-            .map((c) => ({ id: c.id, title: c.title, projectSlug: c.projectSlug })),
-          sites: listSites(kernel.workspace),
-          roles: kernel.roles.list().roles.map((r) => ({ name: r.name, description: r.description })),
-          builds: kernel.builds
-            .list()
-            .map((b) => ({ id: b.id, dir: b.dir, status: b.status })),
-          // The browser's tabs, each named for whose it is in words.
-          tabs: kernel.browser.tabs().map(({ owner, ...t }) => ({
-            ...t,
-            ...(owner ? { owner: kernel.conversations.get(owner)?.title ?? owner } : {}),
-          })),
-          channels: knownChannels(kernel),
-          approvals: kernel.approvals.pending().map((a) => ({ id: a.id, summary: summarizeAction(a.tool, a.args, (kind, id) => kernel.labelFor(kind, id)) })),
-        },
-        q,
-        limit,
-        kind && kinds.includes(kind) ? (kind as MentionKind) : undefined,
-        project,
-      ),
+      mentions: mentionsOf(kernel, params.get("q") ?? "", clampLimit(params.get("limit"), 12), params.get("kind") ?? undefined, project),
       commands: CHAT_COMMANDS,
     });
   }
@@ -2925,6 +2892,36 @@ export async function handleApiRequest(
   }
 
   return { status: 404, body: { error: "not found" } };
+}
+
+/**
+ * What an @ can name, best first: the palette, the dashboard's @ menu and
+ * the Chrome side panel's ask this one index, so a thing reachable by one
+ * is reachable by all. Asked from inside a project, its own things come
+ * first.
+ */
+export function mentionsOf(kernel: Kernel, q: string, limit: number, kind?: string, project?: string): ReturnType<typeof findMentions> {
+  const kinds = ["project", "page", "file", "schedule", "chat", "site", "blob", "agent", "build", "tab", "channel", "approval"];
+  return findMentions(
+    {
+      projects: kernel.manifest.list(),
+      pages: kernel.pages.list(),
+      crons: kernel.crons.list(),
+      workspace: kernel.workspace,
+      chats: kernel.conversations.list(kernel.profile.ownerId).map((c) => ({ id: c.id, title: c.title, projectSlug: c.projectSlug })),
+      sites: listSites(kernel.workspace),
+      roles: kernel.roles.list().roles.map((r) => ({ name: r.name, description: r.description })),
+      builds: kernel.builds.list().map((b) => ({ id: b.id, dir: b.dir, status: b.status })),
+      // The browser's tabs, each named for whose it is in words.
+      tabs: kernel.browser.tabs().map(({ owner, ...t }) => ({ ...t, ...(owner ? { owner: kernel.conversations.get(owner)?.title ?? owner } : {}) })),
+      channels: knownChannels(kernel),
+      approvals: kernel.approvals.pending().map((a) => ({ id: a.id, summary: summarizeAction(a.tool, a.args, (k, id) => kernel.labelFor(k, id)) })),
+    },
+    q,
+    limit,
+    kind && kinds.includes(kind) ? (kind as MentionKind) : undefined,
+    project,
+  );
 }
 
 /**

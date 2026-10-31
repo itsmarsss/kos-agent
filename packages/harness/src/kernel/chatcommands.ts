@@ -171,6 +171,8 @@ export interface CommandContext {
   userId: string;
   /** The conversation this surface is currently pointed at. */
   currentId: string;
+  /** The chats this surface may list and move to, when it keeps to its own: the Chrome side panel's. */
+  within?: (c: Conversation) => boolean;
 }
 
 export interface CommandResult {
@@ -225,7 +227,7 @@ export function runChatCommand(
     }
 
     case "list": {
-      const list = conversations.list(userId);
+      const list = conversations.list(userId).filter((c) => ctx.within?.(c) ?? true);
       if (list.length === 0) return { reply: "No conversations yet." };
       return {
         reply: [
@@ -238,7 +240,7 @@ export function runChatCommand(
     }
 
     case "switch": {
-      const list = conversations.list(userId);
+      const list = conversations.list(userId).filter((c) => ctx.within?.(c) ?? true);
       const found = resolveConversation(list, command.target);
       if (!found) {
         return { reply: `No conversation matches “${command.target}”. Try \`/chats\`.` };

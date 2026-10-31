@@ -2687,6 +2687,8 @@ export class Kernel {
     room?: MessageRoom;
     members?: { id: string; name: string }[];
     context?: string;
+    /** The surface keeps to its own chats: its commands list and move among those alone. */
+    contained?: boolean;
   }): Promise<HandleResult & { conversationId: string; isCommand: boolean; from?: Sender }> {
     const conversation = input.conversationId
       ? this.boundConversation(input.conversationId, input.userId, input.channel, input.newIn)
@@ -2702,6 +2704,7 @@ export class Kernel {
             channel: input.channel,
             userId: input.userId,
             currentId: conversation.id,
+            ...(input.contained ? { within: (c: Conversation) => c.channel === input.channel } : {}),
           });
       return {
         reply: result.reply,

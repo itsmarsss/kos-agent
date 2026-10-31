@@ -137,6 +137,16 @@ describe("runChatCommand", () => {
     expect(res.switchedTo).toBe(b.id);
   });
 
+  it("keeps a surface that keeps to its own chats among them", () => {
+    const panel = conversations.create({ userId: "owner", title: "Quiz", channel: "chrome" });
+    conversations.create({ userId: "owner", title: "Budget" });
+    const within = { conversations, channel: "chrome", userId: "owner", currentId: panel.id, within: (c: { channel?: string | null }) => c.channel === "chrome" };
+    const listed = runChatCommand({ kind: "list" }, within);
+    expect(listed.reply).toContain("Quiz");
+    expect(listed.reply).not.toContain("Budget");
+    expect(runChatCommand({ kind: "switch", target: "Budget" }, within).switchedTo).toBeUndefined();
+  });
+
   it("says so when a switch target does not exist", () => {
     const a = conversations.create({ userId: "owner", title: "Main" });
     const res = runChatCommand({ kind: "switch", target: "zzz" }, ctx(a.id));
