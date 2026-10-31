@@ -25,13 +25,35 @@ enum PairingStore {
     [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
   }
 
-  static func load() -> Pairing? {
+  /// The saved pairing, or nothing when none was saved. A Keychain that will
+  /// not give it up throws: read as "not paired", it had the owner pair again
+  /// when allowing KOS Device in the Keychain was all it needed.
+  static func load() throws -> Pairing? {
     var lookup = query
     lookup[kSecReturnData as String] = true
     lookup[kSecMatchLimit as String] = kSecMatchLimitOne
     var found: CFTypeRef?
-    guard SecItemCopyMatching(lookup as CFDictionary, &found) == errSecSuccess, let data = found as? Data else { return nil }
-    return try? JSONDecoder().decode(Pairing.self, from: data)
+    let status = SecItemCopyMatching(lookup as CFDictionary, &found)
+    if status == errSecItemNotFound {
+      Log.pairing.notice("no pairing saved")
+      return nil
+    }
+    guard status == errSecSuccess, let data = found as? Data else {
+      Log.pairing.error("the Keychain refused the pairing: \(status, privacy: .public) \(describe(status), privacy: .public)")
+      throw DeviceError(.internal, "The Keychain would not give KOS Device its pairing (\(describe(status))).")
+    }
+    do {
+      let pairing = try JSONDecoder().decode(Pairing.self, from: data)
+      Log.pairing.notice("pairing read for \(pairing.address, privacy: .public)")
+      return pairing
+    } catch {
+      Log.pairing.error("the saved pairing did not decode: \(error.localizedDescription, privacy: .public)")
+      throw DeviceError(.internal, "The saved pairing could not be read. Pair again.")
+    }
+  }
+
+  private static func describe(_ status: OSStatus) -> String {
+    SecCopyErrorMessageString(status, nil) as String? ?? "status \(status)"
   }
 
   static func save(_ pairing: Pairing) throws {
@@ -42,12 +64,14 @@ enum PairingStore {
     item[kSecAttrLabel as String] = "KOS Device pairing"
     let status = SecItemAdd(item as CFDictionary, nil)
     guard status == errSecSuccess else {
-      let reason = SecCopyErrorMessageString(status, nil) as String? ?? "status \(status)"
-      throw DeviceError(.internal, "Could not keep the pairing in the Keychain: \(reason)")
+      Log.pairing.error("the Keychain would not keep the pairing: \(status, privacy: .public) \(describe(status), privacy: .public)")
+      throw DeviceError(.internal, "Could not keep the pairing in the Keychain: \(describe(status))")
     }
+    Log.pairing.notice("pairing kept for \(pairing.address, privacy: .public)")
   }
 
   static func clear() {
-    SecItemDelete(query as CFDictionary)
+    let status = SecItemDelete(query as CFDictionary)
+    Log.pairing.notice("pairing cleared: \(status == errSecSuccess ? "removed" : describe(status), privacy: .public)")
   }
 }

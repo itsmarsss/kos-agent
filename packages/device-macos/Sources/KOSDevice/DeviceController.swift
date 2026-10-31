@@ -96,6 +96,7 @@ final class DeviceController {
     }
     let task = params.task.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !task.isEmpty else { throw DeviceError.badRequest("Say what the session is for in task.") }
+    Log.session.notice("asked by \(params.requester, privacy: .public) for \(params.minutes, privacy: .public) min: \(task, privacy: .private)")
     try sessions.ask(params.session)
     if let missing = SystemPermissions.missing(SystemPermissions.current()) {
       sessions.deny(params.session)
@@ -121,12 +122,15 @@ final class DeviceController {
         minutes = chosen
         picked = target
       case .denied:
+        Log.session.notice("declined by the owner")
         sessions.deny(params.session)
         throw DeviceError(.denied, "The owner declined on this Mac.")
       case .unanswered:
+        Log.session.notice("nobody answered")
         sessions.deny(params.session)
         throw DeviceError(.denied, "Nobody answered on this Mac in time.")
       case .withdrawn:
+        Log.session.notice("withdrawn before an answer")
         sessions.deny(params.session)
         throw DeviceError(.noSession, "The request was withdrawn.")
       }
@@ -155,6 +159,7 @@ final class DeviceController {
       target: target, space: space, now: Date())
     display = id
     maxEdge = edge
+    Log.session.notice("live for \(minutes, privacy: .public) min in \(picked == TargetChoice.screen ? "the screen" : "one window", privacy: .public)")
     if case .window = target {
       overlay.show(display: id, task: task, until: session.until, window: frame)
       // Up front, as a shared window is, so KOS's first look is at it.
@@ -226,6 +231,7 @@ final class DeviceController {
   private func end(_ reason: EndReason?) {
     consent.cancel()
     guard let id = sessions.end() else { return }
+    Log.session.notice("ended: \(reason?.rawValue ?? "by KOS or the line", privacy: .public)")
     owner.stop()
     ticker?.invalidate()
     ticker = nil
@@ -245,6 +251,7 @@ final class DeviceController {
 
   func pause() {
     guard let id = sessions.pause() else { return }
+    Log.session.notice("paused: the owner took over")
     overlay.setPaused(true)
     emit(.sessionPaused, SessionPausedEvent(session: id))
     onChange?()
@@ -252,6 +259,7 @@ final class DeviceController {
 
   func resume() {
     guard let id = sessions.resume(now: Date()) else { return }
+    Log.session.notice("resumed")
     overlay.setPaused(false)
     owner.ignorePointer(for: Self.handOverGrace)
     emit(.sessionResumed, SessionResumedEvent(session: id))

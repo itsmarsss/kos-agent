@@ -40,6 +40,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     home.onPaired = { [unowned self] paired in adopt(paired) }
     home.model.actions.unpair = { [unowned self] in confirmUnpair() }
     home.model.actions.reconnect = { [unowned self] in connection.redialNow() }
+    home.model.actions.retryKeychain = { [unowned self] in
+      loadPairing()
+      changed()
+    }
     home.model.actions.setAskFirst = { [unowned self] on in setAskFirst(on) }
     home.model.actions.pause = { [unowned self] in controller.pause() }
     home.model.actions.resume = { [unowned self] in controller.resume() }
@@ -69,17 +73,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       MainActor.assumeIsolated { self?.reportStateIfChanged() }
     }
 
-    if let saved = PairingStore.load() {
-      pairing = saved
-      // Connected at once unless the owner said to wait for Connect.
-      if settings.connectWhenOpened { connection.start(saved) } else { connection.hold(saved) }
-    }
+    Log.app.notice("launched, version \(Connection.appInfo.version, privacy: .public)")
+    loadPairing()
     changed()
     // Nothing to do until it is paired and granted: say so, once, at launch.
     if pairing == nil || SystemPermissions.missing(SystemPermissions.current()) != nil { home.show() }
   }
 
   func applicationWillTerminate(_ notification: Notification) {
+    Log.app.notice("quitting")
     controller.quitting()
     connection.stop()
   }
@@ -96,6 +98,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   // MARK: Pairing
+
+  /// The saved pairing, dialled at once unless the owner said to wait for
+  /// Connect. A Keychain that refused it is said in the window, with Try again.
+  private func loadPairing() {
+    do {
+      home.model.keychainProblem = nil
+      guard let saved = try PairingStore.load() else { return }
+      pairing = saved
+      Log.app.notice("connect when opened: \(self.settings.connectWhenOpened, privacy: .public)")
+      if settings.connectWhenOpened { connection.start(saved) } else { connection.hold(saved) }
+    } catch let error as DeviceError {
+      home.model.keychainProblem = error.message
+    } catch {
+      home.model.keychainProblem = error.localizedDescription
+    }
+  }
 
   private func adopt(_ paired: Pairing) {
     do {

@@ -75,6 +75,12 @@ final class Connection: NSObject {
 
   var isProven: Bool { proven }
 
+  /// Which KOS this line is to, for the log.
+  private var label: String {
+    guard let pairing else { return "no KOS" }
+    return (try? pairing.kosAddress().display) ?? pairing.address
+  }
+
   func start(_ pairing: Pairing) {
     self.pairing = pairing
     heldOff = false
@@ -86,12 +92,14 @@ final class Connection: NSObject {
   func hold(_ pairing: Pairing) {
     self.pairing = pairing
     heldOff = true
+    Log.line.notice("\(self.label, privacy: .public): held off until Connect")
     hangUp(code: .normalClosure)
     status = .disconnected
   }
 
   /// Hangs up for good: unpairing or quitting.
   func stop() {
+    Log.line.notice("\(self.label, privacy: .public): hung up for good")
     pairing = nil
     hangUp(code: .normalClosure)
     status = .offline("Not paired")
@@ -127,6 +135,7 @@ final class Connection: NSObject {
     }
     generation += 1
     status = .connecting
+    Log.line.notice("\(self.label, privacy: .public): dialling \(address.socketURL.absoluteString, privacy: .public)")
     let task = session.webSocketTask(with: address.socketURL)
     task.maximumMessageSize = Self.maxMessageBytes
     self.task = task
@@ -156,14 +165,19 @@ final class Connection: NSObject {
   }
 
   private func lost(_ reason: String) {
+    Log.line.error("\(self.label, privacy: .public): line lost: \(reason, privacy: .public)")
     hangUp(code: .goingAway)
     status = .offline(reason)
     scheduleRedial()
   }
 
   private func scheduleRedial() {
-    guard pairing != nil, !heldOff else { return }
+    guard pairing != nil, !heldOff else {
+      Log.line.notice("\(self.label, privacy: .public): not redialling (\(self.pairing == nil ? "unpaired" : "held off", privacy: .public))")
+      return
+    }
     let delay = backoff.next()
+    Log.line.notice("\(self.label, privacy: .public): redialling in \(delay, format: .fixed(precision: 1), privacy: .public) s")
     redial = Task { [weak self] in
       try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
       guard !Task.isCancelled else { return }
@@ -174,6 +188,7 @@ final class Connection: NSObject {
   private func networkChanged(up: Bool) {
     defer { pathWasDown = !up }
     guard up, pathWasDown, pairing != nil, !proven, !heldOff else { return }
+    Log.line.notice("\(self.label, privacy: .public): network back, redialling")
     redialNow()
   }
 
@@ -212,6 +227,7 @@ final class Connection: NSObject {
     switch message {
     case .challenge(let version, let nonce):
       guard version == protocolVersion else {
+        Log.line.error("\(self.label, privacy: .public): KOS speaks protocol \(version, privacy: .public), this app \(protocolVersion, privacy: .public)")
         hangUp(code: .init(rawValue: Close.unsupported) ?? .protocolError)
         status = .outdated
         return
@@ -231,6 +247,7 @@ final class Connection: NSObject {
       let payload = Handshake.hostPayload(deviceNonce: deviceNonce, deviceId: pairing.deviceId)
       guard let hostKey = try? pairing.pinnedHostKey(), hostKey.verify(signature: signature, payload: payload) else {
         // Not KOS, whatever its address says. Nothing it sends is acted on.
+        Log.line.error("\(self.label, privacy: .public): the far end did not sign with the key pinned at pairing")
         hangUp(code: .init(rawValue: Close.unknownDevice) ?? .policyViolation)
         status = .untrusted
         scheduleRedial()
@@ -240,6 +257,7 @@ final class Connection: NSObject {
       handshakeTimer?.invalidate()
       backoff.reset()
       status = .connected(name: name)
+      Log.line.notice("\(self.label, privacy: .public): proven, connected as \(name, privacy: .public)")
       startPinging()
 
     case .call(let call):
@@ -269,6 +287,7 @@ final class Connection: NSObject {
 
   fileprivate func closed(_ task: URLSessionWebSocketTask, code: Int) {
     guard task === self.task else { return }
+    Log.line.notice("\(self.label, privacy: .public): KOS closed the line with \(code, privacy: .public)")
     switch code {
     case Close.unknownDevice:
       hangUp(code: .normalClosure)

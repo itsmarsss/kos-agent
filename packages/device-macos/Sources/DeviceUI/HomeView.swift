@@ -81,7 +81,9 @@ public struct HomeView: View {
       }
       section("KOS") {
         ZStack(alignment: .top) {
-          if model.pairing {
+          if let problem = model.keychainProblem {
+            keychainCard(problem).transition(.opacity)
+          } else if model.pairing {
             pairingCard.transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
           } else {
             connectionCard.transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
@@ -201,6 +203,28 @@ public struct HomeView: View {
           .buttonStyle(KOSButtonStyle(.primary))
           .keyboardShortcut(.defaultAction)
           .disabled(model.busy || model.address.isEmpty || model.code.isEmpty)
+      }
+    }
+  }
+
+  /// The pairing is there but the Keychain would not hand it over: a rebuilt app asks again.
+  private func keychainCard(_ problem: String) -> some View {
+    Card {
+      HStack(alignment: .top, spacing: 12) {
+        Image(systemName: "key.slash")
+          .font(.system(size: 14, weight: .medium))
+          .foregroundStyle(Theme.warn)
+          .frame(width: 32, height: 32)
+          .background(Theme.warn.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        VStack(alignment: .leading, spacing: 3) {
+          Text("Can't read the pairing").font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.text)
+          Text("\(problem) If macOS asks whether KOS Device may use its Keychain item, choose Always Allow. The pairing is still there.")
+            .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      HStack {
+        Spacer()
+        Button("Try again", action: model.actions.retryKeychain).buttonStyle(KOSButtonStyle(.primary))
       }
     }
   }

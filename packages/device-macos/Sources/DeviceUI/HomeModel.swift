@@ -99,6 +99,8 @@ public struct HomeActions {
   public var pair: () -> Void = {}
   public var unpair: () -> Void = {}
   public var reconnect: () -> Void = {}
+  /// Read the pairing from the Keychain again, after it refused.
+  public var retryKeychain: () -> Void = {}
   public var grant: (Grant) -> Void = { _ in }
   public var setAskFirst: (Bool) -> Void = { _ in }
   public var hide: (String) -> Void = { _ in }
@@ -132,6 +134,8 @@ public final class HomeModel: ObservableObject {
   /// This Mac's name in KOS, once paired.
   @Published public var deviceName: String?
   @Published public var session: SessionSummary?
+  /// The Keychain would not give up the pairing: why, until a try succeeds.
+  @Published public var keychainProblem: String?
   @Published public var screenGranted = false
   @Published public var inputGranted = false
   /// A grant asked for once: the next press goes to its switch in System Settings.
