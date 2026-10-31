@@ -1700,8 +1700,8 @@ export function SettingsPage({
 
         {active === "browser" && (
           <Section
-            title="Browser"
-            blurb="The one Chrome KOS runs, a tab per agent and tabs of your own. Headless by default: the Browser window on the sidebar is its screen. A change here takes effect when the browser next starts."
+            title="KOS's browser"
+            blurb="The one Chrome KOS runs on this host, separate from your own Chrome: a tab per agent and tabs of your own. Headless by default: the Browser window on the sidebar is its screen. A change here takes effect when the browser next starts."
             saving={busy === "browser"}
             saved={browserDirty ? "Not saved yet" : (saved["browser"] ?? null)}
             canSave={browserDirty}
