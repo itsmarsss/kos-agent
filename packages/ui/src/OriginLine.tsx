@@ -3,17 +3,17 @@ import type { ReactElement } from "react";
 import type { MessageOrigin } from "./api.js";
 import { hrefFor } from "./routes.js";
 
+/** A messaging surface as its maker spells it. */
+export function surfaceName(channel: string): string {
+  return channel === "discord" ? "Discord" : channel === "imessage" ? "iMessage" : channel === "sms" ? "SMS" : channel;
+}
+
 /**
  * Where a message came from, in words: "via #leetcode on Discord", "Ana, a
  * guest in #leetcode on Discord", "schedule · LeetCode Daily", "sent by
  * Workout Tracker". The dashboard itself is never named; a message typed
  * here is the ordinary case and carries no origin at all.
  */
-/** A messaging surface as its maker spells it. */
-export function surfaceName(channel: string): string {
-  return channel === "discord" ? "Discord" : channel === "imessage" ? "iMessage" : channel === "sms" ? "SMS" : channel;
-}
-
 export function originWords(origin: MessageOrigin): { text: string; href?: string; room?: string } | null {
   const { via, room, from } = origin;
   const surface = via === "dashboard" ? "" : surfaceName(via);
