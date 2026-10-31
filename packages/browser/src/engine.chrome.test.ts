@@ -39,6 +39,29 @@ const VEILED = `<!doctype html><title>Veiled</title>
 <button id="under" onclick="document.title='clicked'">Buy</button>
 <div class="glow" style="position:fixed;inset:0;pointer-events:none;box-shadow:inset 0 0 0 2px #7c9cff"></div>`;
 
+// A button that scrolls into view at the very bottom, where the page keeps a bar over it.
+const STICKY = `<!doctype html><title>Sticky</title><body style="margin:0">
+<div style="height:1600px">top</div>
+<button id="pay" onclick="document.title='paid'" style="display:block;margin:0 0 900px">Pay now</button>
+<div style="position:fixed;left:0;right:0;bottom:0;height:140px;background:#eee">Need help? Review these resources.</div>`;
+
+// Ways of using a pointer beyond a click: twice, on its other button, and dragging two kinds of thing.
+const GESTURES = `<!doctype html><title>Gestures</title><body style="margin:0">
+<div id="two" ondblclick="document.title='twice'" style="margin:20px;width:120px;height:40px;background:#ccd">twice</div>
+<div id="menu" oncontextmenu="event.preventDefault();document.title='menu'" style="margin:20px;width:120px;height:40px;background:#dcc">menu</div>
+<div id="track" style="position:relative;margin:20px;width:400px;height:20px;background:#eee">
+  <div id="knob" style="position:absolute;left:0;top:0;width:20px;height:20px;background:#55f"></div>
+  <div id="end" style="position:absolute;right:0;top:0;width:20px;height:20px"></div>
+</div>
+<div id="card" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','card-1')" style="margin:20px;width:120px;height:40px;background:#cdc">card</div>
+<div id="column" ondragover="event.preventDefault()" ondrop="event.preventDefault();document.title='dropped '+event.dataTransfer.getData('text/plain')" style="margin:20px;width:300px;height:80px;background:#ddd">column</div>
+<script>
+  const knob = document.getElementById("knob");
+  knob.addEventListener("pointerdown", (e) => { knob.setPointerCapture(e.pointerId); knob.dataset.x0 = e.clientX; });
+  knob.addEventListener("pointermove", (e) => { if (knob.hasPointerCapture(e.pointerId)) knob.style.left = Math.max(0, Math.min(380, e.clientX - Number(knob.dataset.x0))) + "px"; });
+  knob.addEventListener("pointerup", () => { document.title = "slid " + knob.style.left; });
+</script>`;
+
 const TWO = `<!doctype html><title>Two</title><main><p>The second page.</p><a href="https://example.com/far">Far away</a></main>`;
 
 const chrome = findChrome(undefined);
@@ -53,7 +76,7 @@ describe.skipIf(!chrome)("the hands on a real Chrome", () => {
 
   beforeAll(async () => {
     server = createServer((req, res) => {
-      const body = req.url === "/covered" ? COVERED : req.url === "/veiled" ? VEILED : req.url === "/two" ? TWO : req.url?.startsWith("/slow") ? "" : FORM;
+      const body = req.url === "/covered" ? COVERED : req.url === "/veiled" ? VEILED : req.url === "/sticky" ? STICKY : req.url === "/gestures" ? GESTURES : req.url === "/two" ? TWO : req.url?.startsWith("/slow") ? "" : FORM;
       if (req.url?.startsWith("/slow")) {
         // A response that never ends: a page waiting on it is still loading.
         res.writeHead(200, { "content-type": "text/html" });
@@ -140,6 +163,25 @@ describe.skipIf(!chrome)("the hands on a real Chrome", () => {
     const done = await act(tab, stepsOf([{ click: "#under" }]), "none");
     expect(done.text).toContain("clicked #under");
     expect(await tab.page.evaluate("document.title")).toBe("clicked");
+  });
+
+  it("clicks a button the page's own bar covers, by bringing it to the middle, and finds it by its words", async () => {
+    await visit(tab, [`${base}/sticky`], { then: "none" });
+    const done = await act(tab, stepsOf([{ click: "button:has-text('Pay now')" }]), "none");
+    expect(done.text).toContain("clicked button:has-text('Pay now')");
+    expect(await tab.page.evaluate("document.title")).toBe("paid");
+  });
+
+  it("double-clicks, right-clicks, slides a knob and drops a card, as a hand would", async () => {
+    await visit(tab, [`${base}/gestures`], { then: "none" });
+    await act(tab, stepsOf([{ dblclick: "#two" }]), "none");
+    expect(await tab.page.evaluate("document.title")).toBe("twice");
+    await act(tab, stepsOf([{ rightclick: "text=menu" }]), "none");
+    expect(await tab.page.evaluate("document.title")).toBe("menu");
+    await act(tab, stepsOf([{ drag: { from: "#knob", to: "#end" } }]), "none");
+    expect(await tab.page.evaluate("document.title")).toMatch(/^slid 3[5-8]\dpx$/);
+    await act(tab, stepsOf([{ drag: { from: "#card", to: "#column" } }]), "none");
+    expect(await tab.page.evaluate("document.title")).toBe("dropped card-1");
   });
 
   it("follows a link, goes back, and reads a page with its links", async () => {

@@ -125,6 +125,26 @@ export function describe(this: Element): string {
   return `<${el.tagName.toLowerCase()}${id}${cls}>${words ? ` "${words}"` : ""}`;
 }
 
+/** Brought to the middle of the view, clear of the bars a page keeps at its edges. */
+export function centre(this: Element): void {
+  this.scrollIntoView({ block: "center", inline: "center" });
+}
+
+/**
+ * The element a text selector means: of those `base` names (anything, when
+ * none), the innermost whose words hold the text, so "Submit" is the button
+ * and not the form around it. Spelled as Playwright does, which is how a
+ * model writes one: button:has-text('Submit'), text=Submit.
+ */
+export function byText(base: string, text: string): Element | null {
+  const want = text.replace(/\s+/g, " ").trim().toLowerCase();
+  const holds = (el: Element): boolean => ((el as HTMLElement).innerText ?? el.textContent ?? "").replace(/\s+/g, " ").toLowerCase().includes(want);
+  const all = Array.from(document.querySelectorAll(base || "*")).filter(holds);
+  const visible = all.filter((el) => (el as HTMLElement).offsetParent !== null || el.getClientRects().length > 0);
+  const pool = visible.length ? visible : all;
+  return pool.find((el) => !pool.some((other) => other !== el && el.contains(other))) ?? null;
+}
+
 /** Whether what a wait is for has come: text on the page, an element, or text gone. */
 export function present(kind: "text" | "selector" | "gone", value: string): boolean {
   if (kind === "selector") return document.querySelector(value) !== null;

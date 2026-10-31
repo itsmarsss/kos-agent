@@ -51,6 +51,8 @@ const LONG_REQUEST_MS = 4_000;
 /** Request kinds that never finish the way a page load does. */
 const ENDLESS = new Set(["WebSocket", "EventSource", "Media", "Ping", "Prefetch"]);
 const EVAL_MS = 10_000;
+/** Moves between a drag's press and its release, as a hand would make them. */
+const DRAG_STEPS = 8;
 const AX_MS = 20_000;
 const INPUT_MS = 10_000;
 /** How long a wait for text or an element may take. */
@@ -116,6 +118,8 @@ export class Page {
   private readonly inflight = new Map<string, number>();
   /** How to answer the next dialog, when a step said. */
   private answer: { accept: boolean; text?: string } | null = null;
+  /** What a drag the page started would carry, while a drag of the hands' is under way. */
+  private dragged: unknown;
   private readonly heard: string[] = [];
   private crashed = false;
   private prepared: Promise<void> | null = null;
@@ -175,6 +179,10 @@ export class Page {
       }
       case "Page.javascriptDialogOpening":
         this.onDialog(String(p["type"] ?? "alert"), String(p["message"] ?? ""));
+        break;
+      // The page began a drag of its own: what it would carry, for the drop.
+      case "Input.dragIntercepted":
+        this.dragged = p["data"];
         break;
       case "Network.requestWillBeSent":
         if (!ENDLESS.has(String(p["type"] ?? ""))) this.inflight.set(String(p["requestId"]), this.now());
@@ -329,6 +337,19 @@ export class Page {
       await this.acting(async () => this.click(await this.element(step.click), step.click));
       return `clicked ${step.click}`;
     }
+    if ("dblclick" in step) {
+      await this.acting(async () => this.click(await this.element(step.dblclick), step.dblclick, { button: "left", count: 2 }));
+      return `double-clicked ${step.dblclick}`;
+    }
+    if ("rightclick" in step) {
+      await this.acting(async () => this.click(await this.element(step.rightclick), step.rightclick, { button: "right", count: 1 }));
+      return `right-clicked ${step.rightclick}`;
+    }
+    if ("drag" in step) {
+      const { from, to } = step.drag;
+      await this.acting(async () => this.drag(await this.element(from), from, await this.element(to), to));
+      return `dragged ${from} to ${to}`;
+    }
     if ("hover" in step) {
       const at = await this.point(await this.element(step.hover), step.hover);
       await this.mouse("mouseMoved", at);
@@ -400,12 +421,42 @@ export class Page {
     }
   }
 
-  private async click(node: number, label: string): Promise<void> {
-    const at = await this.point(node, label);
-    await this.clear(node, at, label);
+  private async click(node: number, label: string, how: { button: "left" | "right"; count: number } = { button: "left", count: 1 }): Promise<void> {
+    const at = await this.reachable(node, label);
     await this.mouse("mouseMoved", at);
-    await this.mouse("mousePressed", at, { button: "left", clickCount: 1 });
-    await this.mouse("mouseReleased", at, { button: "left", clickCount: 1 });
+    for (let n = 1; n <= how.count; n++) {
+      await this.mouse("mousePressed", at, { button: how.button, clickCount: n });
+      await this.mouse("mouseReleased", at, { button: how.button, clickCount: n });
+    }
+  }
+
+  /**
+   * Press on one element, move to another and let go: a slider, a card into
+   * a column, a file onto a drop zone. A page that uses the browser's own
+   * drag and drop gets it from the drag Chrome would have started, which
+   * synthetic pointer moves alone never start.
+   */
+  private async drag(fromNode: number, from: string, toNode: number, to: string): Promise<void> {
+    const a = await this.reachable(fromNode, from);
+    const b = await this.point(toNode, to);
+    this.dragged = undefined;
+    await this.session.send("Input.setInterceptDrags", { enabled: true }).catch(() => undefined);
+    try {
+      await this.mouse("mouseMoved", a);
+      await this.mouse("mousePressed", a, { button: "left", buttons: 1, clickCount: 1 });
+      for (let i = 1; i <= DRAG_STEPS; i++) {
+        const t = i / DRAG_STEPS;
+        await this.mouse("mouseMoved", { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, { button: "left", buttons: 1 });
+        await sleep(16);
+      }
+      if (this.dragged) {
+        for (const type of ["dragEnter", "dragOver", "drop"]) await this.session.send("Input.dispatchDragEvent", { type, x: b.x, y: b.y, data: this.dragged, modifiers: 0 }, INPUT_MS);
+      }
+      await this.mouse("mouseReleased", b, { button: "left", clickCount: 1 });
+    } finally {
+      this.dragged = undefined;
+      await this.session.send("Input.setInterceptDrags", { enabled: false }).catch(() => undefined);
+    }
   }
 
   /** Text into a field: in place of what is there, or after it. A field that ignores typing is set directly. */
@@ -470,7 +521,7 @@ export class Page {
 
   // The parts.
 
-  /** The element a target names: a ref from the last look, or the first match of a CSS selector. */
+  /** The element a target names: a ref from the last look, a text selector, or the first match of a CSS selector. */
   private async element(target: string): Promise<number> {
     const ref = /^@?(e\d+)$/.exec(target);
     if (ref) {
@@ -478,7 +529,9 @@ export class Page {
       if (node === undefined) throw new Error(`there is no @${ref[1]} on this page; refs come from the last look, and a new page has new ones`);
       return node;
     }
-    const found = await this.session.send("Runtime.evaluate", { expression: `document.querySelector(${JSON.stringify(target)})`, objectGroup: GROUP }, EVAL_MS);
+    const byText = textSelector(target);
+    const expression = byText ? `(${inpage.byText.toString()})(${JSON.stringify(byText.base)}, ${JSON.stringify(byText.text)})` : `document.querySelector(${JSON.stringify(target)})`;
+    const found = await this.session.send("Runtime.evaluate", { expression, objectGroup: GROUP }, EVAL_MS);
     if (found["exceptionDetails"]) throw new Error(`${target} is not a selector I can use: ${exceptionText(found["exceptionDetails"])}`);
     const objectId = (found["result"] as { objectId?: string } | undefined)?.objectId;
     if (!objectId) throw new Error(`nothing on the page matches ${target}`);
@@ -540,21 +593,51 @@ export class Page {
   }
 
   /**
-   * Refuses a click that would land on something other than the element,
-   * naming what is in the way. Hit as a real click is: through anything the
-   * pointer passes through, such as the border KOS draws on a tab of the
-   * owner's Chrome, which covers the whole page.
+   * Where a press on the element lands on it. Its middle, as the hands find
+   * it; when something sits over that (most often a bar the page keeps at an
+   * edge, over whatever was just scrolled to that edge), the element brought
+   * to the middle of the view; failing that, another part of it that is
+   * clear. Only an element covered everywhere is refused, naming what is in
+   * the way, since then the page is waiting on that first.
    */
-  private async clear(node: number, at: { x: number; y: number }, label: string): Promise<void> {
+  private async reachable(node: number, label: string): Promise<{ x: number; y: number }> {
+    const at = await this.point(node, label);
+    const first = await this.blocker(node, at);
+    if (first === undefined) return at;
+    await this.call(node, inpage.centre).catch(() => undefined);
+    const centred = await this.point(node, label);
+    if ((await this.blocker(node, centred)) === undefined) return centred;
+    for (const spot of await this.spots(node)) if ((await this.blocker(node, spot)) === undefined) return spot;
+    const what = await this.call<string>(first, inpage.describe).catch(() => "something");
+    throw new Error(`${label} is covered by ${what} @${this.refs.refOf(first)}; close or answer that first`);
+  }
+
+  /**
+   * What a press at a point would land on instead of the element, if
+   * anything. Hit as a real press is: through anything the pointer passes
+   * through, such as the border KOS draws on a tab of the owner's Chrome,
+   * which covers the whole page.
+   */
+  private async blocker(node: number, at: { x: number; y: number }): Promise<number | undefined> {
     const hit = await this.session
       .send("DOM.getNodeForLocation", { x: Math.round(at.x), y: Math.round(at.y), includeUserAgentShadowDOM: false, ignorePointerEventsNone: false })
       .catch(() => undefined);
     const top = hit?.["backendNodeId"] as number | undefined;
-    if (top === undefined || top === node) return;
+    if (top === undefined || top === node) return undefined;
     const reached = await this.call<boolean>(node, inpage.reaches, [{ objectId: await this.objectOf(top) }]).catch(() => true);
-    if (reached) return;
-    const what = await this.call<string>(top, inpage.describe).catch(() => "something");
-    throw new Error(`${label} is covered by ${what} @${this.refs.refOf(top)}; close or answer that first`);
+    return reached ? undefined : top;
+  }
+
+  /** Other places on an element to press, inside its edges: its quarters, then near its corners. */
+  private async spots(node: number): Promise<{ x: number; y: number }[]> {
+    const got = await this.session.send("DOM.getContentQuads", { backendNodeId: node }).catch(() => ({}) as Record<string, unknown>);
+    const quad = ((got["quads"] as number[][] | undefined) ?? [])[0];
+    if (!quad) return [];
+    const xs = [quad[0]!, quad[2]!, quad[4]!, quad[6]!];
+    const ys = [quad[1]!, quad[3]!, quad[5]!, quad[7]!];
+    const [left, right, top, bottom] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    const at = (fx: number, fy: number): { x: number; y: number } => ({ x: left + (right - left) * fx, y: top + (bottom - top) * fy });
+    return [at(0.25, 0.5), at(0.75, 0.5), at(0.5, 0.25), at(0.5, 0.75), at(0.1, 0.15), at(0.9, 0.15), at(0.1, 0.85), at(0.9, 0.85)];
   }
 
   private async mouse(type: string, at: { x: number; y: number }, extra: Record<string, unknown> = {}): Promise<void> {
@@ -672,4 +755,15 @@ export class Page {
       this.wakers.add(check);
     });
   }
+}
+
+/**
+ * A selector by the words on the thing, as Playwright spells one and a model
+ * writes one: `button:has-text('Submit')`, or `text=Submit` for anything.
+ */
+export function textSelector(target: string): { base: string; text: string } | undefined {
+  const plain = /^text=(["']?)(.+)\1$/.exec(target.trim());
+  if (plain) return { base: "", text: plain[2]! };
+  const has = /^(.*):has-text\((["'])(.+)\2\)$/.exec(target.trim());
+  return has ? { base: has[1]!.trim(), text: has[3]! } : undefined;
 }
