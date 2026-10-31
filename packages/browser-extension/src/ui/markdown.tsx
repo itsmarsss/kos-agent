@@ -124,6 +124,25 @@ export function inline(text: string): ReactNode[] {
   return out;
 }
 
+/** The owner's own words with what they named as chips, and nothing else read into them. */
+export function withMentions(text: string): ReactNode[] {
+  const out: ReactNode[] = [];
+  const mention = /@([a-z]+):(?:\[([^\]\n]+)\]|([\w.:/-]*\w))/g;
+  let at = 0;
+  let key = 0;
+  for (const m of text.matchAll(mention)) {
+    if (m.index > at) out.push(text.slice(at, m.index));
+    out.push(
+      <span key={key++} className="mention">
+        {m[2] ?? `${m[1]} ${m[3]}`}
+      </span>,
+    );
+    at = m.index + m[0].length;
+  }
+  if (at < text.length) out.push(text.slice(at));
+  return out;
+}
+
 function lines(text: string): ReactNode[] {
   return text.split("\n").map((l, i) => (
     <Fragment key={i}>

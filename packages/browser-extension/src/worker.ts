@@ -90,11 +90,13 @@ interface Asked {
   panel?: Panel;
 }
 
+/** The id the selection script is registered under. */
+const SELECTION_SCRIPT = "kos-selection";
 /** As much of a page's text as the panel's chat reads in one go. */
 const PAGE_TEXT = 60_000;
-const PANEL_CALLS = new Set(["chat.show", "chat.status", "chat.ask", "chat.settled", "chat.chats", "chat.models"]);
+const PANEL_CALLS = new Set(["chat.show", "chat.status", "chat.ask", "chat.settled", "chat.chats", "chat.models", "chat.mentions"]);
 /** What a panel asks its KOS for, passed on as it is: the chats to switch to, a switch, the models, a model. */
-const PANEL_ASKS: Record<string, string> = { list: "chat.list", switch: "chat.switch", models: "chat.models", model: "chat.model", auto: "chat.auto" };
+const PANEL_ASKS: Record<string, string> = { list: "chat.list", switch: "chat.switch", models: "chat.models", model: "chat.model", auto: "chat.auto", mentions: "chat.mentions" };
 
 const WORLD = "kos";
 const BINDING = "kosOverlay";
@@ -606,6 +608,7 @@ chrome.tabs.onUpdated.addListener((tab, change) => {
 
 chrome.tabs.onRemoved.addListener((tab) => {
   tabUrls.delete(tab);
+  selections.delete(tab);
   if (tab === beside) beside = undefined;
   if (handed.delete(tab)) void saveHanded();
   if (!session?.tabs.has(tab)) return;
@@ -789,6 +792,7 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
   switch (message["type"]) {
     case "hello":
       panel.window = Number(message["window"]);
+      void watchFront(panel);
       return choose(panel, str(message["kos"]));
     case "kos":
       return choose(panel, str(message["id"]));
@@ -809,7 +813,15 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
       // Which tab the words were said beside, so "this page" means it; a hidden site only as hidden.
       const [front] = await chrome.tabs.query({ active: true, windowId: panel.window });
       const url = front?.url ?? "";
-      const where = !front ? undefined : !/^https?:\/\//.test(url) ? { kind: "other" } : isHidden(url, settings.hiddenSites) ? { kind: "hidden" } : { kind: "page", url, title: front.title ?? "" };
+      // With what the owner selected there, when the panel sends it along.
+      const selection = str(message["selection"]).trim();
+      const where = !front
+        ? undefined
+        : !/^https?:\/\//.test(url)
+          ? { kind: "other" }
+          : isHidden(url, settings.hiddenSites)
+            ? { kind: "hidden" }
+            : { kind: "page", url, title: front.title ?? "", ...(selection ? { selection } : {}) };
       link.event("chat.send", { text, ...(where ? { beside: where } : {}) });
       return;
     }
@@ -817,6 +829,7 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
       if (panel.kos) links.get(panel.kos)?.event("chat.decide", { approval: str(message["approval"]), approved: message["approved"] === true, ...(message["remember"] === true ? { remember: true } : {}) });
       return;
     case "auto":
+    case "mentions":
     case "list":
     case "switch":
     case "models":
@@ -895,9 +908,64 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 });
 
+// What the owner selects on a page, for the side panel beside it.
+
+/** Each tab's selection by frame, with when it was made: the newest that holds text is the tab's. */
+const selections = new Map<number, Map<number, { text: string; at: number }>>();
+
+function selectionOf(tab: number): string {
+  const frames = [...(selections.get(tab)?.values() ?? [])].filter((f) => f.text);
+  return frames.sort((a, b) => b.at - a.at)[0]?.text ?? "";
+}
+
+/** The selection on a window's tab in front, to the panels open in that window. */
+function tellSelection(window: number, tab: number): void {
+  const text = selectionOf(tab);
+  for (const panel of panels) if (panel.window === window) panel.port.postMessage({ type: "selection", text });
+}
+
+/**
+ * The selection script in each page KOS may read, once the owner has let it
+ * read pages, taken back if they take that back. Pages open before then get
+ * it when a panel is opened beside them.
+ */
+async function watchSelections(): Promise<void> {
+  const can = await chrome.permissions.contains({ origins: ["<all_urls>"] });
+  const have = (await chrome.scripting.getRegisteredContentScripts({ ids: [SELECTION_SCRIPT] })).length > 0;
+  if (can && !have) await chrome.scripting.registerContentScripts([{ id: SELECTION_SCRIPT, js: ["selection.js"], matches: ["<all_urls>"], runAt: "document_idle", allFrames: true }]);
+  if (!can && have) await chrome.scripting.unregisterContentScripts({ ids: [SELECTION_SCRIPT] });
+}
+chrome.permissions.onAdded.addListener(() => void watchSelections().catch(() => undefined));
+chrome.permissions.onRemoved.addListener(() => void watchSelections().catch(() => undefined));
+void ready.then(watchSelections).catch(() => undefined);
+
+/** The tab in front of a panel's window, made to report its selection, and what it holds now told. */
+async function watchFront(panel: Panel): Promise<void> {
+  const [front] = await chrome.tabs.query({ active: true, windowId: panel.window });
+  if (front?.id === undefined || !/^https?:\/\//.test(front.url ?? "") || isHidden(front.url ?? "", settings.hiddenSites)) return;
+  if (await chrome.permissions.contains({ origins: ["<all_urls>"] })) {
+    await chrome.scripting.executeScript({ target: { tabId: front.id, allFrames: true }, files: ["selection.js"] }).catch(() => undefined);
+  }
+  tellSelection(panel.window, front.id);
+}
+
+chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
+  for (const panel of panels) if (panel.window === windowId) void watchFront(panel);
+  tellSelection(windowId, tabId);
+});
+
 chrome.runtime.onMessage.addListener((message: Record<string, unknown>, sender, reply: (r: unknown) => void) => {
-  // Only the extension's own pages speak to it.
+  // Only the extension's own pages speak to it, and its own selection script in the owner's.
   if (sender.id !== chrome.runtime.id) return false;
+  if (message["type"] === "selection") {
+    const tab = sender.tab;
+    if (tab?.id === undefined || isHidden(tab.url ?? "", settings.hiddenSites)) return false;
+    const frames = selections.get(tab.id) ?? new Map<number, { text: string; at: number }>();
+    frames.set(sender.frameId ?? 0, { text: str(message["text"]).slice(0, 4_000), at: Date.now() });
+    selections.set(tab.id, frames);
+    if (tab.active) tellSelection(tab.windowId, tab.id);
+    return false;
+  }
   const id = str(message["id"]);
   const run = async (): Promise<unknown> => {
     await ready;
