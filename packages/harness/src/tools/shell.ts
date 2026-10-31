@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -6,6 +5,7 @@ import { MAINTENANCE } from "../kernel/caretaker.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 import { requireServices } from "../modules/loader.js";
 import { isReadOnlyCommand } from "../risk/readonly.js";
+import { runCaptured, type CapturedRun } from "../sandbox/capture.js";
 import { childEnv } from "../sandbox/env.js";
 import { jailedCommand } from "../sandbox/jail.js";
 
@@ -41,13 +41,7 @@ export const DATABASE_REFUSED =
   "cron.list for jobs, chats.list and chats.read for chats, tasks.list, blobs.list, memory.recall for what KOS knows, discord.threads for threads; " +
   "your project's own tables through sql.";
 
-export interface ShellResult {
-  exitCode: number | null;
-  stdout: string;
-  stderr: string;
-  timedOut: boolean;
-  truncated: boolean;
-}
+export type ShellResult = CapturedRun;
 
 export function runShell(
   command: string,
@@ -55,43 +49,11 @@ export function runShell(
 ): Promise<ShellResult> {
   const tmp = join(opts.workspaceRoot, ".kos", "tmp");
   mkdirSync(tmp, { recursive: true });
-  const { file, args } = jailedCommand(command, { workspaceRoot: opts.workspaceRoot });
-  return new Promise((resolve, reject) => {
-    const child = spawn(file, args, {
-      cwd: opts.cwd,
-      env: childEnv({ home: opts.workspaceRoot, tmp }),
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    let truncated = false;
-    const keep = (current: string, chunk: Buffer): string => {
-      if (current.length >= opts.maxOutput) {
-        truncated = true;
-        return current;
-      }
-      const next = current + chunk.toString("utf8");
-      if (next.length > opts.maxOutput) {
-        truncated = true;
-        return next.slice(0, opts.maxOutput);
-      }
-      return next;
-    };
-    child.stdout.on("data", (c: Buffer) => { stdout = keep(stdout, c); });
-    child.stderr.on("data", (c: Buffer) => { stderr = keep(stderr, c); });
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGKILL");
-    }, opts.timeoutMs);
-    child.on("error", (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ exitCode: code, stdout, stderr, timedOut, truncated });
-    });
+  return runCaptured(jailedCommand(command, { workspaceRoot: opts.workspaceRoot }), {
+    cwd: opts.cwd,
+    env: childEnv({ home: opts.workspaceRoot, tmp }),
+    timeoutMs: opts.timeoutMs,
+    maxOutput: opts.maxOutput,
   });
 }
 

@@ -53,6 +53,7 @@ import { PermissionStore } from "../ops/permissions.js";
 import { createDaemonsModule } from "../tools/daemons.js";
 import { createSearchModule } from "../tools/search.js";
 import { exportModule } from "../tools/export.js";
+import { createPythonModule } from "../tools/python.js";
 import { createShellModule } from "../tools/shell.js";
 import { createSkillsModule } from "../tools/skills.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillPromoted } from "../skills/settings.js";
@@ -358,6 +359,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     }),
     createSearchModule({ events, embedder }),
     createShellModule(),
+    createPythonModule(),
     createModulesModule({
       enabled: () => parseModuleSettings(settings.get(MODULES_KEY)).enabled,
       status: () => mcp.status(),

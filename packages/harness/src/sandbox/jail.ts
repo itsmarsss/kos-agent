@@ -22,6 +22,14 @@ export interface JailOptions {
   platform?: NodeJS.Platform;
   /** True when the host itself runs in the container, which is the jail. */
   contained?: boolean;
+  /** Where it may write, and read back; the whole workspace by default. */
+  writes?: string[];
+  /** Under the workspace yet not to be read: KOS's own state, for a program that runs without asking. */
+  hidden?: string[];
+  /** Readable although under a denied home: an interpreter's own libraries. */
+  reads?: string[];
+  /** False for a program that must not reach the network. */
+  network?: boolean;
 }
 
 export interface JailedCommand {
@@ -40,24 +48,35 @@ function spellings(path: string): string[] {
   return abs.startsWith("/private/") ? [abs, abs.slice("/private".length)] : [abs, `/private${abs}`];
 }
 
+/** Each path, both spellings, as subpath filters. */
+function subpaths(paths: string[]): string {
+  return paths.flatMap(spellings).map((p) => `(subpath ${sb(p)})`).join(" ");
+}
+
 /**
  * The profile: everything allowed, then writes denied except in the
- * workspace, then the home directories denied for reading except the
- * workspace, which may itself be under one. A later rule wins over an
- * earlier one, which is what lets the workspace be carved back out of a
- * denied home. No temp tree is opened up: the child's TMPDIR is inside the
- * workspace, and a program that insists on /tmp fails where it can be seen.
+ * workspace (or the folders named), then the home directories denied for
+ * reading except the workspace, which may itself be under one, then what is
+ * hidden inside the workspace, then the writable folders carved back out of
+ * that. A later rule wins over an earlier one, which is what lets the
+ * workspace be carved back out of a denied home. No temp tree is opened up:
+ * the child's TMPDIR is inside the workspace, and a program that insists on
+ * /tmp fails where it can be seen.
  */
 export function sandboxProfile(options: JailOptions): string {
   const homes = options.homes ?? [homedir()];
-  const ws = spellings(options.workspaceRoot).map(sb).map((p) => `(subpath ${p})`).join(" ");
+  const ws = subpaths([options.workspaceRoot]);
+  const writes = options.writes ? subpaths(options.writes) : ws;
   const lines = [
     "(version 1)",
     "(allow default)",
+    ...(options.network === false ? ["(deny network*)"] : []),
     "(deny file-write*)",
-    `(allow file-write* ${ws} (literal "/dev/null") (regex #"^/dev/tty"))`,
+    `(allow file-write* ${writes} (literal "/dev/null") (regex #"^/dev/tty"))`,
     ...homes.map((h) => `(deny file-read* (subpath ${sb(resolve(h))}))`),
-    `(allow file-read* ${ws})`,
+    `(allow file-read* ${[ws, ...(options.reads?.length ? [subpaths(options.reads)] : [])].join(" ")})`,
+    ...(options.hidden?.length ? [`(deny file-read* ${subpaths(options.hidden)})`] : []),
+    ...(options.writes?.length ? [`(allow file-read* ${writes})`] : []),
     "(allow file-read-metadata)",
     "",
   ];
