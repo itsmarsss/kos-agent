@@ -3,6 +3,7 @@ import { deviceKeys, forgetKeys, publicKey } from "./keys.js";
 import { Link, type Hello, type LinkState } from "./link.js";
 import { note, recent } from "./log.js";
 import { installOverlay, type OverlayState } from "./overlay.js";
+import { readPage } from "./page.js";
 import { adding, readPairings, removing, replacedBy, type Paired } from "./pairings.js";
 import { CallError, PROTOCOL } from "./protocol.js";
 import { checkCommand, forwards, isInput, isWebUrl } from "./relay.js";
@@ -28,6 +29,13 @@ import { DEFAULTS, asksFirst, isHidden, readSettings, siteOf, type ExtensionSett
  * A site the owner hid is never opened, acted on or reported. The session
  * ends at its time, when idle, on Stop, when the owner closes Chrome's
  * debugging bar, and when its KOS or that connection goes.
+ *
+ * A side panel open beside the owner's tabs is a chat with one KOS, carried
+ * on that KOS's line: the owner's words go as events, the chat comes back as
+ * calls. A session that chat asks for is asked in the panel, and works in
+ * the tab beside it, where the owner is looking; KOS reads that tab's page
+ * only when the chat asks, only while the panel is open on it, and never a
+ * hidden site.
  */
 
 /** One KOS, as the popup shows it. */
@@ -46,8 +54,8 @@ export interface KosState {
 /** What the popup is told. */
 export interface PopupState {
   kos: KosState[];
-  /** `kos` names the KOS it is for when there are several. */
-  session: { task: string; requester: string; until: number; paused: boolean; kos?: string } | null;
+  /** `kos` names the KOS it is for when there are several; `beside` is the tab beside the side panel it works in. */
+  session: { task: string; requester: string; until: number; paused: boolean; kos?: string; beside?: number } | null;
   handed: number[];
   settings: Omit<ExtensionSettings, "askFirst">;
 }
@@ -64,6 +72,27 @@ export interface ConsentRequest {
   /** Which KOS asks, when there are several. */
   kos?: string;
 }
+
+/** A side panel open in a window: the KOS it talks to, and the chat it shows. */
+interface Panel {
+  port: chrome.runtime.Port;
+  window: number;
+  kos?: string;
+  conversation?: string;
+}
+
+interface Asked {
+  request: ConsentRequest;
+  origin: string;
+  answer: (a: { allowed: boolean; minutes: number }) => void;
+  window?: number;
+  /** Asked in a side panel rather than a window of its own. */
+  panel?: Panel;
+}
+
+/** As much of a page's text as the panel's chat reads in one go. */
+const PAGE_TEXT = 60_000;
+const PANEL_CALLS = new Set(["chat.show", "chat.status", "chat.ask", "chat.settled"]);
 
 const WORLD = "kos";
 const BINDING = "kosOverlay";
@@ -87,7 +116,10 @@ const attached = new Set<number>();
 const overlays = new Map<number, number>();
 /** Each KOS tab's address as it changes, so one on a hidden site tells KOS nothing. */
 const tabUrls = new Map<number, string>();
-const consents = new Map<string, { request: ConsentRequest; origin: string; answer: (a: { allowed: boolean; minutes: number }) => void; window?: number }>();
+const consents = new Map<string, Asked>();
+const panels = new Set<Panel>();
+/** The tab beside the side panel, in the session the panel's chat asked for. */
+let beside: number | undefined;
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const hostOf = (p: Pick<Paired, "url">): string => {
@@ -153,6 +185,8 @@ async function connect(p: Paired): Promise<void> {
       const was = linkStates.get(id)?.state;
       linkStates.set(id, { state, ...(detail ? { detail } : {}) });
       if (state !== was) note(`${hostOf(p)}: ${state}${detail ? ` (${detail})` : ""}`);
+      // A panel open on this KOS is shown its chat as soon as there is a line to show it on.
+      if (state === "online" && state !== was) for (const panel of panels) if (panel.kos === id) links.get(id)?.event("chat.open", {});
       // A session lives on its connection: its KOS gone, KOS's hands gone; an ask it made is withdrawn.
       if (state !== "online" && state !== "connecting" && owner === id) {
         if (session) void end("host");
@@ -211,7 +245,13 @@ async function answer(method: string, params: Record<string, unknown>, origin: s
     }
     case "cdp.send":
       return relay(params, origin);
+    case "page.read":
+      return pageRead(params, origin);
     default:
+      if (PANEL_CALLS.has(method)) {
+        toPanels(method, params, origin);
+        return {};
+      }
       throw new CallError("bad_request", `${method} is not something this extension does`);
   }
 }
@@ -238,6 +278,9 @@ async function begin(params: Record<string, unknown>, origin: string): Promise<R
   if (!id) throw new CallError("bad_request", "session required");
   if (session || owner) throw new CallError("busy", owner === origin ? "KOS is already working in this Chrome" : "another KOS is using this Chrome");
   owner = origin;
+  const conversation = str(params["conversation"]);
+  // Asked by the chat in a side panel: asked there, and worked in the tab beside it.
+  const panel = conversation ? [...panels].find((p) => p.kos === origin && p.conversation === conversation) : undefined;
   try {
     const asked = Math.min(settings.longestMinutes, Math.max(1, Math.round(Number(params["minutes"]) || 15)));
     const request: ConsentRequest = {
@@ -252,7 +295,7 @@ async function begin(params: Record<string, unknown>, origin: string): Promise<R
     note(`${hostOf(pairingOf(origin) ?? { url: origin })} asks for ${asked} min, from ${request.requester}`);
     let minutes = asked;
     if (asksFirst(settings, origin)) {
-      const decided = await askOwner(request, origin);
+      const decided = await askOwner(request, origin, panel);
       if (!decided.allowed) {
         note("not allowed");
         return { granted: false };
@@ -262,9 +305,13 @@ async function begin(params: Record<string, unknown>, origin: string): Promise<R
     // The line may have gone while the owner decided.
     if (!links.get(origin)?.online) throw new CallError("no_session", "KOS went away before the session started");
     const now = Date.now();
-    const conversation = str(params["conversation"]);
+    const there = panel ? await besideTab(panel) : undefined;
     session = new Session({ id, task: request.task, requester: request.requester, ...(conversation ? { conversation } : {}), until: now + minutes * 60_000 }, now);
     for (const tab of handed) session.tabs.add(tab);
+    if (there?.id !== undefined) {
+      beside = there.id;
+      session.tabs.add(there.id);
+    }
     clearInterval(ticker);
     ticker = setInterval(() => {
       const reason = session?.over(Date.now(), settings.idleMinutes * 60_000);
@@ -279,8 +326,8 @@ async function begin(params: Record<string, unknown>, origin: string): Promise<R
   }
 }
 
-/** The owner asked, in a window of the extension's own; no answer in the owner's wait is no. */
-function askOwner(request: ConsentRequest, origin: string): Promise<{ allowed: boolean; minutes: number }> {
+/** The owner asked, in the side panel the chat is in or a window of the extension's own; no answer in the owner's wait is no. */
+function askOwner(request: ConsentRequest, origin: string, panel?: Panel): Promise<{ allowed: boolean; minutes: number }> {
   return new Promise((resolve) => {
     let settled = false;
     const settle = (a: { allowed: boolean; minutes: number }): void => {
@@ -290,11 +337,16 @@ function askOwner(request: ConsentRequest, origin: string): Promise<{ allowed: b
       const asked = consents.get(request.id);
       consents.delete(request.id);
       if (asked?.window !== undefined) void chrome.windows.remove(asked.window).catch(() => undefined);
+      asked?.panel?.port.postMessage({ type: "consent.done", id: request.id });
       resolve(a);
     };
     const timer = setTimeout(() => settle({ allowed: false, minutes: 0 }), request.waitMs);
-    const entry: { request: ConsentRequest; origin: string; answer: (a: { allowed: boolean; minutes: number }) => void; window?: number } = { request, origin, answer: settle };
+    const entry: Asked = { request, origin, answer: settle, ...(panel ? { panel } : {}) };
     consents.set(request.id, entry);
+    if (panel) {
+      panel.port.postMessage({ type: "consent", request });
+      return;
+    }
     void chrome.windows
       .create({ url: chrome.runtime.getURL(`consent.html?id=${encodeURIComponent(request.id)}`), type: "popup", width: 440, height: 520, focused: true })
       .then((win) => {
@@ -316,19 +368,21 @@ async function end(reason: EndReason): Promise<void> {
   }
   attached.clear();
   overlays.clear();
+  beside = undefined;
   tell("session.ended", { session: ended.info.id, reason });
   owner = undefined;
   note(`ended: ${reason}`);
   await badge();
 }
 
-async function listTabs(): Promise<{ id: string; url: string; title: string; handed?: true; hidden?: true }[]> {
+async function listTabs(): Promise<{ id: string; url: string; title: string; handed?: true; focus?: true; hidden?: true }[]> {
   const s = session!;
-  const out: { id: string; url: string; title: string; handed?: true; hidden?: true }[] = [];
+  const out: { id: string; url: string; title: string; handed?: true; focus?: true; hidden?: true }[] = [];
   for (const id of s.tabs) {
     const tab = await chrome.tabs.get(id).catch(() => undefined);
     if (!tab) continue;
-    const mark = handed.has(id) ? { handed: true as const } : {};
+    // The tab beside the side panel the owner gave by speaking from it, as one they handed.
+    const mark = { ...(handed.has(id) || id === beside ? { handed: true as const } : {}), ...(id === beside ? { focus: true as const } : {}) };
     // A tab on a hidden site is KOS's to know of, and nothing more.
     if (isHidden(tab.url ?? "", settings.hiddenSites)) out.push({ id: String(id), url: "", title: "Hidden from KOS", hidden: true, ...mark });
     else out.push({ id: String(id), url: tab.url ?? "", title: tab.title ?? "", ...mark });
@@ -483,6 +537,7 @@ chrome.tabs.onUpdated.addListener((tab, change) => {
 
 chrome.tabs.onRemoved.addListener((tab) => {
   tabUrls.delete(tab);
+  if (tab === beside) beside = undefined;
   if (handed.delete(tab)) void saveHanded();
   if (!session?.tabs.has(tab)) return;
   session.tabs.delete(tab);
@@ -508,7 +563,14 @@ function popupState(): PopupState {
       };
     }),
     session: session
-      ? { task: session.info.task, requester: session.info.requester, until: session.info.until, paused: session.paused, ...(kosName(owner) ? { kos: kosName(owner)! } : {}) }
+      ? {
+          task: session.info.task,
+          requester: session.info.requester,
+          until: session.info.until,
+          paused: session.paused,
+          ...(kosName(owner) ? { kos: kosName(owner)! } : {}),
+          ...(beside !== undefined ? { beside } : {}),
+        }
       : null,
     handed: [...handed],
     settings: shown,
@@ -618,6 +680,7 @@ async function hand(tab: number, give: boolean): Promise<void> {
     else for (const link of links.values()) link.event("tab.handed", event);
   } else {
     handed.delete(tab);
+    if (tab === beside) beside = undefined;
     if (session?.tabs.delete(tab)) {
       tell("tab.closed", { session: session.info.id, tab: String(tab) });
       overlays.delete(tab);
@@ -626,6 +689,105 @@ async function hand(tab: number, give: boolean): Promise<void> {
   }
   await saveHanded();
 }
+
+// The side panel.
+
+/** What a KOS says to the side panels talking to it; the chat it shows them is the one they are on. */
+function toPanels(method: string, params: Record<string, unknown>, origin: string): void {
+  for (const panel of panels) {
+    if (panel.kos !== origin) continue;
+    if (typeof params["conversation"] === "string") panel.conversation = params["conversation"];
+    panel.port.postMessage({ type: method, ...params });
+  }
+}
+
+/** The tab in front in a panel's window, when it is a web page KOS may see. */
+async function besideTab(panel: Panel): Promise<chrome.tabs.Tab | undefined> {
+  const [tab] = await chrome.tabs.query({ active: true, windowId: panel.window });
+  const url = tab?.url ?? "";
+  return tab?.id !== undefined && isWebUrl(url) && !isHidden(url, settings.hiddenSites) ? tab : undefined;
+}
+
+/** The panel's KOS: the one asked for, else the first that is on, else the first there is. */
+function choose(panel: Panel, id: string): void {
+  panel.kos = (pairingOf(id) ?? pairings.find((p) => linkStates.get(p.device)?.state === "online" && !held.has(p.device)) ?? pairings[0])?.device;
+  delete panel.conversation;
+  panel.port.postMessage({ type: "kos", id: panel.kos ?? null });
+  if (panel.kos) links.get(panel.kos)?.event("chat.open", {});
+}
+
+async function fromPanel(panel: Panel, message: Record<string, unknown>): Promise<void> {
+  switch (message["type"]) {
+    case "hello":
+      panel.window = Number(message["window"]);
+      return choose(panel, str(message["kos"]));
+    case "kos":
+      return choose(panel, str(message["id"]));
+    case "send": {
+      const text = str(message["text"]).trim();
+      const link = panel.kos ? links.get(panel.kos) : undefined;
+      if (!text) return;
+      if (!link?.online) throw new Error("KOS is not connected. Connect it from the KOS icon.");
+      // Said beside a tab while the panel's chat works in this Chrome: that tab is where KOS works now.
+      if (session && owner === panel.kos && session.info.conversation === panel.conversation) {
+        const there = await besideTab(panel);
+        if (there?.id !== undefined && there.id !== beside) {
+          beside = there.id;
+          session.tabs.add(there.id);
+          tell("tab.handed", { tab: String(there.id), url: there.url ?? "", title: there.title ?? "", focus: true });
+        }
+      }
+      link.event("chat.send", { text });
+      return;
+    }
+    case "decide":
+      if (panel.kos) links.get(panel.kos)?.event("chat.decide", { approval: str(message["approval"]), approved: message["approved"] === true });
+      return;
+    case "consent.answer": {
+      const asked = consents.get(str(message["id"]));
+      if (asked?.panel !== panel) return;
+      const minutes = Math.min(settings.longestMinutes, Math.max(1, Math.round(Number(message["minutes"]) || 0)));
+      asked.answer({ allowed: message["allowed"] === true && minutes > 0, minutes });
+      return;
+    }
+    default:
+      return;
+  }
+}
+
+/** The page beside the panel a chat is in, for that chat's KOS and no other, never a hidden site. */
+async function pageRead(params: Record<string, unknown>, origin: string): Promise<Record<string, unknown>> {
+  const conversation = str(params["conversation"]);
+  const panel = [...panels].find((p) => p.kos === origin && p.conversation !== undefined && p.conversation === conversation);
+  if (!panel) throw new CallError("no_panel", "the side panel is not open on this chat");
+  const [tab] = await chrome.tabs.query({ active: true, windowId: panel.window });
+  const url = tab?.url ?? "";
+  if (tab?.id === undefined || !isWebUrl(url)) throw new CallError("url", "the tab beside the side panel is not a web page");
+  if (isHidden(url, settings.hiddenSites)) throw hiddenError(url);
+  if (!(await chrome.permissions.contains({ origins: [`${new URL(url).origin}/*`] }))) {
+    throw new CallError("permission", "the owner has not let KOS read pages in this Chrome; they allow it in the side panel");
+  }
+  const [done] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readPage, args: [PAGE_TEXT] });
+  if (!done?.result) throw new CallError("internal", "the page could not be read");
+  note(`read ${new URL(url).host} for the side panel`);
+  return { ...done.result };
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "panel" || port.sender?.id !== chrome.runtime.id) return;
+  const panel: Panel = { port, window: chrome.windows.WINDOW_ID_NONE };
+  panels.add(panel);
+  port.onMessage.addListener((message: Record<string, unknown>) => {
+    void ready
+      .then(() => fromPanel(panel, message))
+      .catch((err: unknown) => port.postMessage({ type: "error", message: err instanceof Error ? err.message : String(err) }));
+  });
+  port.onDisconnect.addListener(() => {
+    panels.delete(panel);
+    // An ask in a panel that closed has no one to answer it: no.
+    for (const asked of consents.values()) if (asked.panel === panel) asked.answer({ allowed: false, minutes: 0 });
+  });
+});
 
 chrome.runtime.onMessage.addListener((message: Record<string, unknown>, sender, reply: (r: unknown) => void) => {
   // Only the extension's own pages speak to it.

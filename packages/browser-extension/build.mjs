@@ -19,7 +19,7 @@ for (const file of readdirSync(join(root, "static"))) copyFileSync(join(root, "s
 
 // The pages a person sees are bundled: a page cannot import a package by name. The worker stays tsc's own modules.
 await build({
-  entryPoints: [join(root, "src", "popup.tsx"), join(root, "src", "consent.tsx")],
+  entryPoints: [join(root, "src", "popup.tsx"), join(root, "src", "consent.tsx"), join(root, "src", "panel.tsx")],
   outdir: dist,
   bundle: true,
   splitting: true,

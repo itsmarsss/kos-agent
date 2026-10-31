@@ -37,6 +37,8 @@ export interface PanelDeps {
   current(): PanelChat | undefined;
   /** That chat as a reader sees it. */
   events(conversation: string): ChatEvent[];
+  /** Approvals that chat is waiting on, for a panel opened after they were asked. */
+  waiting?(conversation: string): ApprovalRequest[];
 }
 
 /** The longest message the panel sends, and how much of the chat it is shown. */
@@ -94,22 +96,29 @@ export class ChromePanel implements ChannelAdapter {
   /** An approval the panel's chat asked for, to decide in the panel. Any other chat's is not the panel's to show. */
   async requestApproval(_recipient: string, req: ApprovalRequest): Promise<void> {
     if (!req.asker || req.asker.conversationId !== this.deps.current()?.id) return;
-    const args = argsText(req.args);
-    await this.everyChrome("chat.ask", {
-      approval: { id: req.id, tool: req.tool ?? "", ...(args ? { args } : {}), ...(req.why ? { why: req.why } : {}), ...(req.reason ? { reason: req.reason } : {}) },
-    });
+    await this.everyChrome("chat.ask", { approval: approvalOf(req) });
   }
 
   async settleApproval(id: string, outcome: ApprovalOutcome): Promise<void> {
     await this.everyChrome("chat.settled", { approval: id, outcome });
   }
 
+  /**
+   * The turn's story in the panel as it goes. Each says which chat it is: a
+   * chat's first turn makes it, and the page beside the panel is read for
+   * that chat alone, so the panel learns it before the first read.
+   */
   async acknowledge(msg: InboundMessage): Promise<TurnPresence> {
     const chrome = msg.senderId;
+    const status = async (params: Record<string, unknown>): Promise<void> => void (await this.tell(chrome, "chat.status", { conversation: this.deps.current()?.id ?? null, ...params }));
     return {
-      update: async (story) => void (await this.tell(chrome, "chat.status", { story })),
-      complete: (reply) => this.show(chrome, reply),
-      fail: async (message) => void (await this.tell(chrome, "chat.status", { story: null, error: message })),
+      update: (story) => status({ story }),
+      complete: (reply, how) => this.show(chrome, reply, how?.waiting),
+      // Said, then the chat as it stands: the owner's words may be in it or not, and the panel tells which.
+      fail: async (message) => {
+        await status({ story: null, error: message });
+        await this.show(chrome);
+      },
     };
   }
 
@@ -121,17 +130,25 @@ export class ChromePanel implements ChannelAdapter {
   /**
    * The chat as it stands, to one Chrome or every one that is on. What was
    * answered and is not in the chat's words (a command's answer, a blob's, a
-   * turn waiting on the owner) goes with it as a notice.
+   * turn waiting on the owner) goes with it as a notice; a wait is marked, so
+   * the panel lets it go once the turn goes on.
    */
-  private async show(chrome: string | undefined, said?: OutboundMessage): Promise<void> {
+  private async show(chrome: string | undefined, said?: OutboundMessage, waiting = false): Promise<void> {
     const chat = this.deps.current();
     const messages = chat ? panelLines(this.deps.events(chat.id)) : [];
     const last = messages.at(-1);
     const text = said?.text?.trim();
-    const notice = text && !(last?.role === "kos" && last.text === text) ? { text, ...(said?.from ? { from: said.from.name } : {}) } : undefined;
+    const notice = text && !(last?.role === "kos" && last.text === text) ? { text, ...(said?.from ? { from: said.from.name } : {}), ...(waiting ? { waiting: true } : {}) } : undefined;
     const params = { conversation: chat?.id ?? null, title: chat?.title ?? "Chrome", messages, ...(notice ? { notice } : {}) };
     if (chrome) await this.tell(chrome, "chat.show", params);
     else await this.everyChrome("chat.show", params);
+  }
+
+  /** A panel just opened: the chat, then whatever in it is waiting on the owner. */
+  private async opened(chrome: string): Promise<void> {
+    await this.show(chrome);
+    const chat = this.deps.current();
+    for (const req of chat ? (this.deps.waiting?.(chat.id) ?? []) : []) await this.tell(chrome, "chat.ask", { approval: approvalOf(req) });
   }
 
   private heard(chrome: string, event: DeviceEvent): void {
@@ -139,7 +156,7 @@ export class ChromePanel implements ChannelAdapter {
     const data = event.data;
     switch (event.name) {
       case "chat.open":
-        void this.show(chrome);
+        void this.opened(chrome);
         return;
       case "chat.send": {
         const text = typeof data["text"] === "string" ? data["text"].trim().slice(0, MAX_TEXT) : "";
@@ -216,6 +233,12 @@ export function panelLines(events: ChatEvent[], max = SHOWN): PanelMessage[] {
     }
   }
   return out.slice(-max);
+}
+
+/** An approval as the panel shows it: the tool, what it would be given, and why. */
+function approvalOf(req: ApprovalRequest): Record<string, unknown> {
+  const args = argsText(req.args);
+  return { id: req.id, tool: req.tool ?? "", ...(args ? { args } : {}), ...(req.why ? { why: req.why } : {}), ...(req.reason ? { reason: req.reason } : {}) };
 }
 
 function argsText(args: ApprovalRequest["args"]): string {

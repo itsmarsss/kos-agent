@@ -10,11 +10,12 @@ import type { KosState, PopupState } from "./worker.js";
 
 /**
  * The popup under the KOS icon, laid out as KOS Device's window is and
- * moving as the dashboard does: KOS's face and where it stands; the live
- * session; this tab, to give or take back; each KOS folded to a line,
- * opening to its rules and its line; the sites hidden from KOS; and behind
- * the gear, the owner's settings for this Chrome. It reads the worker's
- * state and asks the worker for every change.
+ * moving as the dashboard does: KOS's face and where it stands, with the
+ * way to the side panel's chat; the live session; this tab, to give or
+ * take back; each KOS folded to a line, opening to its rules and its line;
+ * the sites hidden from KOS; and behind the gear, the owner's settings for
+ * this Chrome. It reads the worker's state and asks the worker for every
+ * change.
  */
 
 const LINK: Record<string, { word: string; tone: Tone }> = {
@@ -84,13 +85,20 @@ function Popup(): ReactElement {
           <span className="sub">Only when you allow.</span>
         </div>
         <Pill tone={pill.tone}>{pill.word}</Pill>
-        <AnimatePresence initial={false}>
-          {page === "home" && (
-            <m.button key="gear" type="button" className="icon-btn" aria-label="Settings" title="Settings" onClick={() => setPage("settings")} initial={{ opacity: 0, rotate: -60 }} animate={{ opacity: 1, rotate: 0 }} exit={{ opacity: 0, rotate: 60 }} transition={spring}>
-              <Icon path={ICONS.gear} size={14} />
-            </m.button>
-          )}
-        </AnimatePresence>
+        <span className="head-actions">
+          <AnimatePresence initial={false}>
+            {page === "home" && state?.kos.length ? (
+              <m.button key="panel" type="button" className="icon-btn" aria-label="Chat beside your tabs" title="Chat with KOS beside your tabs" onClick={() => void openPanel()} initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }} transition={spring}>
+                <Icon path={ICONS.panel} size={14} />
+              </m.button>
+            ) : null}
+            {page === "home" && (
+              <m.button key="gear" type="button" className="icon-btn" aria-label="Settings" title="Settings" onClick={() => setPage("settings")} initial={{ opacity: 0, rotate: -60 }} animate={{ opacity: 1, rotate: 0 }} exit={{ opacity: 0, rotate: 60 }} transition={spring}>
+                <Icon path={ICONS.gear} size={14} />
+              </m.button>
+            )}
+          </AnimatePresence>
+        </span>
       </header>
       {state && (
         <AnimatePresence mode="wait" initial={false}>
@@ -117,6 +125,13 @@ function Popup(): ReactElement {
 }
 
 type Act = (message: Record<string, unknown>) => Promise<boolean>;
+
+/** The side panel, in this window: Chrome opens one only from a press, and the popup's is one. */
+async function openPanel(): Promise<void> {
+  const win = await chrome.windows.getCurrent();
+  if (win.id !== undefined) await chrome.sidePanel.open({ windowId: win.id });
+  window.close();
+}
 
 // The home page.
 

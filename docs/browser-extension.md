@@ -24,8 +24,31 @@ hands `@kos/browser` drives its own Chrome with.
    that chat's browser tools work in your Chrome; `chrome.end` gives it back.
 
 To give KOS a tab you are on, click the KOS icon there and press Give this
-tab to KOS. The extension needs no access to your sites: it asks Chrome for
-the debugger, tabs, tab groups and its own storage, nothing more.
+tab to KOS. The extension needs no access to your sites to work in a tab: it
+asks Chrome for the debugger, tabs, tab groups, the side panel and its own
+storage. Reading a page for the side panel's chat is the one thing that
+needs more, and it is asked for there, once, when you allow it.
+
+### The side panel
+
+The panel button in the popup opens a chat with KOS beside your tabs, as
+Claude in Chrome does. It is one more surface, `chrome`, carried on the
+pairing's own line: one stream like iMessage's, shown on the dashboard as
+Chrome, with `/new` behind the pen. The chat is the one KOS keeps, so a turn
+taken on the dashboard shows in the panel too, each turn's steps fold to a
+line you can open, and an approval the chat asks for is decided in place.
+
+- **Reading the page.** KOS reads the tab beside the panel with
+  `chrome.page` when your words are about it: its address, title, what you
+  selected and its text. Only the panel's chat can, only while the panel is
+  open on that chat, never on a hidden site, and only once you press Allow
+  in the panel (Chrome's grant to read sites, asked for once).
+- **Working in the tab.** When the chat needs to act, `chrome.start` asks in
+  the panel, not in a window, and the session works in the tab beside it,
+  where you are looking, instead of in KOS's own window. Speak from another
+  tab while it lasts and KOS works there instead. The border, the bar, Take
+  over and Stop are the same as any session's, and Take over and Stop are
+  in the panel too.
 
 The popup is laid out as KOS Device's window is, with KOS's face moving as
 it does on the dashboard (the same code, `@kos/shared/blobmotion`):
@@ -96,10 +119,27 @@ pair route may be read from any origin: the code is the proof.
 | --- | --- | --- |
 | `session.begin` | `session`, `task`, `requester`, `conversation?`, `minutes` | `granted`, `until` |
 | `session.end` | `session` | `{}` |
-| `tabs.list` | `session` | `tabs [{ id, url, title, handed? }]` |
+| `tabs.list` | `session` | `tabs [{ id, url, title, handed?, focus? }]` (`focus`: the tab beside the side panel) |
 | `tabs.open` | `session`, `url?` | `tab` |
 | `tabs.close` | `session`, `tab` | `{}` |
 | `cdp.send` | `session`, `tab`, `method`, `params?` | the command's result |
+
+The side panel's calls take no session: they carry the chat, and the page
+beside it when the chat asks.
+
+| Method | Params | Result |
+| --- | --- | --- |
+| `chat.show` | `conversation` (or null), `title`, `messages [{ role, text?, files?, steps? }]`, `notice? { text, from? }` | `{}` |
+| `chat.status` | `conversation`, `story` (the turn's steps so far, `› ` before each; null when done), `error?` | `{}` |
+| `chat.ask` | `approval { id, tool, args?, why?, reason? }` | `{}` |
+| `chat.settled` | `approval`, `outcome` (`approved`, `denied`, `expired`) | `{}` |
+| `page.read` | `conversation` | `url`, `title`, `selection`, `text` |
+
+A message's `role` is `you`, `kos`, `note`, or `steps` with `steps [{
+summary, failed? }]`. `page.read` is refused with `no_panel` unless a panel
+on that KOS shows that chat, `url` off the web, `hidden_site`, and
+`permission` until the owner allows reading pages; KOS refuses it itself
+under the kill switch.
 
 Events, besides `session.paused`, `session.resumed` and `session.ended`
 (reason `owner`, `expired`, `idle`, `detached` or `host`):
@@ -108,7 +148,10 @@ Events, besides `session.paused`, `session.resumed` and `session.ended`
 | --- | --- |
 | `cdp.event` | `session`, `tab`, `method`, `params` |
 | `tab.closed` | `session`, `tab` |
-| `tab.handed` | `tab`, `url`, `title` (sent outside a session too) |
+| `tab.handed` | `tab`, `url`, `title`, `focus?` (sent outside a session too; `focus` when the owner spoke from the side panel beside it) |
+| `chat.open` | `{}`: a panel opened on this KOS, and asks to be shown the chat |
+| `chat.send` | `text`: the owner's words in the panel |
+| `chat.decide` | `approval`, `approved` |
 
 Error codes beyond the device protocol's: `tab` (not a tab of the session),
 `method` (not on the list), `url` (not the web), `hidden_site` (the owner

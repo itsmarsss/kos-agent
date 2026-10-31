@@ -279,6 +279,37 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect((await call("tabs.list", { session: "s1" }))["error"]).toMatchObject({ code: "no_session" });
   });
 
+  it("carries a side panel's chat, asks for a session there, and works in the tab beside it", async () => {
+    const id = new URL(await devtools.evaluate(popup, "location.href") as string).host;
+    await devtools.send("Target.createTarget", { url: `chrome-extension://${id}/panel.html` });
+    const panel = await devtools.attach((u) => u.endsWith("/panel.html"));
+    await devtools.loaded(panel);
+    await until(() => events.some((e) => e.name === "chat.open"));
+    const text = (): Promise<string> => devtools.evaluate(panel, "document.body.innerText") as Promise<string>;
+    // An empty chat offers a start; pressing one says it to KOS.
+    for (let i = 0; i < 100 && !(await devtools.evaluate(panel, "!!document.querySelector('.suggest button')")); i++) await until(() => false, 100);
+    await devtools.evaluate(panel, "document.querySelector('.suggest button').click()");
+    await until(() => events.some((e) => e.name === "chat.send"));
+    expect(events.find((e) => e.name === "chat.send")?.data).toEqual({ text: "Summarize this page" });
+    expect(await call("chat.show", { conversation: "chrome:owner", title: "Chrome", messages: [{ role: "you", text: "Summarize this page" }, { role: "kos", text: "It is a **shop**." }] })).toMatchObject({ ok: true });
+    await until(() => false, 300);
+    expect(await text()).toContain("It is a shop.");
+    // The tab beside the panel: KOS reads it only for the panel's chat, and only once the owner allows reading pages.
+    await devtools.send("Target.createTarget", { url: `${base}/beside` });
+    await until(() => false, 500);
+    expect((await call("page.read", { conversation: "project:other" }))["error"]).toMatchObject({ code: "no_panel" });
+    expect((await call("page.read", { conversation: "chrome:owner" }))["error"]).toMatchObject({ code: "permission" });
+    // The panel's chat asks for a session: asked in the panel, no window of its own, and granted for the tab beside it.
+    const begun = call("session.begin", { session: "p1", task: "add the mug", requester: "Chrome", conversation: "chrome:owner", minutes: 15 });
+    for (let i = 0; i < 100 && !(await devtools.evaluate(panel, "!!document.querySelector('.ask-card--consent')")); i++) await until(() => false, 100);
+    expect(await text()).toContain("add the mug");
+    await devtools.evaluate(panel, "document.querySelector('.ask-card--consent .btn--primary').click()");
+    expect(await begun).toMatchObject({ ok: true, result: { granted: true } });
+    const listed = (await call("tabs.list", { session: "p1" }))["result"] as { tabs: { url: string; focus?: boolean; handed?: boolean }[] };
+    expect(listed.tabs).toEqual([expect.objectContaining({ url: `${base}/beside`, focus: true, handed: true })]);
+    expect(await call("session.end", { session: "p1" })).toMatchObject({ ok: true });
+  }, 40_000);
+
   it("tells KOS when the owner unpairs it here, so KOS forgets it too", async () => {
     expect(await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "unpair", id: "dev_test" })`)).toMatchObject({ ok: true, value: { kos: [] } });
     await until(() => unpaired.has("dev_test"));

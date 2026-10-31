@@ -30,7 +30,11 @@ function setup(opts: { halted?: boolean } = {}) {
   });
   let chat: { id: string; title: string } | undefined;
   let events: ChatEvent[] = [];
-  const panel = new ChromePanel({ current: () => chat, events: () => events });
+  const panel = new ChromePanel({
+    current: () => chat,
+    events: () => events,
+    waiting: (c) => (c === "chrome:owner" ? [{ id: "3", text: "Approve x?", tool: "files.write", why: "Saving the list." }] : []),
+  });
   panel.attach(hub);
   let caller = "chrome:owner";
   const tools = new Map<string, Handler>();
@@ -116,19 +120,23 @@ describe("a Chrome's side panel", () => {
     ]);
     chrome.event("chat.open", {});
     await flush();
-    expect(chrome.calls.at(-1)).toEqual({
-      method: "chat.show",
-      params: { conversation: "chrome:owner", title: "Chrome", messages: [{ role: "you", text: "hi" }, { role: "kos", text: "Hello." }] },
-    });
+    expect(chrome.calls.slice(-2)).toEqual([
+      { method: "chat.show", params: { conversation: "chrome:owner", title: "Chrome", messages: [{ role: "you", text: "hi" }, { role: "kos", text: "Hello." }] } },
+      // What the chat is still waiting on, for a panel opened after it was asked.
+      { method: "chat.ask", params: { approval: { id: "3", tool: "files.write", why: "Saving the list." } } },
+    ]);
     const presence = await panel.acknowledge({ channel: "chrome", senderId: chrome.id, text: "/new" });
     await presence.update("› Read the page");
-    expect(chrome.calls.at(-1)).toEqual({ method: "chat.status", params: { story: "› Read the page" } });
+    expect(chrome.calls.at(-1)).toEqual({ method: "chat.status", params: { conversation: "chrome:owner", story: "› Read the page" } });
     await presence.complete({ text: "Hello." });
     expect(chrome.calls.at(-1)?.params["notice"]).toBeUndefined();
     await presence.complete({ text: "Started a new chat.", from: { name: "recap" } });
     expect(chrome.calls.at(-1)?.params["notice"]).toEqual({ text: "Started a new chat.", from: "recap" });
+    await presence.complete({ text: "Waiting on you: files.write needs approval." }, { waiting: true });
+    expect(chrome.calls.at(-1)?.params["notice"]).toEqual({ text: "Waiting on you: files.write needs approval.", waiting: true });
     await presence.fail("KOS hit an error.");
-    expect(chrome.calls.at(-1)).toEqual({ method: "chat.status", params: { story: null, error: "KOS hit an error." } });
+    expect(chrome.calls.slice(-2).map((c) => c.method)).toEqual(["chat.status", "chat.show"]);
+    expect(chrome.calls.at(-2)?.params).toEqual({ conversation: "chrome:owner", story: null, error: "KOS hit an error." });
   });
 
   it("asks in the panel only for the panel's chat, and takes the decision back", async () => {

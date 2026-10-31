@@ -26,7 +26,9 @@ import {
   surfaceSessionId,
   startSiteServer,
   SurfaceDownError,
+  type ApprovalRequest,
   type NotifyPayload,
+  type PendingAction,
 } from "@kos/harness";
 import { createComputerUse } from "@kos/computer";
 
@@ -222,6 +224,23 @@ export async function runHost(options: HostOptions): Promise<void> {
    * outside the workspace, so the agent never reads it, and outside the
    * KOS_SECRET_ names too, which the agent can put in a request.
    */
+  /** A held action as a surface asks about it. */
+  const approvalRequest = (action: PendingAction): ApprovalRequest => {
+    const picture = action.picture ? kernel.approvals.pictureOf(action.id) : undefined;
+    const asker = kernel.askerOf(action.conversationId);
+    return {
+      id: String(action.id),
+      text: `Approve ${action.tool}?`,
+      tool: action.tool,
+      args: action.args,
+      reason: action.reason,
+      // The card names what the ids are: #leetcode, not 1561643942586351626.
+      names: (kind: string, id: string) => kernel.labelFor(kind, id),
+      ...(picture ? { picture } : {}),
+      ...(action.why ? { why: action.why } : {}),
+      ...(asker ? { asker } : {}),
+    };
+  };
   /** The chat a Chrome's side panel shows: its surface's current one, made only when the owner first speaks there. */
   const chromeChat = (): { id: string; title: string } | undefined => {
     const owner = kernel.profile.ownerId;
@@ -234,7 +253,11 @@ export async function runHost(options: HostOptions): Promise<void> {
     caller: () => kernel.callerConversationId,
     titleOf: (id) => kernel.titleOf(id),
     halted: () => kernel.killSwitch.halted,
-    panel: { current: chromeChat, events: (id) => conversationEvents(kernel.sessions.get(id)) },
+    panel: {
+      current: chromeChat,
+      events: (id) => conversationEvents(kernel.sessions.get(id)),
+      waiting: (id) => kernel.approvals.pending().filter((a) => a.conversationId === id).map(approvalRequest),
+    },
   });
 
   // KOS's Chrome answers on 9225; a second KOS on the machine names another port.
@@ -326,20 +349,7 @@ export async function runHost(options: HostOptions): Promise<void> {
     },
     // Every surface the owner is on, and the Chrome side panel when its chat is the one asking.
     onApprovalRequested: (action) => {
-      const picture = action.picture ? kernel.approvals.pictureOf(action.id) : undefined;
-      const asker = kernel.askerOf(action.conversationId);
-      const request = {
-        id: String(action.id),
-        text: `Approve ${action.tool}?`,
-        tool: action.tool,
-        args: action.args,
-        reason: action.reason,
-        // The card names what the ids are: #leetcode, not 1561643942586351626.
-        names: (kind: string, id: string) => kernel.labelFor(kind, id),
-        ...(picture ? { picture } : {}),
-        ...(action.why ? { why: action.why } : {}),
-        ...(asker ? { asker } : {}),
-      };
+      const request = approvalRequest(action);
       if (adapter && creds) void adapter.requestApproval(creds.ownerId, request);
       if (smsAdapter && sms) void smsAdapter.requestApproval(sms.owner, request);
       void computer.panel.requestApproval("owner", request);
