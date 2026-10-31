@@ -139,8 +139,8 @@ struct RenderTests {
         paused: false)
     }
     _ = try render("home-two-kos", HomeView(model: model), height: HomeView.height)
-    // All of it, as it scrolls.
-    _ = try render("home-two-kos-full", HomeView(model: model), height: 1000)
+    // One open, the other a line, and the hidden apps open: all of it, as it scrolls.
+    _ = try render("home-two-kos-open", HomeView(model: model, openKOS: "d2", hiddenOpen: true), height: 1100)
   }
 
   @Test func addingAnotherKOS() throws {

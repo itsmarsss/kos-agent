@@ -18,6 +18,8 @@ final class HomeWindow: NSObject, NSWindowDelegate {
 
   private let settings: Settings
   private lazy var window: NSWindow = makeWindow()
+  /// The window has a place on screen: one it was given before, or one it was centred in.
+  private var placed = false
   private var refresher: Timer?
   private var watches: [AnyCancellable] = []
   /// Apps installed on this Mac, by bundle id, found when the window opens.
@@ -64,7 +66,11 @@ final class HomeWindow: NSObject, NSWindowDelegate {
       MainActor.assumeIsolated { self?.refreshSystem() }
     }
     NSApp.activate(ignoringOtherApps: true)
-    if !window.isVisible { window.center() }
+    // Where the owner left it last time; centred only the first time there is nowhere to go back to.
+    if !window.isVisible && !placed {
+      window.center()
+      placed = true
+    }
     window.makeKeyAndOrderFront(nil)
   }
 
@@ -195,13 +201,19 @@ final class HomeWindow: NSObject, NSWindowDelegate {
 
   // MARK: Window
 
+  private static let place = "KOS Device"
+
+  /// One height for every page, on any screen with room for it; the page scrolls.
+  private static func height(on screen: NSScreen?) -> CGFloat {
+    min(HomeView.height, (screen?.visibleFrame.height ?? 900) - 40)
+  }
+
   private func makeWindow() -> NSWindow {
     let host = NSHostingView(rootView: HomeView(model: model))
-    // The window's size is set from the content's height, animated; the host must not fight it.
+    // The window keeps one height and the page scrolls in it; the host must not size it to the page.
     host.sizingOptions = []
     let window = NSWindow(
-      // One height for every page, on any screen with room for it; the page scrolls.
-      contentRect: CGRect(x: 0, y: 0, width: 460, height: min(HomeView.height, (NSScreen.main?.visibleFrame.height ?? 900) - 40)),
+      contentRect: CGRect(x: 0, y: 0, width: 460, height: Self.height(on: NSScreen.main)),
       styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
     window.contentView = host
     window.titlebarAppearsTransparent = true
@@ -216,6 +228,10 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     window.backgroundColor = NSColor(srgbRed: 0x0C / 255, green: 0x0E / 255, blue: 0x12 / 255, alpha: 1)
     window.isReleasedWhenClosed = false
     window.delegate = self
+    // Its place is kept between runs; its size is not, since the window has one height.
+    placed = window.setFrameUsingName(Self.place)
+    window.setContentSize(CGSize(width: 460, height: Self.height(on: window.screen ?? NSScreen.main)))
+    window.setFrameAutosaveName(Self.place)
     return window
   }
 

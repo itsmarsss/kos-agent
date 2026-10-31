@@ -12,11 +12,16 @@ public struct HomeView: View {
   @ObservedObject private var model: HomeModel
   /// The permissions drawer, opened by hand once both are granted.
   @State private var permissionsOpen = false
+  /// The one KOS whose card is open, by its id: one at a time, so ten KOS are ten lines.
+  @State private var openKOS: String?
+  @State private var hiddenOpen = false
 
-  /// `permissionsOpen` starts the drawer open, as a window opened to manage them would.
-  public init(model: HomeModel, permissionsOpen: Bool = false) {
+  /// What starts open, as a window opened to manage one of them would have it.
+  public init(model: HomeModel, permissionsOpen: Bool = false, openKOS: String? = nil, hiddenOpen: Bool = false) {
     self.model = model
     _permissionsOpen = State(initialValue: permissionsOpen)
+    _openKOS = State(initialValue: openKOS)
+    _hiddenOpen = State(initialValue: hiddenOpen)
   }
 
   /// What changes the layout, so one animation carries every change, wherever it came from.
@@ -29,17 +34,20 @@ public struct HomeView: View {
     let needsRestart: Bool
     let kos: [KOSEntry]
     let keychainProblem: Bool
+    let openKOS: String?
+    let hiddenOpen: Bool
   }
 
   private var layout: Layout {
     Layout(
       page: model.page, pairing: model.pairing, session: model.session != nil, allGranted: model.allGranted,
       permissionsOpen: permissionsOpen, needsRestart: model.needsRestart, kos: model.kos,
-      keychainProblem: model.keychainProblem != nil)
+      keychainProblem: model.keychainProblem != nil, openKOS: openKOS, hiddenOpen: hiddenOpen)
   }
 
   static let motion = Animation.spring(response: 0.36, dampingFraction: 0.88)
   private static let top = "top"
+  private static let pairingForm = "pairing"
 
   /// The window's one height, whichever page and however many KOS: what one
   /// KOS and nothing else needs. Grown to fit each page, two KOS or the
@@ -71,11 +79,18 @@ public struct HomeView: View {
         .background(GeometryReader { geo in Color.clear.preference(key: ViewHeight.self, value: geo.size.height) })
         // Settings opens at its top, not wherever the home page was scrolled to.
         .onChange(of: model.page) { scroller.scrollTo(Self.top, anchor: .top) }
+        // Add a KOS, or a pairing link opened: the form, wherever it falls on the page.
+        .onChange(of: model.showPairing) {
+          guard model.showPairing else { return }
+          // A turn later: the form is put on the page in this one, and has nowhere to scroll to yet.
+          DispatchQueue.main.async { withAnimation(Self.motion) { scroller.scrollTo(Self.pairingForm, anchor: .top) } }
+        }
       }
       .overlay(alignment: .bottom) {
         // More below: the page fades out at the foot rather than stopping at an edge.
+        // No taller than the page's own margin, so at the very end it covers nothing.
         LinearGradient(colors: [Theme.bg.opacity(0), Theme.bg], startPoint: .top, endPoint: .bottom)
-          .frame(height: 28)
+          .frame(height: Theme.gutter)
           .opacity(pageHeight > viewHeight + 1 ? 1 : 0)
           .allowsHitTesting(false)
       }
@@ -238,7 +253,7 @@ public struct HomeView: View {
           kosCard(entry).transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
         }
         if model.pairing {
-          pairingCard.transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+          pairingCard.id(Self.pairingForm).transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
         }
       }
     }
@@ -303,57 +318,57 @@ public struct HomeView: View {
     }
   }
 
-  /// One KOS: which it is, how its line stands, whether it asks first, and what to do with it.
+  /// One KOS, folded to a line: which it is and how its line stands. Open,
+  /// whether it asks first and what to do with it.
   private func kosCard(_ entry: KOSEntry) -> some View {
-    Card {
-      HStack(alignment: .top, spacing: 12) {
-        Image(systemName: "server.rack")
-          .font(.system(size: 13, weight: .medium))
-          .foregroundStyle(tint(entry.link))
-          .frame(width: 32, height: 32)
-          .background(tint(entry.link).opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        VStack(alignment: .leading, spacing: 3) {
-          Text(entry.host)
-            .font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.text)
-            .lineLimit(1).truncationMode(.middle)
-          Text(status(entry)).font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-        }
-        Spacer(minLength: 8)
-        pill(entry.link)
+    let open = openKOS == entry.id
+    return Card {
+      DrawerRow(
+        icon: "server.rack", tint: tint(entry.link), title: entry.host, detail: summary(entry), open: open,
+        toggle: { openKOS = open ? nil : entry.id }
+      ) {
+        // Connected is the usual state, and the green mark already says it: the pill is for anything else.
+        if entry.link != .connected { pill(entry.link) }
       }
-      Divider().overlay(Theme.line)
-      HStack(alignment: .top, spacing: 12) {
-        VStack(alignment: .leading, spacing: 2) {
-          Text("Ask before each session").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text)
-          Text(entry.askFirst
-            ? "This KOS asks here, with the task and how long, every time."
-            : "Off: this KOS's approval queue decides instead. The border and Stop still show.")
-            .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+      if open {
+        VStack(alignment: .leading, spacing: 10) {
+          Divider().overlay(Theme.line)
+          HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+              Text("Ask before each session").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text)
+              Text(entry.askFirst
+                ? "This KOS asks here, with the task and how long, every time."
+                : "Off: this KOS's approval queue decides instead. The border and Stop still show.")
+                .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            KOSSwitch(isOn: entry.askFirst) { model.actions.setAskFirst(entry.id, $0) }
+          }
+          HStack(spacing: 8) {
+            if entry.link == .disconnected {
+              Button("Connect") { model.actions.connect(entry.id) }.buttonStyle(KOSButtonStyle(.primary))
+            } else {
+              Button("Disconnect") { model.actions.disconnect(entry.id) }
+                .buttonStyle(KOSButtonStyle(.ghost))
+                .help("This KOS sees this Mac offline until you connect again; the pairing stays.")
+            }
+            Spacer()
+            if let dashboard = entry.dashboard {
+              KOSLink("Dashboard", to: dashboard)
+            }
+            switch entry.link {
+            case .offline, .untrusted, .replaced:
+              Button("Reconnect") { model.actions.reconnect(entry.id) }.buttonStyle(KOSButtonStyle(.secondary))
+            default:
+              EmptyView()
+            }
+            Button("Unpair") { model.actions.unpair(entry.id) }.buttonStyle(KOSButtonStyle(.danger))
+          }
         }
-        Spacer(minLength: 8)
-        KOSSwitch(isOn: entry.askFirst) { model.actions.setAskFirst(entry.id, $0) }
-      }
-      HStack(spacing: 8) {
-        if entry.link == .disconnected {
-          Button("Connect") { model.actions.connect(entry.id) }.buttonStyle(KOSButtonStyle(.primary))
-        } else {
-          Button("Disconnect") { model.actions.disconnect(entry.id) }
-            .buttonStyle(KOSButtonStyle(.ghost))
-            .help("This KOS sees this Mac offline until you connect again; the pairing stays.")
-        }
-        Spacer()
-        if let dashboard = entry.dashboard {
-          KOSLink("Dashboard", to: dashboard)
-        }
-        switch entry.link {
-        case .offline, .untrusted, .replaced:
-          Button("Reconnect") { model.actions.reconnect(entry.id) }.buttonStyle(KOSButtonStyle(.secondary))
-        default:
-          EmptyView()
-        }
-        Button("Unpair") { model.actions.unpair(entry.id) }.buttonStyle(KOSButtonStyle(.danger))
+        .transition(Self.inPlace)
       }
     }
+    .clipped()
   }
 
   private func pill(_ link: LinkState) -> Pill {
@@ -378,10 +393,11 @@ public struct HomeView: View {
     }
   }
 
-  /// How the line to one KOS stands, in a sentence.
-  private func status(_ entry: KOSEntry) -> String {
+  /// How the line to one KOS stands, in a sentence; connected, whether it asks first, folded away with its switch.
+  private func summary(_ entry: KOSEntry) -> String {
     switch entry.link {
-    case .connected: return "Connected as \(entry.deviceName)."
+    // The pill says connected; the line says as what, and who decides.
+    case .connected: return "As \(entry.deviceName) · \(entry.askFirst ? "asks here first" : "its approvals decide")"
     case .connecting: return "Connecting. Dialling out; nothing listens on this Mac."
     case .offline(let why): return "Can't reach it: \(why)"
     case .untrusted: return "It could not sign with the key from pairing, so nothing it says is acted on."
@@ -401,7 +417,10 @@ public struct HomeView: View {
   private var permissionsCard: some View {
     Card {
       if model.allGranted {
-        DrawerHeader(open: permissionsOpen) { permissionsOpen.toggle() }
+        DrawerRow(
+          icon: "checkmark.shield", tint: Theme.ok, title: "Screen Recording and Accessibility are on",
+          detail: permissionsOpen ? "Each has a switch in System Settings." : "KOS can use them only in a session you allow.",
+          open: permissionsOpen, toggle: { permissionsOpen.toggle() })
       }
       if !model.allGranted || permissionsOpen {
         VStack(alignment: .leading, spacing: 10) {
@@ -464,26 +483,41 @@ public struct HomeView: View {
 
   // MARK: Rules
 
+  /// The hidden apps in a line: the first few by name, then how many more.
+  private var hiddenSummary: String {
+    let names = (model.hidden.filter(\.installed) + model.hidden.filter { !$0.installed }).map(\.name)
+    switch names.count {
+    case 0: return "Nothing yet. Add an app and KOS never sees it."
+    case 1: return names[0]
+    case 2: return "\(names[0]) and \(names[1])"
+    default: return "\(names[0]), \(names[1]) and \(names.count - 2) more"
+    }
+  }
+
   private var rulesCard: some View {
     Card {
-      VStack(alignment: .leading, spacing: 8) {
-        HStack {
-          Text("Hidden from KOS").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
-          Spacer()
-          AddAppButton(apps: model.pickable) { model.actions.hide($0) }
-        }
-        Text("Blanked from every picture KOS gets, and closed to its clicks and keys.")
-          .font(.system(size: 11.5)).foregroundStyle(Theme.muted)
-        FlowRow(spacing: 6) {
-          ForEach(model.hidden.filter(\.installed)) { app in
-            AppChip(app: app) { model.actions.unhide(app.id) }
+      DrawerRow(
+        icon: "eye.slash", tint: Theme.accent, title: "Hidden from KOS",
+        detail: hiddenOpen ? "Blanked from every picture KOS gets, and closed to its clicks and keys." : hiddenSummary,
+        open: hiddenOpen, toggle: { hiddenOpen.toggle() })
+      if hiddenOpen {
+        VStack(alignment: .leading, spacing: 8) {
+          FlowRow(spacing: 6) {
+            ForEach(model.hidden.filter(\.installed)) { app in
+              AppChip(app: app) { model.actions.unhide(app.id) }
+            }
+          }
+          let absent = model.hidden.filter { !$0.installed }.map(\.name)
+          if !absent.isEmpty {
+            Text("Also hidden if installed: \(absent.joined(separator: ", ")).")
+              .font(.system(size: 11)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
+          }
+          HStack {
+            Spacer()
+            AddAppButton(apps: model.pickable) { model.actions.hide($0) }
           }
         }
-        let absent = model.hidden.filter { !$0.installed }.map(\.name)
-        if !absent.isEmpty {
-          Text("Also hidden if installed: \(absent.joined(separator: ", ")).")
-            .font(.system(size: 11)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
-        }
+        .transition(Self.inPlace)
       }
       Divider().overlay(Theme.line)
       HStack(alignment: .top, spacing: 8) {
@@ -495,41 +529,6 @@ public struct HomeView: View {
         }
       }
     }
-  }
-}
-
-/// The permissions, folded: both on, and a chevron to look closer.
-private struct DrawerHeader: View {
-  let open: Bool
-  let toggle: () -> Void
-  @State private var hovering = false
-
-  var body: some View {
-    Button(action: toggle) {
-      HStack(spacing: 12) {
-        Image(systemName: "checkmark.shield")
-          .font(.system(size: 15, weight: .medium))
-          .foregroundStyle(Theme.ok)
-          .frame(width: 32, height: 32)
-          .background(Theme.ok.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        VStack(alignment: .leading, spacing: 2) {
-          Text("Screen Recording and Accessibility are on").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
-          Text(open ? "Each has a switch in System Settings." : "KOS can use them only in a session you allow.")
-            .font(.system(size: 11.5)).foregroundStyle(Theme.muted)
-        }
-        Spacer(minLength: 8)
-        Image(systemName: "chevron.down")
-          .font(.system(size: 11, weight: .semibold))
-          .foregroundStyle(hovering ? Theme.text : Theme.faint)
-          .rotationEffect(.degrees(open ? 180 : 0))
-      }
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .onHover { hovering = $0 }
-    .pointingHand()
-    .animation(.easeOut(duration: 0.14), value: hovering)
-    .animation(HomeView.motion, value: open)
   }
 }
 
