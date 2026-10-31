@@ -69,7 +69,7 @@ describe("tex.pdf", () => {
         "utf8",
       );
       const r = await typeset(registry, "docs/notes.tex");
-      expect(r).toMatchObject({ ok: true, pdf: "docs/notes.pdf" });
+      expect(r).toMatchObject({ ok: true, pdf: "docs/notes.pdf", pages: 1 });
       expect(existsSync(join(root, "docs", "notes.pdf"))).toBe(true);
     });
 

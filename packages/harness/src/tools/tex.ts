@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, extname, join, relative } from "node:path";
 
 import { RESERVED } from "../kernel/files.js";
@@ -43,10 +43,19 @@ export interface TexResult {
   ok: boolean;
   /** The PDF, workspace-relative, when it was made. */
   pdf?: string;
+  /** How many pages it came to, as TeX counted them. */
+  pages?: number;
   warnings?: string[];
   /** The end of what Tectonic said, when it failed. */
   log?: string;
   timedOut?: boolean;
+}
+
+/** The page count TeX's log gives: "Output written on notes.xdv (2 pages, ...)". */
+function pagesOf(log: string): number | undefined {
+  if (!existsSync(log)) return undefined;
+  const m = /Output written on .*?\((\d+) pages?/.exec(readFileSync(log, "utf8"));
+  return m ? Number(m[1]) : undefined;
 }
 
 export function createTexModule(options: TexModuleOptions = {}): KosModule {
@@ -68,7 +77,7 @@ export function createTexModule(options: TexModuleOptions = {}): KosModule {
           description:
             "Typeset a LaTeX document in the workspace into a PDF beside it (notes.tex becomes notes.pdf), for a document the owner will print, send or keep. Write the .tex with files.write first. " +
             "Packages the document uses are fetched as needed, so the first run takes a minute and later ones a second or two. Shell escape is off. " +
-            "On a TeX error the result carries the end of the log, with the line it stopped at; fix the source and run it again. Point the owner to the PDF with @file:<path>. " +
+            "The result says how many pages it came to. On a TeX error it carries the end of the log, with the line it stopped at; fix the source and run it again. Point the owner to the PDF with @file:<path>. " +
             "For a formula in a reply, write the math in the reply itself instead: the dashboard and the side panel render $...$ and $$...$$.",
           inputSchema: {
             type: "object",
@@ -96,7 +105,7 @@ export function createTexModule(options: TexModuleOptions = {}): KosModule {
           if (!file) throw new Error("tectonic is not installed on this machine; `brew install tectonic` puts it there");
           for (const dir of [tmp, cache]) mkdirSync(dir, { recursive: true });
           try {
-            const command = jailedProgram(file, ["-X", "compile", "--untrusted", "--outdir", tmp, basename(source)], {
+            const command = jailedProgram(file, ["-X", "compile", "--untrusted", "--keep-logs", "--outdir", tmp, basename(source)], {
               workspaceRoot: ws.root,
               writes: [tmp, cache],
               hidden: [...RESERVED].map((name) => join(ws.root, name)),
@@ -106,14 +115,21 @@ export function createTexModule(options: TexModuleOptions = {}): KosModule {
             const run = await runCaptured(command, { cwd: dirname(source), env, timeoutMs: seconds * 1000, maxOutput: MAX_LOG });
             const said = `${run.stdout}\n${run.stderr}`;
             const warnings = said.split("\n").filter((l) => l.startsWith("warning:")).slice(0, MAX_WARNINGS);
-            const made = join(tmp, `${basename(source, extname(source))}.pdf`);
+            const stem = basename(source, extname(source));
+            const made = join(tmp, `${stem}.pdf`);
             if (run.exitCode !== 0 || !existsSync(made)) {
               const failed: TexResult = { ok: false, log: said.trim().slice(-LOG_TAIL), ...(run.timedOut ? { timedOut: true } : {}) };
               return JSON.stringify(failed);
             }
             const pdf = join(dirname(source), basename(made));
             renameSync(made, pdf);
-            const done: TexResult = { ok: true, pdf: relative(ws.root, pdf), ...(warnings.length ? { warnings } : {}) };
+            const pages = pagesOf(join(tmp, `${stem}.log`));
+            const done: TexResult = {
+              ok: true,
+              pdf: relative(ws.root, pdf),
+              ...(pages !== undefined ? { pages } : {}),
+              ...(warnings.length ? { warnings } : {}),
+            };
             return JSON.stringify(done);
           } finally {
             rmSync(tmp, { recursive: true, force: true });

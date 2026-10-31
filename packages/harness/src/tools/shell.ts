@@ -73,7 +73,7 @@ export function createShellModule(options: ShellModuleOptions = {}): KosModule {
         {
           name: "shell.run",
           description:
-            "Run a shell command inside the workspace: git, pnpm, python, a build, a script. It cannot see the owner's home directory or write outside the workspace. Prefer the files, search and sql tools when one does the job; use this for programs. " +
+            "Run a shell command inside the workspace: git, pnpm, a build, a program. It cannot see the owner's home directory or write outside the workspace. Prefer the files, search and sql tools when one does the job, and python.run for a calculation or a short Python script, which runs at once without asking; use this for programs. " +
             "A command line that only reads (ls, cat, grep, find, git status/log/diff, and the like, joined by pipes or &&) runs without asking; anything that writes, runs code or reaches the network asks the owner first. Output is capped; long runs time out. " +
             "kos.sqlite, KOS's own database, is refused here, not asked about: jobs, chats, tasks, blobs and memory are read through cron.list, chats.list, tasks.list, blobs.list and memory.recall.",
           inputSchema: {
