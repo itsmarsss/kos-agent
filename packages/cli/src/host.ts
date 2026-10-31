@@ -17,8 +17,10 @@ import {
   verifyTwilioSignature,
   Kernel,
   connectChannel,
+  MODEL_SETTINGS_KEY,
   conversationEvents,
   conversationKind,
+  parseModelSettings,
   createDashboardServer,
   createDashboardSocket,
   createPressHandler,
@@ -241,6 +243,13 @@ export async function runHost(options: HostOptions): Promise<void> {
       ...(asker ? { asker } : {}),
     };
   };
+  /** What answers the panel's chat, and what it may be changed to: the dashboard picker's choices. */
+  const panelModels = async (): Promise<{ current: string; choices: string[]; fixed?: string }> => {
+    if (kernel.behaviour().engine === "sdk") return { current: "", choices: [], fixed: "Claude Agent SDK" };
+    const current = kernel.routes()?.["reasoning"]?.model ?? "";
+    const choices = await kernel.availableModels().catch((): string[] => []);
+    return { current, choices: current && !choices.includes(current) ? [current, ...choices] : choices };
+  };
   /** The chat a Chrome's side panel shows: its surface's current one, made only when the owner first speaks there. */
   const chromeChat = (): { id: string; title: string } | undefined => {
     const owner = kernel.profile.ownerId;
@@ -257,6 +266,29 @@ export async function runHost(options: HostOptions): Promise<void> {
       current: chromeChat,
       events: (id) => conversationEvents(kernel.sessions.get(id)),
       waiting: (id) => kernel.approvals.pending().filter((a) => a.conversationId === id).map(approvalRequest),
+      // The owner's own chats and the surfaces' streams, as /chats lists them: not a schedule's runs, an agent's thread or the router.
+      chats: () =>
+        kernel.conversations
+          .list(kernel.profile.ownerId)
+          .filter((c) => ["chat", "surface"].includes(conversationKind(c, kernel.profile.ownerId)))
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .slice(0, 40)
+          .map((c) => ({ id: c.id, title: kernel.titleOf(c.id), updatedAt: c.updatedAt })),
+      switchTo: (id) => {
+        const c = kernel.conversations.get(id);
+        if (!c || !["chat", "surface"].includes(conversationKind(c, kernel.profile.ownerId))) return false;
+        kernel.conversations.setActive("chrome", kernel.profile.ownerId, id);
+        return true;
+      },
+      models: () => panelModels(),
+      // The dashboard's picker, merged rather than replacing: the route's effort and the cheap route stay as they were.
+      setModel: async (model) => {
+        const saved = parseModelSettings(kernel.settings.get(MODEL_SETTINGS_KEY));
+        const next = { ...saved, reasoning: { ...saved.reasoning, model } };
+        kernel.settings.set(MODEL_SETTINGS_KEY, next);
+        kernel.applyModelSettings(next);
+        return panelModels();
+      },
     },
   });
 

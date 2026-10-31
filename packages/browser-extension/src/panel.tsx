@@ -10,10 +10,12 @@ import type { ConsentRequest, KosState, PopupState } from "./worker.js";
 
 /**
  * The side panel: a chat with KOS beside the owner's tabs. It shows the
- * chat as KOS keeps it, the steps of the turn running now, approvals and
- * asks to work in this tab to answer in place, and the tab beside it, with
- * what KOS may do there. KOS reads the page only when the chat asks, and
- * works in this tab once the owner allows a session here.
+ * chat as KOS keeps it, the steps of the turn running now, approvals, asks
+ * to work in this tab and to read pages, all answered in place, and the tab
+ * beside it, with what KOS may do there. The chat can be switched to
+ * another and the model chosen, as on the dashboard. Nothing waits forever:
+ * a KOS that never shows the chat, or never takes the owner's words, is
+ * said to, and the words come back to be sent again.
  */
 
 type Line =
@@ -55,24 +57,70 @@ interface Chat {
   unsent?: string;
 }
 
+/** A chat the panel may switch to. */
+interface ChatItem {
+  id: string;
+  title: string;
+  updatedAt: number;
+}
+
+/** What answers, and what it may be changed to; `fixed` names an engine that chooses its own. */
+interface Models {
+  current: string;
+  choices: string[];
+  fixed?: string;
+}
+
+/** An ask to let KOS read pages, waiting on the owner. */
+interface ReadAsk {
+  id: string;
+  host: string;
+}
+
 const EMPTY: Chat = { conversation: null, title: "Chrome", lines: [], sending: [], working: false, extras: [], asks: [] };
+/** How long a KOS has to show the chat once the panel opens, and to take the owner's words once sent. */
+const SHOW_MS = 6_000;
+const TAKE_MS = 12_000;
 const STEP = "› ";
 const yours = (lines: Line[]): number => lines.filter((l) => l.role === "you").length;
 
 /** The line to the worker: the chat as it comes, and what the panel says back. */
-function useChat(windowId: number | undefined): {
+function useChat(windowId: number | undefined, online: boolean): {
   chat: Chat;
   kos: string | null;
   error: string;
+  /** This KOS never showed the chat: it has no side panel to talk to. */
+  silent: boolean;
+  chats: ChatItem[];
+  models: Models | undefined;
+  reads: ReadAsk[];
   say: (message: Record<string, unknown>) => void;
   send: (text: string) => void;
   answer: (message: Record<string, unknown>) => void;
+  answerRead: (id: string, granted: boolean) => void;
 } {
   const [chat, setChat] = useState<Chat>(EMPTY);
   const [kos, setKos] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [shownOnce, setShownOnce] = useState(false);
+  const [silent, setSilent] = useState(false);
+  const [chats, setChats] = useState<ChatItem[]>([]);
+  const [models, setModels] = useState<Models>();
+  const [reads, setReads] = useState<ReadAsk[]>([]);
   const port = useRef<chrome.runtime.Port | null>(null);
   const chosen = useRef<string | null>(null);
+  const taking = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** Heard from KOS since the words went: no need to wait on it any longer. */
+  const heardBack = (): void => {
+    clearTimeout(taking.current);
+    taking.current = undefined;
+  };
+  // Words that went and were never taken come back, and the panel says why.
+  const giveBack = (why: string): void => {
+    heardBack();
+    setError(why);
+    setChat((c) => ({ ...c, working: false, story: undefined, sending: [], ...(c.sending.length ? { unsent: c.sending.join("\n") } : {}) }));
+  };
 
   useEffect(() => {
     if (windowId === undefined) return;
@@ -95,12 +143,29 @@ function useChat(windowId: number | undefined): {
           chosen.current = (message["id"] as string | null) ?? null;
           setKos(chosen.current);
           setChat(EMPTY);
+          setShownOnce(false);
+          setSilent(false);
+          setModels(undefined);
           return;
         case "chat.show":
+          heardBack();
+          setShownOnce(true);
+          setSilent(false);
           return setChat((c) => shown(c, message));
         case "chat.status":
+          heardBack();
           if (typeof message["error"] === "string") setError(message["error"]);
+          if (message["taken"] === true) return;
           return setChat((c) => storied(c, message));
+        case "chat.chats":
+          return setChats((message["chats"] as ChatItem[]) ?? []);
+        case "chat.models":
+          if (typeof message["error"] === "string") setError(`The model was not changed: ${message["error"]}`);
+          return setModels(message["error"] ? undefined : { current: String(message["current"] ?? ""), choices: (message["choices"] as string[]) ?? [], ...(typeof message["fixed"] === "string" ? { fixed: message["fixed"] } : {}) });
+        case "read.ask":
+          return setReads((r) => [...r, { id: String(message["id"]), host: String(message["host"] ?? "") }]);
+        case "read.done":
+          return setReads((r) => r.filter((x) => x.id !== message["id"]));
         case "chat.ask": {
           const approval = message["approval"] as Approval;
           return setChat((c) => ({ ...c, asks: [...c.asks.filter((a) => a.id !== approval.id), approval] }));
@@ -112,8 +177,7 @@ function useChat(windowId: number | undefined): {
         case "consent.done":
           return setChat((c) => (c.consent?.id === message["id"] ? { ...c, consent: undefined } : c));
         case "error":
-          setError(String(message["message"] ?? ""));
-          return setChat((c) => ({ ...c, working: false, sending: [] }));
+          return giveBack(String(message["message"] ?? ""));
         default:
           return;
       }
@@ -126,6 +190,17 @@ function useChat(windowId: number | undefined): {
     };
   }, [windowId]);
 
+  // A KOS that is on and never shows the chat is one without a side panel to talk to.
+  useEffect(() => {
+    if (!online || !kos || shownOnce) return;
+    const timer = setTimeout(() => setSilent(true), SHOW_MS);
+    return () => clearTimeout(timer);
+  }, [online, kos, shownOnce]);
+  // What answers, asked for once there is a KOS to ask.
+  useEffect(() => {
+    if (online && kos && shownOnce) port.current?.postMessage({ type: "models" });
+  }, [online, kos, shownOnce]);
+
   const say = useCallback((message: Record<string, unknown>) => {
     setError("");
     port.current?.postMessage(message);
@@ -134,9 +209,18 @@ function useChat(windowId: number | undefined): {
     (text: string) => {
       const said = text.trim();
       if (!said) return;
-      // A command (/new, /switch) is never in the chat's words, so it waits for nothing.
+      // A command (/new, /switch) is never in the chat's words, so it waits for nothing but its answer.
       setChat((c) => ({ ...c, sending: said.startsWith("/") ? c.sending : [...c.sending, said], working: true, story: undefined, unsent: undefined }));
+      clearTimeout(taking.current);
+      taking.current = setTimeout(() => giveBack("KOS did not take that. It may be an older KOS without the side panel, or not reachable now; your words are back in the box."), TAKE_MS);
       say({ type: "send", text: said });
+    },
+    [say],
+  );
+  const answerRead = useCallback(
+    (id: string, granted: boolean) => {
+      setReads((r) => r.filter((x) => x.id !== id));
+      say({ type: "read.answer", id, granted });
     },
     [say],
   );
@@ -156,7 +240,7 @@ function useChat(windowId: number | undefined): {
     },
     [say],
   );
-  return { chat, kos, error, say, send, answer };
+  return { chat, kos, error, silent, chats, models, reads, say, send, answer, answerRead };
 }
 
 /** The chat as KOS says it stands now: the owner's words that arrived leave the waiting ones, and a finished turn's steps are in the chat itself. */
@@ -262,31 +346,69 @@ function Panel(): ReactElement {
   const state = useWorkerState();
   const tab = useTab(windowId);
   const reading = useReading();
-  const { chat, kos, error, say, send, answer } = useChat(windowId);
-  const k = state?.kos.find((x) => x.id === kos);
+  const [kosId, setKosId] = useState<string | null>(null);
+  const k = state?.kos.find((x) => x.id === kosId);
   const online = !!k && k.link === "online" && !k.held;
-  const mood: BlobMood = !online ? "asleep" : chat.asks.length || chat.consent ? "needs-you" : chat.working ? "working" : "idle";
+  const { chat, kos, error, silent, chats, models, reads, say, send, answer, answerRead } = useChat(windowId, online);
+  useEffect(() => setKosId(kos), [kos]);
+  const [switching, setSwitching] = useState(false);
+  const usable = online && !silent;
+  const mood: BlobMood = !online ? "asleep" : chat.asks.length || chat.consent || reads.length ? "needs-you" : chat.working ? "working" : "idle";
   return (
     <div className="panel">
       <header className="panel-head">
         <Face size={30} mood={mood} />
         <div className="head-text">
           <strong>KOS</strong>
-          <span className="sub">{state?.kos.length ? (chat.conversation ? chat.title : "A chat beside your tabs") : "Not paired yet"}</span>
+          {usable ? (
+            <button
+              type="button"
+              className="chat-title"
+              aria-expanded={switching}
+              title="Switch chat"
+              onClick={() => {
+                if (!switching) say({ type: "list" });
+                setSwitching(!switching);
+              }}
+            >
+              <span>{chat.conversation ? chat.title : "A chat beside your tabs"}</span>
+              <m.span className="chev" animate={{ rotate: switching ? 180 : 0 }} transition={spring}>
+                <Icon path={ICONS.chevron} size={11} />
+              </m.span>
+            </button>
+          ) : (
+            <span className="sub">{state?.kos.length ? (silent ? "This KOS cannot talk here yet" : "Not connected") : "Not paired yet"}</span>
+          )}
         </div>
         {state && state.kos.length > 1 && <KosPicker all={state.kos} chosen={kos} choose={(id) => say({ type: "kos", id })} />}
-        {online && (
+        {usable && (
           <button type="button" className="icon-btn" aria-label="New chat" title="New chat" onClick={() => send("/new")}>
             <Icon path={ICONS.compose} size={14} />
           </button>
         )}
+        <AnimatePresence>
+          {switching && usable && (
+            <ChatSwitcher
+              chats={chats}
+              current={chat.conversation}
+              close={() => setSwitching(false)}
+              pick={(id) => {
+                setSwitching(false);
+                if (id === null) send("/new");
+                else if (id !== chat.conversation) say({ type: "switch", conversation: id });
+              }}
+            />
+          )}
+        </AnimatePresence>
       </header>
       <TabBar tab={tab} state={state} reading={reading} />
       {!state?.kos.length ? (
         <Unpaired />
+      ) : silent ? (
+        <Silent />
       ) : (
         <>
-          <Thread chat={chat} online={online} send={send} answer={answer} />
+          <Thread chat={chat} online={online} send={send} answer={answer} reads={reads} answerRead={answerRead} />
           <AnimatePresence>
             {error && (
               <m.p className="error panel-error" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={ease}>
@@ -294,7 +416,7 @@ function Panel(): ReactElement {
               </m.p>
             )}
           </AnimatePresence>
-          <Composer online={online} k={k} send={send} unsent={chat.unsent} />
+          <Composer online={online} k={k} send={send} unsent={chat.unsent} models={models} chooseModel={(model) => say({ type: "model", model })} />
         </>
       )}
     </div>
@@ -355,6 +477,55 @@ function TabBar({ tab, state, reading }: { tab: chrome.tabs.Tab | undefined; sta
   );
 }
 
+/** The chats this panel may continue, newest first, with a new one on top; a filter once there are many. */
+function ChatSwitcher({ chats, current, pick, close }: { chats: ChatItem[]; current: string | null; pick: (id: string | null) => void; close: () => void }): ReactElement {
+  const [q, setQ] = useState("");
+  const shown = chats.filter((c) => !q || c.title.toLowerCase().includes(q.toLowerCase()));
+  useEffect(() => {
+    const away = (e: globalThis.KeyboardEvent): void => (e.key === "Escape" ? close() : undefined);
+    addEventListener("keydown", away);
+    return () => removeEventListener("keydown", away);
+  }, [close]);
+  return (
+    <m.div className="switcher" initial={{ opacity: 0, y: -6, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.98 }} transition={ease}>
+      <button type="button" className="switcher-row switcher-new" onClick={() => pick(null)}>
+        <Icon path={ICONS.compose} size={13} />
+        <span>New chat</span>
+      </button>
+      {chats.length > 8 && <input className="switcher-find" type="text" placeholder="Find a chat" value={q} autoFocus onChange={(e) => setQ(e.target.value)} />}
+      <div className="switcher-list">
+        {!chats.length && <p className="hint switcher-empty">Loading your chats</p>}
+        {shown.map((c) => (
+          <button key={c.id} type="button" className="switcher-row" aria-current={c.id === current || undefined} onClick={() => pick(c.id)}>
+            <span className="switcher-title">{c.title}</span>
+            <span className="switcher-when">{when(c.updatedAt)}</span>
+          </button>
+        ))}
+      </div>
+    </m.div>
+  );
+}
+
+/** A time as the chats list says it: now, minutes, hours, days. */
+function when(at: number, now = Date.now()): string {
+  const m = Math.round((now - at) / 60_000);
+  if (m < 1) return "now";
+  if (m < 60) return `${m}m`;
+  if (m < 24 * 60) return `${Math.round(m / 60)}h`;
+  return `${Math.round(m / (24 * 60))}d`;
+}
+
+/** A KOS that is on and never showed the chat: one from before the side panel. */
+function Silent(): ReactElement {
+  return (
+    <div className="empty">
+      <Face size={56} mood="error" />
+      <strong>This KOS cannot talk here yet</strong>
+      <p className="hint">It is connected, but it does not answer the side panel. Update KOS, restart it, then reopen this panel. Its other work in this Chrome is not affected.</p>
+    </div>
+  );
+}
+
 function Unpaired(): ReactElement {
   return (
     <div className="empty">
@@ -368,7 +539,21 @@ function Unpaired(): ReactElement {
 const SUGGESTIONS = ["Summarize this page", "What should I know here?", "Find the important parts"];
 
 /** The chat: each exchange, then what came with it, then what is waiting on the owner. */
-function Thread({ chat, online, send, answer }: { chat: Chat; online: boolean; send: (t: string) => void; answer: (m: Record<string, unknown>) => void }): ReactElement {
+function Thread({
+  chat,
+  online,
+  send,
+  answer,
+  reads,
+  answerRead,
+}: {
+  chat: Chat;
+  online: boolean;
+  send: (t: string) => void;
+  answer: (m: Record<string, unknown>) => void;
+  reads: ReadAsk[];
+  answerRead: (id: string, granted: boolean) => void;
+}): ReactElement {
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   useLayoutEffect(() => {
@@ -432,6 +617,9 @@ function Thread({ chat, online, send, answer }: { chat: Chat; online: boolean; s
           <AskCard key={`ask${a.id}`} approval={a} decide={(approved) => answer({ type: "decide", approval: a.id, approved })} />
         ))}
         {chat.consent && <ConsentCard key={`consent${chat.consent.id}`} request={chat.consent} answer={(allowed, minutes) => answer({ type: "consent.answer", id: chat.consent!.id, allowed, minutes })} />}
+        {reads.map((r) => (
+          <ReadCard key={`read${r.id}`} ask={r} answer={(granted) => answerRead(r.id, granted)} />
+        ))}
       </AnimatePresence>
     </div>
   );
@@ -550,6 +738,31 @@ function AskCard({ approval, decide }: { approval: Approval; decide: (approved: 
   );
 }
 
+/** KOS asked to read the page, and this Chrome has not let it read pages yet: the one press that can. */
+function ReadCard({ ask: read, answer }: { ask: ReadAsk; answer: (granted: boolean) => void }): ReactElement {
+  return (
+    <m.section className="card ask-card ask-card--read" layout {...enter}>
+      <p className="label">KOS wants to read this page</p>
+      <strong>{read.host}</strong>
+      <p className="hint">Chrome asks once whether KOS may read the pages you chat about. It reads one only when the chat asks, and never a site hidden from KOS.</p>
+      <div className="row">
+        <button type="button" className="btn" onClick={() => answer(false)}>
+          Not now
+        </button>
+        <button
+          type="button"
+          className="btn btn--primary"
+          autoFocus
+          // Chrome grants this only from a press, so it is asked here and not by the worker.
+          onClick={() => void chrome.permissions.request({ origins: ["<all_urls>"] }).then(answer, () => answer(false))}
+        >
+          Allow reading pages
+        </button>
+      </div>
+    </m.section>
+  );
+}
+
 function ConsentCard({ request, answer }: { request: ConsentRequest; answer: (allowed: boolean, minutes: number) => void }): ReactElement {
   const [minutes, setMinutes] = useState(request.minutes);
   const choices = [...new Set([5, 15, 30, 60, 120].filter((v) => v <= Math.min(request.longest, Math.max(request.minutes, 5))).concat(request.minutes))].sort((a, b) => a - b);
@@ -571,7 +784,21 @@ function ConsentCard({ request, answer }: { request: ConsentRequest; answer: (al
   );
 }
 
-function Composer({ online, k, send, unsent }: { online: boolean; k: KosState | undefined; send: (t: string) => void; unsent: string | undefined }): ReactElement {
+function Composer({
+  online,
+  k,
+  send,
+  unsent,
+  models,
+  chooseModel,
+}: {
+  online: boolean;
+  k: KosState | undefined;
+  send: (t: string) => void;
+  unsent: string | undefined;
+  models: Models | undefined;
+  chooseModel: (model: string) => void;
+}): ReactElement {
   const [text, setText] = useState("");
   const box = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -606,10 +833,35 @@ function Composer({ online, k, send, unsent }: { online: boolean; k: KosState | 
         onKeyDown={keys}
         autoFocus
       />
-      <m.button type="button" className="send" aria-label="Send" disabled={!online || !text.trim()} onClick={go} whileTap={{ scale: 0.9 }} transition={spring}>
-        <Icon path={ICONS.send} size={15} />
-      </m.button>
+      <div className="composer-foot">
+        <ModelChoice models={models} choose={chooseModel} />
+        <m.button type="button" className="send" aria-label="Send" disabled={!online || !text.trim()} onClick={go} whileTap={{ scale: 0.9 }} transition={spring}>
+          <Icon path={ICONS.send} size={15} />
+        </m.button>
+      </div>
     </div>
+  );
+}
+
+/**
+ * The model KOS answers with, as the dashboard's picker sets it: for all of
+ * KOS, not this chat alone. On an engine that chooses its own, it says which;
+ * with nothing to choose between, it is not there.
+ */
+function ModelChoice({ models, choose }: { models: Models | undefined; choose: (model: string) => void }): ReactElement | null {
+  if (models?.fixed) return <span className="model model--fixed" title="Answering on your Claude Code subscription; change it in KOS, Settings, Models">{models.fixed}</span>;
+  if (!models?.current || !models.choices.length) return null;
+  return (
+    <label className="model" title="The model KOS answers with, everywhere, as the dashboard's picker sets it">
+      <select value={models.current} aria-label="Model" onChange={(e) => choose(e.target.value)}>
+        {models.choices.map((c) => (
+          <option key={c} value={c}>
+            {c}
+          </option>
+        ))}
+      </select>
+      <Icon path={ICONS.chevron} size={10} />
+    </label>
   );
 }
 

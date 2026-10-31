@@ -283,6 +283,7 @@ export function summarizeAction(
   if (tool.startsWith("computer.")) return computerStep(tool, a);
   if (tool === "chrome.start") return `Work in your Chrome${typeof a.chrome === "string" ? ` (${a.chrome})` : ""}: ${fmtVal(a.task)}`;
   if (tool === "chrome.end") return "Give your Chrome back";
+  if (tool === "chrome.page") return "Read the page beside the panel";
   // KOS's own browser tools: a visit, a run of steps, or the owner's hands.
   if (tool === "browser.visit") {
     // One visit may take several pages; the card names them all.

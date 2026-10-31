@@ -30,10 +30,26 @@ function setup(opts: { halted?: boolean } = {}) {
   });
   let chat: { id: string; title: string } | undefined;
   let events: ChatEvent[] = [];
+  let model = "gpt-5.5";
   const panel = new ChromePanel({
     current: () => chat,
     events: () => events,
     waiting: (c) => (c === "chrome:owner" ? [{ id: "3", text: "Approve x?", tool: "files.write", why: "Saving the list." }] : []),
+    chats: () => [
+      { id: "chrome:owner", title: "Chrome", updatedAt: 2 },
+      { id: "cm1:owner", title: "Trip plan", updatedAt: 1 },
+    ],
+    switchTo: (id) => {
+      if (id !== "cm1:owner") return false;
+      chat = { id, title: "Trip plan" };
+      return true;
+    },
+    models: async () => ({ current: model, choices: ["gpt-5.4-mini", "gpt-5.5"] }),
+    setModel: async (m) => {
+      if (m === "broken") throw new Error("no such model");
+      model = m;
+      return { current: model, choices: ["gpt-5.4-mini", "gpt-5.5"] };
+    },
   });
   panel.attach(hub);
   let caller = "chrome:owner";
@@ -46,7 +62,7 @@ function setup(opts: { halted?: boolean } = {}) {
   const pair = (platform = "chrome"): FakeDevice => {
     const fake = new FakeDevice();
     fake.id = hub.pair({ code: hub.issueCode().code, name: platform === "chrome" ? "Chrome on macOS" : "Studio MacBook", platform, publicKey: fake.publicKey }).device;
-    for (const m of ["chat.show", "chat.status", "chat.ask", "chat.settled"]) fake.answers.set(m, () => ({ ok: true, result: {} }));
+    for (const m of ["chat.show", "chat.status", "chat.ask", "chat.settled", "chat.chats", "chat.models"]) fake.answers.set(m, () => ({ ok: true, result: {} }));
     hub.accept(fake.socket);
     if (platform === "chrome") fake.hello({ app: { version: "0.1.0", platform: "chrome", os: "macOS" }, permissions: { tabs: true }, displays: [] });
     else fake.hello();
@@ -126,6 +142,8 @@ describe("a Chrome's side panel", () => {
       { method: "chat.ask", params: { approval: { id: "3", tool: "files.write", why: "Saving the list." } } },
     ]);
     const presence = await panel.acknowledge({ channel: "chrome", senderId: chrome.id, text: "/new" });
+    // Taken at once, so the panel knows someone has its words before any step is told.
+    expect(chrome.calls.at(-1)).toEqual({ method: "chat.status", params: { conversation: "chrome:owner", taken: true } });
     await presence.update("› Read the page");
     expect(chrome.calls.at(-1)).toEqual({ method: "chat.status", params: { conversation: "chrome:owner", story: "› Read the page" } });
     await presence.complete({ text: "Hello." });
@@ -137,6 +155,39 @@ describe("a Chrome's side panel", () => {
     await presence.fail("KOS hit an error.");
     expect(chrome.calls.slice(-2).map((c) => c.method)).toEqual(["chat.status", "chat.show"]);
     expect(chrome.calls.at(-2)?.params).toEqual({ conversation: "chrome:owner", story: null, error: "KOS hit an error." });
+  });
+
+  it("lists the chats to switch to, switches to a real one only, and shows it", async () => {
+    const { pair, setChat } = setup();
+    const chrome = pair();
+    setChat({ id: "chrome:owner", title: "Chrome" });
+    chrome.event("chat.list", {});
+    await flush();
+    expect(chrome.calls.at(-1)).toEqual({
+      method: "chat.chats",
+      params: { current: "chrome:owner", chats: [{ id: "chrome:owner", title: "Chrome", updatedAt: 2 }, { id: "cm1:owner", title: "Trip plan", updatedAt: 1 }] },
+    });
+    const before = chrome.calls.length;
+    chrome.event("chat.switch", { conversation: "project:secret" });
+    await flush();
+    expect(chrome.calls.length).toBe(before);
+    chrome.event("chat.switch", { conversation: "cm1:owner" });
+    await flush();
+    expect(chrome.calls.at(-1)).toMatchObject({ method: "chat.show", params: { conversation: "cm1:owner", title: "Trip plan" } });
+  });
+
+  it("says which model answers, changes it, and says when it cannot", async () => {
+    const { pair } = setup();
+    const chrome = pair();
+    chrome.event("chat.models", {});
+    await flush();
+    expect(chrome.calls.at(-1)).toEqual({ method: "chat.models", params: { current: "gpt-5.5", choices: ["gpt-5.4-mini", "gpt-5.5"] } });
+    chrome.event("chat.model", { model: "gpt-5.4-mini" });
+    await flush();
+    expect(chrome.calls.at(-1)?.params).toMatchObject({ current: "gpt-5.4-mini" });
+    chrome.event("chat.model", { model: "broken" });
+    await flush();
+    expect(chrome.calls.at(-1)?.params).toEqual({ current: "", choices: [], error: "no such model" });
   });
 
   it("asks in the panel only for the panel's chat, and takes the decision back", async () => {

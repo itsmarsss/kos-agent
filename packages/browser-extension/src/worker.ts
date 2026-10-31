@@ -92,7 +92,9 @@ interface Asked {
 
 /** As much of a page's text as the panel's chat reads in one go. */
 const PAGE_TEXT = 60_000;
-const PANEL_CALLS = new Set(["chat.show", "chat.status", "chat.ask", "chat.settled"]);
+const PANEL_CALLS = new Set(["chat.show", "chat.status", "chat.ask", "chat.settled", "chat.chats", "chat.models"]);
+/** What a panel asks its KOS for, passed on as it is: the chats to switch to, a switch, the models, a model. */
+const PANEL_ASKS: Record<string, string> = { list: "chat.list", switch: "chat.switch", models: "chat.models", model: "chat.model" };
 
 const WORLD = "kos";
 const BINDING = "kosOverlay";
@@ -118,6 +120,8 @@ const overlays = new Map<number, number>();
 const tabUrls = new Map<number, string>();
 const consents = new Map<string, Asked>();
 const panels = new Set<Panel>();
+/** Asks to read pages, waiting on the owner in a panel. */
+const reads = new Map<string, { panel: Panel; answer: (granted: boolean) => void }>();
 /** The tab beside the side panel, in the session the panel's chat asked for. */
 let beside: number | undefined;
 
@@ -743,6 +747,19 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
     case "decide":
       if (panel.kos) links.get(panel.kos)?.event("chat.decide", { approval: str(message["approval"]), approved: message["approved"] === true });
       return;
+    case "list":
+    case "switch":
+    case "models":
+    case "model": {
+      const { type: _type, ...data } = message;
+      if (panel.kos) links.get(panel.kos)?.event(PANEL_ASKS[str(message["type"])]!, data);
+      return;
+    }
+    case "read.answer": {
+      const asked = reads.get(str(message["id"]));
+      if (asked?.panel === panel) asked.answer(message["granted"] === true);
+      return;
+    }
     case "consent.answer": {
       const asked = consents.get(str(message["id"]));
       if (asked?.panel !== panel) return;
@@ -764,13 +781,31 @@ async function pageRead(params: Record<string, unknown>, origin: string): Promis
   const url = tab?.url ?? "";
   if (tab?.id === undefined || !isWebUrl(url)) throw new CallError("url", "the tab beside the side panel is not a web page");
   if (isHidden(url, settings.hiddenSites)) throw hiddenError(url);
-  if (!(await chrome.permissions.contains({ origins: [`${new URL(url).origin}/*`] }))) {
-    throw new CallError("permission", "the owner has not let KOS read pages in this Chrome; they allow it in the side panel");
+  const readable = (): Promise<boolean> => chrome.permissions.contains({ origins: [`${new URL(url).origin}/*`] });
+  // Not allowed yet: asked in the panel, where a press can grant it, and read once it is.
+  if (!(await readable()) && !((await askToRead(panel, new URL(url).host)) && (await readable()))) {
+    throw new CallError("permission", "the owner did not let KOS read pages in this Chrome");
   }
   const [done] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: readPage, args: [PAGE_TEXT] });
   if (!done?.result) throw new CallError("internal", "the page could not be read");
   note(`read ${new URL(url).host} for the side panel`);
   return { ...done.result };
+}
+
+/** The owner asked, in the panel, to let KOS read pages; no answer in their wait, or the panel closing, is no. */
+function askToRead(panel: Panel, host: string): Promise<boolean> {
+  const id = crypto.randomUUID();
+  return new Promise((resolve) => {
+    const settle = (granted: boolean): void => {
+      if (!reads.delete(id)) return;
+      clearTimeout(timer);
+      panel.port.postMessage({ type: "read.done", id });
+      resolve(granted);
+    };
+    const timer = setTimeout(() => settle(false), settings.promptWaitSeconds * 1000);
+    reads.set(id, { panel, answer: settle });
+    panel.port.postMessage({ type: "read.ask", id, host });
+  });
 }
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -786,6 +821,7 @@ chrome.runtime.onConnect.addListener((port) => {
     panels.delete(panel);
     // An ask in a panel that closed has no one to answer it: no.
     for (const asked of consents.values()) if (asked.panel === panel) asked.answer({ allowed: false, minutes: 0 });
+    for (const asked of reads.values()) if (asked.panel === panel) asked.answer(false);
   });
 });
 

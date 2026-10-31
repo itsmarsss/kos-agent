@@ -146,10 +146,11 @@ export type Method =
 
 /**
  * What KOS says to a Chrome's side panel, outside any session: the chat as it
- * stands, the turn's steps as they happen, an approval to decide there, and
- * the page beside the panel, read when the chat asks.
+ * stands, the turn's steps as they happen, an approval to decide there, the
+ * chats it may switch to and the models it may answer with, and the page
+ * beside the panel, read when the chat asks.
  */
-export type PanelMethod = "chat.show" | "chat.status" | "chat.ask" | "chat.settled" | "page.read";
+export type PanelMethod = "chat.show" | "chat.status" | "chat.ask" | "chat.settled" | "chat.chats" | "chat.models" | "page.read";
 
 /** One line of the panel's chat: the owner's words, KOS's, a note, or the steps a turn took. */
 export type PanelMessage =

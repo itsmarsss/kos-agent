@@ -300,7 +300,23 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px 
 /* —— the side panel: a chat beside the owner's tabs —— */
 body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .panel { height: 100vh; display: flex; flex-direction: column; }
-.panel-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.panel-head { position: relative; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+
+/* The chat's name, which opens the chats to switch to. */
+.chat-title { appearance: none; align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; max-width: 100%; margin: 0 -4px; padding: 1px 4px; border: 0; border-radius: 5px; background: none; color: var(--muted); font: inherit; font-size: 12px; text-align: left; cursor: pointer; transition: color 140ms ease, background 140ms ease; }
+.chat-title:hover, .chat-title[aria-expanded="true"] { color: var(--text); background: var(--panel-2); }
+.chat-title > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-title .chev { color: inherit; }
+.switcher { position: absolute; z-index: 5; top: calc(100% - 4px); left: 12px; right: 12px; max-height: min(60vh, 420px); display: flex; flex-direction: column; padding: 6px; border-radius: var(--radius); border: 1px solid var(--line-strong); background: var(--panel); box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45); transform-origin: top center; }
+.switcher-list { overflow-y: auto; display: flex; flex-direction: column; }
+.switcher-row { appearance: none; display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border: 0; border-radius: 7px; background: none; color: var(--text); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
+.switcher-row:hover { background: var(--panel-2); }
+.switcher-row[aria-current] { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.switcher-new { color: var(--accent); font-weight: 600; border-bottom: 1px solid var(--line); border-radius: 7px 7px 0 0; margin-bottom: 4px; }
+.switcher-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.switcher-when { flex: none; color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+.switcher-find { margin: 2px 0 6px; padding: 6px 8px; font-size: 12px; }
+.switcher-empty { padding: 8px; }
 .kos-picker { max-width: 140px; padding: 4px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font: inherit; font-size: 12px; }
 .tabbar { margin: 10px 12px 0; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--line); transition: border-color 200ms ease; }
 .tabbar[data-live] { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
@@ -337,13 +353,21 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 
 /* What waits on the owner: an approval, an ask to work in this tab. */
 .ask-card { align-self: stretch; border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
-.ask-card--consent { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.ask-card--consent, .ask-card--read { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .args { margin: 0; padding: 8px; max-height: 140px; overflow: auto; border-radius: 7px; background: var(--bg); font: 11.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .empty { margin: auto; padding: 24px; max-width: 300px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
 .suggest { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 
-.composer { margin: 8px 12px 12px; padding: 8px 8px 8px 12px; display: flex; align-items: flex-end; gap: 8px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel); transition: border-color 140ms ease, box-shadow 140ms ease; }
+.composer { margin: 8px 12px 12px; padding: 8px 8px 8px 12px; display: flex; flex-direction: column; gap: 4px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel); transition: border-color 140ms ease, box-shadow 140ms ease; }
+.composer-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.composer-foot .send { margin-left: auto; }
+/* The model, as a quiet chip that opens Chrome's own list. */
+.model { position: relative; display: inline-flex; align-items: center; gap: 4px; min-width: 0; padding: 3px 8px; border-radius: 999px; background: var(--panel-2); color: var(--muted); font-size: 11.5px; cursor: pointer; transition: color 140ms ease, background 140ms ease; }
+.model:hover { color: var(--text); background: var(--line); }
+.model select { appearance: none; max-width: 180px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; outline: none; text-overflow: ellipsis; }
+.model select option { background: var(--panel); color: var(--text); }
+.model--fixed { cursor: default; }
 .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
 .composer[data-off] { opacity: 0.6; }
 .composer textarea { flex: 1; max-height: 140px; padding: 5px 0; resize: none; border: 0; outline: none; background: none; color: var(--text); font: inherit; font-size: 13px; line-height: 1.45; }

@@ -72,6 +72,8 @@ const COMPUTER_TOOLS = ["computer.devices", "computer.start", "computer.act", "c
 const CHROME_TOOLS = ["chrome.start", "chrome.end", "chrome.page"];
 /** As much of a page as chrome.page hands the model. */
 const MAX_PAGE = 40_000;
+/** The Chrome may first ask the owner to let KOS read pages, and waits up to five minutes for them. */
+const PAGE_WAIT_MS = 315_000;
 const TOOL_NAMES = [...COMPUTER_TOOLS, ...CHROME_TOOLS];
 const VERSION = "0.1.0";
 
@@ -434,8 +436,9 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         description:
           "Read the page the owner has open beside KOS's side panel in their Chrome: its address, title, what they selected, and its text. Only in " +
           "the side panel's chat, where the owner is talking to you while looking at a page: when their words are about this page, this, " +
-          "something on screen, or anything the page would answer, read it rather than guess. It reads and does nothing; to act on the page, " +
-          "chrome.start works in that same tab.",
+          "something on screen, or anything the page would answer, read it rather than guess. The first time, the panel may ask the owner to " +
+          "let KOS read pages; if they say no, tell them what you needed it for. It reads and does nothing; to act on the page, chrome.start " +
+          "works in that same tab.",
         inputSchema: { type: "object", properties: {} },
       },
       async () => {
@@ -444,7 +447,7 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         if (!chrome) throw new Error("This chat is not the owner's Chrome side panel; chrome.page reads only the page beside the panel the owner is talking from.");
         let page: Record<string, unknown>;
         try {
-          page = await hub.request(chrome, "page.read", { conversation: chat }, 15_000);
+          page = await hub.request(chrome, "page.read", { conversation: chat }, PAGE_WAIT_MS);
         } catch (err) {
           throw new Error(err instanceof DeviceError ? err.message : refusalText(err));
         }

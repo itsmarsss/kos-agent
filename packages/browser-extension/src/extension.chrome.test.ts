@@ -298,7 +298,13 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     await devtools.send("Target.createTarget", { url: `${base}/beside` });
     await until(() => false, 500);
     expect((await call("page.read", { conversation: "project:other" }))["error"]).toMatchObject({ code: "no_panel" });
-    expect((await call("page.read", { conversation: "chrome:owner" }))["error"]).toMatchObject({ code: "permission" });
+    // Not allowed yet: asked in the panel, and "Not now" is a no that KOS hears in words.
+    const read = call("page.read", { conversation: "chrome:owner" });
+    const card = "document.querySelector('.ask-card--read')";
+    for (let i = 0; i < 100 && !(await devtools.evaluate(panel, `!!${card}`)); i++) await until(() => false, 100);
+    expect(await devtools.evaluate(panel, `${card}.textContent`)).toContain("127.0.0.1");
+    await devtools.evaluate(panel, `${card}.querySelector('.btn').click()`);
+    expect((await read)["error"]).toMatchObject({ code: "permission", message: "the owner did not let KOS read pages in this Chrome" });
     // The panel's chat asks for a session: asked in the panel, no window of its own, and granted for the tab beside it.
     const begun = call("session.begin", { session: "p1", task: "add the mug", requester: "Chrome", conversation: "chrome:owner", minutes: 15 });
     for (let i = 0; i < 100 && !(await devtools.evaluate(panel, "!!document.querySelector('.ask-card--consent')")); i++) await until(() => false, 100);
@@ -308,6 +314,24 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     const listed = (await call("tabs.list", { session: "p1" }))["result"] as { tabs: { url: string; focus?: boolean; handed?: boolean }[] };
     expect(listed.tabs).toEqual([expect.objectContaining({ url: `${base}/beside`, focus: true, handed: true })]);
     expect(await call("session.end", { session: "p1" })).toMatchObject({ ok: true });
+  }, 40_000);
+
+  it("never waits forever: words KOS does not take come back, and a KOS that never shows the chat is said to", async () => {
+    const id = new URL((await devtools.evaluate(popup, "location.href")) as string).host;
+    const first = await devtools.attach((u) => u.endsWith("/panel.html"));
+    // A second panel, on a KOS that will never show it the chat.
+    await devtools.send("Target.createTarget", { url: `chrome-extension://${id}/panel.html?again` });
+    const second = await devtools.attach((u) => u.endsWith("/panel.html?again"));
+    await devtools.loaded(second);
+    await devtools.evaluate(
+      first,
+      `(() => { const ta = document.querySelector('textarea'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(ta, 'are you there'); ta.dispatchEvent(new Event('input', { bubbles: true })); setTimeout(() => document.querySelector('.send').click(), 50); })()`,
+    );
+    await until(() => events.some((e) => e.name === "chat.send" && e.data["text"] === "are you there"));
+    await until(() => false, 13_000);
+    expect(await devtools.evaluate(first, "document.querySelector('.panel-error')?.innerText ?? ''")).toContain("KOS did not take that");
+    expect(await devtools.evaluate(first, "document.querySelector('textarea').value")).toBe("are you there");
+    expect(await devtools.evaluate(second, "document.body.innerText")).toContain("This KOS cannot talk here yet");
   }, 40_000);
 
   it("tells KOS when the owner unpairs it here, so KOS forgets it too", async () => {

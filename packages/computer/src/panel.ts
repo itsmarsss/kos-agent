@@ -32,6 +32,19 @@ export interface PanelChat {
   title: string;
 }
 
+/** A chat the panel may switch to, newest first. */
+export interface PanelChatItem extends PanelChat {
+  updatedAt: number;
+}
+
+/** What answers: the model, the ones it may be changed to, or the engine that chooses its own. */
+export interface PanelModels {
+  current: string;
+  choices: string[];
+  /** Set when the model is not KOS's to choose here, such as the Claude Agent SDK. */
+  fixed?: string;
+}
+
 export interface PanelDeps {
   /** The chat the panel shows: the Chrome surface's current one, without making one. */
   current(): PanelChat | undefined;
@@ -39,6 +52,13 @@ export interface PanelDeps {
   events(conversation: string): ChatEvent[];
   /** Approvals that chat is waiting on, for a panel opened after they were asked. */
   waiting?(conversation: string): ApprovalRequest[];
+  /** The chats the owner may continue from the panel. */
+  chats?(): PanelChatItem[];
+  /** Point the panel at another chat; false when there is no such chat to continue. */
+  switchTo?(conversation: string): boolean;
+  models?(): Promise<PanelModels>;
+  /** Answer with this model from now on, as the dashboard's picker does. */
+  setModel?(model: string): Promise<PanelModels>;
 }
 
 /** The longest message the panel sends, and how much of the chat it is shown. */
@@ -111,6 +131,8 @@ export class ChromePanel implements ChannelAdapter {
   async acknowledge(msg: InboundMessage): Promise<TurnPresence> {
     const chrome = msg.senderId;
     const status = async (params: Record<string, unknown>): Promise<void> => void (await this.tell(chrome, "chat.status", { conversation: this.deps.current()?.id ?? null, ...params }));
+    // Taken: the panel stops waiting to hear that anyone has its words.
+    await status({ taken: true });
     return {
       update: (story) => status({ story }),
       complete: (reply, how) => this.show(chrome, reply, how?.waiting),
@@ -170,8 +192,33 @@ export class ChromePanel implements ChannelAdapter {
           void this.decisions?.({ id: data["approval"], approved: data["approved"], deciderId: chrome });
         }
         return;
+      case "chat.list":
+        void this.tell(chrome, "chat.chats", { chats: this.deps.chats?.() ?? [], current: this.deps.current()?.id ?? null });
+        return;
+      case "chat.switch":
+        if (typeof data["conversation"] === "string" && this.deps.switchTo?.(data["conversation"])) void this.show(chrome);
+        return;
+      case "chat.models":
+        void this.modelsTo(chrome, () => this.deps.models?.());
+        return;
+      case "chat.model":
+        if (typeof data["model"] === "string" && data["model"].trim()) {
+          const model = data["model"].trim();
+          void this.modelsTo(chrome, () => this.deps.setModel?.(model));
+        }
+        return;
       default:
         return;
+    }
+  }
+
+  /** The models, as asked or as just changed; a list that cannot be had says so rather than nothing. */
+  private async modelsTo(chrome: string, get: () => Promise<PanelModels> | undefined): Promise<void> {
+    try {
+      const models = await get();
+      if (models) await this.tell(chrome, "chat.models", { ...models });
+    } catch (err) {
+      await this.tell(chrome, "chat.models", { current: "", choices: [], error: err instanceof Error ? err.message : String(err) });
     }
   }
 
