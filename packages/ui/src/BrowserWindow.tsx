@@ -385,7 +385,7 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
       ref={shell}
       className={`browserwin${driving ? " is-driving" : ""}${maximized ? " is-max" : ""}${fullscreen ? " is-fullscreen" : ""}`}
       role="dialog"
-      aria-label="Browser"
+      aria-label="KOS's browser"
       style={fullscreen ? undefined : { left: placed.left, top: placed.top, width: placed.width, height: placed.height }}
     >
       <div
@@ -401,7 +401,7 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
         <StatusDot state={state} label={label} />
         <span className="browserwin-title">
           <span className="browserwin-name" title={url}>
-            {current ? tabName(current) : "Browser"}
+            {current ? tabName(current) : "KOS's browser"}
           </span>
           {driving ? (
             <span className="browserwin-doing browserwin-doing--you">

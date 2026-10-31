@@ -47,6 +47,8 @@ export interface BrowserElsewhere {
   siteOf(conversationId: string): string | undefined;
   /** A picture of the conversation's tab there, if it has one. */
   picture(conversationId: string, maxWidth: number): Promise<string | undefined>;
+  /** What it is, in words for a result: "the owner's Chrome (Chrome on macOS)". */
+  describe(conversationId: string): string;
 }
 
 export interface BrowserToolsDeps {
@@ -62,7 +64,21 @@ export interface BrowserToolsDeps {
   newTab?: () => Promise<string>;
   /** Read a page in the caller's tab and compare it with the last reading under the same name. */
   watch?: (input: { url: string; name?: string; selector?: string }) => Promise<WatchLook>;
+  /** Which browser the caller's tab is in, in words: KOS's own, or the owner's Chrome. */
+  where?: () => string;
 }
+
+/**
+ * Which browser these tools work in. Said plainly, since there are two
+ * Chromes and a computer that has one too, and "the browser" was read as
+ * the wrong one: the owner calls their own Chrome "the browser" as well.
+ */
+const WHERE =
+  "These tools work in KOS's own browser: a Chrome that KOS runs on its own host, which the owner watches in the dashboard's " +
+  "Browser window. It is not the owner's Chrome. While this chat holds the owner's Chrome (chrome.start, the KOS extension), " +
+  "they work there instead, until chrome.end. Each result says which browser it ran in. When the owner says my Chrome, my " +
+  "browser or the browser device, they mean their own Chrome: chrome.start, not these alone.";
+const WHERE_SHORT = "In KOS's own browser, or in the owner's Chrome while chrome.start holds it; the result says which.";
 
 const THEN = { type: "string", enum: ["look", "snapshot", "read", "none"] };
 
@@ -88,6 +104,15 @@ function answer(seen: Seen): string | Seen {
 }
 
 export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
+  /** A result, said to have happened where it did. */
+  const placed = (seen: Seen): string | Seen => {
+    const where = deps.where?.();
+    return answer(where ? { ...seen, text: `In ${where}.\n${seen.text}`.trim() } : seen);
+  };
+  const placedText = (text: string): string => {
+    const where = deps.where?.();
+    return where ? `In ${where}.\n${text}` : text;
+  };
   return {
     manifest: {
       name: "browser",
@@ -109,7 +134,8 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         {
           name: "browser.visit",
           description:
-            "Open a page in your browser tab and see it, in one call: a picture of the tab, the title and url, and an index of " +
+            `${WHERE} ` +
+            "Open a page in your tab and see it, in one call: a picture of the tab, the title and url, and an index of " +
             "what can be acted on, one line each with its @ref (a dialog's controls first). Read the page from the picture; act " +
             `with browser.act using the refs, which stay the same while the page does. \`urls\` visits up to ${VISIT_MAX} pages in one ` +
             'call. `then: "read"` returns the page as text with its links (for articles); `then: "snapshot"` the whole page as an ' +
@@ -128,7 +154,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         },
         async (input) => {
           const scope = str(input, "scope");
-          return answer(await visit(await deps.tab(), urlsOf(input), { then: thenOf(input, "look"), ...(scope ? { scope } : {}), until: input["wait"] === "load" ? "load" : "dom" }));
+          return placed(await visit(await deps.tab(), urlsOf(input), { then: thenOf(input, "look"), ...(scope ? { scope } : {}), until: input["wait"] === "load" ? "load" : "dom" }));
         },
         SAFE,
       );
@@ -137,6 +163,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         {
           name: "browser.act",
           description:
+            `${WHERE_SHORT} ` +
             "Do several things on the current page in one call, in order, then see the page as it is afterwards. Each step is one " +
             "of {click: target}, {fill: {target, text}} (replaces what is there), {type: {target, text}} (adds to it), " +
             '{press: "Enter" | "Meta+a" | ...}, {select: {target, values}}, {check: target}, {uncheck: target}, {hover: target}, ' +
@@ -162,7 +189,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           const seen = await act(tab, steps, thenOf(input, "look"));
           const opened = (deps.mine?.() ?? []).filter((t) => !before.has(t));
           const note = opened.length ? `\nIt opened ${opened.length === 1 ? `a tab, ${opened[0]}` : `tabs ${opened.join(", ")}`}; browser.use_tab works there.` : "";
-          return answer({ ...seen, text: `${seen.text}${note}` });
+          return placed({ ...seen, text: `${seen.text}${note}` });
         },
         // Asks only when a step touches the page. A watcher that waits four
         // seconds for a table to render was asking the owner every six hours.
@@ -173,11 +200,12 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         {
           name: "browser.look",
           description:
+            `${WHERE_SHORT} ` +
             "See your tab as it is now, without doing anything to it: the picture and the index of what can be acted on, as " +
             'browser.visit gives. `then: "snapshot"` for the whole outline instead, `then: "read"` for its text; `scope` narrows either.',
           inputSchema: { type: "object", properties: { then: THEN, scope: { type: "string" } } },
         },
-        async (input) => answer(await look(await deps.tab(), thenOf(input, "look"), str(input, "scope"))),
+        async (input) => placed(await look(await deps.tab(), thenOf(input, "look"), str(input, "scope"))),
         SAFE,
       );
 
@@ -197,7 +225,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         async (input) => {
           const code = str(input, "code");
           if (!code) throw new Error("code required");
-          return evaluate(await deps.tab(), code);
+          return placedText(await evaluate(await deps.tab(), code));
         },
         RISKY,
       );
@@ -239,16 +267,19 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         {
           name: "browser.tabs",
           description:
-            "The browser's open tabs: id, title, url and whose each is. Yours is marked. The owner's own tabs have no owner. " +
+            `${WHERE_SHORT} ` +
+            "The open tabs there: id, title, url and whose each is. Yours is marked. The owner's own tabs have no owner. " +
             "Use browser.use_tab to work in one.",
           inputSchema: { type: "object", properties: {} },
         },
         async () => {
           const tabs = deps.tabs?.() ?? [];
-          if (tabs.length === 0) return "No tabs are open.";
-          return tabs
-            .map((t) => `${t.id}${t.current ? " (yours, current)" : t.mine ? " (yours)" : t.owner ? ` (${t.owner}'s)` : " (the owner's)"}: ${t.title.trim() || "untitled"}: ${t.url}`)
-            .join("\n");
+          if (tabs.length === 0) return placedText("No tabs are open.");
+          return placedText(
+            tabs
+              .map((t) => `${t.id}${t.current ? " (yours, current)" : t.mine ? " (yours)" : t.owner ? ` (${t.owner}'s)` : " (the owner's)"}: ${t.title.trim() || "untitled"}: ${t.url}`)
+              .join("\n"),
+          );
         },
         SAFE,
       );
@@ -271,7 +302,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           if (!deps.useTab) throw new Error("no browser to switch tabs in");
           await deps.useTab(tab);
           const seen = await look(await deps.tab(), thenOf(input, "look"));
-          return answer({ ...seen, text: `Now on tab ${tab}.\n${seen.text}`.trim() });
+          return placed({ ...seen, text: `Now on tab ${tab}.\n${seen.text}`.trim() });
         },
         SAFE,
       );
@@ -280,6 +311,7 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
         {
           name: "browser.new_tab",
           description:
+            `${WHERE_SHORT} ` +
             "Open a new tab of your own, at a url if given, and work in it from now on; your other tabs stay open and you can " +
             "go back to one with browser.use_tab. `then` as for browser.visit.",
           inputSchema: { type: "object", properties: { url: { type: "string" }, then: THEN } },
@@ -290,9 +322,9 @@ export function createBrowserModule(deps: BrowserToolsDeps): KosModule {
           // Checked before the tab is made, so a refused address leaves nothing behind.
           const url = raw ? urlFor(raw) : undefined;
           const id = await deps.newTab();
-          if (!url) return `Opened tab ${id}; it is blank, and yours.`;
+          if (!url) return placedText(`Opened tab ${id}; it is blank, and yours.`);
           const seen = await visit(await deps.tab(), [url], { then: thenOf(input, "look") });
-          return answer({ ...seen, text: `Opened tab ${id}.\n${seen.text}`.trim() });
+          return placed({ ...seen, text: `Opened tab ${id}.\n${seen.text}`.trim() });
         },
         SAFE,
       );

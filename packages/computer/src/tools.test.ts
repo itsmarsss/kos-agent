@@ -163,7 +163,7 @@ describe("the computer tools", () => {
     const { call, pair, halts, hub } = setup();
     pair();
     await call("computer.start", { task: "t" });
-    expect(await call("computer.devices")).toMatch(/Studio MacBook \(dev_[^)]+, macos\): online, asks on the computer, in use by Design/);
+    expect(await call("computer.devices")).toMatch(/Studio MacBook \(dev_[^)]+\): the owner's computer \(macos\), through KOS Device; computer.start uses its whole screen\. online, asks on the computer, in use by Design/);
     halts.forEach((h) => h());
     expect(hub.sessionOf("c1")).toBeUndefined();
     expect(await call("computer.end")).toBe("There was no session to end.");

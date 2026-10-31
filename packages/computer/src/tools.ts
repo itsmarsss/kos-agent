@@ -195,7 +195,10 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
     ctx.registerTool(
       {
         name: "computer.devices",
-        description: "The computers and Chromes paired with KOS: whether each is online, how a session on it is allowed, and whether one is in use.",
+        description:
+          "What the owner has paired with KOS: their computers (KOS Device: the whole screen, apps, pointer and keys, for computer.start) " +
+          "and their own Chromes (the KOS extension: tabs in the Chrome they use, for chrome.start). Neither is KOS's own browser, which the " +
+          "browser.* tools use and is always there. Says whether each is online, how a session on it is allowed, and whether one is in use.",
         inputSchema: { type: "object", properties: {} },
       },
       () => {
@@ -206,8 +209,11 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
             const state = d.online ? "online" : "offline";
             const consent = d.consent === "kos" ? "starts through KOS's approvals" : d.consent === "device" ? "asks on the computer" : "";
             const busy = d.session ? `in use by ${deps.titleOf(d.session.conversation)}${d.session.paused ? ", paused by the owner" : ""}` : "free";
-            const what = d.kind === "browser" ? "the owner's Chrome, for chrome.start" : d.platform;
-            return `${d.name} (${d.id}, ${what}): ${[state, consent, d.online ? busy : ""].filter(Boolean).join(", ")}`;
+            const what =
+              d.kind === "browser"
+                ? "the owner's own Chrome, through the KOS extension; chrome.start works in it (it is not KOS's own browser)"
+                : `the owner's computer (${d.platform}), through KOS Device; computer.start uses its whole screen`;
+            return `${d.name} (${d.id}): ${what}. ${[state, consent, d.online ? busy : ""].filter(Boolean).join(", ")}`;
           })
           .join("\n");
       },
@@ -218,7 +224,9 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
       {
         name: "computer.start",
         description:
-          "Start using a paired computer: its screen, pointer and keyboard. The owner allows it on the computer, seeing `task`, " +
+          "Start using a paired computer (KOS Device): its whole screen, its apps, the pointer and keyboard. Not for the owner's Chrome " +
+          "alone: when they mean their Chrome or the browser device, chrome.start works in it, tab by tab. When they ask for the computer and it " +
+          "is offline, say so and offer their Chrome if one is online; do not switch to it unasked. The owner allows it on the computer, seeing `task`, " +
           "so say plainly what you will do. Name `app` when the work is in one app: the owner is offered its window first and may share " +
           "only that window, which you then see and act in alone (it is brought to the front for you). Returns what was shared as a picture; " +
           "then work it with computer.act and give it back with computer.end. Use it when the work needs a computer's own apps or files; " +
@@ -339,11 +347,14 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
       {
         name: "chrome.start",
         description:
-          "Work in the owner's own Chrome, signed in to their accounts, instead of KOS's: the owner allows it there, seeing `task`, so say " +
-          "plainly what you will do. While the session lasts, this chat's browser tools (browser.visit, browser.act, browser.look, browser.tabs, " +
-          "browser.use_tab, browser.new_tab) work in that Chrome: in a window of KOS's own there, and in tabs the owner handed you. Acting there " +
-          "is trusted apart from KOS's Chrome, so a site the owner trusted for KOS's is asked about again. Use it when the work needs the owner's " +
-          "own sign-ins or a tab they are looking at; KOS's own Chrome is the default. Give it back with chrome.end when done.",
+          "Work in the owner's own Chrome: the browser they use, on their computer, signed in to their accounts, paired through the KOS " +
+          "extension (computer.devices lists it as the owner's Chrome). It is a different browser from KOS's own, which the browser.* tools " +
+          "use by default, and different from computer use. When the owner says my Chrome, my browser, the browser device, or names it, " +
+          "this is the tool. It is no stand-in for their computer: when they asked for the computer and it is offline, say so and ask before " +
+          "using their Chrome instead. The owner allows it there, seeing `task`, so say plainly what you will do. While the session lasts, this chat's " +
+          "browser.* tools work in the owner's Chrome instead of KOS's (each result says which): in a window of KOS's own there, and in tabs " +
+          "the owner handed you. Acting there is trusted apart from KOS's browser, so a site trusted there is asked about again. Give it back " +
+          "with chrome.end when done.",
         inputSchema: {
           type: "object",
           properties: {
@@ -377,7 +388,7 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         const handed = await deps.chrome.begun(chat).catch(() => []);
         const left = Math.max(1, Math.round((session.until - Date.now()) / 60_000));
         const tabs = handed.length ? ` Tabs the owner handed you: ${handed.map((t) => `${t.title || t.url}`).join("; ")} (browser.tabs lists them, browser.use_tab goes to one).` : "";
-        return `Working in ${device.name} for ${left} minute${left === 1 ? "" : "s"}: your browser tools act there now, in KOS's own window in it unless you use a handed tab.${tabs} The owner can take over or stop it there at any time.`;
+        return `Working in the owner's Chrome (${device.name}) for ${left} minute${left === 1 ? "" : "s"}. Your browser.* tools act there now, not in KOS's own browser, until chrome.end: in KOS's own window in that Chrome unless you use a handed tab.${tabs} The owner can take over or stop it there at any time.`;
       },
       { floor: "safe", why: "works in the owner's own Chrome, signed in as them" },
     );
@@ -385,10 +396,10 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
     ctx.registerTool(
       {
         name: "chrome.end",
-        description: "Give the owner's Chrome back: end this chat's session there; your browser tools go back to KOS's own Chrome. Do it as soon as the work there is done.",
+        description: "Give the owner's Chrome back: end this chat's session there; your browser.* tools go back to KOS's own browser. Do it as soon as the work there is done.",
         inputSchema: { type: "object", properties: {} },
       },
-      () => (hub.end(conversation()) ? "Ended. The owner has their Chrome back; the browser tools work in KOS's own again." : "There was no session to end."),
+      () => (hub.end(conversation()) ? "Ended. The owner has their Chrome back; the browser.* tools work in KOS's own browser again." : "There was no session to end."),
       { floor: "safe" },
     );
   };

@@ -234,6 +234,17 @@ describe("tabs", () => {
   });
 });
 
+describe("which browser a result came from", () => {
+  it("says so on each result, KOS's own or the owner's Chrome", async () => {
+    let where = "KOS's own browser";
+    const { registry, ready } = harness({ where: () => where, tabs: () => [] });
+    await ready;
+    expect(plain((await registry.execute("browser.look", {})).content)).toMatch(/^In KOS's own browser\.\n/);
+    where = "the owner's Chrome (Chrome on macOS)";
+    expect((await registry.execute("browser.tabs", {})).content).toBe("In the owner's Chrome (Chrome on macOS).\nNo tabs are open.");
+  });
+});
+
 describe("browser.look", () => {
   it("hands back the tab as it is, as a picture with its index, or as its outline", async () => {
     const { registry, ready } = harness();
