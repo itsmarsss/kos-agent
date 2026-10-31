@@ -38,6 +38,8 @@ interface Approval {
 interface Extra {
   after: number;
   text: string;
+  /** The owner's words it is about, when KOS says: it goes under them, wherever they are. */
+  said?: string;
   from?: string;
   /** A turn held on the owner: true until the chat moves on. */
   waiting?: true;
@@ -49,8 +51,8 @@ interface Chat {
   lines: Line[];
   /** The owner's words on their way, until the chat has them. */
   sending: string[];
-  /** The running turn's story, after the exchange it belongs to. */
-  story?: Extra;
+  /** The story of each turn on the go, under the words it is about: one running, and one said meanwhile. */
+  stories: Extra[];
   working: boolean;
   extras: Extra[];
   asks: Approval[];
@@ -81,7 +83,7 @@ interface ReadAsk {
   host: string;
 }
 
-const EMPTY: Chat = { conversation: null, title: "Chrome", lines: [], sending: [], working: false, extras: [], asks: [], auto: false };
+const EMPTY: Chat = { conversation: null, title: "Chrome", lines: [], sending: [], working: false, extras: [], stories: [], asks: [], auto: false };
 /** How long a KOS has to show the chat once the panel opens, and to take the owner's words once sent. */
 const SHOW_MS = 6_000;
 const TAKE_MS = 12_000;
@@ -123,7 +125,7 @@ function useChat(windowId: number | undefined, online: boolean): {
   const giveBack = (why: string): void => {
     heardBack();
     setError(why);
-    setChat((c) => ({ ...c, working: false, story: undefined, sending: [], ...(c.sending.length ? { unsent: c.sending.join("\n") } : {}) }));
+    setChat((c) => ({ ...c, working: false, stories: [], sending: [], ...(c.sending.length ? { unsent: c.sending.join("\n") } : {}) }));
   };
 
   useEffect(() => {
@@ -214,7 +216,8 @@ function useChat(windowId: number | undefined, online: boolean): {
       const said = text.trim();
       if (!said) return;
       // A command (/new, /switch) is never in the chat's words, so it waits for nothing but its answer.
-      setChat((c) => ({ ...c, sending: said.startsWith("/") ? c.sending : [...c.sending, said], working: true, story: undefined, unsent: undefined }));
+      // The turn already running keeps its story: these words go to it at its next step, or run after it.
+      setChat((c) => ({ ...c, sending: said.startsWith("/") ? c.sending : [...c.sending, said], working: true, unsent: undefined }));
       clearTimeout(taking.current);
       taking.current = setTimeout(() => giveBack("KOS did not take that. It may be an older KOS without the side panel, or not reachable now; your words are back in the box."), TAKE_MS);
       say({ type: "send", text: said });
@@ -254,10 +257,13 @@ function shown(c: Chat, message: Record<string, unknown>): Chat {
   const fresh = conversation !== c.conversation && c.conversation !== null;
   const said = lines.filter((l): l is Extract<Line, { role: "you" }> => l.role === "you").map((l) => l.text);
   const sending = fresh ? [] : c.sending.filter((t) => !said.includes(t));
-  const notice = message["notice"] as { text: string; from?: string; waiting?: true } | undefined;
+  const notice = message["notice"] as { text: string; from?: string; waiting?: true; said?: string } | undefined;
   // A wait said before is over once the chat is shown again: decided, or still asked in its own card.
   const kept = fresh ? [] : c.extras.filter((x) => !x.waiting);
-  const extras = [...kept, ...(notice ? [{ after: yours(lines), text: notice.text, ...(notice.from ? { from: notice.from } : {}), ...(notice.waiting ? { waiting: true as const } : {}) }] : [])];
+  const extras = [
+    ...kept,
+    ...(notice ? [{ after: yours(lines), text: notice.text, ...(notice.said ? { said: notice.said } : {}), ...(notice.from ? { from: notice.from } : {}), ...(notice.waiting ? { waiting: true as const } : {}) }] : []),
+  ];
   const answered = !sending.length && (notice !== undefined || lines.at(-1)?.role !== "you");
   return {
     ...c,
@@ -268,20 +274,33 @@ function shown(c: Chat, message: Record<string, unknown>): Chat {
     sending,
     extras,
     working: sending.length > 0 || (c.working && !answered),
-    ...(answered ? { story: undefined } : {}),
+    ...(answered ? { stories: [] } : {}),
     ...(fresh ? { asks: [] } : {}),
   };
 }
 
 function storied(c: Chat, message: Record<string, unknown>): Chat {
   const story = message["story"];
+  const said = typeof message["said"] === "string" ? message["said"] : undefined;
   // A failed turn: what is still waiting was never taken, and goes back to the owner.
-  if (typeof message["error"] === "string") return { ...c, working: false, story: undefined, sending: [], ...(c.sending.length ? { unsent: c.sending.join("\n") } : {}) };
+  if (typeof message["error"] === "string") return { ...c, working: false, stories: [], sending: [], ...(c.sending.length ? { unsent: c.sending.join("\n") } : {}) };
   if (typeof story !== "string") return { ...c, working: false };
-  const after = yours(c.lines) + c.sending.length;
+  const after = anchorOf(c, said);
   // The steps a finished turn already shows, told once more as it closed: nothing new.
   if (!c.sending.length && answeredWith(c.lines, after) >= stepsIn(story)) return c;
-  return { ...c, working: true, story: { after, text: story } };
+  const next: Extra = { after, text: story, ...(said !== undefined ? { said } : {}) };
+  const others = c.stories.filter((x) => (said !== undefined ? x.said !== said : x.after !== after));
+  return { ...c, working: true, stories: [...others, next] };
+}
+
+/** The owner's words in order, said and on their way: what a story or a notice is placed under. */
+const yourWords = (c: Pick<Chat, "lines" | "sending">): string[] => [...c.lines.flatMap((l) => (l.role === "you" ? [l.text] : [])), ...c.sending];
+
+/** The exchange the owner's words began, counted from one; the latest exchange when they are not there. */
+function anchorOf(c: Pick<Chat, "lines" | "sending">, said: string | undefined): number {
+  const words = yourWords(c);
+  const at = said !== undefined ? words.lastIndexOf(said) : -1;
+  return at >= 0 ? at + 1 : words.length;
 }
 
 const stepsIn = (story: string): number => story.split("\n").filter((l) => l.startsWith(STEP)).length;
@@ -577,9 +596,12 @@ function Thread({
   const empty = !chat.lines.length && !chat.sending.length && !chat.extras.length;
   const items: ReactNode[] = [];
   let seen = 0;
+  // Each placed under the words it is about, where KOS said; otherwise after the exchange it came in.
+  const words = yourWords(chat);
+  const placed = (x: Extra): number => (x.said !== undefined && words.includes(x.said) ? words.lastIndexOf(x.said) + 1 : x.after);
   const after = (n: number): void => {
-    chat.extras.forEach((x, i) => (x.after === n ? items.push(<Extra key={`x${i}`} extra={x} />) : undefined));
-    if (chat.story?.after === n) items.push(<Story key={`story${n}`} text={chat.story.text} />);
+    chat.stories.forEach((x, i) => (placed(x) === n ? items.push(<Story key={`story${i}-${n}`} text={x.text} />) : undefined));
+    chat.extras.forEach((x, i) => (placed(x) === n ? items.push(<Extra key={`x${i}`} extra={x} />) : undefined));
   };
   chat.lines.forEach((line, i) => {
     if (line.role === "you") {
@@ -620,7 +642,7 @@ function Thread({
         <AnimatePresence initial={false}>{items}</AnimatePresence>
       )}
       <AnimatePresence>
-        {chat.working && !chat.story && (
+        {chat.working && !chat.stories.length && (
           <m.div key="thinking" className="thinking" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={ease}>
             <span />
             <span />
@@ -709,7 +731,8 @@ function Steps({ steps, live }: { steps: { summary: string; failed?: true }[]; l
 
 /** The running turn: its steps so far, and what KOS is saying between them. */
 function Story({ text }: { text: string }): ReactElement {
-  const lines = text.split("\n").filter((l) => l.trim());
+  // A long story comes as its tail, cut mid-line after a "…": that first line is a fragment.
+  const lines = (text.startsWith("…") ? text.split("\n").slice(1) : text.split("\n")).filter((l) => l.trim());
   const steps = lines.filter((l) => l.startsWith(STEP)).map((l) => ({ summary: l.slice(STEP.length).replace(/ \(failed\)$/, ""), ...(l.endsWith(" (failed)") ? { failed: true as const } : {}) }));
   const words = lines.filter((l) => !l.startsWith(STEP)).join("\n");
   return (

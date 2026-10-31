@@ -14,6 +14,7 @@ import type { DiscordServices, ServerPlace } from "../tools/discord.js";
 import { toPdf } from "../tools/pdf.js";
 import { bodyHexOf } from "@kos/shared";
 import { primarySessionId } from "./session.js";
+import { conversationEvents } from "./transcript.js";
 
 /** Inference stub: optionally emits one tool call on the first turn. */
 function stubInference(script: ModelResponse[]): Inference {
@@ -139,6 +140,66 @@ describe("Kernel", () => {
     await kernel.handleMessage("hi");
     await kernel.handleMessage("again");
     expect(kernel.sessions.get("chat:owner").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("hears what the owner says while a turn runs at its next step, in that turn", async () => {
+    const step: ModelResponse = { content: [{ type: "tool_use", id: "t1", name: "files.write", input: { path: "scratch/a.txt", content: "a" } }], stopReason: "tool_use", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
+    const said = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    const requests: GenerateRequest[] = [];
+    let second: Promise<{ reply: string; steered?: boolean }> | undefined;
+    let chat = "";
+    kernel = await boot({
+      async generate(_t, r) {
+        requests.push(r);
+        if (requests.length === 1) {
+          // The owner speaks while the turn is on its first step.
+          second = kernel.handleMessage("are you stuck on Next?", { sessionId: chat });
+          await new Promise((done) => setTimeout(done, 30));
+          return step;
+        }
+        return said("Not stuck: Next was under the help tray, clicked it now.");
+      },
+    });
+    chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Quiz" }).id;
+    const first = await kernel.handleMessage("keep going", { sessionId: chat });
+    expect(first.reply).toBe("Not stuck: Next was under the help tray, clicked it now.");
+    // The second message was heard by the running turn, not run after it.
+    expect(await second).toMatchObject({ reply: "", steered: true });
+    expect(requests).toHaveLength(2);
+    // It reached the model with the tool's result, under this turn's mark, which the turn was told.
+    const sent = JSON.stringify(requests[1]);
+    const mark = /while you work · ([0-9a-f]{8})/.exec(sent)?.[1];
+    expect(mark).toBeDefined();
+    expect(sent).toContain(`[the owner, while you work · ${mark}]\\nare you stuck on Next?`);
+    expect(JSON.stringify(requests[0])).toContain(`this turn's mark`);
+    // On the page it reads as the owner's words, after the step that heard them.
+    const events = conversationEvents(kernel.sessions.get(chat));
+    const order = events.map((e) => (e.kind === "message" ? `${e.role}:${e.text}` : e.kind));
+    expect(order).toEqual(["you:keep going", "tool", "you:are you stuck on Next?", "kos:Not stuck: Next was under the help tray, clicked it now."]);
+    expect(events.find((e) => e.kind === "tool")).toMatchObject({ result: expect.not.stringContaining("are you stuck") });
+  });
+
+  it("runs words said too late for a step as a turn of their own", async () => {
+    const said = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
+    let calls = 0;
+    let second: Promise<{ reply: string; steered?: boolean }> | undefined;
+    let chat = "";
+    kernel = await boot({
+      async generate() {
+        calls++;
+        if (calls === 1) {
+          // Said while the turn writes its answer: no step is left to hear it.
+          second = kernel.handleMessage("and the next one?", { sessionId: chat });
+          await new Promise((done) => setTimeout(done, 30));
+          return said("Done with that one.");
+        }
+        return said("On to the next.");
+      },
+    });
+    chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Quiz" }).id;
+    expect((await kernel.handleMessage("do this one", { sessionId: chat })).reply).toBe("Done with that one.");
+    expect(await second).toMatchObject({ reply: "On to the next." });
+    expect(calls).toBe(2);
   });
 
   it("executes a safe tool call end to end (files.write then notify)", async () => {

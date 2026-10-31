@@ -83,6 +83,8 @@ export function connectChannel(
       // A blob's answer carries its name, for the surface to show as a tag.
       // A turn waiting on an approval says so, so the surface keeps telling
       // its story until the rest of it has run.
+      // Taken into the turn already running here: that turn answers it.
+      if (res.steered) return { text: "", steered: true };
       const waiting = res.suspended ? { suspended: true as const } : {};
       if (res.from && res.reply) return { text: res.reply, from: res.from, ...waiting };
       return res.suspended ? { text: res.reply || "(no reply)", ...waiting } : res.reply || "(no reply)";

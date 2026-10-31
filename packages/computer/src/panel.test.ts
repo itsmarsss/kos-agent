@@ -162,18 +162,18 @@ describe("a Chrome's side panel", () => {
     ]);
     const presence = await panel.acknowledge({ channel: "chrome", senderId: chrome.id, text: "/new" });
     // Taken at once, so the panel knows someone has its words before any step is told.
-    expect(chrome.calls.at(-1)).toEqual({ method: "chat.status", params: { conversation: "chrome:owner", taken: true } });
+    expect(chrome.calls.at(-1)).toEqual({ method: "chat.status", params: { conversation: "chrome:owner", said: "/new", taken: true } });
     await presence.update("› Read the page");
-    expect(chrome.calls.at(-1)).toEqual({ method: "chat.status", params: { conversation: "chrome:owner", story: "› Read the page" } });
+    expect(chrome.calls.at(-1)).toEqual({ method: "chat.status", params: { conversation: "chrome:owner", said: "/new", story: "› Read the page" } });
     await presence.complete({ text: "Hello." });
     expect(chrome.calls.at(-1)?.params["notice"]).toBeUndefined();
     await presence.complete({ text: "Started a new chat.", from: { name: "recap" } });
-    expect(chrome.calls.at(-1)?.params["notice"]).toEqual({ text: "Started a new chat.", from: "recap" });
+    expect(chrome.calls.at(-1)?.params["notice"]).toEqual({ text: "Started a new chat.", from: "recap", said: "/new" });
     await presence.complete({ text: "Waiting on you: files.write needs approval." }, { waiting: true });
-    expect(chrome.calls.at(-1)?.params["notice"]).toEqual({ text: "Waiting on you: files.write needs approval.", waiting: true });
+    expect(chrome.calls.at(-1)?.params["notice"]).toEqual({ text: "Waiting on you: files.write needs approval.", waiting: true, said: "/new" });
     await presence.fail("KOS hit an error.");
     expect(chrome.calls.slice(-2).map((c) => c.method)).toEqual(["chat.status", "chat.show"]);
-    expect(chrome.calls.at(-2)?.params).toEqual({ conversation: "chrome:owner", story: null, error: "KOS hit an error." });
+    expect(chrome.calls.at(-2)?.params).toEqual({ conversation: "chrome:owner", said: "/new", story: null, error: "KOS hit an error." });
   });
 
   it("lists the chats to switch to, switches to a real one only, and shows it", async () => {

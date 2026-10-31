@@ -73,6 +73,31 @@ export type ChatEvent =
 const MAX_RESULT = 2000;
 
 /**
+ * The owner's words said while a turn runs, as they reach it: after the
+ * result of the turn's next tool call, under a line carrying a mark the
+ * turn was told and nothing outside it knows. A page or a file can write
+ * anything into a result, but not that mark, so it cannot pass for the
+ * owner speaking.
+ */
+const OWNER_LINE = "[the owner, while you work · ";
+
+export function ownerWords(mark: string, words: string[]): string {
+  return words.map((w) => `\n\n${OWNER_LINE}${mark}]\n${w}`).join("");
+}
+
+/** A tool's result, and the owner's words that rode in after it. */
+export function splitOwnerWords(content: string): { content: string; said: string[] } {
+  const at = content.indexOf(`\n\n${OWNER_LINE}`);
+  if (at === -1) return { content, said: [] };
+  const said = content
+    .slice(at)
+    .split(/\n\n\[the owner, while you work · [0-9a-z]+\]\n/)
+    .map((w) => w.trim())
+    .filter(Boolean);
+  return { content: content.slice(0, at), said };
+}
+
+/**
  * The harness resumes a held call by sending itself a user turn. That is the
  * right shape for the model and the wrong one for a reader, who sees a wall of
  * plumbing attributed to them. Recognised here and reduced to a one-line note.
@@ -174,13 +199,16 @@ export function conversationEvents(messages: ModelMessage[]): ChatEvent[] {
         // Attach to the call it answers; an unmatched result is a fragment
         // from an older truncation and has nothing to attach to.
         const target = pending.get(block.toolUseId);
+        const { content, said } = splitOwnerWords(block.content);
         if (target) {
-          target.result = block.content.slice(0, MAX_RESULT);
+          target.result = content.slice(0, MAX_RESULT);
           if (block.isError) target.isError = true;
-          const queued = parseQueuedApproval(block.content);
+          const queued = parseQueuedApproval(content);
           if (queued) target.pendingId = queued;
           pending.delete(block.toolUseId);
         }
+        // What the owner said while the turn ran, where the turn heard it.
+        for (const text of said) events.push({ kind: "message", role: "you", text });
       }
     }
   }
