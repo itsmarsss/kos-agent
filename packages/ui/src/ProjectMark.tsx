@@ -8,11 +8,15 @@ export function markInk(colour: string): string {
   return (lightnessOfHex(colour) ?? 60) < 55 ? "rgb(255 255 255 / 0.9)" : "rgb(0 0 0 / 0.7)";
 }
 
-/** A project's mark in its colour: the owner's, else a soft one its slug gives. */
+/**
+ * A project's mark in its colour: the owner's, else a soft one its slug
+ * gives. For the soft one only the hue is set; the stylesheet picks the tint
+ * and the ink for the theme, since pale ink on a pale tint was all but
+ * invisible in the light one.
+ */
 export function markStyle(slug: string, colour: string | null | undefined): CSSProperties {
   if (colour) return { background: colour, color: markInk(colour) };
-  const { hue } = lookOf(slug);
-  return { background: `hsl(${hue} 70% 60% / 0.25)`, color: `hsl(${hue} 75% 72%)` };
+  return { "--blob-h": lookOf(slug).hue } as CSSProperties;
 }
 
 /**

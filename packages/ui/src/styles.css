@@ -7531,6 +7531,7 @@ a.health {
 .hero::before { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse 80% 55% at 50% 0%, hsl(var(--blob-h, 214) 80% 60% / 0.32), transparent 100%); pointer-events: none; }
 .hero > * { position: relative; }
 .hero-mark { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 16px; background: hsl(var(--blob-h, 214) 70% 60% / 0.22); color: hsl(var(--blob-h, 214) 75% 72%); }
+:root[data-theme="light"] .hero-mark { color: hsl(var(--blob-h, 214) 60% 38%); }
 .hero-meta { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.35rem; margin-top: 0.35rem; }
 .hero > .btn, .hero-acts { margin-top: 0.5rem; }
 .hero-acts { display: flex; gap: 0.4rem; }
@@ -7782,19 +7783,15 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
 /* A stream has no menu, so its time stays put on hover. */
 .chats-streams li:hover .chats-item-when { opacity: 1; }
 
-.chats-lead {
-  flex: none;
-  align-self: center;
-  width: 18px;
-  height: 18px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.chats-lead .status-dot { margin: 0; }
+.chats-lead { flex: none; align-self: center; display: inline-flex; align-items: center; justify-content: center; }
+/* A slot only in the root rail, where dots line up with faces and marks; a
+   project's rail lines its agents' dots up with its schedule's instead. */
+.chats-list--root .chats-lead { width: 18px; height: 18px; }
+.chats-list--root .chats-lead .status-dot { margin: 0; }
 .chats-lead--glyph { color: var(--faint); }
 .chats-item.is-active .chats-lead--glyph { color: var(--accent); }
 .chats-item-title--strong { font-weight: 600; }
+:root[data-theme="light"] .project-mark { color: hsl(var(--blob-h, 214) 60% 38%); }
 .chats-kbd {
   flex: none;
   align-self: center;
@@ -7811,6 +7808,8 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
   display: grid;
   place-items: center;
   border-radius: 5px;
+  background: hsl(var(--blob-h, 214) 70% 60% / 0.22);
+  color: hsl(var(--blob-h, 214) 75% 72%);
   font-size: 0.66rem;
   font-weight: 700;
   line-height: 1;
