@@ -3687,6 +3687,11 @@ li:hover .chats-item-when { opacity: 0; }
   overflow-x: auto;
 }
 .md-code code { background: none; padding: 0; font-size: var(--text-base); }
+/* LaTeX, typeset. A wide formula scrolls on its own rather than widening the bubble. */
+.md-math .katex { font-size: 1.05em; }
+.md-math-block { margin: 0 0 0.5rem; overflow-x: auto; overflow-y: hidden; }
+.md .katex-display { margin: 0.35rem 0; overflow-x: auto; overflow-y: hidden; }
+.md-math-block .katex-display { margin: 0; }
 /* Prose links are underlined; a chip is not. The chip's own rule lost to
    this one on specificity, so every reference in a message carried an
    underline it did not need. */

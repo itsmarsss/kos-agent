@@ -1,7 +1,7 @@
 import { isValidElement, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import { blocksOf, inline } from "./markdown.js";
+import { blocksOf, inline, Tex } from "./markdown.js";
 
 /** KOS's words as the side panel draws them: what it reads, and what it will not make into a link. */
 
@@ -25,5 +25,20 @@ describe("the side panel's markdown", () => {
     expect(elements.filter((e) => e.type === "a").map((e) => e.props.href)).toEqual(["https://kos.example/a"]);
     expect(parts.join("")).toContain("[bad](javascript:alert(1))");
     expect(elements.filter((e) => e.props.className === "mention").map((e) => e.props.children)).toEqual(["approval 6", "Budget"]);
+  });
+
+  it("reads math as formulas and prices as prices", () => {
+    expect(blocksOf("Area:\n$$\n\\pi r^2\n$$\nso $5 each")).toEqual([
+      { kind: "p", text: "Area:" },
+      { kind: "math", text: "\\pi r^2" },
+      { kind: "p", text: "so $5 each" },
+    ]);
+    const parts = inline("so $a_1 + b$ costs $5 and \\(x\\) is `$y$`");
+    const formulas = (parts.filter(isValidElement) as ReactElement<{ source?: string; display?: boolean }>[]).filter((e) => e.type === Tex);
+    expect(formulas.map((e) => [e.props.source, e.props.display])).toEqual([
+      ["a_1 + b", false],
+      ["x", false],
+    ]);
+    expect(parts.filter((p) => typeof p === "string").join("")).toContain(" costs $5 and ");
   });
 });

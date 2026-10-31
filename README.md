@@ -14,7 +14,7 @@ will remember, in words you can read and edit.
 
 | | |
 | --- | --- |
-| **17 tool families** | files, SQL, migrations, HTTP, shell, search, memory, projects, pages, sites, daemons, schedules, sub-agents, skills, modules, export, delegation |
+| **19 tool families** | files, SQL, migrations, HTTP, shell, Python, TeX, search, memory, projects, pages, sites, daemons, schedules, sub-agents, skills, modules, export, delegation |
 | **1,506 tests** across 159 files | about 23,000 lines of tests for 49,000 of source |
 | **291 pull requests** | all merged, all green |
 | **5 surfaces** | web dashboard, terminal REPL, Discord, iMessage, SMS |
@@ -131,7 +131,7 @@ from it. [docs/modules.md](docs/modules.md).
 | | |
 | --- | --- |
 | **Path jail** | One `resolvePath()` gate. Rejects `..`, NUL bytes, absolute escapes, and all symlinks |
-| **Container** | The container is the jail for unattended work. On macOS a sandbox profile confines shell commands to the workspace |
+| **Container** | The container is the jail for unattended work. On macOS a sandbox profile confines shell commands to the workspace. `python.run` and `tex.pdf` get a narrower one: KOS's own files and the owner's home hidden, writes only to their own folder, and for Python no network, which is why they run without asking |
 | **Risk tiers** | A static floor per tool, escalated deterministically by arguments, and relaxed the same way: a shell line that provably only reads (ls, cat, grep, git status) runs without asking, by allow-list. The model is never asked whether something is safe |
 | **Own tables** | The sql tool reaches a project's tables and not KOS's own: conversations, the approval queue, permission rules, memory, the audit log are refused, reads included. Maintenance, where KOS repairs itself, may read them; the trust tables are written by nobody but you |
 | **Approvals** | Interactive turns suspend and resume on your decision. Scheduled runs queue the action and finish. A decision remembered with Always covers that shape, in that project, and nothing wider |

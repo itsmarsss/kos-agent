@@ -57,6 +57,8 @@ line you can open, and an approval the chat asks for is decided in place.
 - **The model.** The chip under the box is the dashboard's picker: the
   model KOS answers with, everywhere. On the Claude Agent SDK it names the
   engine instead, which chooses its own.
+- **Math.** A formula KOS writes in LaTeX (`$...$` in a line, `$$...$$` on
+  its own) is typeset, as on the dashboard.
 - **Nothing waits forever.** KOS says it took your words at once; if it does
   not within a few seconds, the panel says so and puts them back in the box.
   A KOS that is connected but never shows the chat is one from before the
