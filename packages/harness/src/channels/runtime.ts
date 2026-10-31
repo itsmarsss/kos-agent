@@ -366,7 +366,7 @@ export class ChannelRuntime {
       // Heard by the turn already running: its answer is the answer, and here it is only said that it was heard.
       if (steered) {
         await story?.end();
-        if (presence) await presence.complete({ text: STEERED_LINE });
+        if (presence) await presence.complete({ text: STEERED_LINE }, { heard: true });
         return;
       }
       const reply: OutboundMessage = message;

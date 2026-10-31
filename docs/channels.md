@@ -276,6 +276,17 @@ A line starting with `-# ` is small print: a source, an id, a caveat. It
 renders small and muted on Discord and on the dashboard, and as a plain
 line on iMessage and SMS.
 
+## Said while KOS works
+
+A message to a chat whose turn is running is heard by that turn at its next
+step, on any surface and on either engine: it rides in with the next tool
+result, under a line carrying a mark only that turn was told, so a page or
+a file that writes "the owner says" cannot pass for you. The turn answers
+it, and changes course if you asked it to; the surface shows that it was
+taken in, and the chat shows your words where the turn heard them. Words
+that arrive after the turn's last step, a message with files, and a guest's
+message run as a turn of their own once the running one ends.
+
 ## Where a message goes
 
 `notify` from a turn goes to you on the first surface wired, or to a named

@@ -139,7 +139,8 @@ export class ChromePanel implements ChannelAdapter {
     await status({ taken: true });
     return {
       update: (story) => status({ story }),
-      complete: (reply, how) => this.show(chrome, reply, how?.waiting, msg.text),
+      // A wait on the owner, or words the running turn took in: true until the chat moves on.
+      complete: (reply, how) => this.show(chrome, reply, how?.waiting === true || how?.heard === true, msg.text),
       // Said, then the chat as it stands: the owner's words may be in it or not, and the panel tells which.
       fail: async (message) => {
         await status({ story: null, error: message });

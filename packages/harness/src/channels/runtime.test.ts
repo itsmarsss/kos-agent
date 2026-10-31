@@ -309,6 +309,16 @@ describe("telling the turn's story on a surface with a presence", () => {
     expect(adapter.completed).toEqual([{ text: "Done." }]);
   });
 
+  it("says only that it was heard when the running turn took the message in", async () => {
+    const adapter = new InMemoryAdapter();
+    adapter.withPresence = true;
+    const runtime = new ChannelRuntime({ adapter, handleTurn: async () => ({ text: "", steered: true }) });
+    await runtime.start();
+    await adapter.receive({ channel: "memory", senderId: "u1", text: "stop after the second one" });
+    expect(adapter.completed).toEqual([{ text: "-# taken in by the turn already running" }]);
+    expect(adapter.sent).toEqual([]);
+  });
+
   it("shows nothing for a turn that takes no step", async () => {
     const adapter = new InMemoryAdapter();
     adapter.withPresence = true;
