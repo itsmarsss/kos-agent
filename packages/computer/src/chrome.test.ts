@@ -85,7 +85,7 @@ describe("a Chrome paired through the extension", () => {
   it("is offered chrome.start, not the computer's tools, and computer.start sends a Chrome there", async () => {
     const { tools, pairChrome } = setup();
     pairChrome();
-    expect([...tools.keys()].sort()).toEqual(["chrome.end", "chrome.start"]);
+    expect([...tools.keys()].sort()).toEqual(["chrome.end", "chrome.page", "chrome.start"]);
   });
 
   it("asks the owner for a session in their Chrome, only when the owner started the work, and tells the chat what it was handed", async () => {
@@ -160,6 +160,28 @@ describe("a Chrome paired through the extension", () => {
     fake.event("tab.closed", { session: hub.sessionOf("c1")!.id, tab: "99" });
     expect(chrome.tabsOf("c1")).toEqual(["77"]);
   });
+
+  it("works in the tab beside the side panel, and follows the owner to the next one they speak from", async () => {
+    const { chrome, tools, pairChrome } = setup();
+    const fake = pairChrome();
+    fake.answers.set("tabs.list", () => ({ ok: true, result: { tabs: [{ id: "77", url: "https://shop.example/cart", title: "Cart", handed: true, focus: true }] } }));
+    const said = (await attendance.run(true, () => tools.get("chrome.start")!({ task: "look" }))) as string;
+    expect(said).toContain("in the tab the owner has open beside the side panel (Cart)");
+    expect(chrome.tabs("c1")).toEqual([{ id: "77", title: "Cart", url: "https://shop.example/cart", current: true }]);
+    await chrome.tab("c1");
+    expect(fake.calls.some((c) => c.method === "tabs.open")).toBe(false);
+    fake.event("tab.handed", { tab: "99", url: "https://mail.example/", title: "Mail", focus: true });
+    expect(chrome.siteOf("c1")).toBe("mail.example");
+  });
+
+  it("takes a tab handed in one Chrome only into that Chrome's session", async () => {
+    const { chrome, tools, pairChrome } = setup();
+    pairChrome();
+    const other = pairChrome("Chrome at work");
+    await attendance.run(true, () => tools.get("chrome.start")!({ task: "look", chrome: "Chrome on macOS" }));
+    other.event("tab.handed", { tab: "99", url: "https://mail.example/", title: "Mail", focus: true });
+    expect(chrome.tabsOf("c1")).toEqual(["77"]);
+  });
 });
 
 describe("a Chrome beside a computer", () => {
@@ -170,7 +192,7 @@ describe("a Chrome beside a computer", () => {
     mac.id = hub.pair({ code: hub.issueCode().code, name: "Studio MacBook", platform: "macos", publicKey: mac.publicKey }).device;
     hub.accept(mac.socket);
     mac.hello();
-    expect([...tools.keys()].sort()).toEqual(["chrome.end", "chrome.start", "computer.act", "computer.devices", "computer.end", "computer.start"]);
+    expect([...tools.keys()].sort()).toEqual(["chrome.end", "chrome.page", "chrome.start", "computer.act", "computer.devices", "computer.end", "computer.start"]);
     await expect(attendance.run(true, () => tools.get("computer.start")!({ task: "x", device: "Chrome on macOS" }))).rejects.toThrow(/is the owner's Chrome, not a computer; chrome.start/);
     expect(await tools.get("computer.devices")!({})).toMatch(/Chrome on macOS \(dev_[^)]+\): the owner's own Chrome, through the KOS extension; chrome.start works in it \(it is not KOS's own browser\)/);
   });

@@ -1,6 +1,7 @@
 export type {
   ApprovalDecision,
   ApprovalHandler,
+  ApprovalOutcome,
   ApprovalRequest,
   ChannelAdapter,
   InboundMessage,

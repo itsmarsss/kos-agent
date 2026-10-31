@@ -12,13 +12,17 @@ import type { Device } from "./store.js";
  * browses there: its browser.* calls go to a tab of that Chrome, through the
  * extension, driven by the same hands as KOS's own Chrome. The tabs are the
  * session's: the ones KOS opened in its window there, and the ones the owner
- * handed it. While the owner has taken over, the hands wait.
+ * handed it. While the owner has taken over, the hands wait. A session
+ * started from the side panel works in the tab beside it, where the owner is
+ * looking, rather than in a window of KOS's own.
  */
 
 interface Kept {
   url: string;
   title: string;
   handed: boolean;
+  /** The tab beside the side panel the owner is talking from. */
+  focus?: boolean;
 }
 
 /** One conversation's borrowed Chrome: its tabs, the one it is on, and a page for each it has driven. */
@@ -48,7 +52,7 @@ export class OwnerChrome implements BrowserElsewhere {
   private readonly wakers = new Set<() => void>();
 
   constructor(private readonly hub: DeviceHub) {
-    hub.onDeviceEvent((_device, event, session) => this.heard(event, session));
+    hub.onDeviceEvent((device, event, session) => this.heard(device, event, session));
     hub.onChange(() => {
       // A session gone takes its tabs with it; a waiting hand is woken to find out.
       for (const [conversation, b] of this.held) if (this.hub.sessionOf(conversation)?.id !== b.session) this.held.delete(conversation);
@@ -74,10 +78,12 @@ export class OwnerChrome implements BrowserElsewhere {
     return session ? this.hub.find(session.device) : undefined;
   }
 
-  /** A session just begun: its tabs (the ones the owner handed) learned. */
+  /** A session just begun: its tabs (the ones the owner handed) learned, and the one beside the side panel made the one it is on. */
   async begun(conversation: string): Promise<Kept[]> {
     const b = this.borrowed(conversation);
     await this.refresh(conversation, b);
+    const beside = [...b.tabs].find(([, t]) => t.focus);
+    if (beside) b.current = beside[0];
     return [...b.tabs.values()];
   }
 
@@ -143,7 +149,7 @@ export class OwnerChrome implements BrowserElsewhere {
     const tabs = Array.isArray(listed["tabs"]) ? (listed["tabs"] as Record<string, unknown>[]) : [];
     for (const t of tabs) {
       if (typeof t["id"] !== "string") continue;
-      b.tabs.set(t["id"], { url: String(t["url"] ?? ""), title: String(t["title"] ?? ""), handed: t["handed"] === true });
+      b.tabs.set(t["id"], { url: String(t["url"] ?? ""), title: String(t["title"] ?? ""), handed: t["handed"] === true, ...(t["focus"] === true ? { focus: true } : {}) });
     }
   }
 
@@ -200,15 +206,17 @@ export class OwnerChrome implements BrowserElsewhere {
   }
 
   /** What the extension tells: a page's events for its hands, tabs closing, tabs handed. */
-  private heard(event: DeviceEvent, session: Session | undefined): void {
+  private heard(device: string, event: DeviceEvent, session: Session | undefined): void {
     const entry = session ? [...this.held].find(([, b]) => b.session === session.id) : undefined;
     const data = event.data;
     const tab = typeof data["tab"] === "string" ? data["tab"] : undefined;
     if (event.name === "tab.handed") {
-      // A tab handed while a session is live joins it at once.
+      // A tab handed while a session is live joins it at once; the one beside the side panel, where the owner just spoke, is the one KOS is on.
       for (const [conversation, b] of this.held) {
-        if (!tab || this.session(conversation)?.id !== b.session) continue;
+        const live = this.session(conversation);
+        if (!tab || live?.id !== b.session || live.device !== device) continue;
         b.tabs.set(tab, { url: String(data["url"] ?? ""), title: String(data["title"] ?? ""), handed: true });
+        if (data["focus"] === true) b.current = tab;
       }
       return;
     }
