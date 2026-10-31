@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { Markdown, MentionNames } from "./Markdown.js";
@@ -32,6 +32,24 @@ describe("Markdown", () => {
     expect(html("`<t:1:t>`")).toContain("<code>&lt;t:1:t&gt;</code>");
     // Two small lines are one block; a paragraph ends where subtext starts.
     expect(html("Main line\n-# one\n-# two")).toBe('<div class="md"><p class="md-p">Main line</p><p class="md-sub">one<br>two</p></div>');
+  });
+
+  it("typesets math and leaves prices and code alone", async () => {
+    const { container } = render(<Markdown text={"So $x^2$ costs $5 and $10, not `$y$`.\n\n$$\n\\frac{a}{b}\n$$"} />);
+    const inline = container.querySelector(".md-p .md-math");
+    const block = container.querySelector(".md-math-block .md-math--display");
+    // The source stands in until KaTeX has loaded, then it is typeset.
+    expect(inline?.textContent).toContain("x^2");
+    await waitFor(() => expect(container.querySelectorAll(".katex")).toHaveLength(2));
+    expect(block?.querySelector(".katex-display")).not.toBeNull();
+    expect(container.querySelector(".md-p")?.textContent).toContain("costs $5 and $10");
+    expect(container.querySelector("code")?.textContent).toBe("$y$");
+  });
+
+  it("never lets a formula carry markup or a link", async () => {
+    const { container } = render(<Markdown text={"$\\href{javascript:alert(1)}{x} <img src=x onerror=alert(1)>$"} />);
+    await waitFor(() => expect(container.querySelector(".katex, .katex-error")).not.toBeNull());
+    expect(container.querySelector("a, img")).toBeNull();
   });
 
   it("keeps markdown inside backticks literal", () => {

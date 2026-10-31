@@ -1,18 +1,21 @@
-import { Fragment, type ReactElement, type ReactNode } from "react";
+import { displayMathAt, MATH, mathOf } from "@kos/shared";
+import katex from "katex";
+import { Fragment, useLayoutEffect, useRef, type ReactElement, type ReactNode } from "react";
 
 /**
  * KOS's words in the side panel: the markdown a chat uses, built as React
  * elements so nothing KOS says can become markup. Paragraphs, headings,
  * lists, quotes, fenced code, tables kept as code, the small "-#" line
- * KOS writes for asides, inline code, bold, italics and links, and KOS's
- * references (@approval:6, @page:[Budget]) as the names they stand for.
+ * KOS writes for asides, inline code, bold, italics and links, LaTeX math,
+ * and KOS's references (@approval:6, @page:[Budget]) as the names they
+ * stand for.
  * What is not recognised stays as the text it was.
  */
 
 type Block =
   | { kind: "p" | "small" | "quote"; text: string }
   | { kind: "h"; level: number; text: string }
-  | { kind: "code"; text: string }
+  | { kind: "code" | "math"; text: string }
   | { kind: "list"; ordered: boolean; items: string[] };
 
 export function blocksOf(text: string): Block[] {
@@ -30,6 +33,13 @@ export function blocksOf(text: string): Block[] {
       const code: string[] = [];
       for (i++; i < lines.length && !/^\s*```/.test(lines[i]!); i++) code.push(lines[i]!);
       out.push({ kind: "code", text: code.join("\n") });
+      continue;
+    }
+    const math = displayMathAt(lines, i);
+    if (math) {
+      flush();
+      out.push({ kind: "math", text: math.tex });
+      i = math.next - 1;
       continue;
     }
     // A table reads as the grid it is drawn as.
@@ -83,6 +93,19 @@ export function blocksOf(text: string): Block[] {
 const INLINE =
   /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*|_[^_\n]+_)|(\[[^\]\n]+\]\((?:https?:\/\/|mailto:)[^)\s]+\))|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])|@([a-z]+):(?:\[([^\]\n]+)\]|([\w.:/-]*\w))/;
 
+/**
+ * A formula, typeset by KaTeX as DOM nodes (render, never an HTML string),
+ * with trust off, so a formula cannot carry a link, a class or a picture.
+ * One KaTeX cannot read is shown as written, in its error colour.
+ */
+export function Tex({ source, display = false }: { source: string; display?: boolean }): ReactElement {
+  const ref = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    if (ref.current) katex.render(source, ref.current, { displayMode: display, throwOnError: false, trust: false, strict: "ignore" });
+  }, [source, display]);
+  return <span ref={ref} className="tex" />;
+}
+
 /** One line's inline marks, as elements. */
 export function inline(text: string): ReactNode[] {
   const out: ReactNode[] = [];
@@ -90,6 +113,15 @@ export function inline(text: string): ReactNode[] {
   let key = 0;
   while (rest) {
     const m = INLINE.exec(rest);
+    // Math first when it starts first, so $a_1$ is a formula and not italics.
+    const math = MATH.exec(rest);
+    if (math && (!m || math.index < m.index)) {
+      if (math.index) out.push(rest.slice(0, math.index));
+      const { tex, display } = mathOf(math);
+      out.push(<Tex key={key++} source={tex} display={display} />);
+      rest = rest.slice(math.index + math[0].length);
+      continue;
+    }
     if (!m) {
       out.push(rest);
       break;
@@ -159,6 +191,12 @@ export function Markdown({ text }: { text: string }): ReactElement {
               <pre key={i}>
                 <code>{b.text}</code>
               </pre>
+            );
+          case "math":
+            return (
+              <div key={i} className="md-math">
+                <Tex source={b.text} display />
+              </div>
             );
           case "list": {
             const items = b.items.map((it, j) => <li key={j}>{inline(it)}</li>);
