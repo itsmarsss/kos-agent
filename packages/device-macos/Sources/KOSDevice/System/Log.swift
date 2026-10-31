@@ -4,7 +4,9 @@ import OSLog
 /// What KOS Device writes to the system log, by part, so a line that dropped
 /// or a pairing that would not read can be found afterwards:
 ///
-///     log show --predicate 'subsystem == "com.itsmarsss.kos-device"' --last 1h
+///     /usr/bin/log show --predicate 'subsystem == "com.itsmarsss.kos-device"' --last 1h
+///
+/// (In zsh a bare `log` is the shell's own builtin.)
 ///
 /// Written at notice level, which macOS keeps, rather than info, which it
 /// drops. A task's words are private; addresses, states and reasons are not.

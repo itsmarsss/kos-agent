@@ -102,8 +102,9 @@ Behind the gear, kept on this Mac, and nothing KOS sends can change them:
 
 KOS Device writes each line's dialling, proofs, drops and redials, each
 pairing read and kept, and each session asked, allowed, paused and ended, to
-the system log. Tasks are kept private.
+the system log. Tasks are kept private. Spelled out as `/usr/bin/log`, since in
+zsh a bare `log` is a builtin of the shell's own:
 
 ```sh
-log show --predicate 'subsystem == "com.itsmarsss.kos-device"' --last 1h
+/usr/bin/log show --predicate 'subsystem == "com.itsmarsss.kos-device"' --last 1h
 ```
