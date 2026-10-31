@@ -133,12 +133,13 @@ export class ChromePanel implements ChannelAdapter {
    */
   async acknowledge(msg: InboundMessage): Promise<TurnPresence> {
     const chrome = msg.senderId;
-    const status = async (params: Record<string, unknown>): Promise<void> => void (await this.tell(chrome, "chat.status", { conversation: this.deps.current()?.id ?? null, ...params }));
+    // Each says which of the owner's messages it is about: two can be on the go at once, one running and one said meanwhile.
+    const status = async (params: Record<string, unknown>): Promise<void> => void (await this.tell(chrome, "chat.status", { conversation: this.deps.current()?.id ?? null, said: msg.text, ...params }));
     // Taken: the panel stops waiting to hear that anyone has its words.
     await status({ taken: true });
     return {
       update: (story) => status({ story }),
-      complete: (reply, how) => this.show(chrome, reply, how?.waiting),
+      complete: (reply, how) => this.show(chrome, reply, how?.waiting, msg.text),
       // Said, then the chat as it stands: the owner's words may be in it or not, and the panel tells which.
       fail: async (message) => {
         await status({ story: null, error: message });
@@ -158,12 +159,15 @@ export class ChromePanel implements ChannelAdapter {
    * turn waiting on the owner) goes with it as a notice; a wait is marked, so
    * the panel lets it go once the turn goes on.
    */
-  private async show(chrome: string | undefined, said?: OutboundMessage, waiting = false): Promise<void> {
+  private async show(chrome: string | undefined, said?: OutboundMessage, waiting = false, about?: string): Promise<void> {
     const chat = this.deps.current();
     const messages = chat ? panelLines(this.deps.events(chat.id)) : [];
     const last = messages.at(-1);
     const text = said?.text?.trim();
-    const notice = text && !(last?.role === "kos" && last.text === text) ? { text, ...(said?.from ? { from: said.from.name } : {}), ...(waiting ? { waiting: true } : {}) } : undefined;
+    const notice =
+      text && !(last?.role === "kos" && last.text === text)
+        ? { text, ...(said?.from ? { from: said.from.name } : {}), ...(waiting ? { waiting: true } : {}), ...(about ? { said: about } : {}) }
+        : undefined;
     const params = { conversation: chat?.id ?? null, title: chat?.title ?? "Chrome", messages, auto: chat ? (this.deps.auto?.(chat.id) ?? false) : false, ...(notice ? { notice } : {}) };
     if (chrome) await this.tell(chrome, "chat.show", params);
     else await this.everyChrome("chat.show", params);
