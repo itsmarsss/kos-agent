@@ -3225,6 +3225,12 @@ export class Kernel {
     return { page: await this.browser.page(tab), capture: (maxWidth) => this.browser.capture(tab, maxWidth) };
   }
 
+  /** Which browser the caller's tab is in, in words for a result. */
+  browserWhere(): string {
+    const conversationId = this.callerConversationId ?? "root";
+    return this.away(conversationId)?.describe(conversationId) ?? "KOS's own browser";
+  }
+
   /** The ids of the caller's tabs. */
   browserTabsOfCaller(): string[] {
     const conversationId = this.callerConversationId ?? "root";

@@ -117,6 +117,11 @@ export class OwnerChrome implements BrowserElsewhere {
     return url && url !== "about:blank" ? hostOf(url) : undefined;
   }
 
+  describe(conversation: string): string {
+    const device = this.deviceOf(conversation);
+    return `the owner's Chrome${device ? ` (${device.name})` : ""}`;
+  }
+
   async picture(conversation: string, maxWidth: number): Promise<string | undefined> {
     const b = this.held.get(conversation);
     return b?.current && this.session(conversation) ? this.capture(conversation, b.current, maxWidth) : undefined;

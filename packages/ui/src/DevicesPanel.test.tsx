@@ -25,9 +25,9 @@ const laptop: PairedDevice = {
 
 describe("a paired computer, in words", () => {
   it("says where it stands and what it is missing", () => {
-    expect(describeDevice(laptop)).toBe("macOS 26.4.1 · asks on the computer");
+    expect(describeDevice(laptop)).toBe("Your computer, macOS 26.4.1, through KOS Device · asks on the computer");
     expect(describeDevice({ ...laptop, consent: "kos", permissions: { screen: false, input: true } })).toBe(
-      "macOS 26.4.1 · starts through your approvals · Needs Screen Recording on the computer",
+      "Your computer, macOS 26.4.1, through KOS Device · starts through your approvals · Needs Screen Recording on the computer",
     );
     expect(describeDevice({ ...laptop, online: false, lastSeen: 1_000 }, 1_000 + 3 * 3_600_000)).toBe("Offline, last seen 3h ago");
     expect(describeDevice({ ...laptop, online: false, lastSeen: null })).toMatch(/Never connected/);
@@ -41,7 +41,7 @@ describe("a paired computer, in words", () => {
 
   it("says a Chrome is a Chrome, that asks in Chrome and needs no grants", () => {
     const chrome: PairedDevice = { ...laptop, name: "Chrome", platform: "chrome", kind: "browser", os: "macOS", permissions: { screen: false, input: false, tabs: true } };
-    expect(describeDevice(chrome)).toBe("Chrome on macOS · asks in Chrome");
+    expect(describeDevice(chrome)).toBe("Your own Chrome on macOS, through the KOS extension; not KOS's browser · asks in Chrome");
     expect(describeDevice({ ...chrome, online: false, lastSeen: null })).toMatch(/Pair it from the KOS extension/);
   });
 

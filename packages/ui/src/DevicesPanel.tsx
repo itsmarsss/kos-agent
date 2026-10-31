@@ -70,7 +70,9 @@ export function describeDevice(d: PairedDevice, now = Date.now()): string {
   const browser = d.kind === "browser";
   if (!d.online) return d.lastSeen ? `Offline, last seen ${agoWords(d.lastSeen, now)}` : browser ? "Never connected. Pair it from the KOS extension." : "Never connected. Open KOS Device on it.";
   const parts = [
-    browser ? `Chrome${d.os ? ` on ${d.os}` : ""}` : [platformName(d.platform), d.os].filter(Boolean).join(" "),
+    browser
+      ? `Your own Chrome${d.os ? ` on ${d.os}` : ""}, through the KOS extension; not KOS's browser`
+      : `Your computer${[platformName(d.platform), d.os].filter(Boolean).length ? `, ${[platformName(d.platform), d.os].filter(Boolean).join(" ")}` : ""}, through KOS Device`,
     browser ? "asks in Chrome" : d.consent === "kos" ? "starts through your approvals" : "asks on the computer",
     missing(d),
   ].filter(Boolean);

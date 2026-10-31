@@ -170,7 +170,7 @@ export function Sidebar({
             title={browsing ? "KOS is browsing: watch" : "Watch KOS's browser"}
           >
             <NavIcon name="browser" />
-            <span className="side-label">Browser</span>
+            <span className="side-label">KOS's browser</span>
             {browsing && <span className="side-live" aria-label="live" />}
           </button>
           <a
