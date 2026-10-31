@@ -51,9 +51,17 @@ line you can open, and an approval the chat asks for is decided in place.
   tab while it lasts and KOS works there instead. The border, the bar, Take
   over and Stop are the same as any session's, and Take over and Stop are
   in the panel too.
-- **Switching chats.** The chat's name under KOS opens your chats, newest
-  first, with New chat on top: the panel continues any of them, as /switch
-  does.
+- **Switching chats.** The chat's name under KOS opens the panel's own
+  chats, newest first, with New chat on top. The panel is a place of its
+  own: its chats are the ones made in it, and /chats and /switch there move
+  among those alone.
+- **What you select.** Text you highlight on the page beside the panel
+  shows above the box and goes with your next message, as what it is about;
+  × leaves it out. It is read only on pages KOS may read, never on a hidden
+  site, and only by the panel in that window.
+- **/ and @.** Typing / lists the commands, @ the things KOS can name
+  (projects, pages, files, chats, schedules), from the index the dashboard's
+  @ menu asks; what you name shows as a chip in your message.
 - **The model.** The chip under the box is the dashboard's picker: the
   model KOS answers with, everywhere. On the Claude Agent SDK it names the
   engine instead, which chooses its own.
@@ -160,6 +168,7 @@ beside it when the chat asks.
 | `chat.settled` | `approval`, `outcome` (`approved`, `denied`, `expired`) | `{}` |
 | `chat.chats` | `chats [{ id, title, updatedAt }]`, `current` | `{}` |
 | `chat.models` | `current`, `choices`, `fixed?` (an engine that chooses its own), `error?` | `{}` |
+| `chat.mentions` | `q`, `mentions [{ kind, id, label, hint? }]` | `{}` |
 | `page.read` | `conversation` | `url`, `title`, `selection`, `text` |
 
 A message's `role` is `you`, `kos`, `note`, or `steps` with `steps [{
@@ -178,12 +187,13 @@ Events, besides `session.paused`, `session.resumed` and `session.ended`
 | `tab.closed` | `session`, `tab` |
 | `tab.handed` | `tab`, `url`, `title`, `focus?` (sent outside a session too; `focus` when the owner spoke from the side panel beside it) |
 | `chat.open` | `{}`: a panel opened on this KOS, and asks to be shown the chat |
-| `chat.send` | `text`: the owner's words in the panel; `beside?`: the tab they were said beside, `{ kind: "page", url, title }`, `{ kind: "hidden" }` or `{ kind: "other" }` (not a web page), told to that turn and not kept |
+| `chat.send` | `text`: the owner's words in the panel; `beside?`: the tab they were said beside, `{ kind: "page", url, title, selection? }`, `{ kind: "hidden" }` or `{ kind: "other" }` (not a web page), told to that turn and not kept |
 | `chat.decide` | `approval`, `approved` |
 | `chat.list` | `{}`: asks for `chat.chats` |
 | `chat.switch` | `conversation`: the panel continues that chat, and is shown it |
 | `chat.models` | `{}`: asks for `chat.models` |
 | `chat.model` | `model`: KOS answers with it from now on, as the dashboard's picker sets it |
+| `chat.mentions` | `q`, `kind?`: asks what an @ can name |
 
 Error codes beyond the device protocol's: `tab` (not a tab of the session),
 `method` (not on the list), `url` (not the web), `hidden_site` (the owner

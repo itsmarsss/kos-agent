@@ -188,6 +188,12 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     await devtools.send("Target.createTarget", { url: `chrome-extension://${id}/popup.html` });
     popup = await devtools.attach((u) => u.endsWith("/popup.html"));
     await devtools.loaded(popup);
+    // A page opened the moment Chrome says the extension is in can come up before the extension is ready, without its APIs: reloaded until it has them.
+    for (let i = 0; i < 50 && !(await devtools.evaluate(popup, "!!globalThis.chrome?.runtime?.id")); i++) {
+      await devtools.send("Page.reload", {}, popup).catch(() => undefined);
+      await until(() => false, 200);
+      await devtools.loaded(popup);
+    }
     const link = `kos-device://pair?url=${encodeURIComponent(base)}&code=test-code`;
     const paired = (await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "pair", link: ${JSON.stringify(link)}, name: "Test Chrome" })`)) as { ok: boolean; error?: string };
     expect(paired).toMatchObject({ ok: true });

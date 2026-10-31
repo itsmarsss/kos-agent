@@ -40,6 +40,17 @@ await build({
   minify: true,
   logLevel: "warning",
 });
+// What a page reports of the owner's selection: a classic script in a scope of its own, so putting it in twice is harmless.
+await build({
+  entryPoints: [join(root, "src", "selection.ts")],
+  outfile: join(dist, "selection.js"),
+  bundle: true,
+  format: "iife",
+  platform: "browser",
+  target: "chrome137",
+  minify: true,
+  logLevel: "warning",
+});
 
 const kos = lookOf(KOS_SEED);
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));

@@ -21,6 +21,7 @@ export { SOCKET_PATH, createDashboardSocket, type DashboardSocket, type Dashboar
 export {
   createDashboardServer,
   handleApiRequest,
+  mentionsOf,
   type ApiExtension,
   type ApiRequest,
   type ApiResponse,

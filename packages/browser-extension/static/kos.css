@@ -360,7 +360,22 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .suggest { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 
 .composer { margin: 8px 12px 12px; padding: 8px 8px 8px 12px; display: flex; flex-direction: column; gap: 4px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel); transition: border-color 140ms ease, box-shadow 140ms ease; }
+.composer { position: relative; }
 .composer-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* The / and @ menu, over the box: what the owner can type next. */
+.ac-menu { position: absolute; z-index: 4; left: 0; right: 0; bottom: calc(100% + 6px); margin: 0; padding: 5px; list-style: none; max-height: 260px; overflow-y: auto; border-radius: var(--radius); border: 1px solid var(--line-strong); background: var(--panel); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); }
+.ac-menu li { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border-radius: 7px; cursor: pointer; font-size: 12.5px; }
+.ac-menu li[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.ac-label { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 500; }
+.ac-hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11.5px; }
+
+/* What the owner selected on the page, going with their words. */
+.quote-chip { display: flex; align-items: flex-start; gap: 6px; overflow: hidden; padding: 6px 8px; margin: 0 0 2px -4px; border-left: 2px solid var(--accent); border-radius: 0 7px 7px 0; background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.quote-chip-text { flex: 1; min-width: 0; color: var(--muted); font-size: 11.5px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.quote-chip button { appearance: none; flex: none; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--faint); font-size: 14px; line-height: 1; cursor: pointer; }
+.quote-chip button:hover { color: var(--text); background: var(--panel-2); }
+.msg-quote { margin: 0 0 6px; padding-left: 8px; border-left: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); color: var(--muted); font-size: 11.5px; white-space: normal; }
 .composer-foot .send { margin-left: auto; }
 /* The model, as a quiet chip that opens Chrome's own list. */
 .model { position: relative; display: inline-flex; align-items: center; gap: 4px; min-width: 0; padding: 3px 8px; border-radius: 999px; background: var(--panel-2); color: var(--muted); font-size: 11.5px; cursor: pointer; transition: color 140ms ease, background 140ms ease; }

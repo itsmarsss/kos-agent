@@ -1,10 +1,11 @@
+import { CHAT_COMMANDS } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { isHidden } from "./settings.js";
-import { Markdown } from "./ui/markdown.js";
+import { Markdown, withMentions } from "./ui/markdown.js";
 import { Chips, Collapse, Face, ICONS, Icon, Pill, ask, ease, minutesLeft, minutesWords, spring, type Tone } from "./ui/kit.js";
 import type { ConsentRequest, KosState, PopupState } from "./worker.js";
 
@@ -77,6 +78,14 @@ interface Models {
   fixed?: string;
 }
 
+/** Something an @ can name, as KOS's index answers it. */
+interface Mention {
+  kind: string;
+  id: string;
+  label: string;
+  hint?: string;
+}
+
 /** An ask to let KOS read pages, waiting on the owner. */
 interface ReadAsk {
   id: string;
@@ -100,8 +109,14 @@ function useChat(windowId: number | undefined, online: boolean): {
   chats: ChatItem[];
   models: Models | undefined;
   reads: ReadAsk[];
+  /** What the owner has selected on the page beside the panel, as it is now. */
+  selection: string;
+  /** What an @ being typed can name, for the words typed after it. */
+  mentions: { q: string; list: Mention[] };
+  /** What each of the owner's messages was sent about, by its words: shown above it. */
+  quotes: Record<string, string>;
   say: (message: Record<string, unknown>) => void;
-  send: (text: string) => void;
+  send: (text: string, selection?: string) => void;
   answer: (message: Record<string, unknown>) => void;
   answerRead: (id: string, granted: boolean) => void;
 } {
@@ -113,6 +128,9 @@ function useChat(windowId: number | undefined, online: boolean): {
   const [chats, setChats] = useState<ChatItem[]>([]);
   const [models, setModels] = useState<Models>();
   const [reads, setReads] = useState<ReadAsk[]>([]);
+  const [selection, setSelection] = useState("");
+  const [mentions, setMentions] = useState<{ q: string; list: Mention[] }>({ q: "", list: [] });
+  const [quotes, setQuotes] = useState<Record<string, string>>({});
   const port = useRef<chrome.runtime.Port | null>(null);
   const chosen = useRef<string | null>(null);
   const taking = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -172,6 +190,10 @@ function useChat(windowId: number | undefined, online: boolean): {
           return setReads((r) => [...r, { id: String(message["id"]), host: String(message["host"] ?? "") }]);
         case "read.done":
           return setReads((r) => r.filter((x) => x.id !== message["id"]));
+        case "selection":
+          return setSelection(String(message["text"] ?? ""));
+        case "chat.mentions":
+          return setMentions({ q: String(message["q"] ?? ""), list: (message["mentions"] as Mention[]) ?? [] });
         case "chat.ask": {
           const approval = message["approval"] as Approval;
           return setChat((c) => ({ ...c, asks: [...c.asks.filter((a) => a.id !== approval.id), approval] }));
@@ -202,25 +224,26 @@ function useChat(windowId: number | undefined, online: boolean): {
     const timer = setTimeout(() => setSilent(true), SHOW_MS);
     return () => clearTimeout(timer);
   }, [online, kos, shownOnce]);
-  // What answers, asked for once there is a KOS to ask.
+  // What answers, asked for as soon as there is a KOS to ask, and again with each chat shown until it is known.
   useEffect(() => {
-    if (online && kos && shownOnce) port.current?.postMessage({ type: "models" });
-  }, [online, kos, shownOnce]);
+    if (online && kos && shownOnce && !models) port.current?.postMessage({ type: "models" });
+  }, [online, kos, shownOnce, models, chat.conversation]);
 
   const say = useCallback((message: Record<string, unknown>) => {
     setError("");
     port.current?.postMessage(message);
   }, []);
   const send = useCallback(
-    (text: string) => {
+    (text: string, about?: string) => {
       const said = text.trim();
       if (!said) return;
+      if (about) setQuotes((q) => ({ ...q, [said]: about }));
       // A command (/new, /switch) is never in the chat's words, so it waits for nothing but its answer.
       // The turn already running keeps its story: these words go to it at its next step, or run after it.
       setChat((c) => ({ ...c, sending: said.startsWith("/") ? c.sending : [...c.sending, said], working: true, unsent: undefined }));
       clearTimeout(taking.current);
       taking.current = setTimeout(() => giveBack("KOS did not take that. It may be an older KOS without the side panel, or not reachable now; your words are back in the box."), TAKE_MS);
-      say({ type: "send", text: said });
+      say({ type: "send", text: said, ...(about ? { selection: about } : {}) });
     },
     [say],
   );
@@ -247,7 +270,7 @@ function useChat(windowId: number | undefined, online: boolean): {
     },
     [say],
   );
-  return { chat, kos, error, silent, chats, models, reads, say, send, answer, answerRead };
+  return { chat, kos, error, silent, chats, models, reads, selection, mentions, quotes, say, send, answer, answerRead };
 }
 
 /** The chat as KOS says it stands now: the owner's words that arrived leave the waiting ones, and a finished turn's steps are in the chat itself. */
@@ -373,7 +396,7 @@ function Panel(): ReactElement {
   const [kosId, setKosId] = useState<string | null>(null);
   const k = state?.kos.find((x) => x.id === kosId);
   const online = !!k && k.link === "online" && !k.held;
-  const { chat, kos, error, silent, chats, models, reads, say, send, answer, answerRead } = useChat(windowId, online);
+  const { chat, kos, error, silent, chats, models, reads, selection, mentions, quotes, say, send, answer, answerRead } = useChat(windowId, online);
   useEffect(() => setKosId(kos), [kos]);
   const [switching, setSwitching] = useState(false);
   const usable = online && !silent;
@@ -432,7 +455,7 @@ function Panel(): ReactElement {
         <Silent />
       ) : (
         <>
-          <Thread chat={chat} online={online} send={send} answer={answer} reads={reads} answerRead={answerRead} />
+          <Thread chat={chat} online={online} send={send} answer={answer} reads={reads} answerRead={answerRead} quotes={quotes} />
           <AnimatePresence>
             {error && (
               <m.p className="error panel-error" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={ease}>
@@ -447,8 +470,11 @@ function Panel(): ReactElement {
             unsent={chat.unsent}
             models={models}
             chooseModel={(model) => say({ type: "model", model })}
-            auto={chat.conversation ? chat.auto : undefined}
+            auto={chat.auto}
             setAuto={(on) => say({ type: "auto", on })}
+            selection={selection}
+            mentions={mentions}
+            askMentions={(q) => say({ type: "mentions", q })}
           />
         </>
       )}
@@ -579,6 +605,7 @@ function Thread({
   answer,
   reads,
   answerRead,
+  quotes,
 }: {
   chat: Chat;
   online: boolean;
@@ -586,6 +613,8 @@ function Thread({
   answer: (m: Record<string, unknown>) => void;
   reads: ReadAsk[];
   answerRead: (id: string, granted: boolean) => void;
+  /** What each of the owner's messages was sent about, shown above it. */
+  quotes: Record<string, string>;
 }): ReactElement {
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
@@ -608,12 +637,12 @@ function Thread({
       if (seen > 0 || i > 0) after(seen);
       seen++;
     }
-    items.push(<LineView key={`l${i}`} line={line} />);
+    items.push(<LineView key={`l${i}`} line={line} quote={line.role === "you" ? quotes[line.text] : undefined} />);
   });
   chat.sending.forEach((text, i) => {
     after(seen);
     seen++;
-    items.push(<LineView key={`s${i}-${text.slice(0, 16)}`} line={{ role: "you", text }} pending />);
+    items.push(<LineView key={`s${i}-${text.slice(0, 16)}`} line={{ role: "you", text }} quote={quotes[text]} pending />);
   });
   after(seen);
   return (
@@ -663,12 +692,13 @@ function Thread({
 
 const enter = { initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0 }, transition: spring };
 
-function LineView({ line, pending }: { line: Line; pending?: boolean }): ReactElement {
+function LineView({ line, pending, quote }: { line: Line; pending?: boolean; quote?: string | undefined }): ReactElement {
   switch (line.role) {
     case "you":
       return (
         <m.div className="msg msg--you" data-pending={pending || undefined} layout="position" {...enter}>
-          {line.text && <p>{line.text}</p>}
+          {quote && <p className="msg-quote">{quote.length > 220 ? `${quote.slice(0, 220)}…` : quote}</p>}
+          {line.text && <p>{withMentions(line.text)}</p>}
           {line.files?.length ? (
             <div className="files">
               {line.files.map((f) => (
@@ -835,19 +865,41 @@ function Composer({
   chooseModel,
   auto,
   setAuto,
+  selection,
+  mentions,
+  askMentions,
 }: {
   online: boolean;
   k: KosState | undefined;
-  send: (t: string) => void;
+  send: (t: string, selection?: string) => void;
   unsent: string | undefined;
   models: Models | undefined;
   chooseModel: (model: string) => void;
-  /** Whether this chat acts without asking; undefined before there is a chat to set. */
-  auto: boolean | undefined;
+  /** Whether this chat acts without asking. */
+  auto: boolean;
   setAuto: (on: boolean) => void;
+  /** What the owner has selected on the page, sent along unless they put it aside. */
+  selection: string;
+  mentions: { q: string; list: Mention[] };
+  askMentions: (q: string) => void;
 }): ReactElement {
   const [text, setText] = useState("");
+  const [caret, setCaret] = useState(0);
+  const [picked, setPicked] = useState(0);
+  /** The token the owner closed the menu on, so it stays closed until they type on. */
+  const [closedAt, setClosedAt] = useState<string>();
+  /** The selection the owner put aside, or sent: hidden until they select something else. */
+  const [setAside, setSetAside] = useState("");
   const box = useRef<HTMLTextAreaElement>(null);
+  const quoting = selection && selection !== setAside ? selection : "";
+  const token = tokenAt(text, caret);
+  const options = !token || token.raw === closedAt ? [] : token.kind === "command" ? commandsFor(token.q) : token.q === mentions.q ? mentions.list.map(mentionOption) : [];
+  useEffect(() => {
+    if (token?.kind !== "mention") return;
+    const timer = setTimeout(() => askMentions(token.q), 120);
+    return () => clearTimeout(timer);
+  }, [token?.kind, token?.q]);
+  useEffect(() => setPicked(0), [token?.raw]);
   useEffect(() => {
     if (unsent) setText((t) => t || unsent);
   }, [unsent]);
@@ -859,10 +911,40 @@ function Composer({
   }, [text]);
   const go = (): void => {
     if (!online || !text.trim()) return;
-    send(text);
+    // A command is about the chat, not the page: it goes without the selection.
+    const about = quoting && !text.trim().startsWith("/") ? quoting : undefined;
+    send(text, about);
+    if (about) setSetAside(about);
     setText("");
+    setCaret(0);
+  };
+  /** What was picked in the menu, in place of the token typed. */
+  const take = (option: Option): void => {
+    if (!token) return;
+    const next = `${text.slice(0, token.start)}${option.insert}${text.slice(caret)}`;
+    const at = token.start + option.insert.length;
+    setText(next);
+    setCaret(at);
+    requestAnimationFrame(() => box.current?.setSelectionRange(at, at));
   };
   const keys = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (options.length && !e.nativeEvent.isComposing) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setPicked((p) => (p + (e.key === "ArrowDown" ? 1 : options.length - 1)) % options.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        take(options[picked] ?? options[0]!);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setClosedAt(token?.raw);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       go();
@@ -870,25 +952,82 @@ function Composer({
   };
   return (
     <div className="composer" data-off={!online || undefined}>
+      <AnimatePresence>
+        {options.length > 0 && (
+          <m.ul className="ac-menu" role="listbox" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }} transition={ease}>
+            {options.map((o, i) => (
+              <li key={`${o.insert}-${i}`} role="option" aria-selected={i === picked} onMouseDown={(e) => (e.preventDefault(), take(o))} onMouseEnter={() => setPicked(i)}>
+                <span className="ac-label">{o.label}</span>
+                {o.hint && <span className="ac-hint">{o.hint}</span>}
+              </li>
+            ))}
+          </m.ul>
+        )}
+      </AnimatePresence>
+      <AnimatePresence initial={false}>
+        {quoting && (
+          <m.div className="quote-chip" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={ease} title="What you selected on the page goes with your message">
+            <span className="quote-chip-text">{quoting.length > 160 ? `${quoting.slice(0, 160)}…` : quoting}</span>
+            <button type="button" aria-label="Leave the selection out" title="Leave it out" onClick={() => setSetAside(quoting)}>
+              ×
+            </button>
+          </m.div>
+        )}
+      </AnimatePresence>
       <textarea
         ref={box}
         rows={1}
         value={text}
-        placeholder={online ? "Ask KOS" : k?.held ? "Disconnected. Connect it from the KOS icon." : "KOS is not connected"}
+        placeholder={online ? (quoting ? "Ask about the selection" : "Ask KOS, / for commands, @ to name things") : k?.held ? "Disconnected. Connect it from the KOS icon." : "KOS is not connected"}
         disabled={!online}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          setCaret(e.target.selectionStart ?? e.target.value.length);
+          setClosedAt(undefined);
+        }}
+        onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
         onKeyDown={keys}
         autoFocus
       />
       <div className="composer-foot">
         <ModelChoice models={models} choose={chooseModel} />
-        {auto !== undefined && online && <AutoChoice on={auto} set={setAuto} />}
+        {online && <AutoChoice on={auto} set={setAuto} />}
         <m.button type="button" className="send" aria-label="Send" disabled={!online || !text.trim()} onClick={go} whileTap={{ scale: 0.9 }} transition={spring}>
           <Icon path={ICONS.send} size={15} />
         </m.button>
       </div>
     </div>
   );
+}
+
+/** One line of the / or @ menu: what goes in the box, how it reads, and a word about it. */
+interface Option {
+  insert: string;
+  label: string;
+  hint?: string;
+}
+
+/** The token being typed at the caret: a command at the start of the box, or an @ after a space. */
+function tokenAt(text: string, caret: number): { kind: "command" | "mention"; q: string; start: number; raw: string } | undefined {
+  const before = text.slice(0, caret);
+  const command = /^\/([a-z]*)$/.exec(before);
+  if (command) return { kind: "command", q: command[1]!, start: 0, raw: before };
+  const mention = /(^|\s)@([^\s@]*)$/.exec(before);
+  if (mention) return { kind: "mention", q: mention[2]!, start: before.length - mention[2]!.length - 1, raw: `@${mention[2]!}` };
+  return undefined;
+}
+
+/** The commands a surface can run, by the start of their names; the dashboard's own left out. */
+function commandsFor(q: string): Option[] {
+  return CHAT_COMMANDS.filter((c) => c.where !== "dashboard" && c.name.startsWith(q))
+    .slice(0, 8)
+    .map((c) => ({ insert: `/${c.name} `, label: `/${c.name}${c.args ? ` ${c.args}` : ""}`, hint: c.description }));
+}
+
+/** A thing to name, written as the dashboard writes it: plain when its id allows, in brackets when not. */
+function mentionOption(mn: Mention): Option {
+  const insert = mn.kind === "channel" ? `#${mn.id} ` : /^[A-Za-z0-9._/-]*[A-Za-z0-9_/-]$/.test(mn.id) ? `@${mn.kind}:${mn.id} ` : `@${mn.kind}:[${mn.id}] `;
+  return { insert, label: mn.label, hint: mn.hint ?? mn.kind };
 }
 
 /**
