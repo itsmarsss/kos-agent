@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest";
 import { isPrivatePath, kosAddress, parsePairing, socketUrl } from "./address.js";
 import { CallError, deviceProof, fromBase64, hostProof, readFrame, toBase64 } from "./protocol.js";
 import { installOverlay } from "./overlay.js";
+import { adding, readPairings, removing, replacedBy } from "./pairings.js";
 import { checkCommand, forwards, isWebUrl } from "./relay.js";
 import { Session } from "./session.js";
+import { DEFAULTS, DEFAULT_HIDDEN, asksFirst, isHidden, readSettings, siteOf } from "./settings.js";
 
 /**
  * The parts of the extension that keep the owner's Chrome theirs: where it
@@ -104,5 +106,49 @@ describe("the look", () => {
     const source = installOverlay.toString();
     expect(source).toContain(kos.fill);
     expect(source).toContain(kos.ink);
+  });
+});
+
+describe("the owner's settings", () => {
+  it("reads what was stored, and is the default for anything missing or not a choice", () => {
+    expect(readSettings(undefined)).toEqual(DEFAULTS);
+    const s = readSettings({ longestMinutes: 240, promptWaitSeconds: 7, idleMinutes: 3, takeover: "clicksAndKeys", timeOnIcon: false, askFirst: { dev_a: false, dev_b: "no" } });
+    expect(s).toMatchObject({ longestMinutes: 240, promptWaitSeconds: 60, idleMinutes: 3, takeover: "clicksAndKeys", connectOnStart: true, timeOnIcon: false, askFirst: { dev_a: false } });
+    expect(asksFirst(s, "dev_a")).toBe(false);
+    expect(asksFirst(s, "dev_new")).toBe(true);
+  });
+
+  it("hides a site with every subdomain, however the owner typed it", () => {
+    expect(siteOf("https://www.Chase.com/login?x=1")).toBe("chase.com");
+    expect(siteOf("*.bank.example")).toBe("bank.example");
+    expect(siteOf("my.1password.com")).toBe("my.1password.com");
+    expect(siteOf("not a site")).toBeUndefined();
+    const sites = readSettings({ hiddenSites: ["chase.com", "Chase.com", "junk value", 4] }).hiddenSites;
+    expect(sites).toEqual(["chase.com"]);
+    expect(isHidden("https://secure.chase.com/x", sites)).toBe(true);
+    expect(isHidden("https://chase.com", sites)).toBe(true);
+    expect(isHidden("https://notchase.com", sites)).toBe(false);
+    expect(isHidden("about:blank", sites)).toBe(false);
+    expect(isHidden("https://my.1password.com/vault", DEFAULT_HIDDEN)).toBe(true);
+  });
+});
+
+describe("the KOS this Chrome is paired with", () => {
+  const home = { url: "http://127.0.0.1:4317", device: "d1", hostKey: "k", name: "Chrome" };
+  const work = { url: "https://kos.work.ts.net", device: "d2", hostKey: "k", name: "Chrome" };
+
+  it("reads the list, or the one pairing an older version kept", () => {
+    expect(readPairings([home, { url: 1 }], undefined)).toEqual([home]);
+    expect(readPairings(undefined, home)).toEqual([home]);
+    expect(readPairings(undefined, undefined)).toEqual([]);
+  });
+
+  it("adds another KOS after the rest, and pairing one again replaces it in place", () => {
+    expect(adding(work, [home])).toEqual([home, work]);
+    const again = { ...home, url: "http://127.0.0.1:4317/", device: "d3" };
+    expect(replacedBy(again, [home, work])).toEqual([home]);
+    expect(adding(again, [home, work])).toEqual([again, work]);
+    expect(adding({ ...work, url: home.url }, [home, work])).toEqual([{ ...work, url: home.url }]);
+    expect(removing("d1", [home, work])).toEqual([work]);
   });
 });
