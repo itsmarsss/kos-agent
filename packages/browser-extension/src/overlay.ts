@@ -5,7 +5,15 @@
  * still while the owner has it; the bar with KOS's face, two lines and the
  * app's own buttons, capsules inside a capsule. The bar is the owner's to
  * put out of the way: dragged anywhere on the page, or folded to KOS's face
- * by a press on the face, and kept so for the session's other pages.
+ * by a press on the face, and kept so for the session's other pages. Where
+ * KOS points, its own cursor glides there and ripples when it presses, as
+ * on the Mac.
+ *
+ * Only the top frame draws: a page of frames would otherwise wear a border
+ * and a bar in each. Every frame reports the owner's hand, since a click in
+ * a frame is still the owner taking over. It goes by itself when the
+ * extension stops checking in, so a session that ended leaves nothing on
+ * the page whatever became of the connection.
  *
  * Put in the page over the debugging connection, into a world of its own
  * (the page's scripts cannot reach it), so the extension needs no
@@ -27,8 +35,14 @@ export interface OverlayState {
 }
 
 export function installOverlay(): void {
-  const w = window as unknown as { __kos?: { set(state: OverlayState): void; remove(): void }; kosOverlay?: (payload: string) => void };
+  const w = window as unknown as {
+    __kos?: { set(state: OverlayState): void; remove(): void; alive(): void; point(x: number, y: number, press: boolean): void };
+    kosOverlay?: (payload: string) => void;
+  };
   if (w.__kos) return;
+  const top = window.top === window;
+  // Gone unless the extension says otherwise this often: it does every few seconds while the session lasts.
+  const ALIVE_MS = 9_000;
   const tell = (message: Record<string, unknown>): void => {
     try {
       w.kosOverlay?.(JSON.stringify(message));
@@ -43,7 +57,10 @@ export function installOverlay(): void {
   let left: HTMLElement | null = null;
   let take: HTMLButtonElement | null = null;
   let bar: HTMLElement | null = null;
+  let cursor: HTMLElement | null = null;
+  let idle: ReturnType<typeof setTimeout> | undefined;
   let removed = false;
+  let lastAlive = Date.now();
 
   const minutes = (): string => {
     const m = Math.max(0, Math.ceil((state.until - Date.now()) / 60_000));
@@ -78,7 +95,7 @@ export function installOverlay(): void {
   };
 
   const build = (): void => {
-    if (removed || host || !document.documentElement) return;
+    if (!top || removed || host || !document.documentElement) return;
     host = document.createElement("kos-overlay");
     host.setAttribute("aria-hidden", "true");
     host.style.cssText = "all: initial; position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;";
@@ -121,8 +138,16 @@ export function installOverlay(): void {
       button:hover { border-color: #3a4150; background: rgba(38, 43, 54, 0.7); }
       button.stop { color: var(--danger); background: rgba(240, 113, 120, 0.1); border-color: rgba(240, 113, 120, 0.25); }
       button.stop:hover { background: rgba(240, 113, 120, 0.17); border-color: rgba(240, 113, 120, 0.45); }
-      @media (prefers-reduced-motion: reduce) { .glow, .face b { animation: none; } }
+      .cursor { position: fixed; left: 0; top: 0; width: 22px; height: 22px; pointer-events: none; opacity: 0; transform: translate(-100px, -100px);
+        transition: transform 180ms cubic-bezier(0.32, 0.72, 0, 1), opacity 240ms ease; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45)); }
+      .cursor.shown { opacity: 1; }
+      .cursor svg { display: block; }
+      .cursor i { position: absolute; left: -12px; top: -12px; width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--accent); opacity: 0; }
+      .cursor.press i { animation: ripple 420ms ease-out; }
+      @keyframes ripple { from { opacity: 0.9; transform: scale(0.3); } to { opacity: 0; transform: scale(1.6); } }
+      @media (prefers-reduced-motion: reduce) { .glow, .face b { animation: none; } .cursor { transition: opacity 240ms ease; } }
     </style>
+    <div class="cursor"><i></i><svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><path d="M3 2.5v15.2l4.2-4.1 2.7 6.1 2.6-1.1-2.7-6h5.9z" fill="${face.fill}" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg></div>
     <div class="glow"></div>
     <div class="bar"><span class="face"><i></i><i></i><b></b></span><span class="words"><span class="title"></span><span class="sub"><span class="text"></span><span class="left"></span></span></span><button data-act="take"></button><button class="stop" data-act="stop">Stop</button></div>`;
     title = shadow.querySelector(".title");
@@ -130,6 +155,7 @@ export function installOverlay(): void {
     left = shadow.querySelector(".left");
     take = shadow.querySelector('button[data-act]:not(.stop)');
     bar = shadow.querySelector(".bar");
+    cursor = shadow.querySelector(".cursor");
     // A drag moves the bar; a press that does not move is a press, and on the face it folds the bar.
     let drag: { id: number; dx: number; dy: number; x0: number; y0: number; moved: boolean } | null = null;
     bar?.addEventListener("pointerdown", (e) => {
@@ -163,6 +189,8 @@ export function installOverlay(): void {
         if (!button) return;
         e.stopPropagation();
         e.preventDefault();
+        // Stop is the owner's at once: the page is theirs again before the extension has done its part.
+        if (button.dataset["act"] === "stop" && host) host.style.display = "none";
         tell({ kind: button.dataset["act"] });
       },
       true,
@@ -188,18 +216,42 @@ export function installOverlay(): void {
   };
   for (const type of ["pointerdown", "keydown", "wheel"]) window.addEventListener(type, report, { capture: true, passive: true });
 
+  const remove = (): void => {
+    removed = true;
+    host?.remove();
+    clearInterval(ticker);
+    for (const type of ["pointerdown", "keydown", "wheel"]) window.removeEventListener(type, report, { capture: true });
+  };
   w.__kos = {
     set(next) {
+      lastAlive = Date.now();
       state = next;
       render();
     },
-    remove() {
-      removed = true;
-      host?.remove();
-      for (const type of ["pointerdown", "keydown", "wheel"]) window.removeEventListener(type, report, { capture: true });
+    remove,
+    alive() {
+      lastAlive = Date.now();
+    },
+    // KOS's pointer, where its hands are about to act: glides there, and ripples on a press.
+    point(x, y, press) {
+      if (!cursor) return;
+      lastAlive = Date.now();
+      cursor.classList.add("shown");
+      cursor.style.transform = `translate(${x - 3}px, ${y - 2}px)`;
+      if (press) {
+        cursor.classList.remove("press");
+        void cursor.offsetWidth;
+        cursor.classList.add("press");
+      }
+      clearTimeout(idle);
+      idle = setTimeout(() => cursor?.classList.remove("shown"), 4_000);
     },
   };
-  setInterval(render, 30_000);
+  // Re-read the time left, and go if the extension has not been heard from: the session is over.
+  const ticker = setInterval(() => {
+    if (Date.now() - lastAlive > ALIVE_MS) remove();
+    else render();
+  }, 3_000);
   if (document.documentElement) build();
   else document.addEventListener("readystatechange", build, { once: true });
   tell({ kind: "hello" });
