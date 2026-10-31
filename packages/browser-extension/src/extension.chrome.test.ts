@@ -92,11 +92,15 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
   const replies = new Map<number, (r: Record<string, unknown>) => void>();
   let nextCall = 1;
 
-  /** A call to the extension, as KOS would make it. */
+  /** A call to the extension, as KOS would make it; one with no answer fails, rather than hanging the test. */
   const call = (method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> => {
     const id = nextCall++;
-    return new Promise((resolve) => {
-      replies.set(id, resolve);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`no answer to ${method}`)), 15_000);
+      replies.set(id, (r) => {
+        clearTimeout(timer);
+        resolve(r);
+      });
       device!.send(JSON.stringify({ t: "call", id, method, params }));
     });
   };
@@ -186,7 +190,8 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     const begun = call("session.begin", { session: "s1", task: "buy the thing", requester: "Shopping", minutes: 15 });
     const consent = await devtools.attach((u) => u.includes("/consent.html"));
     await devtools.loaded(consent);
-    await until(() => false, 300);
+    // Allow is wired only once the window has the ask from the worker; its length choices appear in the same moment.
+    for (let i = 0; i < 100 && !(await devtools.evaluate(consent, "document.querySelectorAll('#minutes button').length > 0")); i++) await until(() => false, 100);
     expect(await devtools.evaluate(consent, "document.getElementById('task').textContent")).toBe("buy the thing");
     await devtools.evaluate(consent, "document.getElementById('allow').click()");
     const answer = await begun;
