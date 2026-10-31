@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./blobmotion": {
+      "types": "./dist/blobmotion.d.ts",
+      "default": "./dist/blobmotion.js"
     }
   },
   "scripts": {

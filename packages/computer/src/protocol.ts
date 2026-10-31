@@ -141,7 +141,23 @@ export type Method =
   | "tabs.list"
   | "tabs.open"
   | "tabs.close"
-  | "cdp.send";
+  | "cdp.send"
+  | PanelMethod;
+
+/**
+ * What KOS says to a Chrome's side panel, outside any session: the chat as it
+ * stands, the turn's steps as they happen, an approval to decide there, the
+ * chats it may switch to and the models it may answer with, and the page
+ * beside the panel, read when the chat asks.
+ */
+export type PanelMethod = "chat.show" | "chat.status" | "chat.ask" | "chat.settled" | "chat.chats" | "chat.models" | "page.read";
+
+/** One line of the panel's chat: the owner's words, KOS's, a note, or the steps a turn took. */
+export type PanelMessage =
+  | { role: "you"; text: string; files?: string[] }
+  | { role: "kos"; text: string }
+  | { role: "note"; text: string }
+  | { role: "steps"; steps: { summary: string; failed?: true }[] };
 
 /** A device whose host may put it to sleep keeps the connection with these. */
 export interface Ping {

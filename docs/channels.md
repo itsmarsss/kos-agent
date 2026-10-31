@@ -219,6 +219,15 @@ iMessage.
 KOS_OWNER_IMESSAGE=   your own handle
 ```
 
+## Chrome side panel
+
+A chat beside your tabs, in each Chrome paired through the KOS extension.
+Nothing to configure: it is there whenever a Chrome is paired and computer
+use is on, and every paired Chrome speaks as you, since only you can make a
+pairing code. Its words travel on the pairing's own line, so it reaches KOS
+wherever the extension does. See [browser-extension.md](browser-extension.md)
+for what it reads and does in the tab beside it.
+
 ## SMS (Twilio)
 
 One number, yours. Outbound through Twilio's API; inbound as Twilio's

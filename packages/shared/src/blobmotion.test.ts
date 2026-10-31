@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { CENTER, GAITS, PLAIN_SHAPE, POINTS, RADIUS, outline, smoothPath } from "./blob.js";
+import { CENTER, PLAIN_SHAPE, POINTS, RADIUS, outline, smoothPath } from "./blob.js";
+import { GAITS } from "./blobmotion.js";
 
 describe("the blob's body", () => {
   it("is one smooth gumdrop at rest, the same every time", () => {

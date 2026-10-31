@@ -365,7 +365,7 @@ export class ChannelRuntime {
       // the decision, and closes itself when the turn ends.
       if (!suspended) await story?.end();
       if (presence) {
-        await presence.complete(reply);
+        await presence.complete(reply, suspended ? { waiting: true } : undefined);
       } else {
         await this.adapter.send(msg.senderId, reply);
       }

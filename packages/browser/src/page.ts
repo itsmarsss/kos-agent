@@ -539,10 +539,15 @@ export class Page {
     throw new Error(`${label} is not visible on the page (hidden, or inside something closed); open what holds it first`);
   }
 
-  /** Refuses a click that would land on something other than the element, naming what is in the way. */
+  /**
+   * Refuses a click that would land on something other than the element,
+   * naming what is in the way. Hit as a real click is: through anything the
+   * pointer passes through, such as the border KOS draws on a tab of the
+   * owner's Chrome, which covers the whole page.
+   */
   private async clear(node: number, at: { x: number; y: number }, label: string): Promise<void> {
     const hit = await this.session
-      .send("DOM.getNodeForLocation", { x: Math.round(at.x), y: Math.round(at.y), includeUserAgentShadowDOM: false, ignorePointerEventsNone: true })
+      .send("DOM.getNodeForLocation", { x: Math.round(at.x), y: Math.round(at.y), includeUserAgentShadowDOM: false, ignorePointerEventsNone: false })
       .catch(() => undefined);
     const top = hit?.["backendNodeId"] as number | undefined;
     if (top === undefined || top === node) return;

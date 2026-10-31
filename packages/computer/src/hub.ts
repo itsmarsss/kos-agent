@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { publicKeyFromRaw, type HostKey } from "./keys.js";
 import { DeviceError, DeviceLink, type Socket } from "./link.js";
 import { PairingCodes, type PairingCode } from "./pairing.js";
-import { BROWSER_PLATFORM, CLOSE, PROTOCOL_VERSION, type Consent, type DeviceEvent, type EndReason, type Grant, type Method, type Permissions, type Size, type Target } from "./protocol.js";
+import { BROWSER_PLATFORM, CLOSE, PROTOCOL_VERSION, type Consent, type DeviceEvent, type EndReason, type Grant, type Method, type PanelMethod, type Permissions, type Size, type Target } from "./protocol.js";
 import { MAX_ASK_MINUTES, type ComputerSettings, type Device, type DeviceStore } from "./store.js";
 
 /**
@@ -79,6 +79,7 @@ export class PairError extends Error {
 // The device may wait up to five minutes for the owner, as they set it there.
 const BEGIN_TIMEOUT_MS = 315_000;
 const CALL_TIMEOUT_MS = 20_000;
+const PANEL_TIMEOUT_MS = 10_000;
 
 export class DeviceHub {
   readonly codes: PairingCodes;
@@ -297,7 +298,7 @@ export class DeviceHub {
   }
 
   /** Something done in the conversation's session; the device's result. */
-  async act(conversation: string, method: Exclude<Method, "session.begin" | "session.end">, params: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>> {
+  async act(conversation: string, method: Exclude<Method, "session.begin" | "session.end" | PanelMethod>, params: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>> {
     if (this.deps.halted()) {
       this.endAll("host");
       throw new DeviceError("halted", "KOS is halted by the kill switch");
@@ -317,6 +318,19 @@ export class DeviceHub {
       if (err instanceof DeviceError && err.code === "paused") session.paused = true;
       throw err;
     }
+  }
+
+  /**
+   * A call to a Chrome outside any session: its side panel's chat, and the
+   * page beside it. The device's answer, or its refusal; offline when it is
+   * not on.
+   */
+  async request(deviceId: string, method: PanelMethod, params: Record<string, unknown>, timeoutMs = PANEL_TIMEOUT_MS): Promise<Record<string, unknown>> {
+    // Showing the chat goes on under the kill switch; reading a page does not.
+    if (method === "page.read" && this.deps.halted()) throw new DeviceError("halted", "KOS is halted by the kill switch");
+    const link = this.links.get(deviceId);
+    if (!link?.ready) throw new DeviceError("offline", "that Chrome is not connected to KOS");
+    return link.call(method, params, timeoutMs);
   }
 
   /** End a session here and tell the device, without waiting on it: the overlay goes as soon as it hears. */

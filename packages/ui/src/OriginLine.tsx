@@ -5,7 +5,7 @@ import { hrefFor } from "./routes.js";
 
 /** A messaging surface as its maker spells it. */
 export function surfaceName(channel: string): string {
-  return channel === "discord" ? "Discord" : channel === "imessage" ? "iMessage" : channel === "sms" ? "SMS" : channel;
+  return channel === "discord" ? "Discord" : channel === "imessage" ? "iMessage" : channel === "sms" ? "SMS" : channel === "chrome" ? "Chrome" : channel;
 }
 
 /**

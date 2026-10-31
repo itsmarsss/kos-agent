@@ -17,7 +17,10 @@ import {
   verifyTwilioSignature,
   Kernel,
   connectChannel,
+  MODEL_SETTINGS_KEY,
+  conversationEvents,
   conversationKind,
+  parseModelSettings,
   createDashboardServer,
   createDashboardSocket,
   createPressHandler,
@@ -25,7 +28,9 @@ import {
   surfaceSessionId,
   startSiteServer,
   SurfaceDownError,
+  type ApprovalRequest,
   type NotifyPayload,
+  type PendingAction,
 } from "@kos/harness";
 import { createComputerUse } from "@kos/computer";
 
@@ -221,12 +226,70 @@ export async function runHost(options: HostOptions): Promise<void> {
    * outside the workspace, so the agent never reads it, and outside the
    * KOS_SECRET_ names too, which the agent can put in a request.
    */
+  /** A held action as a surface asks about it. */
+  const approvalRequest = (action: PendingAction): ApprovalRequest => {
+    const picture = action.picture ? kernel.approvals.pictureOf(action.id) : undefined;
+    const asker = kernel.askerOf(action.conversationId);
+    return {
+      id: String(action.id),
+      text: `Approve ${action.tool}?`,
+      tool: action.tool,
+      args: action.args,
+      reason: action.reason,
+      // The card names what the ids are: #leetcode, not 1561643942586351626.
+      names: (kind: string, id: string) => kernel.labelFor(kind, id),
+      ...(picture ? { picture } : {}),
+      ...(action.why ? { why: action.why } : {}),
+      ...(asker ? { asker } : {}),
+    };
+  };
+  /** What answers the panel's chat, and what it may be changed to: the dashboard picker's choices. */
+  const panelModels = async (): Promise<{ current: string; choices: string[]; fixed?: string }> => {
+    if (kernel.behaviour().engine === "sdk") return { current: "", choices: [], fixed: "Claude Agent SDK" };
+    const current = kernel.routes()?.["reasoning"]?.model ?? "";
+    const choices = await kernel.availableModels().catch((): string[] => []);
+    return { current, choices: current && !choices.includes(current) ? [current, ...choices] : choices };
+  };
+  /** The chat a Chrome's side panel shows: its surface's current one, made only when the owner first speaks there. */
+  const chromeChat = (): { id: string; title: string } | undefined => {
+    const owner = kernel.profile.ownerId;
+    const id = kernel.conversations.activeFor("chrome", owner) ?? surfaceSessionId("chrome", owner);
+    return kernel.conversations.get(id) ? { id, title: kernel.titleOf(id) } : undefined;
+  };
   const computer = createComputerUse({
     hostKeyPath: process.env.KOS_DEVICE_KEY_FILE?.trim() || join(homedir(), ".kos", "device-host.key"),
     ...(process.env.KOS_DEVICE_HOST_KEY ? { hostKeyEnv: process.env.KOS_DEVICE_HOST_KEY } : {}),
     caller: () => kernel.callerConversationId,
     titleOf: (id) => kernel.titleOf(id),
     halted: () => kernel.killSwitch.halted,
+    panel: {
+      current: chromeChat,
+      events: (id) => conversationEvents(kernel.sessions.get(id)),
+      waiting: (id) => kernel.approvals.pending().filter((a) => a.conversationId === id).map(approvalRequest),
+      // The owner's own chats and the surfaces' streams, as /chats lists them: not a schedule's runs, an agent's thread or the router.
+      chats: () =>
+        kernel.conversations
+          .list(kernel.profile.ownerId)
+          .filter((c) => ["chat", "surface"].includes(conversationKind(c, kernel.profile.ownerId)))
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .slice(0, 40)
+          .map((c) => ({ id: c.id, title: kernel.titleOf(c.id), updatedAt: c.updatedAt })),
+      switchTo: (id) => {
+        const c = kernel.conversations.get(id);
+        if (!c || !["chat", "surface"].includes(conversationKind(c, kernel.profile.ownerId))) return false;
+        kernel.conversations.setActive("chrome", kernel.profile.ownerId, id);
+        return true;
+      },
+      models: () => panelModels(),
+      // The dashboard's picker, merged rather than replacing: the route's effort and the cheap route stay as they were.
+      setModel: async (model) => {
+        const saved = parseModelSettings(kernel.settings.get(MODEL_SETTINGS_KEY));
+        const next = { ...saved, reasoning: { ...saved.reasoning, model } };
+        kernel.settings.set(MODEL_SETTINGS_KEY, next);
+        kernel.applyModelSettings(next);
+        return panelModels();
+      },
+    },
   });
 
   // KOS's Chrome answers on 9225; a second KOS on the machine names another port.
@@ -316,28 +379,13 @@ export async function runHost(options: HostOptions): Promise<void> {
       );
       child.unref();
     },
-    ...((creds && wantDiscord) || sms
-      ? {
-          onApprovalRequested: (action) => {
-            const picture = action.picture ? kernel.approvals.pictureOf(action.id) : undefined;
-            const asker = kernel.askerOf(action.conversationId);
-            const request = {
-              id: String(action.id),
-              text: `Approve ${action.tool}?`,
-              tool: action.tool,
-              args: action.args,
-              reason: action.reason,
-              // The card names what the ids are: #leetcode, not 1561643942586351626.
-              names: (kind: string, id: string) => kernel.labelFor(kind, id),
-              ...(picture ? { picture } : {}),
-              ...(action.why ? { why: action.why } : {}),
-              ...(asker ? { asker } : {}),
-            };
-            if (adapter && creds) void adapter.requestApproval(creds.ownerId, request);
-            if (smsAdapter && sms) void smsAdapter.requestApproval(sms.owner, request);
-          },
-        }
-      : {}),
+    // Every surface the owner is on, and the Chrome side panel when its chat is the one asking.
+    onApprovalRequested: (action) => {
+      const request = approvalRequest(action);
+      if (adapter && creds) void adapter.requestApproval(creds.ownerId, request);
+      if (smsAdapter && sms) void smsAdapter.requestApproval(sms.owner, request);
+      void computer.panel.requestApproval("owner", request);
+    },
   });
 
   // Off unless the owner set an interval; the timer re-reads it, so turning
@@ -830,6 +878,22 @@ export async function runHost(options: HostOptions): Promise<void> {
   }
 
   /*
+   * The side panel of each paired Chrome: a surface of its own, whatever
+   * else is wired, and quiet until a Chrome is paired with computer use on.
+   * A turn it did not take (one on the dashboard, one resumed after a
+   * decision) shows there too, since the panel draws the chat as it stands.
+   */
+  const panelRuntime = connectChannel(computer.panel, kernel, {
+    ownerRecipientId: "owner",
+    identity: computer.panel.identity(kernel.profile.ownerId),
+  });
+  await panelRuntime.start();
+  kernel.bus.on("turn:said", (said) => {
+    if (said.conversationId !== chromeChat()?.id || (said.channel === "chrome" && !said.resumed)) return;
+    void computer.panel.refresh();
+  });
+
+  /*
    * The schedule starts once every surface is wired, not before. A job that
    * fell due while KOS was down runs the moment it is caught up, and when
    * that happened ahead of Discord's login its "tell me" found no surface:
@@ -857,6 +921,7 @@ export async function runHost(options: HostOptions): Promise<void> {
         if (runtime) await runtime.stop();
         if (smsRuntime) await smsRuntime.stop();
         if (imessageRuntime) await imessageRuntime.stop();
+        await panelRuntime.stop();
         imessageClaim?.release();
         await kernel.closeBrowser();
       } catch {

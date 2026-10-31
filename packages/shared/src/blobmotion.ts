@@ -10,12 +10,15 @@
  * error. The eyes follow the pointer, drift when it is gone, and blink when
  * they feel like it. One ticker drives every blob on the page, and it stops
  * when the tab is hidden or the last blob leaves.
+ *
+ * Here rather than in the dashboard so that every page that shows KOS's
+ * face moves it the same way: the dashboard's, and the extension's popup and
+ * consent window. Imported as @kos/shared/blobmotion, apart from the rest of
+ * the package, since it needs a page to run in.
  */
 
 export type BlobMood = "idle" | "working" | "needs-you" | "error" | "asleep";
-import { CENTER, PLAIN_SHAPE, PLAIN_WHIM, eyeAt, outline, smoothPath, type BlobEyes, type BlobGait, type BlobShape, type BlobWhim } from "@kos/shared";
-
-export { CENTER, EYE_L, EYE_R, PLAIN_SHAPE, PLAIN_WHIM, POINTS, RADIUS, eyeAt, outline, smoothPath, type BlobEyes, type BlobGait, type BlobShape, type BlobWhim } from "@kos/shared";
+import { CENTER, PLAIN_SHAPE, PLAIN_WHIM, eyeAt, outline, smoothPath, type BlobEyes, type BlobGait, type BlobShape, type BlobWhim } from "./blob.js";
 
 const f = (n: number): string => n.toFixed(2);
 

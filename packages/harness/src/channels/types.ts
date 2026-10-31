@@ -312,8 +312,10 @@ export interface TurnPresence {
   /**
    * The finished answer. A message rather than a string, so a turn can answer
    * with a card and buttons instead of having to send them alongside.
+   * `waiting` when the turn is not finished but held on the owner's decision:
+   * the answer says so, and the rest of the turn follows it.
    */
-  complete(reply: OutboundMessage): Promise<void>;
+  complete(reply: OutboundMessage, how?: { waiting?: boolean }): Promise<void>;
   fail(message: string): Promise<void>;
 }
 

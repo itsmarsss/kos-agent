@@ -6,15 +6,17 @@ import { requireServices, type ApiExtension, type BrowserElsewhere, type KosModu
 import { OwnerChrome } from "./chrome.js";
 import { DeviceHub } from "./hub.js";
 import { loadHostKey } from "./keys.js";
+import { ChromePanel, type PanelDeps } from "./panel.js";
 import { deviceRoutes, deviceSocketServer } from "./routes.js";
 import { DeviceStore } from "./store.js";
 import { COMPUTER_MANIFEST, computerModule } from "./tools.js";
 
 /**
  * Computer use, as one thing a host plugs in: a module for the kernel to
- * load, routes for the dashboard server, and the device socket for its
- * upgrades. The kernel knows none of it; switched off in Settings, the
- * module takes its tools back, ends every session and the routes say so.
+ * load, routes for the dashboard server, the device socket for its
+ * upgrades, and the Chrome side panel as a surface to connect. The kernel
+ * knows none of it; switched off in Settings, the module takes its tools
+ * back, ends every session, the panel goes quiet and the routes say so.
  */
 
 export interface ComputerUseOptions {
@@ -26,12 +28,16 @@ export interface ComputerUseOptions {
   caller(): string | undefined;
   titleOf(conversation: string): string;
   halted(): boolean;
+  /** The chat the Chrome side panel shows, read when it is shown. */
+  panel: PanelDeps;
 }
 
 export interface ComputerUse {
   module: KosModule;
   /** The owner's Chrome, for the kernel to send a chat's browser tools to while it works there. */
   chrome: BrowserElsewhere;
+  /** The side panel of each paired Chrome, as a channel. */
+  panel: ChromePanel;
   routes: ApiExtension;
   upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): boolean;
   close(): void;
@@ -42,6 +48,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   let chrome: OwnerChrome | undefined;
   let active: KosModule | undefined;
   const sockets = deviceSocketServer(() => (active ? hub : undefined));
+  const panel = new ChromePanel(options.panel);
 
   const module: KosModule = {
     manifest: COMPUTER_MANIFEST,
@@ -54,12 +61,14 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
         halted: options.halted,
       });
       chrome ??= new OwnerChrome(hub);
+      panel.attach(hub);
       const events = ctx.events;
       active = computerModule({
         hub,
         chrome,
         caller: options.caller,
         titleOf: options.titleOf,
+        panelChrome: (conversation) => panel.chromeOf(conversation),
         ...(events ? { onHalt: (handler: () => void) => events.on("halt:changed", (e) => (e.halted ? handler() : undefined)) } : {}),
       });
       await active.activate(ctx);
@@ -67,6 +76,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
     async deactivate() {
       await active?.deactivate?.();
       active = undefined;
+      panel.attach(undefined);
       hub?.closeAll();
     },
   };
@@ -87,6 +97,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   return {
     module,
     chrome: elsewhere,
+    panel,
     routes: deviceRoutes(() => (active ? hub : undefined), options.titleOf),
     upgrade: (req, socket, head) => sockets.upgrade(req, socket, head),
     close() {

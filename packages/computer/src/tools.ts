@@ -31,6 +31,8 @@ export interface ComputerToolsDeps {
   caller(): string | undefined;
   /** A conversation's title, which the owner reads on the device's prompt. */
   titleOf(conversation: string): string;
+  /** The Chrome whose side panel a chat is, when it is the panel's chat: where chrome.page reads. */
+  panelChrome?(conversation: string): string | undefined;
   /** Subscribe to the kill switch; the handler is told when it is thrown. */
   onHalt?(handler: () => void): () => void;
   /** How long the screen is given to settle after an action before the picture. */
@@ -67,7 +69,11 @@ const SETTLE_MS = 450;
 const MAX_WAIT_S = 10;
 
 const COMPUTER_TOOLS = ["computer.devices", "computer.start", "computer.act", "computer.end"];
-const CHROME_TOOLS = ["chrome.start", "chrome.end"];
+const CHROME_TOOLS = ["chrome.start", "chrome.end", "chrome.page"];
+/** As much of a page as chrome.page hands the model. */
+const MAX_PAGE = 40_000;
+/** The Chrome may first ask the owner to let KOS read pages, and waits up to five minutes for them. */
+const PAGE_WAIT_MS = 315_000;
 const TOOL_NAMES = [...COMPUTER_TOOLS, ...CHROME_TOOLS];
 const VERSION = "0.1.0";
 
@@ -189,6 +195,20 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
       return device && hub.consentOf(device.id) === "kos" ? "this computer lets KOS start sessions without asking on it" : false;
     },
     why: "uses the computer: sees the screen and moves the pointer and keys",
+  };
+
+  /**
+   * The same for the owner's Chrome. Safe only because the extension asks the
+   * owner there; a Chrome where the owner turned that off leaves the start to
+   * KOS's approvals, or nobody would be asked at all.
+   */
+  const chromeStartRisk: ToolRisk = {
+    floor: "safe",
+    escalate: (input) => {
+      const device = hub.find(str(input.chrome), "browser");
+      return device && hub.consentOf(device.id) === "kos" ? "this Chrome lets KOS start sessions without asking in it" : false;
+    },
+    why: "works in the owner's own Chrome, signed in as them",
   };
 
   const registerComputer = (ctx: ModuleContext): void => {
@@ -374,7 +394,9 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         const task = str(input.task);
         if (!task) throw new Error("say what you will do in `task`");
         const named = str(input.chrome);
-        const device = hub.find(named, "browser");
+        // From the side panel, the Chrome the owner is talking from.
+        const panel = named ? undefined : deps.panelChrome?.(chat);
+        const device = hub.find(named ?? panel, "browser");
         if (!device) {
           const known = hub.list().filter((d) => d.kind === "browser").map((d) => d.name).join(", ");
           throw new Error(named ? `no Chrome called ${named}; paired: ${known || "none"}` : `more than one Chrome could be meant; name one of: ${known}`);
@@ -387,10 +409,15 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         }
         const handed = await deps.chrome.begun(chat).catch(() => []);
         const left = Math.max(1, Math.round((session.until - Date.now()) / 60_000));
-        const tabs = handed.length ? ` Tabs the owner handed you: ${handed.map((t) => `${t.title || t.url}`).join("; ")} (browser.tabs lists them, browser.use_tab goes to one).` : "";
-        return `Working in the owner's Chrome (${device.name}) for ${left} minute${left === 1 ? "" : "s"}. Your browser.* tools act there now, not in KOS's own browser, until chrome.end: in KOS's own window in that Chrome unless you use a handed tab.${tabs} The owner can take over or stop it there at any time.`;
+        const beside = handed.find((t) => t.focus);
+        const others = handed.filter((t) => !t.focus);
+        const where = beside
+          ? ` in the tab the owner has open beside the side panel (${beside.title || beside.url}), where they are looking`
+          : " in KOS's own window in that Chrome unless you use a handed tab";
+        const tabs = others.length ? ` Tabs the owner handed you: ${others.map((t) => `${t.title || t.url}`).join("; ")} (browser.tabs lists them, browser.use_tab goes to one).` : "";
+        return `Working in the owner's Chrome (${device.name}) for ${left} minute${left === 1 ? "" : "s"}. Your browser.* tools act there now, not in KOS's own browser, until chrome.end:${where}.${tabs} The owner can take over or stop it there at any time.`;
       },
-      { floor: "safe", why: "works in the owner's own Chrome, signed in as them" },
+      chromeStartRisk,
     );
 
     ctx.registerTool(
@@ -400,6 +427,32 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         inputSchema: { type: "object", properties: {} },
       },
       () => (hub.end(conversation()) ? "Ended. The owner has their Chrome back; the browser.* tools work in KOS's own browser again." : "There was no session to end."),
+      { floor: "safe" },
+    );
+
+    ctx.registerTool(
+      {
+        name: "chrome.page",
+        description:
+          "Read the page the owner has open beside KOS's side panel in their Chrome: its address, title, what they selected, and its text. Only in " +
+          "the side panel's chat, where the owner is talking to you while looking at a page: when their words are about this page, this, " +
+          "something on screen, or anything the page would answer, read it rather than guess. The first time, the panel may ask the owner to " +
+          "let KOS read pages; if they say no, tell them what you needed it for. It reads and does nothing; to act on the page, chrome.start " +
+          "works in that same tab.",
+        inputSchema: { type: "object", properties: {} },
+      },
+      async () => {
+        const chat = conversation();
+        const chrome = deps.panelChrome?.(chat);
+        if (!chrome) throw new Error("This chat is not the owner's Chrome side panel; chrome.page reads only the page beside the panel the owner is talking from.");
+        let page: Record<string, unknown>;
+        try {
+          page = await hub.request(chrome, "page.read", { conversation: chat }, PAGE_WAIT_MS);
+        } catch (err) {
+          throw new Error(err instanceof DeviceError ? err.message : refusalText(err));
+        }
+        return pageText(page);
+      },
       { floor: "safe" },
     );
   };
@@ -487,4 +540,18 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
       hub.endAll("host");
     },
   };
+}
+
+/** A page as the model reads it: where it is, what the owner picked out of it, then what it says. */
+export function pageText(page: Record<string, unknown>): string {
+  const text = typeof page["text"] === "string" ? page["text"] : "";
+  const selection = typeof page["selection"] === "string" ? page["selection"].trim() : "";
+  const cut = text.length > MAX_PAGE;
+  return [
+    `${String(page["title"] ?? "") || "(untitled)"}`,
+    String(page["url"] ?? ""),
+    ...(selection ? ["", "The owner selected:", selection] : []),
+    "",
+    cut ? `${text.slice(0, MAX_PAGE)}\n\n(cut at ${MAX_PAGE.toLocaleString("en-US")} characters)` : text || "(the page has no text)",
+  ].join("\n");
 }

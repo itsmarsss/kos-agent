@@ -143,7 +143,8 @@ Device: `{ "t": "reply", "id": 7, "ok": true, "result": { ... } }` or
 `{ "t": "reply", "id": 7, "ok": false, "error": { "code": "paused", "message": "..." } }`
 
 Every method but `session.begin` takes `session`, and the device refuses it
-without that session live.
+without that session live. A Chrome also takes the side panel's calls, which
+need no session ([browser-extension.md](browser-extension.md)).
 
 | Method | Params | Result |
 | --- | --- | --- |
