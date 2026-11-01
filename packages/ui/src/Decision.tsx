@@ -55,7 +55,7 @@ export function Decision({
       {!noRemember && (
         <button
           type="button"
-          className={`btn btn--primary${size}`}
+          className={`btn${size}`}
           disabled={busy}
           title="Approve, and stop asking for this shape in this project"
           onClick={() => onDecide(id, true, true)}
