@@ -45,7 +45,9 @@ the whole map:
 
 `⌘K` finds anything: a chat, a file, a page, a schedule, a setting, a
 command. The full page-by-page guide is in
-[docs/dashboard.md](docs/dashboard.md).
+[docs/dashboard.md](docs/dashboard.md). The dashboard, the Chrome extension
+and KOS Device share one look, written down in
+[docs/design.md](docs/design.md).
 
 ---
 

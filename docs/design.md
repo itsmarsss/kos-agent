@@ -169,8 +169,10 @@ and the dashboard's `styles.css` draw the same things.
 
 ## The face
 
-KOS is its face: the blob, alive (it breathes, looks, blinks), never a
-static picture of it. It leads a window's head (36 in the extension, 42 in
+KOS is its face: the blob, alive (it breathes, looks, blinks) in every
+window of its own. The bar the extension draws into a web page carries a
+still of it, drawn in the page's own shadow root, the page being someone
+else's. It leads a window's head (36 in the extension, 42 in
 KOS Device, 22 beside the dashboard's wordmark), sits in the session bar
 while KOS works, and in a consent sheet at 54 in a halo. On the dashboard
 the brand is the face and the K-OS wordmark; everywhere else the name is
