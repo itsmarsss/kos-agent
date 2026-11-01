@@ -357,7 +357,7 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 @keyframes bob { 50% { transform: translateY(-4px); opacity: 0.5; } }
 
 /* What waits on the owner: an approval, an ask to work in this tab. */
-.ask-card { align-self: stretch; border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+.ask-card { align-self: stretch; border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
 .ask-card--consent, .ask-card--read { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .args { margin: 0; padding: 8px; max-height: 140px; overflow: auto; border-radius: var(--r-sm); background: var(--bg); font: 11.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 
