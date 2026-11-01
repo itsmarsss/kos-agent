@@ -118,7 +118,7 @@ function Build({
             </button>
             <button
               type="button"
-              className="btn btn--danger-ghost"
+              className="btn btn--danger"
               title="Remove it from this list. The files it wrote stay."
               onClick={(e) => {
                 e.stopPropagation();
@@ -295,7 +295,8 @@ export function BuildsPage({
                   <button
                     key={f}
                     type="button"
-                    className={`ops-btn ${draft.dir === f ? "ops-btn--primary" : ""}`}
+                    className={`chip${draft.dir === f ? " is-on" : ""}`}
+              aria-pressed={draft.dir === f}
                     onClick={() => setDraft({ ...draft, dir: f })}
                   >
                     {f}

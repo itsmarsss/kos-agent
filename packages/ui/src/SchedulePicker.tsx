@@ -72,7 +72,7 @@ export function SchedulePicker({ value, onChange, allowNone = false }: ScheduleP
 
   return (
     <div className="sched">
-      <div className="seg sched-kinds" role="radiogroup" aria-label="How often">
+      <div className="seg" role="radiogroup" aria-label="How often">
         {allowNone && (
           <button type="button" className={`seg-btn${current === "none" ? " is-on" : ""}`} aria-pressed={current === "none"} onClick={() => pick("none")}>
             Never

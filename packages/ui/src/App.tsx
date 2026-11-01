@@ -1133,7 +1133,8 @@ export function App(): React.ReactElement {
               <button
                 key={f}
                 type="button"
-                className={`ops-btn ${cronFilter === f ? "ops-btn--primary" : ""}`}
+                className={`chip${cronFilter === f ? " is-on" : ""}`}
+              aria-pressed={cronFilter === f}
                 onClick={() => setCronFilter(f)}
               >
                 {f}

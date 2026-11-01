@@ -12,7 +12,7 @@ import { EDGES, clampBox, cornerBox, readBox as readStoredBox, resizedBox, saveB
 import { useProgress } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
 import { Markdown } from "./Markdown.js";
-import { OpenIcon, PinIcon, UnpinIcon } from "./icons.js";
+import { OpenIcon, PinIcon, SendIcon, UnpinIcon } from "./icons.js";
 
 /**
  * A quick question on the side, like Claude Code's /btw.
@@ -376,7 +376,7 @@ export function QuickAsk({
             the button jump and shrink to a blob while an answer came. */}
         <button
           type="submit"
-          className="btn btn--primary quickask-send"
+          className="send quickask-send"
           disabled={asking || !text.trim()}
           aria-label={asking ? "Asking" : "Ask"}
         >
@@ -387,7 +387,7 @@ export function QuickAsk({
               <i />
             </span>
           ) : (
-            "Ask"
+            <SendIcon />
           )}
         </button>
       </form>

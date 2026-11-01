@@ -218,7 +218,7 @@ export function Inspector(props: {
         t.isError && props.onFix ? (
           <button
             type="button"
-            className="ops-btn ops-btn--primary"
+            className="btn btn--primary"
             disabled={busy}
             onClick={() => {
               props.onFix?.({
@@ -309,7 +309,7 @@ export function Inspector(props: {
         r.status === "error" && props.onFix ? (
           <button
             type="button"
-            className="ops-btn ops-btn--primary"
+            className="btn btn--primary"
             disabled={busy}
             onClick={() => {
               props.onFix?.({
@@ -708,7 +708,7 @@ export function Inspector(props: {
                   <ConfirmButton
                     label="Delete project"
                     confirmLabel="Delete for good"
-                    className="btn btn--sm btn--danger-ghost"
+                    className="btn btn--sm btn--danger"
                     text={`Delete ${p.name}? Its chats are kept; the rest goes.`}
                     disabled={busy}
                     onConfirm={() => void run(() => props.onDeleteProject!(p.slug))}

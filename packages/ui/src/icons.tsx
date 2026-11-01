@@ -163,6 +163,20 @@ export const MoreIcon = (): ReactElement => (
   </Icon>
 );
 
+/** Send, on the composer's round button, as in the side panel. */
+export const SendIcon = ({ size = 15 }: { size?: number } = {}): ReactElement => (
+  <Icon title="Send" size={size}>
+    <path d="M5 12h14M13 6l6 6-6 6" />
+  </Icon>
+);
+
+/** Stop, on the same button while a turn runs. */
+export const StopIcon = ({ size = 13 }: { size?: number } = {}): ReactElement => (
+  <Icon title="Stop" size={size}>
+    <rect x="6.5" y="6.5" width="11" height="11" rx="2.5" fill="currentColor" stroke="none" />
+  </Icon>
+);
+
 export const SearchIcon = ({ size = 14 }: { size?: number } = {}): ReactElement => (
   <Icon title="Search" size={size}>
     <circle cx="11" cy="11" r="7" />

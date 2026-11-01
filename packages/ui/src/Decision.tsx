@@ -39,7 +39,7 @@ export function Decision({
     <span className="decision">
       <button
         type="button"
-        className={`btn btn--ok${size}`}
+        className={`btn btn--primary${size}`}
         disabled={busy}
         onClick={() => onDecide(id, true)}
       >
@@ -65,7 +65,7 @@ export function Decision({
       )}
       <button
         type="button"
-        className={`btn btn--danger-ghost${size}`}
+        className={`btn btn--danger${size}`}
         disabled={busy}
         onClick={() => onDecide(id, false)}
       >

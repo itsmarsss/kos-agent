@@ -538,7 +538,7 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
             )}
             <button
               type="button"
-              className="btn btn--sm btn--ok"
+              className="btn btn--sm btn--primary"
               onClick={() => {
                 setDriving(false);
                 onDecide(handoff.id, true);

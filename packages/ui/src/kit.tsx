@@ -220,7 +220,7 @@ export interface ConfirmButtonProps {
  * dialog in the middle of the page, and not a button that changes its
  * words on the first press. Every delete on the site uses this.
  */
-export function ConfirmButton({ label, text, confirmLabel, onConfirm, className = "btn btn--sm btn--danger-ghost", disabled = false, title, role }: ConfirmButtonProps): ReactElement {
+export function ConfirmButton({ label, text, confirmLabel, onConfirm, className = "btn btn--sm btn--danger", disabled = false, title, role }: ConfirmButtonProps): ReactElement {
   // Measured from the button: inside a menu the wrap is `display: contents`
   // and has no box, which put the window at the top left of the page.
   const button = useRef<HTMLButtonElement>(null);
