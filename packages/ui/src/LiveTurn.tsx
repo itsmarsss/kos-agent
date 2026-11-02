@@ -41,7 +41,7 @@ export function congregationHead(members: CongregationMember[]): string {
   const done = members.filter((m) => m.status === "done").length;
   const failed = members.filter((m) => m.status === "failed").length;
   const working = members.length - done - failed;
-  const noun = members.length === 1 ? "agent" : "agents";
+  const noun = members.length === 1 ? "chat" : "chats";
   const tail = failed > 0 ? `, ${failed} failed` : "";
   if (working === 0) return `Gathered from ${members.length} ${noun}${tail}`;
   return `Gathering from ${members.length} ${noun}, ${done} done, ${working} working${tail}`;

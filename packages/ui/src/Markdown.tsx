@@ -170,7 +170,7 @@ function MentionChip({ kind, id }: { kind: string; id: string }): ReactElement {
     <a
       className={`chip-ref chip-ref--${kind}`}
       href={refHref(kind, id)}
-      title={`${kind}: ${id}`}
+      title={`${kind === "agent" ? "blob" : kind}: ${id}`}
       onClick={onClick}
     >
       {/* A blob is a face, not a mark. */}

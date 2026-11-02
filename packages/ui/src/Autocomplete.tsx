@@ -134,7 +134,8 @@ const KIND_LABEL: Record<string, string> = {
   chat: "chat",
   site: "site",
   blob: "blob",
-  agent: "agent",
+  // @agent: is a blob, from before blobs were called that.
+  agent: "blob",
   build: "build",
   tab: "tab",
   channel: "channel",

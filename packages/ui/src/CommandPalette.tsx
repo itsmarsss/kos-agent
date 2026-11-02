@@ -196,7 +196,7 @@ export function buildActions(ctx: PaletteContext): Action[] {
       id: "go-Builds",
       label: "Go to Builds",
       group: "Go to",
-      keywords: "builds coding sub-agents runs",
+      keywords: "builds coding runs",
       run: () => ctx.go({ name: "builds" }),
     },
     {

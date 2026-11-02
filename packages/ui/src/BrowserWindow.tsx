@@ -429,7 +429,7 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
             aria-pressed={driving}
             disabled={!current}
             onClick={() => setDriving((v) => !v)}
-            title={driving ? "Give the tab back: the agent carries on" : "The tab is yours: the agent waits while you click and type"}
+            title={driving ? "Give the tab back: KOS carries on" : "The tab is yours: KOS waits while you click and type"}
           >
             {driving ? "Let go" : "Take over"}
           </button>
@@ -528,7 +528,7 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
       {handoff && onDecide && (
         <div className="browserwin-handoff" role="status">
           <span className="browserwin-handoff-text">
-            <strong>{handoff.conversationId ? (titleFor(handoff.conversationId) ?? "An agent") : "An agent"} needs your hands.</strong> {handoff.reason}
+            <strong>{handoff.conversationId ? (titleFor(handoff.conversationId) ?? "KOS") : "KOS"} needs your hands.</strong> {handoff.reason}
           </span>
           <span className="browserwin-handoff-acts">
             {!driving && (
@@ -594,7 +594,7 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
               : live.gone
                 ? "That tab closed. Pick another above."
                 : !current
-                  ? "No tab open yet. Type an address above, press +, or wait for an agent to open a page."
+                  ? "No tab open yet. Type an address above, press +, or wait for KOS to open a page."
                   : "Waiting for the first frame…"}
           </p>
         )}

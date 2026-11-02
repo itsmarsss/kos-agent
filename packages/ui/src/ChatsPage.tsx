@@ -489,12 +489,13 @@ export function ChatsPage({
   const visible = [...seeded, ...events];
 
   /**
-   * The words for a reference, where this view knows them. A chat and an
-   * agent are addressed by id, and an id is not a name.
+   * The words for a reference, where this view knows them. A chat and a
+   * build are addressed by id, and an id is not a name. A blob (@blob:, and
+   * @agent: from before blobs had their name) is addressed by its name.
    */
   const nameFor = (kind: string, id: string): string | undefined => {
     if (kind === "chat") return conversations.find((c) => c.id === id)?.title;
-    if (kind === "agent") {
+    if (kind === "build") {
       const build = agents.find((b) => String(b.id) === id);
       return build ? build.dir : undefined;
     }
@@ -1628,7 +1629,7 @@ export function ChatsPage({
                         <a
                           className={`chats-item ${orchestrator.id === activeId ? "is-active" : ""}`}
                           href={hrefFor({ name: "chats", id: orchestrator.id })}
-                          title="Routes your work to projects and agents"
+                          title="Routes your work to projects and blobs"
                           onClick={(e) => {
                             e.preventDefault();
                             onOpen(orchestrator.id);
@@ -1926,7 +1927,7 @@ export function ChatsPage({
               <m.div className="chats-welcome-head" variants={card}>
                 <p className="chats-welcome-title">What do you want done?</p>
                 <p className="chats-welcome-sub">
-                  KOS routes it to the right project or agent, or stands a new one up.
+                  KOS routes it to the right project or blob, or stands a new one up.
                 </p>
               </m.div>
               {/* The question has to be answerable here. A button that leads
@@ -2058,6 +2059,8 @@ export function ChatsPage({
                   {active.kind === "orchestrator" && <Face seed={KOS_SEED} look={faceLookOf(kos)} size={30} mood={moodOf(active.activity)} label="KOS" />}
                   {active.title}
                   {active.kind === "project" && <span className="chats-role">orchestrator</span>}
+                  {active.kind === "chat" && active.projectSlug && !active.role && <span className="chats-role">agent</span>}
+                  {(active.kind === "agent" || active.role) && <span className="chats-role">blob</span>}
                 </h1>
                 {/* Inside the project the rail lists the agents, so the count
                     would say what is already in view. */}

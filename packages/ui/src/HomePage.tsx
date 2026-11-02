@@ -27,7 +27,7 @@ const CATALOGUE: { kind: PanelKind; label: string; blurb: string }[] = [
   { kind: "approvals", label: "Needs you", blurb: "Actions waiting on a decision" },
   { kind: "pulse", label: "Last 24 hours", blurb: "Tool calls by the hour" },
   { kind: "standing", label: "Blobs", blurb: "The blobs, the standing helpers, and what each is up to" },
-  { kind: "agents", label: "Builds", blurb: "Coding sub-agents running now" },
+  { kind: "agents", label: "Builds", blurb: "Coding work running now" },
   { kind: "failures", label: "What broke", blurb: "Jobs failing now, and the run strip" },
   { kind: "map", label: "Map", blurb: "KOS, its modules and its projects" },
   { kind: "activity", label: "Activity", blurb: "Recent tool calls" },

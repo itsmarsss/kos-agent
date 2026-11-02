@@ -23,7 +23,7 @@ export const SECTIONS = [
   { id: "browser", group: "Extensions", label: "KOS's browser", blurb: "KOS's own Chrome on this host, not yours: its window, extensions and search" },
   { id: "permissions", group: "Access", label: "Permissions", blurb: "Decisions you made at a prompt and kept" },
   { id: "devices", group: "Access", label: "Devices", blurb: "Your computers and your own Chrome, for KOS to use, and pairing one" },
-  { id: "network", group: "Access", label: "Network", blurb: "Ports, binding, and what the agent may reach" },
+  { id: "network", group: "Access", label: "Network", blurb: "Ports, binding, and what KOS may reach" },
   { id: "spend", group: "Housekeeping", label: "Spend", blurb: "Tokens used and what they cost" },
   { id: "workspace", group: "Housekeeping", label: "Workspace", blurb: "Where everything lives" },
 ] as const;
@@ -52,7 +52,7 @@ export const SETTINGS: SettingEntry[] = [
   { section: "models", label: "Who does the thinking" },
   { section: "models", label: "Chat engine", words: "sdk claude api agent loop" },
   { section: "models", label: "Which model answers", words: "reasoning cheap fast model" },
-  { section: "models", label: "Build agents" },
+  { section: "models", label: "Builds" },
   { section: "models", label: "Build model", words: "coding agent builds" },
   { section: "behaviour", label: "When something fails" },
   { section: "behaviour", label: "Extract memory in the background", words: "memory extraction" },
