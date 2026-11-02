@@ -147,7 +147,8 @@ export function HistoryPage({
             <button
               key={f.value}
               type="button"
-              className={`ops-btn ${filter === f.value ? "ops-btn--primary" : ""}`}
+              className={`chip${filter === f.value ? " is-on" : ""}`}
+              aria-pressed={filter === f.value}
               onClick={() => setFilter(f.value)}
             >
               {f.label}

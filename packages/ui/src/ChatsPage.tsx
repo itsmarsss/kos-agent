@@ -79,7 +79,7 @@ import {
 } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
 import { ActivityDot, QueuedMark, StatusDot } from "./StatusDot.js";
-import { ArchiveIcon, GearIcon } from "./icons.js";
+import { ArchiveIcon, GearIcon, SendIcon, StopIcon } from "./icons.js";
 import { ToolCall } from "./ToolCall.js";
 import { ChatConfig } from "./ChatConfig.js";
 import { Markdown, MentionNames } from "./Markdown.js";
@@ -1987,7 +1987,7 @@ export function ChatsPage({
                     </div>
                     <button
                       type="submit"
-                      className="btn btn--primary"
+                      className="btn btn--primary btn--capsule"
                       disabled={creating || !opening.trim()}
                     >
                       {creating
@@ -2494,6 +2494,7 @@ export function ChatsPage({
               className={`chats-composer composer ${drop.over ? "is-over" : ""}`}
               {...drop.handlers}
             >
+              <div className="composer-box">
               <AttachmentStrip
                 items={attachments.files.map((f) => ({
                   name: f.name,
@@ -2594,22 +2595,27 @@ export function ChatsPage({
                 {running ? (
                   <button
                     type="button"
-                    className="btn btn--stop"
+                    className="send send--stop"
+                    aria-label={stopping ? "Stopping" : "Stop"}
+                    title="Stop (Cmd+Enter)"
                     disabled={stopping}
                     onClick={stop}
                   >
-                    {stopping ? "Stopping…" : "Stop"}
+                    <StopIcon />
                   </button>
                 ) : (
                   <button
                     type="button"
-                    className="btn btn--primary"
+                    className="send"
+                    aria-label="Send"
+                    title="Send (Enter)"
                     onClick={() => void send()}
                     disabled={draft.trim() === "" && attachments.files.length === 0}
                   >
-                    Send
+                    <SendIcon />
                   </button>
                 )}
+              </div>
               </div>
             </div>
           </>

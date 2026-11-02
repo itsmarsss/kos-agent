@@ -378,8 +378,7 @@ function JobsTab(): ReactElement {
                 }).catch((err: unknown) => setSaid((s) => ({ ...s, [job.id]: err instanceof Error ? err.message : String(err) }))).finally(() => { setBusy(null); load(); });
               }}>{busy === job.id ? "Running…" : "Run now"}</button>
               <label className="set-toggle">
-                <input type="checkbox" checked={job.enabled} onChange={(e) => void api.setCronEnabled(job.id, e.target.checked).then(load, load)} />
-                <span>{job.enabled ? "On" : "Off"}</span>
+                <input role="switch" aria-label={`${j.label} on schedule`} type="checkbox" checked={job.enabled} onChange={(e) => void api.setCronEnabled(job.id, e.target.checked).then(load, load)} />
               </label>
             </div>
           </div>
@@ -414,14 +413,14 @@ function CallersTab(): ReactElement {
             <strong>{c.name}</strong>
             <div className="hint">reads {c.readTags.length ? c.readTags.join(", ") : "nothing global"}{c.writeGlobal ? " · may write global" : ""}{c.lastSeenAt ? ` · last seen ${when(c.lastSeenAt)}` : " · never used"}</div>
           </div>
-          <button type="button" className="btn btn--sm btn--danger-ghost" onClick={() => void api.revokeCaller(c.id).then(load, load)}>Revoke</button>
+          <button type="button" className="btn btn--sm btn--danger" onClick={() => void api.revokeCaller(c.id).then(load, load)}>Revoke</button>
         </div>
       ))}
       <div className="mem-new">
         <input className="kos-input" placeholder="name, e.g. resume-ops" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
         <input className="kos-input" placeholder="global tags it may read: career, resume (or *)" value={draft.tags} onChange={(e) => setDraft({ ...draft, tags: e.target.value })} />
         <label className="set-toggle">
-          <input type="checkbox" checked={draft.writeGlobal} onChange={(e) => setDraft({ ...draft, writeGlobal: e.target.checked })} />
+          <input role="switch" type="checkbox" checked={draft.writeGlobal} onChange={(e) => setDraft({ ...draft, writeGlobal: e.target.checked })} />
           <span>May write global</span>
         </label>
         <button type="button" className="btn btn--primary" disabled={!draft.name.trim()} onClick={() => {

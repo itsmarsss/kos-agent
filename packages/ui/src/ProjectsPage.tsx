@@ -163,7 +163,7 @@ export function ProjectsPage({
                   key={p.slug}
                   variants={card}
                   whileHover={{ y: -2 }}
-                  className="card project-card"
+                  className="card card--opens project-card"
                   role="button"
                   tabIndex={0}
                   // A card is the project, so clicking it opens the project's

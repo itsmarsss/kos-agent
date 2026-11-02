@@ -39,7 +39,7 @@ export function Decision({
     <span className="decision">
       <button
         type="button"
-        className={`btn btn--ok${size}`}
+        className={`btn btn--primary${size}`}
         disabled={busy}
         onClick={() => onDecide(id, true)}
       >
@@ -55,7 +55,7 @@ export function Decision({
       {!noRemember && (
         <button
           type="button"
-          className={`btn btn--primary${size}`}
+          className={`btn${size}`}
           disabled={busy}
           title="Approve, and stop asking for this shape in this project"
           onClick={() => onDecide(id, true, true)}
@@ -65,7 +65,7 @@ export function Decision({
       )}
       <button
         type="button"
-        className={`btn btn--danger-ghost${size}`}
+        className={`btn btn--danger${size}`}
         disabled={busy}
         onClick={() => onDecide(id, false)}
       >

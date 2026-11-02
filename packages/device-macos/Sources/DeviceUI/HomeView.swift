@@ -45,7 +45,7 @@ public struct HomeView: View {
       keychainProblem: model.keychainProblem != nil, openKOS: openKOS, hiddenOpen: hiddenOpen)
   }
 
-  static let motion = Animation.spring(response: 0.36, dampingFraction: 0.88)
+  static let motion = Theme.spring
   private static let top = "top"
   private static let pairingForm = "pairing"
 
@@ -304,7 +304,7 @@ public struct HomeView: View {
           .font(.system(size: 14, weight: .medium))
           .foregroundStyle(Theme.warn)
           .frame(width: 32, height: 32)
-          .background(Theme.warn.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+          .background(Theme.warn.opacity(0.14), in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
         VStack(alignment: .leading, spacing: 3) {
           Text("Can't read the pairings").font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.text)
           Text("\(problem) If macOS asks whether KOS Device may use its Keychain item, choose Always Allow. The pairings are still there.")
@@ -460,7 +460,7 @@ public struct HomeView: View {
       Button("Restart", action: model.actions.restart).buttonStyle(KOSButtonStyle(.secondary))
     }
     .padding(10)
-    .background(Theme.warn.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    .background(Theme.warn.opacity(0.08), in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
   }
 
   private func grantRow(_ grant: Grant) -> some View {
@@ -470,7 +470,7 @@ public struct HomeView: View {
         .font(.system(size: 15, weight: .medium))
         .foregroundStyle(granted ? Theme.ok : Theme.accent)
         .frame(width: 32, height: 32)
-        .background((granted ? Theme.ok : Theme.accent).opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background((granted ? Theme.ok : Theme.accent).opacity(0.14), in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
       VStack(alignment: .leading, spacing: 2) {
         Text(grant.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
         Text(grant.detail).font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)

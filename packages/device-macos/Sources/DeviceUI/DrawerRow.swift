@@ -22,7 +22,7 @@ struct DrawerRow<Trailing: View>: View {
           .font(.system(size: 14, weight: .medium))
           .foregroundStyle(tint)
           .frame(width: 32, height: 32)
-          .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+          .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
         VStack(alignment: .leading, spacing: 2) {
           Text(title)
             .font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text)

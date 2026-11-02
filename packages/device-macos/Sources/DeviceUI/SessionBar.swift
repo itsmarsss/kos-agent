@@ -73,7 +73,7 @@ public struct SessionBar: View {
     .padding(.trailing, 8)
     .frame(height: Self.height)
     .background(Theme.panel.opacity(0.96), in: Capsule())
-    .overlay(Capsule().strokeBorder(tone.opacity(0.55)))
+    .overlay(Capsule().strokeBorder(tone.opacity(0.45)))
     .shadow(color: tone.opacity(0.35), radius: 12)
     .padding(14)
     .environment(\.colorScheme, .dark)

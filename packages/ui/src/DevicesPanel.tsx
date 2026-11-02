@@ -42,8 +42,7 @@ function SessionRules({ settings, onChange }: { settings: ComputerSettings; onCh
         hint="Off by default: a schedule, a blob's own timer or a guest in a channel cannot start a session. On, they can ask, and the computer still asks you first, or your approval queue does if you set it to."
       >
         <label className="set-toggle">
-          <input type="checkbox" checked={settings.unattended} onChange={(e) => onChange({ unattended: e.target.checked })} />
-          <span>{settings.unattended ? "On" : "Off"}</span>
+          <input role="switch" aria-label="Work you did not start may use a computer" type="checkbox" checked={settings.unattended} onChange={(e) => onChange({ unattended: e.target.checked })} />
         </label>
       </Field>
     </div>

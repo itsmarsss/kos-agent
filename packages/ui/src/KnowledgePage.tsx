@@ -335,7 +335,7 @@ export function KnowledgePage({
               </button>
               <button
                 type="button"
-                className="btn btn--danger-ghost"
+                className="btn btn--danger"
                 onClick={() => {
                   void api.deleteMemory(open.key).then(() => {
                     setOpen(null);

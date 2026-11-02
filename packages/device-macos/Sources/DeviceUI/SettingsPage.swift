@@ -151,7 +151,7 @@ struct IconButton: View {
         .foregroundStyle(hovering ? (tint ?? Theme.text) : Theme.muted)
         .frame(width: 26, height: 26)
         .background(hovering ? (tint?.opacity(0.14) ?? Theme.panel2) : .clear, in: Circle())
-        .overlay(Circle().strokeBorder(hovering ? (tint?.opacity(0.35) ?? Theme.line) : .clear))
+        .overlay(Circle().strokeBorder(hovering ? (tint?.opacity(0.45) ?? Theme.line) : .clear))
     }
     .buttonStyle(.plain)
     .onHover { hovering = $0 }

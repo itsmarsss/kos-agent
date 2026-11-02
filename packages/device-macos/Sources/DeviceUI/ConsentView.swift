@@ -111,8 +111,8 @@ public struct ConsentView: View {
         .lineLimit(5)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(Theme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).strokeBorder(Theme.accent.opacity(0.3)))
+        .background(Theme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous).strokeBorder(Theme.accent.opacity(0.25)))
 
       VStack(alignment: .leading, spacing: 7) {
         Text("For").font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.muted)
@@ -133,7 +133,7 @@ public struct ConsentView: View {
         }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
-      .animation(.spring(response: 0.32, dampingFraction: 0.88), value: model.custom)
+      .animation(Theme.spring, value: model.custom)
 
       if model.targets.count > 1 { TargetPicker(model: model) }
 
@@ -223,7 +223,7 @@ private struct TargetTile: View {
     Button(action: choose) {
       VStack(alignment: .leading, spacing: 6) {
         ZStack {
-          RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.bg)
+          RoundedRectangle(cornerRadius: Theme.radiusXs, style: .continuous).fill(Theme.bg)
           if let picture = choice.thumbnail {
             Image(nsImage: picture).resizable().aspectRatio(contentMode: .fit).padding(4)
           } else {
@@ -245,8 +245,8 @@ private struct TargetTile: View {
         }
       }
       .padding(6)
-      .background(selected ? Theme.accent.opacity(0.12) : hovering ? Theme.panel2 : Theme.panel, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-      .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(selected ? Theme.accent.opacity(0.7) : hovering ? Theme.lineStrong : Theme.line, lineWidth: selected ? 1.5 : 1))
+      .background(selected ? Theme.accent.opacity(0.14) : hovering ? Theme.panel2 : Theme.panel, in: RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous))
+      .overlay(RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous).strokeBorder(selected ? Theme.accent.opacity(0.45) : hovering ? Theme.lineStrong : Theme.line, lineWidth: selected ? 1.5 : 1))
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)

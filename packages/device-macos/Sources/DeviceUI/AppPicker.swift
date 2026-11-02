@@ -29,7 +29,7 @@ struct AppChip: View {
     .padding(.leading, 7)
     .padding(.trailing, 5)
     .padding(.vertical, 4)
-    .background(hovering ? Theme.line.opacity(0.6) : Theme.panel2, in: Capsule())
+    .background(hovering ? Theme.line.opacity(0.7) : Theme.panel2, in: Capsule())
     .overlay(Capsule().strokeBorder(onCross ? Theme.danger.opacity(0.45) : hovering ? Theme.lineStrong : Theme.line))
     .onHover { hovering = $0 }
     .animation(.easeOut(duration: 0.14), value: hovering)
@@ -54,7 +54,7 @@ struct AddAppButton: View {
         .foregroundStyle(hovering || open ? Theme.accentLit : Theme.accent)
         .padding(.horizontal, 7)
         .padding(.vertical, 4)
-        .background(hovering || open ? Theme.accent.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .background(hovering || open ? Theme.accent.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
     }
     .buttonStyle(.plain)
     .onHover { hovering = $0 }
@@ -145,7 +145,7 @@ private struct PickerRow: View {
       }
       .padding(.horizontal, 8)
       .frame(height: 32)
-      .background(hovering ? Theme.accent.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+      .background(hovering ? Theme.accent.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)

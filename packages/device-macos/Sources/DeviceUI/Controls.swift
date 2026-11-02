@@ -16,8 +16,8 @@ public struct Card<Content: View>: View {
     VStack(alignment: .leading, spacing: 10) { content }
       .padding(14)
       .frame(maxWidth: .infinity, alignment: .leading)
-      .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
-      .overlay(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).strokeBorder(Theme.line))
+      .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous))
+      .overlay(RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous).strokeBorder(Theme.line))
   }
 }
 
@@ -69,7 +69,7 @@ public struct Pill: View {
     .foregroundStyle(colour)
     .padding(.horizontal, 8)
     .padding(.vertical, 3)
-    .background(colour.opacity(0.13), in: Capsule())
+    .background(colour.opacity(0.14), in: Capsule())
   }
 }
 
@@ -81,14 +81,14 @@ public struct KOSButtonStyle: ButtonStyle {
   private let kind: Kind
   private let capsule: Bool
 
-  /// `capsule` for a button inside something round, such as the session bar, whose corners a 7 point radius would fight.
+  /// `capsule` for a button inside something round, such as the session bar, whose corners a small radius would fight.
   public init(_ kind: Kind = .secondary, capsule: Bool = false) {
     self.kind = kind
     self.capsule = capsule
   }
 
   public func makeBody(configuration: Configuration) -> some View {
-    StyledButton(kind: kind, radius: capsule ? 999 : 7, configuration: configuration)
+    StyledButton(kind: kind, radius: capsule ? 999 : Theme.radiusSm, configuration: configuration)
   }
 
   private struct StyledButton: View {
@@ -256,8 +256,8 @@ public struct ChipStyle: ButtonStyle {
         .foregroundStyle(selected ? Theme.accent : hovering ? Theme.text : Theme.muted)
         .padding(.horizontal, 10)
         .padding(.vertical, 5.5)
-        .background(selected ? Theme.accent.opacity(0.14) : hovering ? Theme.line.opacity(0.7) : Theme.panel2, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(selected ? Theme.accent.opacity(0.45) : hovering ? Theme.lineStrong : Theme.line))
+        .background(selected ? Theme.accent.opacity(0.14) : hovering ? Theme.line.opacity(0.7) : Theme.panel2, in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous).strokeBorder(selected ? Theme.accent.opacity(0.45) : hovering ? Theme.lineStrong : Theme.line))
         .scaleEffect(configuration.isPressed ? 0.97 : 1)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
@@ -298,8 +298,8 @@ public struct KOSField: View {
         .foregroundStyle(Theme.text)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Theme.bg, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Theme.line))
+        .background(Theme.bg, in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous).strokeBorder(Theme.line))
     }
   }
 }
