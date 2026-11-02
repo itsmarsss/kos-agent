@@ -342,6 +342,19 @@ export interface DiscordAdapterOptions {
   senderOf?: (conversationId: string) => Sender | undefined;
 }
 
+/** An ask's card as sent: its words, its buttons, and the page it is about when there is one. */
+interface AskPayload {
+  content: string;
+  components: ActionRowBuilder<ButtonBuilder>[];
+  files?: { attachment: Buffer; name: string }[];
+}
+
+/** One card of an ask: the message, and how to rewrite it once the ask is decided. */
+interface PromptCopy {
+  messageId?: string;
+  edit: (payload: { content: string; embeds: never[]; components: never[] }) => Promise<unknown>;
+}
+
 /** A channel the server should have, bound to a conversation by its topic. */
 export interface ChannelPlan {
   /** The conversation id, or "needs-you" for the approvals channel. */
@@ -746,7 +759,12 @@ export class DiscordAdapter implements ChannelAdapter {
    * costs a stale prompt rather than a wrong decision -- pressing it answers
    * that the action does not exist, which is true.
    */
-  private readonly prompts = new Map<string, { edit: (payload: { content: string; embeds: never[]; components: never[] }) => Promise<unknown>; summary: string }>();
+  /**
+   * Each open ask's cards, by approval id: the one where its chat is read and
+   * the one in #needs-you, so a decision on either, or anywhere else, settles
+   * both.
+   */
+  private readonly prompts = new Map<string, { copies: PromptCopy[]; summary: string }>();
   private commands?: SlashContext;
   private readonly ownerId?: string;
   private readonly dashboardUrl?: string;
@@ -1476,10 +1494,10 @@ export class DiscordAdapter implements ChannelAdapter {
   }
 
   /** The approvals channel, when the server has one; prompts go there rather than to a DM. */
-  private async approvalsChannel(): Promise<{ send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> } | undefined> {
+  private async approvalsChannel(): Promise<{ id: string; send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> } | undefined> {
     if (!this.approvalsChannelId) return undefined;
     const channel = await this.client.channels.fetch(this.approvalsChannelId);
-    return channel && channel.isSendable() ? (channel as unknown as { send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> }) : undefined;
+    return channel && channel.isSendable() ? (channel as unknown as { id: string; send: (payload: Parameters<TextChannel["send"]>[0]) => Promise<Message> }) : undefined;
   }
 
   /**
@@ -1687,17 +1705,18 @@ export class DiscordAdapter implements ChannelAdapter {
       return;
     }
 
+    const prompt = this.prompts.get(decision.id);
+    const settled = { content: settledText(decision.approved ? "approved" : "denied", prompt?.summary, decision.id), embeds: [] as never[], components: [] as never[] };
     try {
       // The prompt settles into one small line; the resumed turn's answer is
       // its own message, which is the one the owner is waiting for.
-      await interaction.update({
-        content: settledText(decision.approved ? "approved" : "denied", this.prompts.get(decision.id)?.summary, decision.id),
-        embeds: [],
-        components: [],
-      });
+      await interaction.update(settled);
     } catch {
       // interaction may already be acknowledged
     }
+    // Its other card, in #needs-you or where the chat is read, says the same.
+    const pressed = (interaction as { message?: { id?: string } }).message?.id;
+    await Promise.all((prompt?.copies ?? []).filter((c) => c.messageId !== pressed).map((c) => c.edit(settled).catch(() => undefined)));
     this.prompts.delete(decision.id);
     await this.approvalHandler?.({
       id: decision.id,
@@ -2176,34 +2195,55 @@ export class DiscordAdapter implements ChannelAdapter {
     );
 
     const summary = req.tool !== undefined ? summarizeAction(req.tool, req.args ?? {}, req.names) : req.text;
-    const payload = {
+    const payload: AskPayload = {
       content: approvalText(req),
       components: [row],
       // The page a browser action is aimed at, when there is one: the thing
       // being approved, rather than a description of it.
       ...(req.picture ? { files: [{ attachment: Buffer.from(req.picture, "base64"), name: "page.jpg" }] } : {}),
     };
-    // In a server, an ask from a chat that has a channel or thread is asked
-    // there, where the owner is reading it: a question in #verity answered
-    // from #needs-you read as two conversations. The approvals channel takes
-    // the rest: a schedule's run, a dashboard turn, a blob with no channel
-    // yet. A DM without a server.
+    // In a server every ask is in #needs-you, the one place to see all that
+    // waits, and also where its chat is read when it has a channel or a
+    // thread, so the question sits in the conversation it belongs to. The
+    // two are one ask: a decision on either settles both, and one made on the
+    // dashboard settles both too. A DM without a server.
     const asking = await this.askingRoom(req.asker?.conversationId).catch(() => undefined);
-    const room = asking ?? (await this.approvalsChannel().catch(() => undefined));
-    // Asked by whoever the owner is talking to there: the orchestrator, an
-    // agent, a blob, through its own webhook, the way its answers come. An
-    // ask from "KOS" in a channel where everything else said Orchestrator
-    // read as a third party stepping in. In #needs-you, KOS asks as itself.
-    const from = asking && req.asker ? this.senderOf?.(req.asker.conversationId) : undefined;
-    const via = asking && from ? await this.webhookFor(asking, from).catch(() => undefined) : undefined;
+    const central = await this.approvalsChannel().catch(() => undefined);
+    const copies: PromptCopy[] = [];
+    if (asking) copies.push(await this.askIn(asking, req, payload));
+    if (central && central.id !== asking?.id) {
+      // Where it came from, so the card in #needs-you leads back to the chat.
+      const where = asking ? `\n-# in <#${asking.id}>` : "";
+      const sent = await central.send({ ...payload, content: `${payload.content}${where}` });
+      copies.push({ messageId: sent.id, edit: (edited) => sent.edit(edited) });
+    }
+    if (copies.length === 0) {
+      const sent = await (await this.client.users.fetch(recipientId)).send(payload);
+      copies.push({ messageId: sent.id, edit: (edited) => sent.edit(edited) });
+    }
+    this.prompts.set(req.id, { copies, summary });
+  }
+
+  /**
+   * An ask in the room its chat is read in, by whoever the owner is talking
+   * to there: the project's orchestrator, an agent, a blob, through its own
+   * webhook, the way its answers come. An ask from "KOS" in a channel where
+   * everything else was said by another read as a third party stepping in.
+   */
+  private async askIn(
+    room: NonNullable<Awaited<ReturnType<DiscordAdapter["askingRoom"]>>>,
+    req: ApprovalRequest,
+    payload: AskPayload,
+  ): Promise<PromptCopy> {
+    const from = req.asker ? this.senderOf?.(req.asker.conversationId) : undefined;
+    const via = from ? await this.webhookFor(room, from).catch(() => undefined) : undefined;
     if (via && from) {
       const thread = via.threadId ? { threadId: via.threadId } : {};
       const posted = await via.hook.send({ ...payload, username: from.name, ...thread });
-      this.prompts.set(req.id, { edit: (edited) => via.hook.editMessage(posted.id, { ...edited, ...thread }), summary });
-      return;
+      return { messageId: posted.id, edit: (edited) => via.hook.editMessage(posted.id, { ...edited, ...thread }) };
     }
-    const sent = room ? await room.send(payload) : await (await this.client.users.fetch(recipientId)).send(payload);
-    this.prompts.set(req.id, { edit: (edited) => sent.edit(edited), summary });
+    const sent = await room.send(payload);
+    return { messageId: sent.id, edit: (edited) => sent.edit(edited) };
   }
 
   /**
@@ -2216,15 +2256,9 @@ export class DiscordAdapter implements ChannelAdapter {
     const prompt = this.prompts.get(id);
     if (!prompt) return;
     this.prompts.delete(id);
-    try {
-      await prompt.edit({
-        content: settledText(outcome, prompt.summary, id),
-        embeds: [],
-        components: [],
-      });
-    } catch {
-      // Deleted, or too old to edit. A prompt that cannot be settled is not
-      // worth failing a decision over.
-    }
+    const settled = { content: settledText(outcome, prompt.summary, id), embeds: [] as never[], components: [] as never[] };
+    // Deleted, or too old to edit: a card that cannot be settled is not worth
+    // failing a decision over, and its twin still is.
+    await Promise.all(prompt.copies.map((c) => c.edit(settled).catch(() => undefined)));
   }
 }
