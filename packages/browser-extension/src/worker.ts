@@ -1,4 +1,4 @@
-import { parsePairing } from "./address.js";
+import { kosAddress, parsePairing, type Pairing } from "./address.js";
 import { deviceKeys, forgetKeys, publicKey } from "./keys.js";
 import { Link, type Hello, type LinkState } from "./link.js";
 import { note, recent } from "./log.js";
@@ -652,8 +652,8 @@ function popupState(): PopupState {
 }
 
 /** Paired with a KOS: another line beside the rest, or in place of the one to the same KOS, which keeps its rule about asking first. */
-async function pair(text: string, name: string): Promise<void> {
-  const { url, code } = parsePairing(text);
+/** Pair with a KOS: by its address and code, as the popup asks, or by the link the dashboard gives. */
+async function pair({ url, code }: Pairing, name: string): Promise<void> {
   const keys = await deviceKeys();
   // Sent as plain text, a request a page may make without asking first; KOS reads it as JSON, and lets any origin read its answer.
   const res = await fetch(`${url}/api/devices/pair`, {
@@ -1000,7 +1000,10 @@ chrome.runtime.onMessage.addListener((message: Record<string, unknown>, sender, 
       case "state":
         return popupState();
       case "pair":
-        await pair(str(message["link"]), str(message["name"]) || "Chrome");
+        await pair(
+          message["link"] ? parsePairing(str(message["link"])) : { url: kosAddress(str(message["url"])), code: str(message["code"]).trim().toUpperCase() },
+          str(message["name"]) || "Chrome",
+        );
         return popupState();
       case "unpair":
         await unpair(id);
