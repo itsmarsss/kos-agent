@@ -35,7 +35,7 @@ function Consent(): ReactElement {
   return (
     <m.div className="ask" variants={stagger} initial="hidden" animate="show">
       <m.div className="halo" initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={spring}>
-        <Face size={54} mood="needs-you" />
+        <Face size={54} mood="needs-you" look={request?.face} />
       </m.div>
       <m.div className="title" variants={rise}>
         <strong>KOS wants to use this Chrome</strong>

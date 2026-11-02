@@ -414,7 +414,7 @@ function Panel(): ReactElement {
   return (
     <div className="panel">
       <header className="panel-head">
-        <Face size={30} mood={mood} />
+        <Face size={30} mood={mood} look={k?.face} />
         <div className="head-text">
           <strong>KOS</strong>
           {usable ? (

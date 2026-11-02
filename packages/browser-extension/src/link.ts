@@ -1,3 +1,5 @@
+import type { FaceDrawing } from "@kos/shared";
+
 import { socketUrl } from "./address.js";
 import { nonce, sign, verify } from "./keys.js";
 import { CallError, PROTOCOL, deviceProof, hostProof, readFrame } from "./protocol.js";
@@ -29,6 +31,8 @@ export interface LinkOptions {
   hello: () => Hello;
   onCall: (method: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>;
   onState: (state: LinkState, detail?: string) => void;
+  /** KOS's face, decided there, as it is now and whenever the owner changes it. */
+  onFace: (face: FaceDrawing) => void;
 }
 
 /** How often the extension says it is still there, which also keeps its worker awake. */
@@ -137,6 +141,7 @@ export class Link {
       this.options.onState("online");
       return;
     }
+    if (frame.t === "face" && this.welcomed) return this.options.onFace(frame.face);
     if (frame.t === "call" && this.welcomed) {
       try {
         this.send({ t: "reply", id: frame.id, ok: true, result: await this.options.onCall(frame.method, frame.params) });

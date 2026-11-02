@@ -1,4 +1,4 @@
-import { EASE, SPRING } from "@kos/shared";
+import { EASE, SPRING, type FaceDrawing } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
 import { AnimatePresence, m, type Transition, type Variants } from "motion/react";
 import { useEffect, useRef, type ReactElement, type ReactNode } from "react";
@@ -22,16 +22,19 @@ export const rise: Variants = {
 };
 export const stagger: Variants = { hidden: {}, show: { transition: { staggerChildren: 0.04, delayChildren: 0.02 } } };
 
-/** KOS's face, alive: the dashboard's blob, mounted once and told its mood as it changes. */
-export function Face({ size, mood }: { size: number; mood: BlobMood }): ReactElement {
+/** KOS's face, alive: the dashboard's blob, mounted once and told its mood as it changes; a new face is a new blob. */
+export function Face({ size, mood, look }: { size: number; mood: BlobMood; look?: FaceDrawing | undefined }): ReactElement {
   const holder = useRef<HTMLSpanElement>(null);
   const face = useRef<KosFace | null>(null);
-  // The mood it is born in; later moods are pushed, so a new one does not make a new blob.
+  // The mood a new blob is born in; later moods are pushed, so a new one does not make a new blob.
   const born = useRef(mood);
+  born.current = mood;
+  // Read afresh every couple of seconds: the same face is the same blob.
+  const drawn = look ? JSON.stringify(look) : "";
   useEffect(() => {
     const el = holder.current;
     if (!el) return;
-    const made = kosFace(size, born.current);
+    const made = kosFace(size, born.current, drawn ? (JSON.parse(drawn) as FaceDrawing) : undefined);
     face.current = made;
     el.replaceChildren(made.el);
     return () => {
@@ -39,7 +42,7 @@ export function Face({ size, mood }: { size: number; mood: BlobMood }): ReactEle
       el.replaceChildren();
       face.current = null;
     };
-  }, [size]);
+  }, [size, drawn]);
   useEffect(() => face.current?.setMood(mood), [mood]);
   return <span ref={holder} className="face-holder" />;
 }
