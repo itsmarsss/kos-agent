@@ -26,9 +26,6 @@ export const COLOURS = {
 
 export type ColourToken = keyof typeof COLOURS;
 
-/** Tint strengths, in percent: a token mixed into transparent at this share. */
-export const TINTS = { quiet: 8, dim: 14, strong: 18, soft: 25, edge: 45 } as const;
-
 /** Corner radii, in px. */
 export const RADII = { xs: 4, sm: 7, md: 10, lg: 14 } as const;
 
@@ -37,9 +34,6 @@ export const SPRING = { stiffness: 420, damping: 38, mass: 0.9 } as const;
 
 /** Fades and small slides. */
 export const EASE = { duration: 0.18, curve: [0.32, 0.72, 0, 1] } as const;
-
-/** Hover and press, in ms, and the pressed scale. */
-export const RESPONSE = { hover: 140, press: 80, pressed: 0.97 } as const;
 
 /** What floats over the page casts this, and nothing else casts a shadow. */
 export const FLOAT_SHADOW = "0 12px 32px rgba(0, 0, 0, 0.45)";

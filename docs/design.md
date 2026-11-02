@@ -8,7 +8,9 @@ used to disagree, the best of them was kept, and this says which.
 
 The values live once, in `packages/shared/src/design.ts`. The dashboard's
 `styles.css`, the extension's `kos.css` and KOS Device's `Theme.swift` each
-declare them, and a test (`design.test.ts`) fails when one of them drifts.
+declare them, as do the overlays KOS draws over a page (`overlay.ts`) and
+over the screen (`Palette.swift`), and a test (`design.test.ts`) fails when
+one of them drifts.
 
 ## Principles
 
