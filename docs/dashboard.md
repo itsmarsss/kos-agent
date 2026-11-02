@@ -31,7 +31,7 @@ The list on the left, in one scroll:
 - **Chats**, newest first. Hover a row for Rename, Duplicate, Hand off
   (KOS drafts a brief of the thread; you pick a chat or project, edit it,
   say what that chat should do with it, and it goes over as a message
-  from this one; an agent does the same with `chats.handoff`, which asks
+  from this one; a chat does the same with `chats.handoff`, which asks
   you once per target), Archive,
   Delete (two presses).
 - Every heading folds, and the rail remembers which you folded. Each row

@@ -776,7 +776,7 @@ export function SettingsPage({
         {!data.envWritable && active !== "spend" && active !== "models" && (
           <p className="ops-alert ops-alert--err" role="alert">
             {data.envPath
-              ? "The settings file is inside the workspace, so nothing can be saved there: the agent can read anything in the workspace. Move it out and restart."
+              ? "The settings file is inside the workspace, so nothing can be saved there: KOS can read anything in the workspace. Move it out and restart."
               : "This host was started without a settings file, so nothing can be saved from here."}
           </p>
         )}
@@ -926,7 +926,7 @@ export function SettingsPage({
               <h3>Who does the thinking</h3>
               <p className="hint">
                 A turn can go to the model provider, which bills API credits,
-                or through the Claude Agent SDK, which is what coding agents
+                or through the Claude Agent SDK, which is what builds
                 already use and spends a Claude Code subscription instead.
               </p>
               <Field
@@ -971,10 +971,9 @@ export function SettingsPage({
             </div>
 
             <div className="set-group">
-              <h3>Build agents</h3>
+              <h3>Builds</h3>
               <p className="hint">
-                Which model does the building when KOS hands work to a coding
-                sub-agent.
+                Which model does the building when KOS hands work to a build.
               </p>
               <Field
                 label="Build model"
@@ -1153,7 +1152,7 @@ export function SettingsPage({
                 />
                 <Limit
                   label="Minutes of silence before an agent looks stuck"
-                  hint={`Only changes what the Agents list says about it; nothing is stopped. Default ${defaults.stallMinutes}.`}
+                  hint={`Only changes what the Builds page says about it; nothing is stopped. Default ${defaults.stallMinutes}.`}
                   value={how.stallMinutes}
                   range={limits.stallMinutes}
                   onChange={(stallMinutes) => setHow({ ...how, stallMinutes })}
@@ -1694,7 +1693,7 @@ export function SettingsPage({
         {active === "browser" && (
           <Section
             title="KOS's browser"
-            blurb="The one Chrome KOS runs on this host, separate from your own Chrome: a tab per agent and tabs of your own. Headless by default: the Browser window on the sidebar is its screen. A change here takes effect when the browser next starts."
+            blurb="The one Chrome KOS runs on this host, separate from your own Chrome: a tab per chat and tabs of your own. Headless by default: the Browser window on the sidebar is its screen. A change here takes effect when the browser next starts."
             saving={busy === "browser"}
             saved={browserDirty ? "Not saved yet" : (saved["browser"] ?? null)}
             canSave={browserDirty}
@@ -1775,7 +1774,7 @@ export function SettingsPage({
         {active === "workspace" && (
           <Section
             title="Workspace"
-            blurb="One folder holds everything KOS owns. The agent cannot see outside it."
+            blurb="One folder holds everything KOS owns. KOS cannot see outside it."
           >
             <dl className="set-facts">
               <dt>Workspace</dt>
@@ -1798,7 +1797,7 @@ export function SettingsPage({
                   </dd>
                 </>
               )}
-              <dt>Agent</dt>
+              <dt>KOS</dt>
               <dd>
                 {data.halted ? (
                   <span className="set-badge is-halted">halted</span>

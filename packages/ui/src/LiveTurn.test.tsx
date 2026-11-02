@@ -201,29 +201,29 @@ describe("a congregation", () => {
   ];
 
   it("counts who is done and who is still working", () => {
-    expect(congregationHead(members)).toBe("Gathering from 2 agents, 1 done, 1 working");
+    expect(congregationHead(members)).toBe("Gathering from 2 chats, 1 done, 1 working");
     expect(congregationHead([{ id: "a", title: "A", status: "done" }])).toBe(
-      "Gathered from 1 agent",
+      "Gathered from 1 chat",
     );
     expect(
       congregationHead([
         { id: "a", title: "A", status: "done" },
         { id: "b", title: "B", status: "failed" },
       ]),
-    ).toBe("Gathered from 2 agents, 1 failed");
+    ).toBe("Gathered from 2 chats, 1 failed");
     expect(
       congregationHead([
         { id: "a", title: "A", status: "working" },
         { id: "b", title: "B", status: "failed" },
       ]),
-    ).toBe("Gathering from 2 agents, 0 done, 1 working, 1 failed");
+    ).toBe("Gathering from 2 chats, 0 done, 1 working, 1 failed");
   });
 
   it("lists each member with a link to its chat, above the reply", () => {
     const { container } = render(
       <LiveTurn live={{ ...base, congregation: { members }, text: "Combined answer" }} />,
     );
-    expect(screen.getByText("Gathering from 2 agents, 1 done, 1 working")).toBeTruthy();
+    expect(screen.getByText("Gathering from 2 chats, 1 done, 1 working")).toBeTruthy();
     const link = screen.getByText("Risk Angle").closest("a");
     expect(link?.getAttribute("href")).toBe("#/chats/b");
     expect(container.querySelector(".chats-flag--working")?.textContent).toBe("working");
@@ -251,6 +251,6 @@ describe("a congregation", () => {
       />,
     );
     expect(container.querySelector(".chats-flag--needs-you")?.textContent).toBe("failed");
-    expect(screen.getByText("Gathered from 2 agents, 1 failed")).toBeTruthy();
+    expect(screen.getByText("Gathered from 2 chats, 1 failed")).toBeTruthy();
   });
 });

@@ -263,7 +263,8 @@ export async function runHost(options: HostOptions): Promise<void> {
     hostKeyPath: process.env.KOS_DEVICE_KEY_FILE?.trim() || join(homedir(), ".kos", "device-host.key"),
     ...(process.env.KOS_DEVICE_HOST_KEY ? { hostKeyEnv: process.env.KOS_DEVICE_HOST_KEY } : {}),
     caller: () => kernel.callerConversationId,
-    titleOf: (id) => kernel.titleOf(id),
+    // An ask to use a computer or a Chrome says who asks by the name it goes by everywhere.
+    titleOf: (id) => kernel.nameOf(id),
     halted: () => kernel.killSwitch.halted,
     panel: {
       current: chromeChat,

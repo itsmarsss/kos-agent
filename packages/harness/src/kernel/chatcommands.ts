@@ -238,10 +238,10 @@ export function runChatCommand(
 
     case "list": {
       const list = conversations.list(userId).filter((c) => ctx.within?.(c) ?? true);
-      if (list.length === 0) return { reply: "No conversations yet." };
+      if (list.length === 0) return { reply: "No chats yet." };
       return {
         reply: [
-          `${list.length} conversation${list.length === 1 ? "" : "s"}:`,
+          `${list.length} chat${list.length === 1 ? "" : "s"}:`,
           ...list.map((c, i) => line(c, i, currentId)),
           "",
           "`/switch <number>` to move.",
@@ -253,7 +253,7 @@ export function runChatCommand(
       const list = conversations.list(userId).filter((c) => ctx.within?.(c) ?? true);
       const found = resolveConversation(list, command.target);
       if (!found) {
-        return { reply: `No conversation matches “${command.target}”. Try \`/chats\`.` };
+        return { reply: `No chat matches “${command.target}”. Try \`/chats\`.` };
       }
       if (found.id === currentId) {
         return { reply: `Already on “${found.title}”.` };

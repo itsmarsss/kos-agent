@@ -228,7 +228,7 @@ export function BuildsPage({
     <div className="builds">
       <PageHead
         title="Builds"
-        subtitle="Coding sub-agents working inside the workspace. Each is confined to its own folder, and every shell command comes back to you."
+        subtitle="Coding work running inside the workspace. Each is confined to its own folder, and every shell command comes back to you."
         actions={
           /* Starting one was only possible by asking KOS to, which is a long
              way round when you already know the folder and the job. */
@@ -246,7 +246,7 @@ export function BuildsPage({
           else with more than a field or two in it. */}
       <Drawer
         open={starting}
-        title="Start a coding agent"
+        title="Start a build"
         subtitle="It works inside one folder, and asks before anything outside it"
         onClose={() => setStarting(false)}
       >

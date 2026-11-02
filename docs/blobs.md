@@ -1,6 +1,6 @@
 # Blobs
 
-A blob is a responsibility KOS keeps for you, with a face. KOS is the big blob; each thing it keeps up for you is a small one. "Keep an eye on this
+A blob is a responsibility KOS keeps for you, with a face. KOS has a face of its own; each thing it keeps up for you gets one too. "Keep an eye on this
 listing", "handle my travel", "every Saturday, plan the evening": each needs
 somewhere to live between asks, and that is what a blob is. KOS makes one
 from the sentence; nothing about it is code, and nothing is written for any

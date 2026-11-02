@@ -247,9 +247,9 @@ export function ProjectsPage({
                   <div className="card-foot project-card-foot">
                     <span className="hint">{agentsOf(p.slug) > 0 ? `${agentsOf(p.slug)} ${agentsOf(p.slug) === 1 ? "agent" : "agents"}` : "no agents"}</span>
                     <span className="card-acts">
-                      {/* The project's chat is where its work happens. */}
+                      {/* The project's orchestrator is where its work is planned and handed out. */}
                       <a className="btn btn--sm btn--primary" href={hrefFor({ name: "project", slug: p.slug })}>
-                        Chat
+                        Orchestrator
                       </a>
                       <button type="button" className="btn btn--sm" onClick={() => onInspect(p, pages)}>
                         Details

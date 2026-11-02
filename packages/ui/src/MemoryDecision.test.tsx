@@ -52,7 +52,7 @@ describe("a memory decision", () => {
     expect(screen.getByText("Lisbon")).toBeTruthy();
     // How a claim is leaned on is a hover now, not a line to read.
     expect(screen.getByTitle(/used 4×, last 1m ago/)).toBeTruthy();
-    expect(screen.getByTitle(/from an agent · never used/)).toBeTruthy();
+    expect(screen.getByTitle(/from KOS · never used/)).toBeTruthy();
     // No lean on an older item: the note stands alone.
     expect(screen.getByText("Two cities.")).toBeTruthy();
     expect(screen.queryByText("Do that")).toBeNull();

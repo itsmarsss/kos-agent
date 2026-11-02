@@ -179,7 +179,7 @@ export function Panel({
             onMore={() => onGo("builds")}
           />
           {data.agents.length === 0 ? (
-            <Empty>No coding agents have run.</Empty>
+            <Empty>No builds have run.</Empty>
           ) : live.length === 0 ? (
             <Empty>Nothing running now.</Empty>
           ) : (

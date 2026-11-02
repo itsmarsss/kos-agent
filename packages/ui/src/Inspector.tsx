@@ -641,14 +641,14 @@ export function Inspector(props: {
                     <dd className="ops-mono">{p.module ?? "embedded"}</dd>
                   </div>
                   <div>
-                    <dt>Chat</dt>
+                    <dt>Orchestrator</dt>
                     <dd>
                       <button
                         type="button"
                         className="ops-link"
                         onClick={() => props.onOpenProjectChat?.(p.slug)}
                       >
-                        Open this project's chat
+                        Open this project's orchestrator
                       </button>
                     </dd>
                   </div>

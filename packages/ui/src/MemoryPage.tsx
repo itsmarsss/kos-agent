@@ -119,7 +119,7 @@ function leanOf(item: ReviewItem): { words: string; action: ReviewAction; key?: 
 function metaOf(c: ReviewClaim): string {
   return [
     c.kind,
-    c.trust && c.trust !== "owner" ? `from ${c.trust === "agent" ? "an agent" : c.trust}` : null,
+    c.trust && c.trust !== "owner" ? `from ${c.trust === "agent" ? "KOS" : c.trust}` : null,
     c.useCount ? `used ${c.useCount}×${c.lastUsedAt ? `, last ${ago(c.lastUsedAt)}` : ""}` : "never used",
     c.createdAt ? `written ${ago(c.createdAt)}` : null,
   ]

@@ -1777,7 +1777,7 @@ export class Kernel {
    */
   ensureAgentConversation(name: string): Conversation {
     const role = this.roles.get(name);
-    if (!role) throw new Error(`no agent called ${name}`);
+    if (!role) throw new Error(`no blob called ${name}`);
     const id = agentConversationId(name);
     const existing = this.conversations.get(id);
     if (existing) return this.withRole(existing)!;
@@ -1800,7 +1800,7 @@ export class Kernel {
    */
   spawnAgent(name: string, projectSlug: string): Conversation {
     const role = this.roles.get(name);
-    if (!role) throw new Error(`no agent called ${name}`);
+    if (!role) throw new Error(`no blob called ${name}`);
     if (!this.manifest.get(projectSlug)) throw new Error(`no project called ${projectSlug}`);
     const existing = this.conversations
       .list(this.profile.ownerId)
@@ -1892,26 +1892,42 @@ export class Kernel {
   }
 
   /**
-   * Who is asking, for an approval raised from a conversation: the chat by
-   * the name the owner knows it by. KOS's own thread is "KOS"; a blob's is
-   * its title; anything else is the chat's title. Nothing for an action
-   * raised from nowhere.
+   * What a conversation is called wherever it speaks or asks, the same on
+   * every surface (docs/design.md, Words): KOS at the root; a project's own
+   * thread as "<Project> orchestrator", Maintenance as itself; a blob, and a
+   * blob working in a project, by the blob's name; an agent (a chat inside a
+   * project) and any other chat by its title.
    */
+  nameOf(conversationId: string): string {
+    if (conversationId === orchestratorId(this.profile.ownerId)) return "KOS";
+    if (conversationId.startsWith("project:")) {
+      const slug = conversationId.slice("project:".length);
+      const name = this.manifest.get(slug)?.name ?? slug;
+      return slug === MAINTENANCE.slug ? name : `${name} orchestrator`;
+    }
+    let role: string | undefined;
+    try {
+      role = this.conversations.get(conversationId)?.role ?? undefined;
+    } catch {
+      role = undefined;
+    }
+    const record = role ? this.roles.get(role) : undefined;
+    return record ? roleTitle(record) : this.titleOf(conversationId);
+  }
+
+  /** Who is asking, for an approval raised from a conversation, by its name. Nothing for an action raised from nowhere. */
   askerOf(conversationId: string | null | undefined): Asker | undefined {
     if (!conversationId) return undefined;
-    if (conversationId === orchestratorId(this.profile.ownerId)) return { name: "KOS", conversationId };
-    const conversation = this.conversations.get(conversationId);
-    if (!conversation) return undefined;
-    return { name: conversation.title, conversationId };
+    if (conversationId !== orchestratorId(this.profile.ownerId) && !this.conversations.get(conversationId)) return undefined;
+    return { name: this.nameOf(conversationId), conversationId };
   }
 
   /**
    * Who speaks from a conversation, when it is not KOS itself: a blob by
-   * its title, colour and face, for a surface to show as a tag; a
-   * project's chats as what they are on the dashboard, the orchestrator in
-   * the project's channel and an agent in its thread, in KOS's own face.
-   * Root chats and KOS's own channel are the bot, which is KOS. A blob's
-   * thread and its chats inside projects both carry its role.
+   * its name, colour and face, for a surface to show as a tag; a project's
+   * orchestrator and its agents by their names, in KOS's own face and on
+   * one shared webhook. Root chats and KOS's own channel are the bot, which
+   * is KOS. A blob's thread and its chats inside projects both carry its role.
    */
   senderFor(conversationId: string | undefined): Sender | undefined {
     if (!conversationId) return undefined;
@@ -1923,8 +1939,7 @@ export class Kernel {
     }
     const record = conversation?.role ? this.roles.get(conversation.role) : undefined;
     if (record) return { name: roleTitle(record), colour: bodyHexOf(record.name, record.face ?? {}), avatar: this.faceOf(record) };
-    if (conversationId.startsWith("project:")) return { name: "Orchestrator", avatar: this.face() };
-    if (conversation?.projectSlug) return { name: "Agent", avatar: this.face() };
+    if (conversationId.startsWith("project:") || conversation?.projectSlug) return { name: this.nameOf(conversationId), avatar: this.face(), hook: "KOS" };
     return undefined;
   }
 
@@ -1966,7 +1981,7 @@ export class Kernel {
     if (from.kind === "chat" && from.id) {
       const record = this.conversations.get(from.id)?.role ? this.roles.get(this.conversations.get(from.id)!.role!) : undefined;
       if (record) return { name: roleTitle(record), colour: bodyHexOf(record.name, record.face ?? {}), avatar: this.faceOf(record) };
-      return { name: this.titleOf(from.id), avatar: this.face() };
+      return { name: this.nameOf(from.id), avatar: this.face() };
     }
     return { name: from.kind === "schedule" ? `schedule · ${from.name}` : from.name, avatar: this.face() };
   }
@@ -2161,7 +2176,7 @@ export class Kernel {
     if (!conversation) throw new Error(`no such conversation: ${conversationId}`);
     // Read now, not in the lane: by the time the turn runs, the caller's tool is long over.
     const sender = by ?? this.callerConversationId;
-    const from: MessageFrom | undefined = sender ? { kind: "chat", id: sender, name: this.titleOf(sender) } : undefined;
+    const from: MessageFrom | undefined = sender ? { kind: "chat", id: sender, name: this.nameOf(sender) } : undefined;
     const trail = this.trailTo(conversationId, sender);
     // A sub-agent is never granted the chats tools, so a dispatched turn
     // cannot dispatch again and there is no recursion to bound. A project's
@@ -3802,7 +3817,7 @@ export class Kernel {
                 role.schedule ? `Runs on ${role.schedule}.` : "Runs only when dispatched or spoken to.",
                 `Brief: ${role.brief.slice(0, 400)}`,
               ].join(" ")
-            : `Agent ${ref.id}: there is no agents/${ref.id}/agent.md.`,
+            : `Blob ${ref.id}: there is no blobs/${ref.id}/blob.md.`,
         );
         continue;
       }

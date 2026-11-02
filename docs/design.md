@@ -169,6 +169,24 @@ and the dashboard's `styles.css` draw the same things.
   menu, a popover, a sheet) with a fade and a scale from 0.98.
 - Nothing waits on an animation to finish; reduced motion turns them off.
 
+## Words
+
+The same thing is called the same thing on every surface: the dashboard,
+Discord, the side panel, KOS Device, and in what KOS says.
+
+| Word | What it is | How it is named where it speaks or asks |
+| --- | --- | --- |
+| KOS | the root, where work is routed from | KOS |
+| orchestrator | a project's own thread, one per project, which plans the work and hands it out | "Garden orchestrator"; inside the project's own rail or channel, Orchestrator |
+| agent | a chat inside a project, doing a piece of its work | its title ("Fix login"); "agent" is its kind, on the rail, in `/agents`, in counts |
+| blob | a standing helper with a face and a thread of its own | its name, never "agent" |
+| build | coding work KOS runs in a folder | its folder; never "coding agent" |
+| chat | anything else: a chat at the root, a surface's own stream | its title |
+
+Maintenance, where KOS repairs itself, is a project and goes by Maintenance.
+An approval says who asks by that name, on the dashboard, in #needs-you, in
+the channel it was asked in and in a DM.
+
 ## The face
 
 KOS is its face: the blob, alive (it breathes, looks, blinks) in every
