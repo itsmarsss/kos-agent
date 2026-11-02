@@ -7,6 +7,7 @@ import {
   ModelRouter,
   OPENAI_ROUTING,
   createDefaultRouter,
+  retryAfterMs,
   routingForSecrets,
   type RoutingTable,
 } from "./router.js";
@@ -133,5 +134,77 @@ describe("describeRoutes", () => {
       model: "claude-opus-4-8",
       effort: "high",
     });
+  });
+});
+
+/** A provider that fails with the given errors first, then answers; it can say a word before failing. */
+class FlakyProvider extends MockProvider {
+  constructor(private readonly failures: string[], private readonly speakFirst = false) {
+    super("openai", "openai");
+  }
+  override async generate(req: GenerateRequest, spec: ModelSpec, apiKey: string): Promise<ModelResponse> {
+    const failure = this.failures.shift();
+    if (failure !== undefined) {
+      this.calls.push({ spec, apiKey });
+      if (this.speakFirst) req.onDelta?.({ kind: "text", text: "Half" });
+      throw new Error(failure);
+    }
+    return super.generate(req, spec, apiKey);
+  }
+}
+
+describe("asking a model again", () => {
+  const RATE = "Rate limit reached for gpt-5.5 on tokens per min (TPM): Limit 1000000, Used 951576, Requested 55584. Please try again in 429ms.";
+  const routed: RoutingTable = { reasoning: { provider: "openai", spec: { model: "gpt-x" } }, cheap: { provider: "openai", spec: { model: "gpt-x" } } };
+  const secrets = (): SecretsRegistry => {
+    const s = new SecretsRegistry();
+    s.set("openai", "sk-o");
+    return s;
+  };
+  const routerFor = (provider: Provider): { router: ModelRouter; waits: number[] } => {
+    const router = new ModelRouter([provider], routed, secrets());
+    const waits: number[] = [];
+    router.wait = async (ms) => {
+      waits.push(ms);
+    };
+    return { router, waits };
+  };
+
+  it("waits and asks again when the provider is rate limited or the stream drops", async () => {
+    const flaky = new FlakyProvider([RATE, "terminated"]);
+    const { router, waits } = routerFor(flaky);
+    const res = await router.generate("reasoning", req);
+    expect(res.model).toBe("gpt-x");
+    expect(flaky.calls).toHaveLength(3);
+    // Longer each time, and never shorter than the provider asked.
+    expect(waits).toEqual([2000, 8000]);
+  });
+
+  it("gives up after a few tries, and never retries what is not the way there", async () => {
+    const always = new FlakyProvider([RATE, RATE, RATE, RATE, RATE]);
+    await expect(routerFor(always).router.generate("reasoning", req)).rejects.toThrow(/Rate limit/);
+    expect(always.calls).toHaveLength(4);
+    const bad = new FlakyProvider(["400 invalid model: gpt-x"]);
+    await expect(routerFor(bad).router.generate("reasoning", req)).rejects.toThrow(/invalid model/);
+    expect(bad.calls).toHaveLength(1);
+  });
+
+  it("does not ask again once part of the answer has gone out, or when the turn was stopped", async () => {
+    const spoke = new FlakyProvider(["terminated"], true);
+    const said: string[] = [];
+    await expect(routerFor(spoke).router.generate("reasoning", { ...req, onDelta: (d) => said.push(d.text) })).rejects.toThrow(/terminated/);
+    expect(spoke.calls).toHaveLength(1);
+    expect(said).toEqual(["Half"]);
+    const stopped = new AbortController();
+    stopped.abort();
+    const flaky = new FlakyProvider([RATE]);
+    await expect(routerFor(flaky).router.generate("reasoning", { ...req, signal: stopped.signal })).rejects.toThrow(/Rate limit/);
+    expect(flaky.calls).toHaveLength(1);
+  });
+
+  it("reads how long the provider asked to be left", () => {
+    expect(retryAfterMs(RATE)).toBe(429);
+    expect(retryAfterMs("Please try again in 1.5s.")).toBe(1500);
+    expect(retryAfterMs("terminated")).toBeUndefined();
   });
 });

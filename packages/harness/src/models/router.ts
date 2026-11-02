@@ -72,8 +72,37 @@ export function routingForSecrets(secrets: SecretsRegistry): RoutingTable {
  * The single inference entry point. Everything in KOS calls the router, never a
  * provider directly, so the host/provider decision stays a config change.
  */
+/**
+ * A model call that failed on the way there, not on what was asked: a rate
+ * limit, an overloaded provider, a connection that dropped or a stream cut
+ * off. The provider SDKs already try twice at once; after a restart several
+ * scheduled runs fired together and every quick retry met the same full
+ * minute of tokens, so these are asked again a few times, waiting longer.
+ */
+const RETRYABLE = /rate limit|\b(429|500|502|503|504|529)\b|overloaded|terminated|econnreset|etimedout|socket hang up|fetch failed|connection error/i;
+export const MODEL_RETRIES = 3;
+/** Waits between attempts when the provider does not say: a rate limit is a per-minute window. */
+const BACKOFF_MS = [2_000, 8_000, 20_000];
+
+/** How long the provider asked to be left, from "try again in 429ms" or "in 1.5s". */
+export function retryAfterMs(message: string): number | undefined {
+  const m = /try again in ([\d.]+)\s*(ms|s)\b/i.exec(message);
+  if (!m) return undefined;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? Math.ceil(m[2]!.toLowerCase() === "s" ? n * 1000 : n) : undefined;
+}
+
 export class ModelRouter {
   private readonly providers: Map<string, Provider>;
+  /** How a wait between attempts is spent; a test makes it instant. */
+  wait: (ms: number, signal?: AbortSignal) => Promise<void> = (ms, signal) =>
+    new Promise((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        resolve();
+      }, { once: true });
+    });
 
   /**
    * Told about every response's token usage.
@@ -167,7 +196,22 @@ export class ModelRouter {
       throw new Error(`no provider registered for route: ${route.provider}`);
     }
     const apiKey = provider.optionalKey ? (this.secrets.get(provider.keyName) ?? "") : this.secrets.require(provider.keyName);
-    const response = await provider.generate(req, route.spec, apiKey);
+    // Asked again only while nothing of the answer has gone out: a retry
+    // after words were shown would say them twice.
+    let spoke = false;
+    const asked = req.onDelta ? { ...req, onDelta: (d: Parameters<NonNullable<GenerateRequest["onDelta"]>>[0]) => { spoke = true; req.onDelta!(d); } } : req;
+    let response: ModelResponse;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        response = await provider.generate(asked, route.spec, apiKey);
+        break;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (spoke || req.signal?.aborted || attempt >= MODEL_RETRIES || !RETRYABLE.test(message)) throw err;
+        await this.wait(Math.max(retryAfterMs(message) ?? 0, BACKOFF_MS[attempt] ?? BACKOFF_MS.at(-1)!), req.signal);
+        if (req.signal?.aborted) throw err;
+      }
+    }
     try {
       this.onUsage?.({
         task,
