@@ -253,6 +253,8 @@ export interface FaceLook {
   colour?: string;
   eyes?: "round" | "half" | "sparkle";
   gait?: 0 | 1 | 2 | 3;
+  /** A word its silhouette grows from, in place of the name. */
+  shape?: string;
 }
 
 /** What a blob's file says, as the editor and the list need it. */

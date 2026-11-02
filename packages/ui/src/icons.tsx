@@ -146,6 +146,16 @@ export const RetryIcon = (): ReactElement => (
   </Icon>
 );
 
+export const DiceIcon = (): ReactElement => (
+  <Icon title="Another shape">
+    <rect x="4" y="4" width="16" height="16" rx="4.5" />
+    <circle cx="9" cy="9" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="15" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="9" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="9" cy="15" r="1.1" fill="currentColor" stroke="none" />
+  </Icon>
+);
+
 export const ForkIcon = (): ReactElement => (
   <Icon title="Fork">
     <circle cx="7" cy="19" r="2.2" />
