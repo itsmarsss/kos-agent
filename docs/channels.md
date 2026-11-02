@@ -59,9 +59,11 @@ the one set under Settings, Appearance, and changes it when that does.
 channel per project, its orchestrator, so "add a tracker for this" said
 there lands in that project; and under each project's channel, a thread
 for every chat in the project, so the agents working in it read as the
-threads they are. They answer as they are named on the dashboard: in the
-project's channel as Orchestrator, in a thread as Agent, both wearing
-KOS's face; a blob in a project answers as itself. Each channel is bound to its conversation by the
+threads they are. They answer by the names they go by everywhere (see
+[design.md](design.md), Words): in the project's channel as its
+orchestrator, "Garden orchestrator", and in a thread as that agent, by
+its title, both wearing KOS's face through one webhook; a blob in a
+project answers as itself. Each channel is bound to its conversation by the
 `kos:…` line in its topic, so the binding is readable and a channel you
 rename stays bound; a thread KOS made is bound by id, since threads have
 no topic. A thread you start yourself under a project's channel is a new
