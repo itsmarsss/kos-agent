@@ -11,7 +11,7 @@ Needs macOS 14 or later and the Xcode Command Line Tools.
 
 ```sh
 ./scripts/bundle.sh            # builds build/KOS Device.app
-./scripts/bundle.sh --install  # and copies it to ~/Applications
+./scripts/bundle.sh --install  # and swaps it into ~/Applications, quitting and reopening the running one
 ./scripts/test.sh              # the protocol, session and input rules, and every window drawn
 ```
 

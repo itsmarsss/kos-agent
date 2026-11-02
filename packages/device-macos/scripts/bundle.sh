@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds "KOS Device.app" into build/, signed ad hoc. --install copies it to ~/Applications.
+# Builds "KOS Device.app" into build/, signed ad hoc. --install puts it in ~/Applications in
+# place of the running one and opens it.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -38,8 +39,18 @@ else
 fi
 
 if [[ "${1:-}" == "--install" ]]; then
+  INSTALLED="$HOME/Applications/KOS Device.app"
+  # A running copy keeps its old code until it quits: quit it and wait until it has, then open the new one.
+  if pgrep -qf "$INSTALLED/Contents/MacOS/"; then
+    osascript -e 'tell application "KOS Device" to quit'
+    for _ in {1..50}; do
+      pgrep -qf "$INSTALLED/Contents/MacOS/" || break
+      sleep 0.2
+    done
+  fi
   mkdir -p "$HOME/Applications"
-  rm -rf "$HOME/Applications/KOS Device.app"
+  rm -rf "$INSTALLED"
   cp -R "$APP" "$HOME/Applications/"
-  echo "Installed to ~/Applications/KOS Device.app"
+  open "$INSTALLED"
+  echo "Installed to ~/Applications/KOS Device.app and opened it"
 fi
