@@ -446,7 +446,7 @@ describe("Kernel", () => {
     // Dispatched from a chat: the turn knows which.
     const target = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Helper" });
     await kernel.dispatchTo(target.id, "do the thing", projectChat);
-    expect(kernel.sessions.get(target.id).filter((m) => m.role === "user").at(-1)?.origin).toEqual({ via: "dispatch", from: { kind: "chat", id: projectChat, name: "Club" } });
+    expect(kernel.sessions.get(target.id).filter((m) => m.role === "user").at(-1)?.origin).toEqual({ via: "dispatch", from: { kind: "chat", id: projectChat, name: "Club orchestrator" } });
   });
 
   it("shows a turn its own project's tables, Maintenance every project's, and a loose chat none; Maintenance carries its own brief", async () => {
@@ -521,7 +521,7 @@ describe("Kernel", () => {
     expect((await kernel.handoff({ from: d.id, to: e.id, brief: "fresh", by: "owner" })).conversationId).toBe(e.id);
   });
 
-  it("speaks from a project's chats as Orchestrator and Agent, and announces a deleted chat", async () => {
+  it("speaks from a project's chats as its orchestrator and its agents by name, and announces a deleted chat", async () => {
     kernel = await boot({
       async generate() {
         return { content: [{ type: "text", text: "ok" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" };
@@ -530,10 +530,15 @@ describe("Kernel", () => {
     const club = kernel.standUpProject({ name: "Club", type: "club" });
     const agent = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Roster", projectSlug: club.slug });
     const root = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Loose" });
-    expect(kernel.senderFor(`project:${club.slug}`)).toMatchObject({ name: "Orchestrator" });
+    expect(kernel.senderFor(`project:${club.slug}`)).toMatchObject({ name: "Club orchestrator", hook: "KOS" });
     expect(kernel.senderFor(`project:${club.slug}`)?.avatar).toBeTruthy();
-    expect(kernel.senderFor(agent.id)).toMatchObject({ name: "Agent" });
+    expect(kernel.senderFor(agent.id)).toMatchObject({ name: "Roster", hook: "KOS" });
     expect(kernel.senderFor(root.id)).toBeUndefined();
+    // The same names where they ask: the root as KOS, the orchestrator with its project.
+    expect(kernel.askerOf(`project:${club.slug}`)?.name).toBe("Club orchestrator");
+    expect(kernel.askerOf(agent.id)?.name).toBe("Roster");
+    expect(kernel.askerOf(`orchestrator:${kernel.profile.ownerId}`)?.name).toBe("KOS");
+    expect(kernel.nameOf("project:maintenance")).toBe("Maintenance");
     expect(kernel.senderFor(undefined)).toBeUndefined();
     // Gone for good: the bus says so, and a thread bound to it is let go.
     const gone: string[] = [];

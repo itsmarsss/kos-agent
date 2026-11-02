@@ -1492,9 +1492,11 @@ export class DiscordAdapter implements ChannelAdapter {
     const threadId = target === channel ? undefined : channel.id;
     // A blob with a face gets a webhook of its own in the channel, named
     // for it and wearing its face, since an avatar is set on the webhook
-    // and not on each message; the rest share one named KOS. The face's
-    // hash rides in the name, so a changed face is redrawn, not kept.
-    const wanted = from?.avatar ? webhookNameFor(from) : "KOS";
+    // and not on each message; speakers that share a face share its
+    // webhook, each named per message; the rest share one named KOS. The
+    // face's hash rides in the name, so a changed face is redrawn, not kept.
+    const voice = from?.hook ? { ...from, name: from.hook } : from;
+    const wanted = voice?.avatar ? webhookNameFor(voice) : "KOS";
     const key = `${target.id}:${wanted}`;
     const cached = this.webhooks.get(key);
     if (cached) return { hook: cached, ...(threadId ? { threadId } : {}) };
@@ -1507,9 +1509,11 @@ export class DiscordAdapter implements ChannelAdapter {
     const hooks = [...(await owner.fetchWebhooks()).values()].filter((h) => h.token);
     const avatar = from?.avatar ? `data:image/png;base64,${from.avatar}` : undefined;
     let mine = hooks.find((h) => h.name === wanted);
-    if (!mine && from?.avatar) {
-      // The blob's earlier face, if any: given the new one rather than left beside it.
-      const stale = hooks.find((h) => h.name.startsWith(`${webhookPrefixFor(from)}·`));
+    if (!mine && voice?.avatar) {
+      // The blob's earlier face, if any: given the new one rather than left
+      // beside it. A shared one takes over the old one-per-name hooks the
+      // orchestrator and agents had.
+      const stale = hooks.find((h) => h.name.startsWith(`${webhookPrefixFor(voice)}·`) || (from?.hook !== undefined && /^KOS·(Orchestrator|Agent)·/.test(h.name)));
       if (stale) mine = await (stale as unknown as { edit: (o: { name: string; avatar?: string }) => Promise<Webhook> }).edit({ name: wanted, ...(avatar ? { avatar } : {}) });
     }
     mine ??= await owner.createWebhook({ name: wanted, ...(avatar ? { avatar } : {}) });

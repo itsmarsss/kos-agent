@@ -165,7 +165,7 @@ describe("runChatCommand", () => {
     const a = conversations.create({ userId: "owner", title: "Main" });
     const res = runChatCommand({ kind: "switch", target: "zzz" }, ctx(a.id));
     expect(res.switchedTo).toBeUndefined();
-    expect(res.reply).toMatch(/No conversation matches/);
+    expect(res.reply).toMatch(/No chat matches/);
   });
 
   it("renames the current conversation", () => {

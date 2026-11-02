@@ -18,12 +18,12 @@ export interface CommandSpec {
 }
 
 export const CHAT_COMMANDS: CommandSpec[] = [
-  { name: "new", args: "[title]", description: "start another conversation" },
-  { name: "chats", description: "list your conversations" },
+  { name: "new", args: "[title]", description: "start another chat" },
+  { name: "chats", description: "list your chats" },
   { name: "switch", args: "<number|title>", description: "move to one" },
-  { name: "rename", args: "<title>", description: "rename this conversation" },
+  { name: "rename", args: "<title>", description: "rename this chat" },
   { name: "fork", args: "[title]", description: "copy this chat, history and all, and move to the copy" },
-  { name: "archive", description: "close this conversation" },
+  { name: "archive", description: "close this chat" },
   { name: "retry", description: "ask the last message again" },
   { name: "stop", description: "stop the turn running here" },
   { name: "brief", args: "[text]", description: "show or set this chat's standing instructions" },

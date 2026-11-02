@@ -177,6 +177,13 @@ export interface Sender {
   avatar?: string;
   /** A picture by address, for a speaker who already has one somewhere: the owner, as Discord knows them. */
   avatarUrl?: string;
+  /**
+   * The webhook several speakers share in a channel, when they wear one face:
+   * a project's orchestrator and its agents speak through KOS's, each under
+   * its own name per message, rather than one webhook each (a channel holds
+   * fifteen).
+   */
+  hook?: string;
 }
 
 export interface OutboundMessage {

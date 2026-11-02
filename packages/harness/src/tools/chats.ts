@@ -312,7 +312,7 @@ function defineChatTools(deps: ChatToolDeps, ctx: ModuleContext): void {
           task: {
             type: "string",
             description:
-              "The instruction to carry out, written the way the owner would say it TO the agent. It is delivered as the owner's own message, so write 'Create a directory called test-dir', never 'Please tell me which directories you want'. Addressing the owner here produces an agent that asks a question instead of doing the work. Include any context carried over from other conversations.",
+              "The instruction to carry out, written the way the owner would say it TO that chat. It is delivered as the owner's own message, so write 'Create a directory called test-dir', never 'Please tell me which directories you want'. Addressing the owner here produces a chat that asks a question instead of doing the work. Include any context carried over from other conversations.",
           },
         },
         required: ["title", "brief", "task"],

@@ -2005,7 +2005,7 @@ export async function handleApiRequest(
     // Making a new one never overwrites one that exists: the name is the
     // folder and the thread, so a second "recap" would take the first's.
     if (body.create === true && kernel.roles.exists(parsed.name)) {
-      return { status: 409, body: { error: `an agent called ${parsed.name} already exists; pick another name, or edit that one` } };
+      return { status: 409, body: { error: `a blob called ${parsed.name} already exists; pick another name, or edit that one` } };
     }
     try {
       const record = kernel.roles.write(parsed);
@@ -2019,7 +2019,7 @@ export async function handleApiRequest(
 
   if (method === "POST" && path === "/api/agents/delete") {
     const name = typeof body.name === "string" ? body.name.trim() : "";
-    if (!kernel.roles.remove(name)) return { status: 404, body: { error: "no such agent" } };
+    if (!kernel.roles.remove(name)) return { status: 404, body: { error: "no such blob" } };
     kernel.bindAgentSchedule(name, undefined);
     return ok({ removed: name });
   }
@@ -2028,7 +2028,7 @@ export async function handleApiRequest(
   if (method === "POST" && path === "/api/agents/run") {
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const job = kernel.crons.list().find((j) => j.agent === name);
-    if (!job) return { status: 400, body: { error: "that agent has no schedule to run" } };
+    if (!job) return { status: 400, body: { error: "that blob has no schedule to run" } };
     return ok(await kernel.fireCron(job.id));
   }
 
