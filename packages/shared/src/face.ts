@@ -7,7 +7,7 @@
  * not left to the hash: a clear blue.
  */
 
-import { eyeAt, outline, smoothPath, type BlobEyes, type BlobGait, type BlobShape, type BlobWhim } from "./blob.js";
+import { eyeAt, isConvex, outline, smoothPath, smoothPolygon, type BlobEyes, type BlobGait, type BlobShape, type BlobWhim, type Lobe } from "./blob.js";
 
 /** What decides a face's colour: a hue, or any colour, which wins over the hue. */
 export interface FaceColour {
@@ -34,6 +34,57 @@ export function hashName(text: string): number {
     h = Math.imul(h, 0x01000193) >>> 0;
   }
   return h;
+}
+
+/** Mulberry32: a stream of numbers in 0..1 from one, the same on every machine. */
+function numbersFrom(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * The lumps a word may give: two, three and four bulges round the body,
+ * each at most this far out. Few and broad, weaker as they get finer, so
+ * the outline is a creature's and never a splat.
+ */
+const LOBE_REACH: ReadonlyArray<readonly [k: number, most: number]> = [
+  [2, 0.09],
+  [3, 0.07],
+  [4, 0.04],
+];
+
+/** A word's proportions, from the same hash its silhouette always came from. */
+function proportionsOf(word: string): Omit<BlobShape, "lobes"> {
+  const g = hashName(`${word}#`);
+  return {
+    aspect: 0.92 + ((g % 100) / 100) * 0.2,
+    squat: ((g >>> 10) % 3) * 0.12,
+    spread: 0.88 + (((g >>> 13) % 100) / 100) * 0.22,
+  };
+}
+
+/**
+ * The silhouette a word grows: its proportions and its lumps, the same
+ * word the same creature everywhere. Lumps that would dent the body are
+ * eased back until it bulges out all round, so any word gives a shape that
+ * is organic and never chaotic.
+ */
+export function shapeOf(text: string): BlobShape {
+  const word = text.trim().toLowerCase();
+  const next = numbersFrom(hashName(`${word}~`));
+  const lobes: Lobe[] = LOBE_REACH.map(([k, most]) => ({ k, amp: most * (0.3 + 0.7 * next()), phase: (next() * 2 * Math.PI) / k }));
+  const shape = { ...proportionsOf(word), lobes };
+  for (let ease = 1; ease > 0.05; ease *= 0.8) {
+    const eased = { ...shape, lobes: lobes.map((l) => ({ ...l, amp: l.amp * ease })) };
+    if (isConvex(smoothPolygon(outline(eased)))) return eased;
+  }
+  return { ...shape, lobes: [] };
 }
 
 /**
@@ -102,6 +153,17 @@ export function lightnessOfHex(hex: string): number | null {
 export interface FaceLook extends FaceColour {
   eyes?: BlobEyes;
   gait?: BlobGait;
+  /** A word its silhouette grows from, in place of its name. */
+  shape?: string;
+}
+
+/** The longest word a silhouette is grown from. */
+export const SHAPE_WORD_MAX = 40;
+
+/** A shape word as kept: trimmed, one space between words, no commas, at most SHAPE_WORD_MAX; empty is none. */
+export function shapeWordOf(text: string): string | undefined {
+  const word = text.replace(/[\s,]+/g, " ").trim().slice(0, SHAPE_WORD_MAX).trim();
+  return word || undefined;
 }
 
 /** A face, decided: everything the dashboard animates and the harness draws, from the name and what the owner set. */
@@ -121,6 +183,8 @@ export interface FaceSpec {
   /** The number its whims come from. */
   seed: number;
   shape: BlobShape;
+  /** The word the silhouette grew from, when the owner gave one. */
+  shapeWord?: string;
   whim: BlobWhim;
 }
 
@@ -162,7 +226,8 @@ export function inkOn(colour: string, hue: number): string {
 
 /**
  * The face a name gets, with what the owner set laid over it. KOS itself is
- * not left to the hash: a clear blue, half eyes, a lively gait, no tilt.
+ * not left to the hash: a clear blue, half eyes, a lively gait, no tilt, and
+ * the plain gumdrop unless the owner gives it a word to grow from.
  */
 export function lookOf(seed: string, override: FaceLook = {}): FaceSpec {
   const name = seed.trim().toLowerCase() || KOS_SEED;
@@ -172,6 +237,7 @@ export function lookOf(seed: string, override: FaceLook = {}): FaceSpec {
   // A second number, so the silhouette and the habits are not the hue's twins.
   const g = hashName(`${name}#`);
   const hue = hueOfName(name);
+  const shapeWord = override.shape === undefined ? undefined : shapeWordOf(override.shape);
   const base: FaceSpec = {
     hue,
     fill: hexOfHsl(hue, FILL_SAT, lightnessOf(hue)),
@@ -180,11 +246,8 @@ export function lookOf(seed: string, override: FaceLook = {}): FaceSpec {
     eyes: kos ? "half" : EYES[(h >>> 12) % 3]!,
     tilt: kos ? 0 : ((h >>> 18) % 7) - 3,
     seed: h,
-    shape: {
-      aspect: 0.92 + ((g % 100) / 100) * 0.2,
-      squat: ((g >>> 10) % 3) * 0.12,
-      spread: 0.88 + (((g >>> 13) % 100) / 100) * 0.22,
-    },
+    shape: shapeWord ? shapeOf(shapeWord) : kos ? { ...proportionsOf(name), lobes: [] } : shapeOf(name),
+    ...(shapeWord ? { shapeWord } : {}),
     whim: {
       curiosity: 0.7 + (((g >>> 20) % 50) / 100) * 1,
       blinkiness: 0.7 + (((g >>> 26) % 60) / 100) * 1,

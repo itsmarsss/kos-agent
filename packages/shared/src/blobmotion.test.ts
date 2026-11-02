@@ -24,10 +24,22 @@ describe("the blob's body", () => {
 
   it("takes a silhouette: wider, or flattened below, with the eyes spread to match", () => {
     const plain = outline();
-    const wide = outline({ aspect: 1.12, squat: 0.1, spread: 1 });
+    const wide = outline({ ...PLAIN_SHAPE, aspect: 1.12 });
     expect(Math.max(...wide.map((p) => p[0]))).toBeGreaterThan(Math.max(...plain.map((p) => p[0])));
-    const squat = outline({ aspect: 1, squat: 0.24, spread: 1 });
+    const squat = outline({ ...PLAIN_SHAPE, squat: 0.24 });
     expect(Math.max(...squat.map((p) => p[1]))).toBeLessThan(Math.max(...plain.map((p) => p[1])));
+  });
+
+  it("takes its lumps above more than below, so it still sits flat", () => {
+    const lumpy = outline({ ...PLAIN_SHAPE, lobes: [{ k: 2, amp: 0.08, phase: Math.PI / 2 }] });
+    const plain = outline();
+    const r = (p: readonly [number, number]): number => Math.hypot(p[0] - CENTER.x, p[1] - CENTER.y);
+    // Straight up and straight down are both crests of a two-lobed lump.
+    const up = r(lumpy[(3 * POINTS) / 4]!) - r(plain[(3 * POINTS) / 4]!);
+    const down = r(lumpy[POINTS / 4]!) - r(plain[POINTS / 4]!);
+    expect(up).toBeGreaterThan(0);
+    expect(down).toBeGreaterThan(0);
+    expect(down).toBeLessThan(up / 2);
   });
 
   it("wobbles as a jelly does: two sides out, two sides in, and back", () => {

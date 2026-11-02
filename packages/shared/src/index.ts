@@ -75,6 +75,9 @@ export {
   lightnessOf,
   lightnessOfHex,
   lookOf,
+  SHAPE_WORD_MAX,
+  shapeOf,
+  shapeWordOf,
   type FaceColour,
   type FaceLook,
   type FaceSpec,
@@ -89,6 +92,7 @@ export {
   POINTS,
   RADIUS,
   eyeAt,
+  isConvex,
   outline,
   smoothPath,
   smoothPolygon,
@@ -97,6 +101,7 @@ export {
   type BlobGait,
   type BlobShape,
   type BlobWhim,
+  type Lobe,
 } from "./blob.js";
 export type { ActionNames } from "./format-action.js";
 export { TIME_TOKEN, formatTime, instantOf, relativeWords, styleOf, timesInWords, withUnixTimes, type TimeStyle } from "./time.js";
