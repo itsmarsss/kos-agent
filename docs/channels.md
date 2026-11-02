@@ -46,10 +46,8 @@ ordinary message to KOS.
 
 Give KOS a server and it lays the dashboard out in three categories.
 `KOS` holds `#kos` (KOS itself, as on the dashboard's landing) and
-`#needs-you` (approvals with nowhere else to be: a schedule's run, a
-dashboard turn, a blob with no channel yet; an ask from a chat you read in
-a channel or thread is asked there, with its buttons, so the question and
-the answer stay in one place).
+`#needs-you` (every approval, in one place: whatever asks is there, with
+its buttons and a line saying where it came from).
 `Blobs` holds a channel per blob, its own thread; a blob answers there
 under its own name and wearing its own face, through a webhook of its own
 in the channel, not as the bot, and the story of its steps is told the
@@ -70,9 +68,11 @@ the root; one under a blob's channel is the blob's thread. Channels
 without a `kos:` topic are yours and KOS stays out of them, as it does
 with anyone else's messages in its own.
 
-An ask in a channel or thread comes from whoever you are talking to there,
-the orchestrator, an agent or a blob, through its own webhook, the way its
-answers come; in `#needs-you` KOS asks as itself. An approval named in a
+An ask from a chat you read in a channel or thread is asked there too, so
+the question sits in the conversation it belongs to. It comes from whoever
+you are talking to there, through its own webhook, the way its answers
+come; in `#needs-you` KOS asks as itself. The two cards are one ask: decide
+on either, or on the dashboard, and both settle. An approval named in a
 reply, `@approval:290`, links to it on the dashboard, waiting or decided.
 A bound channel's topic carries a link to its chat on the dashboard, since
 a webhook's profile can carry none.
