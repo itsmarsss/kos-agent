@@ -20,6 +20,8 @@ export interface SchedulerOptions {
    */
   maxSelfPromptsPerHour?: number | (() => number);
   clock?: () => number;
+  /** The pause between one missed run and the next after a restart. */
+  catchUpGapMs?: number;
 }
 
 export type FireOutcome =
@@ -27,6 +29,7 @@ export type FireOutcome =
   | { fired: false; reason: "halted" | "rate_limited" | "error"; error?: string };
 
 const DEFAULT_MAX_SELF_PROMPTS_PER_HOUR = 10;
+const DEFAULT_CATCH_UP_GAP_MS = 5_000;
 const HOUR_MS = 3_600_000;
 
 /**
@@ -38,6 +41,8 @@ const HOUR_MS = 3_600_000;
 export class CronScheduler {
   private readonly tasks = new Map<number, ScheduledTask>();
   private selfPromptFires: number[] = [];
+  /** The missed runs queued after a restart, run one after another. */
+  private catching: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly store: CronStore,
@@ -67,6 +72,11 @@ export class CronScheduler {
    *
    * At most one run per job, however many were missed. Ten days offline
    * should produce today's nudge, not ten of them.
+   *
+   * One after another, a few seconds apart: fired together after a restart,
+   * a day's missed runs spent the provider's minute of tokens at once and
+   * failed on its rate limit, and failed again after the next restart, since
+   * a failed run is not marked as run.
    */
   catchUp(): number {
     let ran = 0;
@@ -79,7 +89,10 @@ export class CronScheduler {
       const due = this.previousOccurrence(task);
       if (due === null || due <= job.lastRunAt) continue;
       ran += 1;
-      void this.fire(job);
+      const gap = this.options.catchUpGapMs ?? DEFAULT_CATCH_UP_GAP_MS;
+      this.catching = this.catching
+        .then(() => this.fire(job))
+        .then(() => new Promise((resolve) => setTimeout(resolve, gap)));
     }
     return ran;
   }
