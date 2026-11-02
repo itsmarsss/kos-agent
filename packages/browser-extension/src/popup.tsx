@@ -3,7 +3,7 @@ import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/rea
 import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 
-import { parsePairing } from "./address.js";
+import { kosAddress, parsePairing } from "./address.js";
 import { CHOICES, isHidden, siteOf, type Takeover } from "./settings.js";
 import { Chips, Collapse, DrawerRow, Face, ICONS, Icon, Pill, Section, Switch, ask, minutesLeft, minutesWords, rise, spring, stagger, type Tone } from "./ui/kit.js";
 import type { KosState, PopupState } from "./worker.js";
@@ -311,47 +311,89 @@ function KosCard({ k, open, toggle, act }: { k: KosState; open: boolean; toggle:
   );
 }
 
+/**
+ * Pairing, as KOS Device asks for it: the KOS's address and its code, or the
+ * pairing link pasted whole, which fills both in; this Chrome's name beside
+ * the code; a line saying how it is going beside the buttons.
+ */
 function PairCard({ first, cancel, act }: { first: boolean; cancel: () => void; act: Act }): ReactElement {
   const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? "";
-  const [link, setLink] = useState("");
+  const [address, setAddress] = useState("");
+  const [code, setCode] = useState("");
   const [name, setName] = useState(`Chrome${platform ? ` on ${platform}` : ""}`);
   const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState("");
+  const [note, setNote] = useState<{ text: string; failed?: boolean }>();
+  const read = (text: string): void => {
+    if (text.trim().startsWith("kos-device:")) {
+      try {
+        const link = parsePairing(text);
+        setAddress(link.url);
+        setCode(link.code);
+        return setNote({ text: "Check this is your KOS, then press Pair." });
+      } catch (err) {
+        setNote({ text: err instanceof Error ? err.message : String(err), failed: true });
+      }
+    }
+    setAddress(text);
+  };
+  // That KOS's Devices page, once the address reads as one, where its pairing code is made.
+  const devices = ((): string | undefined => {
+    try {
+      return address.trim() ? `${kosAddress(address)}/#/settings/devices` : undefined;
+    } catch {
+      return undefined;
+    }
+  })();
   const submit = (e: FormEvent): void => {
     e.preventDefault();
     void (async () => {
-      setProblem("");
+      let url: string;
       try {
-        parsePairing(link);
+        url = kosAddress(address);
       } catch (err) {
-        return setProblem(err instanceof Error ? err.message : String(err));
+        return setNote({ text: err instanceof Error ? err.message : String(err), failed: true });
       }
       setBusy(true);
-      if (await act({ type: "pair", link, name: name.trim() })) cancel();
+      setNote({ text: `Pairing with ${new URL(url).host}…` });
+      if (await act({ type: "pair", url, code: code.trim().toUpperCase(), name: name.trim() })) cancel();
+      else setNote(undefined);
       setBusy(false);
     })();
   };
   return (
     <form className="card" onSubmit={submit}>
       <strong>{first ? "Pair with your KOS" : "Pair with another KOS"}</strong>
-      <p className="hint">{first ? "In KOS: Settings, Devices, Add a device. Paste its link here." : "From that KOS: Settings, Devices, Add a device. Pairing one already here replaces it."}</p>
+      <div className="hint-row">
+        <p className="hint">{first ? "From KOS: Settings, Devices, Add a device. Paste its link here." : "From that KOS: Settings, Devices, Add a device. Pairing one already here replaces it."}</p>
+        {devices && (
+          <a className="link" href={devices} target="_blank" rel="noreferrer">
+            Devices
+          </a>
+        )}
+      </div>
       <label className="field">
-        <span>Pairing link</span>
-        <input className="mono" type="text" placeholder="kos-device://pair?url=…&code=…" spellCheck={false} autoComplete="off" required value={link} onChange={(e) => setLink(e.target.value)} autoFocus={!first} />
+        <span>KOS address or pairing link</span>
+        <input className="mono" type="text" placeholder="https://kos.example.ts.net" spellCheck={false} autoComplete="off" value={address} onChange={(e) => read(e.target.value)} autoFocus={!first} />
       </label>
-      <label className="field">
-        <span>This Chrome's name in KOS</span>
-        <input type="text" placeholder="Chrome on macOS" spellCheck={false} value={name} onChange={(e) => setName(e.target.value)} />
-      </label>
-      {problem && <p className="error">{problem}</p>}
+      <div className="pair-fields">
+        <label className="field">
+          <span>Code</span>
+          <input className="mono" type="text" placeholder="K7QX-M2PA" spellCheck={false} autoComplete="off" value={code} onChange={(e) => setCode(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>This Chrome's name in KOS</span>
+          <input type="text" placeholder="Chrome on macOS" spellCheck={false} value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+      </div>
       <div className="row">
+        <span className={note?.failed ? "pair-note error" : "pair-note"}>{note?.text}</span>
         {!first && (
           <button type="button" className="btn btn--ghost" onClick={cancel}>
             Cancel
           </button>
         )}
-        <button type="submit" className="btn btn--primary" disabled={busy}>
-          {busy ? "Pairing…" : "Pair"}
+        <button type="submit" className="btn btn--primary" disabled={busy || !address.trim() || !code.trim()}>
+          Pair
         </button>
       </div>
     </form>

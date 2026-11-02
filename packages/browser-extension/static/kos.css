@@ -197,6 +197,12 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px 
 .foot svg { flex: none; margin-top: 1px; color: var(--faint); }
 .error { color: var(--danger); font-size: 12px; }
 
+/* —— pairing, as KOS Device asks for it —— */
+.hint-row { display: flex; align-items: baseline; gap: 6px; }
+.hint-row .link { flex: none; margin-left: auto; }
+.pair-fields { display: grid; grid-template-columns: 112px 1fr; gap: 10px; }
+.pair-note { flex: 1; min-width: 0; color: var(--muted); font-size: 11.5px; }
+
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
