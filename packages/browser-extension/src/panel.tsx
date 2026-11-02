@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Keyboar
 import { createRoot } from "react-dom/client";
 
 import { isHidden } from "./settings.js";
-import { Markdown, withMentions } from "./ui/markdown.js";
+import { Markdown } from "./ui/markdown.js";
 import { Chips, Collapse, Face, ICONS, Icon, Pill, ask, ease, minutesLeft, minutesWords, spring, type Tone } from "./ui/kit.js";
 import type { ConsentRequest, KosState, PopupState } from "./worker.js";
 
@@ -550,13 +550,23 @@ function TabBar({ tab, state, reading }: { tab: chrome.tabs.Tab | undefined; sta
 function ChatSwitcher({ chats, current, pick, close }: { chats: ChatItem[]; current: string | null; pick: (id: string | null) => void; close: () => void }): ReactElement {
   const [q, setQ] = useState("");
   const shown = chats.filter((c) => !q || c.title.toLowerCase().includes(q.toLowerCase()));
+  const own = useRef<HTMLDivElement>(null);
+  // Escape, or a press anywhere else, puts it away; the chat's name, which opens and shuts it, is its own.
   useEffect(() => {
-    const away = (e: globalThis.KeyboardEvent): void => (e.key === "Escape" ? close() : undefined);
-    addEventListener("keydown", away);
-    return () => removeEventListener("keydown", away);
+    const key = (e: globalThis.KeyboardEvent): void => (e.key === "Escape" ? close() : undefined);
+    const press = (e: PointerEvent): void => {
+      const at = e.target as Node | null;
+      if (at && !own.current?.contains(at) && !(at instanceof Element && at.closest(".chat-title"))) close();
+    };
+    addEventListener("keydown", key);
+    addEventListener("pointerdown", press);
+    return () => {
+      removeEventListener("keydown", key);
+      removeEventListener("pointerdown", press);
+    };
   }, [close]);
   return (
-    <m.div className="switcher" initial={{ opacity: 0, y: -6, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.98 }} transition={ease}>
+    <m.div ref={own} className="switcher" initial={{ opacity: 0, y: -6, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.98 }} transition={ease}>
       <button type="button" className="switcher-row switcher-new" onClick={() => pick(null)}>
         <Icon path={ICONS.compose} size={13} />
         <span>New chat</span>
@@ -708,7 +718,7 @@ function LineView({ line, pending, quote }: { line: Line; pending?: boolean; quo
       return (
         <m.div className="msg msg--you" data-pending={pending || undefined} layout="position" {...enter}>
           {quote && <p className="msg-quote">{quote.length > 220 ? `${quote.slice(0, 220)}…` : quote}</p>}
-          {line.text && <p>{withMentions(line.text)}</p>}
+          {line.text && <Markdown text={line.text} />}
           {line.files?.length ? (
             <div className="files">
               {line.files.map((f) => (
@@ -988,7 +998,7 @@ function Composer({
         ref={box}
         rows={1}
         value={text}
-        placeholder={online ? (quoting ? "Ask about the selection" : "Ask KOS, / for commands, @ to name things") : k?.held ? "Disconnected. Connect it from the KOS icon." : "KOS is not connected"}
+        placeholder={online ? (quoting ? "Ask about the selection" : "Message KOS, / for commands, @ to name things") : k?.held ? "Disconnected. Connect it from the KOS icon." : "KOS is not connected"}
         disabled={!online}
         onChange={(e) => {
           setText(e.target.value);
