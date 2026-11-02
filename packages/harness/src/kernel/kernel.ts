@@ -2687,6 +2687,8 @@ export class Kernel {
     room?: MessageRoom;
     members?: { id: string; name: string }[];
     context?: string;
+    /** The surface keeps to its own chats: its commands list and move among those alone. */
+    contained?: boolean;
   }): Promise<HandleResult & { conversationId: string; isCommand: boolean; from?: Sender }> {
     const conversation = input.conversationId
       ? this.boundConversation(input.conversationId, input.userId, input.channel, input.newIn)
@@ -2695,13 +2697,17 @@ export class Kernel {
     const command = parseChatCommand(input.text);
     if (command) {
       // Commands are bookkeeping: no model call, no queue, no transcript entry.
-      const result: CommandResult = needsKernel(command)
+      // A surface that keeps to its own chats cannot be moved onto a project's.
+      const result: CommandResult = input.contained && command.kind === "project"
+        ? { reply: "This chat keeps to its own conversations, so a project starts on the dashboard: say /project there." }
+        : needsKernel(command)
         ? await this.runKernelCommand(command, conversation.id, input.userId, input.channel)
         : runChatCommand(command, {
             conversations: this.conversations,
             channel: input.channel,
             userId: input.userId,
             currentId: conversation.id,
+            ...(input.contained ? { within: (c: Conversation) => c.channel === input.channel } : {}),
           });
       return {
         reply: result.reply,

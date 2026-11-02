@@ -354,6 +354,12 @@ export type ApprovalOutcome = "approved" | "denied" | "expired";
  */
 export interface ChannelAdapter {
   readonly name: string;
+  /**
+   * Its chats are its own: /chats and /switch reach only the chats made on
+   * this surface, not every chat of the owner's. The Chrome side panel is
+   * one, a place of its own rather than a window onto the dashboard.
+   */
+  readonly contained?: boolean;
   start(): Promise<void>;
   stop(): Promise<void>;
   onMessage(handler: MessageHandler): void;

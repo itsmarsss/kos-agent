@@ -171,6 +171,18 @@ export interface CommandContext {
   userId: string;
   /** The conversation this surface is currently pointed at. */
   currentId: string;
+  /** The chats this surface may list and move to, when it keeps to its own: the Chrome side panel's. */
+  within?: (c: Conversation) => boolean;
+}
+
+/**
+ * A surface's current chat when that chat is its own. A surface that keeps
+ * to its own chats (the Chrome side panel) may still have an older pointer
+ * at a dashboard chat, from before it kept to them; that one is not its.
+ */
+export function activeOwnChat(conversations: ConversationStore, channel: string, userId: string): string | undefined {
+  const id = conversations.activeFor(channel, userId);
+  return id !== undefined && conversations.get(id)?.channel === channel ? id : undefined;
 }
 
 export interface CommandResult {
@@ -225,7 +237,7 @@ export function runChatCommand(
     }
 
     case "list": {
-      const list = conversations.list(userId);
+      const list = conversations.list(userId).filter((c) => ctx.within?.(c) ?? true);
       if (list.length === 0) return { reply: "No conversations yet." };
       return {
         reply: [
@@ -238,7 +250,7 @@ export function runChatCommand(
     }
 
     case "switch": {
-      const list = conversations.list(userId);
+      const list = conversations.list(userId).filter((c) => ctx.within?.(c) ?? true);
       const found = resolveConversation(list, command.target);
       if (!found) {
         return { reply: `No conversation matches “${command.target}”. Try \`/chats\`.` };
@@ -297,8 +309,9 @@ export function runChatCommand(
       const current = conversations.get(currentId);
       if (!current) return { reply: "Nothing to archive." };
       conversations.setArchived(currentId, true);
-      // Land somewhere real rather than on an archived conversation.
-      const remaining = conversations.list(userId);
+      // Land somewhere real rather than on an archived conversation, and on
+      // one of this surface's own when it keeps to them.
+      const remaining = conversations.list(userId).filter((c) => ctx.within?.(c) ?? true);
       const next =
         remaining[0] ??
         conversations.create({ userId, channel, title: "New conversation" });
