@@ -1055,7 +1055,7 @@ function AutoChoice({ on, set }: { on: boolean; set: (on: boolean) => void }): R
       aria-pressed={on}
       title={on ? "Auto: KOS clicks and types in your Chrome for this chat without asking. Scripts in a page, files and messages still ask. Press to ask each step again." : "Ask: KOS asks before each step in your Chrome. Press to let this chat act on its own."}
       onClick={() => set(!on)}
-      whileTap={{ scale: 0.94 }}
+      whileTap={{ scale: 0.97 }}
       transition={spring}
     >
       <Icon path={on ? ICONS.bolt : ICONS.hand} size={11} />
