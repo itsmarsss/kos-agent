@@ -387,6 +387,7 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .md ul, .md ol, .md blockquote, .md pre { margin: 0; }
 .md ul, .md ol { padding-left: 20px; display: flex; flex-direction: column; gap: 3px; }
 /* A list under an item sits close to it, and says its depth by its marker. */
+.md li > * + * { margin-top: 4px; }
 .md li > ul, .md li > ol { margin-top: 3px; padding-left: 16px; }
 .md li ul { list-style-type: circle; }
 .md li li ul { list-style-type: square; }

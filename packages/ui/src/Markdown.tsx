@@ -341,23 +341,13 @@ interface Block {
   render(key: number): ReactElement;
 }
 
-/** A list as the tree it is: each item's lines, then the lists under it. */
+/** A list, each item read as blocks of its own: its words, a list under it, a code block, a formula. */
 function ListView({ list }: { list: MdList }): ReactElement {
   const Tag = list.ordered ? "ol" : "ul";
   return (
     <Tag className="md-list" {...(list.ordered && list.start !== 1 ? { start: list.start } : {})}>
       {list.items.map((item, n) => (
-        <li key={n}>
-          {item.text.split("\n").map((l, k) => (
-            <Fragment key={k}>
-              {k > 0 && <br />}
-              {inline(l)}
-            </Fragment>
-          ))}
-          {item.lists.map((sub, k) => (
-            <ListView key={k} list={sub} />
-          ))}
-        </li>
+        <li key={n}>{blocks(item.body).map((b, k) => b.render(k))}</li>
       ))}
     </Tag>
   );

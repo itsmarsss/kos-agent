@@ -1,13 +1,15 @@
 /**
- * A markdown list, nesting and all, for every surface that draws one.
+ * A markdown list, for every surface that draws one.
  *
  * Both renderers read a list a line at a time, and both flattened it: an
  * indented bullet became a sibling, and a numbered step's sub-points
- * restarted the numbering. A list is a tree, so it is read as one here:
- * an item deeper than the list's own marker opens a list under the item
- * before it, an indented line that is not a marker continues that item,
- * and a blank line between items is a loose list, not its end (ending it
- * there drew a spaced-out list as "1. 1. 1.").
+ * restarted the numbering. A list item is a small document of its own (a
+ * line of words, the bullets under it, a code block, a formula), so this
+ * finds where each item starts and ends and hands back its lines, indent
+ * taken off, for the renderer to read as blocks like any other markdown;
+ * a list inside an item is found again there. A blank line between items is
+ * a loose list, not its end (ending it there drew a spaced-out list as
+ * "1. 1. 1.").
  */
 
 export interface MdList {
@@ -18,88 +20,136 @@ export interface MdList {
 }
 
 export interface MdListItem {
-  /** The item's own lines, joined by newlines. */
-  text: string;
-  /** Lists nested under it. */
-  lists: MdList[];
+  /** The item as markdown: its first line, then what is indented under it, indent removed. */
+  body: string;
 }
 
-const MARKER = /^(\s*)(?:[-*+]|(\d+)[.)])\s+(.*)$/;
+/** A marker: its indent, the marker, the spaces after it, the rest. The `s` flag keeps a line separator inside the item. */
+const MARKER = /^([ \t]*)([-*+]|(\d{1,9})[.)])([ \t]+)(.*)$/s;
+
+/** Fences that hold lines however they are indented, until they close. */
+const FENCES: Array<[RegExp, RegExp]> = [
+  [/^\s*```/, /^\s*```\s*$/],
+  [/^\s*\$\$\s*$/, /\$\$\s*$/],
+  [/^\s*\\\[\s*$/, /\\\]\s*$/],
+];
 
 /** How far in a line starts, a tab counting as four. */
 function indentOf(line: string): number {
   return (/^[ \t]*/.exec(line)?.[0] ?? "").replace(/\t/g, "    ").length;
 }
 
+/** The line with up to `n` columns of its indent taken off. */
+function dedent(line: string, n: number): string {
+  let cut = 0;
+  let col = 0;
+  while (cut < line.length && col < n) {
+    const ch = line[cut];
+    if (ch === " ") col += 1;
+    else if (ch === "\t") col += 4;
+    else break;
+    cut++;
+  }
+  return line.slice(cut);
+}
+
 interface Marker {
   indent: number;
   ordered: boolean;
   number: number;
+  /** Where the item's words start: under them is inside it. */
+  content: number;
   text: string;
 }
 
 function markerOf(line: string): Marker | undefined {
   const m = MARKER.exec(line);
   if (!m) return undefined;
-  return { indent: indentOf(line), ordered: m[2] !== undefined, number: Number(m[2] ?? 1), text: m[3] ?? "" };
+  const indent = indentOf(line);
+  const gap = (m[4] ?? " ").replace(/\t/g, "    ").length;
+  // Code indented past the marker is not its words; the words start one space in.
+  const content = indent + (m[2] ?? "").length + (gap > 4 ? 1 : gap);
+  return { indent, ordered: m[3] !== undefined, number: Number(m[3] ?? 1), content, text: m[5] ?? "" };
 }
 
-/** Whether line i starts a list. */
+/** Whether a line starts a list. */
 export function startsList(line: string): boolean {
   return MARKER.test(line);
 }
 
 /**
  * The list that starts at line i, and the line after it; nothing when line
- * i is not a list item. It ends at a line that is neither an item, an
- * indented continuation nor a blank between items, or at an item of the
- * other kind at its own depth.
+ * i is not a list item. An item takes every line indented past the list's
+ * markers (a deeper marker is a list inside it), a fence it opens until the
+ * fence closes, and blank lines that have more of it after them. The list
+ * ends at an unindented line that is not an item, or at an item of the other
+ * kind. A number a few columns shallower is a sibling: "9." over "10.".
  */
 export function listAt(lines: string[], i: number): { list: MdList; next: number } | undefined {
   const first = markerOf(lines[i] ?? "");
   if (!first) return undefined;
-  return readList(lines, i, first);
-}
-
-function readList(lines: string[], i: number, first: Marker): { list: MdList; next: number } {
   const list: MdList = { ordered: first.ordered, start: first.number, items: [] };
+  const sibling = (m: Marker): boolean => m.indent <= first.indent && m.indent >= first.indent - 3 && m.ordered === first.ordered;
+  let body: string[] = [];
+  let content = first.content;
+  const close = (): void => {
+    if (body.length) list.items.push({ body: body.join("\n").replace(/\n+$/, "") });
+  };
+
+  /**
+   * After a line that opens a fence, the lines it holds, up to and with the
+   * one that closes it. They lose only the indent they all share, up to the
+   * item's: code written flush left under an indented fence keeps its shape.
+   */
+  const holdFence = (opened: string, from: number): number => {
+    const fence = FENCES.find(([open]) => open.test(opened));
+    if (!fence) return from;
+    let k = from;
+    const held: string[] = [];
+    let closing: string | undefined;
+    while (k < lines.length) {
+      const line = lines[k] ?? "";
+      k++;
+      if (fence[1].test(line)) {
+        closing = line;
+        break;
+      }
+      held.push(line);
+    }
+    const shared = Math.min(content, ...held.filter((l) => l.trim() !== "").map(indentOf));
+    body.push(...held.map((l) => dedent(l, shared)));
+    if (closing !== undefined) body.push(dedent(closing, content));
+    return k;
+  };
+
   let j = i;
   while (j < lines.length) {
     const line = lines[j] ?? "";
     const marker = markerOf(line);
-    if (marker && marker.indent <= first.indent) {
-      // Shallower than this list belongs to the list above; the other kind at this depth is a new list.
-      if (marker.indent < first.indent || marker.ordered !== first.ordered) break;
-      list.items.push({ text: marker.text, lists: [] });
-      j++;
-      continue;
-    }
-    const item = list.items.at(-1);
-    if (!item) break;
-    if (marker) {
-      const nested = readList(lines, j, marker);
-      item.lists.push(nested.list);
-      j = nested.next;
+    if (j === i || (marker && sibling(marker))) {
+      close();
+      const m = j === i ? first : marker!;
+      body = [m.text];
+      content = m.content;
+      j = holdFence(m.text, j + 1);
       continue;
     }
     if (line.trim() === "") {
-      // A blank line goes on when what follows is more of this list.
       let k = j;
       while (k < lines.length && (lines[k] ?? "").trim() === "") k++;
       const after = lines[k] ?? "";
       const more = markerOf(after);
-      const continues = more ? more.indent > first.indent || (more.indent === first.indent && more.ordered === first.ordered) : indentOf(after) > first.indent && after.trim() !== "";
-      if (!continues) break;
+      if (k >= lines.length || !(indentOf(after) > first.indent || (more && sibling(more)))) break;
+      if (!(more && sibling(more))) body.push("");
       j = k;
       continue;
     }
-    // An indented line that is not a marker carries on the item above.
-    if (indentOf(line) > first.indent) {
-      item.text += `\n${line.trim()}`;
-      j++;
-      continue;
-    }
-    break;
+    if (indentOf(line) <= first.indent) break;
+    // Inside the item. A fence it opens holds its lines however they sit.
+    const own = dedent(line, content);
+    body.push(own);
+    j = holdFence(own, j + 1);
   }
+  close();
   return { list, next: j };
 }

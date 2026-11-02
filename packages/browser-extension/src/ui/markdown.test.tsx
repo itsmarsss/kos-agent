@@ -10,8 +10,8 @@ describe("the side panel's markdown", () => {
     expect(blocksOf("# Mug\n\nIt is **$16**.\nShips soon.\n\n- one\n- two\n\n1. first\n\n> quoted\n\n-# as of today\n\n```\ncode\n```\n| a | b |\n| 1 | 2 |")).toEqual([
       { kind: "h", level: 1, text: "Mug" },
       { kind: "p", text: "It is **$16**.\nShips soon." },
-      { kind: "list", list: { ordered: false, start: 1, items: [{ text: "one", lists: [] }, { text: "two", lists: [] }] } },
-      { kind: "list", list: { ordered: true, start: 1, items: [{ text: "first", lists: [] }] } },
+      { kind: "list", list: { ordered: false, start: 1, items: [{ body: "one" }, { body: "two" }] } },
+      { kind: "list", list: { ordered: true, start: 1, items: [{ body: "first" }] } },
       { kind: "quote", text: "quoted" },
       { kind: "small", text: "as of today" },
       { kind: "code", text: "code" },
@@ -42,12 +42,14 @@ describe("the side panel's markdown", () => {
     expect(parts.filter((p) => typeof p === "string").join("")).toContain(" costs $5 and ");
   });
 
-  it("nests a list under the item it belongs to", () => {
-    expect(blocksOf("1. Install\n   - brew\n2. Run")).toEqual([
-      {
-        kind: "list",
-        list: { ordered: true, start: 1, items: [{ text: "Install", lists: [{ ordered: false, start: 1, items: [{ text: "brew", lists: [] }] }] }, { text: "Run", lists: [] }] },
-      },
+  it("reads a list item as blocks, so a list, code or a formula can sit in it", () => {
+    expect(blocksOf("1. Install\n   - brew\n   ```\n   brew install x\n   ```\n2. Run")).toEqual([
+      { kind: "list", list: { ordered: true, start: 1, items: [{ body: "Install\n- brew\n```\nbrew install x\n```" }, { body: "Run" }] } },
+    ]);
+    expect(blocksOf("Install\n- brew\n```\nbrew install x\n```")).toEqual([
+      { kind: "p", text: "Install" },
+      { kind: "list", list: { ordered: false, start: 1, items: [{ body: "brew" }] } },
+      { kind: "code", text: "brew install x" },
     ]);
   });
 });

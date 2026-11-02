@@ -154,16 +154,9 @@ export function inline(text: string): ReactNode[] {
   return out;
 }
 
-/** A list as the tree it is: each item's lines, then the lists under it. */
+/** A list, each item read as blocks of its own: its words, a list under it, a code block, a formula. */
 function ListView({ list }: { list: MdList }): ReactElement {
-  const items = list.items.map((it, j) => (
-    <li key={j}>
-      {lines(it.text)}
-      {it.lists.map((sub, k) => (
-        <ListView key={k} list={sub} />
-      ))}
-    </li>
-  ));
+  const items = list.items.map((it, j) => <li key={j}>{blocksOf(it.body).map(blockView)}</li>);
   return list.ordered ? <ol {...(list.start !== 1 ? { start: list.start } : {})}>{items}</ol> : <ul>{items}</ul>;
 }
 
@@ -176,43 +169,42 @@ function lines(text: string): ReactNode[] {
   ));
 }
 
+/** One block, as an element. */
+function blockView(b: Block, i: number): ReactElement {
+  switch (b.kind) {
+    case "p":
+      return <p key={i}>{lines(b.text)}</p>;
+    case "small":
+      return (
+        <p key={i} className="md-small">
+          {inline(b.text)}
+        </p>
+      );
+    case "quote":
+      return <blockquote key={i}>{lines(b.text)}</blockquote>;
+    case "h":
+      return (
+        <p key={i} className={`md-h md-h${b.level}`}>
+          {inline(b.text)}
+        </p>
+      );
+    case "code":
+      return (
+        <pre key={i}>
+          <code>{b.text}</code>
+        </pre>
+      );
+    case "math":
+      return (
+        <div key={i} className="md-math">
+          <Tex source={b.text} display />
+        </div>
+      );
+    case "list":
+      return <ListView key={i} list={b.list} />;
+  }
+}
+
 export function Markdown({ text }: { text: string }): ReactElement {
-  return (
-    <div className="md">
-      {blocksOf(text).map((b, i) => {
-        switch (b.kind) {
-          case "p":
-            return <p key={i}>{lines(b.text)}</p>;
-          case "small":
-            return (
-              <p key={i} className="md-small">
-                {inline(b.text)}
-              </p>
-            );
-          case "quote":
-            return <blockquote key={i}>{lines(b.text)}</blockquote>;
-          case "h":
-            return (
-              <p key={i} className={`md-h md-h${b.level}`}>
-                {inline(b.text)}
-              </p>
-            );
-          case "code":
-            return (
-              <pre key={i}>
-                <code>{b.text}</code>
-              </pre>
-            );
-          case "math":
-            return (
-              <div key={i} className="md-math">
-                <Tex source={b.text} display />
-              </div>
-            );
-          case "list":
-            return <ListView key={i} list={b.list} />;
-        }
-      })}
-    </div>
-  );
+  return <div className="md">{blocksOf(text).map(blockView)}</div>;
 }
