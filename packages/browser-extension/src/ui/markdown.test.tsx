@@ -19,6 +19,20 @@ describe("the side panel's markdown", () => {
     ]);
   });
 
+  it("reads a table with its head line as a table, each column aligned as that line says", () => {
+    expect(blocksOf("| Form | Value | Note |\n| --- | ---: | :-: |\n| Decimal | 18446744073709551616 | a \\| b |\n| Hex | 0x1 |")).toEqual([
+      {
+        kind: "table",
+        head: ["Form", "Value", "Note"],
+        align: ["left", "right", "center"],
+        rows: [
+          ["Decimal", "18446744073709551616", "a | b"],
+          ["Hex", "0x1"],
+        ],
+      },
+    ]);
+  });
+
   it("links only to the web and mail, and names KOS's references", () => {
     const parts = inline("see [docs](https://kos.example/a) and [bad](javascript:alert(1)) or @approval:6 and @page:[Budget]");
     const elements = parts.filter(isValidElement) as ReactElement<{ href?: string; children?: unknown; className?: string }>[];
