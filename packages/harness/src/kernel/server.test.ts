@@ -369,8 +369,14 @@ describe("handleApiRequest", () => {
 
   it("keeps KOS's face in the workspace and carries it on the status", async () => {
     expect((await handleApiRequest(kernel, { method: "GET", path: "/api/settings/face" })).body).toEqual({ face: {} });
+    let told = 0;
+    const off = kernel.bus.on("face:changed", () => void (told += 1));
     const saved = await handleApiRequest(kernel, { method: "POST", path: "/api/settings/face", body: { face: { hue: "400", eyes: "half", gait: 9 } } });
     expect(saved.body).toEqual({ face: { hue: 40, eyes: "half" } });
+    // Whatever draws KOS is told, and draws it from what was kept.
+    expect(told).toBe(1);
+    off();
+    expect(kernel.kosDrawing()).toMatchObject({ eyes: "half", shape: { lobes: [] } });
     expect((await handleApiRequest(kernel, { method: "GET", path: "/api/status" })).body).toMatchObject({ face: { hue: 40, eyes: "half" } });
     // An agent's own face rides on its threads, so the list draws it right.
     kernel.roles.write({ name: "research", description: "Looks things up", brief: "You look.", memory: "own", face: { hue: 300 } });

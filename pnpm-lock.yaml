@@ -90,6 +90,9 @@ importers:
       '@kos/harness':
         specifier: workspace:*
         version: link:../harness
+      '@kos/shared':
+        specifier: workspace:*
+        version: link:../shared
       ws:
         specifier: ^8.21.0
         version: 8.21.0

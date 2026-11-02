@@ -17,6 +17,7 @@
   "dependencies": {
     "@kos/browser": "workspace:*",
     "@kos/harness": "workspace:*",
+    "@kos/shared": "workspace:*",
     "ws": "^8.21.0"
   },
   "devDependencies": {

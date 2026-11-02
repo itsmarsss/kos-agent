@@ -88,6 +88,11 @@ export class DeviceLink {
     return this.device !== undefined && !this.closed;
   }
 
+  /** Tell the device something that needs no answer, once it is in. */
+  tell(frame: { t: string } & Record<string, unknown>): void {
+    if (this.ready) this.socket.send(JSON.stringify(frame));
+  }
+
   /** Ask the device to do something; its result, or a DeviceError with its reason. */
   call(method: Method, params: Record<string, unknown>, timeoutMs: number): Promise<Record<string, unknown>> {
     if (!this.ready) return Promise.reject(new DeviceError("offline", "the device is offline"));

@@ -104,7 +104,7 @@ import { SKILLS_KEY, parseSkillSettings } from "../skills/settings.js";
 import { CHAT_TOOLS } from "../tools/chats.js";
 import { BLOB_TOOLS, type BlobJob } from "../tools/agents.js";
 import { DISCORD_TOOLS, type Audience, type BoundThread, type DiscordServices, type Listen, type ServerPlace } from "../tools/discord.js";
-import { agentConversationId, agentScope, KOS_FACE_KEY, parseFaceLook, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
+import { agentConversationId, agentScope, KOS_FACE_KEY, parseFaceLook, type FaceLook, type Role, type RoleRecord, type RoleStore } from "../agents/roles.js";
 import { type NotifyPayload, parseTarget } from "../tools/notify.js";
 import { createHeartbeatModule, heartbeatBeat } from "./heartbeat.js";
 import type { EventBus } from "../modules/events.js";
@@ -121,7 +121,7 @@ import { originOf } from "./origin.js";
 import { ownerWords } from "./transcript.js";
 import { inHouseVoice } from "./voice.js";
 import { readFile as readWorkspaceFile, uniqueName } from "./files.js";
-import { bodyHexOf, channelNamesIn, faceSvg, KOS_SEED, lookOf, summarizeAction, type FaceSpec } from "@kos/shared";
+import { bodyHexOf, channelNamesIn, drawingOf, faceSvg, KOS_SEED, lookOf, summarizeAction, type FaceDrawing, type FaceSpec } from "@kos/shared";
 import { facePng } from "../files/facepng.js";
 import { attachmentBlocks, isDocument, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
@@ -2076,8 +2076,26 @@ export class Kernel {
 
   /** KOS's own face as a PNG, base64: the big blob, as set under Settings, Appearance. */
   face(): string {
-    const look = parseFaceLook(this.settings.get(KOS_FACE_KEY));
+    const look = this.kosFace();
     return this.drawFace(`${KOS_SEED}|${JSON.stringify(look)}`, lookOf(KOS_SEED, look));
+  }
+
+  /** What the owner set about KOS's own face. */
+  kosFace(): FaceLook {
+    return parseFaceLook(this.settings.get(KOS_FACE_KEY));
+  }
+
+  /** KOS's face decided, as a device draws it. */
+  kosDrawing(): FaceDrawing {
+    return drawingOf(lookOf(KOS_SEED, this.kosFace()));
+  }
+
+  /** KOS's face as the owner sets it, kept and told to whatever draws it. */
+  setKosFace(raw: unknown): FaceLook {
+    const face = parseFaceLook(raw);
+    this.settings.set(KOS_FACE_KEY, face);
+    this.bus.emit({ kind: "face:changed" });
+    return face;
   }
 
   /**

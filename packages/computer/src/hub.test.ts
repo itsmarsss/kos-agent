@@ -1,6 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 
 import { openDatabase } from "@kos/harness";
+import { drawingOf, lookOf, type FaceDrawing } from "@kos/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { FakeDevice } from "./device.fixture.js";
@@ -14,9 +15,9 @@ import { DeviceStore } from "./store.js";
 const hostPrivate = generateKeyPairSync("ed25519").privateKey;
 const hostKey = { privateKey: hostPrivate, publicKey: rawPublicKey(hostPrivate) };
 
-function setup(over: { halted?: () => boolean } = {}) {
+function setup(over: { halted?: () => boolean; face?: () => FaceDrawing } = {}) {
   const store = new DeviceStore(openDatabase(":memory:"));
-  const hub = new DeviceHub({ store, hostKey, halted: over.halted ?? (() => false), beginTimeoutMs: 200, callTimeoutMs: 200 });
+  const hub = new DeviceHub({ store, hostKey, halted: over.halted ?? (() => false), beginTimeoutMs: 200, callTimeoutMs: 200, ...(over.face ? { face: over.face } : {}) });
   return { store, hub };
 }
 
@@ -35,6 +36,27 @@ const settle = () => new Promise((r) => setTimeout(r, 0));
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("KOS's face on a device", () => {
+  it("is sent once the device is in, and again to every device online when the owner changes it", async () => {
+    let face = drawingOf(lookOf("kos"));
+    const { hub } = setup({ face: () => face });
+    const fake = new FakeDevice();
+    const { code } = hub.issueCode();
+    fake.id = hub.pair({ code, name: "Studio MacBook", platform: "macos", publicKey: fake.publicKey }).device;
+    hub.accept(fake.socket);
+    // Nothing before the handshake: an unproved line is told nothing.
+    expect(fake.faces).toEqual([]);
+    fake.hello();
+    await Promise.resolve();
+    expect(fake.faces).toEqual([face]);
+    const other = await online(hub, "Work Chrome");
+    face = drawingOf(lookOf("kos", { shape: "mochi", colour: "#8b5cf6" }));
+    hub.tellFace();
+    expect(fake.faces.at(-1)).toEqual(face);
+    expect(other.faces.at(-1)).toMatchObject({ fill: "#8b5cf6", shape: { lobes: face.shape.lobes } });
+  });
 });
 
 describe("pairing a device", () => {

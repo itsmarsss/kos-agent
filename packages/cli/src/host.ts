@@ -292,6 +292,7 @@ export async function runHost(options: HostOptions): Promise<void> {
     // An ask to use a computer or a Chrome says who asks by the name it goes by everywhere.
     titleOf: (id) => kernel.nameOf(id),
     halted: () => kernel.killSwitch.halted,
+    face: () => kernel.kosDrawing(),
     panel: {
       current: chromeChat,
       ensure: () => {

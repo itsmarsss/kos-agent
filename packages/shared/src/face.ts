@@ -196,6 +196,51 @@ export const EYE_PILL = { w: 5.4, h: 9.6, r: 2.7 } as const;
 export const EYE_GLINT = { x: -1, y: -2.4, r: 1 } as const;
 
 /**
+ * What a device needs to draw KOS as the owner set it: the colours, the
+ * eyes, the gait and the outline, decided here so no device repeats the
+ * hash. KOS sends it to its devices (docs/computer.md); its whims are KOS's
+ * own and need no sending.
+ */
+export interface FaceDrawing {
+  fill: string;
+  ink: string;
+  eyes: BlobEyes;
+  gait: BlobGait;
+  shape: BlobShape;
+}
+
+export function drawingOf(spec: FaceSpec): FaceDrawing {
+  return { fill: spec.fill, ink: spec.ink, eyes: spec.eyes, gait: spec.gait, shape: spec.shape };
+}
+
+const num = (v: unknown, lo: number, hi: number): number | undefined => (typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi ? v : undefined);
+
+/** A drawing as a device reads one off the wire: every part checked, or nothing. */
+export function readDrawing(raw: unknown): FaceDrawing | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const r = raw as Record<string, unknown>;
+  const s = (typeof r["shape"] === "object" && r["shape"] !== null ? r["shape"] : {}) as Record<string, unknown>;
+  const aspect = num(s["aspect"], 0.5, 2);
+  const squat = num(s["squat"], 0, 1);
+  const spread = num(s["spread"], 0.5, 2);
+  const lobes = Array.isArray(s["lobes"]) ? s["lobes"] : undefined;
+  const gait = r["gait"];
+  if (typeof r["fill"] !== "string" || !HEX.test(r["fill"]) || typeof r["ink"] !== "string" || !HEX.test(r["ink"])) return undefined;
+  if (!EYES.includes(r["eyes"] as BlobEyes) || ![0, 1, 2, 3].includes(gait as number)) return undefined;
+  if (aspect === undefined || squat === undefined || spread === undefined || !lobes || lobes.length > 8) return undefined;
+  const read: Lobe[] = [];
+  for (const l of lobes) {
+    const lobe = (typeof l === "object" && l !== null ? l : {}) as Record<string, unknown>;
+    const k = num(lobe["k"], 1, 8);
+    const amp = num(lobe["amp"], 0, 0.3);
+    const phase = num(lobe["phase"], -10, 10);
+    if (k === undefined || !Number.isInteger(k) || amp === undefined || phase === undefined) return undefined;
+    read.push({ k, amp, phase });
+  }
+  return { fill: r["fill"].toLowerCase(), ink: r["ink"].toLowerCase(), eyes: r["eyes"] as BlobEyes, gait: gait as BlobGait, shape: { aspect, squat, spread, lobes: read } };
+}
+
+/**
  * The face drawn still, as an SVG: the same body, eyes and tilt the
  * dashboard animates, held at rest. Written into a blob's folder as
  * face.svg, so anything can reuse it.

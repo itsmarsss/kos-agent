@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
 
+import type { FaceDrawing } from "@kos/shared";
+
 import { publicKeyFromRaw, type HostKey } from "./keys.js";
 import { DeviceError, DeviceLink, type Socket } from "./link.js";
 import { PairingCodes, type PairingCode } from "./pairing.js";
@@ -51,6 +53,8 @@ export interface HubDeps {
   hostKey: HostKey;
   /** True while KOS's kill switch is thrown: nothing starts. */
   halted: () => boolean;
+  /** KOS's face as the owner set it, for every device to draw KOS by. */
+  face?: () => FaceDrawing;
   now?: () => number;
   /** How long the owner has to answer on the device, plus the trip. */
   beginTimeoutMs?: number;
@@ -153,7 +157,18 @@ export class DeviceHub {
     // The newer connection wins: the old one is a laptop that slept and woke.
     older?.close(CLOSE.replaced, "replaced by a newer connection");
     this.deps.store.seen(id);
+    this.showFace(link);
     this.changed();
+  }
+
+  /** KOS's face changed: every device online draws the new one. */
+  tellFace(): void {
+    for (const link of this.links.values()) this.showFace(link);
+  }
+
+  private showFace(link: DeviceLink): void {
+    const face = this.deps.face?.();
+    if (face) link.tell({ t: "face", face });
   }
 
   private gone(link: DeviceLink): void {
