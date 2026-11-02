@@ -61,7 +61,9 @@ The KOS face is its own colour, not the accent: hue 214, #3585ed, ink
 KOS's cursor and the border it draws while working are the accent.
 
 Light: the dashboard also has a light palette (Settings, Appearance). The
-extension and KOS Device are dark only, as KOS Device always was.
+extension and KOS Device are dark only, as KOS Device always was. Light's
+ok and warn are darker (#0f6e45, #7d5400) so a pill's text on its own tint
+still reads at 4.5:1.
 
 ## Type
 
