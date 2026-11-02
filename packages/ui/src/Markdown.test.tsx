@@ -52,6 +52,24 @@ describe("Markdown", () => {
     expect(container.querySelector("a, img")).toBeNull();
   });
 
+  it("nests a list under the item it belongs to, and keeps the count", () => {
+    const out = html("1. Install\n   - brew install x\n   - or the app\n2. Run\n   1. once\n- loose");
+    expect(out).toContain(
+      '<ol class="md-list"><li><p class="md-p">Install</p><ul class="md-list"><li><p class="md-p">brew install x</p></li><li><p class="md-p">or the app</p></li></ul></li><li><p class="md-p">Run</p><ol class="md-list"><li><p class="md-p">once</p></li></ol></li></ol>',
+    );
+    // A bullet at the top after a numbered list is a list of its own.
+    expect(out).toContain('<ul class="md-list"><li><p class="md-p">loose</p></li></ul>');
+  });
+
+  it("draws code and math inside a list item, and the words after a sub-list after it", () => {
+    const { container } = render(<Markdown text={"1. Run:\n   ```bash\n   npm i\n   ```\n2. Then\n   - a\n   more of then\n\nAfter"} />);
+    const items = container.querySelectorAll(".md > ol > li");
+    expect(items).toHaveLength(2);
+    expect(items[0]?.querySelector("pre.md-code code")?.textContent).toBe("npm i");
+    expect([...(items[1]?.children ?? [])].map((c) => c.tagName)).toEqual(["P", "UL", "P"]);
+    expect(container.querySelector(".md > p")?.textContent).toBe("After");
+  });
+
   it("keeps markdown inside backticks literal", () => {
     // The whole point of code spans: `**x**` is two asterisks, not bold.
     const out = html("use `**not bold**` here");
@@ -130,7 +148,7 @@ describe("Markdown lists", () => {
       <Markdown text={"1. first\n2. second\n\nAnd that is all."} />,
     );
     expect(container.querySelectorAll("li")).toHaveLength(2);
-    expect(container.querySelector("p")?.textContent).toBe("And that is all.");
+    expect(container.querySelector(".md > p")?.textContent).toBe("And that is all.");
   });
 
   it("starts an ordered list at the number it was written with", () => {

@@ -304,6 +304,15 @@ describe("Kernel", () => {
     expect(kernel.askerOf("nope")).toBeUndefined();
   });
 
+  it("keeps a surface that keeps to its own chats off a project's", async () => {
+    kernel = await boot(stubInference([]));
+    const res = await kernel.handleChannelTurn({ text: "/project Garden", userId: "owner", channel: "chrome", contained: true });
+    expect(res.isCommand).toBe(true);
+    expect(res.reply).toMatch(/dashboard/);
+    expect(kernel.conversations.get("project:garden")).toBeUndefined();
+    expect(kernel.conversations.get(res.conversationId)?.channel).toBe("chrome");
+  });
+
   it("runs a server channel's words where the channel is bound, and lays the channels out from what exists", async () => {
     const answer = (text: string): ModelResponse => ({ content: [{ type: "text", text }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "stub" });
     kernel = await boot(stubInference([answer("In the garden."), answer("In the thread."), answer("Recap here."), answer("KOS here.")]));

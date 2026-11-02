@@ -104,3 +104,4 @@ export { pathsIn, type PathPart } from "./workspacepath.js";
 export { CHANNEL_TOKEN, channelNamesIn } from "./channel.js";
 export { MATH, displayMathAt, mathOf, type MathSource } from "./math.js";
 export { COLOURS, EASE, FLOAT_SHADOW, RADII, SPRING, type ColourToken } from "./design.js";
+export { listAt, startsList, type MdList, type MdListItem } from "./lists.js";
