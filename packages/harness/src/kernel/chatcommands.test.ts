@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
 import { ConversationStore } from "./conversations.js";
-import { needsKernel, parseChatCommand, resolveConversation, runChatCommand } from "./chatcommands.js";
+import { activeOwnChat, needsKernel, parseChatCommand, resolveConversation, runChatCommand } from "./chatcommands.js";
 
 describe("parseChatCommand", () => {
   it("recognizes the verbs and their aliases", () => {
@@ -135,6 +135,30 @@ describe("runChatCommand", () => {
     // list() is most-recent first, so Shoot is position 1.
     const res = runChatCommand({ kind: "switch", target: "1" }, ctx("nope"));
     expect(res.switchedTo).toBe(b.id);
+  });
+
+  it("keeps a surface that keeps to its own chats among them", () => {
+    const panel = conversations.create({ userId: "owner", title: "Quiz", channel: "chrome" });
+    conversations.create({ userId: "owner", title: "Budget" });
+    const within = { conversations, channel: "chrome", userId: "owner", currentId: panel.id, within: (c: { channel?: string | null }) => c.channel === "chrome" };
+    const listed = runChatCommand({ kind: "list" }, within);
+    expect(listed.reply).toContain("Quiz");
+    expect(listed.reply).not.toContain("Budget");
+    expect(runChatCommand({ kind: "switch", target: "Budget" }, within).switchedTo).toBeUndefined();
+    // Archiving lands on another of its own, not on the newest chat of any kind.
+    const other = conversations.create({ userId: "owner", title: "Recipes", channel: "chrome" });
+    conversations.create({ userId: "owner", title: "Newest dashboard chat" });
+    const archived = runChatCommand({ kind: "archive" }, within);
+    expect(archived.switchedTo).toBe(other.id);
+  });
+
+  it("takes a surface's current chat as its own only when it is", () => {
+    const dash = conversations.create({ userId: "owner", title: "Budget" });
+    conversations.setActive("chrome", "owner", dash.id);
+    expect(activeOwnChat(conversations, "chrome", "owner")).toBeUndefined();
+    const mine = conversations.create({ userId: "owner", title: "Quiz", channel: "chrome" });
+    conversations.setActive("chrome", "owner", mine.id);
+    expect(activeOwnChat(conversations, "chrome", "owner")).toBe(mine.id);
   });
 
   it("says so when a switch target does not exist", () => {
