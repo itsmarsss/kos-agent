@@ -95,6 +95,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     if pairings.isEmpty || SystemPermissions.missing(SystemPermissions.current()) != nil { home.show() }
   }
 
+  /// Opened again while it runs (Finder, Spotlight, `open`): the window, as Open in the menu gives it.
+  func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+    home.show()
+    return true
+  }
+
   func applicationWillTerminate(_ notification: Notification) {
     Log.app.notice("quitting")
     controller.quitting()
