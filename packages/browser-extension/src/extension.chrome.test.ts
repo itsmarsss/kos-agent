@@ -6,7 +6,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { KOS_SEED, drawingOf, lookOf } from "@kos/shared";
+import { KOS_SEED, drawingOf, lookOf, outline, smoothPath } from "@kos/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WebSocketServer, type WebSocket } from "ws";
 
@@ -233,6 +233,20 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect(await devtools.evaluate(popup, `${body}?.getAttribute('fill')`)).toBe(face.fill);
     const stored = (await devtools.evaluate(popup, `chrome.storage.local.get("pairings").then((r) => r.pairings[0].face)`)) as unknown;
     expect(stored).toEqual(face);
+    // The toolbar wears it too: drawn without a word in the log, the body in its colour, the eyes in its ink, clear around.
+    const log = (await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "log" })`)) as { value: string };
+    expect(log.value).not.toMatch(/icon was not drawn/);
+    const icon = (await devtools.evaluate(
+      popup,
+      `import(chrome.runtime.getURL("icon.js")).then(({ iconPixels }) => {
+        const px = iconPixels({ fill: "#8b5cf6", ink: "#141d29", body: ${JSON.stringify(smoothPath(outline(face.shape)))}, eyes: [{ x: 40, y: 48 }, { x: 60, y: 48 }] }, 32);
+        const at = (x, y) => Array.from(px.data.slice((y * 32 + x) * 4, (y * 32 + x) * 4 + 4));
+        return { body: at(16, 26), eye: at(Math.round((40 - 4) * 32 / 92), Math.round((48 - 4) * 32 / 92)), corner: at(0, 0) };
+      })`,
+    )) as { body: number[]; eye: number[]; corner: number[] };
+    expect(icon.body).toEqual([0x8b, 0x5c, 0xf6, 255]);
+    expect(icon.eye).toEqual([0x14, 0x1d, 0x29, 255]);
+    expect(icon.corner[3]).toBe(0);
   }, 20_000);
 
   it("asks the owner before a session, in a window of its own, and refuses a call outside one", async () => {

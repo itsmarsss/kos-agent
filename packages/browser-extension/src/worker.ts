@@ -1,9 +1,10 @@
-import { KOS_SEED, drawingOf, lookOf, outline, smoothPath, type FaceDrawing } from "@kos/shared";
+import { KOS_SEED, drawingOf, eyeAt, lookOf, outline, smoothPath, type FaceDrawing } from "@kos/shared";
 
 import { kosAddress, parsePairing, type Pairing } from "./address.js";
 import { deviceKeys, forgetKeys, publicKey } from "./keys.js";
 import { Link, type Hello, type LinkState } from "./link.js";
 import { note, recent } from "./log.js";
+import { iconPixels } from "./icon.js";
 import { installOverlay, type OverlayState } from "./overlay.js";
 import { readPage } from "./page.js";
 import { adding, readPairings, removing, replacedBy, type Paired } from "./pairings.js";
@@ -186,6 +187,7 @@ async function showFace(id: string, face: FaceDrawing): Promise<void> {
   if (!pairingOf(id) || JSON.stringify(pairingOf(id)!.face) === JSON.stringify(face)) return;
   pairings = pairings.map((p) => (p.device === id ? { ...p, face } : p));
   await savePairings();
+  await badge();
   if (owner === id) await paint();
 }
 
@@ -211,6 +213,7 @@ async function connect(p: Paired): Promise<void> {
       const was = linkStates.get(id)?.state;
       linkStates.set(id, { state, ...(detail ? { detail } : {}) });
       if (state !== was) note(`${hostOf(p)}: ${state}${detail ? ` (${detail})` : ""}`);
+      if (state !== was) void badge();
       // A panel open on this KOS is shown its chat as soon as there is a line to show it on.
       if (state === "online" && state !== was) for (const panel of panels) if (panel.kos === id) links.get(id)?.event("chat.open", {});
       // A session lives on its connection: its KOS gone, KOS's hands gone; an ask it made is withdrawn.
@@ -233,7 +236,29 @@ function badgeText(): string {
   return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h`;
 }
 
+/** The KOS the toolbar speaks of, as the popup does: the one at work, else the first that is on, else the first paired. */
+function shownKos(): string | undefined {
+  if (session) return owner;
+  return (pairings.find((p) => linkStates.get(p.device)?.state === "online" && !held.has(p.device)) ?? pairings[0])?.device;
+}
+
+const OWN_FACE = JSON.stringify(drawingOf(lookOf(KOS_SEED)));
+/** The face the icon wears now, so it is drawn again only when that changes. */
+let iconFace = "";
+
+/** The toolbar in the face of the KOS it speaks of: the packaged icon for KOS's own, else that face drawn. */
+async function paintIcon(): Promise<void> {
+  const face = faceOf(shownKos());
+  const key = JSON.stringify(face);
+  if (key === iconFace) return;
+  iconFace = key;
+  if (key === OWN_FACE) return chrome.action.setIcon({ path: { 16: "icon16.png", 32: "icon32.png" } });
+  const drawn = { fill: face.fill, ink: face.ink, body: smoothPath(outline(face.shape)), eyes: (["l", "r"] as const).map((side) => eyeAt(side, face.shape)) };
+  await chrome.action.setIcon({ imageData: { 16: iconPixels(drawn, 16), 32: iconPixels(drawn, 32) } });
+}
+
 async function badge(): Promise<void> {
+  await paintIcon().catch((err: unknown) => note(`the icon was not drawn: ${err instanceof Error ? err.message : String(err)}`));
   const text = badgeText();
   badgeShown = text;
   await chrome.action.setBadgeText({ text });
