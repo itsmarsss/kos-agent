@@ -15,6 +15,7 @@ function harness(over: Partial<ThreadMirrorDeps> = {}) {
   const posts: Post[] = [];
   const edits: string[] = [];
   let storyOpenedIn: string | null = null;
+  let storyFrom: string | undefined;
   let removed = false;
   const madeThreads: { key: string; conv: string }[] = [];
   const bound: { threadId: string; conv: string }[] = [];
@@ -47,8 +48,9 @@ function harness(over: Partial<ThreadMirrorDeps> = {}) {
     postIn: async (target, msg) => {
       posts.push({ target, text: msg.text ?? "", ...(msg.from ? { from: msg.from.name } : {}), ...(msg.files ? { files: msg.files.length } : {}) });
     },
-    openStory: async (target) => {
+    openStory: async (target, from) => {
       storyOpenedIn = target;
+      storyFrom = from?.name;
       return story;
     },
     now: () => clock,
@@ -57,7 +59,7 @@ function harness(over: Partial<ThreadMirrorDeps> = {}) {
     ...over,
   };
   const mirror = new ThreadMirror(deps);
-  return { mirror, posts, edits, madeThreads, bound, get storyOpenedIn() { return storyOpenedIn; }, get removed() { return removed; }, tick: () => { clock += 1; } };
+  return { mirror, posts, edits, madeThreads, bound, get storyOpenedIn() { return storyOpenedIn; }, get storyFrom() { return storyFrom; }, get removed() { return removed; }, tick: () => { clock += 1; } };
 }
 
 const start = (conv: string, over: Partial<Extract<ProgressEvent, { kind: "turn-start" }>> = {}): ProgressEvent => ({ kind: "turn-start", conversationId: conv, said: "do the thing", from: "dispatch", origin: { via: "dispatch", from: { kind: "chat", name: "Orchestrator", id: "project:school" } }, ...over });
@@ -75,6 +77,8 @@ describe("mirroring a turn's story into a thread", () => {
     h.mirror.onProgress(toolStart("c-thread"));
     await h.mirror.settle();
     expect(h.storyOpenedIn).toBe("t1");
+    // Told by whoever answers there, as the answer will be, not by the bot.
+    expect(h.storyFrom).toBe("Agent");
     expect(h.edits.at(-1)).toContain("Reading the roster");
     // The answer arrives through onSaid, which also finalizes the story to its steps.
     let fellBack = false;
