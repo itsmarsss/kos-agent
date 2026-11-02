@@ -171,6 +171,9 @@ beside it when the chat asks.
 | `chat.mentions` | `q`, `mentions [{ kind, id, label, hint? }]` | `{}` |
 | `page.read` | `conversation` | `url`, `title`, `selection`, `text` |
 
+KOS Device's chat window on a Mac takes the same calls and sends the same
+events, but reads no page ([computer.md](computer.md), the chat window).
+
 A message's `role` is `you`, `kos`, `note`, or `steps` with `steps [{
 summary, failed? }]`. `page.read` is refused with `no_panel` unless a panel
 on that KOS shows that chat, `url` off the web and `hidden_site`; without

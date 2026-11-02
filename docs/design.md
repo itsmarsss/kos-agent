@@ -210,8 +210,9 @@ default one for a KOS that has sent none.
 
 ## Chat
 
-The dashboard's chats and the side panel are the same conversation, drawn
-the same way.
+The dashboard's chats, the side panel and KOS Device's chat window are the
+same conversation, drawn the same way; the window draws it natively, and
+shows LaTeX as written.
 
 - **The owner's message:** a bubble on the right, the accent at the strong
   tint over `panel-2`, radius 14 with its bottom right corner 4. Words in
