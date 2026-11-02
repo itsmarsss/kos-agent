@@ -13,9 +13,9 @@ import Testing
 @Suite("Windows render")
 struct RenderTests {
   /// `height`: drawn in a window that tall, as the home window is drawn at its one height.
-  private func render<V: View>(_ name: String, _ view: V, height: CGFloat? = nil) throws -> CGSize {
+  private func render<V: View>(_ name: String, _ view: V, height: CGFloat? = nil, width: CGFloat = 460) throws -> CGSize {
     let host = NSHostingView(rootView: view)
-    let size = height.map { CGSize(width: 460, height: $0) } ?? host.fittingSize
+    let size = height.map { CGSize(width: width, height: $0) } ?? host.fittingSize
     host.frame = CGRect(origin: .zero, size: size)
     let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
     window.contentView = host
@@ -71,6 +71,25 @@ struct RenderTests {
     }
     let size = try render("home-faced", HomeView(model: model), height: HomeView.height)
     #expect(size == CGSize(width: 460, height: HomeView.height))
+  }
+
+  /// The chat window, mid-conversation: the owner's words, KOS's markdown, a turn's steps folded, and an approval waiting.
+  @Test func chatWindow() throws {
+    let model = ChatModel()
+    model.online = true
+    model.beside = "Keynote"
+    model.models(.init(current: "gpt-5.5", choices: ["gpt-5.5", "gpt-5.4-mini"]))
+    model.show(
+      conversation: "mac:owner", title: "Q3 deck review",
+      lines: [
+        .you("What slides in this deck still need numbers?", files: []),
+        .steps([.init(summary: "Use Studio MacBook: Keynote"), .init(summary: "Look at the screen")]),
+        .kos("Three slides are missing figures:\n\n1. **Revenue** (slide 4): the Q3 total\n2. **Churn** (slide 7)\n   - monthly, not quarterly\n3. **Hiring** (slide 9)\n\n| Slide | Missing |\n| --- | --- |\n| 4 | Q3 revenue |\n| 7 | Churn rate |\n\nWant me to fill them from `finance.xlsx`?"),
+        .you("Yes, use the September sheet", files: []),
+      ])
+    model.ask(.init(id: "7", tool: "computer.act", args: "{\"actions\":[{\"type\":\"click\",\"x\":412,\"y\":220}]}", why: "Type the Q3 revenue into slide 4.", always: "Always in Keynote"))
+    let size = try render("chat-window", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    #expect(size.height == ChatView.size.height)
   }
 
   @Test func homeWhenConnectedAndInUse() throws {

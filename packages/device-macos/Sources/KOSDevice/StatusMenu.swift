@@ -16,6 +16,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
   var snapshot: () -> Snapshot
   var onOpen: (() -> Void)?
+  /// The chat window, as ⌥⌘K opens it.
+  var onChat: (() -> Void)?
   /// Each of these acts on every KOS it can: one at a time is the window's.
   var onReconnect: (() -> Void)?
   var onConnect: (() -> Void)?
@@ -89,6 +91,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     if links.contains(.disconnected) { menu.addItem(action(several ? "Connect All" : "Connect", #selector(connect))) }
     if links.contains(where: { $0 != .disconnected }) { menu.addItem(action(several ? "Disconnect All" : "Disconnect", #selector(disconnect))) }
     // Pairing, permissions, each KOS's rules and the hidden apps all live in the one window.
+    if !now.kos.isEmpty {
+      let chat = action("Chat with KOS", #selector(openChat))
+      chat.keyEquivalent = "k"
+      chat.keyEquivalentModifierMask = [.command, .option]
+      menu.addItem(chat)
+    }
     menu.addItem(action(now.kos.isEmpty ? "Pair with KOS…" : "Open KOS Device…", #selector(open)))
     menu.addItem(.separator())
     menu.addItem(NSMenuItem(title: "Quit KOS Device", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -130,6 +138,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
   }
 
   @objc private func open() { onOpen?() }
+  @objc private func openChat() { onChat?() }
   @objc private func reconnect() { onReconnect?() }
   @objc private func pause() { onPause?() }
   @objc private func resume() { onResume?() }

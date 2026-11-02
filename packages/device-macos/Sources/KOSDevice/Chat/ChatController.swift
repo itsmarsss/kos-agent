@@ -1,0 +1,184 @@
+import AppKit
+import DeviceCore
+import DeviceUI
+
+/// KOS Device's chat window and the KOS it talks to: the chat that KOS's
+/// calls show, drawn; the owner's words and decisions, sent on; and the app
+/// in front, told with each message as where they spoke.
+///
+/// It talks to one KOS at a time, the one the window speaks of (the one at
+/// work, else the first connected, else the first paired), and a call from
+/// any other is answered and left undrawn.
+@MainActor
+final class ChatController {
+  let model = ChatModel()
+  /// A frame to a KOS, by this Mac's device id there.
+  var send: ((String, Data) -> Void)?
+  /// The KOS the window talks to: its id, what to call it when there are several, and whether its line is up.
+  var target: () -> (id: String, name: String?, online: Bool)? = { nil }
+  var faceOf: (String) -> FaceLook = { _ in .kos }
+  var isHidden: (String?) -> Bool = { _ in false }
+
+  private lazy var window = ChatWindow(model: model)
+  private var talkingTo: String?
+  private var wasOnline = false
+  private var taking: Timer?
+  private var lastFront: NSRunningApplication?
+  private var frontWatch: NSObjectProtocol?
+
+  /// How long the window waits to hear that KOS has the owner's words before it gives them back.
+  private static let takeWithin: TimeInterval = 12
+
+  init() {
+    model.send = { [weak self] text in self?.say(text) }
+    model.decide = { [weak self] id, approved, remember in self?.tell(.decide(approval: id, approved: approved, remember: remember)) }
+    model.list = { [weak self] in self?.tell(.list) }
+    model.switchTo = { [weak self] id in self?.tell(.switchTo(conversation: id)) }
+    model.chooseModel = { [weak self] choice in self?.tell(.model(choice)) }
+    model.setAuto = { [weak self] on in self?.tell(.auto(on)) }
+    model.close = { [weak self] in self?.window.orderOut(nil) }
+  }
+
+  var isOpen: Bool { window.isVisible }
+
+  func toggle() {
+    if isOpen { window.orderOut(nil) } else { open() }
+  }
+
+  func open() {
+    watchFront()
+    noteFront()
+    window.present()
+    refresh(asking: true)
+  }
+
+  /// The lines or the pairings changed: the window follows the KOS it speaks of, and one that just came on is asked for the chat.
+  func refresh(asking: Bool = false) {
+    let now = target()
+    let other = now?.id != talkingTo
+    if other { model.reset() }
+    talkingTo = now?.id
+    model.kosName = now?.name
+    model.online = now?.online ?? false
+    if let id = now?.id { model.face = faceOf(id) }
+    let cameOn = model.online && (!wasOnline || other)
+    wasOnline = model.online
+    if isOpen, model.online, asking || cameOn {
+      tell(.open)
+      tell(.models)
+    }
+  }
+
+  /// A chat call from a KOS. Only the one the window talks to is drawn; every one is answered.
+  func handle(_ call: Call, _ method: ChatMethod, from origin: String) -> Data? {
+    guard origin == talkingTo else { return try? Outbound.reply(id: call.id, result: EmptyResult()) }
+    do {
+      switch method {
+      case .show:
+        let p = try call.params(ChatShow.self)
+        heardBack()
+        model.show(
+          conversation: p.conversation, title: p.title, lines: p.messages.compactMap(Self.line),
+          notice: p.notice.map { ($0.text, $0.from, $0.waiting ?? false) }, auto: p.auto ?? false)
+      case .status:
+        let p = try call.params(ChatStatus.self)
+        heardBack()
+        model.status(taken: p.taken ?? false, story: p.story, error: p.error)
+      case .ask:
+        let a = try call.params(ChatAsk.self).approval
+        model.ask(.init(id: a.id, tool: a.tool, args: a.args, why: a.why, reason: a.reason, always: a.always))
+      case .settled:
+        model.settled(try call.params(ChatSettled.self).approval)
+      case .chats:
+        let p = try call.params(ChatChats.self)
+        model.chats(p.chats.map { .init(id: $0.id, title: $0.title, updated: Date(timeIntervalSince1970: $0.updatedAt / 1000)) })
+      case .models:
+        let p = try call.params(ChatModels.self)
+        model.models(.init(current: p.current, choices: p.choices, fixed: p.fixed), error: p.error)
+      }
+      return try? Outbound.reply(id: call.id, result: EmptyResult())
+    } catch let error as DeviceError {
+      return try? Outbound.reply(id: call.id, error: error)
+    } catch {
+      return try? Outbound.reply(id: call.id, error: DeviceError(.internal, error.localizedDescription))
+    }
+  }
+
+  /// One entry of the chat as KOS sends it, as the window draws it.
+  private static func line(_ m: ChatMessage) -> ChatModel.Line? {
+    switch m.role {
+    case "you": return .you(m.text ?? "", files: m.files ?? [])
+    case "kos": return m.text.map { .kos($0) }
+    case "note": return m.text.map { .note($0) }
+    case "steps": return .steps((m.steps ?? []).map { .init(summary: $0.summary, failed: $0.failed ?? false) })
+    default: return nil
+    }
+  }
+
+  // MARK: The owner
+
+  private func say(_ text: String) {
+    tell(.send(text: text, beside: beside()))
+    // KOS says it has the words at once; nothing back in a while is a KOS that cannot talk here.
+    taking?.invalidate()
+    taking = Timer.scheduledTimer(withTimeInterval: Self.takeWithin, repeats: false) { [weak self] _ in
+      MainActor.assumeIsolated {
+        self?.model.giveBack("KOS did not take that. It may be a KOS without the Mac window, or not reachable now; your words are back in the box.")
+      }
+    }
+  }
+
+  private func heardBack() {
+    taking?.invalidate()
+    taking = nil
+  }
+
+  private func tell(_ event: ChatEvent) {
+    guard let id = talkingTo, let frame = try? event.frame() else { return }
+    send?(id, frame)
+  }
+
+  // MARK: The app in front
+
+  /// Where the owner was: the app in front of the window, one they hid, or none. KOS Device itself is never it.
+  private func beside() -> Beside {
+    guard let app = frontApp() else { return .none }
+    if isHidden(app.bundleIdentifier) { return .hidden }
+    return .app(name: app.localizedName ?? app.bundleIdentifier ?? "an app", bundle: app.bundleIdentifier, title: Self.windowTitle(of: app.processIdentifier))
+  }
+
+  private func frontApp() -> NSRunningApplication? {
+    let front = NSWorkspace.shared.frontmostApplication
+    return front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? lastFront : front
+  }
+
+  /// The window says which app "this" is, and follows the owner as they move between apps.
+  private func watchFront() {
+    guard frontWatch == nil else { return }
+    frontWatch = NSWorkspace.shared.notificationCenter.addObserver(
+      forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+    ) { [weak self] note in
+      let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+      MainActor.assumeIsolated {
+        guard let self else { return }
+        if let app, app.processIdentifier != ProcessInfo.processInfo.processIdentifier { self.lastFront = app }
+        self.noteFront()
+      }
+    }
+  }
+
+  private func noteFront() {
+    let app = frontApp()
+    if let app, app.processIdentifier != ProcessInfo.processInfo.processIdentifier { lastFront = app }
+    model.beside = app?.localizedName
+    model.besideHidden = app.map { isHidden($0.bundleIdentifier) } ?? false
+  }
+
+  /// The front window of an app, by its title, when macOS will say it.
+  private static func windowTitle(of pid: pid_t) -> String? {
+    let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    let front = list.first { ($0[kCGWindowOwnerPID as String] as? pid_t) == pid && ($0[kCGWindowLayer as String] as? Int) == 0 }
+    let title = (front?[kCGWindowName as String] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return title?.isEmpty == false ? title : nil
+  }
+}
