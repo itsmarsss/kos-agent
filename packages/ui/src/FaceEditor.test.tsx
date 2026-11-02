@@ -46,4 +46,30 @@ describe("the face editor", () => {
     fireEvent.click(screen.getByRole("button", { name: "teal" }));
     expect(onChange).toHaveBeenCalledWith({ hue: 180 });
   });
+
+  it("grows the outline from a word, kept when the owner is done typing, and rolls one from the dice", () => {
+    const onChange = vi.fn();
+    render(<FaceEditor seed="recap" value={{ eyes: "round" }} onChange={onChange} />);
+    const word = screen.getByLabelText("Shape word") as HTMLInputElement;
+    expect(word.placeholder).toBe("from the name");
+    fireEvent.change(word, { target: { value: "  tiny,  moon " } });
+    // Drawn as typed, but nothing kept until the field is left or Enter pressed.
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.keyDown(word, { key: "Enter" });
+    expect(onChange).toHaveBeenLastCalledWith({ eyes: "round", shape: "tiny moon" });
+    fireEvent.click(screen.getByRole("button", { name: "Another shape" }));
+    const rolled = onChange.mock.lastCall?.[0] as { shape?: string };
+    expect(rolled.shape).toMatch(/^([bdfgklmnprstvz][aeiou]){2,3}$/);
+    expect(word.value).toBe(rolled.shape);
+  });
+
+  it("lets a cleared word go back to the name", () => {
+    const onChange = vi.fn();
+    render(<FaceEditor seed="recap" value={{ shape: "mochi", gait: 2 }} onChange={onChange} />);
+    const word = screen.getByLabelText("Shape word") as HTMLInputElement;
+    expect(word.value).toBe("mochi");
+    fireEvent.change(word, { target: { value: " " } });
+    fireEvent.blur(word);
+    expect(onChange).toHaveBeenLastCalledWith({ gait: 2 });
+  });
 });

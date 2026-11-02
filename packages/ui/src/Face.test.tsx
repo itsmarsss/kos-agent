@@ -122,5 +122,8 @@ describe("an agent's face", () => {
     expect(faceSvg(violet)).toContain('fill="#8b5cf6"');
     expect(faceSvg(violet, "error")).not.toContain('fill="#8b5cf6"');
     expect(faceLookOf(violet)).toMatchObject({ colour: "#8b5cf6", eyes: "half", gait: 1 });
+    // A word given for the outline is part of the look handed on.
+    expect(faceLookOf(lookOf("kos", { shape: "mochi" }))).toMatchObject({ shape: "mochi" });
+    expect(faceLookOf(lookOf("kos"))).not.toHaveProperty("shape");
   });
 });

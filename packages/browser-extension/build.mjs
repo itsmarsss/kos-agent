@@ -25,7 +25,18 @@ for (const font of readdirSync(join(katex, "fonts")).filter((f) => f.endsWith(".
   copyFileSync(join(katex, "fonts", font), join(dist, "katex", "fonts", font));
 }
 
-// The pages a person sees are bundled: a page cannot import a package by name. The worker stays tsc's own modules.
+// Nothing in Chrome can import a package by name, so what imports @kos/shared is bundled. The worker draws
+// KOS's face from what KOS sends, so it is one file too; unminified, so its errors read as its source.
+await build({
+  entryPoints: [join(root, "src", "worker.ts")],
+  outfile: join(dist, "worker.js"),
+  bundle: true,
+  format: "esm",
+  platform: "browser",
+  target: "chrome137",
+  logLevel: "warning",
+});
+// The pages a person sees, with what they share in chunks.
 await build({
   entryPoints: [join(root, "src", "popup.tsx"), join(root, "src", "consent.tsx"), join(root, "src", "panel.tsx")],
   outdir: dist,

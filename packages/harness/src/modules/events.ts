@@ -46,6 +46,8 @@ export type KernelEvent =
   | { kind: "cron:fired"; jobId: number; name: string; ok: boolean; error: string | null }
   /** The kill switch was thrown or released: whatever runs on its own stops at once. */
   | { kind: "halt:changed"; halted: boolean }
+  /** The owner changed KOS's own face: whatever draws KOS draws it again. */
+  | { kind: "face:changed" }
   | { kind: "module:enabled"; name: string }
   | { kind: "module:disabled"; name: string };
 

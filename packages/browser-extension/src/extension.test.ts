@@ -1,4 +1,4 @@
-import { KOS_SEED, lookOf } from "@kos/shared";
+import { KOS_SEED, drawingOf, lookOf } from "@kos/shared";
 import { describe, expect, it } from "vitest";
 
 import { isPrivatePath, kosAddress, parsePairing, socketUrl } from "./address.js";
@@ -45,6 +45,11 @@ describe("the protocol", () => {
     expect(readFrame('{"t":"call","id":3,"method":"tabs.list","params":{"session":"s"}}')).toEqual({ t: "call", id: 3, method: "tabs.list", params: { session: "s" } });
     expect(readFrame('{"t":"call","id":"3","method":"x"}')).toBeUndefined();
     expect(readFrame('{"t":"pong"}')).toEqual({ t: "pong" });
+    // KOS's face, decided there: read whole, or not at all.
+    const face = drawingOf(lookOf(KOS_SEED, { shape: "mochi", eyes: "sparkle" }));
+    expect(readFrame(JSON.stringify({ t: "face", face }))).toEqual({ t: "face", face });
+    expect(readFrame(JSON.stringify({ t: "face", face: { ...face, fill: "blue" } }))).toBeUndefined();
+    expect(readFrame(JSON.stringify({ t: "face", face: { ...face, shape: { ...face.shape, lobes: [{ k: 2.5, amp: 0.1, phase: 0 }] } } }))).toBeUndefined();
     expect(readFrame("not json")).toBeUndefined();
   });
 });
@@ -141,6 +146,10 @@ describe("the KOS this Chrome is paired with", () => {
     expect(readPairings([home, { url: 1 }], undefined)).toEqual([home]);
     expect(readPairings(undefined, home)).toEqual([home]);
     expect(readPairings(undefined, undefined)).toEqual([]);
+    // The face a KOS last sent is kept with it; one that does not read is dropped, the pairing kept.
+    const face = drawingOf(lookOf(KOS_SEED, { shape: "cloud" }));
+    expect(readPairings([{ ...home, face }], undefined)).toEqual([{ ...home, face }]);
+    expect(readPairings([{ ...home, face: { fill: 1 } }], undefined)).toEqual([home]);
   });
 
   it("adds another KOS after the rest, and pairing one again replaces it in place", () => {

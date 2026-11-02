@@ -14,6 +14,8 @@ final class ConsentPrompt: NSObject {
     let requester: String
     /// Which KOS asks, when there are several.
     let kos: String?
+    /// The asking KOS's face.
+    let face: FaceLook
     let chat: URL?
     let offered: [Int]
     /// The owner's longest session, the most a custom length may be.
@@ -57,7 +59,7 @@ final class ConsentPrompt: NSObject {
   private func present(_ request: Request) {
     let model = ConsentModel(
       task: request.task, requester: request.requester, kos: request.kos, chat: request.chat, offered: request.offered,
-      longest: request.longest, timeout: request.wait)
+      longest: request.longest, timeout: request.wait, face: request.face)
     model.targets = request.targets
     model.target = request.target
     model.suggested = request.suggested

@@ -4,6 +4,8 @@
  * texts each side signs.
  */
 
+import { readDrawing, type FaceDrawing } from "@kos/shared";
+
 export const PROTOCOL = 1;
 
 /** What the extension signs to prove it holds its key. */
@@ -33,6 +35,7 @@ export type KosFrame =
   | { t: "challenge"; protocol: number; nonce: string }
   | { t: "welcome"; name: string; signature: string }
   | { t: "call"; id: number; method: string; params: Record<string, unknown> }
+  | { t: "face"; face: FaceDrawing }
   | { t: "pong" };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -57,6 +60,10 @@ export function readFrame(text: string): KosFrame | undefined {
       return typeof raw["id"] === "number" && typeof raw["method"] === "string"
         ? { t: "call", id: raw["id"], method: raw["method"], params: isRecord(raw["params"]) ? raw["params"] : {} }
         : undefined;
+    case "face": {
+      const face = readDrawing(raw["face"]);
+      return face ? { t: "face", face } : undefined;
+    }
     case "pong":
       return { t: "pong" };
     default:

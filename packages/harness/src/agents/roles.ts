@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { shapeWordOf } from "@kos/shared";
+
 import type { Workspace } from "../store/workspace.js";
 
 /**
@@ -33,8 +35,9 @@ export type RoleMemory = "own" | "shared";
 
 /**
  * What the owner may set about an agent's face: its hue, its eyes, its
- * gait. Anything unset comes from the name, so a face needs no setting at
- * all. KOS's own face is the same shape, kept in settings under KOS_FACE_KEY.
+ * gait, the word its outline grows from. Anything unset comes from the
+ * name, so a face needs no setting at all. KOS's own face is the same
+ * kind, kept in settings under KOS_FACE_KEY.
  */
 export interface FaceLook {
   hue?: number;
@@ -42,6 +45,8 @@ export interface FaceLook {
   colour?: string;
   eyes?: "round" | "half" | "sparkle";
   gait?: 0 | 1 | 2 | 3;
+  /** A word its silhouette grows from, in place of the name. */
+  shape?: string;
 }
 
 export const KOS_FACE_KEY = "kos.face";
@@ -59,17 +64,24 @@ export function parseFaceLook(raw: unknown): FaceLook {
   if (typeof r["eyes"] === "string" && (EYES as readonly string[]).includes(r["eyes"])) out.eyes = r["eyes"] as FaceLook["eyes"];
   const gait = typeof r["gait"] === "number" ? r["gait"] : typeof r["gait"] === "string" ? Number(r["gait"]) : NaN;
   if ([0, 1, 2, 3].includes(gait)) out.gait = gait as FaceLook["gait"];
+  const shape = typeof r["shape"] === "string" ? shapeWordOf(r["shape"]) : undefined;
+  if (shape) out.shape = shape;
   return out;
 }
 
-/** "hue 210, eyes sparkle, gait 2, colour #3b82f6" into a face; a part it cannot read is an error. */
+/** "hue 210, eyes sparkle, gait 2, colour #3b82f6, shape mochi" into a face; a part it cannot read is an error. */
 export function parseFaceText(text: string): FaceLook {
   const raw: Record<string, string> = {};
   for (const part of text.split(",")) {
     const words = part.trim().split(/[\s=:]+/).filter(Boolean);
     if (words.length === 0) continue;
+    // A shape is any word or words; the rest are one value each.
+    if (words[0] === "shape" && words.length >= 2) {
+      raw["shape"] = words.slice(1).join(" ");
+      continue;
+    }
     if (words.length !== 2 || !["hue", "eyes", "gait", "colour"].includes(words[0]!)) {
-      throw new Error(`face: "${part.trim()}" is not "hue <0-359>", "eyes <round|half|sparkle>", "gait <0-3>" or "colour #rrggbb"`);
+      throw new Error(`face: "${part.trim()}" is not "hue <0-359>", "eyes <round|half|sparkle>", "gait <0-3>", "colour #rrggbb" or "shape <word>"`);
     }
     raw[words[0]!] = words[1]!;
   }
@@ -86,6 +98,7 @@ export function formatFaceText(face: FaceLook): string {
     ...(face.colour ? [`colour ${face.colour}`] : []),
     ...(face.eyes ? [`eyes ${face.eyes}`] : []),
     ...(face.gait !== undefined ? [`gait ${face.gait}`] : []),
+    ...(face.shape ? [`shape ${face.shape}`] : []),
   ].join(", ");
 }
 

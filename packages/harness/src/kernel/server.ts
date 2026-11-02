@@ -43,7 +43,7 @@ import { readSkills } from "../skills/manifest.js";
 import { importPage, listPages, readPage } from "../memory/pages.js";
 import { applyResolution, describeReview } from "../memory/resolve.js";
 import type { ReviewItem } from "../memory/review.js";
-import { KOS_FACE_KEY, parseFaceLook, ROLE_NAME, type Role, type RoleRecord } from "../agents/roles.js";
+import { parseFaceLook, ROLE_NAME, type Role, type RoleRecord } from "../agents/roles.js";
 import type { BlobJob } from "../tools/agents.js";
 import type { ModelMessage } from "../models/types.js";
 import { mayRead } from "../memory/callers.js";
@@ -626,7 +626,7 @@ export async function handleApiRequest(
       routes: kernel.routes() ?? null,
       // KOS's face rides on the status the dashboard already polls, so the
       // sidebar, the rail and the tab icon all draw the same one.
-      face: parseFaceLook(kernel.settings.get(KOS_FACE_KEY)),
+      face: kernel.kosFace(),
       // Carried on the status the dashboard already polls, so an unattended
       // failure is visible on the next open rather than only in a message the
       // owner may have missed.
@@ -702,13 +702,11 @@ export async function handleApiRequest(
 
   /** KOS's own face, kept in the workspace so every browser and the tab icon agree. */
   if (method === "GET" && path === "/api/settings/face") {
-    return ok({ face: parseFaceLook(kernel.settings.get(KOS_FACE_KEY)) });
+    return ok({ face: kernel.kosFace() });
   }
 
   if (method === "POST" && path === "/api/settings/face") {
-    const face = parseFaceLook(body.face ?? body);
-    kernel.settings.set(KOS_FACE_KEY, face);
-    return ok({ face });
+    return ok({ face: kernel.setKosFace(body.face ?? body) });
   }
 
   if (method === "POST" && path === "/api/settings/behaviour") {

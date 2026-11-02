@@ -1,3 +1,5 @@
+import { KOS_SEED, drawingOf, lookOf, outline, smoothPath, type FaceDrawing } from "@kos/shared";
+
 import { kosAddress, parsePairing, type Pairing } from "./address.js";
 import { deviceKeys, forgetKeys, publicKey } from "./keys.js";
 import { Link, type Hello, type LinkState } from "./link.js";
@@ -49,13 +51,15 @@ export interface KosState {
   askFirst: boolean;
   /** The owner disconnected it: no line until Connect. */
   held: boolean;
+  /** Its face, as it last sent it. */
+  face?: FaceDrawing;
 }
 
 /** What the popup is told. */
 export interface PopupState {
   kos: KosState[];
   /** `kos` names the KOS it is for when there are several; `beside` is the tab beside the side panel it works in. */
-  session: { task: string; requester: string; until: number; paused: boolean; kos?: string; beside?: number } | null;
+  session: { task: string; requester: string; until: number; paused: boolean; kos?: string; beside?: number; face: FaceDrawing } | null;
   handed: number[];
   settings: Omit<ExtensionSettings, "askFirst">;
 }
@@ -71,6 +75,8 @@ export interface ConsentRequest {
   waitMs: number;
   /** Which KOS asks, when there are several. */
   kos?: string;
+  /** The face of the KOS that asks. */
+  face: FaceDrawing;
 }
 
 /** A side panel open in a window: the KOS it talks to, and the chat it shows. */
@@ -138,6 +144,8 @@ const hostOf = (p: Pick<Paired, "url">): string => {
   }
 };
 const pairingOf = (id: string | undefined): Paired | undefined => pairings.find((p) => p.device === id);
+/** A KOS's face: the one it last sent, else KOS's own default. */
+const faceOf = (id: string | undefined): FaceDrawing => pairingOf(id)?.face ?? drawingOf(lookOf(KOS_SEED));
 /** What to call a KOS to the owner, when there is more than one to tell apart. */
 const kosName = (id: string | undefined): string | undefined => (pairings.length > 1 ? pairingOf(id) && hostOf(pairingOf(id)!) : undefined);
 
@@ -173,6 +181,14 @@ function hello(id: string): Hello {
   };
 }
 
+/** A KOS's new face, kept for when it is offline, and on the page it works in at once. */
+async function showFace(id: string, face: FaceDrawing): Promise<void> {
+  if (!pairingOf(id) || JSON.stringify(pairingOf(id)!.face) === JSON.stringify(face)) return;
+  pairings = pairings.map((p) => (p.device === id ? { ...p, face } : p));
+  await savePairings();
+  if (owner === id) await paint();
+}
+
 /** Every KOS's line, up unless the owner held it. */
 async function connectAll(): Promise<void> {
   for (const p of pairings) if (!held.has(p.device)) await connect(p);
@@ -190,6 +206,7 @@ async function connect(p: Paired): Promise<void> {
     keys,
     hello: () => hello(id),
     onCall: (method, params) => answer(method, params, id),
+    onFace: (face) => void showFace(id, face),
     onState: (state, detail) => {
       const was = linkStates.get(id)?.state;
       linkStates.set(id, { state, ...(detail ? { detail } : {}) });
@@ -300,6 +317,7 @@ async function begin(params: Record<string, unknown>, origin: string): Promise<R
       longest: settings.longestMinutes,
       waitMs: settings.promptWaitSeconds * 1000,
       ...(kosName(origin) ? { kos: kosName(origin)! } : {}),
+      face: faceOf(origin),
     };
     note(`${hostOf(pairingOf(origin) ?? { url: origin })} asks for ${asked} min, from ${request.requester}`);
     let minutes = asked;
@@ -518,7 +536,14 @@ function fromHidden(tab: number, params: Record<string, unknown>): boolean {
 // The owner's hands.
 
 function overlayState(): OverlayState {
-  return { task: session?.info.task ?? "", paused: session?.paused ?? false, until: session?.info.until ?? 0, ...barPlace };
+  const face = faceOf(owner);
+  return {
+    task: session?.info.task ?? "",
+    paused: session?.paused ?? false,
+    until: session?.info.until ?? 0,
+    face: { fill: face.fill, ink: face.ink, eyes: face.eyes, body: smoothPath(outline(face.shape)) },
+    ...barPlace,
+  };
 }
 
 async function paint(): Promise<void> {
@@ -634,6 +659,7 @@ function popupState(): PopupState {
         ...(line.detail ? { detail: line.detail } : {}),
         askFirst: asksFirst(settings, p.device),
         held: held.has(p.device),
+        ...(p.face ? { face: p.face } : {}),
       };
     }),
     session: session
@@ -644,6 +670,7 @@ function popupState(): PopupState {
           paused: session.paused,
           ...(kosName(owner) ? { kos: kosName(owner)! } : {}),
           ...(beside !== undefined ? { beside } : {}),
+          face: faceOf(owner),
         }
       : null,
     handed: [...handed],

@@ -8,14 +8,17 @@ public final class SessionBarModel: ObservableObject {
   @Published public var paused = false
   /// When the session ends unless the owner gives it more.
   @Published public var until: Date
+  /// The face of the KOS at work.
+  public let face: FaceLook
   public var pause: () -> Void = {}
   public var resume: () -> Void = {}
   public var stop: () -> Void = {}
   public var extend: () -> Void = {}
 
-  public init(task: String, until: Date) {
+  public init(task: String, until: Date, face: FaceLook = .kos) {
     self.task = task
     self.until = until
+    self.face = face
   }
 }
 
@@ -34,7 +37,7 @@ public struct SessionBar: View {
   public var body: some View {
     HStack(spacing: 12) {
       ZStack(alignment: .bottomTrailing) {
-        KOSFace(size: 26, mood: model.paused ? .idle : .working)
+        KOSFace(size: 26, mood: model.paused ? .idle : .working, look: model.face)
         Circle()
           .fill(tone)
           .frame(width: 8, height: 8)

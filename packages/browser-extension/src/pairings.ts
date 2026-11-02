@@ -7,6 +7,8 @@
  * second line to the same KOS.
  */
 
+import { readDrawing, type FaceDrawing } from "@kos/shared";
+
 export interface Paired {
   url: string;
   /** This Chrome's device id in that KOS. */
@@ -14,6 +16,8 @@ export interface Paired {
   hostKey: string;
   /** What this Chrome is called there. */
   name: string;
+  /** That KOS's face, as it last sent it. */
+  face?: FaceDrawing;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -31,10 +35,17 @@ export function kosOf(p: Pick<Paired, "url">): string {
   }
 }
 
+/** A stored pairing with its face read, or without one that does not read. */
+function withFace(p: Paired): Paired {
+  const { face: kept, ...rest } = p;
+  const face = readDrawing(kept);
+  return face ? { ...rest, face } : rest;
+}
+
 /** The pairings stored: the list, or the one pairing an older version kept. */
 export function readPairings(list: unknown, one: unknown): Paired[] {
-  if (Array.isArray(list)) return list.filter(isPaired);
-  return isPaired(one) ? [one] : [];
+  if (Array.isArray(list)) return list.filter(isPaired).map(withFace);
+  return isPaired(one) ? [withFace(one)] : [];
 }
 
 /** The pairings `next` takes the place of: the same KOS, or the same device id. */

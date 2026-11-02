@@ -12,9 +12,20 @@ export type BlobEyes = "round" | "half" | "sparkle";
 export type BlobGait = 0 | 1 | 2 | 3;
 
 /**
+ * One set of gentle bulges round the body: `k` of them, evenly spaced, each
+ * `amp` of the radius out at its crest, the set turned by `phase` radians.
+ */
+export interface Lobe {
+  k: number;
+  amp: number;
+  phase: number;
+}
+
+/**
  * The silhouette: what makes one blob a different creature from the next
  * before it moves. A little wider or taller, sitting squat or standing
- * round, eyes close-set or wide. From the name, not set.
+ * round, eyes close-set or wide, and lumpy in its own way. From the name,
+ * or from a word the owner gives it.
  */
 export interface BlobShape {
   /** Width over height, 0.92 to 1.12. */
@@ -23,6 +34,8 @@ export interface BlobShape {
   squat: number;
   /** How far apart the eyes sit, 0.88 to 1.1 of the usual. */
   spread: number;
+  /** Its lumps, broad and few; none is the plain gumdrop. */
+  lobes: readonly Lobe[];
 }
 
 /** Its habits: how much it cares about the cursor, and how often it blinks. */
@@ -31,7 +44,7 @@ export interface BlobWhim {
   blinkiness: number;
 }
 
-export const PLAIN_SHAPE: BlobShape = { aspect: 1, squat: 0.1, spread: 1 };
+export const PLAIN_SHAPE: BlobShape = { aspect: 1, squat: 0.1, spread: 1, lobes: [] };
 export const PLAIN_WHIM: BlobWhim = { curiosity: 1, blinkiness: 1 };
 
 export const POINTS = 16;
@@ -50,17 +63,20 @@ export function eyeAt(side: "l" | "r", shape: BlobShape): { x: number; y: number
 
 /**
  * The outline: one smooth gumdrop, a little wider low down where it sits,
- * flattened underneath as much as its shape says, and bent by a wobble, a
- * two-lobed deformation the jelly spring drives. Pure, so a test can hold
- * it still.
+ * flattened underneath as much as its shape says, lumpy as its lobes say,
+ * and bent by a wobble, a two-lobed deformation the jelly spring drives.
+ * Pure, so a test can hold it still.
  */
 export function outline(shape: BlobShape = PLAIN_SHAPE, wobble = 0, phase = 0): Array<[number, number]> {
   const pts: Array<[number, number]> = [];
   for (let i = 0; i < POINTS; i += 1) {
     const a = (i / POINTS) * Math.PI * 2;
     const down = Math.max(0, Math.sin(a));
+    // The lumps quieten toward the base, so it still sits flat.
+    let lumps = 0;
+    for (const lobe of shape.lobes) lumps += lobe.amp * Math.cos(lobe.k * (a - lobe.phase));
     // A gumdrop: the lower half spreads a touch; a wobble pulls two sides out and two in.
-    const r = RADIUS * (1 + wobble * Math.cos(2 * (a - phase)));
+    const r = RADIUS * (1 + lumps * (1 - 0.6 * down) + wobble * Math.cos(2 * (a - phase)));
     const x = CENTER.x + Math.cos(a) * r * shape.aspect * (1 + 0.07 * down);
     const y = CENTER.y + Math.sin(a) * r * (1 - shape.squat * 0.45 * down);
     pts.push([x, y]);
@@ -96,6 +112,18 @@ export function smoothPath(pts: ReadonlyArray<readonly [number, number]>): strin
   let d = `M${f(pts[0]![0])} ${f(pts[0]![1])}`;
   for (const [, c1, c2, p2] of segments) d += ` C${f(c1[0])} ${f(c1[1])} ${f(c2[0])} ${f(c2[1])} ${f(p2[0])} ${f(p2[1])}`;
   return `${d} Z`;
+}
+
+/** Whether a closed outline bulges out everywhere: every turn the same way, so no dent, pinch or point. */
+export function isConvex(pts: ReadonlyArray<readonly [number, number]>): boolean {
+  const n = pts.length;
+  for (let i = 0; i < n; i += 1) {
+    const [ax, ay] = pts[i]!;
+    const [bx, by] = pts[(i + 1) % n]!;
+    const [cx, cy] = pts[(i + 2) % n]!;
+    if ((bx - ax) * (cy - by) - (by - ay) * (cx - bx) < -1e-9) return false;
+  }
+  return true;
 }
 
 /** The smooth outline as a dense polygon, for a drawing that fills rather than strokes. */

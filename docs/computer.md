@@ -133,6 +133,30 @@ protocol version not spoken.
 After the welcome the device sends `{ "t": "state", ... }` with `consent`,
 `permissions` and `displays` whenever one changes.
 
+Right after the welcome, and again whenever the owner changes it, KOS sends
+its face, decided, so the device draws KOS as the dashboard does without
+repeating the hash:
+
+```json
+{
+  "t": "face",
+  "face": {
+    "fill": "#3585ed",
+    "ink": "#141d29",
+    "eyes": "half",
+    "gait": 1,
+    "shape": { "aspect": 1.05, "squat": 0, "spread": 0.93, "lobes": [{ "k": 2, "amp": 0.06, "phase": 1.2 }] }
+  }
+}
+```
+
+`eyes` is `round`, `half` or `sparkle`; `gait` 0 to 3 (steady, lively, slow,
+restless); `lobes` the outline's lumps, each `k` bulges `amp` of the radius
+out, turned `phase` radians (`outline` in `@kos/shared` `blob.ts`). A device
+keeps the last face of each KOS it pairs with, draws that KOS by it, and
+draws the default face for a KOS that has sent none. A device that does not
+know the frame ignores it.
+
 When the owner unpairs the device on the device, it sends `{ "t": "unpair" }`
 before it hangs up. KOS forgets it, as Remove on the dashboard does: any
 session ends and the line closes with `4003`. A device can only unpair itself,

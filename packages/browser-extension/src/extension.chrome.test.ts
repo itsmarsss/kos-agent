@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { KOS_SEED, drawingOf, lookOf } from "@kos/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WebSocketServer, type WebSocket } from "ws";
 
@@ -219,6 +220,20 @@ describe.skipIf(!CHROME || !BUILT)("the extension in a real Chrome", () => {
     expect(deviceKey).toBeDefined();
     expect(device).toBeDefined();
   });
+
+  it("draws KOS by the face it sends, and keeps it", async () => {
+    const face = drawingOf(lookOf(KOS_SEED, { shape: "mochi", colour: "#8b5cf6" }));
+    device!.send(JSON.stringify({ t: "face", face }));
+    const kept = async (): Promise<unknown> => ((await devtools.evaluate(popup, `chrome.runtime.sendMessage({ type: "state" })`)) as { value: { kos: { face?: unknown }[] } }).value.kos[0]?.face;
+    for (let i = 0; i < 50 && JSON.stringify(await kept()) !== JSON.stringify(face); i++) await until(() => false, 100);
+    expect(await kept()).toEqual(face);
+    // The popup draws it at its next look, in the colour and outline sent.
+    const body = "document.querySelector('.head .blob path[data-part=\"body\"]')";
+    for (let i = 0; i < 40 && (await devtools.evaluate(popup, `${body}?.getAttribute('fill')`)) !== face.fill; i++) await until(() => false, 100);
+    expect(await devtools.evaluate(popup, `${body}?.getAttribute('fill')`)).toBe(face.fill);
+    const stored = (await devtools.evaluate(popup, `chrome.storage.local.get("pairings").then((r) => r.pairings[0].face)`)) as unknown;
+    expect(stored).toEqual(face);
+  }, 20_000);
 
   it("asks the owner before a session, in a window of its own, and refuses a call outside one", async () => {
     expect((await call("tabs.list", { session: "s1" }))["error"]).toMatchObject({ code: "no_session" });

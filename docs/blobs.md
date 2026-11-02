@@ -59,9 +59,18 @@ about while working, hops with a mark when it needs you, sags with slanted
 eyes on an error, and sleeps when its schedule is paused. With reduced
 motion on, it holds still.
 
+The silhouette grows from a word: the name, unless another is given. The
+word picks the proportions and a few broad lumps (two, three and four
+bulges round the body, weaker as they get finer, quieter toward the base
+so it still sits flat), and lumps that would dent the body are eased back
+until it bulges out all round. So any word gives a creature that is
+organic and never a splat, and the same word gives the same one
+everywhere.
+
 Any of it can be set by hand, in the file (`face: hue 210, eyes sparkle,
-gait 2`, or `colour #3b82f6` for any colour at all; hue 0 to 359, eyes
-round, half or sparkle, gait 0 to 3) or in Edit on the blob's page: a row
+gait 2, shape mochi`, or `colour #3b82f6` for any colour at all; hue 0 to
+359, eyes round, half or sparkle, gait 0 to 3, shape any word) or in Edit
+on the blob's page, where the dice beside Shape rolls a new word: a row
 of colours to pick from, and Custom, which opens a picker of the page's
 own (a square and a hue strip, with the hex) for any other. A picked colour
 is the body as you chose it; its hue colours the accents around the blob,

@@ -1,4 +1,5 @@
 import AppKit
+import DeviceUI
 
 /// Everything the owner sees while KOS has the computer: the border and
 /// KOS's cursor on the session's display, and the bar with Pause and Stop.
@@ -14,12 +15,12 @@ final class OverlayController {
   private var hud: HUDPanel?
 
   /// `window`, when given, is what the border wraps; the overlay is on the display it is on.
-  func show(display: CGDirectDisplayID, task: String, until: Date, window: CGRect? = nil) {
+  func show(display: CGDirectDisplayID, task: String, until: Date, face: FaceLook, window: CGRect? = nil) {
     hide()
     guard let nsScreen = Displays.screen(for: display) else { return }
     let overlay = ScreenOverlay(screen: nsScreen, display: display)
     let bar = HUDPanel(
-      screen: nsScreen, task: task, until: until,
+      screen: nsScreen, task: task, until: until, face: face,
       pause: { [weak self] in self?.onPause?() },
       resume: { [weak self] in self?.onResume?() },
       stop: { [weak self] in self?.onStop?() },

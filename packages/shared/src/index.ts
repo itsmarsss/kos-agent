@@ -66,6 +66,7 @@ export {
   KOS_HUE,
   KOS_SEED,
   bodyHexOf,
+  drawingOf,
   hashName,
   hexOfHsl,
   hueOfHex,
@@ -75,7 +76,12 @@ export {
   lightnessOf,
   lightnessOfHex,
   lookOf,
+  readDrawing,
+  SHAPE_WORD_MAX,
+  shapeOf,
+  shapeWordOf,
   type FaceColour,
+  type FaceDrawing,
   type FaceLook,
   type FaceSpec,
 } from "./face.js";
@@ -89,6 +95,7 @@ export {
   POINTS,
   RADIUS,
   eyeAt,
+  isConvex,
   outline,
   smoothPath,
   smoothPolygon,
@@ -97,6 +104,7 @@ export {
   type BlobGait,
   type BlobShape,
   type BlobWhim,
+  type Lobe,
 } from "./blob.js";
 export type { ActionNames } from "./format-action.js";
 export { TIME_TOKEN, formatTime, instantOf, relativeWords, styleOf, timesInWords, withUnixTimes, type TimeStyle } from "./time.js";

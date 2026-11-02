@@ -66,6 +66,7 @@ public enum Inbound: Equatable {
   case challenge(protocol: Int, nonce: String)
   case welcome(name: String, signature: String)
   case call(Call)
+  case face(FaceDrawing)
 
   public static func decode(_ data: Data) throws -> Inbound {
     let decoder = JSONDecoder()
@@ -80,6 +81,10 @@ public enum Inbound: Equatable {
     case "call":
       let m = try decoder.decode(CallHeader.self, from: data)
       return .call(Call(id: m.id, method: m.method, raw: data))
+    case "face":
+      let face = try decoder.decode(FaceBody.self, from: data).face
+      guard face.isValid else { throw DeviceError.badRequest("A face that does not read.") }
+      return .face(face)
     default:
       throw DeviceError.badRequest("Unknown message type \(kind).")
     }
@@ -99,6 +104,10 @@ public enum Inbound: Equatable {
   private struct WelcomeBody: Decodable {
     let name: String
     let signature: String
+  }
+
+  private struct FaceBody: Decodable {
+    let face: FaceDrawing
   }
 
   private struct CallHeader: Decodable {

@@ -200,6 +200,14 @@ while KOS works, and in a consent sheet at 54 in a halo. On the dashboard
 the brand is the face and the K-OS wordmark; everywhere else the name is
 KOS.
 
+A blob's outline grows from its name, or from a word it is given: a few
+broad lumps, eased back until it bulges out all round (`shapeOf` in
+`@kos/shared`). KOS keeps the plain gumdrop unless the owner gives it a
+word under Settings, Appearance. KOS sends its face, as set there, to the
+extension and KOS Device (the `face` frame, [computer.md](computer.md)), so
+all three draw the same KOS; each draws a KOS by the face it sent, and the
+default one for a KOS that has sent none.
+
 ## Chat
 
 The dashboard's chats and the side panel are the same conversation, drawn

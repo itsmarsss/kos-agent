@@ -1,10 +1,11 @@
-import { EYE_DOT_R, EYE_GLINT, EYE_PILL, KOS_SEED, eyeAt, lookOf, outline, smoothPath } from "@kos/shared";
+import { EYE_DOT_R, EYE_GLINT, EYE_PILL, KOS_SEED, drawingOf, eyeAt, lookOf, outline, smoothPath, type FaceDrawing } from "@kos/shared";
 import { mountBlob, type BlobHandle, type BlobMood } from "@kos/shared/blobmotion";
 
 /**
  * KOS's face, alive, as the dashboard draws it: the same parts in the same
- * SVG, moved by the same code, so the popup and the consent window show the
- * KOS the owner knows from the dashboard and from the Mac. It breathes, its
+ * SVG, moved by the same code, as that KOS sent its face, so the popup and
+ * the consent window show the KOS the owner knows from the dashboard and
+ * from the Mac. It breathes, its
  * eyes follow the pointer and blink, it squashes under the pointer and
  * wobbles when poked; asked for less motion, it holds still.
  */
@@ -15,8 +16,9 @@ export interface KosFace {
   dispose(): void;
 }
 
-export function kosFace(size: number, mood: BlobMood): KosFace {
-  const look = lookOf(KOS_SEED);
+export function kosFace(size: number, mood: BlobMood, drawn: FaceDrawing = drawingOf(lookOf(KOS_SEED))): KosFace {
+  // KOS's own habits and tilt; its colours, eyes, gait and outline as it sent them.
+  const look = { ...lookOf(KOS_SEED), ...drawn };
   const eye = (side: "l" | "r"): string => {
     const at = eyeAt(side, look.shape);
     const shape =

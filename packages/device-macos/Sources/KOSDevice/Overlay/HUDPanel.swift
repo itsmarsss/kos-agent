@@ -15,12 +15,12 @@ final class HUDPanel: NSPanel {
   private(set) var atBottom = false
 
   init(
-    screen: NSScreen, task text: String, until: Date,
+    screen: NSScreen, task text: String, until: Date, face: FaceLook,
     pause: @escaping () -> Void, resume: @escaping () -> Void, stop: @escaping () -> Void, extend: @escaping () -> Void
   ) {
     screenFrame = screen.frame
     visibleFrame = screen.visibleFrame
-    bar = SessionBarModel(task: text, until: until)
+    bar = SessionBarModel(task: text, until: until, face: face)
     bar.pause = pause
     bar.resume = resume
     bar.stop = stop

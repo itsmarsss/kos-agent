@@ -40,6 +40,8 @@ public final class ConsentModel: ObservableObject {
   /// The most a custom length may be: the owner's longest session.
   public let longest: Int
   public let timeout: Int
+  /// The asking KOS's face.
+  public let face: FaceLook
   @Published public var minutes: Int
   /// A length of the owner's own, set with the stepper.
   @Published public var custom = false
@@ -54,8 +56,12 @@ public final class ConsentModel: ObservableObject {
 
   var chosen: TargetChoice? { targets.first { $0.id == target } }
 
-  public init(task: String, requester: String, kos: String? = nil, chat: URL? = nil, offered: [Int], longest: Int? = nil, timeout: Int) {
+  public init(
+    task: String, requester: String, kos: String? = nil, chat: URL? = nil, offered: [Int], longest: Int? = nil, timeout: Int,
+    face: FaceLook = .kos
+  ) {
     self.task = task
+    self.face = face
     self.requester = requester
     self.kos = kos
     self.chat = chat
@@ -82,7 +88,7 @@ public struct ConsentView: View {
           .fill(Theme.accent.opacity(glow ? 0.22 : 0.08))
           .frame(width: 84, height: 84)
           .blur(radius: 10)
-        KOSFace(size: 54, mood: .needsYou)
+        KOSFace(size: 54, mood: .needsYou, look: model.face)
       }
       .padding(.top, 6)
       .onAppear {

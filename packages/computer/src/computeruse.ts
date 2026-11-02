@@ -2,6 +2,7 @@ import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 
 import { requireServices, type ApiExtension, type BrowserElsewhere, type KosModule } from "@kos/harness";
+import type { FaceDrawing } from "@kos/shared";
 
 import { OwnerChrome } from "./chrome.js";
 import { DeviceHub } from "./hub.js";
@@ -28,6 +29,8 @@ export interface ComputerUseOptions {
   caller(): string | undefined;
   titleOf(conversation: string): string;
   halted(): boolean;
+  /** KOS's face as the owner set it, sent to every device to draw KOS by. */
+  face(): FaceDrawing;
   /** The chat the Chrome side panel shows, read when it is shown. */
   panel: PanelDeps;
 }
@@ -47,6 +50,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
   let hub: DeviceHub | undefined;
   let chrome: OwnerChrome | undefined;
   let active: KosModule | undefined;
+  let unfaced: (() => void) | undefined;
   const sockets = deviceSocketServer(() => (active ? hub : undefined));
   const panel = new ChromePanel(options.panel);
 
@@ -59,10 +63,12 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
         store: new DeviceStore(requireServices(ctx).db),
         hostKey: loadHostKey({ path: options.hostKeyPath, ...(options.hostKeyEnv ? { env: options.hostKeyEnv } : {}) }),
         halted: options.halted,
+        face: options.face,
       });
       chrome ??= new OwnerChrome(hub);
       panel.attach(hub);
       const events = ctx.events;
+      unfaced = events?.on("face:changed", () => hub?.tellFace());
       active = computerModule({
         hub,
         chrome,
@@ -76,6 +82,8 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
     async deactivate() {
       await active?.deactivate?.();
       active = undefined;
+      unfaced?.();
+      unfaced = undefined;
       panel.attach(undefined);
       hub?.closeAll();
     },

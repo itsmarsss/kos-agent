@@ -16,6 +16,8 @@ export class FakeDevice {
   readonly publicKey: string;
   readonly nonce = nonce();
   readonly calls: { method: string; params: Record<string, unknown> }[] = [];
+  /** Each face KOS sent, oldest first. */
+  readonly faces: Record<string, unknown>[] = [];
   readonly answers = new Map<string, Answer>();
   welcome: { name: string; signature: string } | undefined;
   closed: { code: number; reason: string } | undefined;
@@ -88,6 +90,7 @@ export class FakeDevice {
     const msg = JSON.parse(text) as Record<string, unknown>;
     if (msg.t === "challenge") this.challenge = msg.nonce as string;
     else if (msg.t === "welcome") this.welcome = { name: msg.name as string, signature: msg.signature as string };
+    else if (msg.t === "face") this.faces.push(msg.face as Record<string, unknown>);
     else if (msg.t === "call") {
       const method = msg.method as string;
       const params = msg.params as Record<string, unknown>;

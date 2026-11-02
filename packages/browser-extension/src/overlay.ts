@@ -32,6 +32,8 @@ export interface OverlayState {
   at?: { x: number; y: number };
   /** Folded to KOS's face. */
   folded?: boolean;
+  /** The face of the KOS at work: its colours, its eyes, and its outline as a path in a 100-unit box. */
+  face?: { fill: string; ink: string; eyes: string; body: string };
 }
 
 export function installOverlay(): void {
@@ -58,6 +60,7 @@ export function installOverlay(): void {
   let take: HTMLButtonElement | null = null;
   let bar: HTMLElement | null = null;
   let cursor: HTMLElement | null = null;
+  let face: HTMLElement | null = null;
   let idle: ReturnType<typeof setTimeout> | undefined;
   let removed = false;
   let lastAlive = Date.now();
@@ -90,6 +93,12 @@ export function installOverlay(): void {
     left.textContent = minutes();
     take.textContent = state.paused ? "Hand back" : "Take over";
     take.dataset["act"] = state.paused ? "handback" : "take";
+    if (face && state.face) {
+      face.style.setProperty("--fill", state.face.fill);
+      face.style.setProperty("--ink", state.face.ink);
+      face.dataset["eyes"] = state.face.eyes;
+      face.querySelector("path")?.setAttribute("d", state.face.body);
+    }
     bar?.setAttribute("title", state.folded ? `${title.textContent}: ${state.task || "working"}. Press KOS's face to open the bar.` : "Drag to move. Press KOS's face to fold.");
     place();
   };
@@ -101,8 +110,9 @@ export function installOverlay(): void {
     host.style.cssText = "all: initial; position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;";
     const shadow = host.attachShadow({ mode: "closed" });
     // KOS's face as @kos/shared colours it, written in rather than imported,
-    // since this function runs in the page on its own; extension.test.ts keeps them in step.
-    const face = { fill: "#3585ed", ink: "#141d29" };
+    // since this function runs in the page on its own; extension.test.ts keeps
+    // them in step. The KOS at work sends its own, outline and all, with the state.
+    const kos = { fill: "#3585ed", ink: "#141d29" };
     shadow.innerHTML = `<style>
       :host { --accent: #7c9cff; --violet: #a57cff; --warn: #e6b84d; --danger: #f07178; --tone: var(--accent); }
       :host([data-paused="1"]) { --tone: var(--warn); }
@@ -122,9 +132,14 @@ export function installOverlay(): void {
       :host([data-folded="1"]) .bar { gap: 0; padding: 0 11px; opacity: 0.85; }
       :host([data-folded="1"]) .bar:hover { opacity: 1; }
       :host([data-folded="1"]) .words, :host([data-folded="1"]) button { display: none; }
-      .face { cursor: pointer; position: relative; flex: none; width: 26px; height: 26px; border-radius: 50% 50% 47% 53% / 52% 50% 50% 48%; background: ${face.fill};
+      .face { --fill: ${kos.fill}; --ink: ${kos.ink}; cursor: pointer; position: relative; flex: none; width: 26px; height: 26px;
+        border-radius: 50% 50% 47% 53% / 52% 50% 50% 48%; background: var(--fill);
         display: flex; align-items: center; justify-content: center; gap: 5px; }
-      .face i { width: 3px; height: 6px; border-radius: 2px; background: ${face.ink}; margin-top: -2px; }
+      .face:has(path[d]) { background: none; }
+      .face svg { position: absolute; inset: -2px; width: 30px; height: 30px; }
+      .face path { fill: var(--fill); }
+      .face i { position: relative; width: 3px; height: 6px; border-radius: 2px; background: var(--ink); margin-top: -2px; }
+      .face[data-eyes="round"] i { width: 4px; height: 4px; }
       .face b { position: absolute; right: -2px; bottom: -2px; width: 8px; height: 8px; border-radius: 50%; background: var(--tone);
         box-shadow: 0 0 0 1.5px #12151c; animation: beat 1.8s ease-in-out infinite; }
       :host([data-paused="1"]) .face b { animation: none; }
@@ -149,13 +164,14 @@ export function installOverlay(): void {
     </style>
     <div class="cursor"><i></i><svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><path d="M3 2.5v15.2l4.2-4.1 2.7 6.1 2.6-1.1-2.7-6h5.9z" style="fill: var(--accent)" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg></div>
     <div class="glow"></div>
-    <div class="bar"><span class="face"><i></i><i></i><b></b></span><span class="words"><span class="title"></span><span class="sub"><span class="text"></span><span class="left"></span></span></span><button data-act="take"></button><button class="stop" data-act="stop">Stop</button></div>`;
+    <div class="bar"><span class="face"><svg viewBox="0 0 100 100" aria-hidden="true"><path/></svg><i></i><i></i><b></b></span><span class="words"><span class="title"></span><span class="sub"><span class="text"></span><span class="left"></span></span></span><button data-act="take"></button><button class="stop" data-act="stop">Stop</button></div>`;
     title = shadow.querySelector(".title");
     text = shadow.querySelector(".text");
     left = shadow.querySelector(".left");
     take = shadow.querySelector('button[data-act]:not(.stop)');
     bar = shadow.querySelector(".bar");
     cursor = shadow.querySelector(".cursor");
+    face = shadow.querySelector(".face");
     // A drag moves the bar; a press that does not move is a press, and on the face it folds the bar.
     let drag: { id: number; dx: number; dy: number; x0: number; y0: number; moved: boolean } | null = null;
     bar?.addEventListener("pointerdown", (e) => {

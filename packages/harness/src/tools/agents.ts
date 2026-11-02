@@ -187,8 +187,14 @@ function defineAgentTools(deps: AgentToolDeps, ctx: ModuleContext): void {
           },
           face: {
             type: "object",
-            description: "its face, only if the owner asked for a look: hue 0-359, eyes round|half|sparkle, gait 0-3. Otherwise omit; the name decides.",
-            properties: { hue: { type: "number" }, eyes: { type: "string", enum: ["round", "half", "sparkle"] }, gait: { type: "number" } },
+            description: "its face, only if the owner asked for a look: hue 0-359, colour #rrggbb, eyes round|half|sparkle, gait 0-3, shape (any word; its outline grows from that word instead of the name). Otherwise omit; the name decides.",
+            properties: {
+              hue: { type: "number" },
+              colour: { type: "string" },
+              eyes: { type: "string", enum: ["round", "half", "sparkle"] },
+              gait: { type: "number" },
+              shape: { type: "string" },
+            },
           },
           replace: { type: "boolean", description: "rewrite a blob that already exists; otherwise an existing name is refused" },
         },

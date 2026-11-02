@@ -79,7 +79,7 @@ function Popup(): ReactElement {
   return (
     <>
       <header className="head">
-        <Face size={36} mood={mood(state)} />
+        <Face size={36} mood={mood(state)} look={state?.session?.face ?? best?.face} />
         <div className="head-text">
           <strong>KOS</strong>
           <span className="sub">Only when you allow.</span>

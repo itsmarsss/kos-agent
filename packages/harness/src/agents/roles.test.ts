@@ -67,6 +67,11 @@ describe("roles", () => {
     const painted = parseRole("---\ndescription: d\nface: colour #3B82F6, gait 1\n---\nbody", "x");
     expect(painted.face).toEqual({ colour: "#3b82f6", gait: 1 });
     expect(formatRole({ ...painted, name: "x", memory: "own", description: "d", brief: "body" })).toContain("face: colour #3b82f6, gait 1\n");
+    // A shape is any word or words, and round-trips as written.
+    const shaped = parseRole("---\ndescription: d\nface: shape tiny moon, eyes round\n---\nbody", "x");
+    expect(shaped.face).toEqual({ shape: "tiny moon", eyes: "round" });
+    expect(formatRole({ ...shaped, name: "x", memory: "own", description: "d", brief: "body" })).toContain("face: eyes round, shape tiny moon\n");
+    expect(() => parseRole("---\ndescription: d\nface: shape\n---\nbody", "x")).toThrow(/or "shape <word>"/);
   });
 
   it("lists what is on disk, names what does not parse, and reads an edit at once", () => {

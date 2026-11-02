@@ -188,6 +188,8 @@ public final class HomeModel: ObservableObject {
   /// The Devices page of the KOS being typed in, while pairing.
   @Published public var devicesPage: URL?
   @Published public var session: SessionSummary?
+  /// The face the window wears: the KOS at work, else the one it shows first.
+  @Published public var face: FaceLook = .kos
   /// The Keychain would not give up the pairing: why, until a try succeeds.
   @Published public var keychainProblem: String?
   @Published public var screenGranted = false

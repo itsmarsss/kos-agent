@@ -11,11 +11,11 @@ export { FILL_SAT, KOS_SEED, lightnessOf };
  * An agent's face: a flat blob with two eyes, alive.
  *
  * A blob is a thing you come back to, so it should be a thing you
- * recognise. Its colour, its gait and the set of its eyes all come from its
- * name, so the same agent looks the same in the rail, on its page and in a
- * chip, and two agents never look alike by accident. The owner can set any
- * of those by hand, in the agent's file or, for KOS, in Settings; what they
- * leave unset still comes from the name.
+ * recognise. Its colour, its outline, its gait and the set of its eyes all
+ * come from its name, so the same agent looks the same in the rail, on its
+ * page and in a chip, and two agents never look alike by accident. The
+ * owner can set any of those by hand, in the agent's file or, for KOS, in
+ * Settings; what they leave unset still comes from the name.
  *
  * The drawing is as plain as it can be: one matte shape, two eyes, no mouth,
  * no shine. Everything else is motion, in blob.ts: it looks at you, blinks,
@@ -47,8 +47,10 @@ export interface Look {
   tilt: number;
   /** The number its whims come from. */
   seed: number;
-  /** Its silhouette: round or tall, standing or squat, eyes close or wide. */
+  /** Its silhouette: round or tall, standing or squat, eyes close or wide, lumpy its own way. */
   shape: BlobShape;
+  /** The word the silhouette grew from, when the owner gave one. */
+  shapeWord?: string;
   /** Its habits: how it takes to the cursor, how often it blinks. */
   whim: BlobWhim;
 }
@@ -83,13 +85,14 @@ export function lookOf(seed: string, override: FaceLook = {}): Look {
     tilt: spec.tilt,
     seed: spec.seed,
     shape: spec.shape,
+    ...(spec.shapeWord ? { shapeWord: spec.shapeWord } : {}),
     whim: spec.whim,
   };
 }
 
 /** The settable part of a look, as the editors hold it. */
 export function faceLookOf(look: Look): FaceLook {
-  return { hue: look.hue, ...(look.colour ? { colour: look.colour } : {}), eyes: look.eyes, gait: look.wobble };
+  return { hue: look.hue, ...(look.colour ? { colour: look.colour } : {}), eyes: look.eyes, gait: look.wobble, ...(look.shapeWord ? { shape: look.shapeWord } : {}) };
 }
 
 /** What a thread is doing, as a face; a paused schedule is asleep whatever the thread says. */
@@ -155,8 +158,8 @@ export function Face({ seed, look: override, size = 24, mood = "idle", label }: 
       handle.current = null;
     };
     // Mood is pushed through setMood below, so a change of it does not remount.
-    // The shape and habits follow the seed, so the seed stands for them.
-  }, [look.seed, look.wobble, look.eyes, look.tilt, still]);
+    // The habits follow the seed, and the shape the seed or the word given it.
+  }, [look.seed, look.shapeWord, look.wobble, look.eyes, look.tilt, still]);
   useEffect(() => {
     handle.current?.setMood(mood);
   }, [mood]);
