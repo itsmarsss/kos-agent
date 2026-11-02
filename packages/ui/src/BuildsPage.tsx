@@ -296,7 +296,7 @@ export function BuildsPage({
                     key={f}
                     type="button"
                     className={`chip${draft.dir === f ? " is-on" : ""}`}
-              aria-pressed={draft.dir === f}
+                    aria-pressed={draft.dir === f}
                     onClick={() => setDraft({ ...draft, dir: f })}
                   >
                     {f}

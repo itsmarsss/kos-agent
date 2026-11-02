@@ -163,18 +163,27 @@ export const MoreIcon = (): ReactElement => (
   </Icon>
 );
 
+/** A glyph that only decorates its button: the button carries the name and the tooltip. */
+function Glyph({ children, size }: { children: React.ReactNode; size: number }): ReactElement {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {children}
+    </svg>
+  );
+}
+
 /** Send, on the composer's round button, as in the side panel. */
 export const SendIcon = ({ size = 15 }: { size?: number } = {}): ReactElement => (
-  <Icon title="Send" size={size}>
+  <Glyph size={size}>
     <path d="M5 12h14M13 6l6 6-6 6" />
-  </Icon>
+  </Glyph>
 );
 
 /** Stop, on the same button while a turn runs. */
 export const StopIcon = ({ size = 13 }: { size?: number } = {}): ReactElement => (
-  <Icon title="Stop" size={size}>
+  <Glyph size={size}>
     <rect x="6.5" y="6.5" width="11" height="11" rx="2.5" fill="currentColor" stroke="none" />
-  </Icon>
+  </Glyph>
 );
 
 export const SearchIcon = ({ size = 14 }: { size?: number } = {}): ReactElement => (

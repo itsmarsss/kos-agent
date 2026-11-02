@@ -63,7 +63,7 @@ function Consent(): ReactElement {
         </>
       )}
       <m.div className="decide" variants={rise}>
-        <div className="row row--between">
+        <div className={request ? "row row--between" : "row"}>
           {request ? (
             <>
               <button type="button" id="deny" className="btn" onClick={() => void decide(false)}>

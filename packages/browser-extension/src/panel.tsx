@@ -883,7 +883,7 @@ function Composer({
       <div className="composer-foot">
         <ModelChoice models={models} choose={chooseModel} />
         {auto !== undefined && online && <AutoChoice on={auto} set={setAuto} />}
-        <m.button type="button" className="send" aria-label="Send" disabled={!online || !text.trim()} onClick={go} whileTap={{ scale: 0.9 }} transition={spring}>
+        <m.button type="button" className="send" aria-label="Send" disabled={!online || !text.trim()} onClick={go} whileTap={{ scale: 0.97 }} transition={spring}>
           <Icon path={ICONS.send} size={15} />
         </m.button>
       </div>

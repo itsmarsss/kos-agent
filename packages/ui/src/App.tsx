@@ -1134,7 +1134,7 @@ export function App(): React.ReactElement {
                 key={f}
                 type="button"
                 className={`chip${cronFilter === f ? " is-on" : ""}`}
-              aria-pressed={cronFilter === f}
+                aria-pressed={cronFilter === f}
                 onClick={() => setCronFilter(f)}
               >
                 {f}

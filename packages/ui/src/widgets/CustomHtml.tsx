@@ -49,7 +49,7 @@ function frameDocument(html: string): string {
     "<style>",
     `:root{color-scheme:${scheme};--text:${text};--muted:${muted};--line:${line};}`,
     "html,body{margin:0;background:transparent;color:var(--text);",
-    "font:14px/1.45 'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;}",
+    "font:14px/1.45 -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;}",
     "a{color:inherit}img,table{max-width:100%}",
     "table{border-collapse:collapse}th,td{border-bottom:1px solid var(--line);",
     "padding:.35rem .4rem;text-align:left}th{color:var(--muted);font-weight:500}",

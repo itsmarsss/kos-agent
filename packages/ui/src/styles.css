@@ -1823,7 +1823,7 @@ select {
   transition: background 140ms ease, transform 80ms ease;
 }
 .send:hover:not(:disabled) { background: var(--accent-lit); }
-.send:active:not(:disabled) { transform: scale(0.9); }
+.send:active:not(:disabled) { transform: scale(0.97); }
 .send:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .send:disabled { background: var(--line); color: var(--faint); cursor: default; }
 .send--stop { background: color-mix(in srgb, var(--danger) 17%, transparent); color: var(--danger); }
@@ -1912,11 +1912,6 @@ select {
   gap: 0.6rem;
 }
 
-/*
- * One separation, not three. These carried a border, a panel fill and an
- * internal divider rule, all doing the same job, which is what made a screen
- * of them read as boxes-in-boxes rather than as a set of things.
- */
 /* A card that opens something, and says so under the pointer. Every card
    once carried this, the kit's included, so a card that did nothing still
    took the pointer and lit up. */
@@ -1926,13 +1921,13 @@ select {
   text-decoration: none;
   font: inherit;
   cursor: pointer;
-  transition: background 140ms ease, border-color 140ms ease, transform 80ms ease;
+  /* Background and edge only: Motion moves the card under the pointer. */
+  transition: background 140ms ease, border-color 140ms ease;
 }
 .card.card--opens:hover {
   background: var(--panel-2);
   border-color: var(--line-strong);
 }
-.card.card--opens:active { transform: scale(0.99); }
 /* It takes focus now that it is operable, so it has to show it. */
 .card.card--opens:focus-visible {
   outline: 2px solid var(--accent);
@@ -2091,7 +2086,9 @@ select {
   color: var(--text);
   border-radius: var(--r-lg) var(--r-lg) var(--r-xs) var(--r-lg);
 }
-.bubble--kos { align-self: flex-start; max-width: 100%; padding: 0.1rem 0.15rem; background: none; }
+.bubble--kos { align-self: flex-start; padding: 0.1rem 0.15rem; background: none; }
+:root[data-theme="light"] .bubble--you { background: color-mix(in srgb, var(--accent) 9%, var(--panel)); }
+:root[data-theme="light"] .btn--danger { color: color-mix(in srgb, var(--danger) 80%, black); }
 .is-thinking {
   display: flex;
   align-items: center;
@@ -2235,8 +2232,6 @@ a.turn-via:hover { text-decoration: underline; color: var(--muted); }
   .sheet-composer-bar .ctx-track,
   .sheet-composer-bar .ctx-detail { display: none; }
   .sheet-composer-bar .ctx-text { white-space: nowrap; }
-  .sheet-composer-bar .btn--primary,
-  .sheet-composer-bar .btn--danger { flex: none; }
 }
 
 /* —— conversation switcher —— */
@@ -2536,6 +2531,7 @@ a.turn-via:hover { text-decoration: underline; color: var(--muted); }
 }
 .sel-option.is-cursor { background: var(--panel-2); }
 .sel-option.is-on { color: var(--accent); background: var(--accent-dim); }
+.sel-option.is-on.is-cursor { background: color-mix(in srgb, var(--accent) 24%, transparent); }
 .sel-option-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
 .sel-option-hint { color: var(--faint); font-size: var(--text-sm); }
 
@@ -3209,7 +3205,7 @@ li:hover .chats-item-when { opacity: 0; }
   background: var(--panel-2);
 }
 .icon-btn:hover:not(:disabled) { border-color: var(--line); }
-.icon-btn:active:not(:disabled) { transform: scale(0.94); }
+.icon-btn:active:not(:disabled) { transform: scale(0.97); }
 .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .acts-btn:disabled,
 .icon-btn:disabled { opacity: 0.4; cursor: default; }
@@ -3869,7 +3865,8 @@ li:hover .chats-item-when { opacity: 0; }
   padding: 0.35rem 0.45rem;
   line-height: 0;
 }
-.btn--icon.is-on {
+.btn--icon.is-on,
+.btn--icon.is-on:hover:not(:disabled) {
   color: var(--accent);
   border-color: var(--accent);
   background: var(--accent-dim);
@@ -5695,6 +5692,12 @@ input[role="switch"]:hover:not(:disabled) { background: var(--faint); }
 input[role="switch"]:checked:hover:not(:disabled) { background: var(--accent-lit); }
 input[role="switch"]:disabled { opacity: 0.45; cursor: default; }
 input[role="switch"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (forced-colors: active) {
+  input[role="switch"] { border: 1px solid ButtonText; background: Canvas; }
+  input[role="switch"]::before { background: ButtonText; }
+  input[role="switch"]:checked { background: Highlight; }
+  input[role="switch"]:checked::before { background: HighlightText; }
+}
 
 /* A total you can open up: the cell hints that there is more behind it. */
 .spend-hover {
@@ -5725,7 +5728,7 @@ input[role="switch"]:focus-visible { outline: 2px solid var(--accent); outline-o
   min-width: 17rem;
   overflow-y: auto;
   padding: 0.5rem;
-  background: var(--panel-2);
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   box-shadow: var(--float);
@@ -5992,10 +5995,8 @@ input[role="switch"]:focus-visible { outline: 2px solid var(--accent); outline-o
   margin-top: 0.35rem;
 }
 
-/* On the subscription there is nothing to pick, so it states rather than
-   offers. */
-/* The engine, where there is no model to pick: a quiet capsule, as the side
-   panel shows it. */
+/* On the subscription there is nothing to pick, so the engine is stated in a
+   quiet capsule rather than offered, as the side panel shows it. */
 .composer-engine {
   padding: 0.2rem 0.6rem;
   border-radius: 999px;
@@ -6253,7 +6254,7 @@ input[role="switch"]:focus-visible { outline: 2px solid var(--accent); outline-o
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  box-shadow: 0 10px 30px rgb(0 0 0 / 0.35);
+  box-shadow: var(--float);
   font-size: var(--text-sm);
 }
 .recall-scope, .recall-head { margin: 0 0 0.4rem; color: var(--faint); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em; }
@@ -6658,7 +6659,8 @@ input[role="switch"]:focus-visible { outline: 2px solid var(--accent); outline-o
 }
 .chats-welcome-kbd { color: var(--faint); font-size: var(--text-sm); }
 /* What Send does with what was typed: hand it to KOS, or force a chat or a
-   project. A segmented control, recessed track with a tinted active pill. */
+   project. Round holds round: inside the landing's round box the track and
+   its choices are capsules. */
 .chats-mode {
   display: inline-flex;
   gap: 0.1rem;
@@ -6678,7 +6680,6 @@ input[role="switch"]:focus-visible { outline: 2px solid var(--accent); outline-o
   cursor: pointer;
   transition: color 140ms ease, background 140ms ease;
 }
-/* Round holds round: inside the composer's capsule track the choices are capsules. */
 .chats-mode-opt:hover { color: var(--text); }
 .chats-mode-opt.is-active {
   background: var(--accent-dim);
@@ -6967,9 +6968,9 @@ input[role="switch"]:focus-visible { outline: 2px solid var(--accent); outline-o
   max-height: 6rem;
 }
 .quickask-input:focus { outline: none; }
-/* The same box idle and busy, as tall as one line of the field. */
+/* The same circle idle and busy, its dots in its own ink either way. */
 .quickask-send { margin-bottom: 0.05rem; }
-.quickask-send .live-dots i { background: var(--on-accent); }
+.quickask-send .live-dots i { background: currentColor; }
 .chats-undo {
   display: flex;
   align-items: center;
@@ -7629,7 +7630,7 @@ input[role="switch"]:focus-visible { outline: 2px solid var(--accent); outline-o
 .composer-engine { display: inline-block; max-width: 11rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .composer-model .sel-button { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .composer-spacer { flex: 1 1 0.25rem; }
-.sheet-composer-bar > .btn--primary, .sheet-composer-bar > .btn--danger, .sheet-composer-bar > .send { margin-left: auto; }
+.sheet-composer-bar > .send { margin-left: auto; }
 
 /*
  * Agent faces. The drawing lives in Face.tsx and the life in blob.ts; the

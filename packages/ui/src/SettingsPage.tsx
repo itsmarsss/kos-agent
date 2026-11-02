@@ -1030,7 +1030,7 @@ export function SettingsPage({
                 hint="Off by default. On, a cheap model reads new conversation in batches and proposes claims; what it writes is attributed to it, cites its sources, and shows in Memory. Run it once from the Memory page first and see what it does."
               >
                 <label className="set-toggle">
-                  <input role="switch"
+                  <input role="switch" aria-label="Extract memory in the background"
                     type="checkbox"
                     checked={how.memoryExtraction}
                     onChange={(e) => setHow({ ...how, memoryExtraction: e.target.checked })}
@@ -1042,7 +1042,7 @@ export function SettingsPage({
                 hint="On the first failure of a job, KOS opens a chat, works out why, and repairs it if it safely can. Later failures of the same job do not start another attempt. Everything it does there still asks you before anything risky."
               >
                 <label className="set-toggle">
-                  <input role="switch"
+                  <input role="switch" aria-label="Try to fix failures on its own"
                     type="checkbox"
                     checked={how.autoFix}
                     onChange={(e) => setHow({ ...how, autoFix: e.target.checked })}
@@ -1247,7 +1247,7 @@ export function SettingsPage({
               hint="When on, the oldest exchanges fall off the front once a chat passes the budgets below, and the chat says so when it happens. Off keeps everything: the whole history is re-sent every turn, so it gets slower and costs more as it grows."
             >
               <label className="set-toggle">
-                <input role="switch"
+                <input role="switch" aria-label="Trim old exchanges"
                   type="checkbox"
                   checked={retention.autoTrim !== "off"}
                   onChange={(e) =>
@@ -1369,7 +1369,7 @@ export function SettingsPage({
                 {...(sk.origin ? { meta: <span className="set-origin ops-mono">{sk.origin}</span> } : {})}
               >
                 <label className="set-toggle">
-                  <input role="switch"
+                  <input role="switch" aria-label={sk.name}
                     type="checkbox"
                     checked={sk.enabled}
                     disabled={skillBusy === sk.name}
@@ -1454,7 +1454,7 @@ export function SettingsPage({
                 }
               >
                 <label className="set-toggle">
-                  <input role="switch"
+                  <input role="switch" aria-label={s.name}
                     type="checkbox"
                     checked={s.enabled}
                     disabled={mcpBusy === s.name}
@@ -1494,7 +1494,7 @@ export function SettingsPage({
                 {(modules.builtins ?? []).map((b) => (
                   <Field key={b.name} label={b.name} hint={b.description} row>
                     <label className="set-toggle">
-                      <input role="switch"
+                      <input role="switch" aria-label={b.name}
                         type="checkbox"
                         checked={b.enabled}
                         onChange={(e) => {
@@ -1601,7 +1601,7 @@ export function SettingsPage({
                   </div>
                 ) : (
                 <label className="set-toggle">
-                  <input role="switch"
+                  <input role="switch" aria-label={m.name}
                     type="checkbox"
                     checked={m.enabled}
                     disabled={moduleBusy === m.name}
@@ -1714,7 +1714,7 @@ export function SettingsPage({
                     hint="Off, Chrome runs unseen and the dashboard's Browser window is the only view. On, Chrome's own windows open here too: that is how you install extensions from the Web Store, and it is where Chrome's own dialogs appear."
                   >
                     <label className="set-toggle">
-                      <input role="switch" type="checkbox" checked={browserDraft.headed} onChange={(e) => setBrowserDraft({ ...browserDraft, headed: e.target.checked })} />
+                      <input role="switch" aria-label="Show the window on this machine" type="checkbox" checked={browserDraft.headed} onChange={(e) => setBrowserDraft({ ...browserDraft, headed: e.target.checked })} />
                     </label>
                   </Field>
                   <Field

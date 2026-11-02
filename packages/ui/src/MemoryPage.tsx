@@ -378,7 +378,7 @@ function JobsTab(): ReactElement {
                 }).catch((err: unknown) => setSaid((s) => ({ ...s, [job.id]: err instanceof Error ? err.message : String(err) }))).finally(() => { setBusy(null); load(); });
               }}>{busy === job.id ? "Running…" : "Run now"}</button>
               <label className="set-toggle">
-                <input role="switch" type="checkbox" checked={job.enabled} onChange={(e) => void api.setCronEnabled(job.id, e.target.checked).then(load, load)} />
+                <input role="switch" aria-label={`${j.label} on schedule`} type="checkbox" checked={job.enabled} onChange={(e) => void api.setCronEnabled(job.id, e.target.checked).then(load, load)} />
               </label>
             </div>
           </div>
