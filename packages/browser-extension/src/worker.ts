@@ -602,8 +602,10 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   if (reason === "canceled_by_user") void end("detached");
 });
 
-chrome.tabs.onUpdated.addListener((tab, change) => {
+chrome.tabs.onUpdated.addListener((tab, change, info) => {
   if (change.url && attached.has(tab)) tabUrls.set(tab, change.url);
+  // What was selected on a page is not selected on the next one.
+  if ((change.status === "loading" || change.url) && selections.delete(tab) && info.active) void tellSelection(info.windowId, tab);
 });
 
 chrome.tabs.onRemoved.addListener((tab) => {
@@ -813,8 +815,10 @@ async function fromPanel(panel: Panel, message: Record<string, unknown>): Promis
       // Which tab the words were said beside, so "this page" means it; a hidden site only as hidden.
       const [front] = await chrome.tabs.query({ active: true, windowId: panel.window });
       const url = front?.url ?? "";
-      // With what the owner selected there, when the panel sends it along.
-      const selection = str(message["selection"]).trim();
+      // With what the owner selected there, when the panel sends it along and
+      // it is still what the page holds: not a stale chip from a page gone.
+      const offered = str(message["selection"]).trim();
+      const selection = front?.id !== undefined && offered && offered === selectionOf(front.id).trim() ? offered : "";
       const where = !front
         ? undefined
         : !/^https?:\/\//.test(url)
@@ -891,8 +895,17 @@ function askToRead(panel: Panel, host: string): Promise<boolean> {
   });
 }
 
+/**
+ * One of the extension's own pages: the popup, the panel, the consent window.
+ * Its scripts in web pages carry the same id, and a page's renderer can speak
+ * for them, so the id alone is not who is asking.
+ */
+function ownPage(sender: chrome.runtime.MessageSender | undefined): boolean {
+  return sender?.id === chrome.runtime.id && (sender.url ?? "").startsWith(chrome.runtime.getURL(""));
+}
+
 chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== "panel" || port.sender?.id !== chrome.runtime.id) return;
+  if (port.name !== "panel" || !ownPage(port.sender)) return;
   const panel: Panel = { port, window: chrome.windows.WINDOW_ID_NONE };
   panels.add(panel);
   port.onMessage.addListener((message: Record<string, unknown>) => {
@@ -910,18 +923,33 @@ chrome.runtime.onConnect.addListener((port) => {
 
 // What the owner selects on a page, for the side panel beside it.
 
-/** Each tab's selection by frame, with when it was made: the newest that holds text is the tab's. */
+/** Each tab's selection by frame, with when it was made: the newest report is the tab's, empty or not. */
 const selections = new Map<number, Map<number, { text: string; at: number }>>();
+/** Whether the owner lets KOS read pages, as last seen: a page's script still reports after it is taken back. */
+let canRead = false;
 
 function selectionOf(tab: number): string {
-  const frames = [...(selections.get(tab)?.values() ?? [])].filter((f) => f.text);
+  const frames = [...(selections.get(tab)?.values() ?? [])];
   return frames.sort((a, b) => b.at - a.at)[0]?.text ?? "";
 }
 
-/** The selection on a window's tab in front, to the panels open in that window. */
-function tellSelection(window: number, tab: number): void {
-  const text = selectionOf(tab);
+/** The selection on a window's tab in front, to the panels open in that window; nothing from a hidden site. */
+async function tellSelection(window: number, tab: number): Promise<void> {
+  const url = (await chrome.tabs.get(tab).catch(() => undefined))?.url ?? "";
+  const text = isHidden(url, settings.hiddenSites) ? "" : selectionOf(tab);
   for (const panel of panels) if (panel.window === window) panel.port.postMessage({ type: "selection", text });
+}
+
+/** What a page's selection script said: kept only while a panel is open in its window, never from a hidden site or frame. */
+function keepSelection(sender: chrome.runtime.MessageSender, text: string): void {
+  const tab = sender.tab;
+  if (!canRead || tab?.id === undefined) return;
+  if (isHidden(tab.url ?? "", settings.hiddenSites) || isHidden(sender.url ?? "", settings.hiddenSites)) return;
+  if (![...panels].some((p) => p.window === tab.windowId)) return;
+  const frames = selections.get(tab.id) ?? new Map<number, { text: string; at: number }>();
+  frames.set(sender.frameId ?? 0, { text: text.slice(0, 4_000), at: Date.now() });
+  selections.set(tab.id, frames);
+  if (tab.active) void tellSelection(tab.windowId, tab.id);
 }
 
 /**
@@ -931,6 +959,7 @@ function tellSelection(window: number, tab: number): void {
  */
 async function watchSelections(): Promise<void> {
   const can = await chrome.permissions.contains({ origins: ["<all_urls>"] });
+  canRead = can;
   const have = (await chrome.scripting.getRegisteredContentScripts({ ids: [SELECTION_SCRIPT] })).length > 0;
   if (can && !have) await chrome.scripting.registerContentScripts([{ id: SELECTION_SCRIPT, js: ["selection.js"], matches: ["<all_urls>"], runAt: "document_idle", allFrames: true }]);
   if (!can && have) await chrome.scripting.unregisterContentScripts({ ids: [SELECTION_SCRIPT] });
@@ -943,29 +972,27 @@ void ready.then(watchSelections).catch(() => undefined);
 async function watchFront(panel: Panel): Promise<void> {
   const [front] = await chrome.tabs.query({ active: true, windowId: panel.window });
   if (front?.id === undefined || !/^https?:\/\//.test(front.url ?? "") || isHidden(front.url ?? "", settings.hiddenSites)) return;
-  if (await chrome.permissions.contains({ origins: ["<all_urls>"] })) {
-    await chrome.scripting.executeScript({ target: { tabId: front.id, allFrames: true }, files: ["selection.js"] }).catch(() => undefined);
-  }
-  tellSelection(panel.window, front.id);
+  // Put in, or asked again where it is in already: either way the page says what is selected now.
+  if (canRead) await chrome.scripting.executeScript({ target: { tabId: front.id, allFrames: true }, files: ["selection.js"] }).catch(() => undefined);
+  void tellSelection(panel.window, front.id);
 }
 
 chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
   for (const panel of panels) if (panel.window === windowId) void watchFront(panel);
-  tellSelection(windowId, tabId);
+  void ready.then(() => tellSelection(windowId, tabId));
 });
 
 chrome.runtime.onMessage.addListener((message: Record<string, unknown>, sender, reply: (r: unknown) => void) => {
-  // Only the extension's own pages speak to it, and its own selection script in the owner's.
+  // The selection script in the owner's pages says one thing, a selection,
+  // and only that is heard from a page; everything else is from the
+  // extension's own pages. Settings are read first: a selection may be what
+  // woke the worker.
   if (sender.id !== chrome.runtime.id) return false;
   if (message["type"] === "selection") {
-    const tab = sender.tab;
-    if (tab?.id === undefined || isHidden(tab.url ?? "", settings.hiddenSites)) return false;
-    const frames = selections.get(tab.id) ?? new Map<number, { text: string; at: number }>();
-    frames.set(sender.frameId ?? 0, { text: str(message["text"]).slice(0, 4_000), at: Date.now() });
-    selections.set(tab.id, frames);
-    if (tab.active) tellSelection(tab.windowId, tab.id);
+    if (sender.tab && !ownPage(sender)) void ready.then(() => keepSelection(sender, str(message["text"])));
     return false;
   }
+  if (!ownPage(sender)) return false;
   const id = str(message["id"]);
   const run = async (): Promise<unknown> => {
     await ready;

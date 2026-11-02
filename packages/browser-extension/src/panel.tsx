@@ -100,6 +100,11 @@ const STEP = "› ";
 const yours = (lines: Line[]): number => lines.filter((l) => l.role === "you").length;
 
 /** The line to the worker: the chat as it comes, and what the panel says back. */
+/** Where a message's quote is kept: its chat and its words. */
+function quoteKey(conversation: string | null, said: string): string {
+  return `${conversation ?? ""}\n${said}`;
+}
+
 function useChat(windowId: number | undefined, online: boolean): {
   chat: Chat;
   kos: string | null;
@@ -114,7 +119,7 @@ function useChat(windowId: number | undefined, online: boolean): {
   /** What an @ being typed can name, for the words typed after it. */
   mentions: { q: string; list: Mention[] };
   /** What each of the owner's messages was sent about, by its words: shown above it. */
-  quotes: Record<string, string>;
+  quotes: Map<string, string>;
   say: (message: Record<string, unknown>) => void;
   send: (text: string, selection?: string) => void;
   answer: (message: Record<string, unknown>) => void;
@@ -130,7 +135,12 @@ function useChat(windowId: number | undefined, online: boolean): {
   const [reads, setReads] = useState<ReadAsk[]>([]);
   const [selection, setSelection] = useState("");
   const [mentions, setMentions] = useState<{ q: string; list: Mention[] }>({ q: "", list: [] });
-  const [quotes, setQuotes] = useState<Record<string, string>>({});
+  // What each message was said about, by chat and words: a Map, so no message text can be a key it already holds.
+  const [quotes, setQuotes] = useState<Map<string, string>>(() => new Map());
+  const quotedIn = useRef<string | null>(null);
+  useEffect(() => {
+    quotedIn.current = chat.conversation;
+  }, [chat.conversation]);
   const port = useRef<chrome.runtime.Port | null>(null);
   const chosen = useRef<string | null>(null);
   const taking = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -237,7 +247,7 @@ function useChat(windowId: number | undefined, online: boolean): {
     (text: string, about?: string) => {
       const said = text.trim();
       if (!said) return;
-      if (about) setQuotes((q) => ({ ...q, [said]: about }));
+      if (about) setQuotes((q) => new Map(q).set(quoteKey(quotedIn.current, said), about));
       // A command (/new, /switch) is never in the chat's words, so it waits for nothing but its answer.
       // The turn already running keeps its story: these words go to it at its next step, or run after it.
       setChat((c) => ({ ...c, sending: said.startsWith("/") ? c.sending : [...c.sending, said], working: true, unsent: undefined }));
@@ -614,7 +624,7 @@ function Thread({
   reads: ReadAsk[];
   answerRead: (id: string, granted: boolean) => void;
   /** What each of the owner's messages was sent about, shown above it. */
-  quotes: Record<string, string>;
+  quotes: Map<string, string>;
 }): ReactElement {
   const scroller = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
@@ -637,12 +647,12 @@ function Thread({
       if (seen > 0 || i > 0) after(seen);
       seen++;
     }
-    items.push(<LineView key={`l${i}`} line={line} quote={line.role === "you" ? quotes[line.text] : undefined} />);
+    items.push(<LineView key={`l${i}`} line={line} quote={line.role === "you" ? quotes.get(quoteKey(chat.conversation, line.text)) : undefined} />);
   });
   chat.sending.forEach((text, i) => {
     after(seen);
     seen++;
-    items.push(<LineView key={`s${i}-${text.slice(0, 16)}`} line={{ role: "you", text }} quote={quotes[text]} pending />);
+    items.push(<LineView key={`s${i}-${text.slice(0, 16)}`} line={{ role: "you", text }} quote={quotes.get(quoteKey(chat.conversation, text))} pending />);
   });
   after(seen);
   return (
