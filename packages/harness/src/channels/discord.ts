@@ -1194,16 +1194,34 @@ export class DiscordAdapter implements ChannelAdapter {
 
   /**
    * A live, editable line for a turn's story in a channel or thread, the way
-   * acknowledge gives one for a DM: the bot's own message, suppressed so it
-   * does not buzz, formatted as the DM story is (steps as subtext, references
-   * linked). The answer is its own message, posted after. Nothing when the
-   * target cannot be posted in.
+   * acknowledge gives one for a DM: suppressed so it does not buzz, formatted
+   * as the DM story is (steps as subtext, references linked). Told by the
+   * speaker given, through its webhook, the way its answer will be; by the
+   * bot otherwise. The answer is its own message, posted after. Nothing when
+   * the target cannot be posted in.
    */
-  async openStory(targetId: string): Promise<{ edit(text: string): Promise<void>; remove(): Promise<void> } | undefined> {
+  async openStory(targetId: string, from?: Sender): Promise<{ edit(text: string): Promise<void>; remove(): Promise<void> } | undefined> {
     const channel = (await this.client.channels.fetch(targetId).catch(() => null)) as
-      | { isSendable?: () => boolean; send?: (p: unknown) => Promise<{ edit: (p: unknown) => Promise<unknown>; delete: () => Promise<unknown> }> }
+      | { id: string; isThread?: () => boolean; parent?: { id: string } | null; isSendable?: () => boolean; send?: (p: unknown) => Promise<{ edit: (p: unknown) => Promise<unknown>; delete: () => Promise<unknown> }> }
       | null;
     if (!channel?.send || (channel.isSendable && !channel.isSendable())) return undefined;
+    const via = from ? await this.webhookFor(channel, from).catch(() => undefined) : undefined;
+    if (via && from) {
+      const thread = via.threadId ? { threadId: via.threadId } : {};
+      const said = await via.hook.send({ content: THINKING, flags: MessageFlags.SuppressNotifications, username: from.name, ...thread }).catch(() => undefined);
+      if (said) {
+        return {
+          edit: async (text: string) => {
+            const content = storyText(text, this.dashboardUrl, this.timezone, this.labelOf);
+            if (!content.trim()) return;
+            await via.hook.editMessage(said.id, { content, ...thread }).catch(() => undefined);
+          },
+          remove: async () => {
+            await via.hook.deleteMessage(said.id, via.threadId).catch(() => undefined);
+          },
+        };
+      }
+    }
     const posted = await channel.send({ content: THINKING, flags: MessageFlags.SuppressNotifications }).catch(() => undefined);
     if (!posted) return undefined;
     return {

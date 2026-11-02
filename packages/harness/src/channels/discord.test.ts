@@ -1047,6 +1047,21 @@ describe("DiscordAdapter authorization", () => {
     await expect(adapter.setAudience("project:nope", "owner")).rejects.toThrow(/no channel is bound/);
   });
 
+  it("tells a dashboard turn's story in a thread as whoever answers there", async () => {
+    const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id" });
+    const posted: Record<string, unknown>[] = [];
+    const edits: [string, Record<string, unknown>][] = [];
+    const hook = { name: "KOS·KOS·x", token: "wh", send: async (p: Record<string, unknown>) => { posted.push(p); return { id: "s1" }; }, editMessage: async (id: string, p: Record<string, unknown>) => { edits.push([id, p]); }, deleteMessage: async () => undefined };
+    const parent = { id: "c2", fetchWebhooks: async () => new Map(), createWebhook: async (o: { name: string }) => ({ ...hook, name: o.name }) };
+    const thread = { id: "t9", isThread: () => true, parent: { id: "c2" }, isSendable: () => true, send: async () => { throw new Error("not as the bot"); } };
+    (adapter as unknown as { client: unknown }).client = { user: { id: "bot" }, channels: { fetch: async (id: string) => (id === "t9" ? thread : id === "c2" ? parent : undefined) } };
+    const story = await adapter.openStory("t9", { name: "Fix login", avatar: "cGZn", hook: "KOS" });
+    expect(posted[0]).toMatchObject({ username: "Fix login", threadId: "t9" });
+    await story?.edit("› Reading the roster");
+    expect(edits[0]?.[0]).toBe("s1");
+    expect(String(edits[0]?.[1]["content"])).toContain("Reading the roster");
+  });
+
   it("asks as whoever the owner is talking to, through its webhook, and settles the card there", async () => {
     const adapter = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id", senderOf: (id) => (id === "project:garden" ? { name: "Orchestrator", avatar: "cGZn" } : undefined) });
     const posted: Record<string, unknown>[] = [];

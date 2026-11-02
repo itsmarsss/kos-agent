@@ -713,7 +713,7 @@ export async function runHost(options: HostOptions): Promise<void> {
             }
           }),
         postIn: (target, msg) => adapter!.postIn(target, msg),
-        openStory: (target) => adapter!.openStory(target),
+        openStory: (target, from) => adapter!.openStory(target, from),
         warn: (message) => console.warn(`[discord] thread mirror: ${message}`),
       });
       kernel.progress.subscribe((event) => mirror.onProgress(event));

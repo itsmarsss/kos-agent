@@ -55,8 +55,8 @@ export interface ThreadMirrorDeps {
   filesFor(files: { name: string; path: string }[]): NonNullable<OutboundMessage["files"]>;
   /** Post a message in a target by id. */
   postIn(target: string, msg: OutboundMessage): Promise<void>;
-  /** Open a live, editable story line in a target. */
-  openStory(target: string): Promise<Story | undefined>;
+  /** Open a live, editable story line in a target, told by whoever answers there. */
+  openStory(target: string, from?: Sender): Promise<Story | undefined>;
   now?: () => number;
   /** How often the story may be redrawn on the thread. */
   narrateEveryMs?: number;
@@ -171,7 +171,10 @@ export class ThreadMirror {
     if (!t.narrator.take(event) || !t.narrator.worthShowing()) return;
     if (!t.story && !t.storyTried) {
       t.storyTried = true;
-      t.story = await this.deps.openStory(t.target);
+      // Told by whoever will answer, the agent, the orchestrator or the blob,
+      // not the bot: a thread's steps and its answer read as one speaker.
+      const from = this.deps.senderFor(conv);
+      t.story = await this.deps.openStory(t.target, from);
     }
     if (!t.story) return;
     // Drawn on the leading edge of the interval; the finishing redraw catches
