@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     controller.onChange = { [unowned self] in changed() }
     controller.chatLink = { [unowned self] origin, id in try? pairing(origin)?.kosAddress().chat(id) }
     controller.kosName = { [unowned self] origin in pairings.count > 1 ? pairing(origin).map(Self.name) : nil }
+    controller.faceOf = { origin in Self.face(of: origin) }
     settings.onChange = { [unowned self] in
       reportStateIfChanged()
       home.refreshSystem()
@@ -140,6 +141,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     line.onCall = { [unowned self] call in await controller.handle(call, from: id) }
     line.onDrop = { [unowned self] in controller.lineDropped(from: id) }
     line.onRemoved = { [unowned self] in forget(id, sayRemoved: true) }
+    line.onFace = { [unowned self] face in
+      if FaceStore.keep(face, for: id) { changed() }
+    }
     line.onStatus = { [unowned self] status in
       if case .connected = status { lastState[id] = currentState(for: id) }
       changed()
@@ -150,6 +154,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func pairing(_ id: String) -> Pairing? {
     pairings.first { $0.deviceId == id }
+  }
+
+  /// A KOS's face as it last sent it, else KOS's own.
+  private static func face(of id: String) -> FaceLook {
+    FaceStore.face(for: id).map(FaceLook.init) ?? .kos
   }
 
   /// A KOS as the owner reads it: its address.
@@ -176,6 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       lines.removeValue(forKey: old.deviceId)?.unpair {}
       lastState[old.deviceId] = nil
       settings.forget(kos: old.deviceId)
+      FaceStore.forget(old.deviceId)
     }
     pairings = next
     settings.setAskFirst(askFirst, for: paired.deviceId)
@@ -206,6 +216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lastState[id] = nil
     pairings = Pairings.removing(id, from: pairings)
     settings.forget(kos: id)
+    FaceStore.forget(id)
     do {
       try PairingStore.save(pairings)
     } catch {
@@ -257,6 +268,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         link: Self.link(status), askFirst: settings.askFirst(for: paired.deviceId))
     }
     let origin = controller.liveOrigin.flatMap(pairing)
+    // The KOS at work, else the first that is connected, else the first there is: the one the window speaks of.
+    let shown = origin ?? pairings.first { lines[$0.deviceId]?.isProven == true } ?? pairings.first
+    model.face = shown.map { Self.face(of: $0.deviceId) } ?? .kos
     model.session = controller.live.map { live in
       SessionSummary(
         task: live.task, requester: live.requester, kos: pairings.count > 1 ? origin.map(Self.name) : nil,

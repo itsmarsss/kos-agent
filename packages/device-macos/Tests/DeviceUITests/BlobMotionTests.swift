@@ -55,6 +55,27 @@ struct BlobMotionTests {
     #expect(lowest < -5)
   }
 
+  /// The same points packages/shared's `outline` gives this shape (blobmotion.test.ts checks them there).
+  @Test func drawsALumpyOutlineAsTheDashboardDoes() {
+    let shape = FaceLook.Shape(
+      aspect: 1.02, squat: 0.12, spread: 1,
+      lobes: [FaceLook.Lobe(k: 3, amp: 0.05, phase: 0.4), FaceLook.Lobe(k: 2, amp: 0.04, phase: 1.1)])
+    let pts = BlobMotion.outline(shape)
+    for (i, x, y) in [(0, 88.5498, 52.0), (3, 65.8268, 85.4294), (12, 50.0, 11.3346)] {
+      #expect(abs(pts[i].x - x) < 0.001 && abs(pts[i].y - y) < 0.001, "point \(i)")
+    }
+  }
+
+  @Test func movesInTheGaitItWasSent() {
+    var slow = BlobMotion(now: 0, look: FaceLook(fill: 0, ink: 0, eyes: .round, gait: 2, shape: FaceLook.kos.shape))
+    var restless = BlobMotion(now: 0, look: FaceLook(fill: 0, ink: 0, eyes: .round, gait: 3, shape: FaceLook.kos.shape))
+    let breaths = { (blob: inout BlobMotion) -> Int in
+      let ys = self.run(&blob, from: 0, seconds: 14).map { $0.scaleY }
+      return zip(ys, ys.dropFirst()).filter { $0 < 1 && $1 >= 1 }.count
+    }
+    #expect(breaths(&restless) > breaths(&slow))
+  }
+
   @Test func keepsItsOutlineSmoothAndSized() {
     let rest = BlobMotion.outline()
     #expect(rest.count == BlobMotion.points)

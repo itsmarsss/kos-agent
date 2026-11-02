@@ -1,7 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// KOS's face, alive: the dashboard's blob, drawn every frame from BlobMotion.
+/// KOS's face, alive: the dashboard's blob, drawn every frame from BlobMotion,
+/// as its KOS sent its face.
 ///
 /// It looks at the pointer wherever it is on the screen, squashes when the
 /// pointer is over it, and wobbles, pleased, when it is clicked. With Reduce
@@ -9,18 +10,20 @@ import SwiftUI
 public struct KOSFace: View {
   private let size: CGFloat
   private let mood: BlobMood
+  private let look: FaceLook
   @StateObject private var driver = BlobDriver()
   @Environment(\.accessibilityReduceMotion) private var still
 
-  public init(size: CGFloat = 40, mood: BlobMood = .idle) {
+  public init(size: CGFloat = 40, mood: BlobMood = .idle, look: FaceLook = .kos) {
     self.size = size
     self.mood = mood
+    self.look = look
   }
 
   public var body: some View {
     TimelineView(.animation(paused: still)) { context in
-      let frame = driver.frame(at: context.date.timeIntervalSinceReferenceDate, mood: mood, still: still)
-      Canvas { canvas, area in Self.draw(frame, in: &canvas, size: area.width) }
+      let frame = driver.frame(at: context.date.timeIntervalSinceReferenceDate, mood: mood, look: look, still: still)
+      Canvas { canvas, area in Self.draw(frame, look: look, in: &canvas, size: area.width) }
     }
     .frame(width: size, height: size)
     .background(PointerProbe(driver: driver))
@@ -29,10 +32,9 @@ public struct KOSFace: View {
     .accessibilityHidden(true)
   }
 
-  private static let body = Color(hex: 0x3585ED)
-  private static let ink = Color(hex: 0x141D29)
-
-  private static func draw(_ frame: BlobFrame, in canvas: inout GraphicsContext, size: CGFloat) {
+  private static func draw(_ frame: BlobFrame, look: FaceLook, in canvas: inout GraphicsContext, size: CGFloat) {
+    let body = Color(hex: look.fill)
+    let ink = Color(hex: look.ink)
     let c = BlobMotion.center
     let group = CGAffineTransform(translationX: -c.x, y: -c.y)
       .concatenating(CGAffineTransform(a: 1, b: 0, c: tan(frame.skew * .pi / 180), d: 1, tx: 0, ty: 0))
@@ -42,7 +44,7 @@ public struct KOSFace: View {
     canvas.fill(smooth(frame.outline).applying(group), with: .color(body))
 
     for (index, base) in [BlobMotion.eyeLeft, BlobMotion.eyeRight].enumerated() {
-      let at = BlobMotion.eye(base)
+      let at = BlobMotion.eye(base, spread: look.shape.spread)
       let slant = index == 0 ? frame.slant : -frame.slant
       let place = CGAffineTransform(scaleX: frame.wide, y: frame.happy ? frame.wide : frame.wide * frame.open)
         .concatenating(CGAffineTransform(rotationAngle: slant * .pi / 180))
@@ -54,9 +56,14 @@ public struct KOSFace: View {
         grin.move(to: CGPoint(x: -3.8, y: 1.4))
         grin.addQuadCurve(to: CGPoint(x: 3.8, y: 1.4), control: CGPoint(x: 0, y: -3.4))
         canvas.stroke(grin.applying(place), with: .color(ink), style: StrokeStyle(lineWidth: 2.4 * size / 100, lineCap: .round))
+      } else if look.eyes == .round {
+        canvas.fill(Path(ellipseIn: CGRect(x: -4, y: -4, width: 8, height: 8)).applying(place), with: .color(ink))
       } else {
         let pill = Path(roundedRect: CGRect(x: -2.7, y: -4.8, width: 5.4, height: 9.6), cornerRadius: 2.7)
         canvas.fill(pill.applying(place), with: .color(ink))
+        if look.eyes == .sparkle {
+          canvas.fill(Path(ellipseIn: CGRect(x: -2, y: -3.4, width: 2, height: 2)).applying(place), with: .color(.white))
+        }
       }
     }
   }
@@ -97,8 +104,9 @@ final class BlobDriver: ObservableObject {
     motion.poke(now: Date.timeIntervalSinceReferenceDate)
   }
 
-  func frame(at now: TimeInterval, mood: BlobMood, still: Bool) -> BlobFrame {
+  func frame(at now: TimeInterval, mood: BlobMood, look: FaceLook, still: Bool) -> BlobFrame {
     motion.mood = mood
+    motion.look = look
     let dt = last.map { now - $0 } ?? 0.016
     last = now
     return motion.step(now: now, dt: still ? 0.016 : dt, pointer: still ? nil : pointer(now: now))

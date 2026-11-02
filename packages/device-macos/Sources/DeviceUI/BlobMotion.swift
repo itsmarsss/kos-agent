@@ -13,16 +13,10 @@ public enum BlobMood: Equatable, Sendable {
   case idle, working, needsYou, error, asleep
 }
 
-/// KOS's own look from packages/shared: its silhouette, gait and habits.
+/// KOS's own habits from packages/shared: how it takes to the pointer, how
+/// often it blinks, and the number its whims come from. The owner sets how
+/// KOS looks, not these, so they are never sent.
 public enum KOSLook {
-  public static let aspect: Double = 1.05
-  public static let squat: Double = 0
-  public static let spread: Double = 0.9306
-  /// The lively gait: breath in seconds, spring stiffness, how fast a wobble dies, seconds between fidgets.
-  public static let breath: Double = 4
-  public static let spring: Double = 420
-  public static let settle: Double = 4
-  public static let fidget: Double = 4
   public static let curiosity: Double = 1.11
   public static let blinkiness: Double = 1.23
   public static let seed: UInt32 = 1_912_356_932
@@ -88,6 +82,9 @@ public struct BlobMotion {
   public var hover = false {
     didSet { if hover && !oldValue { vy -= 0.8 } }
   }
+  /// How it looks, as its KOS sent it: its gait and outline come from here.
+  public var look: FaceLook
+  private var gait: Gait { Gait.all[look.gait] }
 
   private var random: SplitMix
   private let t0: TimeInterval
@@ -100,12 +97,13 @@ public struct BlobMotion {
   private var blinkAt: TimeInterval = -1
   private var happyUntil: TimeInterval = 0
 
-  public init(now: TimeInterval, seed: UInt32 = KOSLook.seed) {
+  public init(now: TimeInterval, look: FaceLook = .kos, seed: UInt32 = KOSLook.seed) {
+    self.look = look
     var random = SplitMix(seed: UInt64(seed))
     // Started somewhere along its breath, so two blobs never breathe in step.
     t0 = now - random.next() * 60
     wobPhase = random.next() * .pi
-    nextFidget = now + KOSLook.fidget * random.next()
+    nextFidget = now + Gait.all[look.gait].fidget * random.next()
     nextAim = now + 1 + random.next() * 3
     nextBlink = now + 1.5 + random.next() * 3
     self.random = random
@@ -128,7 +126,7 @@ public struct BlobMotion {
     let happy = now < happyUntil
 
     // Breathing: a little taller then a little wider, the way a soft thing breathes.
-    let br = sin(t * .pi * 2 / KOSLook.breath)
+    let br = sin(t * .pi * 2 / gait.breath)
     let breathX = 1 - 0.012 * br
     let breathY = 1 + 0.022 * br
 
@@ -158,9 +156,9 @@ public struct BlobMotion {
     if now > nextFidget && mood != .asleep && mood != .error {
       wv += 0.5 + random.next() * 0.4
       wobPhase = random.next() * .pi
-      nextFidget = now + KOSLook.fidget * (0.6 + random.next() * 0.8) / (mood == .working ? 1.6 : 1)
+      nextFidget = now + gait.fidget * (0.6 + random.next() * 0.8) / (mood == .working ? 1.6 : 1)
     }
-    wv = (wv - wob * KOSLook.spring * dt) * exp(-dt * KOSLook.settle)
+    wv = (wv - wob * gait.spring * dt) * exp(-dt * gait.settle)
     wob += wv * dt
 
     // Where to look: the pointer when it is about, a drift of its own when not.
@@ -201,7 +199,7 @@ public struct BlobMotion {
     }
     let wobble = min(0.14, max(-0.14, wob))
     return BlobFrame(
-      outline: Self.outline(wobble: wobble, phase: wobPhase),
+      outline: Self.outline(look.shape, wobble: wobble, phase: wobPhase),
       lean: lean,
       lift: hop + spec.droop,
       scaleX: sx * breathX,
@@ -215,21 +213,24 @@ public struct BlobMotion {
       slant: mood == .error ? 18 : 0)
   }
 
-  /// The silhouette: a gumdrop a touch wider low down, bent by a two-lobed wobble.
-  public static func outline(wobble: Double = 0, phase: Double = 0) -> [CGPoint] {
+  /// The silhouette: a gumdrop a touch wider low down, lumpy as its lobes
+  /// say (quieter toward the base, so it sits flat), bent by a two-lobed
+  /// wobble. `outline` in packages/shared blob.ts, point for point.
+  public static func outline(_ shape: FaceLook.Shape = FaceLook.kos.shape, wobble: Double = 0, phase: Double = 0) -> [CGPoint] {
     (0..<points).map { i in
       let a = Double(i) / Double(points) * .pi * 2
       let down = max(0, sin(a))
-      let r = radius * (1 + wobble * cos(2 * (a - phase)))
+      let lumps = shape.lobes.reduce(0) { $0 + $1.amp * cos(Double($1.k) * (a - $1.phase)) }
+      let r = radius * (1 + lumps * (1 - 0.6 * down) + wobble * cos(2 * (a - phase)))
       return CGPoint(
-        x: center.x + cos(a) * r * KOSLook.aspect * (1 + 0.07 * down),
-        y: center.y + sin(a) * r * (1 - KOSLook.squat * 0.45 * down))
+        x: center.x + cos(a) * r * shape.aspect * (1 + 0.07 * down),
+        y: center.y + sin(a) * r * (1 - shape.squat * 0.45 * down))
     }
   }
 
-  /// Where an eye sits, spread from the middle as KOS's shape says.
-  public static func eye(_ base: CGPoint) -> CGPoint {
-    CGPoint(x: center.x + (base.x - center.x) * KOSLook.spread, y: base.y)
+  /// Where an eye sits, spread from the middle as the shape says.
+  public static func eye(_ base: CGPoint, spread: Double = FaceLook.kos.shape.spread) -> CGPoint {
+    CGPoint(x: center.x + (base.x - center.x) * spread, y: base.y)
   }
 }
 

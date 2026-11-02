@@ -42,6 +42,8 @@ final class Connection: NSObject {
   var onDrop: (() -> Void)?
   /// KOS no longer knows this device.
   var onRemoved: (() -> Void)?
+  /// That KOS's face, as it is now and whenever the owner changes it.
+  var onFace: ((FaceDrawing) -> Void)?
   /// What to tell KOS about this device in the hello.
   var state: () -> DeviceState = { DeviceState(consent: .device, permissions: Permissions(screen: false, input: false), displays: []) }
 
@@ -286,6 +288,10 @@ final class Connection: NSObject {
       status = .connected(name: name)
       Log.line.notice("\(self.label, privacy: .public): proven, connected as \(name, privacy: .public)")
       startPinging()
+
+    case .face(let face):
+      guard proven else { return }
+      onFace?(face)
 
     case .call(let call):
       guard proven else { return }

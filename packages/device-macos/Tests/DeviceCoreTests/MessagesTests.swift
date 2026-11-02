@@ -48,6 +48,18 @@ struct MessagesTests {
     }
   }
 
+  @Test func readsAFaceWholeOrNotAtAll() throws {
+    let raw = ##"{"t":"face","face":{"fill":"#8b5cf6","ink":"#141d29","eyes":"sparkle","gait":2,"shape":{"aspect":1.02,"squat":0.12,"spread":1,"lobes":[{"k":3,"amp":0.05,"phase":0.4}]}}}"##
+    guard case .face(let face) = try Inbound.decode(Data(raw.utf8)) else { Issue.record("not a face"); return }
+    #expect(face.eyes == "sparkle")
+    #expect(FaceDrawing.rgb(face.fill) == 0x8B5CF6)
+    #expect(face.shape.lobes == [FaceDrawing.Lobe(k: 3, amp: 0.05, phase: 0.4)])
+    let badColour = raw.replacingOccurrences(of: "#8b5cf6", with: "#+8b5cf")
+    #expect(throws: DeviceError.self) { try Inbound.decode(Data(badColour.utf8)) }
+    let wildLump = raw.replacingOccurrences(of: #""amp":0.05"#, with: #""amp":0.9"#)
+    #expect(throws: DeviceError.self) { try Inbound.decode(Data(wildLump.utf8)) }
+  }
+
   @Test func anUnknownTypeIsRefused() {
     #expect(throws: DeviceError.self) { try Inbound.decode(Data(#"{"t":"mystery"}"#.utf8)) }
   }

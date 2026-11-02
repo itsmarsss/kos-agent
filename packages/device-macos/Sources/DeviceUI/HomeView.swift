@@ -155,7 +155,7 @@ public struct HomeView: View {
 
   private var header: some View {
     HStack(alignment: .center, spacing: 12) {
-      KOSFace(size: 42, mood: faceMood)
+      KOSFace(size: 42, mood: faceMood, look: model.face)
       VStack(alignment: .leading, spacing: 2) {
         Text("KOS Device").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text)
         Text("Only in sessions you allow.").font(.system(size: 12)).foregroundStyle(Theme.muted)

@@ -21,6 +21,8 @@ final class DeviceController {
   var chatLink: (String, String) -> URL? = { _, _ in nil }
   /// What to call a KOS when the owner is asked, or nothing when it is the only one.
   var kosName: (String) -> String? = { _ in nil }
+  /// A KOS's face, as it last sent it.
+  var faceOf: (String) -> FaceLook = { _ in .kos }
 
   private var sessions = Sessions()
   private var display: CGDirectDisplayID?
@@ -122,7 +124,8 @@ final class DeviceController {
       let choices = [TargetChoice(id: TargetChoice.screen, title: "Entire screen", app: nil, icon: nil)]
         + windows.map { TargetChoice(id: String($0.id), title: $0.title, app: $0.app, icon: NSRunningApplication(processIdentifier: $0.pid)?.icon) }
       let request = ConsentPrompt.Request(
-        task: task, requester: params.requester, kos: kosName(origin), chat: params.conversation.flatMap { chatLink(origin, $0) },
+        task: task, requester: params.requester, kos: kosName(origin), face: faceOf(origin),
+        chat: params.conversation.flatMap { chatLink(origin, $0) },
         offered: Durations.offered(requested: params.minutes, longest: longest), longest: longest, wait: settings.promptWaitSeconds,
         targets: choices, target: suggested.map { String($0.id) } ?? TargetChoice.screen, suggested: suggested?.app,
         chime: settings.sounds)
@@ -172,11 +175,11 @@ final class DeviceController {
     maxEdge = edge
     Log.session.notice("live for \(minutes, privacy: .public) min in \(picked == TargetChoice.screen ? "the screen" : "one window", privacy: .public)")
     if case .window = target {
-      overlay.show(display: id, task: task, until: session.until, window: frame)
+      overlay.show(display: id, task: task, until: session.until, face: faceOf(origin), window: frame)
       // Up front, as a shared window is, so KOS's first look is at it.
       if let window = windows.first(where: { String($0.id) == picked }) { await WindowCatalog.raise(window) }
     } else {
-      overlay.show(display: id, task: task, until: session.until)
+      overlay.show(display: id, task: task, until: session.until, face: faceOf(origin))
     }
     owner.start(grace: Self.handOverGrace, travel: OwnerInputMonitor.travel(for: settings.takeover))
     ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -206,7 +209,7 @@ final class DeviceController {
     if !overlay.follow(window: frame) {
       let next = Self.display(at: CGPoint(x: frame.midX, y: frame.midY))
       display = next
-      overlay.show(display: next, task: session.task, until: session.until, window: frame)
+      overlay.show(display: next, task: session.task, until: session.until, face: sessions.origin.map(faceOf) ?? .kos, window: frame)
       overlay.setPaused(session.paused)
     }
   }

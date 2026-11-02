@@ -203,8 +203,10 @@ KOS.
 A blob's outline grows from its name, or from a word it is given: a few
 broad lumps, eased back until it bulges out all round (`shapeOf` in
 `@kos/shared`). KOS keeps the plain gumdrop unless the owner gives it a
-word under Settings, Appearance; the extension and KOS Device draw that
-plain one.
+word under Settings, Appearance. KOS sends its face, as set there, to the
+extension and KOS Device (the `face` frame, [computer.md](computer.md)), so
+all three draw the same KOS; each draws a KOS by the face it sent, and the
+default one for a KOS that has sent none.
 
 ## Chat
 

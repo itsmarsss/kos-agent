@@ -59,6 +59,20 @@ struct RenderTests {
     #expect(size == CGSize(width: 460, height: HomeView.height))
   }
 
+  /// KOS as the owner set it there (shape "mochi", a violet, eyes with a glint), drawn as it sent it.
+  @Test func homeInTheFaceItsKOSSent() throws {
+    let model = home {
+      $0.kos = [kos()]
+      $0.screenGranted = true
+      $0.inputGranted = true
+      $0.face = FaceLook(
+        fill: 0x8B5CF6, ink: 0x1A1429, eyes: .sparkle, gait: 1,
+        shape: FaceLook.Shape(aspect: 1.0360, squat: 0.1200, spread: 0.9768, lobes: [FaceLook.Lobe(k: 2, amp: 0.0206, phase: 1.4140), FaceLook.Lobe(k: 3, amp: 0.0180, phase: 1.8343), FaceLook.Lobe(k: 4, amp: 0.0084, phase: 0.9776)]))
+    }
+    let size = try render("home-faced", HomeView(model: model), height: HomeView.height)
+    #expect(size == CGSize(width: 460, height: HomeView.height))
+  }
+
   @Test func homeWhenConnectedAndInUse() throws {
     let model = home {
       $0.kos = [kos()]
