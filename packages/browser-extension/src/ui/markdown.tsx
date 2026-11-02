@@ -1,4 +1,4 @@
-import { displayMathAt, MATH, mathOf } from "@kos/shared";
+import { displayMathAt, listAt, MATH, mathOf, type MdList } from "@kos/shared";
 import katex from "katex";
 import { Fragment, useLayoutEffect, useRef, type ReactElement, type ReactNode } from "react";
 
@@ -16,7 +16,7 @@ type Block =
   | { kind: "p" | "small" | "quote"; text: string }
   | { kind: "h"; level: number; text: string }
   | { kind: "code" | "math"; text: string }
-  | { kind: "list"; ordered: boolean; items: string[] };
+  | { kind: "list"; list: MdList };
 
 export function blocksOf(text: string): Block[] {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
@@ -63,13 +63,11 @@ export function blocksOf(text: string): Block[] {
       out.push({ kind: "small", text: small[1]! });
       continue;
     }
-    const item = /^\s*(?:([-*+])|(\d+)[.)])\s+(.*)$/.exec(line);
-    if (item) {
+    const list = listAt(lines, i);
+    if (list) {
       flush();
-      const ordered = item[2] !== undefined;
-      const last = out.at(-1);
-      if (last?.kind === "list" && last.ordered === ordered) last.items.push(item[3]!);
-      else out.push({ kind: "list", ordered, items: [item[3]!] });
+      out.push({ kind: "list", list: list.list });
+      i = list.next - 1;
       continue;
     }
     const quote = /^>\s?(.*)$/.exec(line);
@@ -156,6 +154,12 @@ export function inline(text: string): ReactNode[] {
   return out;
 }
 
+/** A list, each item read as blocks of its own: its words, a list under it, a code block, a formula. */
+function ListView({ list }: { list: MdList }): ReactElement {
+  const items = list.items.map((it, j) => <li key={j}>{blocksOf(it.body).map(blockView)}</li>);
+  return list.ordered ? <ol {...(list.start !== 1 ? { start: list.start } : {})}>{items}</ol> : <ul>{items}</ul>;
+}
+
 /** The owner's own words with what they named as chips, and nothing else read into them. */
 export function withMentions(text: string): ReactNode[] {
   const out: ReactNode[] = [];
@@ -184,45 +188,42 @@ function lines(text: string): ReactNode[] {
   ));
 }
 
+/** One block, as an element. */
+function blockView(b: Block, i: number): ReactElement {
+  switch (b.kind) {
+    case "p":
+      return <p key={i}>{lines(b.text)}</p>;
+    case "small":
+      return (
+        <p key={i} className="md-small">
+          {inline(b.text)}
+        </p>
+      );
+    case "quote":
+      return <blockquote key={i}>{lines(b.text)}</blockquote>;
+    case "h":
+      return (
+        <p key={i} className={`md-h md-h${b.level}`}>
+          {inline(b.text)}
+        </p>
+      );
+    case "code":
+      return (
+        <pre key={i}>
+          <code>{b.text}</code>
+        </pre>
+      );
+    case "math":
+      return (
+        <div key={i} className="md-math">
+          <Tex source={b.text} display />
+        </div>
+      );
+    case "list":
+      return <ListView key={i} list={b.list} />;
+  }
+}
+
 export function Markdown({ text }: { text: string }): ReactElement {
-  return (
-    <div className="md">
-      {blocksOf(text).map((b, i) => {
-        switch (b.kind) {
-          case "p":
-            return <p key={i}>{lines(b.text)}</p>;
-          case "small":
-            return (
-              <p key={i} className="md-small">
-                {inline(b.text)}
-              </p>
-            );
-          case "quote":
-            return <blockquote key={i}>{lines(b.text)}</blockquote>;
-          case "h":
-            return (
-              <p key={i} className={`md-h md-h${b.level}`}>
-                {inline(b.text)}
-              </p>
-            );
-          case "code":
-            return (
-              <pre key={i}>
-                <code>{b.text}</code>
-              </pre>
-            );
-          case "math":
-            return (
-              <div key={i} className="md-math">
-                <Tex source={b.text} display />
-              </div>
-            );
-          case "list": {
-            const items = b.items.map((it, j) => <li key={j}>{inline(it)}</li>);
-            return b.ordered ? <ol key={i}>{items}</ol> : <ul key={i}>{items}</ul>;
-          }
-        }
-      })}
-    </div>
-  );
+  return <div className="md">{blocksOf(text).map(blockView)}</div>;
 }
