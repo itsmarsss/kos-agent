@@ -335,6 +335,11 @@ export interface DiscordAdapterOptions {
    */
   threadBindings?: () => Record<string, string>;
   /**
+   * Where each open ask's cards are kept, so a restart does not forget them:
+   * a press on one, or a decision on the dashboard, still settles both.
+   */
+  keptPrompts?: KeptPrompts;
+  /**
    * Who speaks from a conversation when it is a blob's: its name and face,
    * so the story of a turn in its channel is told as the blob, the way the
    * answer is. KOS's own conversations have no speaker and the bot tells it.
@@ -353,6 +358,23 @@ interface AskPayload {
 interface PromptCopy {
   messageId?: string;
   edit: (payload: { content: string; embeds: never[]; components: never[] }) => Promise<unknown>;
+  /** Where it is, for finding it again after a restart; nothing for a DM. */
+  ref?: PromptRef;
+}
+
+/** Where a card is: its channel or thread, its message, and the webhook that posted it, if one did. */
+export interface PromptRef {
+  channelId: string;
+  messageId: string;
+  webhookId?: string;
+  threadId?: string;
+}
+
+/** The store an ask's cards are kept in across restarts, by approval id. */
+export interface KeptPrompts {
+  get(id: string): { summary: string; refs: PromptRef[] } | undefined;
+  set(id: string, prompt: { summary: string; refs: PromptRef[] }): void;
+  delete(id: string): void;
 }
 
 /** A channel the server should have, bound to a conversation by its topic. */
@@ -772,6 +794,7 @@ export class DiscordAdapter implements ChannelAdapter {
   private readonly threadOf?: (threadId: string) => string | undefined;
   private readonly senderOf?: (conversationId: string) => Sender | undefined;
   private readonly threadBindings?: () => Record<string, string>;
+  private readonly keptPrompts?: KeptPrompts;
   private readonly timezone?: string;
   private readonly labelOf?: LabelOf;
   private readonly guestsAllowed?: (key: string) => boolean;
@@ -803,6 +826,7 @@ export class DiscordAdapter implements ChannelAdapter {
     if (options.threadOf) this.threadOf = options.threadOf;
     if (options.senderOf) this.senderOf = options.senderOf;
     if (options.threadBindings) this.threadBindings = options.threadBindings;
+    if (options.keptPrompts) this.keptPrompts = options.keptPrompts;
     if (options.timezone) this.timezone = options.timezone;
     if (options.labelOf) this.labelOf = options.labelOf;
     if (options.guestsAllowed) this.guestsAllowed = options.guestsAllowed;
@@ -1727,7 +1751,7 @@ export class DiscordAdapter implements ChannelAdapter {
       return;
     }
 
-    const prompt = this.prompts.get(decision.id);
+    const prompt = this.promptOf(decision.id);
     const settled = { content: settledText(decision.approved ? "approved" : "denied", prompt?.summary, decision.id), embeds: [] as never[], components: [] as never[] };
     try {
       // The prompt settles into one small line; the resumed turn's answer is
@@ -1739,7 +1763,7 @@ export class DiscordAdapter implements ChannelAdapter {
     // Its other card, in #needs-you or where the chat is read, says the same.
     const pressed = (interaction as { message?: { id?: string } }).message?.id;
     await Promise.all((prompt?.copies ?? []).filter((c) => c.messageId !== pressed).map((c) => c.edit(settled).catch(() => undefined)));
-    this.prompts.delete(decision.id);
+    this.forget(decision.id);
     await this.approvalHandler?.({
       id: decision.id,
       approved: decision.approved,
@@ -2237,13 +2261,44 @@ export class DiscordAdapter implements ChannelAdapter {
       // Where it came from, so the card in #needs-you leads back to the chat.
       const where = asking ? `\n-# in <#${asking.id}>` : "";
       const sent = await central.send({ ...payload, content: `${payload.content}${where}` });
-      copies.push({ messageId: sent.id, edit: (edited) => sent.edit(edited) });
+      copies.push({ messageId: sent.id, edit: (edited) => sent.edit(edited), ref: { channelId: central.id, messageId: sent.id } });
     }
     if (copies.length === 0) {
       const sent = await (await this.client.users.fetch(recipientId)).send(payload);
       copies.push({ messageId: sent.id, edit: (edited) => sent.edit(edited) });
     }
     this.prompts.set(req.id, { copies, summary });
+    const refs = copies.flatMap((c) => (c.ref ? [c.ref] : []));
+    if (refs.length) this.keptPrompts?.set(req.id, { summary, refs });
+  }
+
+  /** An ask's cards: as this run of KOS made them, or found again from where they were kept. */
+  private promptOf(id: string): { copies: PromptCopy[]; summary: string } | undefined {
+    const live = this.prompts.get(id);
+    if (live) return live;
+    const kept = this.keptPrompts?.get(id);
+    if (!kept) return undefined;
+    return { summary: kept.summary, copies: kept.refs.map((ref) => ({ messageId: ref.messageId, edit: (payload) => this.editKept(ref, payload), ref })) };
+  }
+
+  /** Settled: its cards are let go here and where they were kept. */
+  private forget(id: string): void {
+    this.prompts.delete(id);
+    this.keptPrompts?.delete(id);
+  }
+
+  /** Rewrite a kept card: through the webhook that posted it, or as the bot's own message. */
+  private async editKept(ref: PromptRef, payload: { content: string; embeds: never[]; components: never[] }): Promise<void> {
+    if (ref.webhookId) {
+      const owner = (await this.client.channels.fetch(ref.channelId)) as unknown as { fetchWebhooks?: () => Promise<Map<string, Webhook>> } | null;
+      const hook = [...((await owner?.fetchWebhooks?.()) ?? new Map<string, Webhook>()).values()].find((h) => h.id === ref.webhookId);
+      if (!hook) return;
+      await hook.editMessage(ref.messageId, { ...payload, ...(ref.threadId ? { threadId: ref.threadId } : {}) });
+      return;
+    }
+    const channel = (await this.client.channels.fetch(ref.channelId)) as unknown as { messages?: { fetch: (id: string) => Promise<{ edit: (p: unknown) => Promise<unknown> }> } } | null;
+    const message = await channel?.messages?.fetch(ref.messageId);
+    await message?.edit(payload);
   }
 
   /**
@@ -2262,10 +2317,12 @@ export class DiscordAdapter implements ChannelAdapter {
     if (via && from) {
       const thread = via.threadId ? { threadId: via.threadId } : {};
       const posted = await via.hook.send({ ...payload, username: from.name, ...thread });
-      return { messageId: posted.id, edit: (edited) => via.hook.editMessage(posted.id, { ...edited, ...thread }) };
+      // The webhook lives on the thread's parent; the card is in the thread.
+      const ref: PromptRef = { channelId: room.isThread?.() && room.parent ? room.parent.id : room.id, messageId: posted.id, webhookId: via.hook.id, ...(via.threadId ? { threadId: via.threadId } : {}) };
+      return { messageId: posted.id, edit: (edited) => via.hook.editMessage(posted.id, { ...edited, ...thread }), ref };
     }
     const sent = await room.send(payload);
-    return { messageId: sent.id, edit: (edited) => sent.edit(edited) };
+    return { messageId: sent.id, edit: (edited) => sent.edit(edited), ref: { channelId: room.id, messageId: sent.id } };
   }
 
   /**
@@ -2275,9 +2332,9 @@ export class DiscordAdapter implements ChannelAdapter {
    * same wherever it was made.
    */
   async settleApproval(id: string, outcome: ApprovalOutcome): Promise<void> {
-    const prompt = this.prompts.get(id);
+    const prompt = this.promptOf(id);
     if (!prompt) return;
-    this.prompts.delete(id);
+    this.forget(id);
     const settled = { content: settledText(outcome, prompt.summary, id), embeds: [] as never[], components: [] as never[] };
     // Deleted, or too old to edit: a card that cannot be settled is not worth
     // failing a decision over, and its twin still is.

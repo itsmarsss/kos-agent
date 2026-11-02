@@ -29,6 +29,8 @@ import {
   parseApprovalCustomId,
   runNowReply,
   type RunNowOutcome,
+  type KeptPrompts,
+  type PromptRef,
 } from "./discord.js";
 import type { ApprovalDecision, ButtonPress, InboundMessage } from "./types.js";
 
@@ -1045,6 +1047,39 @@ describe("DiscordAdapter authorization", () => {
     expect(opened[0]).toEqual({ id: "g1", type: OverwriteType.Role, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: expect.arrayContaining([PermissionFlagsBits.SendMessages]) });
     expect(opened.map((o) => o.id)).toEqual(["g1", "owner-id", "bot"]);
     await expect(adapter.setAudience("project:nope", "owner")).rejects.toThrow(/no channel is bound/);
+  });
+
+  it("settles both cards of an ask after a restart, from where they were kept", async () => {
+    const kept = new Map<string, { summary: string; refs: PromptRef[] }>();
+    const store: KeptPrompts = { get: (id) => kept.get(id), set: (id, p) => void kept.set(id, p), delete: (id) => void kept.delete(id) };
+    const edits: { where: string; content: string }[] = [];
+    const hook: Record<string, unknown> = { id: "wh1", name: "KOS·KOS·x", token: "wh", send: async () => ({ id: "card-thread" }), editMessage: async (_id: string, p: { content: string }) => { edits.push({ where: "thread", content: p.content }); } };
+    hook["edit"] = async (o: { name: string }) => Object.assign(hook, { name: o.name });
+    const parent = { id: "c2", fetchWebhooks: async () => new Map([["wh1", hook]]), createWebhook: async () => hook };
+    const thread = { id: "t9", isThread: () => true, parent: { id: "c2" }, isSendable: () => true, send: async () => { throw new Error("not as the bot"); } };
+    const needsYou = {
+      id: "ny",
+      isSendable: () => true,
+      send: async () => ({ id: "card-ny", edit: async () => undefined }),
+      messages: { fetch: async (id: string) => ({ edit: async (p: { content: string }) => { edits.push({ where: `ny:${id}`, content: p.content }); } }) },
+    };
+    const client = { user: { id: "bot" }, channels: { fetch: async (id: string) => ({ t9: thread, c2: parent, ny: needsYou } as Record<string, unknown>)[id] } };
+    const make = (): DiscordAdapter => {
+      const a = new DiscordAdapter({ token: "t", guildId: "g1", ownerId: "owner-id", keptPrompts: store, threadBindings: () => ({ t9: "chat-1" }), senderOf: () => ({ name: "Fix login", avatar: "cGZn", hook: "KOS" }) });
+      (a as unknown as { client: unknown }).client = client;
+      (a as unknown as { approvalsChannelId: string }).approvalsChannelId = "ny";
+      return a;
+    };
+    await make().requestApproval("owner-id", { id: "9", text: "x", tool: "files.rm", args: { path: "a.txt" }, asker: { name: "Fix login", conversationId: "chat-1" } });
+    expect(kept.get("9")?.refs).toEqual([
+      { channelId: "c2", messageId: "card-thread", webhookId: "wh1", threadId: "t9" },
+      { channelId: "ny", messageId: "card-ny" },
+    ]);
+    // A new run of KOS knows nothing of the cards but what was kept, and settles both.
+    await make().settleApproval("9", "approved");
+    expect(edits.map((e) => e.where).sort()).toEqual(["ny:card-ny", "thread"]);
+    expect(edits.every((e) => e.content.includes("Approved"))).toBe(true);
+    expect(kept.has("9")).toBe(false);
   });
 
   it("tells a dashboard turn's story in a thread as whoever answers there", async () => {

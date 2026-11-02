@@ -30,6 +30,8 @@ export {
   APPROVE_PREFIX,
   DENY_PREFIX,
   type DiscordAdapterOptions,
+  type KeptPrompts,
+  type PromptRef,
 } from "./discord.js";
 export {
   ChannelRuntime,

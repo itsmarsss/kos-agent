@@ -11,6 +11,8 @@ import {
   ChannelRuntime,
   type ChannelAdapter,
   DiscordAdapter,
+  type KeptPrompts,
+  type PromptRef,
   IMessageAdapter,
   describeStartFailure,
   SmsAdapter,
@@ -136,6 +138,30 @@ function keepRunning(): void {
   process.on("unhandledRejection", (reason) => {
     console.error(`unhandled rejection, still running: ${describe(reason)}`);
   });
+}
+
+/** The key the open asks' Discord cards are kept under, by approval id. */
+const KEPT_PROMPTS_KEY = "discord.prompts";
+/** An ask lapses well within this; a record older is let go. */
+const KEPT_PROMPTS_FOR_MS = 3 * 24 * 60 * 60_000;
+
+type KeptPrompt = { summary: string; refs: PromptRef[]; at: number };
+
+/** The kept cards, in the workspace's settings, pruned of what is past keeping each time they are written. */
+function keptPromptsIn(kernel: Kernel): KeptPrompts {
+  const all = (): Record<string, KeptPrompt> => kernel.settings.get<Record<string, KeptPrompt>>(KEPT_PROMPTS_KEY) ?? {};
+  const save = (next: Record<string, KeptPrompt>): void => {
+    const now = Date.now();
+    kernel.settings.set(KEPT_PROMPTS_KEY, Object.fromEntries(Object.entries(next).filter(([, p]) => now - p.at < KEPT_PROMPTS_FOR_MS)));
+  };
+  return {
+    get: (id) => all()[id],
+    set: (id, prompt) => save({ ...all(), [id]: { ...prompt, at: Date.now() } }),
+    delete: (id) => {
+      const { [id]: _gone, ...rest } = all();
+      save(rest);
+    },
+  };
 }
 
 export async function runHost(options: HostOptions): Promise<void> {
@@ -522,6 +548,8 @@ export async function runHost(options: HostOptions): Promise<void> {
       ...(creds.guildId ? { guildId: creds.guildId } : {}),
       // Which thread stands for which chat: the kernel keeps it, the adapter asks.
       threadOf: (threadId) => kernel.threadBindings()[threadId],
+      // Each open ask's cards, kept in the workspace so a restart still settles both.
+      keptPrompts: keptPromptsIn(kernel),
       threadBindings: () => kernel.threadBindings(),
       timezone: kernel.profile.timezone,
       labelOf: (kind, id) => kernel.labelFor(kind, id),

@@ -74,7 +74,8 @@ An ask from a chat you read in a channel or thread is asked there too, so
 the question sits in the conversation it belongs to. It comes from whoever
 you are talking to there, through its own webhook, the way its answers
 come; in `#needs-you` KOS asks as itself. The two cards are one ask: decide
-on either, or on the dashboard, and both settle. An approval named in a
+on either, or on the dashboard, and both settle, a restart of KOS between
+the ask and the answer included. An approval named in a
 reply, `@approval:290`, links to it on the dashboard, waiting or decided.
 A bound channel's topic carries a link to its chat on the dashboard, since
 a webhook's profile can carry none.

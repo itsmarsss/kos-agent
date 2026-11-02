@@ -195,6 +195,31 @@ describe("running what fell due while nothing was listening", () => {
     sched.stop();
   });
 
+  it("runs missed jobs one after another, not all at once", async () => {
+    // Fired together after a restart, they spent the provider's minute of tokens and failed.
+    hourly(5 * 60 * 60_000);
+    hourly(5 * 60 * 60_000);
+    let finish: (() => void) | undefined;
+    const running: number[] = [];
+    const sched = new CronScheduler(
+      store,
+      (j) => {
+        running.push(j.id);
+        return new Promise<void>((resolve) => (finish = resolve));
+      },
+      { catchUpGapMs: 0 },
+    );
+    sched.start();
+    expect(sched.catchUp()).toBe(2);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(running).toHaveLength(1);
+    finish!();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(running).toHaveLength(2);
+    finish!();
+    sched.stop();
+  });
+
   it("runs it once however many were missed", async () => {
     // Ten days offline should produce today's nudge, not ten of them.
     hourly(10 * 24 * 60 * 60_000);
