@@ -221,6 +221,9 @@ describe("channelGuidance", () => {
     expect(g).toContain("side panel of their own Chrome");
     expect(g).toContain("markdown");
     expect(channelGuidance("chrome", "Be terse.")).toBe("## Replying in the Chrome side panel\nBe terse.");
+    // The Mac's window says which app is in front, and that it does not typeset LaTeX.
+    expect(channelGuidance("mac")).toMatch(/which app is in front/);
+    expect(channelGuidance("mac")).toMatch(/LaTeX is shown as written, not typeset/);
   });
 
   it("returns nothing for surfaces with no special guidance", () => {

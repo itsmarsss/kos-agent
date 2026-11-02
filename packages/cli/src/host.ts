@@ -36,7 +36,10 @@ import {
   type NotifyPayload,
   type PendingAction,
 } from "@kos/harness";
-import { createComputerUse } from "@kos/computer";
+import { createComputerUse, type PanelDeps } from "@kos/computer";
+
+/** The surfaces a device panel is: a Chrome's side panel, a Mac's window. */
+type PanelSurface = "chrome" | "mac";
 
 import { envFilePath } from "./env.js";
 import { ThreadMirror } from "./threadmirror.js";
@@ -279,12 +282,57 @@ export async function runHost(options: HostOptions): Promise<void> {
     const choices = await kernel.availableModels().catch((): string[] => []);
     return { current, choices: current && !choices.includes(current) ? [current, ...choices] : choices };
   };
-  /** The chat a Chrome's side panel shows: its surface's current one, made only when the owner first speaks there. */
-  const chromeChat = (): { id: string; title: string } | undefined => {
+  /** The chat a device panel shows (a Chrome's side panel, a Mac's window): its surface's current one, made only when the owner first speaks there. */
+  const surfaceChat = (channel: PanelSurface) => (): { id: string; title: string } | undefined => {
     const owner = kernel.profile.ownerId;
-    const id = activeOwnChat(kernel.conversations, "chrome", owner) ?? surfaceSessionId("chrome", owner);
+    const id = activeOwnChat(kernel.conversations, channel, owner) ?? surfaceSessionId(channel, owner);
     return kernel.conversations.get(id) ? { id, title: kernel.titleOf(id) } : undefined;
   };
+  const chromeChat = surfaceChat("chrome");
+  const macChat = surfaceChat("mac");
+  /** What a device panel reads and does, for its own surface's chats and no one else's. */
+  const panelDeps = (channel: PanelSurface, current: () => { id: string; title: string } | undefined): PanelDeps => ({
+    current,
+    ensure: () => {
+      const made = kernel.conversationFor(channel, kernel.profile.ownerId);
+      return { id: made.id, title: kernel.titleOf(made.id) };
+    },
+    events: (id) => conversationEvents(kernel.sessions.get(id)),
+    waiting: (id) => kernel.approvals.pending().filter((a) => a.conversationId === id).map(approvalRequest),
+    // The panel's own chats, as /chats there lists them: the surface's stream and the chats made from it, nothing else of the owner's.
+    chats: () =>
+      kernel.conversations
+        .list(kernel.profile.ownerId)
+        .filter((c) => c.channel === channel)
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, 40)
+        .map((c) => ({ id: c.id, title: kernel.titleOf(c.id), updatedAt: c.updatedAt })),
+    switchTo: (id) => {
+      const c = kernel.conversations.get(id);
+      if (c?.channel !== channel) return false;
+      kernel.conversations.setActive(channel, kernel.profile.ownerId, id);
+      return true;
+    },
+    // On the device line: a lookup that throws answers with nothing rather than taking the line's handler down.
+    mentions: (q, kind) => {
+      try {
+        return mentionsOf(kernel, q, 8, kind).map(({ kind: k, id, label, hint }) => ({ kind: k, id, label, ...(hint ? { hint } : {}) }));
+      } catch {
+        return [];
+      }
+    },
+    models: () => panelModels(),
+    auto: (id) => kernel.actsWithoutAsking(id),
+    setAuto: (id, on) => kernel.setActsWithoutAsking(id, on),
+    // The dashboard's picker, merged rather than replacing: the route's effort and the cheap route stay as they were.
+    setModel: async (model) => {
+      const saved = parseModelSettings(kernel.settings.get(MODEL_SETTINGS_KEY));
+      const next = { ...saved, reasoning: { ...saved.reasoning, model } };
+      kernel.settings.set(MODEL_SETTINGS_KEY, next);
+      kernel.applyModelSettings(next);
+      return panelModels();
+    },
+  });
   const computer = createComputerUse({
     hostKeyPath: process.env.KOS_DEVICE_KEY_FILE?.trim() || join(homedir(), ".kos", "device-host.key"),
     ...(process.env.KOS_DEVICE_HOST_KEY ? { hostKeyEnv: process.env.KOS_DEVICE_HOST_KEY } : {}),
@@ -293,48 +341,7 @@ export async function runHost(options: HostOptions): Promise<void> {
     titleOf: (id) => kernel.nameOf(id),
     halted: () => kernel.killSwitch.halted,
     face: () => kernel.kosDrawing(),
-    panel: {
-      current: chromeChat,
-      ensure: () => {
-        const made = kernel.conversationFor("chrome", kernel.profile.ownerId);
-        return { id: made.id, title: kernel.titleOf(made.id) };
-      },
-      events: (id) => conversationEvents(kernel.sessions.get(id)),
-      waiting: (id) => kernel.approvals.pending().filter((a) => a.conversationId === id).map(approvalRequest),
-      // The panel's own chats, as /chats there lists them: the Chrome stream and the chats made from it, nothing else of the owner's.
-      chats: () =>
-        kernel.conversations
-          .list(kernel.profile.ownerId)
-          .filter((c) => c.channel === "chrome")
-          .sort((a, b) => b.updatedAt - a.updatedAt)
-          .slice(0, 40)
-          .map((c) => ({ id: c.id, title: kernel.titleOf(c.id), updatedAt: c.updatedAt })),
-      switchTo: (id) => {
-        const c = kernel.conversations.get(id);
-        if (c?.channel !== "chrome") return false;
-        kernel.conversations.setActive("chrome", kernel.profile.ownerId, id);
-        return true;
-      },
-      // On the device line: a lookup that throws answers with nothing rather than taking the line's handler down.
-      mentions: (q, kind) => {
-        try {
-          return mentionsOf(kernel, q, 8, kind).map(({ kind: k, id, label, hint }) => ({ kind: k, id, label, ...(hint ? { hint } : {}) }));
-        } catch {
-          return [];
-        }
-      },
-      models: () => panelModels(),
-      auto: (id) => kernel.actsWithoutAsking(id),
-      setAuto: (id, on) => kernel.setActsWithoutAsking(id, on),
-      // The dashboard's picker, merged rather than replacing: the route's effort and the cheap route stay as they were.
-      setModel: async (model) => {
-        const saved = parseModelSettings(kernel.settings.get(MODEL_SETTINGS_KEY));
-        const next = { ...saved, reasoning: { ...saved.reasoning, model } };
-        kernel.settings.set(MODEL_SETTINGS_KEY, next);
-        kernel.applyModelSettings(next);
-        return panelModels();
-      },
-    },
+    panels: { chrome: panelDeps("chrome", chromeChat), mac: panelDeps("mac", macChat) },
   });
 
   // KOS's Chrome answers on 9225; a second KOS on the machine names another port.
@@ -424,12 +431,13 @@ export async function runHost(options: HostOptions): Promise<void> {
       );
       child.unref();
     },
-    // Every surface the owner is on, and the Chrome side panel when its chat is the one asking.
+    // Every surface the owner is on, and a device panel when its chat is the one asking.
     onApprovalRequested: (action) => {
       const request = approvalRequest(action);
       if (adapter && creds) void adapter.requestApproval(creds.ownerId, request);
       if (smsAdapter && sms) void smsAdapter.requestApproval(sms.owner, request);
       void computer.panel.requestApproval("owner", request);
+      void computer.mac.requestApproval("owner", request);
     },
   });
 
@@ -925,20 +933,25 @@ export async function runHost(options: HostOptions): Promise<void> {
   }
 
   /*
-   * The side panel of each paired Chrome: a surface of its own, whatever
-   * else is wired, and quiet until a Chrome is paired with computer use on.
-   * A turn it did not take (one on the dashboard, one resumed after a
-   * decision) shows there too, since the panel draws the chat as it stands.
+   * The side panel of each paired Chrome and the window of each paired Mac:
+   * surfaces of their own, whatever else is wired, and quiet until a device
+   * is paired with computer use on. A turn one did not take (one on the
+   * dashboard, one resumed after a decision) shows there too, since a panel
+   * draws the chat as it stands.
    */
-  const panelRuntime = connectChannel(computer.panel, kernel, {
-    ownerRecipientId: "owner",
-    identity: computer.panel.identity(kernel.profile.ownerId),
-  });
-  await panelRuntime.start();
-  kernel.bus.on("turn:said", (said) => {
-    if (said.conversationId !== chromeChat()?.id || (said.channel === "chrome" && !said.resumed)) return;
-    void computer.panel.refresh();
-  });
+  const panelRuntimes: { stop(): Promise<void> }[] = [];
+  for (const [panel, current] of [
+    [computer.panel, chromeChat],
+    [computer.mac, macChat],
+  ] as const) {
+    const runtime = connectChannel(panel, kernel, { ownerRecipientId: "owner", identity: panel.identity(kernel.profile.ownerId) });
+    await runtime.start();
+    panelRuntimes.push(runtime);
+    kernel.bus.on("turn:said", (said) => {
+      if (said.conversationId !== current()?.id || (said.channel === panel.name && !said.resumed)) return;
+      void panel.refresh();
+    });
+  }
 
   /*
    * The schedule starts once every surface is wired, not before. A job that
@@ -968,7 +981,7 @@ export async function runHost(options: HostOptions): Promise<void> {
         if (runtime) await runtime.stop();
         if (smsRuntime) await smsRuntime.stop();
         if (imessageRuntime) await imessageRuntime.stop();
-        await panelRuntime.stop();
+        for (const panelRuntime of panelRuntimes) await panelRuntime.stop();
         imessageClaim?.release();
         await kernel.closeBrowser();
       } catch {

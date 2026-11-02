@@ -203,6 +203,20 @@ const CHROME_PANEL_STYLE = [
   "list to a paragraph. Say what you found on the page, not that you read it.",
 ].join("\n");
 
+/**
+ * KOS Device's window on the owner's Mac: a small window floating over the
+ * app they are in, read at a glance before they go back to it. Which app
+ * is in front comes with each message. It draws markdown natively, and
+ * LaTeX is not typeset there.
+ */
+const MAC_WINDOW_STYLE = [
+  "## Replying in the KOS window on the Mac",
+  "The owner is talking to you from KOS Device's small window on their Mac, floating over the app they are using;",
+  "each message says which app is in front. Your reply renders there as markdown: lists, bold, links, inline code,",
+  "fenced code and tables. LaTeX is shown as written, not typeset, so write a formula plainly when one is needed.",
+  "Lead with the answer, keep it to a few short lines, and prefer a short list to a paragraph.",
+].join("\n");
+
 const DISCORD_STYLE = [
   "## Replying on Discord",
   "Your reply is sent as an ordinary Discord message, so you choose the presentation.",
@@ -261,6 +275,7 @@ const DISCORD_STYLE = [
 const STYLES: Record<string, { heading: string; house: string }> = {
   discord: { heading: "## Replying on Discord", house: DISCORD_STYLE },
   chrome: { heading: "## Replying in the Chrome side panel", house: CHROME_PANEL_STYLE },
+  mac: { heading: "## Replying in the KOS window on the Mac", house: MAC_WINDOW_STYLE },
 };
 
 
