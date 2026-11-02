@@ -16,6 +16,7 @@ import {
   SmsAdapter,
   verifyTwilioSignature,
   Kernel,
+  activeOwnChat,
   connectChannel,
   MODEL_SETTINGS_KEY,
   conversationEvents,
@@ -255,7 +256,7 @@ export async function runHost(options: HostOptions): Promise<void> {
   /** The chat a Chrome's side panel shows: its surface's current one, made only when the owner first speaks there. */
   const chromeChat = (): { id: string; title: string } | undefined => {
     const owner = kernel.profile.ownerId;
-    const id = kernel.conversations.activeFor("chrome", owner) ?? surfaceSessionId("chrome", owner);
+    const id = activeOwnChat(kernel.conversations, "chrome", owner) ?? surfaceSessionId("chrome", owner);
     return kernel.conversations.get(id) ? { id, title: kernel.titleOf(id) } : undefined;
   };
   const computer = createComputerUse({
@@ -286,7 +287,14 @@ export async function runHost(options: HostOptions): Promise<void> {
         kernel.conversations.setActive("chrome", kernel.profile.ownerId, id);
         return true;
       },
-      mentions: (q, kind) => mentionsOf(kernel, q, 8, kind).map(({ kind: k, id, label, hint }) => ({ kind: k, id, label, ...(hint ? { hint } : {}) })),
+      // On the device line: a lookup that throws answers with nothing rather than taking the line's handler down.
+      mentions: (q, kind) => {
+        try {
+          return mentionsOf(kernel, q, 8, kind).map(({ kind: k, id, label, hint }) => ({ kind: k, id, label, ...(hint ? { hint } : {}) }));
+        } catch {
+          return [];
+        }
+      },
       models: () => panelModels(),
       auto: (id) => kernel.actsWithoutAsking(id),
       setAuto: (id, on) => kernel.setActsWithoutAsking(id, on),

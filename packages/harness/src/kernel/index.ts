@@ -47,6 +47,7 @@ export {
   type CreateConversationInput,
 } from "./conversations.js";
 export {
+  activeOwnChat,
   parseChatCommand,
   resolveConversation,
   runChatCommand,

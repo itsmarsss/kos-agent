@@ -175,6 +175,16 @@ export interface CommandContext {
   within?: (c: Conversation) => boolean;
 }
 
+/**
+ * A surface's current chat when that chat is its own. A surface that keeps
+ * to its own chats (the Chrome side panel) may still have an older pointer
+ * at a dashboard chat, from before it kept to them; that one is not its.
+ */
+export function activeOwnChat(conversations: ConversationStore, channel: string, userId: string): string | undefined {
+  const id = conversations.activeFor(channel, userId);
+  return id !== undefined && conversations.get(id)?.channel === channel ? id : undefined;
+}
+
 export interface CommandResult {
   /** A panel the surface should open, when the command is a request to. */
   opens?: "tools";
@@ -299,8 +309,9 @@ export function runChatCommand(
       const current = conversations.get(currentId);
       if (!current) return { reply: "Nothing to archive." };
       conversations.setArchived(currentId, true);
-      // Land somewhere real rather than on an archived conversation.
-      const remaining = conversations.list(userId);
+      // Land somewhere real rather than on an archived conversation, and on
+      // one of this surface's own when it keeps to them.
+      const remaining = conversations.list(userId).filter((c) => ctx.within?.(c) ?? true);
       const next =
         remaining[0] ??
         conversations.create({ userId, channel, title: "New conversation" });

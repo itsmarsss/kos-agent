@@ -2697,7 +2697,10 @@ export class Kernel {
     const command = parseChatCommand(input.text);
     if (command) {
       // Commands are bookkeeping: no model call, no queue, no transcript entry.
-      const result: CommandResult = needsKernel(command)
+      // A surface that keeps to its own chats cannot be moved onto a project's.
+      const result: CommandResult = input.contained && command.kind === "project"
+        ? { reply: "This chat keeps to its own conversations, so a project starts on the dashboard: say /project there." }
+        : needsKernel(command)
         ? await this.runKernelCommand(command, conversation.id, input.userId, input.channel)
         : runChatCommand(command, {
             conversations: this.conversations,
