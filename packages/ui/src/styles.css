@@ -100,10 +100,10 @@
   --accent-lit: #2a47b8;
   --accent-dim: rgba(53, 88, 214, 0.1);
   --violet: #7b4fd6;
-  --ok: #1a8f5c;
-  --ok-dim: rgba(26, 143, 92, 0.1);
-  --warn: #a36f00;
-  --warn-dim: rgba(163, 111, 0, 0.1);
+  --ok: #0f6e45;
+  --ok-dim: rgba(15, 110, 69, 0.1);
+  --warn: #7d5400;
+  --warn-dim: rgba(125, 84, 0, 0.1);
   --danger: #cf3b47;
   --danger-dim: rgba(207, 59, 71, 0.1);
   --on-accent: #ffffff;
