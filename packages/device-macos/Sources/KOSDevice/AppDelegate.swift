@@ -80,6 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     menu.onOpen = { [unowned self] in home.show() }
     menu.onChat = { [unowned self] in chat.open() }
+    model.actions.openChat = { [unowned self] in chat.open() }
     chat.send = { [unowned self] origin, message in lines[origin]?.send(message) }
     chat.target = { [unowned self] in chatTarget() }
     chat.faceOf = { origin in Self.face(of: origin) }

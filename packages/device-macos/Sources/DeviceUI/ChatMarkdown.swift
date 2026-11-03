@@ -296,7 +296,7 @@ private struct BlockView: View {
   /// numbers, then letters under numbers.
   @ViewBuilder private func mark(ordered: Bool, n: Int) -> some View {
     if ordered {
-      Text(depth == 0 ? "\(n)." : "\(Array("abcdefghijklmnopqrstuvwxyz")[(n - 1) % 26]).").monospacedDigit()
+      Text(verbatim: depth == 0 ? "\(n)." : "\(Array("abcdefghijklmnopqrstuvwxyz")[(n - 1) % 26]).").monospacedDigit()
     } else {
       // A glyph at a small size, so it sits on the line's baseline as text does.
       Text(["●", "○", "■"][min(depth, 2)]).font(.system(size: depth == 2 ? 6 : 7))
