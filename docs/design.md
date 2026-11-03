@@ -216,19 +216,23 @@ shows LaTeX as written.
 
 - **The owner's message:** a bubble on the right, the accent at the strong
   tint over `panel-2`, radius 14 with its bottom right corner 4. Words in
-  `text`, not on solid blue.
+  `text`, not on solid blue, read as the same markdown KOS's are, so a link
+  pasted is a link and a formula is typeset.
 - **KOS's reply:** prose on the page, no bubble.
 - **Markdown:** headings at the title size down, lists that nest (circle,
   square; a, b under numbers), code spans on `panel-2` at radius 4, code
   blocks on `panel` with a line at radius 10, quotes with a `line-strong`
-  rule, LaTeX typeset, references as `violet` chips. The side panel draws a
-  table as a code block, its column being too narrow for one.
+  rule, LaTeX typeset, references as `violet` chips, tables with a `muted`
+  head and a `line` under each row, scrolling sideways when wider than the
+  column. A grid without a head line stays as the text it is.
 - **Steps:** a turn's tool calls are quiet rows under its words. The side
   panel folds them to one "N steps" capsule, being narrow; the dashboard
   shows each as a row that opens to its arguments and result.
 - **Composer:** one box, `panel`, radius 14, the field borderless inside it,
   the chips under it as capsules (model, mode, context), and a 30 px round
-  send button in the accent. The whole box takes the focus ring.
+  send button in the accent. The whole box takes the focus ring. Its hint
+  is "Message <who>, / for commands, @ to name things", on one line, cut
+  short when the box is narrow.
 
 ## Changing it
 

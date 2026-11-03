@@ -284,6 +284,8 @@ export function summarizeAction(
   if (tool === "chrome.start") return `Work in your Chrome${typeof a.chrome === "string" ? ` (${a.chrome})` : ""}: ${fmtVal(a.task)}`;
   if (tool === "chrome.end") return "Give your Chrome back";
   if (tool === "chrome.page") return "Read the page beside the panel";
+  if (tool === "python.run") return `Run Python: ${fmtVal(typeof a.code === "string" ? (a.code.split("\n").find((l) => l.trim()) ?? "").trim() : a.code)}`;
+  if (tool === "tex.pdf") return `Typeset ${fmtVal(a.path)} as a PDF`;
   // KOS's own browser tools: a visit, a run of steps, or the owner's hands.
   if (tool === "browser.visit") {
     // One visit may take several pages; the card names them all.

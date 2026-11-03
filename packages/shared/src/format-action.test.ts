@@ -63,6 +63,9 @@ describe("summaries for the browser", () => {
     expect(summarizeAction("browser.look", {})).toBe("Look at the page");
     expect(summarizeAction("chrome.start", { task: "check the cart" })).toBe("Work in your Chrome: check the cart");
     expect(summarizeAction("chrome.page", {})).toBe("Read the page beside the panel");
+    // Said once, not "python.run" twice: the first line of the program, and the file to typeset.
+    expect(summarizeAction("python.run", { code: "\nimport math\nprint(math.pi)" })).toBe("Run Python: import math");
+    expect(summarizeAction("tex.pdf", { path: "notes/paper.tex" })).toBe("Typeset notes/paper.tex as a PDF");
     expect(summarizeAction("chrome.end", {})).toBe("Give your Chrome back");
     expect(summarizeAction("browser.eval", { code: "document.title" })).toMatch(/^Run script in the page: document\.title/);
   });

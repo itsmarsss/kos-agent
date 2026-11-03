@@ -5,7 +5,8 @@ import { Fragment, useLayoutEffect, useRef, type ReactElement, type ReactNode } 
 /**
  * KOS's words in the side panel: the markdown a chat uses, built as React
  * elements so nothing KOS says can become markup. Paragraphs, headings,
- * lists, quotes, fenced code, tables kept as code, the small "-#" line
+ * lists, quotes, fenced code, tables (a grid without a header line kept as
+ * code), the small "-#" line
  * KOS writes for asides, inline code, bold, italics and links, LaTeX math,
  * and KOS's references (@approval:6, @page:[Budget]) as the names they
  * stand for.
@@ -16,7 +17,27 @@ type Block =
   | { kind: "p" | "small" | "quote"; text: string }
   | { kind: "h"; level: number; text: string }
   | { kind: "code" | "math"; text: string }
+  | { kind: "table"; head: string[]; align: Align[]; rows: string[][] }
   | { kind: "list"; list: MdList };
+
+type Align = "left" | "center" | "right";
+
+/** A table row's cells, its outer pipes dropped; a \| stays in its cell. */
+function cellsOf(row: string): string[] {
+  return row
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split(/(?<!\\)\|/)
+    .map((c) => c.trim().replace(/\\\|/g, "|"));
+}
+
+/** The line under a table's head, |---|:---:|, as each column's alignment, or nothing when it is not one. */
+function alignOf(row: string): Align[] | undefined {
+  const cells = cellsOf(row);
+  if (!cells.every((c) => /^:?-+:?$/.test(c))) return undefined;
+  return cells.map((c) => (c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : "left"));
+}
 
 export function blocksOf(text: string): Block[] {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
@@ -42,13 +63,15 @@ export function blocksOf(text: string): Block[] {
       i = math.next - 1;
       continue;
     }
-    // A table reads as the grid it is drawn as.
+    // A table, with its head and the line under it, as a table; a grid without them as the text it is.
     if (/^\s*\|.*\|\s*$/.test(line)) {
       flush();
       const rows: string[] = [];
       for (; i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i]!); i++) rows.push(lines[i]!.trim());
       i--;
-      out.push({ kind: "code", text: rows.join("\n") });
+      const align = rows.length > 1 ? alignOf(rows[1]!) : undefined;
+      if (align) out.push({ kind: "table", head: cellsOf(rows[0]!), align, rows: rows.slice(2).map(cellsOf) });
+      else out.push({ kind: "code", text: rows.join("\n") });
       continue;
     }
     const heading = /^(#{1,4})\s+(.*)$/.exec(line);
@@ -160,25 +183,6 @@ function ListView({ list }: { list: MdList }): ReactElement {
   return list.ordered ? <ol {...(list.start !== 1 ? { start: list.start } : {})}>{items}</ol> : <ul>{items}</ul>;
 }
 
-/** The owner's own words with what they named as chips, and nothing else read into them. */
-export function withMentions(text: string): ReactNode[] {
-  const out: ReactNode[] = [];
-  const mention = /@([a-z]+):(?:\[([^\]\n]+)\]|([\w.:/-]*\w))/g;
-  let at = 0;
-  let key = 0;
-  for (const m of text.matchAll(mention)) {
-    if (m.index > at) out.push(text.slice(at, m.index));
-    out.push(
-      <span key={key++} className="mention">
-        {m[2] ?? `${m[1]} ${m[3]}`}
-      </span>,
-    );
-    at = m.index + m[0].length;
-  }
-  if (at < text.length) out.push(text.slice(at));
-  return out;
-}
-
 function lines(text: string): ReactNode[] {
   return text.split("\n").map((l, i) => (
     <Fragment key={i}>
@@ -212,6 +216,34 @@ function blockView(b: Block, i: number): ReactElement {
         <pre key={i}>
           <code>{b.text}</code>
         </pre>
+      );
+    case "table":
+      // As wide as it needs: a table wider than the column scrolls on its own.
+      return (
+        <div key={i} className="md-table">
+          <table>
+            <thead>
+              <tr>
+                {b.head.map((c, j) => (
+                  <th key={j} style={{ textAlign: b.align[j] ?? "left" }}>
+                    {inline(c)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {b.rows.map((row, r) => (
+                <tr key={r}>
+                  {b.head.map((_, j) => (
+                    <td key={j} style={{ textAlign: b.align[j] ?? "left" }}>
+                      {inline(row[j] ?? "")}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       );
     case "math":
       return (
