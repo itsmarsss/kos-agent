@@ -32,18 +32,34 @@ export interface FieldProps {
   error?: ReactNode;
   /** Several controls under one label, so the label is a heading rather than a <label>. */
   group?: boolean;
+  /** Beside the label: what it is set to, say, as a Tag. */
+  badge?: ReactNode;
+  /** A line under the hint: where it came from, say. */
+  meta?: ReactNode;
+  /**
+   * The control beside the words rather than under them. For a list of
+   * things with a switch each: stacked, every item was a name, then a
+   * checkbox on a line of its own, then its description, and four of them
+   * read as twelve lines.
+   */
+  row?: boolean;
   className?: string;
   children: ReactNode;
 }
 
-/** One labelled control: the label, the control, then a hint or an error. */
-export function Field({ label, required = false, hint, error, group = false, className, children }: FieldProps): ReactElement {
+/**
+ * One labelled control: the label, the control, then a hint or an error.
+ * Marked with its label (data-field) so a search can scroll to it.
+ */
+export function Field({ label, required = false, hint, error, group = false, badge, meta, row = false, className, children }: FieldProps): ReactElement {
+  if (row) return <FieldRow label={label} hint={hint} badge={badge} meta={meta} className={className}>{children}</FieldRow>;
   const cls = `kos-field${className ? ` ${className}` : ""}`;
   const body = (
     <>
       <span className="kos-field-label">
         {label}
         {required && <Req />}
+        {badge}
       </span>
       {children}
       {error ? (
@@ -53,14 +69,37 @@ export function Field({ label, required = false, hint, error, group = false, cla
       ) : hint ? (
         <span className="hint">{hint}</span>
       ) : null}
+      {meta}
     </>
   );
   return group ? (
-    <div className={cls} role="group" aria-label={label}>
+    <div className={cls} role="group" aria-label={label} data-field={label}>
       {body}
     </div>
   ) : (
-    <label className={cls}>{body}</label>
+    <label className={cls} data-field={label}>
+      {body}
+    </label>
+  );
+}
+
+/** A field in a list: its words, which open on a click, and its control at the right. */
+function FieldRow({ label, hint, badge, meta, className, children }: Pick<FieldProps, "label" | "hint" | "badge" | "meta" | "className" | "children">): ReactElement {
+  // A row's words open on click: a skill's description can run to a
+  // paragraph of triggers, and fourteen of those is a wall.
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={`set-field set-field--row${open ? " is-open" : ""}${className ? ` ${className}` : ""}`} data-field={label}>
+      <button type="button" className="set-field-text" onClick={() => setOpen((v) => !v)} title={open ? "Less" : "More"}>
+        <div className="set-label">
+          <span>{label}</span>
+          {badge}
+        </div>
+        {hint && <p className="set-hint">{hint}</p>}
+        {open && meta}
+      </button>
+      <div className="set-field-control">{children}</div>
+    </div>
   );
 }
 
@@ -79,17 +118,17 @@ export interface CardProps {
   children: ReactNode;
 }
 
-/** A boxed section of a column or a page: a head, then its body. */
-export function Card({ title, count, pill, action, label, className, children }: CardProps): ReactElement {
+/** A boxed section of a column or a page: a head, then its body. What else a section takes (a drop target's handlers) it is given. */
+export function Card({ title, count, pill, action, label, className, children, ...rest }: CardProps & Omit<React.HTMLAttributes<HTMLElement>, keyof CardProps>): ReactElement {
   return (
-    <section className={`card${className ? ` ${className}` : ""}`} aria-label={label ?? title}>
+    <section className={`card${className ? ` ${className}` : ""}`} aria-label={label ?? title} {...rest}>
       {(title || action || pill) && (
         <div className="card-head">
           {title && (
-            <span className="card-title">
+            <h2 className="card-title">
               {title}
               {count !== undefined && count > 0 && <span className="card-count">{count}</span>}
-            </span>
+            </h2>
           )}
           {(pill || action) && (
             <span className="card-acts">

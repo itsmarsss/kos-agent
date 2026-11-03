@@ -2,10 +2,9 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from "rea
 import { Pill, Switch } from "@kos/kit";
 
 import { api, type ComputerSettings, type DeviceCode, type PairedDevice } from "./api.js";
-import { ConfirmButton } from "./kit.js";
+import { ConfirmButton, Field } from "./kit.js";
 import { agoWords } from "./schedulewords.js";
 import { Select } from "./Select.js";
-import { Field } from "./SettingField.js";
 
 /**
  * The computers KOS may use, and pairing one.
@@ -30,7 +29,7 @@ function SessionRules({ settings, onChange }: { settings: ComputerSettings; onCh
   return (
     <div className="set-group device-rules">
       <h3>Sessions</h3>
-      <Field label="KOS asks for" hint="How long a session KOS asks for when the chat does not say. Each computer can allow less: its own longest session wins.">
+      <Field group label="KOS asks for" hint="How long a session KOS asks for when the chat does not say. Each computer can allow less: its own longest session wins.">
         <Select
           label="KOS asks for"
           value={String(settings.askMinutes)}
@@ -38,7 +37,7 @@ function SessionRules({ settings, onChange }: { settings: ComputerSettings; onCh
           onChange={(v) => onChange({ askMinutes: Number(v) })}
         />
       </Field>
-      <Field
+      <Field group
         label="Work you did not start may use a computer"
         hint="Off by default: a schedule, a blob's own timer or a guest in a channel cannot start a session. On, they can ask, and the computer still asks you first, or your approval queue does if you set it to."
       >
@@ -229,7 +228,7 @@ export function DevicesPanel(): ReactElement {
       {code ? (
         <PairingCode code={code} now={now} onDone={() => setCode(null)} />
       ) : (
-        <div className="set-inline" data-setting="Add a device">
+        <div className="set-inline" data-field="Add a device">
           <button type="button" className="btn btn--sm" onClick={add}>
             Add a device
           </button>

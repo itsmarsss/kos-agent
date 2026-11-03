@@ -4162,7 +4162,8 @@ li:hover .chats-item-when { opacity: 0; }
 }
 .set-saved { color: var(--ok); font-size: var(--text-base); }
 
-.set-field { display: flex; flex-direction: column; gap: 0.35rem; }
+/* A setting is the kit's field, a little airier, its hint a readable measure. */
+.settings-page .kos-field { gap: 0.35rem; }
 /* The row variant's words: the same label and hint as a field anywhere. */
 .set-label {
   display: flex;
@@ -4173,7 +4174,7 @@ li:hover .chats-item-when { opacity: 0; }
   color: var(--muted);
 }
 .set-hint { margin: 0; color: var(--faint); font-size: var(--text-base); line-height: 1.45; max-width: 46rem; }
-.set-field > .hint { max-width: 46rem; line-height: 1.45; }
+.settings-page .kos-field > .hint { max-width: 46rem; line-height: 1.45; }
 .set-note {
   margin: 0;
   padding: 0.6rem 0.75rem;
