@@ -22,9 +22,9 @@ export function Pill({ tone = "muted", title, children }: { tone?: Tone; title?:
 }
 
 /** On or off, said by its label and drawn as a knob that slides. */
-export function Switch({ on, onChange, label }: { on: boolean; onChange: (on: boolean) => void; label: string }): ReactElement {
+export function Switch({ on, onChange, label, disabled }: { on: boolean; onChange: (on: boolean) => void; label: string; disabled?: boolean }): ReactElement {
   return (
-    <button type="button" className="switch" role="switch" aria-checked={on} aria-label={label} onClick={() => onChange(!on)}>
+    <button type="button" className="switch" role="switch" aria-checked={on} aria-label={label} disabled={disabled} onClick={() => onChange(!on)}>
       <m.span layout transition={spring} />
     </button>
   );

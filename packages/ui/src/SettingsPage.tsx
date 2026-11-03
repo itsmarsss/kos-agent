@@ -1,5 +1,5 @@
 import { m } from "motion/react";
-import { ease, KOS_SEED } from "@kos/kit";
+import { ease, KOS_SEED, Switch } from "@kos/kit";
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import {
@@ -1027,25 +1027,13 @@ export function SettingsPage({
                 label="Extract memory in the background"
                 hint="Off by default. On, a cheap model reads new conversation in batches and proposes claims; what it writes is attributed to it, cites its sources, and shows in Memory. Run it once from the Memory page first and see what it does."
               >
-                <label className="set-toggle">
-                  <input role="switch" aria-label="Extract memory in the background"
-                    type="checkbox"
-                    checked={how.memoryExtraction}
-                    onChange={(e) => setHow({ ...how, memoryExtraction: e.target.checked })}
-                  />
-                </label>
+                <Switch label="Extract memory in the background" on={how.memoryExtraction} onChange={(on) => setHow({ ...how, memoryExtraction: on })} />
               </Field>
               <Field
                 label="Try to fix failures on its own"
                 hint="On the first failure of a job, KOS opens a chat, works out why, and repairs it if it safely can. Later failures of the same job do not start another attempt. Everything it does there still asks you before anything risky."
               >
-                <label className="set-toggle">
-                  <input role="switch" aria-label="Try to fix failures on its own"
-                    type="checkbox"
-                    checked={how.autoFix}
-                    onChange={(e) => setHow({ ...how, autoFix: e.target.checked })}
-                  />
-                </label>
+                <Switch label="Try to fix failures on its own" on={how.autoFix} onChange={(on) => setHow({ ...how, autoFix: on })} />
               </Field>
             </div>
 
@@ -1244,18 +1232,11 @@ export function SettingsPage({
               label="Trim old exchanges"
               hint="When on, the oldest exchanges fall off the front once a chat passes the budgets below, and the chat says so when it happens. Off keeps everything: the whole history is re-sent every turn, so it gets slower and costs more as it grows."
             >
-              <label className="set-toggle">
-                <input role="switch" aria-label="Trim old exchanges"
-                  type="checkbox"
-                  checked={retention.autoTrim !== "off"}
-                  onChange={(e) =>
-                    setRetention((r) => ({
+              <Switch label="Trim old exchanges" on={retention.autoTrim !== "off"} onChange={(on) => setRetention((r) => ({
                       ...r,
-                      autoTrim: e.target.checked ? "on" : "off",
+                      autoTrim: on ? "on" : "off",
                     }))
-                  }
-                />
-              </label>
+                  } />
             </Field>
             <Field
               label="History budget"
@@ -1366,20 +1347,13 @@ export function SettingsPage({
                 row
                 {...(sk.origin ? { meta: <span className="set-origin ops-mono">{sk.origin}</span> } : {})}
               >
-                <label className="set-toggle">
-                  <input role="switch" aria-label={sk.name}
-                    type="checkbox"
-                    checked={sk.enabled}
-                    disabled={skillBusy === sk.name}
-                    onChange={(e) => {
-                      const enabled = e.target.checked;
+                <Switch label={sk.name} on={sk.enabled} disabled={skillBusy === sk.name} onChange={(on) => {
+                      const enabled = on;
                       // Shown at once; the list is re-read after the save so
                       // what is on screen is what the server has.
                       setSkills((cur) => ({ ...cur, skills: cur.skills.map((x) => (x.name === sk.name ? { ...x, enabled } : x)) }));
                       void api.setSkillEnabled(sk.name, enabled).then(loadSkills, loadSkills);
-                    }}
-                  />
-                </label>
+                    }} />
                 <span className="set-module-actions">
                   {/* The file itself, in Files: what a script does is in its code, what a prompt skill says is in its text. */}
                   <a className="link" href={hrefFor({ name: "files", path: sk.file })}>
@@ -1451,18 +1425,11 @@ export function SettingsPage({
                         : `${s.command} · starting`
                 }
               >
-                <label className="set-toggle">
-                  <input role="switch" aria-label={s.name}
-                    type="checkbox"
-                    checked={s.enabled}
-                    disabled={mcpBusy === s.name}
-                    onChange={(e) => {
-                      const enabled = e.target.checked;
+                <Switch label={s.name} on={s.enabled} disabled={mcpBusy === s.name} onChange={(on) => {
+                      const enabled = on;
                       setMcpBusy(s.name);
                       void api.setMcpServerEnabled(s.name, enabled).then(loadMcp, loadMcp).finally(() => setMcpBusy(null));
-                    }}
-                  />
-                </label>
+                    }} />
                 <span className="set-module-actions">
                   <button
                     type="button"
@@ -1491,16 +1458,10 @@ export function SettingsPage({
                 <div className="set-rows">
                 {(modules.builtins ?? []).map((b) => (
                   <Field key={b.name} label={b.name} hint={b.description} row>
-                    <label className="set-toggle">
-                      <input role="switch" aria-label={b.name}
-                        type="checkbox"
-                        checked={b.enabled}
-                        onChange={(e) => {
-                          const enabled = e.target.checked;
+                    <Switch label={b.name} on={b.enabled} onChange={(on) => {
+                          const enabled = on;
                           void api.setModuleEnabled(b.name, enabled).then(loadModules, loadModules);
-                        }}
-                      />
-                    </label>
+                        }} />
                   </Field>
                 ))}
                 </div>
@@ -1598,20 +1559,13 @@ export function SettingsPage({
                     )}
                   </div>
                 ) : (
-                <label className="set-toggle">
-                  <input role="switch" aria-label={m.name}
-                    type="checkbox"
-                    checked={m.enabled}
-                    disabled={moduleBusy === m.name}
-                    onChange={(e) => {
-                      const enabled = e.target.checked;
+                <Switch label={m.name} on={m.enabled} disabled={moduleBusy === m.name} onChange={(on) => {
+                      const enabled = on;
                       // The server comes up or goes down on the save, so the
                       // list is re-read afterwards to show what happened.
                       setModuleBusy(m.name);
                       void api.setModuleEnabled(m.name, enabled).then(loadModules, loadModules).finally(() => setModuleBusy(null));
-                    }}
-                  />
-                </label>
+                    }} />
                 )}
                 <span className="set-module-actions">
                   {m.origin && (
@@ -1711,9 +1665,7 @@ export function SettingsPage({
                     label="Show the window on this machine"
                     hint="Off, Chrome runs unseen and the dashboard's Browser window is the only view. On, Chrome's own windows open here too: that is how you install extensions from the Web Store, and it is where Chrome's own dialogs appear."
                   >
-                    <label className="set-toggle">
-                      <input role="switch" aria-label="Show the window on this machine" type="checkbox" checked={browserDraft.headed} onChange={(e) => setBrowserDraft({ ...browserDraft, headed: e.target.checked })} />
-                    </label>
+                    <Switch label="Show the window on this machine" on={browserDraft.headed} onChange={(on) => setBrowserDraft({ ...browserDraft, headed: on })} />
                   </Field>
                   <Field
                     label="Chrome to run"

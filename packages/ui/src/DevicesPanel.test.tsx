@@ -56,7 +56,7 @@ describe("the Devices panel", () => {
     const set = vi.spyOn(api, "setComputerSettings").mockResolvedValue({ askMinutes: 15, unattended: true });
     render(<DevicesPanel />);
     const toggle = await screen.findByRole("switch");
-    expect((toggle as HTMLInputElement).checked).toBe(false);
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
     fireEvent.click(toggle);
     expect(set).toHaveBeenCalledWith({ unattended: true });
   });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
-import { Pill } from "@kos/kit";
+import { Pill, Switch } from "@kos/kit";
 
 import { api, type ComputerSettings, type DeviceCode, type PairedDevice } from "./api.js";
 import { ConfirmButton } from "./kit.js";
@@ -42,9 +42,7 @@ function SessionRules({ settings, onChange }: { settings: ComputerSettings; onCh
         label="Work you did not start may use a computer"
         hint="Off by default: a schedule, a blob's own timer or a guest in a channel cannot start a session. On, they can ask, and the computer still asks you first, or your approval queue does if you set it to."
       >
-        <label className="set-toggle">
-          <input role="switch" aria-label="Work you did not start may use a computer" type="checkbox" checked={settings.unattended} onChange={(e) => onChange({ unattended: e.target.checked })} />
-        </label>
+        <Switch label="Work you did not start may use a computer" on={settings.unattended} onChange={(on) => onChange({ unattended: on })} />
       </Field>
     </div>
   );

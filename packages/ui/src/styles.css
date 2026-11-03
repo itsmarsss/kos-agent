@@ -5517,44 +5517,6 @@ a.health {
   cursor: pointer;
 }
 
-/* An on/off switch as KOS for Mac and the extension draw it: a checkbox in
-   the shape of one, so to everything that reads it it is still a checkbox. */
-input[role="switch"] {
-  appearance: none;
-  flex: none;
-  position: relative;
-  width: 34px;
-  height: 20px;
-  margin: 0;
-  border-radius: 999px;
-  background: var(--line-strong);
-  cursor: pointer;
-  transition: background 150ms ease;
-}
-input[role="switch"]::before {
-  content: "";
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--text);
-  transition: transform 150ms ease, background 150ms ease;
-}
-input[role="switch"]:checked { background: var(--accent); }
-input[role="switch"]:checked::before { transform: translateX(14px); background: var(--on-accent); }
-input[role="switch"]:hover:not(:disabled) { background: var(--faint); }
-input[role="switch"]:checked:hover:not(:disabled) { background: var(--accent-lit); }
-input[role="switch"]:disabled { opacity: 0.45; cursor: default; }
-input[role="switch"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-@media (forced-colors: active) {
-  input[role="switch"] { border: 1px solid ButtonText; background: Canvas; }
-  input[role="switch"]::before { background: ButtonText; }
-  input[role="switch"]:checked { background: Highlight; }
-  input[role="switch"]:checked::before { background: HighlightText; }
-}
-
 /* A total you can open up: the cell hints that there is more behind it. */
 .spend-hover {
   position: relative;

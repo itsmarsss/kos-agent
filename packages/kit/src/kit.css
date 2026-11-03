@@ -269,9 +269,16 @@
 .switch span { width: 14px; height: 14px; border-radius: 50%; background: var(--text); transition: background 150ms ease; }
 .switch[aria-checked="true"] { justify-content: flex-end; background: var(--accent); }
 .switch[aria-checked="true"] span { background: var(--on-accent); }
-.switch:hover { background: var(--faint); }
-.switch[aria-checked="true"]:hover { background: var(--accent-lit); }
+.switch:hover:not(:disabled) { background: var(--faint); }
+.switch[aria-checked="true"]:hover:not(:disabled) { background: var(--accent-lit); }
+.switch:disabled { opacity: 0.45; cursor: default; }
 .switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (forced-colors: active) {
+  .switch { border: 1px solid ButtonText; background: Canvas; }
+  .switch span { background: ButtonText; }
+  .switch[aria-checked="true"] { background: Highlight; }
+  .switch[aria-checked="true"] span { background: HighlightText; }
+}
 
 /* —— chips: one choice of a few —— */
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }

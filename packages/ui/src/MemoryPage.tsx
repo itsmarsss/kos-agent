@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 
+import { Switch } from "@kos/kit";
+
 import { api, type CallerInfo, type CronJob, type FactRow, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
 import { KnowledgePage } from "./KnowledgePage.js";
 
@@ -377,9 +379,7 @@ function JobsTab(): ReactElement {
                   setSaid((s) => ({ ...s, [job.id]: text }));
                 }).catch((err: unknown) => setSaid((s) => ({ ...s, [job.id]: err instanceof Error ? err.message : String(err) }))).finally(() => { setBusy(null); load(); });
               }}>{busy === job.id ? "Running…" : "Run now"}</button>
-              <label className="set-toggle">
-                <input role="switch" aria-label={`${j.label} on schedule`} type="checkbox" checked={job.enabled} onChange={(e) => void api.setCronEnabled(job.id, e.target.checked).then(load, load)} />
-              </label>
+              <Switch label={`${j.label} on schedule`} on={job.enabled} onChange={(on) => void api.setCronEnabled(job.id, on).then(load, load)} />
             </div>
           </div>
         );
@@ -420,7 +420,7 @@ function CallersTab(): ReactElement {
         <input className="kos-input" placeholder="name, e.g. resume-ops" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
         <input className="kos-input" placeholder="global tags it may read: career, resume (or *)" value={draft.tags} onChange={(e) => setDraft({ ...draft, tags: e.target.value })} />
         <label className="set-toggle">
-          <input role="switch" type="checkbox" checked={draft.writeGlobal} onChange={(e) => setDraft({ ...draft, writeGlobal: e.target.checked })} />
+          <Switch label="May write global" on={draft.writeGlobal} onChange={(on) => setDraft({ ...draft, writeGlobal: on })} />
           <span>May write global</span>
         </label>
         <button type="button" className="btn btn--primary" disabled={!draft.name.trim()} onClick={() => {
