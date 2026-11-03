@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// KOS's design tokens, so KOS for Mac reads as KOS (docs/design.md).
@@ -34,6 +35,43 @@ public enum Theme {
 
   /// The one spring anything that moves into place uses, the web's spring too.
   public static let spring = Animation.interpolatingSpring(mass: 0.9, stiffness: 420, damping: 38)
+  /// How a control answers the pointer coming over it, and a press.
+  public static let hover = Animation.easeOut(duration: 0.14)
+  public static let press = Animation.easeOut(duration: 0.08)
+
+  /// A colour laid under what it marks (a tile, a lit chip, a pill), and the edge drawn round a lit one: the web's 14% and 45%.
+  public static let tint: Double = 0.14
+  public static let edge: Double = 0.45
+}
+
+/// KOS's sizes of type, by what each sets (docs/design.md, Type): the chat's
+/// are the dashboard's, the windows' the extension's.
+public enum KOSType: CGFloat {
+  /// A window's title: KOS for Mac, Settings, the prompt's question.
+  case title = 17
+  /// A chat's words, the owner's and KOS's, and the box they are typed in.
+  case body = 15
+  /// A table's cells.
+  case table = 14
+  /// A row's title; code blocks and table heads.
+  case dense = 13
+  /// A button, a session's task, an app's name over its window.
+  case control = 12.5
+  /// Chips, hints, the chat's name, a field's words.
+  case detail = 12
+  /// A row's line of detail under its title.
+  case small = 11.5
+  /// A pill, a note in a chat, a time.
+  case tiny = 11
+  /// A section's label over its cards.
+  case label = 10.5
+}
+
+extension Font {
+  /// The system face at one of KOS's sizes.
+  public static func kos(_ size: KOSType, _ weight: Font.Weight = .regular, design: Font.Design = .default) -> Font {
+    .system(size: size.rawValue, weight: weight, design: design)
+  }
 }
 
 extension Color {
@@ -44,5 +82,19 @@ extension Color {
       green: Double((hex >> 8) & 0xFF) / 255,
       blue: Double(hex & 0xFF) / 255,
       opacity: opacity)
+  }
+}
+
+extension Color {
+  /// This colour, at its opacity, laid over a solid one: the tint the dashboard mixes with color-mix.
+  func blended(over base: Color) -> Color {
+    let top = NSColor(self).usingColorSpace(.sRGB) ?? .black
+    let under = NSColor(base).usingColorSpace(.sRGB) ?? .black
+    let a = top.alphaComponent
+    return Color(
+      .sRGB,
+      red: Double(top.redComponent * a + under.redComponent * (1 - a)),
+      green: Double(top.greenComponent * a + under.greenComponent * (1 - a)),
+      blue: Double(top.blueComponent * a + under.blueComponent * (1 - a)))
   }
 }
