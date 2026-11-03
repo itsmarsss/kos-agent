@@ -189,7 +189,7 @@ function useChat(windowId: number | undefined, online: boolean): {
         case "chat.status":
           heardBack();
           if (typeof message["error"] === "string") setError(message["error"]);
-          if (message["taken"] === true) return;
+          if (message["taken"] === true) return setChat((c) => took(c, message));
           return setChat((c) => storied(c, message));
         case "chat.chats":
           return setChats((message["chats"] as ChatItem[]) ?? []);
@@ -310,6 +310,24 @@ function shown(c: Chat, message: Record<string, unknown>): Chat {
     ...(answered ? { stories: [] } : {}),
     ...(fresh ? { asks: [] } : {}),
   };
+}
+
+/**
+ * The owner's words, taken by KOS. Ones said somewhere else (on the
+ * dashboard, in another Chrome) show here on their way, as if typed here,
+ * and the turn on them is told as it goes.
+ */
+function took(c: Chat, message: Record<string, unknown>): Chat {
+  const said = typeof message["said"] === "string" ? message["said"] : undefined;
+  if (!said || message["conversation"] !== c.conversation) return c;
+  const shown = c.sending.includes(said) || awaiting(c.lines, said);
+  return { ...c, sending: shown ? c.sending : [...c.sending, said], working: true };
+}
+
+/** The owner's words are the chat's latest and not yet answered: the turn on them is in the chat already. */
+function awaiting(lines: Line[], said: string): boolean {
+  const words = lines.flatMap((l) => (l.role === "you" ? [l.text] : []));
+  return words.at(-1) === said && answeredWith(lines, words.length) < 0;
 }
 
 function storied(c: Chat, message: Record<string, unknown>): Chat {

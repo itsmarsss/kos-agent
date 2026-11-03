@@ -83,7 +83,7 @@ final class ChatController {
       case .status:
         let p = try call.params(ChatStatus.self)
         heardBack()
-        model.status(taken: p.taken ?? false, story: p.story, error: p.error)
+        model.status(taken: p.taken ?? false, story: p.story, error: p.error, said: p.said, conversation: p.conversation)
       case .ask:
         let a = try call.params(ChatAsk.self).approval
         model.ask(.init(id: a.id, tool: a.tool, args: a.args, why: a.why, reason: a.reason, always: a.always))

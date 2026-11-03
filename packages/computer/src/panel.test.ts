@@ -110,7 +110,8 @@ describe("the KOS for Mac window", () => {
     expect(panel.identity("owner").resolve("mac", chrome.id)).toBeNull();
     // The chat is drawn on Macs, never on a Chrome.
     setChat({ id: "mac:owner", title: "Mac" });
-    await panel.refresh();
+    panel.watch({ kind: "turn-start", conversationId: "mac:owner", said: "plan my week", from: "dashboard" });
+    panel.watch({ kind: "turn-end", conversationId: "mac:owner" });
     await flush();
     expect(mac.calls.map((c) => c.method)).toContain("chat.show");
     expect(chrome.calls.map((c) => c.method)).not.toContain("chat.show");
@@ -217,6 +218,58 @@ describe("a Chrome's side panel", () => {
     await presence.fail("KOS hit an error.");
     expect(chrome.calls.slice(-2).map((c) => c.method)).toEqual(["chat.status", "chat.show"]);
     expect(chrome.calls.at(-2)?.params).toEqual({ conversation: "chrome:owner", said: "/new", story: null, error: "KOS hit an error." });
+  });
+
+  it("tells a turn taken elsewhere as it goes, as Discord's thread is told it", async () => {
+    const { panel, pair, setChat } = setup();
+    const chrome = pair();
+    setChat({ id: "chrome:owner", title: "Chrome" });
+    const status = () => chrome.calls.filter((c) => c.method === "chat.status").map((c) => c.params);
+    // Another chat's turn is not the panel's to tell.
+    panel.watch({ kind: "turn-start", conversationId: "cm1:owner", said: "elsewhere", from: "dashboard" });
+    panel.watch({ kind: "turn-start", conversationId: "chrome:owner", said: "compare these mugs", from: "dashboard" });
+    panel.watch({ kind: "tool-start", conversationId: "chrome:owner", tool: "chrome.page", summary: "Read the page" });
+    panel.watch({ kind: "tool-end", conversationId: "chrome:owner", tool: "chrome.page", isError: false });
+    await flush();
+    expect(status()).toEqual([
+      // The owner's words at once, then each step as it is taken.
+      { conversation: "chrome:owner", said: "compare these mugs", taken: true },
+      { conversation: "chrome:owner", said: "compare these mugs", story: "› Read the page" },
+    ]);
+    // A panel opened mid-turn is told the turn so far, after the chat.
+    chrome.event("chat.open", {});
+    await flush();
+    await flush();
+    expect(chrome.calls.slice(-3).map((c) => c.method)).toEqual(["chat.ask", "chat.status", "chat.status"]);
+    expect(status().slice(-2)).toEqual(status().slice(0, 2));
+    setChat({ id: "chrome:owner", title: "Mug check" }, [
+      { kind: "message", role: "you", text: "compare these mugs" },
+      { kind: "message", role: "kos", text: "The 12 oz." },
+    ]);
+    panel.watch({ kind: "turn-end", conversationId: "chrome:owner" });
+    await flush();
+    // Done, then the chat as the turn left it.
+    expect(chrome.calls.slice(-2)).toEqual([
+      { method: "chat.status", params: { conversation: "chrome:owner", said: "compare these mugs", story: null } },
+      { method: "chat.show", params: { conversation: "chrome:owner", title: "Mug check", messages: [{ role: "you", text: "compare these mugs" }, { role: "kos", text: "The 12 oz." }], auto: false } },
+    ]);
+  });
+
+  it("tells the owner's other Chromes a turn one of them took, and leaves that one to its own story", async () => {
+    const { panel, pair, setChat } = setup();
+    const speaking = pair();
+    const other = pair();
+    setChat({ id: "chrome:owner", title: "Chrome" });
+    panel.onMessage(() => undefined);
+    speaking.event("chat.send", { text: "summarize this" });
+    await flush();
+    panel.watch({ kind: "turn-start", conversationId: "chrome:owner", said: "summarize this", from: "chrome" });
+    panel.watch({ kind: "tool-start", conversationId: "chrome:owner", tool: "chrome.page", summary: "Read the page" });
+    panel.watch({ kind: "turn-end", conversationId: "chrome:owner" });
+    await flush();
+    expect(other.calls.map((c) => c.method)).toEqual(["chat.status", "chat.status", "chat.status", "chat.show"]);
+    // The one spoken from hears the turn from its own presence, and the chat when it ends.
+    expect(speaking.calls.map((c) => c.method)).toEqual(["chat.show"]);
   });
 
   it("lists the chats to switch to, switches to a real one only, and shows it", async () => {

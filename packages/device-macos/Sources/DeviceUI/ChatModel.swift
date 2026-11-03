@@ -179,8 +179,8 @@ public final class ChatModel: ObservableObject {
     self.auto = auto
   }
 
-  /// A turn as it goes. `story` is `.some(nil)` when KOS said the turn is done.
-  public func status(taken: Bool, story: String??, error: String?) {
+  /// A turn as it goes, for the owner's words `said` in `conversation`. `story` is `.some(nil)` when KOS said the turn is done.
+  public func status(taken: Bool, story: String??, error: String?, said: String? = nil, conversation: String? = nil) {
     if let error {
       self.error = error
       working = false
@@ -192,9 +192,17 @@ public final class ChatModel: ObservableObject {
       }
       return
     }
-    if taken { return }
+    if taken {
+      // Words said somewhere else (on the dashboard, in a Chrome) show here on their way, as if typed here.
+      guard let said, conversation == self.conversation else { return }
+      if !sending.contains(said) && !awaiting(said) { sending.append(said) }
+      working = true
+      return
+    }
     switch story {
     case .some(.some(let steps)):
+      // The steps of a turn the chat already shows answered, told once more as it closed: nothing new.
+      if sending.isEmpty, let said, answered(said) { return }
       self.story = steps
       working = true
     case .some(.none):
@@ -203,6 +211,24 @@ public final class ChatModel: ObservableObject {
     case .none:
       break
     }
+  }
+
+  /// The owner's latest words, and the lines after them.
+  private func after(_ said: String) -> ArraySlice<Line>? {
+    guard let at = lines.lastIndex(where: { if case .you = $0 { return true } else { return false } }),
+      case .you(let text, _) = lines[at], text == said
+    else { return nil }
+    return lines[(at + 1)...]
+  }
+
+  /// The owner's words are the chat's latest and not yet answered: the turn on them is in the chat already.
+  private func awaiting(_ said: String) -> Bool {
+    after(said)?.allSatisfy { if case .steps = $0 { return true } else { return false } } ?? false
+  }
+
+  /// The owner's latest words have KOS's answer under them.
+  private func answered(_ said: String) -> Bool {
+    after(said)?.contains { if case .kos = $0 { return true } else { return false } } ?? false
   }
 
   public func ask(_ approval: Ask) {

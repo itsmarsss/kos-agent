@@ -1,14 +1,16 @@
-import type {
-  ApprovalHandler,
-  ApprovalOutcome,
-  ApprovalRequest,
-  ChannelAdapter,
-  ChatEvent,
-  InboundMessage,
-  MessageHandler,
-  OutboundMessage,
-  TurnPresence,
-  UserMapping,
+import {
+  TurnNarrator,
+  type ApprovalHandler,
+  type ApprovalOutcome,
+  type ApprovalRequest,
+  type ChannelAdapter,
+  type ChatEvent,
+  type InboundMessage,
+  type MessageHandler,
+  type OutboundMessage,
+  type ProgressEvent,
+  type TurnPresence,
+  type UserMapping,
 } from "@kos/harness";
 
 import type { DeviceHub, DeviceKind } from "./hub.js";
@@ -23,8 +25,9 @@ import type { DeviceEvent, PanelMessage, PanelMethod } from "./protocol.js";
  * turns of the panel's surface ("chrome", "mac"), one stream like
  * iMessage's, with /new and /switch. What KOS has to say goes back as
  * calls: the chat as it stands after each turn (the transcript is the
- * truth, so a turn taken on the dashboard shows there too), the turn's
- * steps while it runs, and an approval to decide in place. Every device
+ * truth), the turn's steps while it runs, and an approval to decide in
+ * place. A turn taken somewhere else, on the dashboard say, is told as it
+ * goes too, the way Discord's thread is. Every device
  * paired with this KOS is the owner's, since only the owner can make a
  * pairing code, so each is a sender the owner speaks as.
  */
@@ -85,6 +88,20 @@ const SELECTION_MAX = 4_000;
 const MAX_TEXT = 20_000;
 const SHOWN = 200;
 const MAX_ARGS = 600;
+/** How often a running turn's words may be redrawn on a device; a step is told at once. */
+const NARRATE_EVERY_MS = 1_200;
+
+/** A turn running in the panel's chat, as the devices are told it. */
+interface Running {
+  conversation: string;
+  /** The owner's words it is for; none for a turn KOS started itself. */
+  said?: string;
+  /** The device whose words these are: its own presence tells it the turn, so it is left out. */
+  speaker?: string;
+  narrator: TurnNarrator;
+  shownAt: number;
+  timer?: ReturnType<typeof setTimeout>;
+}
 
 export class DevicePanel implements ChannelAdapter {
   readonly name: string;
@@ -96,6 +113,7 @@ export class DevicePanel implements ChannelAdapter {
   private decisions: ApprovalHandler | undefined;
   /** The device the owner last spoke from: for a Chrome, the page chrome.page reads and the Chrome chrome.start works in. */
   private last: string | undefined;
+  private running: Running | undefined;
 
   constructor(
     private readonly place: PanelPlace,
@@ -173,9 +191,58 @@ export class DevicePanel implements ChannelAdapter {
     };
   }
 
-  /** The chat changed somewhere else: a turn on the dashboard, one resumed after a decision. */
-  refresh(): Promise<void> {
-    return this.show(undefined);
+  /**
+   * A turn in the panel's chat as it goes, wherever it was taken: the
+   * owner's words when it starts and its steps as they happen, told to
+   * every device but the one whose own words they are, then the chat when
+   * it ends, to every one. Without it a turn on the dashboard showed
+   * nothing here until it was over, then the words and the answer at once.
+   */
+  watch(event: ProgressEvent): void {
+    const chat = this.deps.current();
+    if (!chat || event.conversationId !== chat.id) return;
+    if (event.kind === "turn-start") {
+      this.quiet();
+      const speaker = event.from === this.name ? this.last : undefined;
+      this.running = { conversation: chat.id, narrator: new TurnNarrator(), shownAt: 0, ...(event.said ? { said: event.said } : {}), ...(speaker ? { speaker } : {}) };
+      if (event.said) void this.everyDevice("chat.status", { conversation: chat.id, said: event.said, taken: true }, speaker);
+      return;
+    }
+    const running = this.running;
+    if (!running || running.conversation !== chat.id) return;
+    if (event.kind === "turn-end") {
+      this.quiet();
+      // The chat as the turn left it goes to the speaker too: a turn that waited on a decision made elsewhere was never answered there.
+      void this.everyDevice("chat.status", { conversation: chat.id, ...this.about(running), story: null }, running.speaker).then(() => this.everyDevice("chat.show", this.drawn()));
+      return;
+    }
+    if (running.narrator.take(event)) this.narrate(running, event.kind !== "delta");
+  }
+
+  /** The running turn's story, a step at once and words at most every so often. */
+  private narrate(running: Running, now: boolean): void {
+    if (!running.narrator.worthShowing()) return;
+    const tell = (): void => {
+      running.timer = undefined;
+      running.shownAt = Date.now();
+      void this.everyDevice("chat.status", { conversation: running.conversation, ...this.about(running), story: running.narrator.render() }, running.speaker);
+    };
+    const due = NARRATE_EVERY_MS - (Date.now() - running.shownAt);
+    if (now || due <= 0) {
+      clearTimeout(running.timer);
+      tell();
+    } else running.timer ??= setTimeout(tell, due);
+  }
+
+  /** No turn running to tell of any more. */
+  private quiet(): void {
+    clearTimeout(this.running?.timer);
+    this.running = undefined;
+  }
+
+  /** Which of the owner's messages a turn's status is about, when it has any. */
+  private about(running: Running): { said?: string } {
+    return running.said !== undefined ? { said: running.said } : {};
   }
 
   /**
@@ -185,6 +252,13 @@ export class DevicePanel implements ChannelAdapter {
    * the panel lets it go once the turn goes on.
    */
   private async show(device: string | undefined, said?: OutboundMessage, waiting = false, about?: string): Promise<void> {
+    const params = this.drawn(said, waiting, about);
+    if (device) await this.tell(device, "chat.show", params);
+    else await this.everyDevice("chat.show", params);
+  }
+
+  /** What chat.show carries: the chat, and what was answered outside its words. */
+  private drawn(said?: OutboundMessage, waiting = false, about?: string): Record<string, unknown> {
     const chat = this.deps.current();
     const messages = chat ? panelLines(this.deps.events(chat.id)) : [];
     const last = messages.at(-1);
@@ -193,16 +267,18 @@ export class DevicePanel implements ChannelAdapter {
       text && !(last?.role === "kos" && last.text === text)
         ? { text, ...(said?.from ? { from: said.from.name } : {}), ...(waiting ? { waiting: true } : {}), ...(about ? { said: about } : {}) }
         : undefined;
-    const params = { conversation: chat?.id ?? null, title: chat?.title ?? this.place.title, messages, auto: chat ? (this.deps.auto?.(chat.id) ?? false) : false, ...(notice ? { notice } : {}) };
-    if (device) await this.tell(device, "chat.show", params);
-    else await this.everyDevice("chat.show", params);
+    return { conversation: chat?.id ?? null, title: chat?.title ?? this.place.title, messages, auto: chat ? (this.deps.auto?.(chat.id) ?? false) : false, ...(notice ? { notice } : {}) };
   }
 
-  /** A panel just opened: the chat, then whatever in it is waiting on the owner. */
+  /** A panel just opened: the chat, whatever in it is waiting on the owner, and the turn running in it so far. */
   private async opened(device: string): Promise<void> {
     await this.show(device);
     const chat = this.deps.current();
     for (const req of chat ? (this.deps.waiting?.(chat.id) ?? []) : []) await this.tell(device, "chat.ask", { approval: approvalOf(req) });
+    const running = this.running;
+    if (!chat || running?.conversation !== chat.id) return;
+    if (running.said) await this.tell(device, "chat.status", { conversation: chat.id, said: running.said, taken: true });
+    if (running.narrator.worthShowing()) await this.tell(device, "chat.status", { conversation: chat.id, ...this.about(running), story: running.narrator.render() });
   }
 
   private heard(device: string, event: DeviceEvent): void {
@@ -286,8 +362,9 @@ export class DevicePanel implements ChannelAdapter {
     }
   }
 
-  private async everyDevice(method: PanelMethod, params: Record<string, unknown>): Promise<void> {
-    const on = this.hub?.list().filter((d) => d.kind === this.place.kind && d.online) ?? [];
+  /** Said to every device of the panel's kind that is on, but the one left out. */
+  private async everyDevice(method: PanelMethod, params: Record<string, unknown>, except?: string): Promise<void> {
+    const on = this.hub?.list().filter((d) => d.kind === this.place.kind && d.online && d.id !== except) ?? [];
     await Promise.all(on.map((d) => this.tell(d.id, method, params)));
   }
 }
