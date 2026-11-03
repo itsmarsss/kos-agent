@@ -43,7 +43,7 @@ those to this table by hand.
 | `Chips` | One choice of a few: filters, kinds, tabs over a list | kit (`small`, `label`, an option may carry a title) | kit | `KOSChoices` with `ChipStyle` (Controls) |
 | `IconButton` | A round button holding one icon; `danger`, `bare` (no ring, for a dismiss in a row); `IconLink` is the same circle as a link | kit | kit (the popup's chat, gear and back, New chat, every ×) | `IconButton` (Controls); `bare: true` is `.icon-btn--bare` |
 | `Card` | A boxed section: a small uppercase head (title, count, pill, action), then its body | kit | the `.card` class | `Card(picked:, lit:, padding:, spacing:)` (Controls), which also draws `TargetTile` and the code block |
-| `Count` | How many, beside a title or a group's name: a small capsule in the accent, or a card's tint | kit (cards, home panels, Inbox, Knowledge, Projects, the chats rail) | | |
+| `Count` | How many, beside a title or a group's name: a small grey capsule, or in the card's tint where it has one; a total, never news | kit (cards, home panels, Inbox, Knowledge, Projects, the chats rail) | | |
 | `Empty` | What a list says when it is empty: a dashed box, or one quiet line inside a card (`inline`) | kit (every list and panel, and the page widgets) | `.empty-state` (the side panel's centred face and words) | `EmptyChat` (`ChatView.swift`) |
 | Label | The small uppercase head over a card, a section, a group | `.label` in `kit.css` | `.label` | `SectionLabel` (Controls) |
 | `Section` | A label with an action at its right, over what it labels | kit (the dashboard's settings card is its own `Section` in `SettingsPage.tsx`) | kit | `KOSSection` (Controls) |
