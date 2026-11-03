@@ -52,8 +52,8 @@ import { MEMORY_JOB } from "../memory/job.js";
 import type { ReviewQueue } from "../memory/review.js";
 import type { CallerStore } from "../memory/callers.js";
 import type { PageLog } from "../memory/pages.js";
-import type { Task } from "../models/router.js";
-import type { Provider } from "../models/provider.js";
+import type { Route, Task } from "../models/router.js";
+import type { Effort, Provider } from "../models/provider.js";
 import { CUSTOM_PROVIDER, OpenAICompatibleProvider } from "../models/providers/compat.js";
 import { CLASSIFIER_KEY, CUSTOM_ENDPOINT_KEY, parseClassifierEndpoint, parseCustomEndpoint, type CustomEndpoint } from "../models/settings.js";
 import { HttpClassifier, LlmClassifier, type Classifier } from "../models/classify.js";
@@ -1109,6 +1109,7 @@ export class Kernel {
             tools,
             cwd: this.workspace.root,
             maxTurns: this.behaviour().maxSteps,
+            ...(this.screenRoute()?.provider === "anthropic" ? { screen: this.screenSpec()! } : {}),
             onDelta: (delta) =>
               this.progress.emit({
                 kind: "delta",
@@ -1214,6 +1215,7 @@ export class Kernel {
 
         const running = runAgent(this.inference, tools, input, {
           system,
+          ...(this.screenRoute() ? { screen: true } : {}),
           ...(opts.task ? { task: opts.task } : {}),
           maxIterations: opts.maxIterations ?? this.behaviour().maxSteps,
           // Watched turns stream. A reader was shown one static word for the
@@ -1489,6 +1491,22 @@ export class Kernel {
    * be read: a suspended turn can settle after the store has closed, and an
    * event is not worth a throw.
    */
+  /**
+   * Where screen steps go, when the owner has them on a model of their own.
+   * The same model as the turn's means no split: everything runs as it did.
+   */
+  private screenRoute(): Route | undefined {
+    const screen = this.inference.routeFor?.("screen");
+    const turn = this.inference.routeFor?.("reasoning");
+    if (!screen || !turn) return undefined;
+    return screen.provider === turn.provider && screen.spec.model === turn.spec.model ? undefined : screen;
+  }
+
+  private screenSpec(): { model: string; effort?: Effort } | undefined {
+    const route = this.screenRoute();
+    return route ? { model: route.spec.model, ...(route.spec.effort ? { effort: route.spec.effort } : {}) } : undefined;
+  }
+
   private projectOf(sessionId: string): string | null {
     try {
       return this.conversations.get(sessionId)?.projectSlug ?? null;

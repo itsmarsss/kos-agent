@@ -1,4 +1,4 @@
-import type { Task } from "../models/router.js";
+import type { Route, Task } from "../models/router.js";
 import { toolUse } from "../kernel/caller.js";
 import type {
   ContentBlock,
@@ -10,11 +10,14 @@ import type {
 } from "../models/types.js";
 import { textOf, toolUsesOf } from "../models/types.js";
 import { keepRecentPictures } from "./pictures.js";
+import { isScreenTool } from "./screen.js";
 import type { ToolExecution } from "./registry.js";
 
 /** Anything that can run inference for a task (the ModelRouter satisfies this). */
 export interface Inference {
   generate(task: Task, req: GenerateRequest): Promise<ModelResponse>;
+  /** What answers a task, where the inference can say. */
+  routeFor?(task: Task): Route;
 }
 
 /**
@@ -48,6 +51,13 @@ export interface AgentOptions {
   shouldStop?: () => boolean;
   /** Dropped mid-call when the owner asks the turn to stop. */
   signal?: AbortSignal;
+  /**
+   * The step after a call to a screen tool goes to the screen route: once the
+   * turn has chosen to work on a screen, the looking and clicking runs on the
+   * quicker model, and the turn's own model takes over again at the first
+   * step that is not on a screen.
+   */
+  screen?: boolean;
 }
 
 export interface AgentResult {
@@ -104,6 +114,8 @@ export async function runAgent(
 
   let iterations = 0;
   let stopReason: StopReason = "end_turn";
+  /** The last step called a screen tool, so this one is a screen step. */
+  let onScreen = false;
 
   while (iterations < maxIterations) {
     if (options.shouldStop?.()) {
@@ -119,7 +131,7 @@ export async function runAgent(
     iterations += 1;
     let response;
     try {
-      response = await inference.generate(task, {
+      response = await inference.generate(options.screen && onScreen ? "screen" : task, {
         system: options.system,
         messages: keepRecentPictures(messages),
         ...(tools.length ? { tools } : {}),
@@ -168,6 +180,7 @@ export async function runAgent(
     // both providers require one for every call they made, and that result
     // tells the model to ask again if it still wants them.
     const running = options.parallelToolCalls ? toolUses : toolUses.slice(0, 1);
+    onScreen = running.every((call) => isScreenTool(call.name));
     const deferred = options.parallelToolCalls ? [] : toolUses.slice(1);
 
     const results: ContentBlock[] = [];

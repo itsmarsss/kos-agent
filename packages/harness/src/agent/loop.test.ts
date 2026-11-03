@@ -8,9 +8,11 @@ import { ToolRegistry } from "./registry.js";
 /** Returns queued responses in order; records the requests it received. */
 class ScriptedInference implements Inference {
   requests: GenerateRequest[] = [];
+  tasks: Task[] = [];
   constructor(private readonly script: ModelResponse[]) {}
-  async generate(_task: Task, req: GenerateRequest): Promise<ModelResponse> {
+  async generate(task: Task, req: GenerateRequest): Promise<ModelResponse> {
     this.requests.push(req);
+    this.tasks.push(task);
     const next = this.script.shift();
     if (!next) throw new Error("scripted inference exhausted");
     return next;
@@ -34,6 +36,26 @@ function addRegistry(): ToolRegistry {
 }
 
 describe("runAgent", () => {
+  it("runs the steps after a screen call on the screen route, and the turn's own after", async () => {
+    const reg = addRegistry();
+    reg.register({ name: "computer.act", description: "acts", inputSchema: { type: "object", properties: {} } }, () => "clicked");
+    const call = (id: string, name: string, input: Record<string, unknown> = {}): ModelResponse => ({
+      content: [{ type: "tool_use", id, name, input }],
+      stopReason: "tool_use",
+      usage: { inputTokens: 0, outputTokens: 0 },
+      model: "mock",
+    });
+    const done: ModelResponse = { content: [{ type: "text", text: "done" }], stopReason: "end_turn", usage: { inputTokens: 0, outputTokens: 0 }, model: "mock" };
+    const steps = (): ModelResponse[] => [call("1", "computer.act"), call("2", "computer.act"), call("3", "add", { a: 1, b: 2 }), done];
+    const on = new ScriptedInference(steps());
+    await runAgent(on, reg, "click it", { screen: true });
+    expect(on.tasks).toEqual(["reasoning", "screen", "screen", "reasoning"]);
+    // Off, every step is the turn's own, as before.
+    const off = new ScriptedInference(steps());
+    await runAgent(off, reg, "click it");
+    expect(off.tasks).toEqual(["reasoning", "reasoning", "reasoning", "reasoning"]);
+  });
+
   it("runs the tool-call cycle and returns the final text", async () => {
     const inference = new ScriptedInference([
       {
