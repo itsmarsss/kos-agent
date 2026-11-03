@@ -9,9 +9,8 @@ import {
 import { createPortal } from "react-dom";
 import { AnimatePresence, m } from "motion/react";
 
-import { ChevronDown, ease } from "@kos/kit";
+import { ChevronDown, ease, useDismiss } from "@kos/kit";
 import { fitInside, place, type Placement } from "./popover.js";
-import { useDismiss } from "./useDismiss.js";
 
 /**
  * A dropdown that belongs to this surface.

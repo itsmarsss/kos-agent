@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactElement } from "react";
 
 import type { TurnRecall as Recall } from "./api.js";
-import { useDismiss } from "./useDismiss.js";
+import { useDismiss } from "@kos/kit";
 
 /**
  * What the last turn was given from memory.

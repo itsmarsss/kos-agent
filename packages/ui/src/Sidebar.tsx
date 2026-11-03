@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { ChevronLeft, ChevronRight, Face, faceLookOf, KOS_SEED, type Mood, NavIcon, useKosLook } from "@kos/kit";
+import { ChevronLeft, ChevronRight, Face, faceLookOf, KOS_SEED, type Mood, NavIcon, useDismiss, useKosLook } from "@kos/kit";
 
 import type { Status } from "./api.js";
 import { hrefFor, NAV, navActive, type Route } from "./routes.js";
-import { useDismiss } from "./useDismiss.js";
 
 /**
  * The shell's left edge: where you are, where else you can be, and whether
@@ -78,14 +77,8 @@ export function Sidebar({
   useDismiss(moreOpen, () => setMoreOpen(false), { inside: [moreRef] });
   // Going somewhere closes the drawer; a route change is the signal.
   useEffect(() => setOpen(false), [route]);
-  useEffect(() => {
-    if (!open) return;
-    const key = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("keydown", key);
-    return () => document.removeEventListener("keydown", key);
-  }, [open]);
+  // Escape closes the drawer; its backdrop takes the press away.
+  useDismiss(open, () => setOpen(false), { away: false, scroll: false, resize: false, escape: "dialog" });
 
   const failing = status?.unhealthy ?? 0;
   const healthClass = status?.halted ? "health--halted" : failing > 0 ? "health--bad" : "health--ok";

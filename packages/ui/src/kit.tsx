@@ -2,9 +2,8 @@ import { useRef, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, m } from "motion/react";
 
-import { ease } from "@kos/kit";
+import { ease, useDismiss } from "@kos/kit";
 
-import { useDismiss } from "./useDismiss.js";
 
 /**
  * The small parts every page is built from, so they are built the same way.

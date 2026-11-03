@@ -1,12 +1,11 @@
 import { useRef, useState, type CSSProperties, type DragEvent, type ReactElement, type ReactNode } from "react";
 
 import { AnimatePresence, m } from "motion/react";
-import { IconButton, MoreIcon } from "@kos/kit";
+import { IconButton, MoreIcon, useDismiss } from "@kos/kit";
 
 import { api } from "./api.js";
 import { ConfirmButton } from "./kit.js";
 import { Modal } from "./Modal.js";
-import { useDismiss } from "./useDismiss.js";
 
 /**
  * What can be done to a file or folder by hand, shared by the Files page

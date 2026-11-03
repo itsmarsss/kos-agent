@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import { m } from "motion/react";
 import { summarizeAction } from "@kos/shared";
 
-import { ChevronDown, ChevronRight, ease, spring } from "@kos/kit";
+import { ChevronDown, ChevronRight, ease, spring, useDismiss } from "@kos/kit";
 
 import { api, type BuildRecord, type PendingAction } from "./api.js";
 import { Decision } from "./Decision.js";
@@ -199,13 +199,8 @@ export function AgentTerminal({
     if (el) el.scrollTop = el.scrollHeight;
   }, [build?.events.length, stick]);
 
-  useEffect(() => {
-    const key = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", key);
-    return () => document.removeEventListener("keydown", key);
-  }, [onClose]);
+  // A sheet over the page: Escape closes it, after any menu open in it.
+  useDismiss(true, onClose, { away: false, scroll: false, resize: false, escape: "dialog" });
 
   const live = build?.status === "running" || build?.status === "waiting";
 

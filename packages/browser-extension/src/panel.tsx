@@ -1,8 +1,8 @@
 import { CHAT_COMMANDS, KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { BoltIcon, ChevronDown, Chips, Collapse, ComposeIcon, ease, Face, GlobeIcon, HandIcon, Markdown, PageIcon, Pill, SendIcon, spring, StepsIcon, type Tone, WorkingDots } from "@kos/kit";
+import { BoltIcon, ChevronDown, Chips, Collapse, ComposeIcon, ease, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, SendIcon, spring, StepsIcon, type Tone, useDismiss, WorkingDots } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
 
 import { isHidden } from "./settings.js";
@@ -427,6 +427,7 @@ function Panel(): ReactElement {
   const { chat, kos, error, silent, chats, models, reads, selection, mentions, quotes, say, send, answer, answerRead } = useChat(windowId, online);
   useEffect(() => setKosId(kos), [kos]);
   const [switching, setSwitching] = useState(false);
+  const titleRef = useRef<HTMLButtonElement>(null);
   const usable = online && !silent;
   const mood: BlobMood = !online ? "asleep" : chat.asks.length || chat.consent || reads.length ? "needs-you" : chat.working ? "working" : "idle";
   return (
@@ -437,6 +438,7 @@ function Panel(): ReactElement {
           <strong>KOS</strong>
           {usable ? (
             <button
+              ref={titleRef}
               type="button"
               className="chat-title"
               aria-expanded={switching}
@@ -457,13 +459,14 @@ function Panel(): ReactElement {
         </div>
         {state && state.kos.length > 1 && <KosPicker all={state.kos} chosen={kos} choose={(id) => say({ type: "kos", id })} />}
         {usable && (
-          <button type="button" className="icon-btn" aria-label="New chat" title="New chat" onClick={() => send("/new")}>
+          <IconButton label="New chat" onClick={() => send("/new")}>
             <ComposeIcon size={14} title="" />
-          </button>
+          </IconButton>
         )}
         <AnimatePresence>
           {switching && usable && (
             <ChatSwitcher
+              anchor={titleRef}
               chats={chats}
               current={chat.conversation}
               close={() => setSwitching(false)}
@@ -565,24 +568,12 @@ function TabBar({ tab, state, reading }: { tab: chrome.tabs.Tab | undefined; sta
 }
 
 /** The chats this panel may continue, newest first, with a new one on top; a filter once there are many. */
-function ChatSwitcher({ chats, current, pick, close }: { chats: ChatItem[]; current: string | null; pick: (id: string | null) => void; close: () => void }): ReactElement {
+function ChatSwitcher({ anchor, chats, current, pick, close }: { anchor: RefObject<HTMLButtonElement | null>; chats: ChatItem[]; current: string | null; pick: (id: string | null) => void; close: () => void }): ReactElement {
   const [q, setQ] = useState("");
   const shown = chats.filter((c) => !q || c.title.toLowerCase().includes(q.toLowerCase()));
   const own = useRef<HTMLDivElement>(null);
   // Escape, or a press anywhere else, puts it away; the chat's name, which opens and shuts it, is its own.
-  useEffect(() => {
-    const key = (e: globalThis.KeyboardEvent): void => (e.key === "Escape" ? close() : undefined);
-    const press = (e: PointerEvent): void => {
-      const at = e.target as Node | null;
-      if (at && !own.current?.contains(at) && !(at instanceof Element && at.closest(".chat-title"))) close();
-    };
-    addEventListener("keydown", key);
-    addEventListener("pointerdown", press);
-    return () => {
-      removeEventListener("keydown", key);
-      removeEventListener("pointerdown", press);
-    };
-  }, [close]);
+  useDismiss(true, close, { inside: [own, anchor], scroll: false, resize: false });
   return (
     <m.div ref={own} className="switcher" initial={{ opacity: 0, y: -6, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.98 }} transition={ease}>
       <button type="button" className="switcher-row switcher-new" onClick={() => pick(null)}>

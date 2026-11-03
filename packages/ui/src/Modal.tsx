@@ -1,9 +1,8 @@
 import type { ReactElement, ReactNode } from "react";
 import { AnimatePresence, m } from "motion/react";
 
-import { CloseIcon, ease, IconButton, spring } from "@kos/kit";
+import { CloseIcon, ease, IconButton, spring, useDismiss } from "@kos/kit";
 
-import { useDismiss } from "./useDismiss.js";
 
 /**
  * A centred dialog. Configuration belongs here rather than expanded inline:
