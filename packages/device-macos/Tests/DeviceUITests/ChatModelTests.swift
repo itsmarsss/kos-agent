@@ -27,6 +27,31 @@ struct ChatModelTests {
     #expect(model.story == nil)
   }
 
+  @Test func aTurnTakenElsewhereShowsAsItGoes() {
+    let model = ChatModel()
+    model.show(conversation: "mac:owner", title: "Mac", lines: [])
+    // Said on the dashboard: on its way here, then its steps, then the chat with it.
+    model.status(taken: true, story: nil, error: nil, said: "plan my week", conversation: "mac:owner")
+    model.status(taken: true, story: nil, error: nil, said: "not this chat", conversation: "cm1:owner")
+    #expect(model.sending == ["plan my week"])
+    #expect(model.working)
+    model.status(taken: false, story: .some("› Read the calendar"), error: nil, said: "plan my week", conversation: "mac:owner")
+    #expect(model.story == "› Read the calendar")
+    model.status(taken: false, story: .some(nil), error: nil, said: "plan my week", conversation: "mac:owner")
+    model.show(conversation: "mac:owner", title: "Mac", lines: [.you("plan my week", files: []), .kos("Done.")])
+    #expect(model.sending.isEmpty)
+    #expect(!model.working)
+    // Its steps told once more as it closed: the chat has them already.
+    model.status(taken: false, story: .some("› Read the calendar"), error: nil, said: "plan my week", conversation: "mac:owner")
+    #expect(model.story == nil)
+    #expect(!model.working)
+    // Opened mid-turn: the words are in the chat already, so they are not shown twice.
+    model.show(conversation: "mac:owner", title: "Mac", lines: [.you("plan my week", files: []), .kos("Done."), .you("and next week", files: [])])
+    model.status(taken: true, story: nil, error: nil, said: "and next week", conversation: "mac:owner")
+    #expect(model.sending.isEmpty)
+    #expect(model.working)
+  }
+
   @Test func aFailedTurnGivesTheWordsBack() {
     let model = ChatModel()
     model.say("book it")
