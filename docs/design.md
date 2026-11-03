@@ -211,28 +211,43 @@ default one for a KOS that has sent none.
 ## Chat
 
 The dashboard's chats, the side panel and KOS Device's chat window are the
-same conversation, drawn the same way; the window draws it natively, and
-shows LaTeX as written.
+same conversation, drawn the same way, the dashboard's numbers on all three;
+the window draws it natively, and shows LaTeX as written.
 
-- **The owner's message:** a bubble on the right, the accent at the strong
-  tint over `panel-2`, radius 14 with its bottom right corner 4. Words in
+- **Type:** the words, the owner's and KOS's and the box's, at 15, line
+  1.45; table cells 14; code blocks and table heads 13; chips, notes and
+  the chat's name 12. KOS Device keeps them in `ChatType`.
+- **Spacing:** 10 between messages, 16 at the column's sides, 8 between
+  blocks of a reply; a list indents 19.
+
+- **The owner's message:** a bubble on the right, at most 88% of the
+  column, padded 9 by 12, the accent at the strong tint over `panel-2`,
+  radius 14 with its bottom right corner 4. Words in
   `text`, not on solid blue, read as the same markdown KOS's are, so a link
   pasted is a link and a formula is typeset.
 - **KOS's reply:** prose on the page, no bubble.
-- **Markdown:** headings at the title size down, lists that nest (circle,
-  square; a, b under numbers), code spans on `panel-2` at radius 4, code
-  blocks on `panel` with a line at radius 10, quotes with a `line-strong`
+- **Markdown:** headings at the words' size, set apart by weight, lists
+  that nest (disc, circle, square; a, b under numbers), code spans at nine
+  tenths of the words on `panel-2` at radius 4 (KOS Device gives them the
+  tint alone), code blocks on `panel` with a line at radius 10, padded 10
+  by 11, links in the accent and underlined, quotes with a `line-strong`
   rule, LaTeX typeset, references as `violet` chips, tables with a `muted`
   head and a `line` under each row, scrolling sideways when wider than the
   column. A grid without a head line stays as the text it is.
 - **Steps:** a turn's tool calls are quiet rows under its words. The side
-  panel folds them to one "N steps" capsule, being narrow; the dashboard
-  shows each as a row that opens to its arguments and result.
-- **Composer:** one box, `panel`, radius 14, the field borderless inside it,
-  the chips under it as capsules (model, mode, context), and a 30 px round
-  send button in the accent. The whole box takes the focus ring. Its hint
-  is "Message <who>, / for commands, @ to name things", on one line, cut
-  short when the box is narrow.
+  panel and KOS Device fold them to one "N steps" chip, drawn as the
+  composer's chips are, being narrow; the dashboard shows each as a row
+  that opens to its arguments and result.
+- **Composer:** one box, `panel`, radius 14, padded 7 (11 at its start),
+  the field borderless inside it, the chips under it (model, mode, context,
+  the app in front), and a 30 px round send button in the accent, `line`
+  with a `faint` arrow when there is nothing to send. The whole box takes
+  the focus ring. Its hint, in `faint`, is "Message <who>, / for commands,
+  @ to name things", on one line, cut short when the box is narrow.
+- **Chips:** 12, `muted` on a `panel-2` capsule with no edge, padded 3 by
+  10, 24 high; the accent's tint when on. A long one is cut at its end,
+  never in its middle, and in KOS Device the app in front keeps its room
+  longest.
 
 ## Changing it
 

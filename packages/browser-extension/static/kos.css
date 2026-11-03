@@ -336,9 +336,10 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .row--between { justify-content: space-between; }
 .row--between .hint { flex: 1; font-size: 11.5px; }
 
-.thread { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 12px 8px; display: flex; flex-direction: column; gap: 10px; }
-.msg { max-width: 92%; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
-.msg--you { align-self: flex-end; padding: 8px 12px; border-radius: var(--r-lg) var(--r-lg) var(--r-xs) var(--r-lg); background: color-mix(in srgb, var(--accent) 18%, var(--panel-2)); white-space: pre-wrap; }
+.thread { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 16px 8px; display: flex; flex-direction: column; gap: 10px; }
+/* The chat reads as the dashboard's does: its type, its bubble, its spacing (docs/design.md, Chat). */
+.msg { max-width: 100%; font-size: 15px; line-height: 1.45; overflow-wrap: anywhere; }
+.msg--you { align-self: flex-end; max-width: 88%; padding: 9px 12px; border-radius: var(--r-lg) var(--r-lg) var(--r-xs) var(--r-lg); background: color-mix(in srgb, var(--accent) 18%, var(--panel-2)); white-space: pre-wrap; }
 .msg--you[data-pending] { opacity: 0.6; }
 .msg--kos { align-self: flex-start; padding: 0 2px; }
 .msg--live { color: var(--muted); }
@@ -349,12 +350,13 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 
 /* A turn's steps, folded to a line; the running one says what it is doing. */
 .steps { align-self: flex-start; max-width: 100%; }
-.steps-head { appearance: none; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--muted); font: inherit; font-size: 11.5px; cursor: pointer; transition: color 140ms ease, border-color 140ms ease; }
-.steps-head:hover { color: var(--text); border-color: var(--line-strong); }
+/* Folded in a narrow column, the steps are one chip, drawn as the composer's are. */
+.steps-head { appearance: none; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 10px; border: 0; border-radius: 999px; background: var(--panel-2); color: var(--muted); font: inherit; font-size: 12px; line-height: 1.45; cursor: pointer; transition: color 140ms ease, background 140ms ease; }
+.steps-head:hover { color: var(--text); background: var(--line); }
 .steps-head > span:not(.chev) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.steps[data-live] .steps-head { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); cursor: default; }
+.steps[data-live] .steps-head { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); cursor: default; }
 .steps[data-live] .steps-head > svg { animation: beat 1.2s ease-in-out infinite; }
-.steps-list { margin: 6px 0 0; padding: 0 0 0 24px; color: var(--muted); font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
+.steps-list { margin: 6px 0 0; padding: 0 0 0 24px; color: var(--muted); font-size: 13px; display: flex; flex-direction: column; gap: 3px; }
 .steps-list li[data-failed] { color: var(--danger); }
 .thinking { align-self: flex-start; display: flex; gap: 4px; padding: 8px 4px; }
 .thinking span { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: bob 1s ease-in-out infinite; }
@@ -370,7 +372,7 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .empty { margin: auto; padding: 24px; max-width: 300px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
 .suggest { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 
-.composer { margin: 8px 12px 12px; padding: 8px 8px 8px 12px; display: flex; flex-direction: column; gap: 4px; border-radius: var(--r-lg); border: 1px solid var(--line); background: var(--panel); transition: border-color 140ms ease, box-shadow 140ms ease; }
+.composer { margin: 8px 12px 12px; padding: 7px 7px 7px 11px; display: flex; flex-direction: column; gap: 4px; border-radius: var(--r-lg); border: 1px solid var(--line); background: var(--panel); transition: border-color 140ms ease, box-shadow 140ms ease; }
 .composer { position: relative; }
 .composer-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 
@@ -389,19 +391,19 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .msg-quote { margin: 0 0 6px; padding-left: 8px; border-left: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); color: var(--muted); font-size: 11.5px; white-space: normal; }
 .composer-foot .send { margin-left: auto; }
 /* The model, as a quiet chip that opens Chrome's own list. */
-.model { position: relative; display: inline-flex; align-items: center; gap: 4px; min-width: 0; padding: 3px 8px; border-radius: 999px; background: var(--panel-2); color: var(--muted); font-size: 11.5px; cursor: pointer; transition: color 140ms ease, background 140ms ease; }
+.model { position: relative; display: inline-flex; align-items: center; gap: 4px; min-width: 0; padding: 3px 10px; border-radius: 999px; background: var(--panel-2); color: var(--muted); font-size: 12px; line-height: 1.45; cursor: pointer; transition: color 140ms ease, background 140ms ease; }
 .model:hover { color: var(--text); background: var(--line); }
 .model select { appearance: none; max-width: 180px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; outline: none; text-overflow: ellipsis; }
 .model select option { background: var(--panel); color: var(--text); }
 .model--fixed { cursor: default; }
 /* Ask before each step, or act on its own: quiet when asking, KOS's colour when on its own. */
-.mode { appearance: none; display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border: 0; border-radius: 999px; background: var(--panel-2); color: var(--muted); font: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer; transition: color 140ms ease, background 140ms ease; }
+.mode { appearance: none; display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border: 0; border-radius: 999px; background: var(--panel-2); color: var(--muted); font: inherit; font-size: 12px; line-height: 1.45; cursor: pointer; transition: color 140ms ease, background 140ms ease; }
 .mode:hover { color: var(--text); background: var(--line); }
 .mode[data-on] { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .mode[data-on]:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
 .composer[data-off] { opacity: 0.6; }
-.composer textarea { flex: 1; max-height: 140px; padding: 5px 0; resize: none; border: 0; outline: none; background: none; color: var(--text); font: inherit; font-size: 13px; line-height: 1.45; }
+.composer textarea { flex: 1; max-height: 160px; padding: 5px 0; resize: none; border: 0; outline: none; background: none; color: var(--text); font: inherit; font-size: 15px; line-height: 1.45; }
 .composer textarea::placeholder { color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .send { flex: none; width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--accent); color: var(--on-accent); cursor: pointer; transition: background 140ms ease; }
 .send:hover:not(:disabled) { background: var(--accent-lit); }
@@ -411,26 +413,26 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 /* —— KOS's words, as markdown —— */
 .md { display: flex; flex-direction: column; gap: 8px; }
 .md ul, .md ol, .md blockquote, .md pre { margin: 0; }
-.md ul, .md ol { padding-left: 20px; display: flex; flex-direction: column; gap: 3px; }
+.md ul, .md ol { padding-left: 19px; display: flex; flex-direction: column; gap: 3px; }
 /* A list under an item sits close to it, and says its depth by its marker. */
 .md li > * + * { margin-top: 4px; }
-.md li > ul, .md li > ol { margin-top: 3px; padding-left: 16px; }
+.md li > ul, .md li > ol { margin-top: 3px; padding-left: 19px; }
 .md li ul { list-style-type: circle; }
 .md li li ul { list-style-type: square; }
 .md li ol { list-style-type: lower-alpha; }
-.md code { padding: 1px 4px; border-radius: var(--r-xs); background: var(--panel-2); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
-.md pre { padding: 10px; overflow-x: auto; border-radius: var(--r-md); background: var(--panel); border: 1px solid var(--line); }
-.md pre code { padding: 0; background: none; font-size: 11.5px; }
+.md code { padding: 1px 5px; border-radius: var(--r-xs); background: var(--panel-2); font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
+.md pre { padding: 10px 11px; overflow-x: auto; border-radius: var(--r-md); background: var(--panel); border: 1px solid var(--line); }
+.md pre code { padding: 0; background: none; font-size: 13px; line-height: 1.45; }
 .md-table { overflow-x: auto; }
-.md-table table { border-collapse: collapse; min-width: 100%; font-size: 12.5px; }
-.md-table th, .md-table td { padding: 5px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
-.md-table th { color: var(--muted); font-weight: 600; font-size: 12px; white-space: nowrap; }
+.md-table table { border-collapse: collapse; min-width: 100%; font-size: 14px; }
+.md-table th, .md-table td { padding: 6px 11px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.md-table th { color: var(--muted); font-weight: 600; font-size: 13px; white-space: nowrap; }
 .md blockquote { padding-left: 10px; border-left: 2px solid var(--line-strong); color: var(--muted); }
-.md a { color: var(--accent); }
-.md-h { font-weight: 650; }
+.md a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.md-h { font-weight: 600; }
 .md-h1 { font-size: 15px; }
-.md-h2 { font-size: 14px; }
-.md-small { color: var(--faint); font-size: 11px; }
+.md-h2 { font-size: 15px; }
+.md-small { color: var(--muted); font-size: 12px; }
 /* LaTeX, typeset. A wide formula scrolls on its own rather than widening the column. */
 .md .katex { font-size: 1.05em; }
 .md .katex-display { margin: 4px 0; overflow-x: auto; overflow-y: hidden; }
