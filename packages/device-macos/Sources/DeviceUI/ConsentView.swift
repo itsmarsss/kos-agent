@@ -170,7 +170,7 @@ public struct ConsentView: View {
         }
         .frame(height: 3)
         Text("Says no by itself in \(model.remaining) s")
-          .font(.kos(.label))
+          .font(.kos(.tiny))
           .foregroundStyle(Theme.faint)
           .frame(maxWidth: .infinity, alignment: .trailing)
       }

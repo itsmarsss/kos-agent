@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 
 import { m } from "motion/react";
-import { ease } from "@kos/kit";
+import { Chips, ease, GridIcon, ListIcon } from "@kos/kit";
 import { api, type DirEntry, type FileContent } from "./api.js";
 import { EntryMenu, dragProps, dropProps, useFileOps, type FileChange } from "./FileActions.js";
 import { FileIcon, previewable } from "./FileIcon.js";
@@ -275,33 +275,7 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
             <button type="button" className="btn btn--sm files-newfolder" onClick={() => ops.newFolder(dirOf(path))}>
               New folder
             </button>
-            <div className="files-view" role="group" aria-label="View as">
-              <button
-                type="button"
-                className={`btn btn--icon ${view === "list" ? "is-on" : ""}`}
-                aria-pressed={view === "list"}
-                title="List"
-                onClick={() => choose("list")}
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-                  <path d="M4 7h16M4 12h16M4 17h16" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                className={`btn btn--icon ${view === "grid" ? "is-on" : ""}`}
-                aria-pressed={view === "grid"}
-                title="Grid"
-                onClick={() => choose("grid")}
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-                  <rect x="4" y="4" width="7" height="7" rx="1.5" />
-                  <rect x="13" y="4" width="7" height="7" rx="1.5" />
-                  <rect x="4" y="13" width="7" height="7" rx="1.5" />
-                  <rect x="13" y="13" width="7" height="7" rx="1.5" />
-                </svg>
-              </button>
-            </div>
+            <Chips small label="View as" options={[["list", <ListIcon key="list" />, "List"], ["grid", <GridIcon key="grid" />, "Grid"]]} selected={view} onChoose={choose} />
           </div>
         )}
       </div>

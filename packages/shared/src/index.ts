@@ -110,6 +110,7 @@ export type { ActionNames } from "./format-action.js";
 export { TIME_TOKEN, formatTime, instantOf, relativeWords, styleOf, timesInWords, withUnixTimes, type TimeStyle } from "./time.js";
 export { pathsIn, type PathPart } from "./workspacepath.js";
 export { CHANNEL_TOKEN, channelNamesIn } from "./channel.js";
+export { MENTION_KINDS, MENTION_SOURCE, type MentionKind } from "./mentions.js";
 export { MATH, displayMathAt, mathOf, type MathSource } from "./math.js";
 export { desaturateHex, hexOfHsv, hsvOfHex, type Hsv } from "./colour.js";
 export { COLOURS, EASE, FLOAT_SHADOW, RADII, SPRING, TYPE, type ColourToken } from "./design.js";

@@ -1,5 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 
+import { DownloadIcon, ExternalIcon, IconButton } from "@kos/kit";
+
 import { api } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
 import { FilePreview, PreviewLinks, bytes } from "./FilePreview.js";
@@ -122,22 +124,17 @@ export function MentionedFiles({ text }: { text: string }): ReactElement | null 
             {m.kind !== "missing" && (
               <span className="mfile-acts">
                 {m.kind === "file" && (
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    aria-label={`Download ${m.name}`}
+                  <IconButton
+
+                    label={`Download ${m.name}`}
                     title="Download"
                     onClick={() => void api.downloadFile(m.path).catch(() => {})}
                   >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M12 3v12M6 11l6 6 6-6M4 21h16" />
-                    </svg>
-                  </button>
+                    <DownloadIcon size={13} />
+                  </IconButton>
                 )}
                 <a className="icon-btn" href={href} aria-label={`Open ${m.name} in Files`} title="Open in Files">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M14 4h6v6M20 4l-9 9M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
-                  </svg>
+                  <ExternalIcon size={13} />
                 </a>
               </span>
             )}

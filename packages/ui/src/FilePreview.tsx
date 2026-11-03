@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { AnimatePresence, m } from "motion/react";
-import { ease, Markdown, spring } from "@kos/kit";
+import { ChevronLeft, ChevronRight, Chips, CloseIcon, ease, IconButton, Markdown, spring } from "@kos/kit";
 
 import { api, type FileContent, type FileText } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
@@ -133,14 +133,13 @@ export function useRawText(path: string | null, wanted: boolean): { raw: FileTex
 /** File or Raw: the document itself, or the words KOS reads out of it. */
 export function RawToggle({ raw, onChange }: { raw: boolean; onChange: (raw: boolean) => void }): ReactElement {
   return (
-    <div className="seg seg--sm" role="group" aria-label="View as">
-      <button type="button" className={`seg-btn ${raw ? "" : "is-on"}`} onClick={() => onChange(false)}>
-        File
-      </button>
-      <button type="button" className={`seg-btn ${raw ? "is-on" : ""}`} title="The words read out of the document, as KOS reads them" onClick={() => onChange(true)}>
-        Raw
-      </button>
-    </div>
+    <Chips
+      small
+      label="View as"
+      options={[["file", "File"], ["raw", "Raw", "The words read out of the document, as KOS reads them"]]}
+      selected={raw ? "raw" : "file"}
+      onChoose={(v) => onChange(v === "raw")}
+    />
   );
 }
 
@@ -295,28 +294,22 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
                 <span className="preview-acts">
                   {siblings.length > 1 && at >= 0 && (
                     <span className="preview-step">
-                      <button type="button" className="icon-btn" aria-label="Previous file" disabled={!prev} onClick={() => prev && onStep?.(prev)}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d="m15 6-6 6 6 6" />
-                        </svg>
-                      </button>
+                      <IconButton  label="Previous file" disabled={!prev} onClick={() => prev && onStep?.(prev)}>
+                        <ChevronLeft size={14} title="" />
+                      </IconButton>
                       <span className="preview-count">
                         {at + 1} of {siblings.length}
                       </span>
-                      <button type="button" className="icon-btn" aria-label="Next file" disabled={!next} onClick={() => next && onStep?.(next)}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d="m9 6 6 6-6 6" />
-                        </svg>
-                      </button>
+                      <IconButton  label="Next file" disabled={!next} onClick={() => next && onStep?.(next)}>
+                        <ChevronRight size={14} title="" />
+                      </IconButton>
                     </span>
                   )}
                   {rawable && <RawToggle raw={raw} onChange={setRaw} />}
                   {actions}
-                  <button type="button" className="icon-btn preview-close" aria-label="Close" onClick={onClose}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                      <path d="M6 6l12 12M18 6L6 18" />
-                    </svg>
-                  </button>
+                  <IconButton className="preview-close" label="Close" onClick={onClose}>
+                    <CloseIcon size={14} title="" />
+                  </IconButton>
                 </span>
               </header>
               <div className={`preview-body${image ? " preview-body--image" : ""}`}>

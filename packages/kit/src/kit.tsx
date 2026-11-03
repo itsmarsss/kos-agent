@@ -1,5 +1,5 @@
 import { AnimatePresence, m, type HTMLMotionProps } from "motion/react";
-import type { ReactElement, ReactNode } from "react";
+import type { HTMLAttributes, ReactElement, ReactNode } from "react";
 
 import { ChevronDown } from "./icons.js";
 import { ease, listItem, spring } from "./motion.js";
@@ -21,22 +21,93 @@ export function Pill({ tone = "muted", title, children }: { tone?: Tone; title?:
   );
 }
 
-/** On or off, said by its label and drawn as a knob that slides. */
-export function Switch({ on, onChange, label }: { on: boolean; onChange: (on: boolean) => void; label: string }): ReactElement {
+/** A fact in a word or two: a tool family, a model class, a value. Not a button, and not a state (that is a Pill). */
+export function Tag({ mono = false, title, children }: { mono?: boolean; title?: string; children: ReactNode }): ReactElement {
   return (
-    <button type="button" className="switch" role="switch" aria-checked={on} aria-label={label} onClick={() => onChange(!on)}>
+    <span className={`tag${mono ? " tag--mono" : ""}`} title={title}>
+      {children}
+    </span>
+  );
+}
+
+export interface CardProps {
+  /** The small uppercase head. Absent, the card is a plain box. */
+  title?: string;
+  /** Shown beside the title when above zero. */
+  count?: number;
+  /** A Pill, at the head's right. */
+  pill?: ReactNode;
+  /** A small button or link, at the head's right. */
+  action?: ReactNode;
+  /** For a screen reader, when the title is not enough. */
+  label?: string;
+  className?: string;
+  children: ReactNode;
+}
+
+/** A boxed section of a column or a page: a head, then its body. What else a section takes (a drop target's handlers) it is given. */
+export function Card({ title, count, pill, action, label, className, children, ...rest }: CardProps & Omit<HTMLAttributes<HTMLElement>, keyof CardProps>): ReactElement {
+  return (
+    <section className={`card${className ? ` ${className}` : ""}`} aria-label={label ?? title} {...rest}>
+      {(title || action || pill) && (
+        <div className="card-head">
+          {title && (
+            <h2 className="label card-title">
+              {title}
+              {count !== undefined && count > 0 && <span className="card-count">{count}</span>}
+            </h2>
+          )}
+          {(pill || action) && (
+            <span className="card-acts">
+              {pill}
+              {action}
+            </span>
+          )}
+        </div>
+      )}
+      {children}
+    </section>
+  );
+}
+
+/**
+ * What a list or panel says when there is nothing in it: an answer, not a
+ * blank. A page's list says it in a dashed box; inside a card, where the
+ * card is already the box, it is one quiet line (inline).
+ */
+export function Empty({ title, inline = false, className, children }: { title?: string; inline?: boolean; className?: string; children: ReactNode }): ReactElement {
+  if (inline) return <p className={`empty-line${className ? ` ${className}` : ""}`}>{children}</p>;
+  return (
+    <div className={`empty${className ? ` ${className}` : ""}`}>
+      {title && <strong className="empty-title">{title}</strong>}
+      <p className="empty-text">{children}</p>
+    </div>
+  );
+}
+
+/** On or off, said by its label and drawn as a knob that slides. */
+export function Switch({ on, onChange, label, disabled }: { on: boolean; onChange: (on: boolean) => void; label: string; disabled?: boolean }): ReactElement {
+  return (
+    <button type="button" className="switch" role="switch" aria-checked={on} aria-label={label} disabled={disabled} onClick={() => onChange(!on)}>
       <m.span layout transition={spring} />
     </button>
   );
 }
 
-/** One of a few values, each a chip; the chosen one is pressed. */
-export function Chips<V extends string | number>({ options, selected, onChoose }: { options: [V, string][]; selected: V; onChoose: (v: V) => void }): ReactElement {
+/** A chip's value, what it says, and what its tooltip says. */
+export type ChipOption<V> = readonly [value: V, label: ReactNode, title?: string];
+
+/**
+ * One of a few values, each a chip; the chosen one is pressed. A filter, a
+ * kind, tabs over a list: every such choice is drawn this way. With nothing
+ * selected, the chips are a row of things to pick, none of them on.
+ */
+export function Chips<V extends string | number>({ options, selected, onChoose, label, small = false }: { options: readonly ChipOption<V>[]; selected?: V | null; onChoose: (v: V) => void; label?: string; small?: boolean }): ReactElement {
   return (
-    <div className="chips">
-      {options.map(([value, label]) => (
-        <button key={String(value)} type="button" aria-pressed={value === selected} onClick={() => onChoose(value)}>
-          {label}
+    <div className={`chips${small ? " chips--sm" : ""}`} role={label ? "group" : undefined} aria-label={label}>
+      {options.map(([value, text, title]) => (
+        <button key={String(value)} type="button" aria-pressed={value === selected} title={title} onClick={() => onChoose(value)}>
+          {text}
         </button>
       ))}
     </div>

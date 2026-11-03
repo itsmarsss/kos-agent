@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactElement } from "react";
-import { Face, lookOf, moodOf, Pill } from "@kos/kit";
+import { Card, Face, lookOf, moodOf, Pill, Tag, type Tone } from "@kos/kit";
 
 import { AgentEditor, titleOf } from "./AgentEditor.js";
 import { api, type AgentInfo } from "./api.js";
 import { describeCron } from "./schedule.js";
 import { Drawer } from "./Drawer.js";
-import { Card, ConfirmButton, Tag } from "./kit.js";
+import { ConfirmButton } from "./kit.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
 import { WEEK, agoWords, inWords, runDays } from "./schedulewords.js";
 
@@ -32,6 +32,9 @@ const POLL_MS = 5000;
 function when(ts: number): string {
   return new Date(ts).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
+
+/** How each state reads as a pill. */
+const HERO_TONE = { working: "accent", "needs-you": "warn", error: "danger", asleep: "muted", idle: "ok" } as const satisfies Record<string, Tone>;
 
 /** How the agent is doing, in a line, with a tone for the dot beside it. */
 export function stateOf(a: AgentInfo, paused: boolean): { tone: "working" | "needs-you" | "error" | "asleep" | "idle"; text: string } {
@@ -128,10 +131,7 @@ export function AgentPanel({ name, onOpenFile, onChanged, onError, onNotice, onR
         <Face seed={agent.name} look={agent.face ?? {}} size={72} mood={moodOf(agent.thread?.activity, { paused })} />
         <h2>{title}</h2>
         <p className="hero-desc">{agent.description}</p>
-        <span className={`hero-state is-${state.tone}`}>
-          <span className="hero-dot" aria-hidden="true" />
-          {state.text}
-        </span>
+        <Pill tone={HERO_TONE[state.tone]}>{state.text}</Pill>
         <button type="button" className="btn btn--sm" title="Its folder on the Files page" onClick={() => onOpenFile(agent.folder)}>
           Open in Files
         </button>

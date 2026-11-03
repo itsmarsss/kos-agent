@@ -291,7 +291,7 @@ export function AgentTerminal({
 
         {build && (
           <p className="term-task">
-            <span className="term-task-label">Asked to</span>
+            <span className="label term-task-label">Asked to</span>
             {build.task}
           </p>
         )}

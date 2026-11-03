@@ -2,6 +2,8 @@ import { useMemo, useState, type ReactElement } from "react";
 
 import { summarizeAction } from "@kos/shared";
 
+import { Chips, Pill } from "@kos/kit";
+
 import type { AuditRecord, CronJob, RunRecord } from "./api.js";
 import { ListPage } from "./ListPage.js";
 
@@ -142,19 +144,7 @@ export function HistoryPage({
         r.kind === "tool" ? onOpenTool(r.tool) : onOpenRun(r.run)
       }
       filters={
-        <div className="list-filter-group">
-          {FILTERS.map((f) => (
-            <button
-              key={f.value}
-              type="button"
-              className={`chip${filter === f.value ? " is-on" : ""}`}
-              aria-pressed={filter === f.value}
-              onClick={() => setFilter(f.value)}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+        <Chips options={FILTERS.map((f) => [f.value, f.label] as const)} selected={filter} onChoose={setFilter} />
       }
       columns={[
         {
@@ -199,11 +189,11 @@ export function HistoryPage({
           searchText: (r) => (r.failed ? "error failed" : "ok"),
           render: (r) =>
             r.failed ? (
-              <span className="ops-tag ops-tag--danger">error</span>
+              <Pill tone="danger">error</Pill>
             ) : r.kind === "run" && r.run.status === "skipped" ? (
-              <span className="ops-tag ops-tag--muted">skipped</span>
+              <Pill>skipped</Pill>
             ) : (
-              <span className="ops-tag ops-tag--ok">ok</span>
+              <Pill tone="ok">ok</Pill>
             ),
         },
         {

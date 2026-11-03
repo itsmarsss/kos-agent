@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from "react";
 
+import { ChevronLeft, ChevronRight, CloseIcon, Empty, FullscreenIcon, IconButton, MaximizeIcon, PlusIcon, RestoreIcon, RetryIcon } from "@kos/kit";
+
 import { tabName, toAddress } from "./address.js";
 import { api } from "./api.js";
 import { keyMessages, mouseMessage, toViewport, wheelMessage, type BrowserInputMessage } from "./browserinput.js";
@@ -433,21 +435,15 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
           >
             {driving ? "Let go" : "Take over"}
           </button>
-          <button type="button" className="icon-btn" aria-label={maximized ? "Restore size" : "Maximize"} aria-pressed={maximized} title={maximized ? "Back to the window's own size" : "Fill the page (double-click the bar does too)"} onClick={() => setMaximized((v) => !v)}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              {maximized ? <path d="M9 3H3v6M15 21h6v-6M3 3l7 7M21 21l-7-7" /> : <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />}
-            </svg>
-          </button>
-          <button type="button" className="icon-btn" aria-label={fullscreen ? "Leave full screen" : "Full screen"} aria-pressed={fullscreen} title={fullscreen ? "Leave full screen (Esc)" : "The whole screen"} onClick={toggleFullscreen}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
-            </svg>
-          </button>
-          <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
-          </button>
+          <IconButton  label={maximized ? "Restore size" : "Maximize"} aria-pressed={maximized} title={maximized ? "Back to the window's own size" : "Fill the page (double-click the bar does too)"} onClick={() => setMaximized((v) => !v)}>
+            {maximized ? <RestoreIcon /> : <MaximizeIcon />}
+          </IconButton>
+          <IconButton  label={fullscreen ? "Leave full screen" : "Full screen"} aria-pressed={fullscreen} title={fullscreen ? "Leave full screen (Esc)" : "The whole screen"} onClick={toggleFullscreen}>
+            <FullscreenIcon size={14} />
+          </IconButton>
+          <IconButton  label="Close" onClick={onClose}>
+            <CloseIcon size={14} title="" />
+          </IconButton>
         </span>
       </div>
       <div className="browserwin-tabs" role="tablist" aria-label="Browser tabs">
@@ -472,35 +468,25 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
                 <span className="browserwin-tab-what">{what}</span>
               </button>
               <button type="button" className="browserwin-tab-x" aria-label={`Close ${what}`} title="Close this tab" onClick={() => closeTab(t.id)}>
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
+                <CloseIcon size={10} title="" />
               </button>
             </span>
           );
         })}
-        <button type="button" className="icon-btn browserwin-new" aria-label="New tab" title="A tab of your own" disabled={!ready} onClick={() => newTab()}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-        </button>
+        <IconButton className="browserwin-new" label="New tab" title="A tab of your own" disabled={!ready} onClick={() => newTab()}>
+          <PlusIcon size={14} title="" />
+        </IconButton>
       </div>
       <div className="browserwin-nav">
-        <button type="button" className="icon-btn" aria-label="Back" title="Back" disabled={!current} onClick={() => step("back")}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M15 5l-7 7 7 7" />
-          </svg>
-        </button>
-        <button type="button" className="icon-btn" aria-label="Forward" title="Forward" disabled={!current} onClick={() => step("forward")}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-        <button type="button" className="icon-btn" aria-label="Reload" title="Reload" disabled={!current} onClick={() => step("reload")}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" />
-          </svg>
-        </button>
+        <IconButton  label="Back" title="Back" disabled={!current} onClick={() => step("back")}>
+          <ChevronLeft size={14} title="" />
+        </IconButton>
+        <IconButton  label="Forward" title="Forward" disabled={!current} onClick={() => step("forward")}>
+          <ChevronRight size={14} title="" />
+        </IconButton>
+        <IconButton  label="Reload" title="Reload" disabled={!current} onClick={() => step("reload")}>
+          <RetryIcon size={14} title="" />
+        </IconButton>
         <input
           ref={address}
           className="browserwin-address"
@@ -588,7 +574,7 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
           }}
         />
         {!live.frame && (
-          <p className="browserwin-empty">
+          <Empty inline className="browserwin-empty">
             {live.lost
               ? "The live stream dropped. It comes back on its own when the browser does."
               : live.gone
@@ -596,7 +582,7 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
                 : !current
                   ? "No tab open yet. Type an address above, press +, or wait for KOS to open a page."
                   : "Waiting for the first frame…"}
-          </p>
+          </Empty>
         )}
       </div>
       {!maximized && !fullscreen && EDGES.map((edge) => (

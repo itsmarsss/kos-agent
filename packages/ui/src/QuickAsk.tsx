@@ -7,7 +7,7 @@ import {
   type ReactElement,
 } from "react";
 
-import { Markdown, OpenIcon, PinIcon, SendIcon, UnpinIcon, WorkingDots } from "@kos/kit";
+import { CloseIcon, Empty, IconButton, Markdown, OpenIcon, PinIcon, SendIcon, UnpinIcon, WorkingDots } from "@kos/kit";
 import { api } from "./api.js";
 import { EDGES, clampBox, cornerBox, readBox as readStoredBox, resizedBox, saveBox as saveStoredBox, type Box, type Edge, type MinSize } from "./floatbox.js";
 import { useProgress } from "./progress.js";
@@ -286,37 +286,25 @@ export function QuickAsk({
               Go to chat
             </button>
           )}
-          <button
-            type="button"
-            className="icon-btn quickask-close"
+          <IconButton
+            className="quickask-close"
             onClick={onClose}
-            aria-label="Close"
+            label="Close"
             title="Close (Esc)"
           >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              aria-hidden="true"
-            >
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
-          </button>
+            <CloseIcon size={13} title="" />
+          </IconButton>
         </div>
       </header>
       <div className="quickask-body" ref={bodyRef}>
         {thread.length === 0 && (
-          <p className="quickask-empty">
+          <Empty inline className="quickask-empty">
             {attachedTo
               ? "Ask a side question about this chat. KOS answers from its context, with no tools, and the chat itself is left as it is."
               : contextId
                 ? "Detached: a plain question to KOS, with nothing from this chat behind it. Attach to ask about the chat."
                 : "Open a chat to ask about it, or just ask KOS something."}
-          </p>
+          </Empty>
         )}
         {thread.map((t, i) => {
           const pending = i === thread.length - 1 && t.a === undefined;

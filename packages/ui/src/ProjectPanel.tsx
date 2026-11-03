@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactElement } from "react";
 import { hexOfHsl, hueOfHex } from "@kos/shared";
-import { lookOf, Pill } from "@kos/kit";
+import { Card, lookOf, Pill, Tag } from "@kos/kit";
 
 import { api, type ProjectDetail } from "./api.js";
 import { ColourChoice } from "./ColourPicker.js";
 import { FileIcon } from "./FileIcon.js";
-import { Tag } from "./kit.js";
-import { PanelSection } from "./PanelSection.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
 import { markInk } from "./ProjectMark.js";
 import { hrefFor } from "./routes.js";
@@ -151,7 +149,7 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError,
         paused={hidden}
       />
 
-      <PanelSection title="Pages" count={pages.length}>
+      <Card className="project-panel-section" title="Pages" count={pages.length}>
         {pages.length === 0 ? (
           <p className="hint">No pages yet.</p>
         ) : (
@@ -171,9 +169,9 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError,
             ))}
           </div>
         )}
-      </PanelSection>
+      </Card>
 
-      <PanelSection title="Tables" count={tables.length}>
+      <Card className="project-panel-section" title="Tables" count={tables.length}>
         {tables.length === 0 ? (
           <p className="hint">No tables yet.</p>
         ) : (
@@ -188,10 +186,10 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError,
             ))}
           </ul>
         )}
-      </PanelSection>
+      </Card>
 
       {sites.length > 0 && (
-        <PanelSection title="Sites" count={sites.length}>
+        <Card className="project-panel-section" title="Sites" count={sites.length}>
           <ul className="insp-rows">
             {sites.map((site) => (
               <li key={site.path}>
@@ -211,7 +209,7 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError,
               </li>
             ))}
           </ul>
-        </PanelSection>
+        </Card>
       )}
     </aside>
   );

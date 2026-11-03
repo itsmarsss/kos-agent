@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AgentFaces, ease, faceDataUrl, KOS_SEED, KosLook, lookOf, spring } from "@kos/kit";
+import { AgentFaces, AlertIcon, CheckIcon, Chips, ease, faceDataUrl, KOS_SEED, KosLook, lookOf, spring } from "@kos/kit";
 
 import {
   type FailingJob,
@@ -690,13 +690,9 @@ export function App(): React.ReactElement {
             >
               <span className="ops-toast-icon" aria-hidden="true">
                 {toast.kind === "ok" ? (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="m5 13 4 4L19 7" />
-                  </svg>
+                  <CheckIcon size={12} title="" />
                 ) : (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
-                    <path d="M12 6v7M12 17.5v.01" />
-                  </svg>
+                  <AlertIcon size={12} />
                 )}
               </span>
               <span className="ops-toast-text">{toast.text}</span>
@@ -1130,19 +1126,7 @@ export function App(): React.ReactElement {
           </button>
         }
         filters={
-          <div className="list-filter-group">
-            {(["all", "on", "off"] as const).map((f) => (
-              <button
-                key={f}
-                type="button"
-                className={`chip${cronFilter === f ? " is-on" : ""}`}
-                aria-pressed={cronFilter === f}
-                onClick={() => setCronFilter(f)}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
+          <Chips options={(["all", "on", "off"] as const).map((f) => [f, f] as const)} selected={cronFilter} onChoose={setCronFilter} />
         }
         columns={[
           {

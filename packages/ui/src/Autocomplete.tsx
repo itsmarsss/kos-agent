@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
 import { ease } from "@kos/kit";
+import { MENTION_KINDS } from "@kos/shared";
 
 import { api } from "./api.js";
 
@@ -64,20 +65,6 @@ const ARG_COMMANDS: Record<string, ArgCommand> = {
  * A trigger only counts at the start of a word: an email address is not a
  * mention, and a path is not a command.
  */
-export const MENTION_KINDS = [
-  "project",
-  "page",
-  "file",
-  "schedule",
-  "chat",
-  "site",
-  "blob",
-  "agent",
-  "build",
-  "tab",
-  "approval",
-] as const;
-
 /** Split `file:notes/a` into the kind being narrowed to and the term. */
 export function splitQuery(query: string): { kind?: string; term: string } {
   const colon = query.indexOf(":");

@@ -1,5 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 
+import { Pill } from "@kos/kit";
+
 import { api, type CronJob, type JobSpend, type SkillInfo } from "./api.js";
 import { scriptIn, withScript } from "./cronscript.js";
 import { ConfirmButton, Field } from "./kit.js";
@@ -212,9 +214,7 @@ export function CronEditor({
           finding the row again, and waiting for tomorrow to find out. */}
       {job && (
         <div className="cron-state">
-          <span className={`cron-badge ${job.enabled ? "is-on" : "is-off"}`}>
-            {job.enabled ? "On schedule" : "Paused"}
-          </span>
+          <Pill tone={job.enabled ? "ok" : "muted"}>{job.enabled ? "On schedule" : "Paused"}</Pill>
           <span className="cron-extra">
             {onRunNow && (
               <button

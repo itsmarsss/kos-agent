@@ -27,6 +27,7 @@ const STYLESHEETS = {
   dashboard: read("../../ui/src/styles.css"),
   extension: read("../../browser-extension/static/kos.css"),
 };
+const KIT = read("../../kit/src/kit.css");
 const OVERLAY = read("../../browser-extension/src/overlay.ts");
 const SWIFT = read("../../device-macos/Sources/DeviceUI/Theme.swift");
 const PALETTE = read("../../device-macos/Sources/KOSDevice/Overlay/Palette.swift");
@@ -63,6 +64,15 @@ describe("the design tokens", () => {
       }
     });
   }
+
+  it("cover every token the kit's stylesheet uses, in both apps", () => {
+    // A var() with a fallback, or one the kit sets itself (a tone a rule passes down), needs no app to declare it.
+    const own = new Set([...KIT.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]));
+    const used = new Set([...KIT.matchAll(/var\((--[\w-]+)\s*\)/g)].map((m) => m[1]!).filter((name) => !own.has(name)));
+    for (const [surface, css] of Object.entries(STYLESHEETS)) {
+      for (const name of used) expect(css, `${surface} declares ${name}, which kit.css uses`).toMatch(new RegExp(`${name}\\s*:`));
+    }
+  });
 
   it("are the colours of the bar the extension draws into a page", () => {
     const host = /:host \{([^}]*)\}/.exec(OVERLAY)?.[1] ?? "";

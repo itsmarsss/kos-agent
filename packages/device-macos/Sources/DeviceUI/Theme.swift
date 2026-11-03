@@ -61,10 +61,8 @@ public enum KOSType: CGFloat {
   case detail = 12
   /// A row's line of detail under its title.
   case small = 11.5
-  /// A pill, a note in a chat, a time.
+  /// A pill, a note in a chat, a time, a section's label over its cards (the kit's .label).
   case tiny = 11
-  /// A section's label over its cards.
-  case label = 10.5
 }
 
 extension Font {

@@ -10,7 +10,7 @@ import {
 
 import { AnimatePresence, m } from "motion/react";
 import { summarizeAction } from "@kos/shared";
-import { ArchiveIcon, card, ChevronLeft, ComposeIcon, CopyIcon, ease, EditIcon, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, SearchIcon, SendIcon, spring, stagger, StopIcon, useKosLook, WorkingDots, WrenchIcon } from "@kos/kit";
+import { ArchiveIcon, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, SearchIcon, SendIcon, spring, stagger, StopIcon, useKosLook, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { Decision } from "./Decision.js";
 import { VoiceInput } from "./VoiceInput.js";
@@ -372,8 +372,12 @@ export function ChatsPage({
     null,
   );
   const menuRef = useRef<HTMLDivElement>(null);
+  // Every row's menu shares the ref, and one leaving as the next opens would clear it as it went: set on arrival only.
+  const holdMenu = useCallback((el: HTMLDivElement | null) => {
+    if (el) menuRef.current = el;
+  }, []);
   const closeMenu = useCallback(() => setMenuFor(null), []);
-  useDismiss(menuRef, menuFor !== null, closeMenu);
+  useDismiss(menuFor !== null, closeMenu, { inside: [menuRef] });
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [rewinding, setRewinding] = useState(false);
   const [archived, setArchived] = useState<Conversation[]>([]);
@@ -1214,17 +1218,16 @@ export function ChatsPage({
         {/* Hover reveals what can be done with a chat, so the list is
             a list until you need it to be more. */}
         <div className="chats-row">
-          <button
-            type="button"
+          <IconButton
             className="chats-more"
-            aria-label={`Actions for ${c.title}`}
+            label={`Actions for ${c.title}`}
             onClick={(e) => {
               e.stopPropagation();
               setMenuFor(menuFor === c.id ? null : c.id);
             }}
           >
             <MoreIcon />
-          </button>
+          </IconButton>
           {/* Wrapped so it leaves as well as arrives: without this the
               menu appeared gently and then simply stopped existing. */}
           <AnimatePresence>
@@ -1232,7 +1235,7 @@ export function ChatsPage({
             <m.div
               className="chats-menu"
               role="menu"
-              ref={menuRef}
+              ref={holdMenu}
               initial={{ opacity: 0, scale: 0.96, y: -4 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.97, y: -3 }}
@@ -1330,16 +1333,15 @@ export function ChatsPage({
 
   /** The list's show/hide, wherever the view is: a thread's head, or the landing. */
   const listToggle = (
-    <button
-      type="button"
-      className={`icon-btn chats-toggle ${collapsed && !narrow ? "" : "is-on"}`}
-      aria-label={narrow ? "Show chats" : collapsed ? "Show the chat list" : "Hide the chat list"}
+    <IconButton
+      className={`chats-toggle ${collapsed && !narrow ? "" : "is-on"}`}
+      label={narrow ? "Show chats" : collapsed ? "Show the chat list" : "Hide the chat list"}
       aria-pressed={!(collapsed && !narrow)}
       title={narrow ? "Show chats" : collapsed ? "Show the chat list" : "Hide the chat list"}
       onClick={() => (narrow ? setListOpen(true) : setCollapsed((v) => !v))}
     >
       <PanelIcon side="left" on={!(collapsed && !narrow)} />
-    </button>
+    </IconButton>
   );
 
   return (
@@ -1406,7 +1408,7 @@ export function ChatsPage({
               </div>
             )}
           </div>
-          <div className="chats-group-head">
+          <div className="label chats-group-head">
             <span>Agents</span>
             {/* Like New chat: the thread opens empty and the first message
                 names it. A form asking for a name, a brief and a task first
@@ -1425,11 +1427,11 @@ export function ChatsPage({
           <ul className="chats-flat">
             {shownAgents.map((c) => renderChat(c))}
             {shownAgents.length === 0 && (
-              <li className="chats-empty">
+              <li><Empty inline className="chats-empty">
                 {q
                   ? "Nothing matches."
                   : "No agents yet. The orchestrator starts them as work comes up, or start one with +."}
-              </li>
+              </Empty></li>
             )}
           </ul>
           {/* The project's schedule, under its agents: a job that works this
@@ -1454,7 +1456,7 @@ export function ChatsPage({
             />
           )}
           <div className={`chats-sched ${schedShut ? "is-shut" : ""}`} style={!narrow && !schedShut ? { height: schedH } : undefined}>
-            <div className="chats-group-head">
+            <div className="label chats-group-head">
               <button
                 type="button"
                 className="chats-group-fold"
@@ -1489,7 +1491,7 @@ export function ChatsPage({
                   </li>
                 ))}
               {crons.every((c) => c.projectSlug !== project.slug) && (
-                <li className="chats-empty">Nothing scheduled for this project. Add one with +, or ask the orchestrator.</li>
+                <li><Empty inline className="chats-empty">Nothing scheduled for this project. Add one with +, or ask the orchestrator.</Empty></li>
               )}
             </ul>
           </div>
@@ -1529,7 +1531,7 @@ export function ChatsPage({
                 </span>
               </a>
             )}
-            <div className="chats-group-head">
+            <div className="label chats-group-head">
               <span>In projects</span>
             </div>
             <ul className="chats-flat">
@@ -1537,7 +1539,7 @@ export function ChatsPage({
                   named for the project it is in: that is what tells them apart. */}
               {agentInstances.map((c) => renderChat(c, c.projectSlug ? projectName(c.projectSlug) : c.title))}
               {agentInstances.length === 0 && (
-                <li className="chats-empty">Not working in any project. A project's orchestrator can dispatch it into one.</li>
+                <li><Empty inline className="chats-empty">Not working in any project. A project's orchestrator can dispatch it into one.</Empty></li>
               )}
             </ul>
           </div>
@@ -1562,7 +1564,7 @@ export function ChatsPage({
               />
               {query && (
                 <button type="button" className="chats-find-clear" aria-label="Clear search" onClick={() => setQuery("")}>
-                  ×
+                  <CloseIcon size={12} title="" />
                 </button>
               )}
             </label>
@@ -1570,10 +1572,9 @@ export function ChatsPage({
                 or hand it to KOS, rather than dropping into an empty thread.
                 A square beside the search rather than a bar of its own: it
                 took the rail's whole first row to say two words. */}
-            <button
-              type="button"
-              className="icon-btn chats-compose"
-              aria-label="New chat"
+            <IconButton
+              className="chats-compose"
+              label="New chat"
               title="New chat"
               onClick={() => {
                 if (narrow) setListOpen(false);
@@ -1581,7 +1582,7 @@ export function ChatsPage({
               }}
             >
               <ComposeIcon />
-            </button>
+            </IconButton>
           </div>
           {onCreateProject && <NewProjectDialog open={makingProject} onClose={() => setMakingProject(false)} onCreate={onCreateProject} />}
 
@@ -1599,7 +1600,7 @@ export function ChatsPage({
                 </div>
                 <ul className="chats-flat">
                   {shownArchived.map((c) => renderChat(c))}
-                  {shownArchived.length === 0 && <li className="chats-empty">{q ? "Nothing matches." : "Nothing archived."}</li>}
+                  {shownArchived.length === 0 && <li><Empty inline className="chats-empty">{q ? "Nothing matches." : "Nothing archived."}</Empty></li>}
                 </ul>
               </section>
             ) : (
@@ -1668,20 +1669,19 @@ export function ChatsPage({
                     {...(q ? {} : { onToggle: () => folds.toggle("projects") })}
                     action={
                       onCreateProject && (
-                        <button
-                          type="button"
-                          className="icon-btn rail-group-add"
-                          aria-label="New project"
+                        <IconButton
+                          className="rail-group-add"
+                          label="New project"
                           title="Make an empty project: a chat of its own, and nothing else until something is put there"
                           onClick={() => setMakingProject(true)}
                         >
                           +
-                        </button>
+                        </IconButton>
                       )
                     }
                   >
                     {ownProjects === 0 ? (
-                      <p className="chats-group-empty">None yet. Make one with +, or ask KOS and it stands one up when the work needs its own space.</p>
+                      <Empty inline className="chats-group-empty">None yet. Make one with +, or ask KOS and it stands one up when the work needs its own space.</Empty>
                     ) : (
                       /* A row is the project. It opens as its own page, with
                          its orchestrator and agents; nothing unfolds here. */
@@ -1694,24 +1694,23 @@ export function ChatsPage({
                             <li key={p.slug}>
                               <div className="chats-row">
                                 {onDeleteProject && p.listed && (
-                                  <button
-                                    type="button"
+                                  <IconButton
                                     className="chats-more"
-                                    aria-label={`Actions for ${p.name}`}
+                                    label={`Actions for ${p.name}`}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       setMenuFor(menuFor === menuKey ? null : menuKey);
                                     }}
                                   >
                                     <MoreIcon />
-                                  </button>
+                                  </IconButton>
                                 )}
                                 <AnimatePresence>
                                   {menuFor === menuKey && (
                                     <m.div
                                       className="chats-menu"
                                       role="menu"
-                                      ref={menuRef}
+                                      ref={holdMenu}
                                       initial={{ opacity: 0, scale: 0.96, y: -4 }}
                                       animate={{ opacity: 1, scale: 1, y: 0 }}
                                       exit={{ opacity: 0, scale: 0.97, y: -3 }}
@@ -1808,14 +1807,14 @@ export function ChatsPage({
                     <ul className="chats-flat">
                       {filtered.map((c) => renderChat(c))}
                       {filtered.length === 0 && (
-                        <li className="chats-empty">No direct chats. Type on the landing, or let KOS route work to a project.</li>
+                        <li><Empty inline className="chats-empty">No direct chats. Type on the landing, or let KOS route work to a project.</Empty></li>
                       )}
                     </ul>
                   </RailGroup>
                 )}
 
                 {q && !shownKos && shownSurfaces.length === 0 && shownProjects.length === 0 && scheduled.length === 0 && filtered.length === 0 && (
-                  <p className="chats-empty">Nothing matches.</p>
+                  <Empty inline className="chats-empty">Nothing matches.</Empty>
                 )}
               </>
             )}
@@ -1989,7 +1988,7 @@ export function ChatsPage({
               </m.form>
               {tree.roots.length > 0 && (
                 <m.div className="chats-welcome-recent" variants={card}>
-                  <span className="chats-welcome-recent-label">Recent</span>
+                  <span className="label">Recent</span>
                   <ul>
                     {tree.roots.slice(0, 5).map((c) => (
                       <li key={c.id}>
@@ -2072,16 +2071,15 @@ export function ChatsPage({
                 {(project || agent) && (
                   /* An icon, not words: beside Configure and Archive a third
                      label squeezed the title into two lines. */
-                  <button
-                    type="button"
-                    className={`icon-btn chats-panel-toggle ${panelOpen ? "is-on" : ""}`}
+                  <IconButton
+                    className={`chats-panel-toggle ${panelOpen ? "is-on" : ""}`}
                     aria-pressed={panelOpen}
-                    aria-label={panelOpen ? "Hide the workspace panel" : "Show the workspace panel"}
+                    label={panelOpen ? "Hide the workspace panel" : "Show the workspace panel"}
                     title={panelOpen ? "Hide files, pages and tables" : "Show files, pages and tables"}
                     onClick={togglePanel}
                   >
                     <PanelIcon on={panelOpen} />
-                  </button>
+                  </IconButton>
                 )}
                 <button
                   type="button"
@@ -2305,27 +2303,15 @@ export function ChatsPage({
                   {/* A command's answer is a reply to something you did, not
                       part of the conversation, and it sat there until the
                       chat was reloaded. */}
-                  <button
-                    type="button"
-                    className="icon-btn note-close"
-                    title="Dismiss"
+                  <IconButton
+                    className="note-close"
+                    label="Dismiss"
                     onClick={() =>
                       setNotes((all) => all.filter((x) => x.id !== n.id))
                     }
                   >
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M6 6l12 12M18 6L6 18" />
-                    </svg>
-                  </button>
+                    <CloseIcon size={12} title="" />
+                  </IconButton>
                   <Markdown text={n.text} />
                   {/* Also at the end: a long answer meant scrolling back to
                       the top to reach the corner. */}
@@ -2411,7 +2397,7 @@ export function ChatsPage({
                     <>
                       <div className="bubble bubble--you is-queued">
                         {p.text}
-                        <span className="queued-mark">queued</span>
+                        <span className="label queued-mark">queued</span>
                       </div>
                       {/* Where it came from, as it will read once sent: a
                           message waiting from Discord is one here too. */}
@@ -2419,52 +2405,37 @@ export function ChatsPage({
                       {/* What came with it, by name: the files are kept when the turn runs. */}
                       {p.attachments.length > 0 && <AttachmentStrip items={p.attachments} />}
                       <div className="queued-actions">
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          title="Edit before it runs"
+                        <IconButton
+
+                          label="Edit before it runs"
                           onClick={() => setEditingQueued({ id: p.id, text: p.text })}
                         >
                           <EditIcon />
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          title="Copy"
+                        </IconButton>
+                        <IconButton
+
+                          label="Copy"
                           onClick={() => void navigator.clipboard.writeText(p.text)}
                         >
                           <CopyIcon />
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          title="Ask this in a copy of the chat instead"
+                        </IconButton>
+                        <IconButton
+
+                          label="Ask this in a copy of the chat instead"
                           onClick={() => void forkQueued(p.id)}
                         >
                           <ForkIcon />
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-btn icon-btn--danger"
-                          title="Drop it before it runs"
+                        </IconButton>
+                        <IconButton tone="danger"
+
+                          label="Drop it before it runs"
                           onClick={() => void dropQueued(p.id)}
                         >
                           {/* Drawn like the others. A text cross sat on a
                               different baseline and at a different weight
                               from the icons beside it. */}
-                          <svg
-                            width="15"
-                            height="15"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.8"
-                            strokeLinecap="round"
-                            aria-hidden="true"
-                          >
-                            <path d="M6 6l12 12M18 6L6 18" />
-                          </svg>
-                        </button>
+                          <CloseIcon size={15} title="" />
+                        </IconButton>
                       </div>
                     </>
                   )}

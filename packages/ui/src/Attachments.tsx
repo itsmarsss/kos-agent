@@ -1,5 +1,7 @@
 import React, { useRef, useState, type ReactElement } from "react";
 
+import { IconButton, PaperclipIcon } from "@kos/kit";
+
 import type { Attachment } from "./api.js";
 import { MAX_ATTACHMENTS } from "./AttachmentStrip.js";
 
@@ -59,22 +61,9 @@ export function AttachButton({
   const input = useRef<HTMLInputElement>(null);
   return (
     <>
-      <button
-        type="button"
-        className="composer-icon"
-        aria-label="Attach files"
-        onClick={() => input.current?.click()}
-      >
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path
-            d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.2-9.19a4 4 0 0 1 5.65 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
+      <IconButton label="Attach files" onClick={() => input.current?.click()}>
+        <PaperclipIcon />
+      </IconButton>
       <input
         ref={input}
         type="file"

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { m } from "motion/react";
-import { card, Pill, stagger } from "@kos/kit";
+import { card, Pill, stagger, WindowIcon } from "@kos/kit";
 
 import { api, type Conversation, type PageSummary, type Project, type SiteInfo } from "./api.js";
 import { FileIcon } from "./FileIcon.js";
@@ -28,24 +28,6 @@ export interface ProjectsPageProps {
   onInspect: (project: Project, pages: PageSummary[]) => void;
   /** An empty project of the owner's own, with nothing in it until they or KOS put something there. */
   onCreate?: (input: { name: string; type: string }) => Promise<void>;
-}
-
-/** A browser window, marking a chip as something that opens a running site. */
-function SiteGlyph(): ReactElement {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      aria-hidden="true"
-    >
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="M3 9h18" />
-    </svg>
-  );
 }
 
 /** Active first: dormant and archived are things you look up, not scan. */
@@ -236,7 +218,7 @@ export function ProjectsPage({
                               : `${site.name} has no index.html yet`
                           }
                         >
-                          <SiteGlyph />
+                          <WindowIcon size={12} />
                           {site.name}
                         </a>
                       ))}

@@ -9,8 +9,9 @@ import {
 import { createPortal } from "react-dom";
 import { AnimatePresence, m } from "motion/react";
 
-import { ease } from "@kos/kit";
+import { ChevronDown, ease } from "@kos/kit";
 import { fitInside, place, type Placement } from "./popover.js";
+import { useDismiss } from "./useDismiss.js";
 
 /**
  * A dropdown that belongs to this surface.
@@ -67,26 +68,12 @@ export function Select({
     if (open) measure();
   }, [open, measure]);
 
+  // A press away or a scroll closes it; it handles its own keys, and a resize places it again.
+  useDismiss(open, () => setOpen(false), { inside: [root, menu], resize: false, escape: false });
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: Event): void => {
-      const target = e.target as Node;
-      if (root.current?.contains(target)) return;
-      if (menu.current?.contains(target)) return;
-      setOpen(false);
-    };
-    // Any scroll, anywhere, including inside a panel: a menu positioned
-    // against the viewport would otherwise sit still while the control it
-    // belongs to slides away underneath it.
-    const onScroll = (): void => setOpen(false);
-    document.addEventListener("mousedown", onDown);
-    window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", measure);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      window.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", measure);
-    };
+    return () => window.removeEventListener("resize", measure);
   }, [open, measure]);
 
   useEffect(() => {
@@ -99,9 +86,14 @@ export function Select({
       );
   }, [open, options, value]);
 
+  // Closed from the keys, the focus goes back to the button, as a native select's does.
+  const done = (): void => {
+    setOpen(false);
+    button.current?.focus();
+  };
   const pick = (next: string): void => {
     onChange(next);
-    setOpen(false);
+    done();
   };
 
   return (
@@ -122,22 +114,7 @@ export function Select({
         }}
       >
         <span className="sel-value">{current?.label ?? value}</span>
-        {/* Drawn, not a glyph: the character sat high and off-centre and
-            differed between fonts. */}
-        <svg
-          className="sel-caret"
-          width="10"
-          height="10"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M6 9l6 6 6-6" />
-        </svg>
+        <span className="sel-caret"><ChevronDown size={10} title="" /></span>
       </button>
 
       {createPortal(
@@ -168,7 +145,11 @@ export function Select({
                 }
               }}
               onKeyDown={(e) => {
-                if (e.key === "Escape") setOpen(false);
+                // Its own Escape, not the drawer's or dialog's it sits in as well.
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  done();
+                }
                 if (e.key === "ArrowDown") {
                   e.preventDefault();
                   setCursor((c) => (c + 1) % options.length);

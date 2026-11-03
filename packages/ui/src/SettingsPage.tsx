@@ -1,5 +1,5 @@
 import { m } from "motion/react";
-import { ease, KOS_SEED } from "@kos/kit";
+import { CloseIcon, ease, IconButton, KOS_SEED, Pill, Switch, Tag } from "@kos/kit";
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import {
@@ -8,9 +8,9 @@ import {
   type ModelRate,
   type SettingsPayload, type ModuleInfo, type SkillInfo, type McpServerInfo, type PermissionRule, type BrowserSettings, type RestartState, type Status } from "./api.js";
 import type { FaceLook } from "./api.js";
-import { Field } from "./SettingField.js";
 import { FaceEditor } from "./FaceEditor.js";
 import { ModelSettings } from "./ModelSettings.js";
+import { Field } from "./kit.js";
 import { useOpenTab } from "./opentab.js";
 import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";
@@ -82,7 +82,7 @@ function Limit({
 }): ReactElement {
   const [min, max] = range ?? [1, 1000];
   return (
-    <Field label={label} hint={`${hint} Between ${min} and ${max}.`}>
+    <Field group className="set-field" label={label} hint={`${hint} Between ${min} and ${max}.`}>
       <input
         className="kos-input set-limit"
         type="number"
@@ -141,25 +141,12 @@ function TokenList({
           {items.map((h) => (
             <li key={h}>
               <span className="ops-mono">{h}</span>
-              <button
-                type="button"
-                className="icon-btn icon-btn--bare"
-                title={`Remove ${h}`}
+              <IconButton tone="bare"
+                label={`Remove ${h}`}
                 onClick={() => onChange(items.filter((x) => x !== h))}
               >
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  aria-hidden="true"
-                >
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
-              </button>
+                <CloseIcon size={12} title="" />
+              </IconButton>
             </li>
           ))}
         </ul>
@@ -362,7 +349,7 @@ export function SettingsPage({
     const look = (): void => {
       const pane = paneRef.current;
       const target =
-        pane?.querySelector<HTMLElement>(`[data-setting="${CSS.escape(found.label)}"]`) ??
+        pane?.querySelector<HTMLElement>(`[data-field="${CSS.escape(found.label)}"]`) ??
         [...(pane?.querySelectorAll<HTMLElement>("h3") ?? [])].find((h) => h.textContent?.trim() === found.label);
       if (!target) {
         if (tries++ < 20) timer = window.setTimeout(look, 100);
@@ -741,7 +728,7 @@ export function SettingsPage({
           </div>
         ) : GROUPS.map((group) => (
           <div key={group} className="set-rail-group">
-            <h3 className="set-rail-head">{group}</h3>
+            <h3 className="label set-rail-head">{group}</h3>
             {SECTIONS.filter((s) => s.group === group).map((s) => (
               <button
                 key={s.id}
@@ -796,14 +783,14 @@ export function SettingsPage({
                 ),
             )}
           >
-            <Field label="Name" hint="What KOS calls you.">
+            <Field group className="set-field" label="Name" hint="What KOS calls you.">
               <input
                 className="kos-input"
                 value={profile.name}
                 onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
               />
             </Field>
-            <Field
+            <Field group className="set-field"
               label="Timezone"
               hint="Schedules and “today” follow this. Checked against what this machine knows, so a typo cannot quietly move every cron job."
             >
@@ -825,7 +812,7 @@ export function SettingsPage({
                 />
               )}
             </Field>
-            <Field label="Owner id" hint="Identifies you across channels. Set at first run.">
+            <Field group className="set-field" label="Owner id" hint="Identifies you across channels. Set at first run.">
               <input className="kos-input" value={data.profile.ownerId} readOnly />
             </Field>
           </Section>
@@ -846,22 +833,22 @@ export function SettingsPage({
             )}
             {imessage?.state === "skipped" && <p className="hint">iMessage was skipped: {imessage.detail}.</p>}
             {Object.entries(data.secrets).map(([key, meta]) => (
-              <Field
+              <Field group className="set-field"
                 key={key}
                 label={meta.label}
                 hint={meta.hint}
                 badge={
                   meta.masked ? (
                     <>
-                      <span className="set-badge is-set">{meta.masked}</span>
+                      <Pill tone="ok">{meta.masked}</Pill>
                       {meta.storedAs && (
-                        <span className="set-badge" title="An older name this host still accepts">
+                        <Tag mono title="An older name this host still accepts">
                           as {meta.storedAs}
-                        </span>
+                        </Tag>
                       )}
                     </>
                   ) : (
-                    <span className="set-badge">not set</span>
+                    <Pill>not set</Pill>
                   )
                 }
               >
@@ -928,7 +915,7 @@ export function SettingsPage({
                 or through the Claude Agent SDK, which is what builds
                 already use and spends a Claude Code subscription instead.
               </p>
-              <Field
+              <Field group className="set-field"
                 label="Chat engine"
                 hint="Either way the only tools are KOS's own, inside the same workspace jail, and risky ones still ask you first. The SDK path needs a signed-in Claude Code on this machine, or an Anthropic key."
               >
@@ -974,7 +961,7 @@ export function SettingsPage({
               <p className="hint">
                 Which model does the building when KOS hands work to a build.
               </p>
-              <Field
+              <Field group className="set-field"
                 label="Build model"
                 hint="A build is many turns and each is a model call, so this is the biggest lever on how long one takes. Sonnet is markedly faster than Opus for scaffolding work."
               >
@@ -1023,29 +1010,17 @@ export function SettingsPage({
                 whether KOS also tries to do something about it before you wake
                 up.
               </p>
-              <Field
+              <Field group className="set-field"
                 label="Extract memory in the background"
                 hint="Off by default. On, a cheap model reads new conversation in batches and proposes claims; what it writes is attributed to it, cites its sources, and shows in Memory. Run it once from the Memory page first and see what it does."
               >
-                <label className="set-toggle">
-                  <input role="switch" aria-label="Extract memory in the background"
-                    type="checkbox"
-                    checked={how.memoryExtraction}
-                    onChange={(e) => setHow({ ...how, memoryExtraction: e.target.checked })}
-                  />
-                </label>
+                <Switch label="Extract memory in the background" on={how.memoryExtraction} onChange={(on) => setHow({ ...how, memoryExtraction: on })} />
               </Field>
-              <Field
+              <Field group className="set-field"
                 label="Try to fix failures on its own"
                 hint="On the first failure of a job, KOS opens a chat, works out why, and repairs it if it safely can. Later failures of the same job do not start another attempt. Everything it does there still asks you before anything risky."
               >
-                <label className="set-toggle">
-                  <input role="switch" aria-label="Try to fix failures on its own"
-                    type="checkbox"
-                    checked={how.autoFix}
-                    onChange={(e) => setHow({ ...how, autoFix: e.target.checked })}
-                  />
-                </label>
+                <Switch label="Try to fix failures on its own" on={how.autoFix} onChange={(on) => setHow({ ...how, autoFix: on })} />
               </Field>
             </div>
 
@@ -1166,7 +1141,7 @@ export function SettingsPage({
             title="Appearance"
             blurb="How this browser shows KOS. Kept here, not in the workspace, so a phone and a desk can differ."
           >
-            <Field label="Theme" hint="Dark is the default. System follows the device and changes with it.">
+            <Field group className="set-field" label="Theme" hint="Dark is the default. System follows the device and changes with it.">
               <Select
                 className="set-select"
                 label="Theme"
@@ -1184,7 +1159,7 @@ export function SettingsPage({
                 }}
               />
             </Field>
-            <Field
+            <Field group className="set-field"
               label="Density"
               hint="Compact fits more rows on a laptop. Comfortable makes type and spacing a little larger everywhere, for a phone or a long read."
             >
@@ -1205,7 +1180,7 @@ export function SettingsPage({
                 }}
               />
             </Field>
-            <Field
+            <Field group className="set-field"
               label="KOS's face"
               hint="The blob in the sidebar, the chat rail and the tab icon. Kept in the workspace, not this browser, so every screen and the tab agree. Left alone, it comes from the name."
             >
@@ -1240,24 +1215,17 @@ export function SettingsPage({
                 ),
             )}
           >
-            <Field
+            <Field group className="set-field"
               label="Trim old exchanges"
               hint="When on, the oldest exchanges fall off the front once a chat passes the budgets below, and the chat says so when it happens. Off keeps everything: the whole history is re-sent every turn, so it gets slower and costs more as it grows."
             >
-              <label className="set-toggle">
-                <input role="switch" aria-label="Trim old exchanges"
-                  type="checkbox"
-                  checked={retention.autoTrim !== "off"}
-                  onChange={(e) =>
-                    setRetention((r) => ({
+              <Switch label="Trim old exchanges" on={retention.autoTrim !== "off"} onChange={(on) => setRetention((r) => ({
                       ...r,
-                      autoTrim: e.target.checked ? "on" : "off",
+                      autoTrim: on ? "on" : "off",
                     }))
-                  }
-                />
-              </label>
+                  } />
             </Field>
-            <Field
+            <Field group className="set-field"
               label="History budget"
               hint={`Characters of a conversation kept. 0 for no limit. Default ${data.retentionDefaults.maxChars.toLocaleString()}.`}
             >
@@ -1270,7 +1238,7 @@ export function SettingsPage({
                 }
               />
             </Field>
-            <Field
+            <Field group className="set-field"
               label="Exchanges kept"
               hint={`Hard ceiling regardless of size. 0 for no limit. Default ${data.retentionDefaults.maxExchanges}.`}
             >
@@ -1283,7 +1251,7 @@ export function SettingsPage({
                 }
               />
             </Field>
-            <Field
+            <Field group className="set-field"
               label="Tool result cap"
               hint={`A single result longer than this is truncated rather than dropped. 0 for no limit. Default ${data.retentionDefaults.maxToolResultChars.toLocaleString()}.`}
             >
@@ -1316,12 +1284,12 @@ export function SettingsPage({
             )}
           >
             {networkKeys.map(([key, meta]) => (
-              <Field
+              <Field group className="set-field"
                 key={key}
                 label={meta.label}
                 hint={meta.hint}
                 badge={
-                  meta.value ? <span className="set-badge is-set">{meta.value}</span> : null
+                  meta.value ? <Pill tone="ok">{meta.value}</Pill> : null
                 }
               >
                 <input
@@ -1333,7 +1301,7 @@ export function SettingsPage({
               </Field>
             ))}
             {accessKeys.map(([key, meta]) => (
-              <Field key={key} label={meta.label} hint={meta.hint}>
+              <Field group className="set-field" key={key} label={meta.label} hint={meta.hint}>
                 {/* A list, edited as a list. It was one text box holding
                     comma-separated hosts, which reads as a sentence and
                     edits like one: no way to see what is on it at a glance,
@@ -1366,20 +1334,13 @@ export function SettingsPage({
                 row
                 {...(sk.origin ? { meta: <span className="set-origin ops-mono">{sk.origin}</span> } : {})}
               >
-                <label className="set-toggle">
-                  <input role="switch" aria-label={sk.name}
-                    type="checkbox"
-                    checked={sk.enabled}
-                    disabled={skillBusy === sk.name}
-                    onChange={(e) => {
-                      const enabled = e.target.checked;
+                <Switch label={sk.name} on={sk.enabled} disabled={skillBusy === sk.name} onChange={(on) => {
+                      const enabled = on;
                       // Shown at once; the list is re-read after the save so
                       // what is on screen is what the server has.
                       setSkills((cur) => ({ ...cur, skills: cur.skills.map((x) => (x.name === sk.name ? { ...x, enabled } : x)) }));
                       void api.setSkillEnabled(sk.name, enabled).then(loadSkills, loadSkills);
-                    }}
-                  />
-                </label>
+                    }} />
                 <span className="set-module-actions">
                   {/* The file itself, in Files: what a script does is in its code, what a prompt skill says is in its text. */}
                   <a className="link" href={hrefFor({ name: "files", path: sk.file })}>
@@ -1451,18 +1412,11 @@ export function SettingsPage({
                         : `${s.command} · starting`
                 }
               >
-                <label className="set-toggle">
-                  <input role="switch" aria-label={s.name}
-                    type="checkbox"
-                    checked={s.enabled}
-                    disabled={mcpBusy === s.name}
-                    onChange={(e) => {
-                      const enabled = e.target.checked;
+                <Switch label={s.name} on={s.enabled} disabled={mcpBusy === s.name} onChange={(on) => {
+                      const enabled = on;
                       setMcpBusy(s.name);
                       void api.setMcpServerEnabled(s.name, enabled).then(loadMcp, loadMcp).finally(() => setMcpBusy(null));
-                    }}
-                  />
-                </label>
+                    }} />
                 <span className="set-module-actions">
                   <button
                     type="button"
@@ -1491,16 +1445,10 @@ export function SettingsPage({
                 <div className="set-rows">
                 {(modules.builtins ?? []).map((b) => (
                   <Field key={b.name} label={b.name} hint={b.description} row>
-                    <label className="set-toggle">
-                      <input role="switch" aria-label={b.name}
-                        type="checkbox"
-                        checked={b.enabled}
-                        onChange={(e) => {
-                          const enabled = e.target.checked;
+                    <Switch label={b.name} on={b.enabled} onChange={(on) => {
+                          const enabled = on;
                           void api.setModuleEnabled(b.name, enabled).then(loadModules, loadModules);
-                        }}
-                      />
-                    </label>
+                        }} />
                   </Field>
                 ))}
                 </div>
@@ -1539,7 +1487,7 @@ export function SettingsPage({
               </button>
             </form>
             {modules.modules.map((m) => (
-              <Field
+              <Field group className="set-field"
                 key={m.name}
                 label={m.name}
                 hint={
@@ -1598,20 +1546,13 @@ export function SettingsPage({
                     )}
                   </div>
                 ) : (
-                <label className="set-toggle">
-                  <input role="switch" aria-label={m.name}
-                    type="checkbox"
-                    checked={m.enabled}
-                    disabled={moduleBusy === m.name}
-                    onChange={(e) => {
-                      const enabled = e.target.checked;
+                <Switch label={m.name} on={m.enabled} disabled={moduleBusy === m.name} onChange={(on) => {
+                      const enabled = on;
                       // The server comes up or goes down on the save, so the
                       // list is re-read afterwards to show what happened.
                       setModuleBusy(m.name);
                       void api.setModuleEnabled(m.name, enabled).then(loadModules, loadModules).finally(() => setModuleBusy(null));
-                    }}
-                  />
-                </label>
+                    }} />
                 )}
                 <span className="set-module-actions">
                   {m.origin && (
@@ -1660,7 +1601,7 @@ export function SettingsPage({
               <p className="hint">Nothing kept yet. When KOS asks before a risky action, Always approves it and keeps the decision for that shape.</p>
             )}
             {rules.map((r) => (
-              <Field
+              <Field group className="set-field"
                 key={r.id}
                 label={`${r.tool}${r.scope ? ` · ${r.scope}` : ""}`}
                 hint={r.project ? `In project ${r.project}` : "Everywhere"}
@@ -1707,15 +1648,13 @@ export function SettingsPage({
               <>
                 <div className="set-group">
                   <h3>The window</h3>
-                  <Field
+                  <Field group className="set-field"
                     label="Show the window on this machine"
                     hint="Off, Chrome runs unseen and the dashboard's Browser window is the only view. On, Chrome's own windows open here too: that is how you install extensions from the Web Store, and it is where Chrome's own dialogs appear."
                   >
-                    <label className="set-toggle">
-                      <input role="switch" aria-label="Show the window on this machine" type="checkbox" checked={browserDraft.headed} onChange={(e) => setBrowserDraft({ ...browserDraft, headed: e.target.checked })} />
-                    </label>
+                    <Switch label="Show the window on this machine" on={browserDraft.headed} onChange={(on) => setBrowserDraft({ ...browserDraft, headed: on })} />
                   </Field>
-                  <Field
+                  <Field group className="set-field"
                     label="Chrome to run"
                     hint="Blank runs the first Chrome found. Name a binary to run Chromium or Chrome for Testing instead."
                     meta={browser?.found ? <span className="set-browser-found">Would run: {browser.found}</span> : <span className="set-browser-found">No Chrome found on this machine.</span>}
@@ -1735,7 +1674,7 @@ export function SettingsPage({
                     Extensions live in KOS's own Chrome profile and stay there. The sure way in is to show the window, open chrome://extensions in a tab of your own, and install from the Web Store or Load unpacked there.
                     The folders below are loaded each time Chrome starts.
                   </p>
-                  <Field label="Unpacked extension folders">
+                  <Field group className="set-field" label="Unpacked extension folders">
                     <TokenList
                       items={browserDraft.extensions}
                       onChange={(extensions) => setBrowserDraft({ ...browserDraft, extensions })}
@@ -1756,7 +1695,7 @@ export function SettingsPage({
                 </div>
                 <div className="set-group">
                   <h3>Search</h3>
-                  <Field label="Where the address bar searches" hint="Words that are not an address go here, with %s standing for them.">
+                  <Field group className="set-field" label="Where the address bar searches" hint="Words that are not an address go here, with %s standing for them.">
                     <input
                       className="kos-input"
                       value={browserDraft.search}
@@ -1798,11 +1737,7 @@ export function SettingsPage({
               )}
               <dt>KOS</dt>
               <dd>
-                {data.halted ? (
-                  <span className="set-badge is-halted">halted</span>
-                ) : (
-                  <span className="set-badge is-set">running</span>
-                )}
+                {data.halted ? <Pill tone="danger">halted</Pill> : <Pill tone="ok">running</Pill>}
               </dd>
             </dl>
             <div className="set-inline">

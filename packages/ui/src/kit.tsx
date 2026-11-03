@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { useRef, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, m } from "motion/react";
 
 import { ease } from "@kos/kit";
+
+import { useDismiss } from "./useDismiss.js";
 
 /**
  * The small parts every page is built from, so they are built the same way.
@@ -10,7 +12,8 @@ import { ease } from "@kos/kit";
  * Before this, each page grew its own: five label styles, three kinds of
  * section head, chips in four shapes, and an empty state per page. Moving
  * between pages read as moving between applications. These are the one
- * version of each, and docs/ui.md says when to use which.
+ * version of each: docs/ui.md says when to use which, and
+ * docs/components.md where each app keeps it.
  */
 
 /** The mark on a required field's label. */
@@ -32,18 +35,34 @@ export interface FieldProps {
   error?: ReactNode;
   /** Several controls under one label, so the label is a heading rather than a <label>. */
   group?: boolean;
+  /** Beside the label: what it is set to, say, as a Tag. */
+  badge?: ReactNode;
+  /** A line under the hint: where it came from, say. */
+  meta?: ReactNode;
+  /**
+   * The control beside the words rather than under them. For a list of
+   * things with a switch each: stacked, every item was a name, then a
+   * checkbox on a line of its own, then its description, and four of them
+   * read as twelve lines.
+   */
+  row?: boolean;
   className?: string;
   children: ReactNode;
 }
 
-/** One labelled control: the label, the control, then a hint or an error. */
-export function Field({ label, required = false, hint, error, group = false, className, children }: FieldProps): ReactElement {
+/**
+ * One labelled control: the label, the control, then a hint or an error.
+ * Marked with its label (data-field) so a search can scroll to it.
+ */
+export function Field({ label, required = false, hint, error, group = false, badge, meta, row = false, className, children }: FieldProps): ReactElement {
+  if (row) return <FieldRow label={label} hint={hint} badge={badge} meta={meta} className={className}>{children}</FieldRow>;
   const cls = `kos-field${className ? ` ${className}` : ""}`;
   const body = (
     <>
       <span className="kos-field-label">
         {label}
         {required && <Req />}
+        {badge}
       </span>
       {children}
       {error ? (
@@ -53,72 +72,36 @@ export function Field({ label, required = false, hint, error, group = false, cla
       ) : hint ? (
         <span className="hint">{hint}</span>
       ) : null}
+      {meta}
     </>
   );
   return group ? (
-    <div className={cls} role="group" aria-label={label}>
+    <div className={cls} role="group" aria-label={label} data-field={label}>
       {body}
     </div>
   ) : (
-    <label className={cls}>{body}</label>
+    <label className={cls} data-field={label}>
+      {body}
+    </label>
   );
 }
 
-/** A fact in a word or two: a tool family, a model class, a type. Not a button. */
-export function Tag({ mono = false, title, children }: { mono?: boolean; title?: string; children: ReactNode }): ReactElement {
+/** A field in a list: its words, which open on a click, and its control at the right. */
+function FieldRow({ label, hint, badge, meta, className, children }: Pick<FieldProps, "label" | "hint" | "badge" | "meta" | "className" | "children">): ReactElement {
+  // A row's words open on click: a skill's description can run to a
+  // paragraph of triggers, and fourteen of those is a wall.
+  const [open, setOpen] = useState(false);
   return (
-    <span className={`tag${mono ? " tag--mono" : ""}`} title={title}>
-      {children}
-    </span>
-  );
-}
-
-export interface CardProps {
-  /** The small uppercase head. Absent, the card is a plain box. */
-  title?: string;
-  /** Shown beside the title when above zero. */
-  count?: number;
-  /** A Pill, at the head's right. */
-  pill?: ReactNode;
-  /** A small button or link, at the head's right. */
-  action?: ReactNode;
-  /** For a screen reader, when the title is not enough. */
-  label?: string;
-  className?: string;
-  children: ReactNode;
-}
-
-/** A boxed section of a column or a page: a head, then its body. */
-export function Card({ title, count, pill, action, label, className, children }: CardProps): ReactElement {
-  return (
-    <section className={`card${className ? ` ${className}` : ""}`} aria-label={label ?? title}>
-      {(title || action || pill) && (
-        <div className="card-head">
-          {title && (
-            <span className="card-title">
-              {title}
-              {count !== undefined && count > 0 && <span className="card-count">{count}</span>}
-            </span>
-          )}
-          {(pill || action) && (
-            <span className="card-acts">
-              {pill}
-              {action}
-            </span>
-          )}
+    <div className={`set-field set-field--row${open ? " is-open" : ""}${className ? ` ${className}` : ""}`} data-field={label}>
+      <button type="button" className="set-field-text" onClick={() => setOpen((v) => !v)} title={open ? "Less" : "More"}>
+        <div className="set-label">
+          <span>{label}</span>
+          {badge}
         </div>
-      )}
-      {children}
-    </section>
-  );
-}
-
-/** What a list or panel says when there is nothing in it: an answer, not a blank. */
-export function Empty({ title, className, children }: { title?: string; className?: string; children: ReactNode }): ReactElement {
-  return (
-    <div className={`empty${className ? ` ${className}` : ""}`}>
-      {title && <strong className="empty-title">{title}</strong>}
-      <p className="empty-text">{children}</p>
+        {hint && <p className="set-hint">{hint}</p>}
+        {open && meta}
+      </button>
+      <div className="set-field-control">{children}</div>
     </div>
   );
 }
@@ -159,32 +142,7 @@ export function useAnchoredPop(
     });
   };
   // It closes on a press outside it, on Escape, or when the page moves under it.
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: PointerEvent): void => {
-      const t = e.target as Node;
-      if (!pop.current?.contains(t) && !wrap.current?.contains(t)) setAt(null);
-    };
-    const key = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        setAt(null);
-      }
-    };
-    const moved = (e: Event): void => {
-      if (!pop.current?.contains(e.target as Node)) setAt(null);
-    };
-    document.addEventListener("pointerdown", away);
-    document.addEventListener("keydown", key, true);
-    window.addEventListener("resize", moved);
-    document.addEventListener("scroll", moved, true);
-    return () => {
-      document.removeEventListener("pointerdown", away);
-      document.removeEventListener("keydown", key, true);
-      window.removeEventListener("resize", moved);
-      document.removeEventListener("scroll", moved, true);
-    };
-  }, [open]);
+  useDismiss(open, close, { inside: [pop, wrap] });
   return { at, open, toggle, close, wrap, pop };
 }
 

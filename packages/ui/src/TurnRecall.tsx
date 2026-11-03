@@ -15,7 +15,7 @@ import { useDismiss } from "./useDismiss.js";
 export function TurnRecall({ recalled }: { recalled: Recall }): ReactElement | null {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  useDismiss(ref, open, () => setOpen(false));
+  useDismiss(open, () => setOpen(false), { inside: [ref] });
 
   const facts = recalled.facts.length;
   const moments = recalled.events.length;
@@ -45,7 +45,7 @@ export function TurnRecall({ recalled }: { recalled: Recall }): ReactElement | n
       {open && (
         <div className="recall-pop" role="dialog" aria-label="Recalled for the last turn">
           {recalled.projectSlug && (
-            <p className="recall-scope">Project in play: {recalled.projectSlug}</p>
+            <p className="label recall-scope">Project in play: {recalled.projectSlug}</p>
           )}
           {facts > 0 && (
             <ul className="recall-list">
@@ -64,7 +64,7 @@ export function TurnRecall({ recalled }: { recalled: Recall }): ReactElement | n
           )}
           {moments > 0 && (
             <>
-              <p className="recall-head">From the log</p>
+              <p className="label recall-head">From the log</p>
               <ul className="recall-list">
                 {recalled.events.map((e) => (
                   <li key={e.id}>

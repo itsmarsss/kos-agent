@@ -226,8 +226,8 @@ describe("a congregation", () => {
     expect(screen.getByText("Gathering from 2 chats, 1 done, 1 working")).toBeTruthy();
     const link = screen.getByText("Risk Angle").closest("a");
     expect(link?.getAttribute("href")).toBe("#/chats/b");
-    expect(container.querySelector(".chats-flag--working")?.textContent).toBe("working");
-    expect(container.querySelector(".chats-badge")?.textContent).toBe("done");
+    expect(container.querySelector(".pill--accent")?.textContent).toBe("working");
+    expect(container.querySelector(".pill--ok")?.textContent).toBe("done");
 
     // The roster sits above the streaming reply, not in place of it.
     const roster = container.querySelector(".congregation")!;
@@ -250,7 +250,7 @@ describe("a congregation", () => {
         }}
       />,
     );
-    expect(container.querySelector(".chats-flag--needs-you")?.textContent).toBe("failed");
+    expect(container.querySelector(".pill--warn")?.textContent).toBe("failed");
     expect(screen.getByText("Gathered from 2 chats, 1 failed")).toBeTruthy();
   });
 });

@@ -38,13 +38,6 @@ export function place(button: DOMRect): Placement {
   };
 }
 
-export interface SelectOption {
-  value: string;
-  label: string;
-  hint?: string;
-}
-
-
 /**
  * Nudge a rendered panel back inside the window.
  *

@@ -1,5 +1,7 @@
 import { useState, type ReactElement } from "react";
 
+import { CloseIcon } from "@kos/kit";
+
 import { FilePreview, PreviewLinks, type LocalFile } from "./FilePreview.js";
 
 /**
@@ -77,7 +79,7 @@ export function AttachmentStrip({
                 aria-label={`Remove ${item.name}`}
                 onClick={() => onRemove(i)}
               >
-                ✕
+                <CloseIcon size={10} title="" />
               </button>
             )}
             <span className="strip-name">{item.name}</span>

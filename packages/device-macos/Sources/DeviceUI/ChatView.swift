@@ -311,8 +311,9 @@ private struct EmptyChat: View {
     .padding(.top, 16)
   }
 
+  /// The kit's .hint: faint at 13, as the dashboard and the side panel draw theirs.
   private func hint(_ words: String) -> some View {
-    Text(words).font(.kos(.detail)).foregroundStyle(Theme.muted).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+    Text(words).font(.kos(.dense)).foregroundStyle(Theme.faint).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
   }
 }
 

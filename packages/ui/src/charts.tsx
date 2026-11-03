@@ -1,5 +1,7 @@
 import type { ReactElement } from "react";
 
+import type { Tone } from "@kos/kit";
+
 import type { ModuleInfo, Project, ProjectNode, UpcomingRun } from "./api.js";
 import { clip, clockLabel, hourLabel } from "./chartdata.js";
 import { hrefFor } from "./routes.js";
@@ -15,7 +17,6 @@ import { hrefFor } from "./routes.js";
  * figure behind a bar can hover for it rather than being given only a shape.
  */
 
-export type Tone = "accent" | "ok" | "warn" | "danger" | "muted";
 
 export interface Bar {
   label: string;
@@ -160,9 +161,8 @@ const NODE_W = 220;
 const MODULE_W = 190;
 const MAX_NODES = 7;
 
-type ModuleTone = "ok" | "warn" | "danger" | "muted" | "accent";
 
-function moduleTone(mod: ModuleInfo): ModuleTone {
+function moduleTone(mod: ModuleInfo): Tone {
   if (mod.blueprint) return "accent";
   if (!mod.enabled) return "muted";
   if (mod.error) return "danger";

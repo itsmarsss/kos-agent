@@ -125,7 +125,7 @@ private struct PickerRow: View {
         Text(app.name).font(.kos(.control)).foregroundStyle(Theme.text).lineLimit(1)
         Spacer(minLength: 6)
         if app.running {
-          Text("Open").font(.kos(.label, .medium)).foregroundStyle(Theme.ok)
+          Text("Open").font(.kos(.tiny, .medium)).foregroundStyle(Theme.ok)
         }
         Image(systemName: "eye.slash")
           .font(.kos(.tiny, .medium))

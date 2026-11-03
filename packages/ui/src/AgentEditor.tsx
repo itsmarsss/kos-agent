@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement } from "react";
-import { Face } from "@kos/kit";
+import { Chips, Face } from "@kos/kit";
 
 import { api, type AgentDraft, type AgentInfo, type FaceLook, type ToolInfo } from "./api.js";
 import { SchedulePicker } from "./SchedulePicker.js";
@@ -79,13 +79,7 @@ function Choice<T extends string>({ label, value, options, onChange }: { label: 
   return (
     <div className="kos-field">
       <span className="kos-field-label">{label}</span>
-      <div className="seg" role="radiogroup" aria-label={label}>
-        {options.map(([v, text]) => (
-          <button key={v} type="button" className={`seg-btn ${v === value ? "is-on" : ""}`} aria-pressed={v === value} onClick={() => onChange(v)}>
-            {text}
-          </button>
-        ))}
-      </div>
+      <Chips label={label} options={options.map(([v, text]) => [v, text] as const)} selected={value} onChoose={onChange} />
       {chosen && <span className="hint">{chosen[2]}</span>}
     </div>
   );
