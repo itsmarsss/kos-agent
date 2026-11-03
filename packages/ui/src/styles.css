@@ -2508,6 +2508,7 @@ li:hover .chats-more,
   color: var(--muted);
 }
 li:hover .chats-item-when { opacity: 0; }
+.chats-more:active:not(:disabled) { transform: translateY(-50%) scale(0.97); }
 .chats-more:hover,
 .chats-menu ~ .chats-more {
   color: var(--text);
@@ -2989,22 +2990,6 @@ li:hover .chats-item-when { opacity: 0; }
 }
 .attach-x:hover { color: var(--text); }
 
-/* The paperclip sits with the send button, not in a strip of its own. */
-.composer-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 50%;
-  background: none;
-  border: 0;
-  color: var(--muted);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: color 140ms ease, background 140ms ease;
-}
-.composer-icon:hover { color: var(--text); background: var(--panel-2); }
 .composer.is-over .composer-box { border-color: var(--accent); border-style: dashed; }
 
 /* —— a kept thought —— */
@@ -3060,44 +3045,6 @@ li:hover .chats-item-when { opacity: 0; }
   transition: opacity 140ms;
 }
 .turn:hover .acts, .acts:focus-within { opacity: 1; }
-/*
- * Every icon button, one rule.
- *
- * These were sized by their padding, so each ended up as wide as whatever it
- * contained: a row of copy, edit, fork and delete came out ragged, and the
- * glyph sat off-centre because the button's line-height still applied. A fixed
- * square with the content centred fixes both, and means a row of them is
- * uniform whatever the icons are.
- */
-.acts-btn,
-.chats-more {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 1.625rem;
-  height: 1.625rem;
-  padding: 0;
-  line-height: 0;
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 50%;
-  color: var(--muted);
-  font: inherit;
-  cursor: pointer;
-  transition: color 140ms ease, background 140ms ease, border-color 140ms ease, transform 80ms ease;
-}
-.acts-btn:hover:not(:disabled),
-.chats-more:hover {
-  color: var(--text);
-  background: var(--panel-2);
-}
-.acts-btn:disabled { opacity: 0.4; cursor: default; }
-.acts-btn svg,
-.chats-more svg { display: block; }
-/* The row kebab is smaller than a standalone icon button so it sits inside a
-   tight chat row without overflowing it. */
-.chats-more { width: 1.5rem; height: 1.5rem; }
 
 .edit { align-self: stretch; display: flex; flex-direction: column; gap: 0.4rem; }
 .edit-area {
@@ -3629,20 +3576,6 @@ li:hover .chats-item-when { opacity: 0; }
 .files-tools { display: flex; align-items: center; gap: 0.4rem; }
 .files-filter { width: 10rem; padding: 0.3rem 0.55rem; font-size: var(--text-md); }
 .files-sort { min-width: 8.5rem; }
-.files-view { display: flex; gap: 0.15rem; }
-.btn--icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.35rem 0.45rem;
-  line-height: 0;
-}
-.btn--icon.is-on,
-.btn--icon.is-on:hover:not(:disabled) {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--accent-dim);
-}
 
 .files-grid {
   display: grid;
@@ -5327,22 +5260,9 @@ a.health {
 }
 
 /* A dismiss that stays out of the way until the row is under the pointer. */
-.icon-btn--bare {
-  width: 18px;
-  height: 18px;
-  margin-left: 0.4rem;
-  border: 0;
-  background: none;
-  opacity: 0;
-  color: var(--muted);
-}
+.panel-list .icon-btn--bare { margin-left: 0.4rem; opacity: 0; }
 .panel-list li:hover .icon-btn--bare,
-.icon-btn--bare:focus-visible {
-  opacity: 1;
-}
-.icon-btn--bare:hover {
-  color: var(--text);
-}
+.panel-list .icon-btn--bare:focus-visible { opacity: 1; }
 
 /* A day break in a long list. Sticky so you keep the date while you read
    down through it, which is most of what it is for. */

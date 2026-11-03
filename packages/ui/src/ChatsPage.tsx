@@ -10,7 +10,7 @@ import {
 
 import { AnimatePresence, m } from "motion/react";
 import { summarizeAction } from "@kos/shared";
-import { ArchiveIcon, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, ease, EditIcon, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, SearchIcon, SendIcon, spring, stagger, StopIcon, useKosLook, WorkingDots, WrenchIcon } from "@kos/kit";
+import { ArchiveIcon, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, ease, EditIcon, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, SearchIcon, SendIcon, spring, stagger, StopIcon, useKosLook, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { Decision } from "./Decision.js";
 import { VoiceInput } from "./VoiceInput.js";
@@ -1214,17 +1214,16 @@ export function ChatsPage({
         {/* Hover reveals what can be done with a chat, so the list is
             a list until you need it to be more. */}
         <div className="chats-row">
-          <button
-            type="button"
+          <IconButton
             className="chats-more"
-            aria-label={`Actions for ${c.title}`}
+            label={`Actions for ${c.title}`}
             onClick={(e) => {
               e.stopPropagation();
               setMenuFor(menuFor === c.id ? null : c.id);
             }}
           >
             <MoreIcon />
-          </button>
+          </IconButton>
           {/* Wrapped so it leaves as well as arrives: without this the
               menu appeared gently and then simply stopped existing. */}
           <AnimatePresence>
@@ -1330,16 +1329,15 @@ export function ChatsPage({
 
   /** The list's show/hide, wherever the view is: a thread's head, or the landing. */
   const listToggle = (
-    <button
-      type="button"
-      className={`icon-btn chats-toggle ${collapsed && !narrow ? "" : "is-on"}`}
-      aria-label={narrow ? "Show chats" : collapsed ? "Show the chat list" : "Hide the chat list"}
+    <IconButton
+      className={`chats-toggle ${collapsed && !narrow ? "" : "is-on"}`}
+      label={narrow ? "Show chats" : collapsed ? "Show the chat list" : "Hide the chat list"}
       aria-pressed={!(collapsed && !narrow)}
       title={narrow ? "Show chats" : collapsed ? "Show the chat list" : "Hide the chat list"}
       onClick={() => (narrow ? setListOpen(true) : setCollapsed((v) => !v))}
     >
       <PanelIcon side="left" on={!(collapsed && !narrow)} />
-    </button>
+    </IconButton>
   );
 
   return (
@@ -1570,10 +1568,9 @@ export function ChatsPage({
                 or hand it to KOS, rather than dropping into an empty thread.
                 A square beside the search rather than a bar of its own: it
                 took the rail's whole first row to say two words. */}
-            <button
-              type="button"
-              className="icon-btn chats-compose"
-              aria-label="New chat"
+            <IconButton
+              className="chats-compose"
+              label="New chat"
               title="New chat"
               onClick={() => {
                 if (narrow) setListOpen(false);
@@ -1581,7 +1578,7 @@ export function ChatsPage({
               }}
             >
               <ComposeIcon />
-            </button>
+            </IconButton>
           </div>
           {onCreateProject && <NewProjectDialog open={makingProject} onClose={() => setMakingProject(false)} onCreate={onCreateProject} />}
 
@@ -1668,15 +1665,14 @@ export function ChatsPage({
                     {...(q ? {} : { onToggle: () => folds.toggle("projects") })}
                     action={
                       onCreateProject && (
-                        <button
-                          type="button"
-                          className="icon-btn rail-group-add"
-                          aria-label="New project"
+                        <IconButton
+                          className="rail-group-add"
+                          label="New project"
                           title="Make an empty project: a chat of its own, and nothing else until something is put there"
                           onClick={() => setMakingProject(true)}
                         >
                           +
-                        </button>
+                        </IconButton>
                       )
                     }
                   >
@@ -1694,17 +1690,16 @@ export function ChatsPage({
                             <li key={p.slug}>
                               <div className="chats-row">
                                 {onDeleteProject && p.listed && (
-                                  <button
-                                    type="button"
+                                  <IconButton
                                     className="chats-more"
-                                    aria-label={`Actions for ${p.name}`}
+                                    label={`Actions for ${p.name}`}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       setMenuFor(menuFor === menuKey ? null : menuKey);
                                     }}
                                   >
                                     <MoreIcon />
-                                  </button>
+                                  </IconButton>
                                 )}
                                 <AnimatePresence>
                                   {menuFor === menuKey && (
@@ -2072,16 +2067,15 @@ export function ChatsPage({
                 {(project || agent) && (
                   /* An icon, not words: beside Configure and Archive a third
                      label squeezed the title into two lines. */
-                  <button
-                    type="button"
-                    className={`icon-btn chats-panel-toggle ${panelOpen ? "is-on" : ""}`}
+                  <IconButton
+                    className={`chats-panel-toggle ${panelOpen ? "is-on" : ""}`}
                     aria-pressed={panelOpen}
-                    aria-label={panelOpen ? "Hide the workspace panel" : "Show the workspace panel"}
+                    label={panelOpen ? "Hide the workspace panel" : "Show the workspace panel"}
                     title={panelOpen ? "Hide files, pages and tables" : "Show files, pages and tables"}
                     onClick={togglePanel}
                   >
                     <PanelIcon on={panelOpen} />
-                  </button>
+                  </IconButton>
                 )}
                 <button
                   type="button"
@@ -2305,16 +2299,15 @@ export function ChatsPage({
                   {/* A command's answer is a reply to something you did, not
                       part of the conversation, and it sat there until the
                       chat was reloaded. */}
-                  <button
-                    type="button"
-                    className="icon-btn note-close"
-                    title="Dismiss"
+                  <IconButton
+                    className="note-close"
+                    label="Dismiss"
                     onClick={() =>
                       setNotes((all) => all.filter((x) => x.id !== n.id))
                     }
                   >
                     <CloseIcon size={12} title="" />
-                  </button>
+                  </IconButton>
                   <Markdown text={n.text} />
                   {/* Also at the end: a long answer meant scrolling back to
                       the top to reach the corner. */}
@@ -2408,41 +2401,37 @@ export function ChatsPage({
                       {/* What came with it, by name: the files are kept when the turn runs. */}
                       {p.attachments.length > 0 && <AttachmentStrip items={p.attachments} />}
                       <div className="queued-actions">
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          title="Edit before it runs"
+                        <IconButton
+
+                          label="Edit before it runs"
                           onClick={() => setEditingQueued({ id: p.id, text: p.text })}
                         >
                           <EditIcon />
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          title="Copy"
+                        </IconButton>
+                        <IconButton
+
+                          label="Copy"
                           onClick={() => void navigator.clipboard.writeText(p.text)}
                         >
                           <CopyIcon />
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          title="Ask this in a copy of the chat instead"
+                        </IconButton>
+                        <IconButton
+
+                          label="Ask this in a copy of the chat instead"
                           onClick={() => void forkQueued(p.id)}
                         >
                           <ForkIcon />
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-btn icon-btn--danger"
-                          title="Drop it before it runs"
+                        </IconButton>
+                        <IconButton tone="danger"
+
+                          label="Drop it before it runs"
                           onClick={() => void dropQueued(p.id)}
                         >
                           {/* Drawn like the others. A text cross sat on a
                               different baseline and at a different weight
                               from the icons beside it. */}
                           <CloseIcon size={15} title="" />
-                        </button>
+                        </IconButton>
                       </div>
                     </>
                   )}

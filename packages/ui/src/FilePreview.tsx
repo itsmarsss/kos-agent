@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { AnimatePresence, m } from "motion/react";
-import { ChevronLeft, ChevronRight, Chips, CloseIcon, ease, Markdown, spring } from "@kos/kit";
+import { ChevronLeft, ChevronRight, Chips, CloseIcon, ease, IconButton, Markdown, spring } from "@kos/kit";
 
 import { api, type FileContent, type FileText } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
@@ -294,22 +294,22 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
                 <span className="preview-acts">
                   {siblings.length > 1 && at >= 0 && (
                     <span className="preview-step">
-                      <button type="button" className="icon-btn" aria-label="Previous file" disabled={!prev} onClick={() => prev && onStep?.(prev)}>
+                      <IconButton  label="Previous file" disabled={!prev} onClick={() => prev && onStep?.(prev)}>
                         <ChevronLeft size={14} title="" />
-                      </button>
+                      </IconButton>
                       <span className="preview-count">
                         {at + 1} of {siblings.length}
                       </span>
-                      <button type="button" className="icon-btn" aria-label="Next file" disabled={!next} onClick={() => next && onStep?.(next)}>
+                      <IconButton  label="Next file" disabled={!next} onClick={() => next && onStep?.(next)}>
                         <ChevronRight size={14} title="" />
-                      </button>
+                      </IconButton>
                     </span>
                   )}
                   {rawable && <RawToggle raw={raw} onChange={setRaw} />}
                   {actions}
-                  <button type="button" className="icon-btn preview-close" aria-label="Close" onClick={onClose}>
+                  <IconButton className="preview-close" label="Close" onClick={onClose}>
                     <CloseIcon size={14} title="" />
-                  </button>
+                  </IconButton>
                 </span>
               </header>
               <div className={`preview-body${image ? " preview-body--image" : ""}`}>

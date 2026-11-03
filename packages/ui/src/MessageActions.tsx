@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from "react";
 
-import { CheckIcon, CopyIcon, EditIcon, ForkIcon, RetryIcon } from "@kos/kit";
+import { CheckIcon, CopyIcon, EditIcon, ForkIcon, IconButton, RetryIcon } from "@kos/kit";
 
 /**
  * What you can do with a message you sent, or one you got back.
@@ -40,41 +40,23 @@ export function MessageActions({
 
   return (
     <div className="acts">
-      <button type="button" className="acts-btn" aria-label="Copy" onClick={copy}>
+      <IconButton label="Copy" onClick={copy}>
         {copied ? <CheckIcon /> : <CopyIcon />}
-      </button>
+      </IconButton>
       {onEdit && (
-        <button
-          type="button"
-          className="acts-btn"
-          aria-label="Edit"
-          disabled={busy}
-          onClick={() => onEdit(text)}
-        >
+        <IconButton label="Edit" disabled={busy} onClick={() => onEdit(text)}>
           <EditIcon />
-        </button>
+        </IconButton>
       )}
       {onRetry && (
-        <button
-          type="button"
-          className="acts-btn"
-          aria-label="Retry"
-          disabled={busy}
-          onClick={onRetry}
-        >
+        <IconButton label="Retry" disabled={busy} onClick={onRetry}>
           <RetryIcon />
-        </button>
+        </IconButton>
       )}
       {onFork && (
-        <button
-          type="button"
-          className="acts-btn"
-          aria-label="Fork"
-          disabled={busy}
-          onClick={onFork}
-        >
+        <IconButton label="Fork" disabled={busy} onClick={onFork}>
           <ForkIcon />
-        </button>
+        </IconButton>
       )}
     </div>
   );

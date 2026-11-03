@@ -203,6 +203,9 @@
 .icon-btn:active:not(:disabled) { transform: scale(0.97); }
 .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .icon-btn:disabled { opacity: 0.4; cursor: default; }
+/* Bare: a small glyph with no ring, for a dismiss inside a row. */
+.icon-btn--bare { width: 18px; height: 18px; border: 0; background: none; color: var(--muted); }
+.icon-btn--bare:hover:not(:disabled) { color: var(--text); background: none; border-color: transparent; }
 .icon-btn--danger:hover:not(:disabled) { color: var(--danger); background: var(--danger-dim); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
 .icon-btn svg { display: block; }
 

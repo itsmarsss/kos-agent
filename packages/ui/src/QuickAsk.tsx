@@ -7,7 +7,7 @@ import {
   type ReactElement,
 } from "react";
 
-import { CloseIcon, Markdown, OpenIcon, PinIcon, SendIcon, UnpinIcon, WorkingDots } from "@kos/kit";
+import { CloseIcon, IconButton, Markdown, OpenIcon, PinIcon, SendIcon, UnpinIcon, WorkingDots } from "@kos/kit";
 import { api } from "./api.js";
 import { EDGES, clampBox, cornerBox, readBox as readStoredBox, resizedBox, saveBox as saveStoredBox, type Box, type Edge, type MinSize } from "./floatbox.js";
 import { useProgress } from "./progress.js";
@@ -286,15 +286,14 @@ export function QuickAsk({
               Go to chat
             </button>
           )}
-          <button
-            type="button"
-            className="icon-btn quickask-close"
+          <IconButton
+            className="quickask-close"
             onClick={onClose}
-            aria-label="Close"
+            label="Close"
             title="Close (Esc)"
           >
             <CloseIcon size={13} title="" />
-          </button>
+          </IconButton>
         </div>
       </header>
       <div className="quickask-body" ref={bodyRef}>

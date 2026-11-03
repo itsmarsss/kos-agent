@@ -1,7 +1,7 @@
 import { useRef, useState, type CSSProperties, type DragEvent, type ReactElement, type ReactNode } from "react";
 
 import { AnimatePresence, m } from "motion/react";
-import { MoreIcon } from "@kos/kit";
+import { IconButton, MoreIcon } from "@kos/kit";
 
 import { api } from "./api.js";
 import { ConfirmButton } from "./kit.js";
@@ -274,10 +274,9 @@ export function EntryMenu({ entry, ops, inView = false }: { entry: Entry; ops: F
   );
   return (
     <div className="file-menu-wrap" ref={ref} onClick={(e) => e.stopPropagation()}>
-      <button
-        type="button"
-        className="icon-btn file-more"
-        aria-label={`Actions for ${entry.name}`}
+      <IconButton
+        className="file-more"
+        label={`Actions for ${entry.name}`}
         aria-expanded={open}
         onClick={(e) => {
           e.preventDefault();
@@ -286,7 +285,7 @@ export function EntryMenu({ entry, ops, inView = false }: { entry: Entry; ops: F
         }}
       >
         <MoreIcon />
-      </button>
+      </IconButton>
       <AnimatePresence>
         {open && (
           <m.div

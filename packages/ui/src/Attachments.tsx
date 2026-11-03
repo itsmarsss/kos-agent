@@ -1,6 +1,6 @@
 import React, { useRef, useState, type ReactElement } from "react";
 
-import { PaperclipIcon } from "@kos/kit";
+import { IconButton, PaperclipIcon } from "@kos/kit";
 
 import type { Attachment } from "./api.js";
 import { MAX_ATTACHMENTS } from "./AttachmentStrip.js";
@@ -61,14 +61,9 @@ export function AttachButton({
   const input = useRef<HTMLInputElement>(null);
   return (
     <>
-      <button
-        type="button"
-        className="composer-icon"
-        aria-label="Attach files"
-        onClick={() => input.current?.click()}
-      >
+      <IconButton label="Attach files" onClick={() => input.current?.click()}>
         <PaperclipIcon />
-      </button>
+      </IconButton>
       <input
         ref={input}
         type="file"

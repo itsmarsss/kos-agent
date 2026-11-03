@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
 
-import { DownloadIcon, ExternalIcon } from "@kos/kit";
+import { DownloadIcon, ExternalIcon, IconButton } from "@kos/kit";
 
 import { api } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
@@ -124,15 +124,14 @@ export function MentionedFiles({ text }: { text: string }): ReactElement | null 
             {m.kind !== "missing" && (
               <span className="mfile-acts">
                 {m.kind === "file" && (
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    aria-label={`Download ${m.name}`}
+                  <IconButton
+
+                    label={`Download ${m.name}`}
                     title="Download"
                     onClick={() => void api.downloadFile(m.path).catch(() => {})}
                   >
                     <DownloadIcon size={13} />
-                  </button>
+                  </IconButton>
                 )}
                 <a className="icon-btn" href={href} aria-label={`Open ${m.name} in Files`} title="Open in Files">
                   <ExternalIcon size={13} />

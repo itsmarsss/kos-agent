@@ -1,5 +1,5 @@
 import { m } from "motion/react";
-import { CloseIcon, ease, KOS_SEED, Pill, Switch, Tag } from "@kos/kit";
+import { CloseIcon, ease, IconButton, KOS_SEED, Pill, Switch, Tag } from "@kos/kit";
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import {
@@ -141,14 +141,13 @@ function TokenList({
           {items.map((h) => (
             <li key={h}>
               <span className="ops-mono">{h}</span>
-              <button
-                type="button"
-                className="icon-btn icon-btn--bare"
-                title={`Remove ${h}`}
+              <IconButton tone="bare"
+
+                label={`Remove ${h}`}
                 onClick={() => onChange(items.filter((x) => x !== h))}
               >
                 <CloseIcon size={12} title="" />
-              </button>
+              </IconButton>
             </li>
           ))}
         </ul>

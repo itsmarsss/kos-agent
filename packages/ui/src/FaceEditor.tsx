@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { hexOfHsl, SHAPE_WORD_MAX, shapeWordOf } from "@kos/shared";
-import { DiceIcon, EYES, Face, type FaceLook, FILL_SAT, fillOf, type Gait, lightnessOf, lookOf } from "@kos/kit";
+import { DiceIcon, EYES, Face, type FaceLook, FILL_SAT, fillOf, type Gait, IconButton, lightnessOf, lookOf } from "@kos/kit";
 
 import { ColourChoice } from "./ColourPicker.js";
 import { Field } from "./kit.js";
@@ -115,10 +115,9 @@ export function FaceEditor({ seed, value, onChange, label, preview = true }: Fac
                 }
               }}
             />
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label="Another shape"
+            <IconButton
+
+              label="Another shape"
               title="Another shape"
               onClick={() => {
                 const next = anyWord();
@@ -127,7 +126,7 @@ export function FaceEditor({ seed, value, onChange, label, preview = true }: Fac
               }}
             >
               <DiceIcon />
-            </button>
+            </IconButton>
           </div>
         </Field>
         <div className="face-editor-foot">

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 
-import { MicIcon } from "@kos/kit";
+import { IconButton, MicIcon } from "@kos/kit";
 
 /**
  * Dictating a message instead of typing it.
@@ -105,15 +105,14 @@ export function VoiceInput({
   };
 
   return (
-    <button
-      type="button"
-      className={`icon-btn ${listening ? "is-listening" : ""}`}
+    <IconButton
+      className={`${listening ? "is-listening" : ""}`}
       disabled={disabled}
       aria-pressed={listening}
-      title={error ?? (listening ? "Stop dictating" : "Dictate a message")}
+      label={error ?? (listening ? "Stop dictating" : "Dictate a message")}
       onClick={() => (listening ? stop() : start())}
     >
       <MicIcon />
-    </button>
+    </IconButton>
   );
 }

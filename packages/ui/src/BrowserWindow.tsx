@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from "react";
 
-import { ChevronLeft, ChevronRight, CloseIcon, FullscreenIcon, MaximizeIcon, PlusIcon, RestoreIcon, RetryIcon } from "@kos/kit";
+import { ChevronLeft, ChevronRight, CloseIcon, FullscreenIcon, IconButton, MaximizeIcon, PlusIcon, RestoreIcon, RetryIcon } from "@kos/kit";
 
 import { tabName, toAddress } from "./address.js";
 import { api } from "./api.js";
@@ -435,15 +435,15 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
           >
             {driving ? "Let go" : "Take over"}
           </button>
-          <button type="button" className="icon-btn" aria-label={maximized ? "Restore size" : "Maximize"} aria-pressed={maximized} title={maximized ? "Back to the window's own size" : "Fill the page (double-click the bar does too)"} onClick={() => setMaximized((v) => !v)}>
+          <IconButton  label={maximized ? "Restore size" : "Maximize"} aria-pressed={maximized} title={maximized ? "Back to the window's own size" : "Fill the page (double-click the bar does too)"} onClick={() => setMaximized((v) => !v)}>
             {maximized ? <RestoreIcon /> : <MaximizeIcon />}
-          </button>
-          <button type="button" className="icon-btn" aria-label={fullscreen ? "Leave full screen" : "Full screen"} aria-pressed={fullscreen} title={fullscreen ? "Leave full screen (Esc)" : "The whole screen"} onClick={toggleFullscreen}>
+          </IconButton>
+          <IconButton  label={fullscreen ? "Leave full screen" : "Full screen"} aria-pressed={fullscreen} title={fullscreen ? "Leave full screen (Esc)" : "The whole screen"} onClick={toggleFullscreen}>
             <FullscreenIcon size={14} />
-          </button>
-          <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
+          </IconButton>
+          <IconButton  label="Close" onClick={onClose}>
             <CloseIcon size={14} title="" />
-          </button>
+          </IconButton>
         </span>
       </div>
       <div className="browserwin-tabs" role="tablist" aria-label="Browser tabs">
@@ -473,20 +473,20 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
             </span>
           );
         })}
-        <button type="button" className="icon-btn browserwin-new" aria-label="New tab" title="A tab of your own" disabled={!ready} onClick={() => newTab()}>
+        <IconButton className="browserwin-new" label="New tab" title="A tab of your own" disabled={!ready} onClick={() => newTab()}>
           <PlusIcon size={14} title="" />
-        </button>
+        </IconButton>
       </div>
       <div className="browserwin-nav">
-        <button type="button" className="icon-btn" aria-label="Back" title="Back" disabled={!current} onClick={() => step("back")}>
+        <IconButton  label="Back" title="Back" disabled={!current} onClick={() => step("back")}>
           <ChevronLeft size={14} title="" />
-        </button>
-        <button type="button" className="icon-btn" aria-label="Forward" title="Forward" disabled={!current} onClick={() => step("forward")}>
+        </IconButton>
+        <IconButton  label="Forward" title="Forward" disabled={!current} onClick={() => step("forward")}>
           <ChevronRight size={14} title="" />
-        </button>
-        <button type="button" className="icon-btn" aria-label="Reload" title="Reload" disabled={!current} onClick={() => step("reload")}>
+        </IconButton>
+        <IconButton  label="Reload" title="Reload" disabled={!current} onClick={() => step("reload")}>
           <RetryIcon size={14} title="" />
-        </button>
+        </IconButton>
         <input
           ref={address}
           className="browserwin-address"

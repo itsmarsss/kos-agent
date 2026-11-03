@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
 import { summarizeAction } from "@kos/shared";
-import { CloseIcon, Face, moodOf } from "@kos/kit";
+import { CloseIcon, Face, IconButton, moodOf } from "@kos/kit";
 
 import { titleOf } from "./AgentEditor.js";
 import type { AgentInfo, FailingJob, HomeData, ModelSpend, RunRecord } from "./api.js";
@@ -307,14 +307,13 @@ export function Panel({
                           Fix
                         </button>
                       )}
-                      <button
-                        type="button"
-                        className="icon-btn icon-btn--bare"
-                        title="Dismiss"
+                      <IconButton tone="bare"
+
+                        label="Dismiss"
                         onClick={() => onDismissFailure(f.key)}
                       >
                         <CloseIcon size={12} title="" />
-                      </button>
+                      </IconButton>
                     </span>
                   </span>
                 </li>
