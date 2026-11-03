@@ -550,6 +550,8 @@ select {
   font-family: var(--mono);
   font-size: 0.82em;
 }
+/* A hint set in mono keeps the hint's size, not mono's smaller one. */
+.hint.ops-mono { font-size: var(--text-base); }
 
 .ops-back {
   color: var(--muted);
@@ -6670,7 +6672,6 @@ a.health {
 .project-panel-status { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--muted); }
 .project-panel-status i { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--faint); }
 .project-panel-status.is-active i { background: var(--ok); box-shadow: 0 0 0 2px var(--ok-dim); }
-.project-panel-section { gap: 0.45rem; }
 .project-panel-section .ops-section-head h2 {
   display: flex;
   align-items: center;

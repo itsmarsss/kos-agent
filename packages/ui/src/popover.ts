@@ -38,7 +38,6 @@ export function place(button: DOMRect): Placement {
   };
 }
 
-
 /**
  * Nudge a rendered panel back inside the window.
  *

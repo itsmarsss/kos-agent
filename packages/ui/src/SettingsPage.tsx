@@ -142,7 +142,6 @@ function TokenList({
             <li key={h}>
               <span className="ops-mono">{h}</span>
               <IconButton tone="bare"
-
                 label={`Remove ${h}`}
                 onClick={() => onChange(items.filter((x) => x !== h))}
               >

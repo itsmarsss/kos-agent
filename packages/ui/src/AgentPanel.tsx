@@ -33,10 +33,10 @@ function when(ts: number): string {
   return new Date(ts).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-/** How the agent is doing, in a line, with a tone for the dot beside it. */
 /** How each state reads as a pill. */
 const HERO_TONE = { working: "accent", "needs-you": "warn", error: "danger", asleep: "muted", idle: "ok" } as const satisfies Record<string, Tone>;
 
+/** How the agent is doing, in a line, with a tone for the dot beside it. */
 export function stateOf(a: AgentInfo, paused: boolean): { tone: "working" | "needs-you" | "error" | "asleep" | "idle"; text: string } {
   const t = a.thread;
   if (t?.activity === "working") return { tone: "working", text: "Working now" };

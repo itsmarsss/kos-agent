@@ -304,7 +304,6 @@ export function Panel({
                         </button>
                       )}
                       <IconButton tone="bare"
-
                         label="Dismiss"
                         onClick={() => onDismissFailure(f.key)}
                       >
