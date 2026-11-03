@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@kos/kit": "workspace:*",
     "@kos/shared": "workspace:*",
     "katex": "^0.16.47",
     "motion": "^13.1.1",
