@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { AnimatePresence, m } from "motion/react";
-import { ChevronLeft, ChevronRight, CloseIcon, ease, Markdown, spring } from "@kos/kit";
+import { ChevronLeft, ChevronRight, Chips, CloseIcon, ease, Markdown, spring } from "@kos/kit";
 
 import { api, type FileContent, type FileText } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
@@ -133,14 +133,13 @@ export function useRawText(path: string | null, wanted: boolean): { raw: FileTex
 /** File or Raw: the document itself, or the words KOS reads out of it. */
 export function RawToggle({ raw, onChange }: { raw: boolean; onChange: (raw: boolean) => void }): ReactElement {
   return (
-    <div className="seg seg--sm" role="group" aria-label="View as">
-      <button type="button" className={`seg-btn ${raw ? "" : "is-on"}`} onClick={() => onChange(false)}>
-        File
-      </button>
-      <button type="button" className={`seg-btn ${raw ? "is-on" : ""}`} title="The words read out of the document, as KOS reads them" onClick={() => onChange(true)}>
-        Raw
-      </button>
-    </div>
+    <Chips
+      small
+      label="View as"
+      options={[["file", "File"], ["raw", "Raw", "The words read out of the document, as KOS reads them"]]}
+      selected={raw ? "raw" : "file"}
+      onChoose={(v) => onChange(v === "raw")}
+    />
   );
 }
 

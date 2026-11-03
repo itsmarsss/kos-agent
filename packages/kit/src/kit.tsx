@@ -39,13 +39,20 @@ export function Switch({ on, onChange, label, disabled }: { on: boolean; onChang
   );
 }
 
-/** One of a few values, each a chip; the chosen one is pressed. */
-export function Chips<V extends string | number>({ options, selected, onChoose }: { options: [V, string][]; selected: V; onChoose: (v: V) => void }): ReactElement {
+/** A chip's value, what it says, and what its tooltip says. */
+export type ChipOption<V> = readonly [value: V, label: ReactNode, title?: string];
+
+/**
+ * One of a few values, each a chip; the chosen one is pressed. A filter, a
+ * kind, tabs over a list: every such choice is drawn this way. With nothing
+ * selected, the chips are a row of things to pick, none of them on.
+ */
+export function Chips<V extends string | number>({ options, selected, onChoose, label, small = false }: { options: readonly ChipOption<V>[]; selected?: V | null; onChoose: (v: V) => void; label?: string; small?: boolean }): ReactElement {
   return (
-    <div className="chips">
-      {options.map(([value, label]) => (
-        <button key={String(value)} type="button" aria-pressed={value === selected} onClick={() => onChoose(value)}>
-          {label}
+    <div className={`chips${small ? " chips--sm" : ""}`} role={label ? "group" : undefined} aria-label={label}>
+      {options.map(([value, text, title]) => (
+        <button key={String(value)} type="button" aria-pressed={value === selected} title={title} onClick={() => onChoose(value)}>
+          {text}
         </button>
       ))}
     </div>

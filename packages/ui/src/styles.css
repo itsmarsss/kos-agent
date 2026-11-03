@@ -1534,11 +1534,6 @@ select {
   align-items: center;
 }
 
-.list-filter-group {
-  display: flex;
-  gap: 0.3rem;
-}
-
 .list-check {
   display: flex;
   align-items: center;
@@ -3490,43 +3485,6 @@ li:hover .chats-item-when { opacity: 0; }
 .chatcfg-textarea:focus { outline: none; border-color: var(--accent); }
 .chatcfg-tools { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 
-/* —— chips: one choice of a few ——
-   The one style for every such choice (a filter, a kind, tabs over a list),
-   as KOS for Mac's ChipStyle and the extension's .chips draw it. The four
-   segmented controls that grew here (.seg, .sched-kinds, .mem-tab and this)
-   all draw as this now. */
-.chip,
-.seg-btn,
-.mem-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  border: 1px solid var(--line);
-  background: var(--panel-2);
-  color: var(--muted);
-  border-radius: var(--r-sm);
-  padding: 0.3rem 0.65rem;
-  font: inherit;
-  font-size: var(--text-sm);
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 80ms ease;
-}
-.chip:hover,
-.seg-btn:hover,
-.mem-tab:hover { color: var(--text); border-color: var(--line-strong); }
-.chip:active,
-.seg-btn:active,
-.mem-tab:active { transform: scale(0.97); }
-.chip.is-on,
-.seg-btn.is-on,
-.mem-tab.is-active {
-  color: var(--accent);
-  font-weight: 600;
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  background: var(--accent-dim);
-}
-
 .chatcfg-reset { align-self: flex-start; padding-left: 0; }
 .chatcfg-bar { display: flex; justify-content: flex-end; gap: 0.4rem; }
 
@@ -3853,7 +3811,7 @@ li:hover .chats-item-when { opacity: 0; }
   border: 1px solid var(--line);
   border-radius: var(--r-md);
 }
-.know-tags { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 1.25rem; }
+.know-tags { margin-bottom: 1.25rem; }
 
 .know-group { margin-bottom: 1.5rem; }
 .know-group h2 {
@@ -3921,7 +3879,6 @@ li:hover .chats-item-when { opacity: 0; }
 }
 .know-detail-rows dt { color: var(--faint); }
 .know-detail-rows dd { margin: 0; }
-.know-detail-tags { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 
 @media (max-width: 720px) {
   .know-add { grid-template-columns: 1fr; }
@@ -5745,12 +5702,7 @@ a.health {
 .spend-rate-field .kos-input { width: 8rem; }
 
 /* Folders already in the workspace, as one-click choices under the field. */
-.agent-folder-picks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  margin-top: 0.35rem;
-}
+.agent-folder-picks { margin-top: 0.35rem; }
 
 /* On the subscription there is nothing to pick, so the engine is stated in a
    quiet capsule rather than offered, as the side panel shows it. */
@@ -6292,11 +6244,13 @@ a.health {
   .list-table { overflow-x: auto; }
   .list-table table { min-width: 38rem; }
   /* Tab strips scroll rather than wrap. */
+  .mem-tabs .chips,
+  .runs-tabs { flex-wrap: nowrap; }
   .mem-tabs,
-  .runs-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .runs-tabs { overflow-x: auto; scrollbar-width: none; }
   .mem-tabs::-webkit-scrollbar,
   .runs-tabs::-webkit-scrollbar { display: none; }
-  .mem-tab,
+  .mem-tabs .chips button,
   .runs-tab { white-space: nowrap; flex: none; }
 }
 /* Settings on a phone: the rail is a strip across the top, not a column the
@@ -7379,9 +7333,6 @@ a.health {
 .face-editor-shape { display: flex; align-items: center; gap: 0.35rem; }
 .face-editor-shape .kos-input { flex: 1; min-width: 0; }
 .face-editor-foot { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-height: 1.6rem; }
-.seg { display: inline-flex; flex-wrap: wrap; gap: 0.375rem; width: fit-content; }
-/* In a header, beside small buttons. */
-.seg--sm .seg-btn { padding: 0.2rem 0.55rem; }
 /* The Files page shows the preview window's body in place: the page's width, the page's height. */
 .files-file .preview-md { max-width: none; }
 .files-file .preview-frame { height: 75vh; }

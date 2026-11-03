@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 
-import { Pill, Switch } from "@kos/kit";
+import { Chips, Pill, Switch } from "@kos/kit";
 
 import { api, type CallerInfo, type CronJob, type FactRow, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
 import { KnowledgePage } from "./KnowledgePage.js";
@@ -49,12 +49,11 @@ export function MemoryPage({
   return (
     <div className="mem">
       <nav className="mem-tabs" aria-label="Memory">
-        {TABS.map((t) => (
-          <button key={t.id} type="button" className={`mem-tab ${tab === t.id ? "is-active" : ""}`} onClick={() => setTab(t.id)} title={t.blurb}>
-            {t.label}
-            {t.id === "decisions" && pendingCount > 0 && <Pill tone="warn">{pendingCount}</Pill>}
-          </button>
-        ))}
+        <Chips
+          options={TABS.map((t) => [t.id, <>{t.label}{t.id === "decisions" && pendingCount > 0 && <Pill tone="warn">{pendingCount}</Pill>}</>, t.blurb] as const)}
+          selected={tab}
+          onChoose={setTab}
+        />
       </nav>
       {tab === "claims" && <KnowledgePage facts={facts} tags={tags} onChanged={onChanged} />}
       {tab === "decisions" && <DecisionsTab onChanged={onChanged} />}

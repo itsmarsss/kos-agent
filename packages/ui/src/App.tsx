@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AgentFaces, AlertIcon, CheckIcon, ease, faceDataUrl, KOS_SEED, KosLook, lookOf, spring } from "@kos/kit";
+import { AgentFaces, AlertIcon, CheckIcon, Chips, ease, faceDataUrl, KOS_SEED, KosLook, lookOf, spring } from "@kos/kit";
 
 import {
   type FailingJob,
@@ -1126,19 +1126,7 @@ export function App(): React.ReactElement {
           </button>
         }
         filters={
-          <div className="list-filter-group">
-            {(["all", "on", "off"] as const).map((f) => (
-              <button
-                key={f}
-                type="button"
-                className={`chip${cronFilter === f ? " is-on" : ""}`}
-                aria-pressed={cronFilter === f}
-                onClick={() => setCronFilter(f)}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
+          <Chips options={(["all", "on", "off"] as const).map((f) => [f, f] as const)} selected={cronFilter} onChoose={setCronFilter} />
         }
         columns={[
           {

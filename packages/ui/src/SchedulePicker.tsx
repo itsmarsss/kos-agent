@@ -1,5 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 
+import { Chips } from "@kos/kit";
+
 import { KINDS, describeCron, exprOf, recast, shapeOf, type ScheduleKind, type ScheduleShape } from "./schedule.js";
 import { WEEK } from "./schedulewords.js";
 
@@ -72,18 +74,12 @@ export function SchedulePicker({ value, onChange, allowNone = false }: ScheduleP
 
   return (
     <div className="sched">
-      <div className="seg" role="radiogroup" aria-label="How often">
-        {allowNone && (
-          <button type="button" className={`seg-btn${current === "none" ? " is-on" : ""}`} aria-pressed={current === "none"} onClick={() => pick("none")}>
-            Never
-          </button>
-        )}
-        {KINDS.map((k) => (
-          <button key={k.kind} type="button" className={`seg-btn${current === k.kind ? " is-on" : ""}`} aria-pressed={current === k.kind} onClick={() => pick(k.kind)}>
-            {k.label}
-          </button>
-        ))}
-      </div>
+      <Chips
+        label="How often"
+        options={[...(allowNone ? [["none", "Never"] as const] : []), ...KINDS.map((k) => [k.kind, k.label] as const)]}
+        selected={current}
+        onChoose={pick}
+      />
 
       {!none && shape.kind === "daily" && (
         <div className="sched-row">

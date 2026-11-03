@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { AnimatePresence, m } from "motion/react";
-import { listItem } from "@kos/kit";
+import { Chips, listItem } from "@kos/kit";
 
 import { AgentTerminal } from "./AgentTerminal.js";
 import { Drawer } from "./Drawer.js";
@@ -291,17 +291,7 @@ export function BuildsPage({
             </datalist>
             {folders.length > 0 && (
               <div className="agent-folder-picks">
-                {folders.slice(0, 8).map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    className={`chip${draft.dir === f ? " is-on" : ""}`}
-                    aria-pressed={draft.dir === f}
-                    onClick={() => setDraft({ ...draft, dir: f })}
-                  >
-                    {f}
-                  </button>
-                ))}
+                <Chips options={folders.slice(0, 8).map((f) => [f, f] as const)} selected={draft.dir} onChoose={(dir) => setDraft({ ...draft, dir })} />
               </div>
             )}
             <span className="hint">

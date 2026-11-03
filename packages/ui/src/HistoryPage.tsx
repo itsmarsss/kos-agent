@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactElement } from "react";
 
 import { summarizeAction } from "@kos/shared";
 
-import { Pill } from "@kos/kit";
+import { Chips, Pill } from "@kos/kit";
 
 import type { AuditRecord, CronJob, RunRecord } from "./api.js";
 import { ListPage } from "./ListPage.js";
@@ -144,19 +144,7 @@ export function HistoryPage({
         r.kind === "tool" ? onOpenTool(r.tool) : onOpenRun(r.run)
       }
       filters={
-        <div className="list-filter-group">
-          {FILTERS.map((f) => (
-            <button
-              key={f.value}
-              type="button"
-              className={`chip${filter === f.value ? " is-on" : ""}`}
-              aria-pressed={filter === f.value}
-              onClick={() => setFilter(f.value)}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+        <Chips options={FILTERS.map((f) => [f.value, f.label] as const)} selected={filter} onChoose={setFilter} />
       }
       columns={[
         {

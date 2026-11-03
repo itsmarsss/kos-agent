@@ -1,5 +1,7 @@
 import { useMemo, useState, type ReactElement } from "react";
 
+import { Chips } from "@kos/kit";
+
 import { api, type FactRow } from "./api.js";
 import { Drawer } from "./Drawer.js";
 import { Select } from "./Select.js";
@@ -244,23 +246,8 @@ export function KnowledgePage({
 
       {tags.length > 0 && (
         <div className="know-tags">
-          <button
-            type="button"
-            className={`chip ${tag === null ? "is-on" : ""}`}
-            onClick={() => setTag(null)}
-          >
-            all
-          </button>
-          {tags.map((t) => (
-            <button
-              key={t}
-              type="button"
-              className={`chip ${tag === t ? "is-on" : ""}`}
-              onClick={() => setTag(tag === t ? null : t)}
-            >
-              {t}
-            </button>
-          ))}
+          {/* "" is all of them: no tag is empty. A chosen tag pressed again is all of them too. */}
+          <Chips options={[["", "all"], ...tags.map((t) => [t, t] as const)]} selected={tag ?? ""} onChoose={(t) => setTag(t === "" || t === tag ? null : t)} />
         </div>
       )}
 
@@ -413,21 +400,13 @@ export function KnowledgePage({
               <dt>Tags</dt>
               <dd>
                 {(open.tags ?? []).length ? (
-                  <span className="know-detail-tags">
-                    {open.tags!.map((t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        className="chip"
-                        onClick={() => {
-                          setTag(t);
-                          setOpen(null);
-                        }}
-                      >
-                        {t}
-                      </button>
-                    ))}
-                  </span>
+                  <Chips
+                    options={open.tags!.map((t) => [t, t] as const)}
+                    onChoose={(t) => {
+                      setTag(t);
+                      setOpen(null);
+                    }}
+                  />
                 ) : (
                   <span className="ops-muted">none</span>
                 )}
