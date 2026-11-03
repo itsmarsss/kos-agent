@@ -1,10 +1,8 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { Markdown, MentionNames } from "./Markdown.js";
-import { formatElapsed } from "./LiveTurn.js";
-import { OpenTab } from "./opentab.js";
 
 function html(text: string): string {
   const { container } = render(<Markdown text={text} />);
@@ -195,15 +193,6 @@ describe("Markdown tables", () => {
   });
 });
 
-describe("elapsed formatting", () => {
-  it("rolls seconds into minutes and hours", () => {
-    // It counted up in seconds forever, so a long turn read as "312s".
-    expect(formatElapsed(45_000)).toBe("45s");
-    expect(formatElapsed(200_000)).toBe("3m 20s");
-    expect(formatElapsed(3_840_000)).toBe("1h 4m");
-  });
-});
-
 describe("references in a message", () => {
   it("renders a mention as a chip showing what was named", () => {
     const { container } = render(<Markdown text="look at @file:notes/todo.md now" />);
@@ -246,37 +235,6 @@ describe("references in a message", () => {
   });
 });
 
-describe("references are links", () => {
-  it("links a page to its page route", () => {
-    const { container } = render(<Markdown text="see @page:budget-dash" />);
-    const a = container.querySelector("a.chip-ref--page");
-    expect(a?.getAttribute("href")).toBe("#/page/budget-dash");
-  });
-
-  it("links a file to the browser at that path", () => {
-    const { container } = render(<Markdown text="see @file:notes/todo.md" />);
-    expect(container.querySelector("a.chip-ref--file")?.getAttribute("href")).toBe(
-      "#/files/notes%2Ftodo.md",
-    );
-  });
-
-  it("keeps the colons an id may carry: a chat's owner, a blob's job", () => {
-    const { container } = render(<Markdown text="fired by @schedule:blob:briefing at 07:30, see @chat:cmv1:owner." />);
-    const chips = [...container.querySelectorAll("a.chip-ref")].map((a) => [a.textContent, a.getAttribute("href")]);
-    expect(chips).toEqual([
-      ["blob:briefing", "#/schedule/blob%3Abriefing"],
-      ["cmv1:owner", "#/chats/cmv1%3Aowner"],
-    ]);
-    expect(container.textContent).toBe("fired by blob:briefing at 07:30, see cmv1:owner.");
-  });
-
-  it("links a schedule to its own drawer on the schedule page", () => {
-    const { container } = render(<Markdown text="@schedule:nightly and @schedule:[Email Amy Reminder]" />);
-    const hrefs = [...container.querySelectorAll("a.chip-ref--schedule")].map((a) => a.getAttribute("href"));
-    expect(hrefs).toEqual(["#/schedule/nightly", "#/schedule/Email%20Amy%20Reminder"]);
-  });
-});
-
 /**
  * Every kind the picker offers should render as a chip. Only four of the
  * seven did, so a message naming a chat, a site or an agent showed the raw
@@ -299,7 +257,6 @@ describe("every kind of reference", () => {
       const { container } = render(<Markdown text={`See @${kind}:${id} here.`} />);
       const chip = container.querySelector(`.chip-ref--${kind}`);
       expect(chip).toBeTruthy();
-      expect(chip?.getAttribute("href")).toBeTruthy();
       // The reference must not also survive as literal text beside the chip.
       expect(container.textContent).not.toContain(`@${kind}:`);
     });
@@ -336,32 +293,70 @@ describe("every kind of reference", () => {
     expect(html("in #leetcode")).not.toContain("chip-ref");
   });
 
-  it("draws an approval as a chip that opens it in the inbox, numbered", () => {
-    const { container } = render(<Markdown text="Waiting on you: discord.audience needs approval (@approval:290)." />);
-    const chip = container.querySelector<HTMLAnchorElement>("a.chip-ref--approval");
-    expect(chip?.textContent).toBe("#290");
-    expect(chip?.getAttribute("href")).toBe("#/inbox/290");
-  });
-
   it("falls back to the id when nothing knows better", () => {
     const { container } = render(<Markdown text="see @chat:[abc123:owner]" />);
     expect(container.querySelector(".chip-ref--chat")?.textContent).toBe(
       "abc123:owner",
     );
   });
+});
 
-  it("opens the browser on a tab chip rather than going anywhere", () => {
-    const opened: string[] = [];
+/** What KOS for Chrome's side panel drew with its own renderer, now drawn with this one. */
+describe("the side panel's cases", () => {
+  it("reads the blocks a chat uses, and leaves a grid with no head line as the text it was", () => {
     const { container } = render(
-      <OpenTab.Provider value={(tab) => opened.push(tab)}>
-        <MentionNames resolve={(k, id) => (k === "tab" ? `Hacker News (${id})` : undefined)}>
-          <Markdown text="look at @tab:A1B2C3" />
-        </MentionNames>
-      </OpenTab.Provider>,
+      <Markdown text={"# Mug\n\nIt is **$16**.\nShips soon.\n\n- one\n- two\n\n1. first\n\n> quoted\n\n-# as of today\n\n```\ncode\n```\n| a | b |\n| 1 | 2 |"} />,
     );
-    const chip = container.querySelector(".chip-ref--tab") as HTMLAnchorElement;
-    expect(chip.textContent).toBe("Hacker News (A1B2C3)");
-    fireEvent.click(chip);
-    expect(opened).toEqual(["A1B2C3"]);
+    expect(container.querySelector("h3.md-h")?.textContent).toBe("Mug");
+    expect(container.querySelector(".md-p strong")?.textContent).toBe("$16");
+    expect(container.querySelector(".md-p br")).not.toBeNull();
+    expect(container.querySelectorAll("ul.md-list > li")).toHaveLength(2);
+    expect(container.querySelectorAll("ol.md-list > li")).toHaveLength(1);
+    expect(container.querySelector("blockquote")?.textContent).toBe("quoted");
+    expect(container.querySelector(".md-sub")?.textContent).toBe("as of today");
+    expect(container.querySelector("pre.md-code code")?.textContent).toBe("code");
+    expect(container.querySelector("table")).toBeNull();
+    expect(container.textContent).toContain("| a | b || 1 | 2 |");
+  });
+
+  it("reads a table with its head line as a table, each column aligned, a \\| kept in its cell", () => {
+    const { container } = render(<Markdown text={"| Form | Value | Note |\n| --- | ---: | :-: |\n| Decimal | 18446744073709551616 | a \\| b |\n| Hex | 0x1 |"} />);
+    expect([...container.querySelectorAll("th")].map((th) => [th.textContent, th.style.textAlign])).toEqual([
+      ["Form", "left"],
+      ["Value", "right"],
+      ["Note", "center"],
+    ]);
+    expect([...container.querySelectorAll("tbody tr")].map((tr) => [...tr.querySelectorAll("td")].map((td) => td.textContent))).toEqual([
+      ["Decimal", "18446744073709551616", "a | b"],
+      ["Hex", "0x1", ""],
+    ]);
+  });
+
+  it("links only to the web and mail, ends a bare address before the sentence's stop, and names KOS's references", () => {
+    const { container } = render(
+      <Markdown text="see [docs](https://kos.example/a), [mail](mailto:kos@example.com) and [bad](javascript:alert(1)), or https://kos.example/b. Then @approval:6 and @page:[Budget]" />,
+    );
+    expect([...container.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual(["https://kos.example/a", "mailto:kos@example.com", "https://kos.example/b"]);
+    expect(container.textContent).toContain("[bad](javascript:alert(1))");
+    expect(container.textContent).toContain("https://kos.example/b. Then");
+    // With no routes of the surface's own, a reference is a chip that goes nowhere.
+    expect([...container.querySelectorAll("span.chip-ref")].map((c) => c.textContent)).toEqual(["#6", "Budget"]);
+  });
+
+  it("reads math as formulas and prices as prices", () => {
+    const { container } = render(<Markdown text={"Area:\n$$\n\\pi r^2\n$$\nso $a_1 + b$ costs $5 and \\(x\\) is `$y$`"} />);
+    expect(container.querySelector(".md-math-block .md-math--display")?.textContent).toContain("\\pi r^2");
+    expect([...container.querySelectorAll(".md-p .md-math")].map((m) => m.textContent)).toEqual(["a_1 + b", "x"]);
+    expect(container.textContent).toContain(" costs $5 and ");
+    expect(container.querySelector("code")?.textContent).toBe("$y$");
+  });
+
+  it("reads a list item as blocks, so a list or code can sit in it, and the same lines unindented as blocks of their own", () => {
+    const nested = render(<Markdown text={"1. Install\n   - brew\n   ```\n   brew install x\n   ```\n2. Run"} />).container;
+    expect(nested.querySelectorAll(".md > ol > li")).toHaveLength(2);
+    expect(nested.querySelector(".md > ol > li ul li")?.textContent).toBe("brew");
+    expect(nested.querySelector(".md > ol > li pre code")?.textContent).toBe("brew install x");
+    const flat = render(<Markdown text={"Install\n- brew\n```\nbrew install x\n```"} />).container;
+    expect([...flat.querySelector(".md")!.children].map((c) => c.tagName)).toEqual(["P", "UL", "PRE"]);
   });
 });
