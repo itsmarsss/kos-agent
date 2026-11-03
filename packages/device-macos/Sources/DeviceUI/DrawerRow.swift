@@ -23,7 +23,7 @@ struct DrawerRow<Trailing: View>: View {
         Spacer(minLength: 8)
         trailing()
         Image(systemName: "chevron.down")
-          .font(.system(size: 11, weight: .semibold))
+          .font(.kos(.tiny, .semibold))
           .foregroundStyle(hovering ? Theme.text : Theme.faint)
           .rotationEffect(.degrees(open ? 180 : 0))
       }
