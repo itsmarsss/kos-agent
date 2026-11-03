@@ -66,6 +66,12 @@ const CLICKS: Partial<Record<Action, { button: string; count: number; said: stri
 };
 
 const SETTLE_MS = 450;
+/**
+ * The longest side of a computer's pictures. At the device's default of 1280
+ * a look costs about 1,400 tokens and every later step reads it again; 1024 is
+ * still sharp enough to read a menu and hit a button, at about 870.
+ */
+const SCREEN_EDGE = 1024;
 /** The most actions one call does, and the pause that lets each land before the next. */
 const RUN_MAX = 10;
 const BETWEEN_MS = 120;
@@ -285,7 +291,7 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         let session: Session;
         try {
           const app = str(input.app);
-          session = await hub.begin({ conversation: chat, device, task, requester: deps.titleOf(chat), minutes, ...(app ? { app } : {}) });
+          session = await hub.begin({ conversation: chat, device, task, requester: deps.titleOf(chat), minutes, maxEdge: SCREEN_EDGE, ...(app ? { app } : {}) });
         } catch (err) {
           throw new Error(refusalText(err));
         }
