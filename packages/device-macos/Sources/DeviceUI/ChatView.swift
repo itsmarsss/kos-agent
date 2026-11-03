@@ -35,6 +35,8 @@ public struct ChatView: View {
       composer
     }
     .frame(minWidth: 320, minHeight: 380)
+    // Up to the window's top edge: its title bar is hidden, and the header is where it is dragged from.
+    .ignoresSafeArea(.container, edges: .top)
     .background(Theme.bg)
     .foregroundStyle(Theme.text)
     .font(.system(size: 13))
