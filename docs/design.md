@@ -14,9 +14,11 @@ one of them drifts.
 
 The web pieces live once too. `@kos/kit` (packages/kit) holds the React
 components the dashboard and the extension both draw: KOS's face, the
-markdown KOS speaks in, one set of icons, Pill, Switch, Chips, IconButton,
-the working dots, Section, Collapse and DrawerRow, with their motion, and
-`kit.css`, which each app loads before its own sheet. A surface says only
+markdown KOS speaks in, one set of icons, Pill, Tag, Switch, Chips,
+IconButton, Card, Empty, the label, the working dots, Section, Collapse and
+DrawerRow, with their motion, and `kit.css`, which each app loads before
+its own sheet. [components.md](components.md) lists every piece and where
+each of the three apps keeps it; use one from there before drawing one. A surface says only
 what is its own: the dashboard where a reference leads (`refs.tsx`), the
 extension nothing, so its references are chips that go nowhere.
 
