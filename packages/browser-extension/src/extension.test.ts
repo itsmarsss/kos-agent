@@ -38,7 +38,7 @@ describe("where the extension connects", () => {
 });
 
 describe("the protocol", () => {
-  it("signs what KOS Device signs, and reads only KOS's frames", () => {
+  it("signs what KOS for Mac signs, and reads only KOS's frames", () => {
     expect(deviceProof("bm9uY2U=", "dev_1")).toBe("kos-device/1|device|bm9uY2U=|dev_1");
     expect(hostProof("bm9uY2U=", "dev_1")).toBe("kos-device/1|host|bm9uY2U=|dev_1");
     expect(toBase64(fromBase64("AAEC/w=="))).toBe("AAEC/w==");

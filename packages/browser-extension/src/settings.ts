@@ -1,7 +1,7 @@
 /**
  * The owner's settings for this Chrome, kept in this Chrome.
  *
- * The same choices KOS Device offers on a Mac, where a browser has them:
+ * The same choices KOS for Mac offers on a Mac, where a browser has them:
  * the longest session, how long the ask waits, the idle limit, what of the
  * owner's hand pauses KOS, whether it connects when Chrome opens, the time
  * left on the icon, the sites KOS never sees, and per KOS whether it asks
@@ -37,7 +37,7 @@ export const CHOICES = {
   idleMinutes: [1, 3, 5, 10, 15],
 } as const;
 
-/** Password managers' web vaults, hidden from the start, as KOS Device hides the apps. */
+/** Password managers' web vaults, hidden from the start, as KOS for Mac hides the apps. */
 export const DEFAULT_HIDDEN = ["1password.com", "bitwarden.com", "lastpass.com", "dashlane.com", "keepersecurity.com"];
 
 export const DEFAULTS: ExtensionSettings = {
