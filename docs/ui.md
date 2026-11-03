@@ -11,13 +11,14 @@ Where each one lives, in the dashboard, KOS for Chrome and KOS for Mac, is
 - **Page head** (`PageHead`): the page's name, one line on what it is for,
   a search box where there is something to search, and the actions with
   the primary one last. Every list page opens this way.
-- **Tabs**: the pill bar at the top of Memory and Runs. One row, the current
-  tab filled.
+- **Tabs**: tabs over a list (Memory, Runs, the ways to add a skill or a
+  server) are the kit's `Chips`, the current one pressed.
 - **Card**: a boxed section with a small uppercase title, an optional count,
   a Pill or an action at its right, then its body. Columns are stacks of
   cards: the blob page, the project page. A page-level panel on the
   Overview is the same box with a bold title, since there it is the page's
-  own content rather than a section of something.
+  own content rather than a section of something. A count beside a title
+  is the kit's `Count`, wherever the title is.
 - **Field**: a label, the control, then one line under it: a hint on what to
   put there, or an error in the danger colour when it cannot be sent as it
   is. Labels are sentence case, small and semibold. `required` puts a red
@@ -40,7 +41,16 @@ Where each one lives, in the dashboard, KOS for Chrome and KOS for Mac, is
   words on the first press. Every delete on the site uses it: a chat, a
   project, a blob, a schedule, a file.
 - **Empty**: what a list or panel says when there is nothing in it: a title
-  and a line in a dashed box. A blank reads as broken; an answer does not.
+  and a line in a dashed box, or inside a card, which is already the box,
+  one quiet line (`inline`). A blank reads as broken; an answer does not.
+  A hint that is not about emptiness (Loading, a note on a field) stays a
+  `.hint`.
+- **Hints** are in the secondary grey (`--muted`) at the base size: the
+  faint one did not read at 13 px.
+- **Links to things** (a project, a page, a site, a chat) are the kit's
+  `RefChip`, drawn as a reference in a message is.
+- **States as a dot alone** are the kit's `StatusDot`: a thread, a build, a
+  module, a session.
 - **Drawer** (`Drawer.tsx`): anything with more than a field or two opens
   in the panel that slides in from the right, with the page still beside
   it: a schedule, a project's details, a new project, a new blob, a blob's
