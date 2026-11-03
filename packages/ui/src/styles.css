@@ -2413,7 +2413,7 @@ a.turn-via:hover { text-decoration: underline; color: var(--muted); }
 .sel-option.is-on { color: var(--accent); background: var(--accent-dim); }
 .sel-option.is-on.is-cursor { background: color-mix(in srgb, var(--accent) 24%, transparent); }
 .sel-option-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
-.sel-option-hint { color: var(--faint); font-size: var(--text-sm); }
+.sel-option-hint { color: var(--muted); font-size: var(--text-sm); }
 
 /* —— chat row actions —— */
 .chats-row { position: relative; }
@@ -4021,7 +4021,7 @@ li:hover .chats-item-when { opacity: 0; }
   font-weight: 600;
   color: var(--muted);
 }
-.set-hint { margin: 0; color: var(--faint); font-size: var(--text-base); line-height: 1.45; max-width: 46rem; }
+.set-hint { margin: 0; color: var(--muted); font-size: var(--text-base); line-height: 1.45; max-width: 46rem; }
 .set-note {
   margin: 0;
   padding: 0.6rem 0.75rem;
@@ -4263,7 +4263,7 @@ li:hover .chats-item-when { opacity: 0; }
 .home-add-item:disabled { opacity: 0.4; cursor: default; }
 .home-add-name { font-size: var(--text-md); }
 .home-add-blurb { color: var(--faint); font-size: var(--text-sm); }
-.home-bar-hint { margin-left: auto; margin-right: 0.75rem; color: var(--faint); font-size: var(--text-sm); }
+.home-bar-hint { margin-left: auto; margin-right: 0.75rem; color: var(--muted); font-size: var(--text-sm); }
 .panel-stat--lead { color: var(--accent); }
 .panel-stat--link {
   display: block;
@@ -5950,7 +5950,7 @@ a.health {
   color: var(--text);
   background: var(--panel-2);
 }
-.chats-welcome .hint { margin: 0; color: var(--faint); }
+.chats-welcome .hint { margin: 0; }
 
 /* —— the chat header's lineage —— */
 .chats-toggle { display: inline-flex; align-items: center; justify-content: center; }
