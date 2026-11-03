@@ -66,7 +66,6 @@ strong { font-weight: 600; }
 /* —— sections and cards —— */
 .stack { display: flex; flex-direction: column; gap: 14px; }
 .rule { height: 1px; background: var(--line); border: 0; margin: 0; }
-.faint { color: var(--faint); }
 .row { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
 .row .grow { flex: 1; }
 .row--start { justify-content: flex-start; }
@@ -118,7 +117,7 @@ input {
 }
 input::placeholder { color: var(--faint); }
 input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.mono { font-family: var(--mono); font-size: 12px; }
 
 /* —— the live session —— */
 .card--live { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
@@ -153,9 +152,6 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px 
 /* —— a setting: what it is, what it does, its control —— */
 .setting { display: flex; align-items: flex-start; gap: 12px; }
 .setting--stacked { flex-direction: column; gap: 8px; }
-.setting-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.setting-text strong { font-size: 12.5px; }
-.setting-text span { color: var(--muted); font-size: 11.5px; }
 
 /* —— the hidden sites: chips to remove, a field to add —— */
 .site-chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -199,6 +195,8 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .kos-picker { max-width: 140px; padding: 4px 8px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font: inherit; font-size: 12px; }
 .tabbar { margin: 10px 12px 0; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; border-radius: var(--r-md); background: var(--panel); border: 1px solid var(--line); transition: border-color 200ms ease; }
 .tabbar[data-live] { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+/* A row's title in the popup and the tab card at the control size, as KOS for Mac sets its rows (KOSType.control). */
+.setting .line-text strong,
 .tabbar .line-text strong { font-size: 12.5px; }
 .tile--sm { width: 26px; height: 26px; border-radius: var(--r-sm); }
 .row--between { justify-content: space-between; }
@@ -233,7 +231,7 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 /* What waits on the owner: an approval, an ask to work in this tab. */
 .ask-card { align-self: stretch; border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
 .ask-card--consent, .ask-card--read { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
-.args { margin: 0; padding: 8px; max-height: 140px; overflow: auto; border-radius: var(--r-sm); background: var(--bg); font: 11.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.args { margin: 0; padding: 8px; max-height: 140px; overflow: auto; border-radius: var(--r-sm); background: var(--bg); font: 11.5px/1.4 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .empty-state { margin: auto; padding: 24px; max-width: 300px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
 .suggest { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }

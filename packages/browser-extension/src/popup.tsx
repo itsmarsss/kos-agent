@@ -255,7 +255,7 @@ function KosCard({ k, open, toggle, act }: { k: KosState; open: boolean; toggle:
       <Collapse open={open}>
         <hr className="rule" />
         <div className="setting">
-          <div className="setting-text">
+          <div className="line-text line-text--wrap">
             <strong>Ask before each session</strong>
             <span>{k.askFirst ? "This KOS asks here, with the task and how long, every time." : "Off: this KOS's approval queue decides instead. The border and Stop still show."}</span>
           </div>
@@ -512,7 +512,7 @@ function SettingsPage({ state, act, back }: { state: PopupState; act: Act; back:
 function Setting({ title, detail, children }: { title: string; detail: string; children: ReactElement }): ReactElement {
   return (
     <div className="setting setting--stacked">
-      <div className="setting-text">
+      <div className="line-text line-text--wrap">
         <strong>{title}</strong>
         <span>{detail}</span>
       </div>
@@ -524,7 +524,7 @@ function Setting({ title, detail, children }: { title: string; detail: string; c
 function Toggle({ title, detail, on, set }: { title: string; detail: string; on: boolean; set: (on: boolean) => void }): ReactElement {
   return (
     <div className="setting">
-      <div className="setting-text">
+      <div className="line-text line-text--wrap">
         <strong>{title}</strong>
         <span>{detail}</span>
       </div>
@@ -537,7 +537,7 @@ function LogRow(): ReactElement {
   const [copied, setCopied] = useState(false);
   return (
     <div className="setting">
-      <div className="setting-text">
+      <div className="line-text line-text--wrap">
         <strong>Log</strong>
         <span>Each KOS's line and every session, since Chrome opened. Tasks are kept out. Copy it to send when something went wrong.</span>
       </div>

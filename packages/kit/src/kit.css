@@ -262,6 +262,8 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 .line-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .line-text strong, .line-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .line-text span { color: var(--muted); font-size: 11.5px; }
+/* A setting's row: its detail runs to as many lines as it needs. */
+.line-text--wrap strong, .line-text--wrap span { white-space: normal; }
 
 /* —— a row that opens what is under it —— */
 .drawer-row {
