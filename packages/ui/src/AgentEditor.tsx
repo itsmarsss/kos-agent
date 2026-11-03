@@ -132,7 +132,7 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
       }}
     >
       <section className="agent-editor-section">
-        <h3>Who it is</h3>
+        <h3 className="label">Who it is</h3>
         <div className="agent-editor-head">
           <Face seed={seed} look={draft.face} size={72} label={draft.name ? `${titleOf(draft.name)}'s face` : "A new blob's face"} />
           <div className="agent-editor-ident">
@@ -163,7 +163,7 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
       </section>
 
       <section className="agent-editor-section">
-        <h3>
+        <h3 className="label">
           Brief <Req />
         </h3>
         <textarea className="kos-input agents-brief" rows={10} value={draft.brief} placeholder="You watch one listing for the owner…" onChange={(e) => setDraft({ ...draft, brief: e.target.value })} />
@@ -171,7 +171,7 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
       </section>
 
       <section className="agent-editor-section">
-        <h3>Reach</h3>
+        <h3 className="label">Reach</h3>
         <div className="agents-fields agents-fields--reach">
           <Field label="Tools" group>
             <ToolPicker tools={tools} allow={draft.tools} onChange={(allow) => setDraft({ ...draft, tools: allow })} />
@@ -200,7 +200,7 @@ export function AgentEditor({ initial, onSaved, onCancel }: AgentEditorProps): R
       </section>
 
       <section className="agent-editor-section">
-        <h3>Schedule</h3>
+        <h3 className="label">Schedule</h3>
         <div className="agents-fields">
           <Field label="When" group>
             <SchedulePicker value={draft.schedule} allowNone onChange={(schedule) => setDraft({ ...draft, schedule })} />
