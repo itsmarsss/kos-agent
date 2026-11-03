@@ -28,7 +28,7 @@ final class ChatWindow: NSPanel {
     appearance = NSAppearance(named: .darkAqua)
     backgroundColor = NSColor(Theme.bg)
     contentView = NSHostingView(rootView: ChatView(model: model))
-    minSize = NSSize(width: 320, height: 380)
+    minSize = ChatView.smallest
     setFrameAutosaveName(Self.place)
     if !setFrameUsingName(Self.place), let screen = NSScreen.main {
       // The first time: the top right of the screen, out of the way of what the owner is doing.

@@ -83,6 +83,8 @@ public final class ChatModel: ObservableObject {
     }
   }
 
+  public enum Session: Equatable, Sendable { case working, paused }
+
   /// What was answered outside the chat's words, placed after the owner's `after`th message.
   public struct Notice: Equatable, Sendable {
     public let after: Int
@@ -110,9 +112,17 @@ public final class ChatModel: ObservableObject {
   @Published public var draft = ""
   /// The app in front of the window, which "this" means: its name, or nil for none.
   @Published public var beside: String?
+  /// That app's front window, by its title, when macOS says it.
+  @Published public var besideTitle: String?
   /// The app in front is one the owner hid from KOS.
   @Published public var besideHidden = false
+  /// A session KOS has on this Mac, working or paused for the owner: what the app card says of the app in front.
+  @Published public var session: Session?
+  /// Whether this Mac is paired with any KOS at all.
+  @Published public var paired = false
   @Published public var online = false
+  /// The KOS is on and never showed the chat: one from before this window, that cannot talk here.
+  @Published public var silent = false
   /// Which KOS this is, when the Mac is paired with more than one.
   @Published public var kosName: String?
   /// Every KOS this Mac is paired with, to choose which one the window talks to; one is no choice.
@@ -250,6 +260,7 @@ public final class ChatModel: ObservableObject {
 
   /// Another KOS: nothing of the last one's chat stays.
   public func reset() {
+    silent = false
     conversation = nil
     title = "KOS"
     lines = []
@@ -276,6 +287,34 @@ public final class ChatModel: ObservableObject {
   }
 
   // MARK: As drawn
+
+  /// The chat can be talked to: a KOS on the line that answers this window.
+  public var usable: Bool { online && !silent }
+
+  /// What the header says under KOS: the chat's name, or why there is none, as the side panel says it.
+  public var subtitle: String {
+    if !paired { return "Not paired yet" }
+    if !online { return "Not connected" }
+    if silent { return "This KOS cannot talk here yet" }
+    return conversation == nil ? "A chat beside your apps" : title
+  }
+
+  /// The running turn's story, as the thread draws it: the steps so far, and what KOS is saying after them.
+  public var running: (steps: [Step], words: String) {
+    guard let story else { return ([], "") }
+    // A long story comes as its tail, cut mid-line after a "…": that first line is a fragment.
+    let all = story.components(separatedBy: "\n")
+    let lines = (story.hasPrefix("…") ? Array(all.dropFirst()) : all).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    let steps = lines.filter { $0.hasPrefix(Self.stepMark) }.map { line -> Step in
+      let summary = String(line.dropFirst(Self.stepMark.count))
+      let failed = summary.hasSuffix(" (failed)")
+      return Step(summary: failed ? String(summary.dropLast(" (failed)".count)) : summary, failed: failed)
+    }
+    return (steps, lines.filter { !$0.hasPrefix(Self.stepMark) }.joined(separator: "\n"))
+  }
+
+  /// What marks a step in a story (TurnNarrator's STEP_MARK).
+  static let stepMark = "› "
 
   /// One thing in the thread, in the order it is drawn.
   public enum Item: Equatable, Identifiable {
