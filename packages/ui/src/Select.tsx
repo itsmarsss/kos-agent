@@ -9,7 +9,7 @@ import {
 import { createPortal } from "react-dom";
 import { AnimatePresence, m } from "motion/react";
 
-import { ease } from "@kos/kit";
+import { ChevronDown, ease } from "@kos/kit";
 import { fitInside, place, type Placement } from "./popover.js";
 
 /**
@@ -122,22 +122,7 @@ export function Select({
         }}
       >
         <span className="sel-value">{current?.label ?? value}</span>
-        {/* Drawn, not a glyph: the character sat high and off-centre and
-            differed between fonts. */}
-        <svg
-          className="sel-caret"
-          width="10"
-          height="10"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M6 9l6 6 6-6" />
-        </svg>
+        <span className="sel-caret"><ChevronDown size={10} title="" /></span>
       </button>
 
       {createPortal(

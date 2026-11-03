@@ -319,6 +319,70 @@ export const PaperclipIcon = ({ size = 17 }: IconProps = {}): ReactElement => (
   </Glyph>
 );
 
+/** Something went wrong, in a toast or a notice. */
+export const AlertIcon = ({ size = 14 }: IconProps = {}): ReactElement => (
+  <Glyph size={size}>
+    <path d="M12 6v7M12 17.5v.01" />
+  </Glyph>
+);
+
+export const DownloadIcon = ({ size = 14 }: IconProps = {}): ReactElement => (
+  <Glyph size={size}>
+    <path d="M12 3v12M6 11l6 6 6-6M4 21h16" />
+  </Glyph>
+);
+
+/** Open somewhere else: a box with an arrow leaving it. */
+export const ExternalIcon = ({ size = 14 }: IconProps = {}): ReactElement => (
+  <Glyph size={size}>
+    <path d="M14 4h6v6M20 4l-9 9M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
+  </Glyph>
+);
+
+/** A list of rows, beside the grid, for how a list is laid out. */
+export const ListIcon = ({ size = 15 }: IconProps = {}): ReactElement => (
+  <Glyph size={size}>
+    <path d="M4 7h16M4 12h16M4 17h16" />
+  </Glyph>
+);
+
+export const GridIcon = ({ size = 15 }: IconProps = {}): ReactElement => (
+  <Glyph size={size}>
+    <rect x="4" y="4" width="7" height="7" rx="1.5" />
+    <rect x="13" y="4" width="7" height="7" rx="1.5" />
+    <rect x="4" y="13" width="7" height="7" rx="1.5" />
+    <rect x="13" y="13" width="7" height="7" rx="1.5" />
+  </Glyph>
+);
+
+/** A window: a running site, or an app's window. */
+export const WindowIcon = ({ size = 14 }: IconProps = {}): ReactElement => (
+  <Glyph size={size}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M3 9h18" />
+  </Glyph>
+);
+
+/** Fill the page, and back to the window's own size. */
+export const MaximizeIcon = ({ size = 14 }: IconProps = {}): ReactElement => (
+  <Glyph size={size}>
+    <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+  </Glyph>
+);
+
+export const RestoreIcon = ({ size = 14 }: IconProps = {}): ReactElement => (
+  <Glyph size={size}>
+    <path d="M9 3H3v6M15 21h6v-6M3 3l7 7M21 21l-7-7" />
+  </Glyph>
+);
+
+/** The whole screen. */
+export const FullscreenIcon = ({ size = 14 }: IconProps = {}): ReactElement => (
+  <Glyph size={size}>
+    <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
+  </Glyph>
+);
+
 /** A line icon for each nav destination, so the sidebar reads as a rail when collapsed. */
 export function NavIcon({ name }: { name: string }): ReactElement {
   const p = (d: string): ReactElement => (

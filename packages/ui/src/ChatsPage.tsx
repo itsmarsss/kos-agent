@@ -10,7 +10,7 @@ import {
 
 import { AnimatePresence, m } from "motion/react";
 import { summarizeAction } from "@kos/shared";
-import { ArchiveIcon, card, ChevronLeft, ComposeIcon, CopyIcon, ease, EditIcon, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, SearchIcon, SendIcon, spring, stagger, StopIcon, useKosLook, WorkingDots, WrenchIcon } from "@kos/kit";
+import { ArchiveIcon, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, ease, EditIcon, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, SearchIcon, SendIcon, spring, stagger, StopIcon, useKosLook, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { Decision } from "./Decision.js";
 import { VoiceInput } from "./VoiceInput.js";
@@ -1562,7 +1562,7 @@ export function ChatsPage({
               />
               {query && (
                 <button type="button" className="chats-find-clear" aria-label="Clear search" onClick={() => setQuery("")}>
-                  ×
+                  <CloseIcon size={12} title="" />
                 </button>
               )}
             </label>
@@ -2313,18 +2313,7 @@ export function ChatsPage({
                       setNotes((all) => all.filter((x) => x.id !== n.id))
                     }
                   >
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M6 6l12 12M18 6L6 18" />
-                    </svg>
+                    <CloseIcon size={12} title="" />
                   </button>
                   <Markdown text={n.text} />
                   {/* Also at the end: a long answer meant scrolling back to
@@ -2452,18 +2441,7 @@ export function ChatsPage({
                           {/* Drawn like the others. A text cross sat on a
                               different baseline and at a different weight
                               from the icons beside it. */}
-                          <svg
-                            width="15"
-                            height="15"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.8"
-                            strokeLinecap="round"
-                            aria-hidden="true"
-                          >
-                            <path d="M6 6l12 12M18 6L6 18" />
-                          </svg>
+                          <CloseIcon size={15} title="" />
                         </button>
                       </div>
                     </>

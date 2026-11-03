@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { AnimatePresence, m } from "motion/react";
-import { ease, Markdown, spring } from "@kos/kit";
+import { ChevronLeft, ChevronRight, CloseIcon, ease, Markdown, spring } from "@kos/kit";
 
 import { api, type FileContent, type FileText } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
@@ -296,26 +296,20 @@ export function FilePreview({ path, siblings = [], onStep, onClose, actions, pau
                   {siblings.length > 1 && at >= 0 && (
                     <span className="preview-step">
                       <button type="button" className="icon-btn" aria-label="Previous file" disabled={!prev} onClick={() => prev && onStep?.(prev)}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d="m15 6-6 6 6 6" />
-                        </svg>
+                        <ChevronLeft size={14} title="" />
                       </button>
                       <span className="preview-count">
                         {at + 1} of {siblings.length}
                       </span>
                       <button type="button" className="icon-btn" aria-label="Next file" disabled={!next} onClick={() => next && onStep?.(next)}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d="m9 6 6 6-6 6" />
-                        </svg>
+                        <ChevronRight size={14} title="" />
                       </button>
                     </span>
                   )}
                   {rawable && <RawToggle raw={raw} onChange={setRaw} />}
                   {actions}
                   <button type="button" className="icon-btn preview-close" aria-label="Close" onClick={onClose}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                      <path d="M6 6l12 12M18 6L6 18" />
-                    </svg>
+                    <CloseIcon size={14} title="" />
                   </button>
                 </span>
               </header>

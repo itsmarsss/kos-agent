@@ -2479,7 +2479,7 @@ a.turn-via:hover { text-decoration: underline; color: var(--muted); }
 .sel-button:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); }
 .sel-button:disabled { opacity: 0.5; cursor: default; }
 .sel-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sel-caret { color: var(--faint); flex: none; }
+.sel-caret { display: inline-flex; color: var(--faint); flex: none; }
 
 .sel-menu {
   /* Fixed and placed from script: as an absolutely positioned child it was
@@ -3251,8 +3251,8 @@ li:hover .chats-item-when { opacity: 0; }
   border: 1px solid var(--line);
   background: var(--panel);
   color: var(--muted);
-  font-size: var(--text-xs);
-  line-height: 1;
+  display: grid;
+  place-items: center;
   padding: 0;
   cursor: pointer;
 }
@@ -7606,9 +7606,6 @@ textarea.kos-input { height: auto; min-height: 2.25rem; padding: 0.5rem 0.65rem;
   border-radius: var(--r-sm);
   background: none;
   color: var(--faint);
-  font: inherit;
-  font-size: 1rem;
-  line-height: 1;
   cursor: pointer;
 }
 .chats-find-clear:hover { color: var(--text); background: var(--panel-2); }

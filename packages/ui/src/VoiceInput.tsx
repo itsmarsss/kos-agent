@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 
+import { MicIcon } from "@kos/kit";
+
 /**
  * Dictating a message instead of typing it.
  *
@@ -111,19 +113,7 @@ export function VoiceInput({
       title={error ?? (listening ? "Stop dictating" : "Dictate a message")}
       onClick={() => (listening ? stop() : start())}
     >
-      <svg
-        width="15"
-        height="15"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-        aria-hidden="true"
-      >
-        <rect x="9" y="3" width="6" height="11" rx="3" />
-        <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
-      </svg>
+      <MicIcon />
     </button>
   );
 }

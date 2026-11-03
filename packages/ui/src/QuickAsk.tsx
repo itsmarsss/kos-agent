@@ -7,7 +7,7 @@ import {
   type ReactElement,
 } from "react";
 
-import { Markdown, OpenIcon, PinIcon, SendIcon, UnpinIcon, WorkingDots } from "@kos/kit";
+import { CloseIcon, Markdown, OpenIcon, PinIcon, SendIcon, UnpinIcon, WorkingDots } from "@kos/kit";
 import { api } from "./api.js";
 import { EDGES, clampBox, cornerBox, readBox as readStoredBox, resizedBox, saveBox as saveStoredBox, type Box, type Edge, type MinSize } from "./floatbox.js";
 import { useProgress } from "./progress.js";
@@ -293,18 +293,7 @@ export function QuickAsk({
             aria-label="Close"
             title="Close (Esc)"
           >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              aria-hidden="true"
-            >
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
+            <CloseIcon size={13} title="" />
           </button>
         </div>
       </header>

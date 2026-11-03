@@ -1,7 +1,7 @@
 import { useEffect, type ReactElement, type ReactNode } from "react";
 import { AnimatePresence, m } from "motion/react";
 
-import { ease, spring } from "@kos/kit";
+import { CloseIcon, ease, IconButton, spring } from "@kos/kit";
 
 /**
  * A centred dialog. Configuration belongs here rather than expanded inline:
@@ -58,14 +58,9 @@ export function Modal({
           >
             <header className="modal-head">
               <strong>{title}</strong>
-              <button
-                type="button"
-                className="btn btn--ghost"
-                onClick={onClose}
-                aria-label="Close"
-              >
-                ✕
-              </button>
+              <IconButton label="Close" onClick={onClose}>
+                <CloseIcon title="" />
+              </IconButton>
             </header>
             <div className="modal-body">{children}</div>
           </m.div>
