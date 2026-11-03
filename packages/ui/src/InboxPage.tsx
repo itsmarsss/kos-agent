@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { summarizeAction } from "@kos/shared";
 
+import { Empty } from "@kos/kit";
+
 import { api, type DecidedAction, type FailingJob, type InboxData } from "./api.js";
 import { Decision } from "./Decision.js";
-import { Empty } from "./kit.js";
 import { MemoryDecision } from "./MemoryPage.js";
 import { PageHead } from "./PageHead.js";
 import { ActivityDot, fixLabel } from "./StatusDot.js";

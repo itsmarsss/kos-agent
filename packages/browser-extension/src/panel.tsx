@@ -431,7 +431,7 @@ function Panel(): ReactElement {
   const mood: BlobMood = !online ? "asleep" : chat.asks.length || chat.consent || reads.length ? "needs-you" : chat.working ? "working" : "idle";
   return (
     <div className="panel">
-      <header className="panel-head">
+      <header className="chat-head">
         <Face seed={KOS_SEED} size={30} mood={mood} drawing={k?.face} label="KOS" />
         <div className="head-text">
           <strong>KOS</strong>
@@ -615,7 +615,7 @@ function when(at: number, now = Date.now()): string {
 /** A KOS that is on and never showed the chat: one from before the side panel. */
 function Silent(): ReactElement {
   return (
-    <div className="empty">
+    <div className="empty-state">
       <Face seed={KOS_SEED} size={56} mood="error" label="KOS" />
       <strong>This KOS cannot talk here yet</strong>
       <p className="hint">It is connected, but it does not answer the side panel. Update KOS, restart it, then reopen this panel. Its other work in this Chrome is not affected.</p>
@@ -625,7 +625,7 @@ function Silent(): ReactElement {
 
 function Unpaired(): ReactElement {
   return (
-    <div className="empty">
+    <div className="empty-state">
       <Face seed={KOS_SEED} size={64} mood="asleep" label="KOS" />
       <strong>Pair this Chrome with KOS</strong>
       <p className="hint">Click the KOS icon in the toolbar and paste a pairing link from KOS: Settings, Devices, Add a device.</p>
@@ -693,7 +693,7 @@ function Thread({
       }}
     >
       {empty ? (
-        <m.div className="empty" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={ease}>
+        <m.div className="empty-state" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={ease}>
           <p className="hint">Ask about this page, or have KOS do something in it. It asks before it works here.</p>
           {online && (
             <div className="suggest">

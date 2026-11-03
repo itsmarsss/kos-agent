@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
-import { ease } from "@kos/kit";
+import { ease, Empty } from "@kos/kit";
 
 import { api } from "./api.js";
 import { NAV, type Route } from "./routes.js";
@@ -395,11 +395,11 @@ export function CommandPalette({
               />
 
               {results.length === 0 ? (
-                <p className="pal-empty">
+                <Empty inline className="pal-empty">
                   {parsed.term || parsed.kind
                     ? "Nothing matches."
                     : "Start typing."}
-                </p>
+                </Empty>
               ) : (
                 <ul className="pal-list" ref={listRef}>
                   {results.map((r, i) => {

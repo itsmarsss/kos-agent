@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
 import { summarizeAction } from "@kos/shared";
-import { CloseIcon, Face, IconButton, moodOf } from "@kos/kit";
+import { CloseIcon, Empty, Face, IconButton, moodOf } from "@kos/kit";
 
 import { titleOf } from "./AgentEditor.js";
 import type { AgentInfo, FailingJob, HomeData, ModelSpend, RunRecord } from "./api.js";
@@ -63,10 +63,6 @@ function Head({
       )}
     </header>
   );
-}
-
-function Empty({ children }: { children: string }): ReactElement {
-  return <p className="panel-empty">{children}</p>;
 }
 
 function fmt(n: number): string {
@@ -144,7 +140,7 @@ export function Panel({
             </button>
           )}
           {rows.length === 0 ? (
-            decisions === 0 && <Empty>Nothing is waiting on you.</Empty>
+            decisions === 0 && <Empty inline>Nothing is waiting on you.</Empty>
           ) : (
             <ul className="panel-list">
               {rows.slice(0, limit).map((a) => (
@@ -179,9 +175,9 @@ export function Panel({
             onMore={() => onGo("builds")}
           />
           {data.agents.length === 0 ? (
-            <Empty>No builds have run.</Empty>
+            <Empty inline>No builds have run.</Empty>
           ) : live.length === 0 ? (
-            <Empty>Nothing running now.</Empty>
+            <Empty inline>Nothing running now.</Empty>
           ) : (
             <ul className="panel-list">
               {live.slice(0, limit).map((b) => (
@@ -216,7 +212,7 @@ export function Panel({
         <div className={`panel${busy.some((a) => a.thread?.activity === "needs-you") ? " panel--attention" : ""}`}>
           <Head title={title ?? "Blobs"} count={busy.length} onMore={() => onGo("blobs")} />
           {rows.length === 0 ? (
-            <Empty>No blobs yet. Ask KOS to keep an eye on something.</Empty>
+            <Empty inline>No blobs yet. Ask KOS to keep an eye on something.</Empty>
           ) : (
             <ul className="panel-list">
               {rows.slice(0, limit).map((a) => {
@@ -256,7 +252,7 @@ export function Panel({
             onMore={() => onGo("history")}
           />
           {rows.length === 0 ? (
-            <Empty>
+            <Empty inline>
               {report.recent.total === 0
                 ? "Nothing has run yet."
                 : "Everything is working."}
@@ -346,7 +342,7 @@ export function Panel({
         <div className="panel">
           <Head title={title ?? "Last 24 hours"} onMore={() => onGo("history")} />
           {calls === 0 ? (
-            <Empty>Nothing ran in the last day.</Empty>
+            <Empty inline>Nothing ran in the last day.</Empty>
           ) : (
             <>
               <Bars
@@ -389,7 +385,7 @@ export function Panel({
         <div className="panel">
           <Head title={title ?? "Activity"} onMore={() => onGo("history")} />
           {rows.length === 0 ? (
-            <Empty>KOS has not done anything yet.</Empty>
+            <Empty inline>KOS has not done anything yet.</Empty>
           ) : (
             <ul className="panel-list">
               {rows.map((t) => (
@@ -418,7 +414,7 @@ export function Panel({
             onMore={() => onGo("projects")}
           />
           {rows.length === 0 ? (
-            <Empty>No active projects. Ask KOS to build something.</Empty>
+            <Empty inline>No active projects. Ask KOS to build something.</Empty>
           ) : (
             <div className="panel-chips">
               {rows.slice(0, limit).map((p) => (
@@ -442,7 +438,7 @@ export function Panel({
         <div className="panel">
           <Head title={title ?? "Chats"} onMore={() => onGo("chats")} />
           {rows.length === 0 ? (
-            <Empty>No conversations yet.</Empty>
+            <Empty inline>No conversations yet.</Empty>
           ) : (
             <ul className="panel-list">
               {rows.map((c) => (
@@ -481,7 +477,7 @@ export function Panel({
         <div className="panel">
           <Head title={title ?? "Schedule"} onMore={() => onGo("crons")} />
           {rows.length === 0 ? (
-            <Empty>Nothing runs on its own yet.</Empty>
+            <Empty inline>Nothing runs on its own yet.</Empty>
           ) : (
             <>
               <DayLine runs={data.upcoming} />
@@ -522,7 +518,7 @@ export function Panel({
         <div className="panel">
           <Head title={title ?? "Spend, last 7 days"} onMore={() => onGo("settings", "spend")} />
           {models.length === 0 ? (
-            <Empty>Nothing spent this week.</Empty>
+            <Empty inline>Nothing spent this week.</Empty>
           ) : (
             <>
               {/* The figure first: cost is the number this card is opened
@@ -608,7 +604,7 @@ export function Panel({
         <div className={`panel${broken.length ? " panel--bad" : ""}`}>
           <Head title={title ?? "Modules"} count={broken.length} onMore={() => onGo("settings", "modules")} />
           {mods.length === 0 ? (
-            <Empty>{`No workspace modules. Built in: ${builtinsOn.map((b) => b.name).join(", ") || "none"}.`}</Empty>
+            <Empty inline>{`No workspace modules. Built in: ${builtinsOn.map((b) => b.name).join(", ") || "none"}.`}</Empty>
           ) : (
             <ul className="panel-list">
               {mods.slice(0, limit).map((mod) => (
@@ -651,7 +647,7 @@ export function Panel({
           ) : panel.text ? (
             <p className="panel-note">{panel.text}</p>
           ) : (
-            <Empty>Empty note. Press Arrange to write in it.</Empty>
+            <Empty inline>Empty note. Press Arrange to write in it.</Empty>
           )}
         </div>
       );
@@ -659,7 +655,7 @@ export function Panel({
     default:
       return (
         <div className="panel">
-          <Empty>Unknown panel.</Empty>
+          <Empty inline>Unknown panel.</Empty>
         </div>
       );
   }

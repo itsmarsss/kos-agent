@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { ChevronRight } from "@kos/kit";
+import { Card, ChevronRight } from "@kos/kit";
 
 import { api, type Attachment, type DirEntry } from "./api.js";
 import { readFile, useDropZone } from "./Attachments.js";
@@ -8,7 +8,6 @@ import { FileIcon, previewable } from "./FileIcon.js";
 import { FilePreview, ago, bytes } from "./FilePreview.js";
 import { Thumb } from "./FileThumb.js";
 import { useHiddenFiles } from "./hiddenfiles.js";
-import { Card } from "./kit.js";
 
 /**
  * The project's folder, browsed in place.

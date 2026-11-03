@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { m } from "motion/react";
 import { hexOfHsl, hueOfHex, summarizeAction } from "@kos/shared";
-import { ease, lookOf, Pill, spring, Tag } from "@kos/kit";
+import { Card, ease, lookOf, Pill, spring, Tag } from "@kos/kit";
 
 import type {
   AuditRecord,
@@ -13,7 +13,7 @@ import type {
 import { api, type ProjectDetail } from "./api.js";
 import { ColourChoice } from "./ColourPicker.js";
 import { FileIcon } from "./FileIcon.js";
-import { Card, ConfirmButton, Field } from "./kit.js";
+import { ConfirmButton, Field } from "./kit.js";
 import { markInk } from "./ProjectMark.js";
 import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";

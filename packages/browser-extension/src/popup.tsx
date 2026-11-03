@@ -154,8 +154,8 @@ function Home({ state, tab, act }: { state: PopupState; tab: chrome.tabs.Tab | u
 
 function SessionCard({ session, act }: { session: NonNullable<PopupState["session"]>; act: Act }): ReactElement {
   return (
-    <m.section className="card live" data-paused={session.paused || undefined} layout variants={listItem} initial="hidden" animate="show" exit="exit">
-      <div className="live-head">
+    <m.section className="card card--live" data-paused={session.paused || undefined} layout variants={listItem} initial="hidden" animate="show" exit="exit">
+      <div className="session-head">
         <strong>{session.paused ? "Paused. You have control." : "KOS is using this Chrome"}</strong>
         <span className="hint">{minutesLeft(session.until)}</span>
       </div>

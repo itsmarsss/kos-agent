@@ -103,56 +103,6 @@ function FieldRow({ label, hint, badge, meta, className, children }: Pick<FieldP
   );
 }
 
-export interface CardProps {
-  /** The small uppercase head. Absent, the card is a plain box. */
-  title?: string;
-  /** Shown beside the title when above zero. */
-  count?: number;
-  /** A Pill, at the head's right. */
-  pill?: ReactNode;
-  /** A small button or link, at the head's right. */
-  action?: ReactNode;
-  /** For a screen reader, when the title is not enough. */
-  label?: string;
-  className?: string;
-  children: ReactNode;
-}
-
-/** A boxed section of a column or a page: a head, then its body. What else a section takes (a drop target's handlers) it is given. */
-export function Card({ title, count, pill, action, label, className, children, ...rest }: CardProps & Omit<React.HTMLAttributes<HTMLElement>, keyof CardProps>): ReactElement {
-  return (
-    <section className={`card${className ? ` ${className}` : ""}`} aria-label={label ?? title} {...rest}>
-      {(title || action || pill) && (
-        <div className="card-head">
-          {title && (
-            <h2 className="card-title">
-              {title}
-              {count !== undefined && count > 0 && <span className="card-count">{count}</span>}
-            </h2>
-          )}
-          {(pill || action) && (
-            <span className="card-acts">
-              {pill}
-              {action}
-            </span>
-          )}
-        </div>
-      )}
-      {children}
-    </section>
-  );
-}
-
-/** What a list or panel says when there is nothing in it: an answer, not a blank. */
-export function Empty({ title, className, children }: { title?: string; className?: string; children: ReactNode }): ReactElement {
-  return (
-    <div className={`empty${className ? ` ${className}` : ""}`}>
-      {title && <strong className="empty-title">{title}</strong>}
-      <p className="empty-text">{children}</p>
-    </div>
-  );
-}
-
 /**
  * A small window fixed beside the thing that opened it: a colour picker, a
  * confirmation. Fixed to the viewport, so no card, drawer or modal clips
