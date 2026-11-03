@@ -5,7 +5,8 @@ the list of parts, the rules for using them, and the audit that produced it.
 
 ## Parts
 
-All in `packages/ui/src/kit.tsx` unless named otherwise.
+Where each one lives, in the dashboard, KOS for Chrome and KOS for Mac, is
+[components.md](components.md); most are in `@kos/kit` (`packages/kit`).
 
 - **Page head** (`PageHead`): the page's name, one line on what it is for,
   a search box where there is something to search, and the actions with
@@ -27,7 +28,7 @@ All in `packages/ui/src/kit.tsx` unless named otherwise.
   paused, `danger` failed, `accent` working, `muted` anything else.
 - **Tag**: a fact in a word or two: a tool family (mono), a memory scope, a
   model class, a type. Never a button. A filter chip that can be pressed
-  is `.chip`, which is a different thing and looks like one.
+  is the kit's `Chips`, which is a different thing and looks like one.
 - **SchedulePicker** (`SchedulePicker.tsx`): when something runs, as
   choices (daily, weekdays, the days you pick, hourly, minutes, monthly)
   with the line it writes read back in words, and the line itself to edit
@@ -47,7 +48,7 @@ All in `packages/ui/src/kit.tsx` unless named otherwise.
   this, hand this off.
 - **Buttons**: `.btn`; `.btn--primary` once per form, last; `.btn--sm`
   inside cards and rows; `.btn--ghost` for the quiet choice; a delete is
-  `.btn--danger-ghost` and asks through `ConfirmButton`.
+  `.btn--danger` and asks through `ConfirmButton`.
 - **Uppercase** is for section and card titles and table column heads, and
   nothing else. Form labels are not uppercase.
 - **Faces** (`Face`, from `@kos/kit`): a blob's or KOS's face, at 16 to 18 in rows, 26

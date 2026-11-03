@@ -12,7 +12,8 @@ import { useDismiss } from "./useDismiss.js";
  * Before this, each page grew its own: five label styles, three kinds of
  * section head, chips in four shapes, and an empty state per page. Moving
  * between pages read as moving between applications. These are the one
- * version of each, and docs/ui.md says when to use which.
+ * version of each: docs/ui.md says when to use which, and
+ * docs/components.md where each app keeps it.
  */
 
 /** The mark on a required field's label. */
