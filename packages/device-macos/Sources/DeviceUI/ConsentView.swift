@@ -96,32 +96,30 @@ public struct ConsentView: View {
       }
 
       VStack(spacing: 5) {
-        Text("KOS wants to use this Mac").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text)
+        Text("KOS wants to use this Mac").font(.kos(.title, .semibold)).foregroundStyle(Theme.text)
         HStack(spacing: 4) {
-          Text("Asked from").foregroundStyle(Theme.muted).font(.system(size: 12.5))
+          Text("Asked from").foregroundStyle(Theme.muted).font(.kos(.control))
           if let chat = model.chat {
-            KOSLink(model.requester, to: chat, size: 12.5)
+            KOSLink(model.requester, to: chat, size: KOSType.control.rawValue)
           } else {
-            Text(model.requester).foregroundStyle(Theme.accent).fontWeight(.medium).font(.system(size: 12.5))
+            Text(model.requester).foregroundStyle(Theme.accent).font(.kos(.control, .medium))
           }
           if let kos = model.kos {
-            Text("on \(kos)").foregroundStyle(Theme.muted).font(.system(size: 12.5)).lineLimit(1).truncationMode(.middle)
+            Text("on \(kos)").foregroundStyle(Theme.muted).font(.kos(.control)).lineLimit(1).truncationMode(.middle)
           }
         }
       }
 
-      Text(model.task)
-        .font(.system(size: 13.5))
-        .foregroundStyle(Theme.text)
-        .multilineTextAlignment(.leading)
-        .lineLimit(5)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Theme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous).strokeBorder(Theme.accent.opacity(0.25)))
+      Card(tone: Theme.accent, wash: true, padding: EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12)) {
+        Text(model.task)
+          .font(.kos(.dense))
+          .foregroundStyle(Theme.text)
+          .multilineTextAlignment(.leading)
+          .lineLimit(5)
+      }
 
       VStack(alignment: .leading, spacing: 7) {
-        Text("For").font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.muted)
+        Text("For").font(.kos(.small, .medium)).foregroundStyle(Theme.muted)
         FlowRow(spacing: 6) {
           ForEach(model.offered, id: \.self) { minutes in
             Button(minutesWords(minutes)) {
@@ -146,7 +144,7 @@ public struct ConsentView: View {
       Text(model.target == TargetChoice.screen
         ? "It will see this screen and use the mouse and keyboard. Touch either to pause it. It never types into password fields or sees the apps you hid."
         : "It will see only this window and act only in it, bringing it to the front first. Touch the mouse or keyboard to pause it.")
-        .font(.system(size: 11.5))
+        .font(.kos(.small))
         .foregroundStyle(Theme.muted)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -172,7 +170,7 @@ public struct ConsentView: View {
         }
         .frame(height: 3)
         Text("Says no by itself in \(model.remaining) s")
-          .font(.system(size: 10.5))
+          .font(.kos(.label))
           .foregroundStyle(Theme.faint)
           .frame(maxWidth: .infinity, alignment: .trailing)
       }
@@ -200,9 +198,9 @@ struct TargetPicker: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 7) {
       HStack(spacing: 4) {
-        Text("Share").font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.muted)
+        Text("Share").font(.kos(.small, .medium)).foregroundStyle(Theme.muted)
         if let app = model.suggested {
-          Text("· KOS asked for \(app)").font(.system(size: 11.5)).foregroundStyle(Theme.faint)
+          Text("· KOS asked for \(app)").font(.kos(.small)).foregroundStyle(Theme.faint)
         }
       }
       ScrollView {
@@ -244,22 +242,22 @@ private struct TargetTile: View {
             Image(systemName: "display").font(.system(size: 11)).foregroundStyle(Theme.muted)
           }
           Text(choice.app.map { app in choice.title.isEmpty ? app : "\(app): \(choice.title)" } ?? choice.title)
-            .font(.system(size: 11.5, weight: selected ? .semibold : .medium))
+            .font(.kos(.small, selected ? .semibold : .medium))
             .foregroundStyle(selected ? Theme.text : Theme.muted)
             .lineLimit(1)
             .truncationMode(.tail)
         }
       }
       .padding(6)
-      .background(selected ? Theme.accent.opacity(0.14) : hovering ? Theme.panel2 : Theme.panel, in: RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous))
-      .overlay(RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous).strokeBorder(selected ? Theme.accent.opacity(0.45) : hovering ? Theme.lineStrong : Theme.line, lineWidth: selected ? 1.5 : 1))
+      .background(selected ? Theme.accent.opacity(Theme.tint) : hovering ? Theme.panel2 : Theme.panel, in: RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous))
+      .overlay(RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous).strokeBorder(selected ? Theme.accent.opacity(Theme.edge) : hovering ? Theme.lineStrong : Theme.line, lineWidth: selected ? 1.5 : 1))
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .onHover { hovering = $0 }
     .pointingHand()
-    .animation(.easeOut(duration: 0.14), value: hovering)
-    .animation(.easeOut(duration: 0.14), value: selected)
+    .animation(Theme.hover, value: hovering)
+    .animation(Theme.hover, value: selected)
     .help(choice.app.map { "\($0): \(choice.title)" } ?? choice.title)
   }
 }
@@ -273,12 +271,12 @@ struct MinutesStepper: View {
     HStack(spacing: 10) {
       step("minus", enabled: minutes > 1) { minutes = max(1, minutes - (minutes <= 10 ? 1 : 5)) }
       Text(minutesWords(minutes))
-        .font(.system(size: 13, weight: .semibold, design: .rounded))
+        .font(.kos(.dense, .semibold, design: .rounded))
         .monospacedDigit()
         .foregroundStyle(Theme.text)
         .frame(minWidth: 64)
       step("plus", enabled: minutes < longest) { minutes = min(longest, minutes + (minutes < 10 ? 1 : 5)) }
-      Text("up to \(minutesWords(longest))").font(.system(size: 11)).foregroundStyle(Theme.faint)
+      Text("up to \(minutesWords(longest))").font(.kos(.tiny)).foregroundStyle(Theme.faint)
     }
   }
 
