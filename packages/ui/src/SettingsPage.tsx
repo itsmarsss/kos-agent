@@ -1,5 +1,5 @@
 import { m } from "motion/react";
-import { ease } from "./motion.js";
+import { ease, KOS_SEED } from "@kos/kit";
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import {
@@ -8,7 +8,6 @@ import {
   type ModelRate,
   type SettingsPayload, type ModuleInfo, type SkillInfo, type McpServerInfo, type PermissionRule, type BrowserSettings, type RestartState, type Status } from "./api.js";
 import type { FaceLook } from "./api.js";
-import { KOS_SEED } from "./Face.js";
 import { Field } from "./SettingField.js";
 import { FaceEditor } from "./FaceEditor.js";
 import { ModelSettings } from "./ModelSettings.js";

@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from "react";
 
-import { CheckIcon, CopyIcon, EditIcon, ForkIcon, RetryIcon } from "./icons.js";
+import { CheckIcon, CopyIcon, EditIcon, ForkIcon, RetryIcon } from "@kos/kit";
 
 /**
  * What you can do with a message you sent, or one you got back.

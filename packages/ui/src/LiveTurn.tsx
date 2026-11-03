@@ -1,8 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
 
-import { Markdown } from "./Markdown.js";
-import { listItem } from "./motion.js";
+import { listItem, Markdown, WorkingDots } from "@kos/kit";
 import { hrefFor } from "./routes.js";
 import { Thinking } from "./Thinking.js";
 import { ToolCall } from "./ToolCall.js";
@@ -147,11 +146,7 @@ export function LiveTurn({ live }: { live: Live }): ReactElement {
       ) : live.ended ? null : (
         <div className="bubble bubble--kos live">
           <div className="live-head">
-            <span className="live-dots" aria-hidden="true">
-              <i />
-              <i />
-              <i />
-            </span>
+            <WorkingDots />
             <span className="live-what">
               {running
                 ? `Running ${running.summary}`

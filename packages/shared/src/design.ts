@@ -29,6 +29,9 @@ export type ColourToken = keyof typeof COLOURS;
 /** Corner radii, in px. */
 export const RADII = { xs: 4, sm: 7, md: 10, lg: 14 } as const;
 
+/** The type scale in rem, by step as the CSS spells it (--text-md): what @kos/kit's pieces are set in on both web surfaces. */
+export const TYPE = { xs: 0.6875, sm: 0.75, base: 0.8125, md: 0.875, lg: 0.9375, xl: 1.125, "2xl": 1.375 } as const;
+
 /** The one spring anything that moves into place uses. */
 export const SPRING = { stiffness: 420, damping: 38, mass: 0.9 } as const;
 

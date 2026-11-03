@@ -4,9 +4,13 @@ type Katex = typeof import("katex").default;
 
 let loading: Promise<Katex> | undefined;
 
-/** KaTeX, fetched the first time something on the page has math in it. */
+/**
+ * KaTeX, fetched the first time something on the page has math in it. Its
+ * stylesheet is the app's to load (the dashboard imports it, KOS for Chrome
+ * links it), so the kit asks nothing of either app's bundler.
+ */
 function katex(): Promise<Katex> {
-  return (loading ??= import("./katex.js").then((m) => m.default));
+  return (loading ??= import("katex").then((m) => m.default));
 }
 
 /**

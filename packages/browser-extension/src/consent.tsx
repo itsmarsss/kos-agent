@@ -1,8 +1,10 @@
+import { KOS_SEED } from "@kos/shared";
+import { Chips, Face, listItem, spring, stagger } from "@kos/kit";
 import { LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { useEffect, useState, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 
-import { Chips, Face, ask, minutesWords, rise, spring, stagger } from "./ui/kit.js";
+import { ask, minutesWords } from "./pages.js";
 import type { ConsentRequest } from "./worker.js";
 
 /**
@@ -35,9 +37,9 @@ function Consent(): ReactElement {
   return (
     <m.div className="ask" variants={stagger} initial="hidden" animate="show">
       <m.div className="halo" initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={spring}>
-        <Face size={54} mood="needs-you" look={request?.face} />
+        <Face seed={KOS_SEED} size={54} mood="needs-you" drawing={request?.face} label="KOS" />
       </m.div>
-      <m.div className="title" variants={rise}>
+      <m.div className="title" variants={listItem}>
         <strong>KOS wants to use this Chrome</strong>
         {request && (
           <p className="hint">
@@ -46,23 +48,23 @@ function Consent(): ReactElement {
           </p>
         )}
       </m.div>
-      <m.p id="task" className="task-box" variants={rise}>
+      <m.p id="task" className="task-box" variants={listItem}>
         {request ? request.task : "This ask has lapsed."}
       </m.p>
       {request && (
         <>
-          <m.div className="section" variants={rise}>
+          <m.div className="section" variants={listItem}>
             <p className="label">For how long</p>
             <div id="minutes">
               <Chips options={choices.map((v) => [v, minutesWords(v)])} selected={minutes} onChoose={setMinutes} />
             </div>
           </m.div>
-          <m.p className="hint" variants={rise}>
+          <m.p className="hint" variants={listItem}>
             KOS works in a window of its own and in tabs you give it, nowhere else. Click or type in one of its tabs to take over; Stop ends it.
           </m.p>
         </>
       )}
-      <m.div className="decide" variants={rise}>
+      <m.div className="decide" variants={listItem}>
         <div className={request ? "row row--between" : "row"}>
           {request ? (
             <>

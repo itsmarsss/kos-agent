@@ -1,9 +1,9 @@
 /*
  * The extension's look, in KOS's design language (docs/design.md): the
- * shared tokens and KOS for Mac's pieces, so the popup, the consent window and
- * the side panel read as the same KOS as the app on the Mac and the
- * dashboard. Cards on a dark page, small uppercase heads, pills that say a
- * state in a word, buttons that answer the pointer, KOS's own face.
+ * shared tokens, and the pages' own layout around the pieces @kos/kit draws
+ * (kit.css, loaded first: KOS's face, its words, pills, switches, chips,
+ * drawers), so the popup, the consent window and the side panel read as the
+ * same KOS as the dashboard and the app on the Mac.
  */
 :root {
   color-scheme: dark;
@@ -22,6 +22,19 @@
   --ok: #3ecf8e;
   --warn: #e6b84d;
   --danger: #f07178;
+  --accent-dim: rgba(124, 156, 255, 0.14);
+  --ok-dim: rgba(62, 207, 142, 0.14);
+  --warn-dim: rgba(230, 184, 77, 0.14);
+  --danger-dim: rgba(240, 113, 120, 0.14);
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  /* The type scale, the dashboard's (docs/design.md, Type): what the kit's pieces are set in. */
+  --text-xs: 0.6875rem;
+  --text-sm: 0.75rem;
+  --text-base: 0.8125rem;
+  --text-md: 0.875rem;
+  --text-lg: 0.9375rem;
+  --text-xl: 1.125rem;
+  --text-2xl: 1.375rem;
   --r-xs: 4px;
   --r-sm: 7px;
   --r-md: 10px;
@@ -46,15 +59,12 @@ strong { font-weight: 600; }
 /* —— the head: KOS's face, the name, where it stands —— */
 .head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .head-actions { display: flex; gap: 2px; margin-right: -4px; }
-.face-holder { flex: none; display: inline-flex; line-height: 0; }
 .head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .head-text strong { font-size: 15px; }
 .sub { color: var(--muted); font-size: 12px; }
 
 /* —— sections and cards —— */
 .stack { display: flex; flex-direction: column; gap: 14px; }
-.section { display: flex; flex-direction: column; gap: 8px; }
-.label { color: var(--faint); font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
 .card {
   display: flex;
   flex-direction: column;
@@ -73,42 +83,6 @@ strong { font-weight: 600; }
 
 /* —— a line with a tile: a KOS, a tab —— */
 .line { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.tile {
-  flex: none;
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--r-sm);
-  color: var(--tone, var(--accent));
-  background: color-mix(in srgb, var(--tone, var(--accent)) 14%, transparent);
-}
-.tile img { width: 16px; height: 16px; border-radius: var(--r-xs); }
-.line-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.line-text strong, .line-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.line-text span { color: var(--muted); font-size: 11.5px; }
-
-/* —— a state in a word —— */
-.pill {
-  --tone: var(--muted);
-  position: relative;
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  color: var(--tone);
-  background: color-mix(in srgb, var(--tone) 14%, transparent);
-  font-size: 11px;
-  font-weight: 500;
-}
-.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-[data-tone="ok"] { --tone: var(--ok); }
-[data-tone="accent"] { --tone: var(--accent); }
-[data-tone="warn"] { --tone: var(--warn); }
-[data-tone="danger"] { --tone: var(--danger); }
-[data-tone="muted"] { --tone: var(--muted); }
 
 /* —— buttons: the one thing to do, a quieter one, one that removes —— */
 .btn {
@@ -158,29 +132,6 @@ input::placeholder { color: var(--faint); }
 input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 
-/* —— chips: one choice of a few —— */
-.chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chips button {
-  appearance: none;
-  padding: 5.5px 10px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--line);
-  background: var(--panel-2);
-  color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
-}
-.chips button:hover { color: var(--text); border-color: var(--line-strong); }
-.chips button[aria-pressed="true"] {
-  color: var(--accent);
-  font-weight: 600;
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-
 /* —— the live session —— */
 .live { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .live[data-paused] { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
@@ -207,51 +158,9 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px 
   * { animation: none !important; transition: none !important; }
 }
 
-/* —— KOS's face, alive: the dashboard's blob —— */
-.blob { position: relative; display: inline-block; width: var(--blob-size, 24px); height: var(--blob-size, 24px); flex: none; line-height: 0; user-select: none; }
-.blob svg { display: block; width: 100%; height: 100%; overflow: visible; }
-
-/* —— round buttons holding one symbol: the gear, the way back —— */
-.icon-btn {
-  flex: none;
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
-}
-.icon-btn:hover { color: var(--text); background: var(--panel-2); border-color: var(--line); }
-.icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .page-head { display: flex; align-items: center; gap: 10px; margin: -4px 0 -2px; }
 .page-head strong { font-size: 15px; }
-.section-head { display: flex; align-items: center; justify-content: space-between; min-height: 22px; }
 .btn--sm { padding: 3px 8px; font-size: 12px; }
-
-/* —— a row that opens what is under it —— */
-.drawer {
-  appearance: none;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.drawer .line-text strong { font-size: 13px; }
-.chev { flex: none; color: var(--faint); transition: color 140ms ease; display: grid; }
-.drawer:hover .chev { color: var(--text); }
-.drawer:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--r-sm); }
 
 /* —— a setting: what it is, what it does, its control —— */
 .setting { display: flex; align-items: flex-start; gap: 12px; }
@@ -259,29 +168,6 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px 
 .setting-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .setting-text strong { font-size: 12.5px; }
 .setting-text span { color: var(--muted); font-size: 11.5px; }
-
-/* —— an on/off switch in KOS's colours —— */
-.switch {
-  appearance: none;
-  flex: none;
-  display: flex;
-  justify-content: flex-start;
-  width: 34px;
-  height: 20px;
-  padding: 3px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--line-strong);
-  cursor: pointer;
-  transition: background 150ms ease;
-}
-/* The knob sits at one end or the other; motion carries it between. */
-.switch span { width: 14px; height: 14px; border-radius: 50%; background: var(--text); transition: background 150ms ease; }
-.switch[aria-checked="true"] { justify-content: flex-end; background: var(--accent); }
-.switch[aria-checked="true"] span { background: var(--on-accent); }
-.switch:hover { background: var(--faint); }
-.switch[aria-checked="true"]:hover { background: var(--accent-lit); }
-.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* —— the hidden sites: chips to remove, a field to add —— */
 .site-chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -303,10 +189,6 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px 
 
 /* —— a question asked in place, before something is turned off —— */
 .confirm { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--warn) 8%, transparent); }
-
-/* —— what a drawer opens to: no gap of its own until it has height —— */
-.collapse { overflow: hidden; margin-top: -10px; }
-.collapse-body { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; }
 
 /* —— the side panel: a chat beside the owner's tabs —— */
 body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
@@ -358,11 +240,9 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .steps[data-live] .steps-head > svg { animation: beat 1.2s ease-in-out infinite; }
 .steps-list { margin: 6px 0 0; padding: 0 0 0 24px; color: var(--muted); font-size: 13px; display: flex; flex-direction: column; gap: 3px; }
 .steps-list li[data-failed] { color: var(--danger); }
-.thinking { align-self: flex-start; display: flex; gap: 4px; padding: 8px 4px; }
-.thinking span { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: bob 1s ease-in-out infinite; }
-.thinking span:nth-child(2) { animation-delay: 0.15s; }
-.thinking span:nth-child(3) { animation-delay: 0.3s; }
-@keyframes bob { 50% { transform: translateY(-4px); opacity: 0.5; } }
+
+/* At work before there is a step to show: the dashboard's dots and the word, as its live line has them. */
+.working { align-self: flex-start; display: flex; align-items: center; gap: 8px; padding: 4px 2px; color: var(--muted); font-size: var(--text-base); }
 
 /* What waits on the owner: an approval, an ask to work in this tab. */
 .ask-card { align-self: stretch; border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
@@ -410,33 +290,4 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .send:disabled { background: var(--line); color: var(--faint); cursor: default; }
 .panel-error { margin: 0 14px; }
 
-/* —— KOS's words, as markdown —— */
-.md { display: flex; flex-direction: column; gap: 8px; }
-.md ul, .md ol, .md blockquote, .md pre { margin: 0; }
-.md ul, .md ol { padding-left: 19px; display: flex; flex-direction: column; gap: 3px; }
-/* A list under an item sits close to it, and says its depth by its marker. */
-.md li > * + * { margin-top: 4px; }
-.md li > ul, .md li > ol { margin-top: 3px; padding-left: 19px; }
-.md li ul { list-style-type: circle; }
-.md li li ul { list-style-type: square; }
-.md li ol { list-style-type: lower-alpha; }
-.md code { padding: 1px 5px; border-radius: var(--r-xs); background: var(--panel-2); font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
-.md pre { padding: 10px 11px; overflow-x: auto; border-radius: var(--r-md); background: var(--panel); border: 1px solid var(--line); }
-.md pre code { padding: 0; background: none; font-size: 13px; line-height: 1.45; }
-.md-table { overflow-x: auto; }
-.md-table table { border-collapse: collapse; min-width: 100%; font-size: 14px; }
-.md-table th, .md-table td { padding: 6px 11px; border-bottom: 1px solid var(--line); vertical-align: top; }
-.md-table th { color: var(--muted); font-weight: 600; font-size: 13px; white-space: nowrap; }
-.md blockquote { padding-left: 10px; border-left: 2px solid var(--line-strong); color: var(--muted); }
-.md a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
-.md-h { font-weight: 600; }
-.md-h1 { font-size: 15px; }
-.md-h2 { font-size: 15px; }
-.md-small { color: var(--muted); font-size: 12px; }
-/* LaTeX, typeset. A wide formula scrolls on its own rather than widening the column. */
-.md .katex { font-size: 1.05em; }
-.md .katex-display { margin: 4px 0; overflow-x: auto; overflow-y: hidden; }
-.md-math { overflow-x: auto; overflow-y: hidden; }
-.md-math .katex-display { margin: 0; }
-.mention { padding: 0 5px; border-radius: var(--r-xs); background: color-mix(in srgb, var(--violet) 14%, transparent); color: var(--violet); font-size: 12px; font-weight: 500; white-space: nowrap; }
 .panel-head .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

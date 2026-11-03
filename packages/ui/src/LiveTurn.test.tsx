@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { congregationHead, LiveTurn } from "./LiveTurn.js";
+import { congregationHead, formatElapsed, LiveTurn } from "./LiveTurn.js";
 import type { CongregationMember, Live } from "./progress.js";
 
 const base: Live = { steps: [], text: "", since: Date.now() };
@@ -252,5 +252,14 @@ describe("a congregation", () => {
     );
     expect(container.querySelector(".chats-flag--needs-you")?.textContent).toBe("failed");
     expect(screen.getByText("Gathered from 2 chats, 1 failed")).toBeTruthy();
+  });
+});
+
+describe("elapsed formatting", () => {
+  it("rolls seconds into minutes and hours", () => {
+    // It counted up in seconds forever, so a long turn read as "312s".
+    expect(formatElapsed(45_000)).toBe("45s");
+    expect(formatElapsed(200_000)).toBe("3m 20s");
+    expect(formatElapsed(3_840_000)).toBe("1h 4m");
   });
 });

@@ -2,8 +2,8 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { outline, smoothPath } from "@kos/shared";
-import { hexOfHsl, hueOfHex } from "./colour.js";
+import { hexOfHsl, hueOfHex, outline, smoothPath } from "@kos/shared";
+
 import { AgentFaces, Face, faceLookOf, faceSvg, fillOf, lookOf, moodOf } from "./Face.js";
 
 afterEach(cleanup);

@@ -12,6 +12,14 @@ declare them, as do the overlays KOS draws over a page (`overlay.ts`) and
 over the screen (`Palette.swift`), and a test (`design.test.ts`) fails when
 one of them drifts.
 
+The web pieces live once too. `@kos/kit` (packages/kit) holds the React
+components the dashboard and the extension both draw: KOS's face, the
+markdown KOS speaks in, one set of icons, Pill, Switch, Chips, IconButton,
+the working dots, Section, Collapse and DrawerRow, with their motion, and
+`kit.css`, which each app loads before its own sheet. A surface says only
+what is its own: the dashboard where a reference leads (`refs.tsx`), the
+extension nothing, so its references are chips that go nowhere.
+
 ## Principles
 
 - **Quiet surfaces, one loud thing.** Dark panels, thin lines, muted text.
@@ -89,6 +97,8 @@ Weights are 400, 500, 600 and 700, nothing between.
 The dashboard is a full window read at arm's length, so its body sits one
 step up the ladder (`--text-md`, 14 at the default density) and its density
 setting scales the whole ladder. The roles and their order are the same.
+Both web surfaces declare the dashboard's steps as `--text-xs` to
+`--text-2xl` (`TYPE` in design.ts), which the kit's pieces are set in.
 
 ## Shape
 

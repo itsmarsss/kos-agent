@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AgentFaces, ease, faceDataUrl, KOS_SEED, KosLook, lookOf, spring } from "@kos/kit";
 
 import {
   type FailingJob,
@@ -26,13 +27,12 @@ import { Drawer } from "./Drawer.js";
 import { CronEditor } from "./CronEditor.js";
 import { describeCron } from "./schedule.js";
 import { StatusDot } from "./StatusDot.js";
-import { ease, spring } from "./motion.js";
 import { HistoryPage, type HistoryRow } from "./HistoryPage.js";
 import { HomePage } from "./HomePage.js";
 import { ChatsPage } from "./ChatsPage.js";
 import { BrowserWindow } from "./BrowserWindow.js";
 import { OpenTab } from "./opentab.js";
-import { AgentFaces, KOS_SEED, KosLook, faceDataUrl, lookOf } from "./Face.js";
+import { DashboardRefs } from "./refs.js";
 import { QuickAsk } from "./QuickAsk.js";
 import { useProgress } from "./progress.js";
 import { FilesPage } from "./FilesPage.js";
@@ -649,6 +649,7 @@ export function App(): React.ReactElement {
           for pages that scroll, and with it the document ran past the viewport
           so the page moved behind the chat, top bar and all. */}
       <OpenTab.Provider value={openTab}>
+      <DashboardRefs>
       <KosLook.Provider value={kosLook}>
       <AgentFaces.Provider value={agentFaces}>
       <div className="app">
@@ -852,6 +853,7 @@ export function App(): React.ReactElement {
       </div>
       </AgentFaces.Provider>
       </KosLook.Provider>
+      </DashboardRefs>
       </OpenTab.Provider>
     </ErrorBoundary>
   );

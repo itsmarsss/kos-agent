@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
+import { ease } from "@kos/kit";
 
 import { api } from "./api.js";
-import { ease } from "./motion.js";
 import { NAV, type Route } from "./routes.js";
 
 /**

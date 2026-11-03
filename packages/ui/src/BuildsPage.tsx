@@ -1,12 +1,12 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { AnimatePresence, m } from "motion/react";
+import { listItem } from "@kos/kit";
 
 import { AgentTerminal } from "./AgentTerminal.js";
 import { Drawer } from "./Drawer.js";
 import { PageHead } from "./PageHead.js";
 import { api, type BuildRecord } from "./api.js";
-import { listItem } from "./motion.js";
 
 /**
  * What is running inside the workspace.

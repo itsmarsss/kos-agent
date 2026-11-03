@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { m } from "motion/react";
+import { card, Pill, stagger } from "@kos/kit";
 
 import { api, type Conversation, type PageSummary, type Project, type SiteInfo } from "./api.js";
 import { FileIcon } from "./FileIcon.js";
-import { Pill } from "./kit.js";
-import { card, stagger } from "./motion.js";
 import { NewProjectDialog } from "./NewProjectDialog.js";
 import { markStyle } from "./ProjectMark.js";
 import { hrefFor } from "./routes.js";

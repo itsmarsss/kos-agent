@@ -50,7 +50,7 @@ All in `packages/ui/src/kit.tsx` unless named otherwise.
   `.btn--danger-ghost` and asks through `ConfirmButton`.
 - **Uppercase** is for section and card titles and table column heads, and
   nothing else. Form labels are not uppercase.
-- **Faces** (`Face.tsx`): a blob's or KOS's face, at 16 to 18 in rows, 26
+- **Faces** (`Face`, from `@kos/kit`): a blob's or KOS's face, at 16 to 18 in rows, 26
   in list rows, 44 to 72 in a head. Its hue is the column's accent on the
   blob page (`--blob-h`).
 

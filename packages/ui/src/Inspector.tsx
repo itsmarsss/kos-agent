@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { m } from "motion/react";
-import { summarizeAction } from "@kos/shared";
+import { hexOfHsl, hueOfHex, summarizeAction } from "@kos/shared";
+import { ease, lookOf, Pill, spring } from "@kos/kit";
 
 import type {
   AuditRecord,
@@ -11,11 +12,8 @@ import type {
 } from "./api.js";
 import { api, type ProjectDetail } from "./api.js";
 import { ColourChoice } from "./ColourPicker.js";
-import { hexOfHsl, hueOfHex } from "./colour.js";
-import { lookOf } from "./Face.js";
 import { FileIcon } from "./FileIcon.js";
-import { Card, ConfirmButton, Field, Pill, Tag } from "./kit.js";
-import { ease, spring } from "./motion.js";
+import { Card, ConfirmButton, Field, Tag } from "./kit.js";
 import { markInk } from "./ProjectMark.js";
 import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { hexOfHsl, hueOfHex } from "./colour.js";
+import { desaturateHex, hexOfHsv, hsvOfHex } from "./colour.js";
+import { hexOfHsl, hueOfHex, lightnessOfHex } from "./face.js";
 
 describe("colour", () => {
   it("reads the hue out of a hex colour, and has none for a grey or a non-colour", () => {
@@ -31,8 +32,7 @@ describe("colour", () => {
 });
 
 describe("hsv", () => {
-  it("round-trips through the picker's model", async () => {
-    const { hexOfHsv, hsvOfHex, lightnessOfHex, desaturateHex } = await import("./colour.js");
+  it("round-trips through the picker's model", () => {
     expect(hsvOfHex("#ff0000")).toEqual({ h: 0, s: 100, v: 100 });
     expect(hsvOfHex("#000000", 200)).toEqual({ h: 200, s: 0, v: 0 });
     expect(hexOfHsv({ h: 120, s: 100, v: 100 })).toBe("#00ff00");

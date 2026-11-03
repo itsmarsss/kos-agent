@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactElement } from "react";
+import { Face, lookOf, moodOf, Pill } from "@kos/kit";
 
 import { AgentEditor, titleOf } from "./AgentEditor.js";
 import { api, type AgentInfo } from "./api.js";
 import { describeCron } from "./schedule.js";
-import { Face, lookOf, moodOf } from "./Face.js";
 import { Drawer } from "./Drawer.js";
-import { Card, ConfirmButton, Pill, Tag } from "./kit.js";
+import { Card, ConfirmButton, Tag } from "./kit.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
 import { WEEK, agoWords, inWords, runDays } from "./schedulewords.js";
 

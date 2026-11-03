@@ -4,13 +4,13 @@ import type { Transition, Variants } from "motion/react";
 /**
  * Shared motion vocabulary.
  *
- * One spring and one duration for the whole surface, so movement reads as the
- * same system rather than each component inventing its own timing. Distances
- * stay small: this is a dashboard, and motion is here to make a change legible,
+ * One spring and one duration for the dashboard and KOS for Chrome alike, so
+ * movement reads as the same system rather than each component inventing its
+ * own timing. Distances stay small: motion is here to make a change legible,
  * not to be noticed.
  *
- * Reduced motion is handled globally by MotionConfig in main.tsx, which drops
- * transforms and keeps opacity, so nothing here needs to branch on it.
+ * Reduced motion is handled where each app mounts, by MotionConfig, which
+ * drops transforms and keeps opacity, so nothing here needs to branch on it.
  */
 
 /** Panels and anything that travels: settles without overshoot wobble. */

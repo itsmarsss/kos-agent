@@ -1,14 +1,11 @@
 /**
- * Colour maths for the face editor.
+ * Colour maths for the face editor and the face drawn still.
  *
  * A face is a hue; the body's saturation and lightness are the blob's own,
  * so every face is matte and bright and none is mustard or murk. The
- * browser's colour picker speaks hex, so a picked colour becomes its hue
- * and a hue becomes the hex the picker should show.
+ * browser's colour picker speaks HSV and hex; hsl to hex and back, and
+ * lightness, are in face.ts beside the blob that uses them.
  */
-
-/** The hue of a hex colour, hsl to hex, and perceived lightness: the harness draws with the same ones. */
-export { hexOfHsl, hueOfHex, lightnessOfHex } from "@kos/shared";
 
 /** Hue 0 to 359, saturation and value 0 to 100: the picker's own model. */
 export interface Hsv {

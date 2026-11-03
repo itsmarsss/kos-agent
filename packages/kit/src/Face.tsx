@@ -1,9 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type CSSProperties, type ReactElement } from "react";
 
-import { FILL_SAT, KOS_SEED, eyeAt, lightnessOf, lookOf as specOf, outline, smoothPath, type BlobShape, type BlobWhim, type FaceLook } from "@kos/shared";
+import { EYE_DOT_R, EYE_GLINT, EYE_PILL, FILL_SAT, KOS_SEED, desaturateHex, eyeAt, lightnessOf, lookOf as specOf, outline, smoothPath, type BlobShape, type BlobWhim, type FaceDrawing, type FaceLook } from "@kos/shared";
 import { GAITS, mountBlob, type BlobHandle } from "@kos/shared/blobmotion";
-
-import { desaturateHex } from "./colour.js";
 
 export { FILL_SAT, KOS_SEED, lightnessOf };
 
@@ -22,6 +20,9 @@ export { FILL_SAT, KOS_SEED, lightnessOf };
  * leans in when you are close, jiggles when poked, and its eyes say the
  * mood (wide when it needs you, shut when asleep, slanted on an error,
  * arcs when pleased). The tab icon is the same face drawn still.
+ *
+ * A device draws a KOS as that KOS sent its face (a FaceDrawing: colours,
+ * eyes, gait, outline); the habits and the tilt still come from the name.
  */
 
 export type Mood = "idle" | "working" | "needs-you" | "error" | "asleep";
@@ -110,6 +111,11 @@ export function useKosLook(): Look {
   return useContext(KosLook);
 }
 
+/** A look worn as a KOS sent it: its drawing over what its name gives. */
+export function wearing(look: Look, drawing: FaceDrawing): Look {
+  return { ...look, fill: drawing.fill, ink: drawing.ink, eyes: drawing.eyes, wobble: drawing.gait, shape: drawing.shape };
+}
+
 /**
  * What the owner set about each agent's face, by name, so a face drawn from
  * a name alone (a chip, a row in a rail) still wears what the file says.
@@ -134,6 +140,8 @@ export interface FaceProps {
   seed: string;
   /** What the owner set by hand, over the name's. */
   look?: FaceLook;
+  /** The face as a KOS sent it, over both: what a device draws. */
+  drawing?: FaceDrawing | undefined;
   /** Pixels across. */
   size?: number;
   mood?: Mood;
@@ -141,9 +149,12 @@ export interface FaceProps {
   label?: string;
 }
 
-export function Face({ seed, look: override, size = 24, mood = "idle", label }: FaceProps): ReactElement {
+export function Face({ seed, look: override, drawing, size = 24, mood = "idle", label }: FaceProps): ReactElement {
   const faces = useContext(AgentFaces);
-  const look = lookOf(seed, override ?? faces.get(seed) ?? {});
+  const named = lookOf(seed, override ?? faces.get(seed) ?? {});
+  const look = drawing ? wearing(named, drawing) : named;
+  // A drawing sent again is the same face: read by what it says, so a new copy of it is not a new blob.
+  const drawn = drawing ? JSON.stringify(drawing) : "";
   const svgRef = useRef<SVGSVGElement>(null);
   const handle = useRef<BlobHandle | null>(null);
   const still = usePrefersStill();
@@ -159,7 +170,7 @@ export function Face({ seed, look: override, size = 24, mood = "idle", label }: 
     };
     // Mood is pushed through setMood below, so a change of it does not remount.
     // The habits follow the seed, and the shape the seed or the word given it.
-  }, [look.seed, look.shapeWord, look.wobble, look.eyes, look.tilt, still]);
+  }, [look.seed, look.shapeWord, look.wobble, look.eyes, look.tilt, drawn, still]);
   useEffect(() => {
     handle.current?.setMood(mood);
   }, [mood]);
@@ -189,11 +200,11 @@ export function Face({ seed, look: override, size = 24, mood = "idle", label }: 
             {eyes.map(([name, at]) => (
               <g key={name} data-part={name} transform={`translate(${at.x} ${at.y})`}>
                 {look.eyes === "round" ? (
-                  <circle data-part="eye" r="4" fill={ink} />
+                  <circle data-part="eye" r={EYE_DOT_R} fill={ink} />
                 ) : (
-                  <rect data-part="eye" x="-2.7" y="-4.8" width="5.4" height="9.6" rx="2.7" fill={ink} />
+                  <rect data-part="eye" x={-EYE_PILL.w / 2} y={-EYE_PILL.h / 2} width={EYE_PILL.w} height={EYE_PILL.h} rx={EYE_PILL.r} fill={ink} />
                 )}
-                {look.eyes === "sparkle" && <circle data-part="eye" cx="-1" cy="-2.4" r="1" fill="#fff" />}
+                {look.eyes === "sparkle" && <circle data-part="eye" cx={EYE_GLINT.x} cy={EYE_GLINT.y} r={EYE_GLINT.r} fill="#fff" />}
                 <path data-part="grin" d="M-3.8 1.4q3.8-4.8 7.6 0" fill="none" stroke={ink} strokeWidth="2.4" strokeLinecap="round" opacity="0" />
               </g>
             ))}

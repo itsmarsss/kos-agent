@@ -1,10 +1,10 @@
 import { useState, type ReactElement } from "react";
 
 import { pathsIn } from "@kos/shared";
+import { ChevronDown, ChevronRight } from "@kos/kit";
 
 import type { ChatEvent } from "./api.js";
 import { Decision } from "./Decision.js";
-import { ChevronDown, ChevronRight } from "./icons.js";
 import { hrefFor } from "./routes.js";
 
 /**

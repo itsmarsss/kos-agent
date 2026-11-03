@@ -1,12 +1,12 @@
 import type { MarkdownWidget, StatWidget } from "@kos/shared";
 import type { ReactElement } from "react";
+import { Markdown as MarkdownText } from "@kos/kit";
 
 import { CardWidget } from "./CardWidget.js";
 import { Chart } from "./Chart.js";
 import { CustomHtml } from "./CustomHtml.js";
 import { formatCell, humanize } from "./format.js";
 import { ListWidget } from "./ListWidget.js";
-import { Markdown as MarkdownText } from "../Markdown.js";
 import { RecordForm } from "./RecordForm.js";
 import type { WidgetProps, WidgetRenderer } from "./types.js";
 

@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
+import { ChevronLeft, ChevronRight, Face, faceLookOf, KOS_SEED, type Mood, NavIcon, useKosLook } from "@kos/kit";
 
 import type { Status } from "./api.js";
-import { Face, KOS_SEED, faceLookOf, useKosLook, type Mood } from "./Face.js";
 import { hrefFor, NAV, navActive, type Route } from "./routes.js";
-import { NavIcon, ChevronLeft, ChevronRight } from "./icons.js";
 import { useDismiss } from "./useDismiss.js";
 
 /**
@@ -36,7 +35,7 @@ export function Sidebar({
 }: {
   route: Route;
   status: Status | null;
-  /** (KOS's face is read from context; see Face.tsx.) */
+  /** (KOS's face is read from context; see @kos/kit's Face.tsx.) */
   /** Everything waiting on the owner, for the badge beside Inbox. */
   inboxCount: number;
   /** What the shell is doing right now, if anything. */

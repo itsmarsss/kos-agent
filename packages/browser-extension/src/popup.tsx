@@ -1,11 +1,13 @@
+import { KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
+import { ChatIcon, ChevronLeft, Chips, Collapse, DrawerRow, Face, GearIcon, GlobeIcon, HandIcon, HiddenIcon, listItem, Pill, Section, ServerIcon, spring, stagger, Switch, type Tone } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 
 import { kosAddress, parsePairing } from "./address.js";
 import { CHOICES, isHidden, siteOf, type Takeover } from "./settings.js";
-import { Chips, Collapse, DrawerRow, Face, ICONS, Icon, Pill, Section, Switch, ask, minutesLeft, minutesWords, rise, spring, stagger, type Tone } from "./ui/kit.js";
+import { ask, minutesLeft, minutesWords } from "./pages.js";
 import type { KosState, PopupState } from "./worker.js";
 
 /**
@@ -79,7 +81,7 @@ function Popup(): ReactElement {
   return (
     <>
       <header className="head">
-        <Face size={36} mood={mood(state)} look={state?.session?.face ?? best?.face} />
+        <Face seed={KOS_SEED} size={36} mood={mood(state)} drawing={state?.session?.face ?? best?.face} label="KOS" />
         <div className="head-text">
           <strong>KOS for Chrome</strong>
           <span className="sub">Only in sessions you allow.</span>
@@ -89,12 +91,12 @@ function Popup(): ReactElement {
           <AnimatePresence initial={false}>
             {page === "home" && state?.kos.length ? (
               <m.button key="panel" type="button" className="icon-btn" aria-label="Chat with KOS" title="Chat with KOS beside your tabs" onClick={() => void openPanel()} initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }} transition={spring}>
-                <Icon path={ICONS.chat} size={14} />
+                <ChatIcon size={14} />
               </m.button>
             ) : null}
             {page === "home" && (
               <m.button key="gear" type="button" className="icon-btn" aria-label="Settings" title="Settings" onClick={() => setPage("settings")} initial={{ opacity: 0, rotate: -60 }} animate={{ opacity: 1, rotate: 0 }} exit={{ opacity: 0, rotate: 60 }} transition={spring}>
-                <Icon path={ICONS.gear} size={14} />
+                <GearIcon size={14} title="" />
               </m.button>
             )}
           </AnimatePresence>
@@ -142,8 +144,8 @@ function Home({ state, tab, act }: { state: PopupState; tab: chrome.tabs.Tab | u
       {state.kos.length > 0 && <ThisTab state={state} tab={tab} act={act} />}
       <KosSection state={state} act={act} />
       <HiddenSection state={state} tab={tab} act={act} />
-      <m.p className="foot" variants={rise}>
-        <Icon path={ICONS.hand} size={13} />
+      <m.p className="foot" variants={listItem}>
+        <HandIcon size={13} />
         <span>KOS works only in its own window and the tabs you give it. Click or type in one of them and it pauses.</span>
       </m.p>
     </m.div>
@@ -152,7 +154,7 @@ function Home({ state, tab, act }: { state: PopupState; tab: chrome.tabs.Tab | u
 
 function SessionCard({ session, act }: { session: NonNullable<PopupState["session"]>; act: Act }): ReactElement {
   return (
-    <m.section className="card live" data-paused={session.paused || undefined} layout variants={rise} initial="hidden" animate="show" exit="exit">
+    <m.section className="card live" data-paused={session.paused || undefined} layout variants={listItem} initial="hidden" animate="show" exit="exit">
       <div className="live-head">
         <strong>{session.paused ? "Paused. You have control." : "KOS is using this Chrome"}</strong>
         <span className="hint">{minutesLeft(session.until)}</span>
@@ -185,7 +187,7 @@ function ThisTab({ state, tab, act }: { state: PopupState; tab: chrome.tabs.Tab 
     <Section label="This tab">
       <div className="card">
         <div className="line">
-          <span className="tile">{tab.favIconUrl ? <img src={tab.favIconUrl} alt="" /> : <Icon path={ICONS.globe} />}</span>
+          <span className="tile">{tab.favIconUrl ? <img src={tab.favIconUrl} alt="" /> : <GlobeIcon />}</span>
           <div className="line-text">
             <strong>{tab.title || host}</strong>
             <span>{hidden ? `${host} · hidden from KOS` : given ? `${host} · KOS can work here` : host}</span>
@@ -222,12 +224,12 @@ function KosSection({ state, act }: { state: PopupState; act: Act }): ReactEleme
     >
       <AnimatePresence initial={false}>
         {state.kos.map((k) => (
-          <m.div key={k.id} layout variants={rise} initial="hidden" animate="show" exit="exit" transition={spring}>
+          <m.div key={k.id} layout variants={listItem} initial="hidden" animate="show" exit="exit" transition={spring}>
             <KosCard k={k} open={open === k.id} toggle={() => setOpen(open === k.id ? undefined : k.id)} act={act} />
           </m.div>
         ))}
         {pairing && (
-          <m.div key="pair" layout variants={rise} initial="hidden" animate="show" exit="exit">
+          <m.div key="pair" layout variants={listItem} initial="hidden" animate="show" exit="exit">
             <PairCard first={!state.kos.length} cancel={() => setAdding(false)} act={act} />
           </m.div>
         )}
@@ -249,7 +251,7 @@ function KosCard({ k, open, toggle, act }: { k: KosState; open: boolean; toggle:
   const summary = on ? `As ${k.name} · ${k.askFirst ? "asks here first" : "its approvals decide"}` : k.held ? "Not connected. The pairing stays." : (k.detail ?? `${link.word}.`);
   return (
     <div className="card">
-      <DrawerRow icon={<Icon path={ICONS.server} />} tone={on ? "ok" : link.tone} title={k.host} detail={summary} open={open} onToggle={toggle} trailing={on ? undefined : <Pill tone={link.tone}>{link.word}</Pill>} />
+      <DrawerRow icon={<ServerIcon />} tone={on ? "ok" : link.tone} title={k.host} detail={summary} open={open} onToggle={toggle} trailing={on ? undefined : <Pill tone={link.tone}>{link.word}</Pill>} />
       <Collapse open={open}>
         <hr className="rule" />
         <div className="setting">
@@ -415,7 +417,7 @@ function HiddenSection({ state, tab, act }: { state: PopupState; tab: chrome.tab
   return (
     <Section label="On this Chrome">
       <div className="card">
-        <DrawerRow icon={<Icon path={ICONS.hidden} />} tone="accent" title="Hidden from KOS" detail={summary} open={open} onToggle={() => setOpen(!open)} />
+        <DrawerRow icon={<HiddenIcon />} tone="accent" title="Hidden from KOS" detail={summary} open={open} onToggle={() => setOpen(!open)} />
         <Collapse open={open}>
           <hr className="rule" />
           <m.div className="site-chips" layout>
@@ -466,9 +468,9 @@ function SettingsPage({ state, act, back }: { state: PopupState; act: Act; back:
   ];
   return (
     <m.div className="stack" variants={stagger} initial="hidden" animate="show">
-      <m.div className="page-head" variants={rise}>
+      <m.div className="page-head" variants={listItem}>
         <button type="button" className="icon-btn" aria-label="Back" title="Back" onClick={back}>
-          <Icon path={ICONS.back} size={14} />
+          <ChevronLeft size={14} title="" />
         </button>
         <strong>Settings</strong>
       </m.div>

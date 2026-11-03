@@ -9,7 +9,7 @@ import {
 import { createPortal } from "react-dom";
 import { AnimatePresence, m } from "motion/react";
 
-import { ease } from "./motion.js";
+import { ease } from "@kos/kit";
 import { fitInside, place, type Placement } from "./popover.js";
 
 /**

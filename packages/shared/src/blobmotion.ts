@@ -319,7 +319,7 @@ function part<T extends Element>(svg: SVGSVGElement, name: string): T | null {
 }
 
 /**
- * Bring a face to life. The SVG holds the parts (see Face.tsx); this moves
+ * Bring a face to life. The SVG holds the parts (see @kos/kit's Face.tsx); this moves
  * them. `still` draws one frame and leaves it, for anyone who asked the
  * browser for less motion.
  */

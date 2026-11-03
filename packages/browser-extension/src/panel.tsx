@@ -1,12 +1,12 @@
-import { CHAT_COMMANDS } from "@kos/shared";
+import { CHAT_COMMANDS, KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
+import { BoltIcon, ChevronDown, Chips, Collapse, ComposeIcon, ease, Face, GlobeIcon, HandIcon, Markdown, PageIcon, Pill, SendIcon, spring, StepsIcon, type Tone, WorkingDots } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { isHidden } from "./settings.js";
-import { Markdown } from "./ui/markdown.js";
-import { Chips, Collapse, Face, ICONS, Icon, Pill, ask, ease, minutesLeft, minutesWords, spring, type Tone } from "./ui/kit.js";
+import { ask, minutesLeft, minutesWords } from "./pages.js";
 import type { ConsentRequest, KosState, PopupState } from "./worker.js";
 
 /**
@@ -432,7 +432,7 @@ function Panel(): ReactElement {
   return (
     <div className="panel">
       <header className="panel-head">
-        <Face size={30} mood={mood} look={k?.face} />
+        <Face seed={KOS_SEED} size={30} mood={mood} drawing={k?.face} label="KOS" />
         <div className="head-text">
           <strong>KOS</strong>
           {usable ? (
@@ -448,7 +448,7 @@ function Panel(): ReactElement {
             >
               <span>{chat.conversation ? chat.title : "A chat beside your tabs"}</span>
               <m.span className="chev" animate={{ rotate: switching ? 180 : 0 }} transition={spring}>
-                <Icon path={ICONS.chevron} size={11} />
+                <ChevronDown size={11} title="" />
               </m.span>
             </button>
           ) : (
@@ -458,7 +458,7 @@ function Panel(): ReactElement {
         {state && state.kos.length > 1 && <KosPicker all={state.kos} chosen={kos} choose={(id) => say({ type: "kos", id })} />}
         {usable && (
           <button type="button" className="icon-btn" aria-label="New chat" title="New chat" onClick={() => send("/new")}>
-            <Icon path={ICONS.compose} size={14} />
+            <ComposeIcon size={14} title="" />
           </button>
         )}
         <AnimatePresence>
@@ -535,7 +535,7 @@ function TabBar({ tab, state, reading }: { tab: chrome.tabs.Tab | undefined; sta
   return (
     <section className="tabbar" data-live={here || undefined}>
       <div className="line">
-        <span className="tile tile--sm">{tab.favIconUrl ? <img src={tab.favIconUrl} alt="" /> : <Icon path={ICONS.globe} size={13} />}</span>
+        <span className="tile tile--sm">{tab.favIconUrl ? <img src={tab.favIconUrl} alt="" /> : <GlobeIcon size={13} />}</span>
         <div className="line-text">
           <strong>{tab.title || host || "This tab"}</strong>
           <span>{here ? `${session.task} · ${minutesLeft(session.until)}` : host || url}</span>
@@ -586,7 +586,7 @@ function ChatSwitcher({ chats, current, pick, close }: { chats: ChatItem[]; curr
   return (
     <m.div ref={own} className="switcher" initial={{ opacity: 0, y: -6, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.98 }} transition={ease}>
       <button type="button" className="switcher-row switcher-new" onClick={() => pick(null)}>
-        <Icon path={ICONS.compose} size={13} />
+        <ComposeIcon size={13} title="" />
         <span>New chat</span>
       </button>
       {chats.length > 8 && <input className="switcher-find" type="text" placeholder="Find a chat" value={q} autoFocus onChange={(e) => setQ(e.target.value)} />}
@@ -616,7 +616,7 @@ function when(at: number, now = Date.now()): string {
 function Silent(): ReactElement {
   return (
     <div className="empty">
-      <Face size={56} mood="error" />
+      <Face seed={KOS_SEED} size={56} mood="error" label="KOS" />
       <strong>This KOS cannot talk here yet</strong>
       <p className="hint">It is connected, but it does not answer the side panel. Update KOS, restart it, then reopen this panel. Its other work in this Chrome is not affected.</p>
     </div>
@@ -626,7 +626,7 @@ function Silent(): ReactElement {
 function Unpaired(): ReactElement {
   return (
     <div className="empty">
-      <Face size={64} mood="asleep" />
+      <Face seed={KOS_SEED} size={64} mood="asleep" label="KOS" />
       <strong>Pair this Chrome with KOS</strong>
       <p className="hint">Click the KOS icon in the toolbar and paste a pairing link from KOS: Settings, Devices, Add a device.</p>
     </div>
@@ -710,10 +710,10 @@ function Thread({
       )}
       <AnimatePresence>
         {chat.working && !chat.stories.length && (
-          <m.div key="thinking" className="thinking" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={ease}>
-            <span />
-            <span />
-            <span />
+          // At work with no step to show yet: the dashboard's dots, and the word for it.
+          <m.div key="working" className="working" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={ease}>
+            <WorkingDots />
+            <span>Thinking</span>
           </m.div>
         )}
         {chat.asks.map((a) => (
@@ -741,7 +741,7 @@ function LineView({ line, pending, quote }: { line: Line; pending?: boolean; quo
             <div className="files">
               {line.files.map((f) => (
                 <span key={f} className="file-chip">
-                  <Icon path={ICONS.page} size={11} />
+                  <PageIcon size={11} />
                   {f}
                 </span>
               ))}
@@ -773,14 +773,14 @@ function Steps({ steps, live }: { steps: { summary: string; failed?: true }[]; l
   return (
     <m.div className="steps" data-live={live || undefined} layout="position" {...enter}>
       <button type="button" className="steps-head" aria-expanded={open || !!live} onClick={() => setOpen(!open)}>
-        <Icon path={ICONS.steps} size={12} />
+        <StepsIcon size={12} />
         <span>
           {live ? `${steps.length > 1 ? `${steps.length}. ` : ""}${steps.at(-1)?.summary ?? "Working"}` : `${steps.length} step${steps.length === 1 ? "" : "s"}`}
           {failed ? ` · ${failed} failed` : ""}
         </span>
         {!live && (
           <m.span className="chev" animate={{ rotate: open ? 180 : 0 }} transition={spring}>
-            <Icon path={ICONS.chevron} size={11} />
+            <ChevronDown size={11} title="" />
           </m.span>
         )}
       </button>
@@ -1031,7 +1031,7 @@ function Composer({
         <ModelChoice models={models} choose={chooseModel} />
         {online && <AutoChoice on={auto} set={setAuto} />}
         <m.button type="button" className="send" aria-label="Send" disabled={!online || !text.trim()} onClick={go} whileTap={{ scale: 0.97 }} transition={spring}>
-          <Icon path={ICONS.send} size={15} />
+          <SendIcon size={15} />
         </m.button>
       </div>
     </div>
@@ -1086,7 +1086,7 @@ function AutoChoice({ on, set }: { on: boolean; set: (on: boolean) => void }): R
       whileTap={{ scale: 0.97 }}
       transition={spring}
     >
-      <Icon path={on ? ICONS.bolt : ICONS.hand} size={11} />
+      {on ? <BoltIcon size={11} /> : <HandIcon size={11} />}
       <AnimatePresence mode="popLayout" initial={false}>
         <m.span key={on ? "auto" : "ask"} initial={{ opacity: 0, y: 3 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -3 }} transition={ease}>
           {on ? "Auto" : "Ask"}
@@ -1113,7 +1113,7 @@ function ModelChoice({ models, choose }: { models: Models | undefined; choose: (
           </option>
         ))}
       </select>
-      <Icon path={ICONS.chevron} size={10} />
+      <ChevronDown size={10} title="" />
     </label>
   );
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 
 import { m } from "motion/react";
-import { ease } from "./motion.js";
+import { ease } from "@kos/kit";
 import { api, type DirEntry, type FileContent } from "./api.js";
 import { EntryMenu, dragProps, dropProps, useFileOps, type FileChange } from "./FileActions.js";
 import { FileIcon, previewable } from "./FileIcon.js";

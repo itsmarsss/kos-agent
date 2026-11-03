@@ -2,11 +2,11 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import type { HomeLayout, HomePanel, PanelKind } from "@kos/shared";
 
 import { AnimatePresence, m } from "motion/react";
+import { ease } from "@kos/kit";
 
 import { api, type FailingJob, type HomeData } from "./api.js";
 import { HomeGrid } from "./HomeGrid.js";
 import { Panel } from "./HomePanels.js";
-import { ease } from "./motion.js";
 
 /**
  * The first thing you see, arranged by you.

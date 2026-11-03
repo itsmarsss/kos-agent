@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useState,
+  type MouseEvent,
   type ReactElement,
   type ReactNode,
 } from "react";
@@ -24,18 +25,19 @@ import {
 } from "@kos/shared";
 
 import { Face } from "./Face.js";
-import { useOpenTab } from "./opentab.js";
-import { hrefFor } from "./routes.js";
 import { Tex } from "./Tex.js";
 
 /**
- * A small markdown renderer for chat.
+ * A small markdown renderer for chat, the one the dashboard and KOS for
+ * Chrome both draw KOS's words with.
  *
  * It builds React elements rather than HTML strings, so agent-authored text
  * can never inject markup: there is no dangerouslySetInnerHTML to get wrong.
  * The subset is what a conversation actually uses -- emphasis, code, lists,
- * quotes, headings, links, LaTeX math -- and anything unrecognised stays literal text
- * rather than disappearing.
+ * quotes, headings, tables, links, LaTeX math -- and anything unrecognised
+ * stays literal text rather than disappearing. Where a reference goes is the
+ * surface's to say (RefLinks): the dashboard routes it to its own pages, and
+ * a surface with none draws it as a chip that goes nowhere.
  */
 
 /**
@@ -71,6 +73,18 @@ interface NameSource {
 }
 
 const Names = createContext<NameSource | null>(null);
+
+/**
+ * Where a reference goes when it is clicked, as the surface routes it: an
+ * href, and for a kind the surface opens in place (a tab, in the dashboard's
+ * browser window) the handler that does, true when it did.
+ */
+export interface RefLinks {
+  hrefOf(kind: string, id: string): string;
+  open?(kind: string, id: string): boolean;
+}
+
+export const RefLinks = createContext<RefLinks | null>(null);
 
 export function MentionNames({
   resolve,
@@ -111,12 +125,13 @@ function ChannelChip({ name, raw }: { name: string; raw: string }): ReactElement
 /**
  * A mark per kind.
  *
+ *
  * Seven kinds of reference in one colour scheme is four more than colour can
  * carry, and two of them (project and chat) sat on the same accent. Drawn
  * rather than emoji so they take the chip's own colour and line up with the
  * text beside them.
  */
-function KindMark({ kind }: { kind: string }): ReactElement | null {
+export function KindMark({ kind }: { kind: string }): ReactElement | null {
   const paths: Record<string, string> = {
     project: "M3 7h6l2 2h10v10H3z",
     page: "M6 3h8l4 4v14H6zM14 3v4h4",
@@ -155,65 +170,35 @@ function KindMark({ kind }: { kind: string }): ReactElement | null {
 
 function MentionChip({ kind, id }: { kind: string; id: string }): ReactElement {
   const names = useContext(Names);
-  const openTab = useOpenTab();
+  const links = useContext(RefLinks);
   // An approval's own name is its number.
   const label = names?.resolve(kind, id) ?? (kind === "approval" ? `#${id}` : id);
-  // A tab has no page of its own: the chip opens the browser window on it.
-  const onClick =
-    kind === "tab" && openTab
-      ? (e: React.MouseEvent): void => {
-          e.preventDefault();
-          openTab(id);
-        }
-      : undefined;
-  return (
-    <a
-      className={`chip-ref chip-ref--${kind}`}
-      href={refHref(kind, id)}
-      title={`${kind === "agent" ? "blob" : kind}: ${id}`}
-      onClick={onClick}
-    >
+  const title = `${kind === "agent" ? "blob" : kind}: ${id}`;
+  const inside = (
+    <>
       {/* A blob is a face, not a mark. */}
       {kind === "blob" || kind === "agent" ? <Face seed={id} size={12} label={`${id}'s face`} /> : <KindMark kind={kind} />}
       <span className="chip-label">{label}</span>
+    </>
+  );
+  if (!links) {
+    return (
+      <span className={`chip-ref chip-ref--${kind}`} title={title}>
+        {inside}
+      </span>
+    );
+  }
+  // A kind the surface opens in place (a tab) is opened there; its href is only where it lands without that.
+  const onClick = links.open
+    ? (e: MouseEvent): void => {
+        if (links.open?.(kind, id)) e.preventDefault();
+      }
+    : undefined;
+  return (
+    <a className={`chip-ref chip-ref--${kind}`} href={links.hrefOf(kind, id)} title={title} onClick={onClick}>
+      {inside}
     </a>
   );
-}
-
-/** Where a reference goes when it is clicked. */
-function refHref(kind: string, id: string): string {
-  switch (kind) {
-    case "tab":
-      // Opened in place by the chip; the page is only where it lands without that.
-      return hrefFor({ name: "home" });
-    case "page":
-      return hrefFor({ name: "page", id });
-    case "file":
-      return hrefFor({ name: "files", path: id });
-    case "approval":
-      return hrefFor({ name: "inbox", id: Number(id) });
-    case "schedule":
-      return hrefFor({ name: "crons", job: id });
-    case "chat":
-      return hrefFor({ name: "chats", id });
-    case "blob":
-    case "agent":
-      return hrefFor({ name: "blobs", blob: id });
-    case "build":
-      return hrefFor({ name: "builds", id: Number(id) });
-    case "site":
-      // Written as project/name, which is also where it lives. The site
-      // server is a different origin, so this goes to the folder rather than
-      // to a URL this page cannot know.
-      return hrefFor({
-        name: "files",
-        path: `projects/${id.replace("/", "/sites/")}`,
-      });
-    case "project":
-      return hrefFor({ name: "project", slug: id });
-    default:
-      return hrefFor({ name: "projects" });
-  }
 }
 
 /**
@@ -252,8 +237,9 @@ const BOLD = /(\*\*|__)(.+?)\1/;
 const ITALIC = /(?<![*\w])(\*|_)(?!\s)(.+?)(?<!\s)\1(?![*\w])/;
 const STRIKE = /~~(.+?)~~/;
 const CODE = /`([^`]+)`/;
-const LINK = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/;
-const BARE_URL = /(https?:\/\/[^\s<>"']+)/;
+const LINK = /\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^\s)]+)\)/;
+// A sentence's full stop or comma after an address is the sentence's, not the address's.
+const BARE_URL = /(https?:\/\/[^\s<>"']*[^\s<>"'.,;:!?)])/;
 
 /** Ordered by precedence; code wins so `**x**` inside backticks stays literal, and math is next so `$a_1$` is not italics. */
 const INLINE: Array<{
@@ -434,12 +420,13 @@ function blocks(source: string): Block[] {
     const isDivider = (l: string): boolean =>
       /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(l) && l.includes("-");
     if (isRow(line) && isDivider(lines[i + 1] ?? "")) {
+      // A \| is a pipe in its cell, not the line between two.
       const cells = (l: string): string[] =>
         l
           .trim()
-          .replace(/^\||\|$/g, "")
-          .split("|")
-          .map((c) => c.trim());
+          .replace(/^\||(?<!\\)\|$/g, "")
+          .split(/(?<!\\)\|/)
+          .map((c) => c.trim().replace(/\\\|/g, "|"));
       const header = cells(line);
       const aligns = cells(lines[i + 1] ?? "").map((c) =>
         c.startsWith(":") && c.endsWith(":")
