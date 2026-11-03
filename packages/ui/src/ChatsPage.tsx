@@ -372,6 +372,10 @@ export function ChatsPage({
     null,
   );
   const menuRef = useRef<HTMLDivElement>(null);
+  // Every row's menu shares the ref, and one leaving as the next opens would clear it as it went: set on arrival only.
+  const holdMenu = useCallback((el: HTMLDivElement | null) => {
+    if (el) menuRef.current = el;
+  }, []);
   const closeMenu = useCallback(() => setMenuFor(null), []);
   useDismiss(menuFor !== null, closeMenu, { inside: [menuRef] });
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -1231,7 +1235,7 @@ export function ChatsPage({
             <m.div
               className="chats-menu"
               role="menu"
-              ref={menuRef}
+              ref={holdMenu}
               initial={{ opacity: 0, scale: 0.96, y: -4 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.97, y: -3 }}
@@ -1706,7 +1710,7 @@ export function ChatsPage({
                                     <m.div
                                       className="chats-menu"
                                       role="menu"
-                                      ref={menuRef}
+                                      ref={holdMenu}
                                       initial={{ opacity: 0, scale: 0.96, y: -4 }}
                                       animate={{ opacity: 1, scale: 1, y: 0 }}
                                       exit={{ opacity: 0, scale: 0.97, y: -3 }}
@@ -1984,7 +1988,7 @@ export function ChatsPage({
               </m.form>
               {tree.roots.length > 0 && (
                 <m.div className="chats-welcome-recent" variants={card}>
-                  <span className="label chats-welcome-recent-label">Recent</span>
+                  <span className="label">Recent</span>
                   <ul>
                     {tree.roots.slice(0, 5).map((c) => (
                       <li key={c.id}>
