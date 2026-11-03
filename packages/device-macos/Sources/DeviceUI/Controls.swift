@@ -7,27 +7,51 @@ import SwiftUI
 
 /// A group on a panel, like a card on the dashboard. `tone` edges it in a
 /// colour (an ask is the warn's), `wash` fills it with that colour's faint
-/// tint instead of the panel (a quote, a notice).
+/// tint instead of the panel (a quote, a notice). A card that is itself a
+/// choice is `picked` on the accent's tint when chosen, and `lit` under the pointer.
 public struct Card<Content: View>: View {
   private let tone: Color?
   private let wash: Bool
+  private let picked: Bool
+  private let lit: Bool
   private let padding: EdgeInsets
+  private let spacing: CGFloat
   private let content: Content
 
-  public init(tone: Color? = nil, wash: Bool = false, padding: EdgeInsets = EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14), @ViewBuilder content: () -> Content) {
+  public init(tone: Color? = nil, wash: Bool = false, picked: Bool = false, lit: Bool = false, padding: EdgeInsets = EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14), spacing: CGFloat = 10, @ViewBuilder content: () -> Content) {
     self.tone = tone
     self.wash = wash
+    self.picked = picked
+    self.lit = lit
     self.padding = padding
+    self.spacing = spacing
     self.content = content()
+  }
+
+  /// Even padding all round.
+  public init(tone: Color? = nil, wash: Bool = false, picked: Bool = false, lit: Bool = false, padding: CGFloat, spacing: CGFloat = 10, @ViewBuilder content: () -> Content) {
+    self.init(tone: tone, wash: wash, picked: picked, lit: lit, padding: EdgeInsets(top: padding, leading: padding, bottom: padding, trailing: padding), spacing: spacing, content: content)
+  }
+
+  private var fill: Color {
+    if picked { return Theme.accent.opacity(Theme.tint) }
+    if wash { return (tone ?? Theme.accent).opacity(0.08) }
+    return lit ? Theme.panel2 : Theme.panel
+  }
+
+  private var edge: Color {
+    if picked { return Theme.accent.opacity(Theme.edge) }
+    if let tone { return tone.opacity(wash ? 0.25 : Theme.edge).blended(over: Theme.line) }
+    return lit ? Theme.lineStrong : Theme.line
   }
 
   public var body: some View {
     let shape = RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous)
-    VStack(alignment: .leading, spacing: 10) { content }
+    VStack(alignment: .leading, spacing: spacing) { content }
       .padding(padding)
       .frame(maxWidth: .infinity, alignment: .leading)
-      .background(wash ? (tone ?? Theme.accent).opacity(0.08) : Theme.panel, in: shape)
-      .overlay(shape.strokeBorder(tone.map { $0.opacity(wash ? 0.25 : Theme.edge).blended(over: Theme.line) } ?? Theme.line))
+      .background(fill, in: shape)
+      .overlay(shape.strokeBorder(edge, lineWidth: picked ? 1.5 : 1))
   }
 }
 
@@ -144,7 +168,7 @@ public struct Tile: View {
 
   public var body: some View {
     Image(systemName: symbol)
-      .font(.system(size: small ? 12 : 14, weight: .medium))
+      .font(.kos(small ? .detail : .table, .medium))
       .foregroundStyle(tint)
       .frame(width: small ? 26 : 32, height: small ? 26 : 32)
       .background(tint.opacity(Theme.tint), in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
@@ -176,29 +200,32 @@ public struct Hairline: View {
 }
 
 /// A round button holding one symbol: the gear, the way back, close and minimise, a new chat.
+/// `bare` is the small one inside a tag or a row (the kit's .icon-btn--bare): no ring, its tint's wash under the pointer.
 public struct IconButton: View {
   private let symbol: String
   private let label: String
   /// The colour it takes under the pointer, for one that does something final, like Close.
   private let tint: Color?
+  private let bare: Bool
   private let action: () -> Void
   @State private var hovering = false
 
-  public init(symbol: String, label: String, tint: Color? = nil, action: @escaping () -> Void) {
+  public init(symbol: String, label: String, tint: Color? = nil, bare: Bool = false, action: @escaping () -> Void) {
     self.symbol = symbol
     self.label = label
     self.tint = tint
+    self.bare = bare
     self.action = action
   }
 
   public var body: some View {
     Button(action: action) {
       Image(systemName: symbol)
-        .font(.system(size: 12.5, weight: .semibold))
-        .foregroundStyle(hovering ? (tint ?? Theme.text) : Theme.muted)
-        .frame(width: 26, height: 26)
-        .background(hovering ? (tint?.opacity(Theme.tint) ?? Theme.panel2) : .clear, in: Circle())
-        .overlay(Circle().strokeBorder(hovering ? (tint?.opacity(Theme.edge) ?? Theme.line) : .clear))
+        .font(bare ? .system(size: 8.5, weight: .bold) : .kos(.control, .semibold))
+        .foregroundStyle(hovering ? (tint ?? Theme.text) : bare ? Theme.faint : Theme.muted)
+        .frame(width: bare ? 14 : 26, height: bare ? 14 : 26)
+        .background(hovering ? (tint?.opacity(Theme.tint) ?? (bare ? .clear : Theme.panel2)) : .clear, in: Circle())
+        .overlay(Circle().strokeBorder(hovering && !bare ? (tint?.opacity(Theme.edge) ?? Theme.line) : .clear))
     }
     .buttonStyle(.plain)
     .onHover { hovering = $0 }
@@ -238,25 +265,69 @@ private struct ChipLook: ViewModifier {
 }
 
 /// A chip of a symbol and a word or two, cut at its end when there is no room.
+/// `opens` adds the chevron of one that opens something: nil for none, true turned while it is open.
 public struct Chip: View {
   private let symbol: String?
   private let text: String
   private let lit: Bool
   private let pressable: Bool
+  private let opens: Bool?
 
-  public init(_ text: String, symbol: String? = nil, lit: Bool = false, pressable: Bool = true) {
+  public init(_ text: String, symbol: String? = nil, lit: Bool = false, pressable: Bool = true, opens: Bool? = nil) {
     self.text = text
     self.symbol = symbol
     self.lit = lit
     self.pressable = pressable
+    self.opens = opens
   }
 
   public var body: some View {
     HStack(spacing: 4) {
       if let symbol { Image(systemName: symbol).font(.system(size: 10, weight: .semibold)) }
       Text(text).lineLimit(1).truncationMode(.tail)
+      if let opens {
+        Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).rotationEffect(.degrees(opens ? 180 : 0))
+      }
     }
     .chip(lit: lit, pressable: pressable)
+  }
+}
+
+/// A fact in a word or two on a bordered capsule, not a state: the web kit's Tag. What leads it
+/// (an app's icon) is drawn first, and one that can be taken away carries its bare cross.
+public struct Tag<Leading: View>: View {
+  private let text: String
+  private let leading: Leading
+  private let remove: (label: String, action: () -> Void)?
+  @State private var hovering = false
+
+  public init(_ text: String, remove: (label: String, action: () -> Void)? = nil, @ViewBuilder leading: () -> Leading) {
+    self.text = text
+    self.leading = leading()
+    self.remove = remove
+  }
+
+  public var body: some View {
+    HStack(spacing: 5) {
+      leading
+      Text(text).font(.kos(.small, .medium)).foregroundStyle(Theme.text).lineLimit(1)
+      if let remove {
+        IconButton(symbol: "xmark", label: remove.label, tint: Theme.danger, bare: true, action: remove.action)
+      }
+    }
+    .padding(.leading, 7)
+    .padding(.trailing, remove == nil ? 7 : 5)
+    .padding(.vertical, 4)
+    .background(hovering ? Theme.line.opacity(0.7) : Theme.panel2, in: Capsule())
+    .overlay(Capsule().strokeBorder(hovering ? Theme.lineStrong : Theme.line))
+    .onHover { hovering = $0 }
+    .animation(Theme.hover, value: hovering)
+  }
+}
+
+extension Tag where Leading == EmptyView {
+  public init(_ text: String, remove: (label: String, action: () -> Void)? = nil) {
+    self.init(text, remove: remove) { EmptyView() }
   }
 }
 
@@ -340,43 +411,60 @@ public struct KOSButtonStyle: ButtonStyle {
   private let kind: Kind
   private let capsule: Bool
   private let small: Bool
+  private let round: CGFloat?
 
   /// `capsule` for a button inside something round, such as the session bar, whose corners a small radius would fight;
-  /// `small` for one among words, as the extension's .btn--sm is.
-  public init(_ kind: Kind = .secondary, capsule: Bool = false, small: Bool = false) {
+  /// `small` for one among words, as the extension's .btn--sm is; `round` for a circle of that size holding a symbol,
+  /// the send button, which with nothing to do greys on the line rather than fading, as the dashboard's .send does.
+  public init(_ kind: Kind = .secondary, capsule: Bool = false, small: Bool = false, round: CGFloat? = nil) {
     self.kind = kind
     self.capsule = capsule
     self.small = small
+    self.round = round
   }
 
   public func makeBody(configuration: Configuration) -> some View {
-    StyledButton(kind: kind, radius: capsule ? 999 : Theme.radiusSm, small: small, configuration: configuration)
+    StyledButton(kind: kind, radius: capsule ? 999 : Theme.radiusSm, small: small, round: round, configuration: configuration)
   }
 
   private struct StyledButton: View {
     let kind: Kind
     let radius: CGFloat
     let small: Bool
+    let round: CGFloat?
     let configuration: ButtonStyleConfiguration
     @Environment(\.isEnabled) private var enabled
     @State private var hovering = false
 
     var body: some View {
       let lit = hovering && enabled
-      configuration.label
-        .font(.kos(small ? .detail : .control, .semibold))
-        .foregroundStyle(foreground(lit))
-        .padding(.horizontal, small ? 8 : 12)
-        .padding(.vertical, small ? 3 : 6.5)
-        .background(background(lit: lit, pressed: configuration.isPressed), in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(border(lit)))
-        .scaleEffect(configuration.isPressed ? 0.97 : 1)
-        .opacity(enabled ? 1 : 0.45)
-        .contentShape(Rectangle())
-        .onHover { hovering = $0 }
-        .pointingHand(enabled)
-        .animation(Theme.hover, value: lit)
-        .animation(Theme.press, value: configuration.isPressed)
+      if let round {
+        configuration.label
+          .foregroundStyle(enabled ? foreground(lit) : Theme.faint)
+          .frame(width: round, height: round)
+          .background(enabled ? background(lit: lit, pressed: false) : Theme.line, in: Circle())
+          .scaleEffect(configuration.isPressed ? 0.97 : 1)
+          .contentShape(Circle())
+          .onHover { hovering = $0 }
+          .pointingHand(enabled)
+          .animation(Theme.hover, value: lit)
+          .animation(Theme.press, value: configuration.isPressed)
+      } else {
+        configuration.label
+          .font(.kos(small ? .detail : .control, .semibold))
+          .foregroundStyle(foreground(lit))
+          .padding(.horizontal, small ? 8 : 12)
+          .padding(.vertical, small ? 3 : 6.5)
+          .background(background(lit: lit, pressed: configuration.isPressed), in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+          .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(border(lit)))
+          .scaleEffect(configuration.isPressed ? 0.97 : 1)
+          .opacity(enabled ? 1 : 0.45)
+          .contentShape(Rectangle())
+          .onHover { hovering = $0 }
+          .pointingHand(enabled)
+          .animation(Theme.hover, value: lit)
+          .animation(Theme.press, value: configuration.isPressed)
+      }
     }
 
     private func foreground(_ lit: Bool) -> Color {

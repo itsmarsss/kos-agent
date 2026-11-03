@@ -438,7 +438,7 @@ public struct HomeView: View {
   private var restartNotice: some View {
     Card(tone: Theme.warn, wash: true, padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)) {
       HStack(spacing: 10) {
-        Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.warn)
+        Image(systemName: "arrow.clockwise").font(.kos(.detail, .semibold)).foregroundStyle(Theme.warn)
         Text("Switched Screen Recording on? macOS applies it when KOS for Mac starts again.")
           .font(.kos(.small)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
         Spacer(minLength: 8)
@@ -495,7 +495,7 @@ public struct HomeView: View {
           let absent = model.hidden.filter { !$0.installed }.map(\.name)
           if !absent.isEmpty {
             Text("Also hidden if installed: \(absent.joined(separator: ", ")).")
-              .font(.kos(.tiny)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
+              .font(.kos(.tiny)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
           }
           HStack {
             Spacer()

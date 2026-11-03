@@ -235,7 +235,7 @@ public func chatInline(_ text: String, size: CGFloat = KOSType.body.rawValue) ->
       let tint = Theme.violet.opacity(Theme.tint).blended(over: Theme.bg)
       piece.swiftUI.foregroundColor = Theme.violet
       piece.swiftUI.backgroundColor = tint
-      piece.swiftUI.font = .system(size: KOSType.detail.rawValue, weight: .medium)
+      piece.swiftUI.font = .kos(.detail, .medium)
       styled += pad(tint, size: size) + piece + pad(tint, size: size)
     } else if ["http", "https", "mailto"].contains(link.scheme?.lowercased() ?? "") {
       // Nothing but the web and mail opens from KOS's words; what does is underlined, as in the dashboard's prose.
@@ -309,21 +309,21 @@ private struct BlockView: View {
       Text(chatInline(text)).fixedSize(horizontal: false, vertical: true)
     case .heading(_, let text):
       // One size for every level, the chat's own, set apart by weight, as the dashboard's are.
-      Text(chatInline(text)).font(.system(size: KOSType.body.rawValue, weight: .semibold)).padding(.top, 2)
+      Text(chatInline(text)).font(.kos(.body, .semibold)).padding(.top, 2)
     case .small(let text):
-      Text(chatInline(text, size: KOSType.detail.rawValue)).font(.system(size: KOSType.detail.rawValue)).foregroundStyle(Theme.muted)
+      Text(chatInline(text, size: KOSType.detail.rawValue)).font(.kos(.detail)).foregroundStyle(Theme.muted)
     case .quote(let text):
       Text(chatInline(text))
         .foregroundStyle(Theme.muted)
         .padding(.leading, 10)
         .overlay(alignment: .leading) { Rectangle().fill(Theme.lineStrong).frame(width: 2) }
     case .code(let code):
-      ScrollView(.horizontal, showsIndicators: false) {
-        Text(code).font(.system(size: KOSType.dense.rawValue, design: .monospaced)).foregroundStyle(Theme.text)
-          .padding(.horizontal, 11).padding(.vertical, 10)
+      Card(padding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)) {
+        ScrollView(.horizontal, showsIndicators: false) {
+          Text(code).font(.kos(.dense, design: .monospaced)).foregroundStyle(Theme.text)
+            .padding(.horizontal, 11).padding(.vertical, 10)
+        }
       }
-      .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous))
-      .overlay(RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous).strokeBorder(Theme.line))
     case .list(let ordered, let start, let items):
       VStack(alignment: .leading, spacing: 3) {
         ForEach(Array(items.enumerated()), id: \.offset) { i, item in
@@ -340,7 +340,7 @@ private struct BlockView: View {
         Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 6) {
           GridRow {
             ForEach(Array(head.enumerated()), id: \.offset) { j, cell in
-              Text(chatInline(cell, size: KOSType.dense.rawValue)).font(.system(size: KOSType.dense.rawValue, weight: .semibold)).foregroundStyle(Theme.muted)
+              Text(chatInline(cell, size: KOSType.dense.rawValue)).font(.kos(.dense, .semibold)).foregroundStyle(Theme.muted)
                 .gridColumnAlignment(j < align.count ? align[j] : .leading)
             }
           }
@@ -348,7 +348,7 @@ private struct BlockView: View {
             Hairline()
             GridRow {
               ForEach(0..<head.count, id: \.self) { j in
-                Text(chatInline(j < row.count ? row[j] : "", size: KOSType.table.rawValue)).font(.system(size: KOSType.table.rawValue))
+                Text(chatInline(j < row.count ? row[j] : "", size: KOSType.table.rawValue)).font(.kos(.table))
               }
             }
           }
