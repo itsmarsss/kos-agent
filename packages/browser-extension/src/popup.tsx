@@ -81,15 +81,15 @@ function Popup(): ReactElement {
       <header className="head">
         <Face size={36} mood={mood(state)} look={state?.session?.face ?? best?.face} />
         <div className="head-text">
-          <strong>KOS</strong>
-          <span className="sub">Only when you allow.</span>
+          <strong>KOS for Chrome</strong>
+          <span className="sub">Only in sessions you allow.</span>
         </div>
         <Pill tone={pill.tone}>{pill.word}</Pill>
         <span className="head-actions">
           <AnimatePresence initial={false}>
             {page === "home" && state?.kos.length ? (
-              <m.button key="panel" type="button" className="icon-btn" aria-label="Chat beside your tabs" title="Chat with KOS beside your tabs" onClick={() => void openPanel()} initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }} transition={spring}>
-                <Icon path={ICONS.panel} size={14} />
+              <m.button key="panel" type="button" className="icon-btn" aria-label="Chat with KOS" title="Chat with KOS beside your tabs" onClick={() => void openPanel()} initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }} transition={spring}>
+                <Icon path={ICONS.chat} size={14} />
               </m.button>
             ) : null}
             {page === "home" && (
