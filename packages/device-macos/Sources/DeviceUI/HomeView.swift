@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// KOS Device's one window: where it stands with KOS, what macOS lets it do,
+/// KOS for Mac's one window: where it stands with KOS, what macOS lets it do,
 /// and the owner's own rules for this Mac.
 ///
 /// Three windows (pairing, permissions, hidden apps) became one, so the
@@ -157,7 +157,7 @@ public struct HomeView: View {
     HStack(alignment: .center, spacing: 12) {
       KOSFace(size: 42, mood: faceMood, look: model.face)
       VStack(alignment: .leading, spacing: 2) {
-        Text("KOS Device").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text)
+        Text("KOS for Mac").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text)
         Text("Only in sessions you allow.").font(.system(size: 12)).foregroundStyle(Theme.muted)
       }
       Spacer(minLength: 8)
@@ -307,7 +307,7 @@ public struct HomeView: View {
           .background(Theme.warn.opacity(0.14), in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
         VStack(alignment: .leading, spacing: 3) {
           Text("Can't read the pairings").font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.text)
-          Text("\(problem) If macOS asks whether KOS Device may use its Keychain item, choose Always Allow. The pairings are still there.")
+          Text("\(problem) If macOS asks whether KOS for Mac may use its Keychain item, choose Always Allow. The pairings are still there.")
             .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
         }
       }
@@ -409,8 +409,8 @@ public struct HomeView: View {
     case .connecting: return "Connecting. Dialling out; nothing listens on this Mac."
     case .offline(let why): return "Can't reach it: \(why)"
     case .untrusted: return "It could not sign with the key from pairing, so nothing it says is acted on."
-    case .replaced: return "Another KOS Device with this pairing took the line. Reconnect to take it back."
-    case .outdated: return "It is newer than this app. Update KOS Device to keep using it."
+    case .replaced: return "Another KOS for Mac with this pairing took the line. Reconnect to take it back."
+    case .outdated: return "It is newer than this app. Update KOS for Mac to keep using it."
     case .disconnected: return "Not connected. It can't reach this Mac until you connect; the pairing stays."
     }
   }
@@ -454,7 +454,7 @@ public struct HomeView: View {
   private var restartNotice: some View {
     HStack(spacing: 10) {
       Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.warn)
-      Text("Switched Screen Recording on? macOS applies it when KOS Device starts again.")
+      Text("Switched Screen Recording on? macOS applies it when KOS for Mac starts again.")
         .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
       Spacer(minLength: 8)
       Button("Restart", action: model.actions.restart).buttonStyle(KOSButtonStyle(.secondary))

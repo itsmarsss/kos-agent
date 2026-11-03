@@ -1,4 +1,4 @@
-# KOS Device for macOS
+# KOS for Mac
 
 The menu bar app that lets KOS see and use this Mac, only in sessions you
 allow, with a glowing border, KOS's own cursor and a Stop button on screen the
@@ -10,7 +10,7 @@ the security model are in [docs/computer.md](../../docs/computer.md).
 Needs macOS 14 or later and the Xcode Command Line Tools.
 
 ```sh
-./scripts/bundle.sh            # builds build/KOS Device.app
+./scripts/bundle.sh            # builds build/KOS for Mac.app
 ./scripts/bundle.sh --install  # and swaps it into ~/Applications, quitting and reopening the running one
 ./scripts/test.sh              # the protocol, session and input rules, and every window drawn
 ```
@@ -19,8 +19,8 @@ Needs macOS 14 or later and the Xcode Command Line Tools.
 the Command Line Tools are installed. With `KOS_SNAPSHOT_DIR` set, each window
 state is also written there as a PNG.
 
-Open `~/Applications/KOS Device.app`. It lives in the menu bar; its one
-window (Open KOS Device in the menu) holds the pairing, the permissions and
+Open `~/Applications/KOS for Mac.app`. It lives in the menu bar; its one
+window (Open KOS for Mac in the menu) holds the pairing, the permissions and
 your rules for this Mac.
 
 ## Pair
@@ -113,7 +113,7 @@ Behind the gear, kept on this Mac, and nothing KOS sends can change them:
 
 ## Log
 
-KOS Device writes each line's dialling, proofs, drops and redials, each
+KOS for Mac writes each line's dialling, proofs, drops and redials, each
 pairing read and kept, and each session asked, allowed, paused and ended, to
 the system log. Tasks are kept private. Spelled out as `/usr/bin/log`, since in
 zsh a bare `log` is a builtin of the shell's own:

@@ -1,6 +1,6 @@
 import Foundation
 
-/// The chat in KOS Device's window, as it stands and as it goes: what KOS
+/// The chat in KOS for Mac's window, as it stands and as it goes: what KOS
 /// last showed, the owner's words on their way, the running turn's steps,
 /// and what waits on the owner. The side panel's chat, kept the same way
 /// (packages/browser-extension panel.tsx): the transcript KOS shows is the

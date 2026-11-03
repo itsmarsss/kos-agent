@@ -33,7 +33,7 @@ jobs:
       - run: pnpm lint
 
       # The extension's test drives the built extension in the runner's Chrome.
-      - name: Build the KOS extension
+      - name: Build KOS for Chrome
         run: pnpm -C packages/browser-extension build
 
       - run: pnpm test
@@ -54,7 +54,7 @@ jobs:
       - name: Verify ripgrep is present in the image
         run: docker run --rm --entrypoint rg kos:ci --version
 
-  # KOS Device: the app on a computer KOS may use. Native, so it builds and
+  # KOS for Mac: the app on a computer KOS may use. Native, so it builds and
   # tests on macOS, apart from the TypeScript checks above.
   device-macos:
     runs-on: macos-15

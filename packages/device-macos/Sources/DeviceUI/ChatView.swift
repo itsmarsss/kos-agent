@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// KOS Device's chat window: the side panel's chat, floating over the
+/// KOS for Mac's chat window: the side panel's chat, floating over the
 /// owner's apps (docs/design.md, Chat). KOS's face and the chat's name lead
 /// it, the name opening the window's own chats; the thread, then what waits
 /// on the owner, then the box, with the app in front, the model and Ask or

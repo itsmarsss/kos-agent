@@ -24,7 +24,7 @@ public struct TargetChoice: Identifiable, Equatable {
 
 /// The owner's yes or no to a session: who asks, for what, for how long.
 ///
-/// The one moment KOS Device interrupts, so it says plainly what allowing
+/// The one moment KOS for Mac interrupts, so it says plainly what allowing
 /// means, and it counts down to no rather than waiting on a Mac nobody is at.
 
 @MainActor

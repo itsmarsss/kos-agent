@@ -195,7 +195,7 @@ struct RenderTests {
 
   @Test func theKeychainRefusedThePairings() throws {
     let model = home {
-      $0.keychainProblem = "The Keychain would not give KOS Device its pairings (User interaction is not allowed.)."
+      $0.keychainProblem = "The Keychain would not give KOS for Mac its pairings (User interaction is not allowed.)."
       $0.screenGranted = true
       $0.inputGranted = true
     }

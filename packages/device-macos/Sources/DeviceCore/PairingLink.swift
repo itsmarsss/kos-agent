@@ -17,7 +17,7 @@ public struct PairingLink: Equatable, Sendable {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let parts = URLComponents(string: trimmed), parts.scheme?.lowercased() == scheme else { return nil }
     guard parts.host?.lowercased() == "pair" else {
-      throw DeviceError.badRequest("That KOS Device link is not a pairing link.")
+      throw DeviceError.badRequest("That KOS for Mac link is not a pairing link.")
     }
     let items = parts.queryItems ?? []
     guard let url = items.first(where: { $0.name == "url" })?.value,

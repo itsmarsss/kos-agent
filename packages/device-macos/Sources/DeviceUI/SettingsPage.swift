@@ -57,7 +57,7 @@ struct SettingsPage: View {
           Divider().overlay(Theme.line)
           toggle(
             "Connect when it opens",
-            model.connectWhenOpened ? "KOS can reach this Mac as soon as KOS Device is running." : "Off: it waits for Connect, so KOS cannot reach this Mac until you say.",
+            model.connectWhenOpened ? "KOS can reach this Mac as soon as KOS for Mac is running." : "Off: it waits for Connect, so KOS cannot reach this Mac until you say.",
             isOn: model.connectWhenOpened, set: model.actions.setConnectWhenOpened)
           Divider().overlay(Theme.line)
           toggle(
@@ -66,7 +66,7 @@ struct SettingsPage: View {
             isOn: model.sounds, set: model.actions.setSounds)
           Divider().overlay(Theme.line)
           toggle(
-            "Time left in the menu bar", "Beside KOS Device's icon, while a session runs.",
+            "Time left in the menu bar", "Beside the KOS for Mac icon, while a session runs.",
             isOn: model.timeInMenuBar, set: model.actions.setTimeInMenuBar)
         }
       }
@@ -75,7 +75,7 @@ struct SettingsPage: View {
           HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
               Text("Log").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
-              Text("The line to each KOS and every session, since KOS Device opened. Tasks are kept out. Copy it to send when something went wrong.")
+              Text("The line to each KOS and every session, since KOS for Mac opened. Tasks are kept out. Copy it to send when something went wrong.")
                 .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
@@ -124,7 +124,7 @@ struct SettingsPage: View {
 
   private var loginDetail: String {
     switch model.openAtLogin {
-    case .on: return "KOS Device starts with your Mac."
+    case .on: return "KOS for Mac starts with your Mac."
     case .needsApproval: return "On, once macOS has your OK."
     case .off: return "Off: open it yourself when KOS should reach this Mac."
     }

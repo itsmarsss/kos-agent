@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A signing key for KOS Device that stays the same from build to build, in a
+# A signing key for KOS for Mac that stays the same from build to build, in a
 # keychain of its own, locked by a PIN you choose.
 #
 # Signed ad hoc, every build is a new app to macOS: its Screen Recording and
@@ -15,15 +15,16 @@
 set -euo pipefail
 
 KEYCHAIN="${KOS_DEVICE_SIGNING_KEYCHAIN:-$HOME/Library/Keychains/kos-device-signing.keychain-db}"
+# The key keeps the app's first name: a new one would mean asking for every permission again.
 NAME="KOS Device Local Signing"
 
 case "${1:-}" in
   setup)
     if [[ -e "$KEYCHAIN" ]]; then
-      echo "A KOS Device signing key already exists ($KEYCHAIN)." >&2
+      echo "A KOS for Mac signing key already exists ($KEYCHAIN)." >&2
       exit 1
     fi
-    read -r -s -p "Choose a PIN for the KOS Device signing key (6 or more characters): " PIN
+    read -r -s -p "Choose a PIN for the KOS for Mac signing key (6 or more characters): " PIN
     echo
     read -r -s -p "Again: " AGAIN
     echo
@@ -45,7 +46,7 @@ case "${1:-}" in
     security import "$WORK/id.p12" -k "$KEYCHAIN" -P "$PIN" -T /usr/bin/codesign >/dev/null
     security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PIN" "$KEYCHAIN" >/dev/null
     security lock-keychain "$KEYCHAIN"
-    echo "Made. The next build asks for this PIN once, and macOS asks for KOS Device's permissions one last time."
+    echo "Made. The next build asks for this PIN once, and macOS asks for its permissions one last time."
     ;;
   identity)
     [[ -e "$KEYCHAIN" ]] || exit 1

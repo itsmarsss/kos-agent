@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// KOS's design tokens, so KOS Device reads as KOS (docs/design.md).
+/// KOS's design tokens, so KOS for Mac reads as KOS (docs/design.md).
 ///
 /// The values are packages/shared/src/design.ts, declared here as the
 /// dashboard's styles.css and the extension's kos.css declare them, and held
-/// to it by design.test.ts. KOS Device's windows are always dark, like the
+/// to it by design.test.ts. KOS for Mac's windows are always dark, like the
 /// border and cursor it draws over the screen.
 public enum Theme {
   public static let bg = Color(hex: 0x0C0E12)
