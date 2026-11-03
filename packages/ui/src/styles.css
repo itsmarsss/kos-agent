@@ -4322,19 +4322,6 @@ li:hover .chats-item-when { opacity: 0; }
 .ext-add-area { margin-top: 0.5rem; padding-top: 1rem; border-top: 1px solid var(--line); }
 .ext-add-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.7rem; }
 .ext-add-head h3 { margin: 0; }
-.ext-tabs { display: inline-flex; gap: 0.15rem; padding: 0.15rem; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); }
-.ext-tab {
-  padding: 0.25rem 0.75rem;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-.ext-tab:hover { color: var(--text); }
-.ext-tab.is-on { color: var(--text); background: var(--panel-2); }
 .ext-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0 0.7rem; }
 .ext-source {
   padding: 0.3rem 0.7rem;
@@ -5542,7 +5529,6 @@ a.health {
 .mem-lean > .btn { flex: none; }
 .mem-row { padding: 0.35rem 0; border-top: 1px solid var(--line); font-size: var(--text-base); }
 .mem-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
-.mem-chips { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .mem-page { display: flex; flex-direction: column; gap: 0.4rem; }
 .mem-search { width: 100%; max-width: 32rem; }
 .mem-event { padding: 0.5rem 0; border-top: 1px solid var(--line); }

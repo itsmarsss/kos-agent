@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 
 import { api, type CatalogMcp, type CatalogMcpListing, type CatalogSkills, type RepoHit } from "./api.js";
-import { Empty } from "@kos/kit";
+import { Chips, Empty } from "@kos/kit";
 
 /**
  * Adding skills and MCP servers from Settings.
@@ -23,32 +23,6 @@ function errorText(err: unknown): string {
 /** How many rows a list shows before "Show more". */
 const FIRST = 8;
 
-function Tabs<T extends string>({
-  tabs,
-  active,
-  onChange,
-}: {
-  tabs: { id: T; label: string }[];
-  active: T;
-  onChange: (id: T) => void;
-}): ReactElement {
-  return (
-    <div className="ext-tabs" role="tablist">
-      {tabs.map((t) => (
-        <button
-          key={t.id}
-          type="button"
-          role="tab"
-          aria-selected={t.id === active}
-          className={`ext-tab${t.id === active ? " is-on" : ""}`}
-          onClick={() => onChange(t.id)}
-        >
-          {t.label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 /** A row that opens to its full text when its words are clicked. */
 function Row({
@@ -186,14 +160,16 @@ export function SkillsAdd({ onInstalled }: { onInstalled: () => void }): ReactEl
     <div className="set-group ext-add-area">
       <div className="ext-add-head">
         <h3>Add a skill</h3>
-        <Tabs<SkillTab>
-          tabs={[
-            { id: "browse", label: "Browse" },
-            { id: "search", label: "Search GitHub" },
-            { id: "url", label: "From a URL" },
+        <Chips<SkillTab>
+          small
+          label="How to add a skill"
+          options={[
+            ["browse", "Browse"],
+            ["search", "Search GitHub"],
+            ["url", "From a URL"],
           ]}
-          active={tab}
-          onChange={setTab}
+          selected={tab}
+          onChoose={setTab}
         />
       </div>
       {error && <p className="ops-alert ops-alert--err">{error}</p>}
@@ -594,14 +570,16 @@ export function McpAdd({ onAdded }: { onAdded: () => void }): ReactElement {
     <div className="set-group ext-add-area">
       <div className="ext-add-head">
         <h3>Add a server</h3>
-        <Tabs<McpTab>
-          tabs={[
-            { id: "picks", label: "Picks" },
-            { id: "search", label: "Search the registry" },
-            { id: "manual", label: "By hand" },
+        <Chips<McpTab>
+          small
+          label="How to add a server"
+          options={[
+            ["picks", "Picks"],
+            ["search", "Search the registry"],
+            ["manual", "By hand"],
           ]}
-          active={tab}
-          onChange={setTab}
+          selected={tab}
+          onChoose={setTab}
         />
       </div>
       {error && <p className="ops-alert ops-alert--err">{error}</p>}

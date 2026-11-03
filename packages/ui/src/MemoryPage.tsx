@@ -288,13 +288,12 @@ function PagesTab(): ReactElement {
           <button type="button" className="btn btn--sm" onClick={() => void api.importMemoryPages().then(load, load)}>Read edits into memory</button>
         </p>
       )}
-      <div className="mem-chips">
-        {pages.map((p) => (
-          <button key={p.name} type="button" className={`btn btn--sm ${open?.name === p.name ? "is-active" : ""}`} onClick={() => void api.memoryPage(p.name).then(setOpen).catch(() => undefined)}>
-            {p.name}{edited.includes(p.name) ? " (edited)" : ""}
-          </button>
-        ))}
-      </div>
+      <Chips
+        label="Memory pages"
+        options={pages.map((p) => [p.name, `${p.name}${edited.includes(p.name) ? " (edited)" : ""}`] as const)}
+        selected={open?.name ?? null}
+        onChoose={(name) => void api.memoryPage(name).then(setOpen).catch(() => undefined)}
+      />
       {open && (
         <div className="mem-page">
           <div className="hint ops-mono">memory/{open.name}.md</div>

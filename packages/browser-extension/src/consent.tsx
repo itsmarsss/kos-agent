@@ -1,5 +1,5 @@
 import { KOS_SEED } from "@kos/shared";
-import { Chips, Face, listItem, spring, stagger } from "@kos/kit";
+import { Chips, Face, listItem, Section, spring, stagger } from "@kos/kit";
 import { LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { useEffect, useState, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -53,12 +53,11 @@ function Consent(): ReactElement {
       </m.p>
       {request && (
         <>
-          <m.div className="section" variants={listItem}>
-            <p className="label">For how long</p>
+          <Section label="For how long">
             <div id="minutes">
               <Chips options={choices.map((v) => [v, minutesWords(v)])} selected={minutes} onChoose={setMinutes} />
             </div>
-          </m.div>
+          </Section>
           <m.p className="hint" variants={listItem}>
             KOS works in a window of its own and in tabs you give it, nowhere else. Click or type in one of its tabs to take over; Stop ends it.
           </m.p>
