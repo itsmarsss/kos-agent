@@ -35,7 +35,9 @@ The panel button in the popup opens a chat with KOS beside your tabs, as
 Claude in Chrome does. It is one more surface, `chrome`, carried on the
 pairing's own line: one stream like iMessage's, shown on the dashboard as
 Chrome, with `/new` behind the pen. The chat is the one KOS keeps, so a turn
-taken on the dashboard shows in the panel too, each turn's steps fold to a
+taken on the dashboard (or in another of your Chromes) shows in the panel as
+it goes, as it does in its Discord thread: your words when it starts, its
+steps as they happen, the answer when it lands. Each turn's steps fold to a
 line you can open, and an approval the chat asks for is decided in place.
 
 - **Reading the page.** Each message says which tab it was said beside,
@@ -163,7 +165,7 @@ beside it when the chat asks.
 | Method | Params | Result |
 | --- | --- | --- |
 | `chat.show` | `conversation` (or null), `title`, `messages [{ role, text?, files?, steps? }]`, `notice? { text, from? }` | `{}` |
-| `chat.status` | `conversation`, `taken?` (the words arrived; said at once), `story?` (the turn's steps so far, `› ` before each; null when done), `error?` | `{}` |
+| `chat.status` | `conversation`, `said?` (the owner's words the turn is for), `taken?` (KOS has those words, said at once; ones said elsewhere are drawn on their way), `story?` (the turn's steps so far, `› ` before each; null when done), `error?` | `{}` |
 | `chat.ask` | `approval { id, tool, args?, why?, reason? }` | `{}` |
 | `chat.settled` | `approval`, `outcome` (`approved`, `denied`, `expired`) | `{}` |
 | `chat.chats` | `chats [{ id, title, updatedAt }]`, `current` | `{}` |
