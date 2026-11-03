@@ -10,7 +10,7 @@ import { Field } from "./SettingField.js";
  * The computers KOS may use, and pairing one.
  *
  * A computer is paired by a code made here and typed (or a link opened) in
- * KOS Device on it. The list is polled while it is open, so a device coming
+ * KOS for Mac on it. The list is polled while it is open, so a device coming
  * online, a session starting or the owner pausing it on the computer shows
  * without a reload.
  */
@@ -49,7 +49,7 @@ function SessionRules({ settings, onChange }: { settings: ComputerSettings; onCh
   );
 }
 
-/** The link KOS Device opens itself on, with this dashboard's address in it. */
+/** The link KOS for Mac opens itself on, with this dashboard's address in it. */
 export function pairingLink(origin: string, code: string): string {
   return `kos-device://pair?url=${encodeURIComponent(origin)}&code=${encodeURIComponent(code)}`;
 }
@@ -67,11 +67,11 @@ function missing(d: PairedDevice): string | undefined {
 
 export function describeDevice(d: PairedDevice, now = Date.now()): string {
   const browser = d.kind === "browser";
-  if (!d.online) return d.lastSeen ? `Offline, last seen ${agoWords(d.lastSeen, now)}` : browser ? "Never connected. Pair it from the KOS extension." : "Never connected. Open KOS Device on it.";
+  if (!d.online) return d.lastSeen ? `Offline, last seen ${agoWords(d.lastSeen, now)}` : browser ? "Never connected. Pair it from KOS for Chrome." : "Never connected. Open KOS for Mac on it.";
   const parts = [
     browser
-      ? `Your own Chrome${d.os ? ` on ${d.os}` : ""}, through the KOS extension; not KOS's browser`
-      : `Your computer${[platformName(d.platform), d.os].filter(Boolean).length ? `, ${[platformName(d.platform), d.os].filter(Boolean).join(" ")}` : ""}, through KOS Device`,
+      ? `Your own Chrome${d.os ? ` on ${d.os}` : ""}, through KOS for Chrome; not KOS's browser`
+      : `Your computer${[platformName(d.platform), d.os].filter(Boolean).length ? `, ${[platformName(d.platform), d.os].filter(Boolean).join(" ")}` : ""}, through KOS for Mac`,
     browser ? "asks in Chrome" : d.consent === "kos" ? "starts through your approvals" : "asks on the computer",
     missing(d),
   ].filter(Boolean);
@@ -146,12 +146,12 @@ function PairingCode({ code, now, onDone }: { code: DeviceCode; now: number; onD
       </p>
       <p className="hint">
         {left > 0
-          ? `On a Mac, open KOS Device and paste the link, or enter ${origin} and this code. In Chrome, paste the link into the KOS extension. Good for ${left} more minute${left === 1 ? "" : "s"}, once.`
+          ? `On a Mac, open KOS for Mac and paste the link, or enter ${origin} and this code. In Chrome, paste the link into KOS for Chrome. Good for ${left} more minute${left === 1 ? "" : "s"}, once.`
           : "This code has expired. Make another."}
       </p>
       <div className="set-inline">
         <a className="btn btn--primary btn--sm" href={link}>
-          Open KOS Device
+          Open KOS for Mac
         </a>
         <button type="button" className="btn btn--sm" onClick={() => copy("link", link)}>
           {copied === "link" ? "Link copied" : "Copy link"}
@@ -219,7 +219,7 @@ export function DevicesPanel(): ReactElement {
   return (
     <>
       {devices.length === 0 && !code && (
-        <p className="hint">Nothing paired yet. Install KOS Device on a Mac, or the KOS extension in Chrome, then add it here.</p>
+        <p className="hint">Nothing paired yet. Install KOS for Mac on a Mac or KOS for Chrome in Chrome, then add it here.</p>
       )}
       {joined && <p className="hint">Paired {joined}.</p>}
       <div className="set-rows">

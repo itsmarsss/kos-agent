@@ -25,9 +25,9 @@ const laptop: PairedDevice = {
 
 describe("a paired computer, in words", () => {
   it("says where it stands and what it is missing", () => {
-    expect(describeDevice(laptop)).toBe("Your computer, macOS 26.4.1, through KOS Device · asks on the computer");
+    expect(describeDevice(laptop)).toBe("Your computer, macOS 26.4.1, through KOS for Mac · asks on the computer");
     expect(describeDevice({ ...laptop, consent: "kos", permissions: { screen: false, input: true } })).toBe(
-      "Your computer, macOS 26.4.1, through KOS Device · starts through your approvals · Needs Screen Recording on the computer",
+      "Your computer, macOS 26.4.1, through KOS for Mac · starts through your approvals · Needs Screen Recording on the computer",
     );
     expect(describeDevice({ ...laptop, online: false, lastSeen: 1_000 }, 1_000 + 3 * 3_600_000)).toBe("Offline, last seen 3h ago");
     expect(describeDevice({ ...laptop, online: false, lastSeen: null })).toMatch(/Never connected/);
@@ -41,11 +41,11 @@ describe("a paired computer, in words", () => {
 
   it("says a Chrome is a Chrome, that asks in Chrome and needs no grants", () => {
     const chrome: PairedDevice = { ...laptop, name: "Chrome", platform: "chrome", kind: "browser", os: "macOS", permissions: { screen: false, input: false, tabs: true } };
-    expect(describeDevice(chrome)).toBe("Your own Chrome on macOS, through the KOS extension; not KOS's browser · asks in Chrome");
-    expect(describeDevice({ ...chrome, online: false, lastSeen: null })).toMatch(/Pair it from the KOS extension/);
+    expect(describeDevice(chrome)).toBe("Your own Chrome on macOS, through KOS for Chrome; not KOS's browser · asks in Chrome");
+    expect(describeDevice({ ...chrome, online: false, lastSeen: null })).toMatch(/Pair it from KOS for Chrome/);
   });
 
-  it("opens KOS Device with this dashboard's address and the code", () => {
+  it("opens KOS for Mac with this dashboard's address and the code", () => {
     expect(pairingLink("http://127.0.0.1:4317", "K7QX-M2PA")).toBe("kos-device://pair?url=http%3A%2F%2F127.0.0.1%3A4317&code=K7QX-M2PA");
   });
 });
@@ -81,7 +81,7 @@ describe("the Devices panel", () => {
     render(<DevicesPanel />);
     fireEvent.click(await screen.findByRole("button", { name: "Add a device" }));
     expect(await screen.findByLabelText("Pairing code")).toBeTruthy();
-    expect(screen.getByText("Open KOS Device").getAttribute("href")).toMatch(/^kos-device:\/\/pair\?url=.*&code=K7QX-M2PA$/);
+    expect(screen.getByText("Open KOS for Mac").getAttribute("href")).toMatch(/^kos-device:\/\/pair\?url=.*&code=K7QX-M2PA$/);
     expect(screen.getByText(/Good for 10 more minutes, once/)).toBeTruthy();
 
     devices.mockResolvedValue({ devices: [laptop], settings: { askMinutes: 15, unattended: false } });

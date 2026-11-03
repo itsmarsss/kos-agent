@@ -11,7 +11,7 @@ import { DeviceStore } from "./store.js";
 import { computerModule } from "./tools.js";
 
 /**
- * The owner's Chrome, paired through the KOS extension: a device that offers
+ * The owner's Chrome, paired through KOS for Chrome: a device that offers
  * tabs. Its session is asked for like a computer's; while a chat has one,
  * that chat's browser tools are driven through the extension.
  */
@@ -194,6 +194,6 @@ describe("a Chrome beside a computer", () => {
     mac.hello();
     expect([...tools.keys()].sort()).toEqual(["chrome.end", "chrome.page", "chrome.start", "computer.act", "computer.devices", "computer.end", "computer.start"]);
     await expect(attendance.run(true, () => tools.get("computer.start")!({ task: "x", device: "Chrome on macOS" }))).rejects.toThrow(/is the owner's Chrome, not a computer; chrome.start/);
-    expect(await tools.get("computer.devices")!({})).toMatch(/Chrome on macOS \(dev_[^)]+\): the owner's own Chrome, through the KOS extension; chrome.start works in it \(it is not KOS's own browser\)/);
+    expect(await tools.get("computer.devices")!({})).toMatch(/Chrome on macOS \(dev_[^)]+\): the owner's own Chrome, through KOS for Chrome; chrome.start works in it \(it is not KOS's own browser\)/);
   });
 });

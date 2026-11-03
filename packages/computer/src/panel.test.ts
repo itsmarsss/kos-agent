@@ -95,7 +95,7 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 };
 
-describe("KOS Device's window", () => {
+describe("the KOS for Mac window", () => {
   it("takes the owner's words from a paired Mac only, with the app in front as where they spoke", async () => {
     const { panel, pair, setChat } = setup({ place: MAC_PANEL });
     const chrome = pair();

@@ -61,7 +61,7 @@ export interface HubDeps {
   callTimeoutMs?: number;
 }
 
-/** A computer KOS Device runs on, or a Chrome the KOS extension runs in. */
+/** A computer running KOS for Mac, or a Chrome running KOS for Chrome. */
 export type DeviceKind = "computer" | "browser";
 
 export function kindOf(device: { platform: string }): DeviceKind {
@@ -274,10 +274,10 @@ export class DeviceHub {
       throw new DeviceError("busy", "this chat already has a session on another device; end it first");
     }
     const link = this.links.get(input.device.id);
-    if (!link?.ready) throw new DeviceError("offline", `${input.device.name} is offline: KOS Device is not running on it, or cannot reach KOS`);
+    if (!link?.ready) throw new DeviceError("offline", `${input.device.name} is offline: KOS for Mac is not running on it, or cannot reach KOS`);
     const browser = kindOf(input.device) === "browser";
     const missing = browser ? undefined : missingPermissions(link.state?.permissions);
-    if (missing) throw new DeviceError("permission", `${input.device.name} has not granted ${missing} to KOS Device yet`);
+    if (missing) throw new DeviceError("permission", `${input.device.name} has not granted ${missing} to KOS for Mac yet`);
     const other = [...this.sessions.values()].find((s) => s.device === input.device.id);
     if (other) throw new DeviceError("busy", `${input.device.name} is in use by another chat`);
 

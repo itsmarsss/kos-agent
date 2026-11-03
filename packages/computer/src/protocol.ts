@@ -31,7 +31,7 @@ export interface Permissions {
   tabs?: boolean;
 }
 
-/** The platform the KOS extension says it is: a Chrome, which offers tabs rather than a screen. */
+/** The platform KOS for Chrome says it is: a Chrome, which offers tabs rather than a screen. */
 export const BROWSER_PLATFORM = "chrome";
 
 export interface Display {

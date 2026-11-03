@@ -17,7 +17,7 @@ import type { Capture, Point } from "./protocol.js";
  * The tools exist only while a device is paired: a chat on a KOS with no
  * computer is not offered four tools that cannot work.
  *
- * chrome.*: a paired Chrome (the KOS extension), as two. `start` asks the
+ * chrome.*: a paired Chrome (KOS for Chrome), as two. `start` asks the
  * owner there for a session, and while it lasts the chat's browser tools
  * work in that Chrome instead of KOS's own; `end` gives it back. Offered only
  * while a Chrome is paired.
@@ -125,7 +125,7 @@ function endingText(why: string): string {
     case "idle":
       return "it sat idle";
     case "quit":
-      return "KOS Device was quit";
+      return "KOS for Mac was quit";
     case "offline":
       return "the computer went offline";
     case "removed":
@@ -219,8 +219,8 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
       {
         name: "computer.devices",
         description:
-          "What the owner has paired with KOS: their computers (KOS Device: the whole screen, apps, pointer and keys, for computer.start) " +
-          "and their own Chromes (the KOS extension: tabs in the Chrome they use, for chrome.start). Neither is KOS's own browser, which the " +
+          "What the owner has paired with KOS: their computers (KOS for Mac: the whole screen, apps, pointer and keys, for computer.start) " +
+          "and their own Chromes (KOS for Chrome: tabs in the Chrome they use, for chrome.start). Neither is KOS's own browser, which the " +
           "browser.* tools use and is always there. Says whether each is online, how a session on it is allowed, and whether one is in use.",
         inputSchema: { type: "object", properties: {} },
       },
@@ -234,8 +234,8 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
             const busy = d.session ? `in use by ${deps.titleOf(d.session.conversation)}${d.session.paused ? ", paused by the owner" : ""}` : "free";
             const what =
               d.kind === "browser"
-                ? "the owner's own Chrome, through the KOS extension; chrome.start works in it (it is not KOS's own browser)"
-                : `the owner's computer (${d.platform}), through KOS Device; computer.start uses its whole screen`;
+                ? "the owner's own Chrome, through KOS for Chrome; chrome.start works in it (it is not KOS's own browser)"
+                : `the owner's computer (${d.platform}), through KOS for Mac; computer.start uses its whole screen`;
             return `${d.name} (${d.id}): ${what}. ${[state, consent, d.online ? busy : ""].filter(Boolean).join(", ")}`;
           })
           .join("\n");
@@ -247,7 +247,7 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
       {
         name: "computer.start",
         description:
-          "Start using a paired computer (KOS Device): its whole screen, its apps, the pointer and keyboard. Not for the owner's Chrome " +
+          "Start using a paired computer (KOS for Mac): its whole screen, its apps, the pointer and keyboard. Not for the owner's Chrome " +
           "alone: when they mean their Chrome or the browser device, chrome.start works in it, tab by tab. When they ask for the computer and it " +
           "is offline, say so and offer their Chrome if one is online; do not switch to it unasked. The owner allows it on the computer, seeing `task`, " +
           "so say plainly what you will do. Name `app` when the work is in one app: the owner is offered its window first and may share " +

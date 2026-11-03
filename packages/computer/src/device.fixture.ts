@@ -6,7 +6,7 @@ import { PROTOCOL_VERSION, deviceProof, hostProof, type DeviceState } from "./pr
 
 /**
  * A device for tests: a real key, the real handshake, and a script of
- * answers. It stands where KOS Device would, at the other end of a socket
+ * answers. It stands where KOS for Mac would, at the other end of a socket
  * pair, so the hub under test is exercised exactly as a device drives it.
  */
 

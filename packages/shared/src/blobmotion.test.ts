@@ -30,7 +30,7 @@ describe("the blob's body", () => {
     expect(Math.max(...squat.map((p) => p[1]))).toBeLessThan(Math.max(...plain.map((p) => p[1])));
   });
 
-  it("draws a lumpy outline point for point as KOS Device does (BlobMotionTests.swift checks the same)", () => {
+  it("draws a lumpy outline point for point as KOS for Mac does (BlobMotionTests.swift checks the same)", () => {
     const pts = outline({ aspect: 1.02, squat: 0.12, spread: 1, lobes: [{ k: 3, amp: 0.05, phase: 0.4 }, { k: 2, amp: 0.04, phase: 1.1 }] });
     for (const [i, x, y] of [[0, 88.5498, 52], [3, 65.8268, 85.4294], [12, 50, 11.3346]] as const) {
       expect(pts[i]![0]).toBeCloseTo(x, 3);

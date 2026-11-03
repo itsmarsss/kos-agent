@@ -32,7 +32,7 @@ export interface ComputerUseOptions {
   halted(): boolean;
   /** KOS's face as the owner set it, sent to every device to draw KOS by. */
   face(): FaceDrawing;
-  /** The chat each device panel shows, read when it is shown: the Chrome side panel's, and KOS Device's window's. */
+  /** The chat each device panel shows, read when it is shown: the Chrome side panel's, and the KOS for Mac window's. */
   panels: { chrome: PanelDeps; mac: PanelDeps };
 }
 
