@@ -13,13 +13,13 @@ struct AppChip: View {
   var body: some View {
     HStack(spacing: 5) {
       AppIcon(app: app, size: 14)
-      Text(app.name).font(.system(size: 11.5, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
+      Text(app.name).font(.kos(.small, .medium)).foregroundStyle(Theme.text).lineLimit(1)
       Button(action: remove) {
         Image(systemName: "xmark")
           .font(.system(size: 8.5, weight: .bold))
           .foregroundStyle(onCross ? Theme.danger : hovering ? Theme.muted : Theme.faint)
           .frame(width: 14, height: 14)
-          .background(onCross ? Theme.danger.opacity(0.15) : .clear, in: Circle())
+          .background(onCross ? Theme.danger.opacity(Theme.tint) : .clear, in: Circle())
       }
       .buttonStyle(.plain)
       .onHover { onCross = $0 }
@@ -30,36 +30,27 @@ struct AppChip: View {
     .padding(.trailing, 5)
     .padding(.vertical, 4)
     .background(hovering ? Theme.line.opacity(0.7) : Theme.panel2, in: Capsule())
-    .overlay(Capsule().strokeBorder(onCross ? Theme.danger.opacity(0.45) : hovering ? Theme.lineStrong : Theme.line))
+    .overlay(Capsule().strokeBorder(onCross ? Theme.danger.opacity(Theme.edge) : hovering ? Theme.lineStrong : Theme.line))
     .onHover { hovering = $0 }
-    .animation(.easeOut(duration: 0.14), value: hovering)
-    .animation(.easeOut(duration: 0.14), value: onCross)
+    .animation(Theme.hover, value: hovering)
+    .animation(Theme.hover, value: onCross)
     .help(app.id)
   }
 }
 
-/// "Add app", opening the picker beneath it.
+/// "Add app", opening the picker beneath it: the ghost button "Add a KOS" is.
 struct AddAppButton: View {
   let apps: [AppEntry]
   let hide: (String) -> Void
   @State private var open = false
-  @State private var hovering = false
 
   var body: some View {
     Button {
       open.toggle()
     } label: {
       Label("Add app", systemImage: "plus")
-        .font(.system(size: 12, weight: .semibold))
-        .foregroundStyle(hovering || open ? Theme.accentLit : Theme.accent)
-        .padding(.horizontal, 7)
-        .padding(.vertical, 4)
-        .background(hovering || open ? Theme.accent.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
     }
-    .buttonStyle(.plain)
-    .onHover { hovering = $0 }
-    .pointingHand()
-    .animation(.easeOut(duration: 0.14), value: hovering)
+    .buttonStyle(KOSButtonStyle(.ghost))
     .popover(isPresented: $open, arrowEdge: .bottom) {
       AppPicker(apps: apps) { id in
         hide(id)
@@ -76,7 +67,6 @@ struct AppPicker: View {
   @State private var query = ""
   @FocusState private var searching: Bool
 
-  private static let rowHeight: CGFloat = 32
 
   private var shown: [AppEntry] {
     let q = query.trimmingCharacters(in: .whitespaces).lowercased()
@@ -87,20 +77,20 @@ struct AppPicker: View {
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: 8) {
-        Image(systemName: "magnifyingglass").font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.faint)
+        Image(systemName: "magnifyingglass").font(.kos(.detail, .medium)).foregroundStyle(Theme.faint)
         TextField("", text: $query, prompt: Text("Search apps").foregroundColor(Theme.faint))
           .textFieldStyle(.plain)
-          .font(.system(size: 13))
+          .font(.kos(.dense))
           .foregroundStyle(Theme.text)
           .focused($searching)
           .onSubmit { if let first = shown.first { choose(first.id) } }
       }
       .padding(.horizontal, 12)
       .padding(.vertical, 10)
-      Rectangle().fill(Theme.line).frame(height: 1)
+      Hairline()
       if shown.isEmpty {
         Text(apps.isEmpty ? "Every app is hidden already." : "No app called “\(query)”.")
-          .font(.system(size: 12))
+          .font(.kos(.detail))
           .foregroundStyle(Theme.muted)
           .frame(maxWidth: .infinity)
           .padding(.vertical, 18)
@@ -113,7 +103,7 @@ struct AppPicker: View {
           }
           .padding(5)
         }
-        .frame(height: min(CGFloat(shown.count) * (Self.rowHeight + 1) + 10, 300))
+        .frame(height: min(CGFloat(shown.count) * (PickerRow.height + 1) + 10, 300))
       }
     }
     .frame(width: 290)
@@ -123,37 +113,30 @@ struct AppPicker: View {
   }
 }
 
-/// One app in the picker: lit under the pointer, and marked when it is open now.
+/// One app in the picker: lit in the accent under the pointer, since choosing it hides it, and marked when it is open now.
 private struct PickerRow: View {
   let app: AppEntry
   let choose: () -> Void
-  @State private var hovering = false
 
   var body: some View {
-    Button(action: choose) {
+    MenuRow(lit: Theme.accent.opacity(Theme.tint), height: Self.height, action: choose) { hovering in
       HStack(spacing: 9) {
         AppIcon(app: app, size: 20)
-        Text(app.name).font(.system(size: 12.5)).foregroundStyle(Theme.text).lineLimit(1)
+        Text(app.name).font(.kos(.control)).foregroundStyle(Theme.text).lineLimit(1)
         Spacer(minLength: 6)
         if app.running {
-          Text("Open").font(.system(size: 10.5, weight: .medium)).foregroundStyle(Theme.ok)
+          Text("Open").font(.kos(.label, .medium)).foregroundStyle(Theme.ok)
         }
         Image(systemName: "eye.slash")
-          .font(.system(size: 11, weight: .medium))
+          .font(.kos(.tiny, .medium))
           .foregroundStyle(Theme.accent)
           .opacity(hovering ? 1 : 0)
       }
-      .padding(.horizontal, 8)
-      .frame(height: 32)
-      .background(hovering ? Theme.accent.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
-      .contentShape(Rectangle())
     }
-    .buttonStyle(.plain)
-    .onHover { hovering = $0 }
-    .pointingHand()
-    .animation(.easeOut(duration: 0.1), value: hovering)
     .help("Hide \(app.name) from KOS")
   }
+
+  static let height: CGFloat = 32
 }
 
 /// An app's own icon, or a dashed stand-in for one not on this Mac.

@@ -53,6 +53,8 @@ public struct HomeView: View {
   /// KOS and nothing else needs. Grown to fit each page, two KOS or the
   /// settings made it taller than a laptop's screen; past this, the page scrolls.
   public static let height: CGFloat = 680
+  /// The window's one width.
+  public static let width: CGFloat = 460
 
   /// The page's own height, and the height there is to show it in.
   @State private var pageHeight: CGFloat = 0
@@ -70,7 +72,7 @@ public struct HomeView: View {
             .padding(.horizontal, Theme.gutter)
             .padding(.top, 14)
             .padding(.bottom, Theme.gutter)
-            .frame(width: 460)
+            .frame(width: Self.width)
             .fixedSize(horizontal: false, vertical: true)
             .background(GeometryReader { geo in Color.clear.preference(key: PageHeight.self, value: geo.size.height) })
             .id(Self.top)
@@ -95,7 +97,7 @@ public struct HomeView: View {
           .allowsHitTesting(false)
       }
     }
-    .frame(width: 460)
+    .frame(width: Self.width)
     .onPreferenceChange(PageHeight.self) { height in MainActor.assumeIsolated { pageHeight = height } }
     .onPreferenceChange(ViewHeight.self) { height in MainActor.assumeIsolated { viewHeight = height } }
     .animation(Self.motion, value: layout)
@@ -144,15 +146,8 @@ public struct HomeView: View {
         sessionCard(session).transition(.opacity.combined(with: .move(edge: .top)))
       }
       kosSection
-      section("Permissions") { permissionsCard }
-      section("On this Mac") { rulesCard }
-    }
-  }
-
-  private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-    VStack(alignment: .leading, spacing: 8) {
-      SectionLabel(title)
-      content()
+      KOSSection("Permissions") { permissionsCard }
+      KOSSection("On this Mac") { rulesCard }
     }
   }
 
@@ -162,8 +157,8 @@ public struct HomeView: View {
     HStack(alignment: .center, spacing: 12) {
       KOSFace(size: 42, mood: faceMood, look: model.face)
       VStack(alignment: .leading, spacing: 2) {
-        Text("KOS for Mac").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text)
-        Text("Only in sessions you allow.").font(.system(size: 12)).foregroundStyle(Theme.muted)
+        Text("KOS for Mac").font(.kos(.title, .semibold)).foregroundStyle(Theme.text)
+        Text("Only in sessions you allow.").font(.kos(.detail)).foregroundStyle(Theme.muted)
       }
       Spacer(minLength: 8)
       linkPill
@@ -198,22 +193,22 @@ public struct HomeView: View {
   private func sessionCard(_ session: SessionSummary) -> some View {
     Card {
       HStack(spacing: 10) {
-        Circle().fill(session.paused ? Theme.warn : Theme.accent).frame(width: 8, height: 8)
+        Dot(session.paused ? Theme.warn : Theme.accent, size: 8)
         Text(session.paused ? "Paused: you have control" : "KOS is using this Mac")
-          .font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
+          .font(.kos(.dense, .semibold)).foregroundStyle(Theme.text)
         Spacer()
-        Text("until \(session.until.formatted(date: .omitted, time: .shortened))").font(.system(size: 11.5)).foregroundStyle(Theme.muted)
+        Text("until \(session.until.formatted(date: .omitted, time: .shortened))").font(.kos(.small)).foregroundStyle(Theme.muted)
       }
-      Text("“\(session.task)”").font(.system(size: 12.5)).foregroundStyle(Theme.text).lineLimit(2)
+      Text("“\(session.task)”").font(.kos(.control)).foregroundStyle(Theme.text).lineLimit(2)
       HStack(spacing: 4) {
-        Text("Asked from").font(.system(size: 12)).foregroundStyle(Theme.muted)
+        Text("Asked from").font(.kos(.detail)).foregroundStyle(Theme.muted)
         if let chat = session.chat {
           KOSLink(session.requester, to: chat)
         } else {
-          Text(session.requester).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.text)
+          Text(session.requester).font(.kos(.detail, .medium)).foregroundStyle(Theme.text)
         }
         if let kos = session.kos {
-          Text("on \(kos)").font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
+          Text("on \(kos)").font(.kos(.detail)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
         }
       }
       HStack {
@@ -236,21 +231,18 @@ public struct HomeView: View {
   /// through its approvals while one at work asks here every time. The Mac
   /// has one screen, so while one KOS has a session the others hear it is busy.
   private var kosSection: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      HStack {
-        SectionLabel(model.kos.count > 1 ? "KOS · \(model.kos.count)" : "KOS")
-        Spacer()
-        if !model.pairing && model.keychainProblem == nil {
-          Button {
-            model.showPairing = true
-          } label: {
-            Label("Add a KOS", systemImage: "plus")
-          }
-          .buttonStyle(KOSButtonStyle(.ghost))
-          .help("Pair this Mac with another KOS as well, say one at work beside one at home.")
-          .transition(.opacity)
+    KOSSection(model.kos.count > 1 ? "KOS · \(model.kos.count)" : "KOS") {
+      if !model.pairing && model.keychainProblem == nil {
+        Button {
+          model.showPairing = true
+        } label: {
+          Label("Add a KOS", systemImage: "plus")
         }
+        .buttonStyle(KOSButtonStyle(.ghost))
+        .help("Pair this Mac with another KOS as well, say one at work beside one at home.")
+        .transition(.opacity)
       }
+    } content: {
       if let problem = model.keychainProblem {
         keychainCard(problem).transition(.opacity)
       } else {
@@ -267,12 +259,12 @@ public struct HomeView: View {
   private var pairingCard: some View {
     Card {
       Text(model.kos.isEmpty ? "Pair with your KOS" : "Pair with another KOS")
-        .font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.text)
+        .font(.kos(.dense, .semibold)).foregroundStyle(Theme.text)
       HStack(alignment: .firstTextBaseline, spacing: 6) {
         Text(model.kos.isEmpty
           ? "From KOS: Settings, Devices, Add a device. Open its link or paste it here."
           : "From that KOS: Settings, Devices, Add a device. Pairing one already here replaces it.")
-          .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+          .font(.kos(.detail)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
         if let page = model.devicesPage {
           Spacer(minLength: 4)
           KOSLink("Devices", to: page)
@@ -286,7 +278,7 @@ public struct HomeView: View {
       HStack(spacing: 8) {
         if model.busy { ProgressView().controlSize(.small) }
         Text(model.note)
-          .font(.system(size: 11.5))
+          .font(.kos(.small))
           .foregroundStyle(model.noteFailed ? Theme.danger : Theme.muted)
           .fixedSize(horizontal: false, vertical: true)
         Spacer(minLength: 8)
@@ -305,16 +297,8 @@ public struct HomeView: View {
   private func keychainCard(_ problem: String) -> some View {
     Card {
       HStack(alignment: .top, spacing: 12) {
-        Image(systemName: "key.slash")
-          .font(.system(size: 14, weight: .medium))
-          .foregroundStyle(Theme.warn)
-          .frame(width: 32, height: 32)
-          .background(Theme.warn.opacity(0.14), in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
-        VStack(alignment: .leading, spacing: 3) {
-          Text("Can't read the pairings").font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Theme.text)
-          Text("\(problem) If macOS asks whether KOS for Mac may use its Keychain item, choose Always Allow. The pairings are still there.")
-            .font(.system(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-        }
+        Tile("key.slash", tint: Theme.warn)
+        RowText("Can't read the pairings", "\(problem) If macOS asks whether KOS for Mac may use its Keychain item, choose Always Allow. The pairings are still there.")
       }
       HStack {
         Spacer()
@@ -337,18 +321,13 @@ public struct HomeView: View {
       }
       if open {
         VStack(alignment: .leading, spacing: 10) {
-          Divider().overlay(Theme.line)
-          HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-              Text("Ask before each session").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text)
-              Text(entry.askFirst
-                ? "This KOS asks here, with the task and how long, every time."
-                : "Off: this KOS's approval queue decides instead. The border and Stop still show.")
-                .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 8)
-            KOSSwitch(isOn: entry.askFirst) { model.actions.setAskFirst(entry.id, $0) }
-          }
+          Hairline()
+          SwitchRow(
+            "Ask before each session",
+            entry.askFirst
+              ? "This KOS asks here, with the task and how long, every time."
+              : "Off: this KOS's approval queue decides instead. The border and Stop still show.",
+            isOn: entry.askFirst) { model.actions.setAskFirst(entry.id, $0) }
           HStack(spacing: 8) {
             if entry.link == .disconnected {
               Button("Connect") { model.actions.connect(entry.id) }.buttonStyle(KOSButtonStyle(.primary))
@@ -437,9 +416,9 @@ public struct HomeView: View {
       }
       if !model.allGranted || permissionsOpen {
         VStack(alignment: .leading, spacing: 10) {
-          if model.allGranted { Divider().overlay(Theme.line) }
+          if model.allGranted { Hairline() }
           grantRow(.screen)
-          Divider().overlay(Theme.line)
+          Hairline()
           grantRow(.input)
           if model.needsRestart {
             restartNotice.transition(Self.inPlace)
@@ -457,35 +436,28 @@ public struct HomeView: View {
     removal: .opacity.animation(.easeIn(duration: 0.1)))
 
   private var restartNotice: some View {
-    HStack(spacing: 10) {
-      Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.warn)
-      Text("Switched Screen Recording on? macOS applies it when KOS for Mac starts again.")
-        .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-      Spacer(minLength: 8)
-      Button("Restart", action: model.actions.restart).buttonStyle(KOSButtonStyle(.secondary))
+    Card(tone: Theme.warn, wash: true, padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)) {
+      HStack(spacing: 10) {
+        Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.warn)
+        Text("Switched Screen Recording on? macOS applies it when KOS for Mac starts again.")
+          .font(.kos(.small)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+        Spacer(minLength: 8)
+        Button("Restart", action: model.actions.restart).buttonStyle(KOSButtonStyle(.secondary))
+      }
     }
-    .padding(10)
-    .background(Theme.warn.opacity(0.08), in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
   }
 
   private func grantRow(_ grant: Grant) -> some View {
     let granted = model.granted(grant)
     return HStack(spacing: 12) {
-      Image(systemName: grant.icon)
-        .font(.system(size: 15, weight: .medium))
-        .foregroundStyle(granted ? Theme.ok : Theme.accent)
-        .frame(width: 32, height: 32)
-        .background((granted ? Theme.ok : Theme.accent).opacity(0.14), in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
-      VStack(alignment: .leading, spacing: 2) {
-        Text(grant.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
-        Text(grant.detail).font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-      }
+      Tile(grant.icon, tint: granted ? Theme.ok : Theme.accent)
+      RowText(grant.title, grant.detail)
       Spacer(minLength: 8)
       if granted {
         // Turning one off is as easy as turning it on: its switch, one click away.
         VStack(alignment: .trailing, spacing: 4) {
           Pill("On", tone: .ok)
-          KOSLink("System Settings", to: grant.settings, size: 11)
+          KOSLink("System Settings", to: grant.settings, size: KOSType.tiny.rawValue)
         }
       } else {
         Button(model.asked.contains(grant) ? "Open Settings" : "Grant") { model.actions.grant(grant) }
@@ -523,7 +495,7 @@ public struct HomeView: View {
           let absent = model.hidden.filter { !$0.installed }.map(\.name)
           if !absent.isEmpty {
             Text("Also hidden if installed: \(absent.joined(separator: ", ")).")
-              .font(.system(size: 11)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
+              .font(.kos(.tiny)).foregroundStyle(Theme.faint).fixedSize(horizontal: false, vertical: true)
           }
           HStack {
             Spacer()
@@ -532,13 +504,13 @@ public struct HomeView: View {
         }
         .transition(Self.inPlace)
       }
-      Divider().overlay(Theme.line)
+      Hairline()
       HStack(alignment: .top, spacing: 8) {
-        Image(systemName: "hand.raised").font(.system(size: 12)).foregroundStyle(Theme.faint)
+        Image(systemName: "hand.raised").font(.kos(.detail)).foregroundStyle(Theme.faint)
         VStack(alignment: .leading, spacing: 6) {
           Text("Touch the mouse, trackpad or keyboard and KOS pauses at once. It never types into password fields.")
-            .font(.system(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-          KOSLink("How this keeps your Mac safe", to: HomeModel.safety, size: 11.5)
+            .font(.kos(.small)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+          KOSLink("How this keeps your Mac safe", to: HomeModel.safety, size: KOSType.small.rawValue)
         }
       }
     }

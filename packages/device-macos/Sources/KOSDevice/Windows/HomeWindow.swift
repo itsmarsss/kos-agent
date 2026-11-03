@@ -214,7 +214,7 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     // The window keeps one height and the page scrolls in it; the host must not size it to the page.
     host.sizingOptions = []
     let window = NSWindow(
-      contentRect: CGRect(x: 0, y: 0, width: 460, height: Self.height(on: NSScreen.main)),
+      contentRect: CGRect(x: 0, y: 0, width: HomeView.width, height: Self.height(on: NSScreen.main)),
       styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
     window.contentView = host
     window.titlebarAppearsTransparent = true
@@ -226,12 +226,12 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     window.title = "KOS for Mac"
     window.isMovableByWindowBackground = true
     window.appearance = NSAppearance(named: .darkAqua)
-    window.backgroundColor = NSColor(srgbRed: 0x0C / 255, green: 0x0E / 255, blue: 0x12 / 255, alpha: 1)
+    window.backgroundColor = NSColor(Theme.bg)
     window.isReleasedWhenClosed = false
     window.delegate = self
     // Its place is kept between runs; its size is not, since the window has one height.
     placed = window.setFrameUsingName(Self.place)
-    window.setContentSize(CGSize(width: 460, height: Self.height(on: window.screen ?? NSScreen.main)))
+    window.setContentSize(CGSize(width: HomeView.width, height: Self.height(on: window.screen ?? NSScreen.main)))
     window.setFrameAutosaveName(Self.place)
     return window
   }

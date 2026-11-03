@@ -93,7 +93,7 @@ final class ConsentPrompt: NSObject {
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
     panel.isReleasedWhenClosed = false
     panel.appearance = NSAppearance(named: .darkAqua)
-    panel.backgroundColor = NSColor(srgbRed: 0x0C / 255, green: 0x0E / 255, blue: 0x12 / 255, alpha: 1)
+    panel.backgroundColor = NSColor(Theme.bg)
     panel.contentView = host
     if let screen = Displays.screen(for: Displays.underCursor()) {
       let size = panel.frame.size

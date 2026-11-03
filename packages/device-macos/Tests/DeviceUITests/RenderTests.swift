@@ -76,8 +76,10 @@ struct RenderTests {
   /// The chat window, mid-conversation: the owner's words, KOS's markdown, a turn's steps folded, and an approval waiting.
   @Test func chatWindow() throws {
     let model = ChatModel()
+    model.paired = true
     model.online = true
     model.beside = "Keynote"
+    model.besideTitle = "Q3 review.key"
     model.models(.init(current: "gpt-5.5", choices: ["gpt-5.5", "gpt-5.4-mini"]))
     model.show(
       conversation: "mac:owner", title: "Q3 deck review",
@@ -89,6 +91,36 @@ struct RenderTests {
       ])
     model.ask(.init(id: "7", tool: "computer.act", args: "{\"actions\":[{\"type\":\"click\",\"x\":412,\"y\":220}]}", why: "Type the Q3 revenue into slide 4.", always: "Always in Keynote"))
     let size = try render("chat-window", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    #expect(size.height == ChatView.size.height)
+  }
+
+  /// Before a word: what to ask, under the app card; and a turn that has taken no step yet, then one at a step, while a session runs.
+  @Test func chatWindowEmptyThinkingAndAtAStep() throws {
+    let model = ChatModel()
+    model.paired = true
+    model.online = true
+    model.beside = "Keynote"
+    model.besideTitle = "Q3 review.key"
+    model.models(.init(current: "", choices: [], fixed: "Claude Agent SDK"))
+    model.show(conversation: nil, title: "Mac", lines: [])
+    _ = try render("chat-window-empty", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    model.say("Tidy the title slide")
+    _ = try render("chat-window-thinking", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    model.session = .working
+    model.status(taken: false, story: .some("› Use Studio MacBook: Keynote\n› Look at the screen\nThe title runs over two lines."), error: nil)
+    let size = try render("chat-window-step", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    #expect(size.height == ChatView.size.height)
+  }
+
+  /// Paired with nothing, and paired with a KOS that never answers this window.
+  @Test func chatWindowUnpairedAndSilent() throws {
+    let model = ChatModel()
+    model.beside = "Keynote"
+    _ = try render("chat-window-unpaired", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
+    model.paired = true
+    model.online = true
+    model.silent = true
+    let size = try render("chat-window-silent", ChatView(model: model), height: ChatView.size.height, width: ChatView.size.width)
     #expect(size.height == ChatView.size.height)
   }
 

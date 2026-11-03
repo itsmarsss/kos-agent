@@ -308,6 +308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // The KOS at work, else the first that is connected, else the first there is: the one the window speaks of.
     let shown = origin ?? pairings.first { lines[$0.deviceId]?.isProven == true } ?? pairings.first
     model.face = shown.map { Self.face(of: $0.deviceId) } ?? .kos
+    chat.model.session = controller.live.map { $0.paused ? .paused : .working }
     model.session = controller.live.map { live in
       SessionSummary(
         task: live.task, requester: live.requester, kos: pairings.count > 1 ? origin.map(Self.name) : nil,
