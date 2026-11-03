@@ -406,7 +406,7 @@ export function CommandPalette({
                     const first = i === 0 || results[i - 1]?.group !== r.group;
                     return (
                       <li key={r.id}>
-                        {first && <div className="pal-group">{r.group}</div>}
+                        {first && <div className="label pal-group">{r.group}</div>}
                         <button
                           type="button"
                           className={`pal-item ${i === cursor ? "is-cursor" : ""}`}

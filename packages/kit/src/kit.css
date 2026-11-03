@@ -163,7 +163,7 @@
 .card { flex: none; display: flex; flex-direction: column; gap: 0.5rem; padding: 0.75rem 0.85rem; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); }
 .card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.35rem 0.5rem; min-height: 1.4rem; }
 .card-acts { display: inline-flex; align-items: center; gap: 0.35rem; flex: none; }
-.card-title { margin: 0; font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); white-space: nowrap; }
+.card-title { white-space: nowrap; }
 .card-count { margin-left: 0.3rem; color: var(--tint, var(--accent)); }
 
 .card-head .pill { padding: 0.1rem 0.45rem; }
@@ -230,7 +230,8 @@
 /* —— a small uppercase head over what it labels —— */
 .section { display: flex; flex-direction: column; gap: 8px; }
 .section-head { display: flex; align-items: center; justify-content: space-between; min-height: 22px; }
-.label { margin: 0; color: var(--faint); font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+/* The small uppercase head: a card's, a section's, a group's. One look for every such label. */
+.label { margin: 0; color: var(--faint); font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
 
 /* —— a symbol on its tone's tint, and the two lines beside it —— */
 .tile {

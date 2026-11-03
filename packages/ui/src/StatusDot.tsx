@@ -29,7 +29,7 @@ type Activity = NonNullable<Conversation["activity"]>;
 export function QueuedMark({ n }: { n: number | undefined }): ReactElement | null {
   if (!n) return null;
   return (
-    <span className="chats-queued" title={`${n} message${n === 1 ? "" : "s"} sent while a turn runs here; they go next, in order`}>
+    <span className="label chats-queued" title={`${n} message${n === 1 ? "" : "s"} sent while a turn runs here; they go next, in order`}>
       {n} queued
     </span>
   );

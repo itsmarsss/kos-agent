@@ -1404,7 +1404,7 @@ export function ChatsPage({
               </div>
             )}
           </div>
-          <div className="chats-group-head">
+          <div className="label chats-group-head">
             <span>Agents</span>
             {/* Like New chat: the thread opens empty and the first message
                 names it. A form asking for a name, a brief and a task first
@@ -1452,7 +1452,7 @@ export function ChatsPage({
             />
           )}
           <div className={`chats-sched ${schedShut ? "is-shut" : ""}`} style={!narrow && !schedShut ? { height: schedH } : undefined}>
-            <div className="chats-group-head">
+            <div className="label chats-group-head">
               <button
                 type="button"
                 className="chats-group-fold"
@@ -1527,7 +1527,7 @@ export function ChatsPage({
                 </span>
               </a>
             )}
-            <div className="chats-group-head">
+            <div className="label chats-group-head">
               <span>In projects</span>
             </div>
             <ul className="chats-flat">
@@ -1984,7 +1984,7 @@ export function ChatsPage({
               </m.form>
               {tree.roots.length > 0 && (
                 <m.div className="chats-welcome-recent" variants={card}>
-                  <span className="chats-welcome-recent-label">Recent</span>
+                  <span className="label chats-welcome-recent-label">Recent</span>
                   <ul>
                     {tree.roots.slice(0, 5).map((c) => (
                       <li key={c.id}>
@@ -2393,7 +2393,7 @@ export function ChatsPage({
                     <>
                       <div className="bubble bubble--you is-queued">
                         {p.text}
-                        <span className="queued-mark">queued</span>
+                        <span className="label queued-mark">queued</span>
                       </div>
                       {/* Where it came from, as it will read once sent: a
                           message waiting from Discord is one here too. */}

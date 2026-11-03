@@ -162,7 +162,7 @@ function DaysCard({ days }: { days: ModelDaySpend[] }): ReactElement {
   const busiest = Math.max(1, ...days.map((d) => d.inputTokens + d.outputTokens));
   return (
     <>
-      <div className="spend-pop-head">
+      <div className="label spend-pop-head">
         {days.length} {days.length === 1 ? "day" : "days"} with usage
       </div>
       <ul className="spend-pop-list">
@@ -202,7 +202,7 @@ function DayCard({
 
   return (
     <>
-      <div className="spend-pop-head">{day.day}</div>
+      <div className="label spend-pop-head">{day.day}</div>
       {total === 0 ? (
         <p className="spend-pop-none">Nothing ran.</p>
       ) : (

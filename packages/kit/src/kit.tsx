@@ -52,7 +52,7 @@ export function Card({ title, count, pill, action, label, className, children, .
       {(title || action || pill) && (
         <div className="card-head">
           {title && (
-            <h2 className="card-title">
+            <h2 className="label card-title">
               {title}
               {count !== undefined && count > 0 && <span className="card-count">{count}</span>}
             </h2>

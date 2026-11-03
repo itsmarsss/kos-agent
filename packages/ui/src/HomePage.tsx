@@ -216,7 +216,7 @@ export function HomePage({
           exit={{ opacity: 0, height: 0 }}
           transition={ease}
         >
-          <span className="home-add-label">Add a panel</span>
+          <span className="label home-add-label">Add a panel</span>
           <div className="home-add-list">
             {CATALOGUE.map((c) => (
               <button

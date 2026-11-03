@@ -729,7 +729,7 @@ export function SettingsPage({
           </div>
         ) : GROUPS.map((group) => (
           <div key={group} className="set-rail-group">
-            <h3 className="set-rail-head">{group}</h3>
+            <h3 className="label set-rail-head">{group}</h3>
             {SECTIONS.filter((s) => s.group === group).map((s) => (
               <button
                 key={s.id}
