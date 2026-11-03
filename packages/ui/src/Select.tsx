@@ -86,9 +86,14 @@ export function Select({
       );
   }, [open, options, value]);
 
+  // Closed from the keys, the focus goes back to the button, as a native select's does.
+  const done = (): void => {
+    setOpen(false);
+    button.current?.focus();
+  };
   const pick = (next: string): void => {
     onChange(next);
-    setOpen(false);
+    done();
   };
 
   return (
@@ -140,7 +145,11 @@ export function Select({
                 }
               }}
               onKeyDown={(e) => {
-                if (e.key === "Escape") setOpen(false);
+                // Its own Escape, not the drawer's or dialog's it sits in as well.
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  done();
+                }
                 if (e.key === "ArrowDown") {
                   e.preventDefault();
                   setCursor((c) => (c + 1) % options.length);
