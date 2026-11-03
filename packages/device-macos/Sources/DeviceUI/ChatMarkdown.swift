@@ -204,7 +204,8 @@ public enum ChatBlock: Equatable {
 }
 
 /// One line of inline marks, as styled text: bold, italics, code, links (the web and mail only), references by name.
-public func chatInline(_ text: String) -> AttributedString {
+/// `size` is the text's own, which a code span sits at nine tenths of, as the dashboard draws one.
+public func chatInline(_ text: String, size: CGFloat = ChatType.body) -> AttributedString {
   var source = text
   // KOS's references, @page:[Budget] or @approval:6, as the names they stand for.
   source = source.replacingOccurrences(of: #"@([a-z]+):\[([^\]\n]+)\]"#, with: "**$2**", options: .regularExpression)
@@ -216,10 +217,18 @@ public func chatInline(_ text: String) -> AttributedString {
   }
   for run in styled.runs {
     // A code span on panel-2, as the dashboard and the panel draw one.
-    if run.inlinePresentationIntent?.contains(.code) == true { styled[run.range].swiftUI.backgroundColor = Theme.panel2 }
+    if run.inlinePresentationIntent?.contains(.code) == true {
+      styled[run.range].swiftUI.backgroundColor = Theme.panel2
+      styled[run.range].swiftUI.font = .system(size: (size * 0.9).rounded(), design: .monospaced)
+    }
     guard let link = run.link else { continue }
-    // Nothing but the web and mail opens from KOS's words.
-    if !["http", "https", "mailto"].contains(link.scheme?.lowercased() ?? "") { styled[run.range].link = nil }
+    // Nothing but the web and mail opens from KOS's words; what does is underlined, as in the dashboard's prose.
+    if ["http", "https", "mailto"].contains(link.scheme?.lowercased() ?? "") {
+      styled[run.range].swiftUI.foregroundColor = Theme.accent
+      styled[run.range].swiftUI.underlineStyle = .single
+    } else {
+      styled[run.range].link = nil
+    }
   }
   return styled
 }
@@ -239,11 +248,13 @@ public struct ChatMarkdown: View {
 
 private struct BlocksView: View {
   let blocks: [ChatBlock]
+  /// How deep in lists these are: a list under a list marks its items as the dashboard does, disc then circle then square.
+  var depth = 0
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-        BlockView(block: block)
+        BlockView(block: block, depth: depth)
       }
     }
   }
@@ -251,15 +262,28 @@ private struct BlocksView: View {
 
 private struct BlockView: View {
   let block: ChatBlock
+  let depth: Int
+
+  /// An item's mark: a disc, a circle, a square for bullets, drawn at the size the dashboard's are;
+  /// numbers, then letters under numbers.
+  @ViewBuilder private func mark(ordered: Bool, n: Int) -> some View {
+    if ordered {
+      Text(depth == 0 ? "\(n)." : "\(Array("abcdefghijklmnopqrstuvwxyz")[(n - 1) % 26]).").monospacedDigit()
+    } else {
+      // A glyph at a small size, so it sits on the line's baseline as text does.
+      Text(["●", "○", "■"][min(depth, 2)]).font(.system(size: depth == 2 ? 6 : 7))
+    }
+  }
 
   var body: some View {
     switch block {
     case .paragraph(let text):
       Text(chatInline(text)).fixedSize(horizontal: false, vertical: true)
-    case .heading(let level, let text):
-      Text(chatInline(text)).font(.system(size: level == 1 ? 15 : level == 2 ? 14 : 13, weight: .semibold))
+    case .heading(_, let text):
+      // One size for every level, the chat's own, set apart by weight, as the dashboard's are.
+      Text(chatInline(text)).font(.system(size: ChatType.body, weight: .semibold)).padding(.top, 2)
     case .small(let text):
-      Text(chatInline(text)).font(.system(size: 11)).foregroundStyle(Theme.faint)
+      Text(chatInline(text, size: ChatType.detail)).font(.system(size: ChatType.detail)).foregroundStyle(Theme.muted)
     case .quote(let text):
       Text(chatInline(text))
         .foregroundStyle(Theme.muted)
@@ -267,25 +291,28 @@ private struct BlockView: View {
         .overlay(alignment: .leading) { Rectangle().fill(Theme.lineStrong).frame(width: 2) }
     case .code(let code):
       ScrollView(.horizontal, showsIndicators: false) {
-        Text(code).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text).padding(10)
+        Text(code).font(.system(size: ChatType.dense, design: .monospaced)).foregroundStyle(Theme.text)
+          .padding(.horizontal, 11).padding(.vertical, 10)
       }
       .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous))
       .overlay(RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous).strokeBorder(Theme.line))
     case .list(let ordered, let start, let items):
-      VStack(alignment: .leading, spacing: 4) {
+      VStack(alignment: .leading, spacing: 3) {
         ForEach(Array(items.enumerated()), id: \.offset) { i, item in
-          HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(ordered ? "\(start + i)." : "•").foregroundStyle(Theme.muted).monospacedDigit()
-            BlocksView(blocks: item)
+          // The mark in a column 19 wide, as the dashboard indents a list.
+          HStack(alignment: .firstTextBaseline, spacing: 0) {
+            mark(ordered: ordered, n: start + i).frame(width: 19, alignment: .leading)
+            BlocksView(blocks: item, depth: depth + 1)
           }
         }
       }
     case .table(let head, let align, let rows):
       ScrollView(.horizontal, showsIndicators: false) {
-        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+        // The dashboard's table: a head of 13 in the muted grey, cells of 14, 6 by 11 around each, a line under each row.
+        Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 6) {
           GridRow {
             ForEach(Array(head.enumerated()), id: \.offset) { j, cell in
-              Text(chatInline(cell)).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.muted)
+              Text(chatInline(cell, size: ChatType.dense)).font(.system(size: ChatType.dense, weight: .semibold)).foregroundStyle(Theme.muted)
                 .gridColumnAlignment(j < align.count ? align[j] : .leading)
             }
           }
@@ -293,11 +320,12 @@ private struct BlockView: View {
             Divider().overlay(Theme.line)
             GridRow {
               ForEach(0..<head.count, id: \.self) { j in
-                Text(chatInline(j < row.count ? row[j] : ""))
+                Text(chatInline(j < row.count ? row[j] : "", size: ChatType.table)).font(.system(size: ChatType.table))
               }
             }
           }
         }
+        .padding(.horizontal, 11)
         .padding(.vertical, 2)
       }
     }

@@ -5,6 +5,18 @@ import SwiftUI
 /// it, the name opening the window's own chats; the thread, then what waits
 /// on the owner, then the box, with the app in front, the model and Ask or
 /// Auto under it.
+/// The chat's type, as the dashboard sets it (docs/design.md, Chat): the side panel and this window read alike.
+public enum ChatType {
+  /// The words, the owner's and KOS's, and the box they are typed in.
+  public static let body: CGFloat = 15
+  /// A table's cells.
+  public static let table: CGFloat = 14
+  /// Code blocks and table heads.
+  public static let dense: CGFloat = 13
+  /// Chips, the chat's name, notes and asides.
+  public static let detail: CGFloat = 12
+}
+
 public struct ChatView: View {
   @ObservedObject private var model: ChatModel
   @State private var switching = false
@@ -29,7 +41,7 @@ public struct ChatView: View {
         .padding(.bottom, 8)
       }
       if let error = model.error {
-        Text(error).font(.system(size: 11.5)).foregroundStyle(Theme.danger)
+        Text(error).font(.system(size: ChatType.detail)).foregroundStyle(Theme.danger)
           .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.bottom, 6)
       }
       composer
@@ -39,7 +51,7 @@ public struct ChatView: View {
     .ignoresSafeArea(.container, edges: .top)
     .background(Theme.bg)
     .foregroundStyle(Theme.text)
-    .font(.system(size: 13))
+    .font(.system(size: ChatType.body))
     .onAppear { typing = true }
   }
 
@@ -47,7 +59,7 @@ public struct ChatView: View {
 
   private var header: some View {
     HStack(spacing: 10) {
-      KOSFace(size: 28, mood: model.online ? (model.asks.isEmpty ? (model.working ? .working : .idle) : .needsYou) : .asleep, look: model.face)
+      KOSFace(size: 30, mood: model.online ? (model.asks.isEmpty ? (model.working ? .working : .idle) : .needsYou) : .asleep, look: model.face)
       VStack(alignment: .leading, spacing: 1) {
         if model.kosChoices.count > 1 {
           Menu {
@@ -59,7 +71,7 @@ public struct ChatView: View {
               Text(model.kosName.map { "KOS · \($0)" } ?? "KOS")
               Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .bold)).foregroundStyle(Theme.muted)
             }
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(Theme.text)
           }
           .menuStyle(.button)
@@ -68,7 +80,7 @@ public struct ChatView: View {
           .fixedSize()
           .help("Which KOS this window talks to")
         } else {
-          Text("KOS").font(.system(size: 13, weight: .semibold))
+          Text("KOS").font(.system(size: 15, weight: .semibold))
         }
         Button {
           if !switching { model.list() }
@@ -78,7 +90,7 @@ public struct ChatView: View {
             Text(model.online ? model.title : "Not connected").lineLimit(1).truncationMode(.tail)
             if model.online { Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)) }
           }
-          .font(.system(size: 11.5))
+          .font(.system(size: ChatType.detail))
           .foregroundStyle(Theme.muted)
         }
         .buttonStyle(.plain)
@@ -104,10 +116,10 @@ public struct ChatView: View {
   private var thread: some View {
     ScrollViewReader { reader in
       ScrollView {
-        LazyVStack(alignment: .leading, spacing: 12) {
+        LazyVStack(alignment: .leading, spacing: 10) {
           if model.lines.isEmpty && model.sending.isEmpty {
             Text(model.online ? "Ask about what is in front of you, or have KOS do something on this Mac. It asks before it works here." : "Connect this Mac to KOS to talk to it here.")
-              .font(.system(size: 12.5)).foregroundStyle(Theme.muted).padding(.top, 40)
+              .font(.system(size: ChatType.dense)).foregroundStyle(Theme.muted).padding(.top, 40)
               .frame(maxWidth: .infinity)
               .multilineTextAlignment(.center)
           }
@@ -120,7 +132,8 @@ public struct ChatView: View {
           Color.clear.frame(height: 1).id("end")
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.top, 16)
+        .padding(.bottom, 8)
         .textSelection(.enabled)
       }
       .onChange(of: model.items.count) { reader.scrollTo("end", anchor: .bottom) }
@@ -132,17 +145,29 @@ public struct ChatView: View {
   // MARK: Composer
 
   private var composer: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      TextField("Message KOS, / for commands, @ to name things", text: $model.draft, axis: .vertical)
+    VStack(alignment: .leading, spacing: 4) {
+      TextField("", text: $model.draft, axis: .vertical)
         .textFieldStyle(.plain)
         .lineLimit(1...6)
         .focused($typing)
         .disabled(!model.online)
         .onSubmit(sendDraft)
+        // The hint drawn here, not as the field's own: in the faint grey, on one line, cut at its end, as the dashboard's.
+        .overlay(alignment: .topLeading) {
+          if model.draft.isEmpty {
+            Text("Message KOS, / for commands, @ to name things")
+              .foregroundStyle(Theme.faint)
+              .lineLimit(1)
+              .truncationMode(.tail)
+              .allowsHitTesting(false)
+          }
+        }
       HStack(spacing: 6) {
         if let app = model.beside {
           Chip(symbol: model.besideHidden ? "eye.slash" : "macwindow", text: model.besideHidden ? "Hidden from KOS" : app)
             .help(model.besideHidden ? "The app in front is hidden from KOS" : "What \"this\" means: the app in front")
+            // The app's name is what the row is for: it keeps its room longest when the window is narrow.
+            .layoutPriority(1)
         }
         if let models = model.models {
           if let fixed = models.fixed {
@@ -158,7 +183,6 @@ public struct ChatView: View {
             .menuStyle(.button)
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
-            .fixedSize()
           }
         }
         Button {
@@ -167,14 +191,16 @@ public struct ChatView: View {
           Chip(symbol: model.auto ? "bolt.fill" : "hand.raised", text: model.auto ? "Auto" : "Ask", lit: model.auto)
         }
         .buttonStyle(.plain)
+        .fixedSize()
         .help(model.auto ? "KOS works on this Mac without asking each step" : "KOS asks before each step on this Mac")
         Spacer(minLength: 4)
         Button(action: sendDraft) {
           Image(systemName: "arrow.up")
-            .font(.system(size: 12, weight: .bold))
-            .foregroundStyle(Theme.onAccent)
+            .font(.system(size: 13, weight: .bold))
+            .foregroundStyle(canSend ? Theme.onAccent : Theme.faint)
             .frame(width: 30, height: 30)
-            .background(canSend ? Theme.accent : Theme.accent.opacity(0.35), in: Circle())
+            // Nothing to send is grey, as the dashboard's is, not a fainter blue that still reads as a button.
+            .background(canSend ? Theme.accent : Theme.line, in: Circle())
         }
         .buttonStyle(.plain)
         .disabled(!canSend)
@@ -182,7 +208,7 @@ public struct ChatView: View {
         .accessibilityLabel("Send")
       }
     }
-    .padding(12)
+    .padding(EdgeInsets(top: 7, leading: 11, bottom: 7, trailing: 7))
     .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.radiusLg, style: .continuous))
     .overlay(RoundedRectangle(cornerRadius: Theme.radiusLg, style: .continuous).strokeBorder(typing ? Theme.accent.opacity(0.6) : Theme.line))
     .padding(.horizontal, 12)
@@ -211,7 +237,7 @@ private struct ItemView: View {
       LineView(line: line)
     case .notice(_, let notice):
       VStack(alignment: .leading, spacing: 3) {
-        if let from = notice.from { Text(from).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted) }
+        if let from = notice.from { Text(from).font(.system(size: ChatType.detail, weight: .semibold)).foregroundStyle(Theme.muted) }
         ChatMarkdown(notice.text)
       }
     case .sending(_, let text):
@@ -230,7 +256,7 @@ private struct LineView: View {
     case .kos(let text):
       ChatMarkdown(text).frame(maxWidth: .infinity, alignment: .leading)
     case .note(let text):
-      Text(text).font(.system(size: 11)).foregroundStyle(Theme.faint).frame(maxWidth: .infinity)
+      Text(text).font(.system(size: ChatType.detail)).foregroundStyle(Theme.faint).frame(maxWidth: .infinity)
     case .steps(let steps):
       Steps(steps: steps)
     }
@@ -244,15 +270,16 @@ private struct Bubble: View {
 
   var body: some View {
     HStack {
-      Spacer(minLength: 48)
+      // Up to 88% of the thread's width, as on the dashboard.
+      Spacer(minLength: 40)
       VStack(alignment: .leading, spacing: 6) {
         if !text.isEmpty { ChatMarkdown(text) }
         ForEach(files, id: \.self) { file in
-          Label(file, systemImage: "doc").font(.system(size: 11)).foregroundStyle(Theme.muted)
+          Label(file, systemImage: "doc").font(.system(size: ChatType.detail)).foregroundStyle(Theme.muted)
         }
       }
       .padding(.horizontal, 12)
-      .padding(.vertical, 8)
+      .padding(.vertical, 9)
       .background(
         UnevenRoundedRectangle(topLeadingRadius: Theme.radiusLg, bottomLeadingRadius: Theme.radiusLg, bottomTrailingRadius: Theme.radiusXs, topTrailingRadius: Theme.radiusLg, style: .continuous)
           .fill(Theme.accent.opacity(0.18).blended(over: Theme.panel2)))
@@ -260,7 +287,7 @@ private struct Bubble: View {
   }
 }
 
-/// A turn's tool calls, folded to one capsule that opens to them.
+/// A turn's tool calls, folded to one chip that opens to them.
 private struct Steps: View {
   let steps: [ChatModel.Step]
   @State private var open = false
@@ -271,23 +298,19 @@ private struct Steps: View {
         withAnimation(Theme.spring) { open.toggle() }
       } label: {
         HStack(spacing: 5) {
-          Image(systemName: "list.bullet").font(.system(size: 9.5, weight: .semibold))
+          Image(systemName: "list.bullet").font(.system(size: 10, weight: .semibold))
           Text("\(steps.count) step\(steps.count == 1 ? "" : "s")")
           if steps.contains(where: \.failed) { Circle().fill(Theme.danger).frame(width: 5, height: 5) }
           Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).rotationEffect(.degrees(open ? 180 : 0))
         }
-        .font(.system(size: 11.5, weight: .medium))
-        .foregroundStyle(Theme.muted)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .background(Ring(fill: Theme.panel2, edge: Theme.line))
+        .modifier(ChipLook(lit: false))
       }
       .buttonStyle(.plain)
       .pointingHand()
       if open {
         VStack(alignment: .leading, spacing: 3) {
           ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
-            Text("› \(step.summary)").font(.system(size: 11.5)).foregroundStyle(step.failed ? Theme.danger : Theme.muted)
+            Text("› \(step.summary)").font(.system(size: ChatType.dense)).foregroundStyle(step.failed ? Theme.danger : Theme.muted)
           }
         }
         .padding(.leading, 4)
@@ -305,12 +328,12 @@ private struct Working: View {
     VStack(alignment: .leading, spacing: 3) {
       if let story, !story.isEmpty {
         ForEach(Array(story.components(separatedBy: "\n").suffix(4).enumerated()), id: \.offset) { _, line in
-          Text(line).font(.system(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
+          Text(line).font(.system(size: ChatType.detail)).foregroundStyle(Theme.muted).lineLimit(1)
         }
       }
       HStack(spacing: 6) {
         ProgressView().controlSize(.mini)
-        Text("Working").font(.system(size: 11.5)).foregroundStyle(Theme.faint)
+        Text("Working").font(.system(size: ChatType.detail)).foregroundStyle(Theme.faint)
       }
     }
   }
@@ -325,12 +348,12 @@ private struct AskCard: View {
     VStack(alignment: .leading, spacing: 8) {
       HStack(spacing: 6) {
         Circle().fill(Theme.warn).frame(width: 6, height: 6)
-        Text("Needs your OK").font(.system(size: 12, weight: .semibold))
-        Text(ask.tool).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted)
+        Text("Needs your OK").font(.system(size: ChatType.dense, weight: .semibold))
+        Text(ask.tool).font(.system(size: ChatType.detail, design: .monospaced)).foregroundStyle(Theme.muted)
       }
-      if let why = ask.why ?? ask.reason { Text(why).font(.system(size: 12)).foregroundStyle(Theme.text) }
+      if let why = ask.why ?? ask.reason { Text(why).font(.system(size: ChatType.table)).foregroundStyle(Theme.text) }
       if let args = ask.args {
-        Text(args).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.faint).lineLimit(3)
+        Text(args).font(.system(size: ChatType.detail, design: .monospaced)).foregroundStyle(Theme.faint).lineLimit(3)
       }
       HStack(spacing: 6) {
         Button("Approve") { answer(ask.id, true, false) }.buttonStyle(KOSButtonStyle(.primary))
@@ -355,7 +378,7 @@ private struct Switcher: View {
     VStack(alignment: .leading, spacing: 2) {
       Row(title: "New chat", symbol: "square.and.pencil", when: nil, on: false) { pick(nil) }
       if chats.isEmpty {
-        Text("Loading your chats").font(.system(size: 11.5)).foregroundStyle(Theme.faint).padding(8)
+        Text("Loading your chats").font(.system(size: ChatType.detail)).foregroundStyle(Theme.faint).padding(8)
       }
       ScrollView {
         VStack(alignment: .leading, spacing: 2) {
@@ -383,7 +406,7 @@ private struct Switcher: View {
       Button(action: action) {
         HStack(spacing: 8) {
           if let symbol { Image(systemName: symbol).font(.system(size: 11)) }
-          Text(title).lineLimit(1).font(.system(size: 12.5, weight: on ? .semibold : .regular))
+          Text(title).lineLimit(1).font(.system(size: ChatType.dense, weight: on ? .semibold : .regular))
           Spacer()
           if let when { Text(when).font(.system(size: 11)).foregroundStyle(Theme.faint) }
         }
@@ -407,7 +430,7 @@ private struct Switcher: View {
   }
 }
 
-/// A capsule under the box: what it is, at a glance.
+/// A chip under the box: what it is, at a glance, cut at its end when the window is narrow.
 private struct Chip: View {
   let symbol: String?
   let text: String
@@ -415,24 +438,24 @@ private struct Chip: View {
 
   var body: some View {
     HStack(spacing: 4) {
-      if let symbol { Image(systemName: symbol).font(.system(size: 9.5, weight: .semibold)) }
-      Text(text).lineLimit(1).truncationMode(.middle)
+      if let symbol { Image(systemName: symbol).font(.system(size: 10, weight: .semibold)) }
+      Text(text).lineLimit(1).truncationMode(.tail)
     }
-    .font(.system(size: 11.5, weight: .medium))
-    .foregroundStyle(lit ? Theme.accent : Theme.muted)
-    .padding(.horizontal, 9)
-    .padding(.vertical, 4)
-    .background(Ring(fill: lit ? Theme.accent.opacity(0.14).blended(over: Theme.panel2) : Theme.panel2, edge: lit ? Theme.accent.opacity(0.4) : Theme.line))
+    .modifier(ChipLook(lit: lit))
   }
 }
 
-/// A capsule with a hairline edge, both drawn as fills: a stroked capsule leaves marks at its ends.
-private struct Ring: View {
-  let fill: Color
-  let edge: Color
+/// The dashboard's chip: 12, a capsule of panel-2 with no edge, 24 high; the accent's tint when it is on.
+private struct ChipLook: ViewModifier {
+  let lit: Bool
 
-  var body: some View {
-    Capsule().fill(edge).overlay(Capsule().fill(fill).padding(1))
+  func body(content: Content) -> some View {
+    content
+      .font(.system(size: ChatType.detail))
+      .foregroundStyle(lit ? Theme.accent : Theme.muted)
+      .padding(.horizontal, 10)
+      .frame(minHeight: 24)
+      .background(Capsule().fill(lit ? Theme.accent.opacity(0.14).blended(over: Theme.panel) : Theme.panel2))
   }
 }
 
