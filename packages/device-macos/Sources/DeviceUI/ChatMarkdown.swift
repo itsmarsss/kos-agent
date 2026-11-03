@@ -215,6 +215,8 @@ public func chatInline(_ text: String) -> AttributedString {
     return AttributedString(text)
   }
   for run in styled.runs {
+    // A code span on panel-2, as the dashboard and the panel draw one.
+    if run.inlinePresentationIntent?.contains(.code) == true { styled[run.range].swiftUI.backgroundColor = Theme.panel2 }
     guard let link = run.link else { continue }
     // Nothing but the web and mail opens from KOS's words.
     if !["http", "https", "mailto"].contains(link.scheme?.lowercased() ?? "") { styled[run.range].link = nil }
