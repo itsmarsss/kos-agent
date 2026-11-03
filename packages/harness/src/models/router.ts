@@ -9,9 +9,10 @@ import type { GenerateRequest, ModelResponse } from "./types.js";
  * A task class. The router maps each task to a provider and model so callers
  * ask for capability ("reasoning") rather than naming a model. Cheap tasks
  * (salience, heuristics) route to a small model; reasoning and self_prompt to a
- * stronger one.
+ * stronger one. "screen" is the work on a screen or a tab once a turn has
+ * chosen it: look, click, look again, which wants a quick model, not a deep one.
  */
-export type Task = "reasoning" | "cheap";
+export type Task = "reasoning" | "cheap" | "screen";
 
 /** A route as shown to a reader: what answers, how hard, and how much. */
 export interface RouteSummary {
@@ -37,6 +38,10 @@ export const DEFAULT_ROUTING: RoutingTable = {
     provider: "anthropic",
     spec: { model: "claude-haiku-4-5", thinking: "disabled" },
   },
+  screen: {
+    provider: "anthropic",
+    spec: { model: "claude-sonnet-5-5", thinking: "adaptive", effort: "low" },
+  },
 };
 
 /**
@@ -55,6 +60,10 @@ export const OPENAI_ROUTING: RoutingTable = {
   cheap: {
     provider: "openai",
     spec: { model: "gpt-5.4-mini", effort: "low" },
+  },
+  screen: {
+    provider: "openai",
+    spec: { model: "gpt-5.6-terra", effort: "low" },
   },
 };
 

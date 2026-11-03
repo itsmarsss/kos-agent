@@ -28,6 +28,10 @@ describe("parseModelSettings", () => {
     expect(parseModelSettings({ reasoning: { maxTokens: 1.5 } })).toEqual({});
   });
 
+  it("keeps the screen work's model, which the owner may point back at the turn's", () => {
+    expect(parseModelSettings({ screen: { model: "claude-opus-4-8" } })).toEqual({ screen: { model: "claude-opus-4-8" } });
+  });
+
   it("ignores task names it does not dispatch on", () => {
     expect(parseModelSettings({ nonsense: { model: "x" } })).toEqual({});
   });

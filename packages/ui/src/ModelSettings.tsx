@@ -6,16 +6,20 @@ import { Select } from "./Select.js";
 /**
  * Which model answers, how hard it thinks, and how much it may write.
  *
- * Two task classes because that is what the router dispatches on: reasoning is
- * every real turn, cheap is the salience pass that decides what to remember.
+ * The task classes the router dispatches on: reasoning is every real turn,
+ * cheap is the salience pass that decides what to remember, and screen work is
+ * the looking and clicking a turn hands on once it has chosen what to do there.
  * The model list is fetched from the provider rather than kept here, since a
  * hard-coded list is how the OpenAI route sat on gpt-4o long after better
  * models existed.
  */
 
-const TASKS: Array<{ key: "reasoning" | "cheap"; label: string; hint: string }> = [
+type TaskKey = "reasoning" | "cheap" | "screen";
+
+const TASKS: Array<{ key: TaskKey; label: string; hint: string }> = [
   { key: "reasoning", label: "Reasoning", hint: "every chat turn and scheduled job" },
   { key: "cheap", label: "Cheap", hint: "deciding what is worth remembering" },
+  { key: "screen", label: "Screen work", hint: "the clicks and looks on a computer or in Chrome; the reasoning model here does it all as before" },
 ];
 
 export function ModelSettings({
@@ -76,7 +80,7 @@ export function ModelSettings({
       );
   }, []);
 
-  const update = (task: "reasoning" | "cheap", patch: TaskModelSetting): void => {
+  const update = (task: TaskKey, patch: TaskModelSetting): void => {
     setSaved((s) => ({ ...s, [task]: { ...s[task], ...patch } }));
     setStatus(null);
   };

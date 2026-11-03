@@ -5,7 +5,8 @@ import type { ModelRouter, Task } from "./router.js";
  * The owner's model choices, as stored and as edited in the dashboard.
  *
  * One entry per task class, because that is the unit the router dispatches on:
- * "reasoning" is every real turn, "cheap" is the salience pass. Each field is
+ * "reasoning" is every real turn, "cheap" is the salience pass, "screen" the
+ * steps of work on a screen or a tab. Each field is
  * optional so a setting can override the model without also pinning an effort
  * the provider might reject.
  */
@@ -24,7 +25,7 @@ export type ModelSettings = Partial<Record<Task, TaskModelSetting>>;
 
 export const EFFORTS: Effort[] = ["low", "medium", "high", "xhigh", "max"];
 
-const TASKS: Task[] = ["reasoning", "cheap"];
+const TASKS: Task[] = ["reasoning", "cheap", "screen"];
 
 /** Reject anything that is not a setting we can act on, field by field. */
 export function parseModelSettings(raw: unknown): ModelSettings {

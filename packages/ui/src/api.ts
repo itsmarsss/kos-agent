@@ -54,7 +54,7 @@ export interface TaskModelSetting {
 }
 
 /** Model choices per task class, as edited in Settings. */
-export type ModelSettings = Partial<Record<"reasoning" | "cheap", TaskModelSetting>>;
+export type ModelSettings = Partial<Record<"reasoning" | "cheap" | "screen", TaskModelSetting>>;
 
 export interface PendingAction {
   id: number;
