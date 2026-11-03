@@ -4,6 +4,7 @@ import {
   createSdkMcpServer,
   query,
   tool,
+  type CanUseTool,
   type SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 
@@ -124,6 +125,15 @@ export interface SdkChatOptions {
    * Unset, the turn does its screen work itself, as before.
    */
   screen?: { model: string; effort?: Effort };
+}
+
+/** Lets a screen tool through for the screen agent, and only for it. */
+function screenGate(screenTools: string[]): CanUseTool {
+  return async (name, input, { agentID }) => {
+    if (screenTools.includes(name) && agentID) return { behavior: "allow", updatedInput: input };
+    if (screenTools.includes(name)) return { behavior: "deny", message: `Screen tools run in the screen agent: hand this to it with the Task tool, subagent_type "${SCREEN_AGENT}".` };
+    return { behavior: "deny", message: `${name} is not one of this chat's tools.` };
+  };
 }
 
 /** The subagent the turn hands screen work to, and the tool it is handed over with. */
@@ -340,6 +350,11 @@ export async function runSdkChat(
       // hole is a jail that quietly opens.
       allowedTools: allowed,
       disallowedTools: split.agent ? BUILTINS.filter((b) => !HANDOFF_TOOLS.includes(b)) : BUILTINS,
+      // The allow list is the session's, so the screen agent's own tools
+      // cannot be on it without the turn having them too. They are let
+      // through here instead, for the screen agent alone; the turn is told
+      // to hand on. Anything else off the list is refused, as before.
+      ...(split.agent ? { canUseTool: screenGate(split.agent.tools) } : {}),
       mcpServers: { [SERVER]: server },
       maxTurns: options.maxTurns ?? 24,
       includePartialMessages: true,

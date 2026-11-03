@@ -33,7 +33,7 @@ export function forScreenAgent(name: string): boolean {
 export const SCREEN_HANDOFF =
   "Work on a screen or in a tab (a computer, the owner's Chrome, KOS's own browser) is done by the screen agent: hand it the task with the Task tool, subagent_type \"screen\". " +
   "It sees only what you give it, so say what to do, where (which device or tab), what done looks like, and anything from this conversation it needs. " +
-  "It reports back what it did and what it saw; answer the owner from that. Send it again for the next part rather than guessing at a screen you have not been shown.";
+  "It reports back what it did and what it saw: answer the owner from that report, without sending it again to check what it already said. Send it again only for a next part it has not done.";
 
 /**
  * The screen agent's own brief: short, because it is read on every step, and
