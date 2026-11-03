@@ -46,7 +46,7 @@ the whole map:
 `⌘K` finds anything: a chat, a file, a page, a schedule, a setting, a
 command. The full page-by-page guide is in
 [docs/dashboard.md](docs/dashboard.md). The dashboard, the Chrome extension
-and KOS Device share one look, written down in
+and KOS for Mac share one look, written down in
 [docs/design.md](docs/design.md).
 
 ---
@@ -115,7 +115,7 @@ the named job, and nothing else.
 throwaway database copy, then promoted if safe or queued for your approval.
 Modules it writes do not run until you switch them on.
 
-**Uses your computer, when you let it.** Pair a Mac running KOS Device
+**Uses your computer, when you let it.** Pair a Mac running KOS for Mac
 (Settings, Devices) and a chat can see its screen, move its pointer and type.
 You allow each session on the Mac; while it runs, a glowing border, KOS's
 own cursor and a Stop bar show it, and touching the mouse or keyboard hands
@@ -141,7 +141,7 @@ from it. [docs/modules.md](docs/modules.md).
 | **Audit** | Every call logged with arguments, result, risk tier, caller |
 | **Secrets** | Held outside the workspace, referenced by name, injected at call time, redacted from logs. Child processes get an allow-listed environment |
 | **Outside code** | MCP servers and workspace modules are risky by default; you floor tools safe one at a time, by name or glob. The harness never guesses a tool is safe |
-| **Computers** | Reached only through KOS Device, which dials out and proves KOS's key on every connection. Each session is allowed on the computer, is visible the whole time, pauses when you touch the mouse or keyboard, never types into a password field, and cannot see apps you hide |
+| **Computers** | Reached only through KOS for Mac, which dials out and proves KOS's key on every connection. Each session is allowed on the computer, is visible the whole time, pauses when you touch the mouse or keyboard, never types into a password field, and cannot see apps you hide |
 | **One owner** | iMessage reads one thread, SMS answers one number, Discord one account. A stranger is dropped, never answered |
 
 Nothing in the repository holds a credential, a phone number or a handle.
@@ -214,8 +214,8 @@ MCP server to Claude Code or any agent that takes one.
 | `packages/client` | `@kos/client` and the caller client |
 | `packages/browser` | `@kos/browser`: KOS's Chrome, its live view, and the hands the `browser.*` tools are made of |
 | `packages/computer` | `@kos/computer`: pairing, the device socket, sessions and the `computer.*` tools |
-| `packages/device-macos` | KOS Device, the menu bar app on a Mac KOS may use (Swift) |
-| `packages/browser-extension` | The KOS extension: KOS works in tabs you give it, in your own Chrome |
+| `packages/device-macos` | KOS for Mac, the menu bar app on a Mac KOS may use (Swift) |
+| `packages/browser-extension` | KOS for Chrome: KOS works in tabs you give it, in your own Chrome |
 | `packages/shared` | Contracts both sides import |
 
 - **The kernel is primitives; a feature is a module.** Files, SQL, shell,

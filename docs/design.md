@@ -2,12 +2,12 @@
 
 KOS shows itself in three places: the dashboard (packages/ui), the Chrome
 extension (packages/browser-extension: popup, consent window, side panel)
-and KOS Device, the Mac app (packages/device-macos). They are one product,
+and KOS for Mac, the Mac app (packages/device-macos). They are one product,
 so they share one look. This is that look, written down. Where the three
 used to disagree, the best of them was kept, and this says which.
 
 The values live once, in `packages/shared/src/design.ts`. The dashboard's
-`styles.css`, the extension's `kos.css` and KOS Device's `Theme.swift` each
+`styles.css`, the extension's `kos.css` and KOS for Mac's `Theme.swift` each
 declare them, as do the overlays KOS draws over a page (`overlay.ts`) and
 over the screen (`Palette.swift`), and a test (`design.test.ts`) fails when
 one of them drifts.
@@ -57,11 +57,11 @@ A danger button under the pointer fills to 17%, between dim and strong, and
 that is the one exception.
 
 The KOS face is its own colour, not the accent: hue 214, #3585ed, ink
-#141d29, from `@kos/shared` (`face.ts`); KOS Device's `KOSFace.swift` ports it.
+#141d29, from `@kos/shared` (`face.ts`); KOS for Mac's `KOSFace.swift` ports it.
 KOS's cursor and the border it draws while working are the accent.
 
 Light: the dashboard also has a light palette (Settings, Appearance). The
-extension and KOS Device are dark only, as KOS Device always was. Light's
+extension and KOS for Mac are dark only, as KOS for Mac always was. Light's
 ok and warn are darker (#0f6e45, #7d5400) so a pill's text on its own tint
 still reads at 4.5:1.
 
@@ -124,7 +124,7 @@ is a 2 px accent outline 1 px out, or on a field its border turns accent with a
 
 ## Controls
 
-The reference is KOS Device's `Controls.swift`; the extension's `kos.css`
+The reference is KOS for Mac's `Controls.swift`; the extension's `kos.css`
 and the dashboard's `styles.css` draw the same things.
 
 - **Button.** Four kinds. Primary: `accent`, `accent-lit` under the pointer,
@@ -174,7 +174,7 @@ and the dashboard's `styles.css` draw the same things.
 ## Words
 
 The same thing is called the same thing on every surface: the dashboard,
-Discord, the side panel, KOS Device, and in what KOS says.
+Discord, the side panel, KOS for Mac, and in what KOS says.
 
 | Word | What it is | How it is named where it speaks or asks |
 | --- | --- | --- |
@@ -195,7 +195,7 @@ KOS is its face: the blob, alive (it breathes, looks, blinks) in every
 window of its own. The bar the extension draws into a web page carries a
 still of it, drawn in the page's own shadow root, the page being someone
 else's. It leads a window's head (36 in the extension, 42 in
-KOS Device, 22 beside the dashboard's wordmark), sits in the session bar
+KOS for Mac, 22 beside the dashboard's wordmark), sits in the session bar
 while KOS works, and in a consent sheet at 54 in a halo. On the dashboard
 the brand is the face and the K-OS wordmark; everywhere else the name is
 KOS.
@@ -204,19 +204,19 @@ A blob's outline grows from its name, or from a word it is given: a few
 broad lumps, eased back until it bulges out all round (`shapeOf` in
 `@kos/shared`). KOS keeps the plain gumdrop unless the owner gives it a
 word under Settings, Appearance. KOS sends its face, as set there, to the
-extension and KOS Device (the `face` frame, [computer.md](computer.md)), so
+extension and KOS for Mac (the `face` frame, [computer.md](computer.md)), so
 all three draw the same KOS; each draws a KOS by the face it sent, and the
 default one for a KOS that has sent none.
 
 ## Chat
 
-The dashboard's chats, the side panel and KOS Device's chat window are the
+The dashboard's chats, the side panel and the KOS for Mac chat window are the
 same conversation, drawn the same way, the dashboard's numbers on all three;
 the window draws it natively, and shows LaTeX as written.
 
 - **Type:** the words, the owner's and KOS's and the box's, at 15, line
   1.45; table cells 14; code blocks and table heads 13; chips, notes and
-  the chat's name 12. KOS Device keeps them in `ChatType`.
+  the chat's name 12. KOS for Mac keeps them in `ChatType`.
 - **Spacing:** 10 between messages, 16 at the column's sides, 8 between
   blocks of a reply; a list indents 19.
 
@@ -228,14 +228,14 @@ the window draws it natively, and shows LaTeX as written.
 - **KOS's reply:** prose on the page, no bubble.
 - **Markdown:** headings at the words' size, set apart by weight, lists
   that nest (disc, circle, square; a, b under numbers), code spans at nine
-  tenths of the words on `panel-2` at radius 4 (KOS Device gives them the
+  tenths of the words on `panel-2` at radius 4 (KOS for Mac gives them the
   tint alone), code blocks on `panel` with a line at radius 10, padded 10
   by 11, links in the accent and underlined, quotes with a `line-strong`
   rule, LaTeX typeset, references as `violet` chips, tables with a `muted`
   head and a `line` under each row, scrolling sideways when wider than the
   column. A grid without a head line stays as the text it is.
 - **Steps:** a turn's tool calls are quiet rows under its words. The side
-  panel and KOS Device fold them to one "N steps" chip, drawn as the
+  panel and KOS for Mac fold them to one "N steps" chip, drawn as the
   composer's chips are, being narrow; the dashboard shows each as a row
   that opens to its arguments and result.
 - **Composer:** one box, `panel`, radius 14, padded 7 (11 at its start),
@@ -246,7 +246,7 @@ the window draws it natively, and shows LaTeX as written.
   @ to name things", on one line, cut short when the box is narrow.
 - **Chips:** 12, `muted` on a `panel-2` capsule with no edge, padded 3 by
   10, 24 high; the accent's tint when on. A long one is cut at its end,
-  never in its middle, and in KOS Device the app in front keeps its room
+  never in its middle, and in KOS for Mac the app in front keeps its room
   longest.
 
 ## Changing it

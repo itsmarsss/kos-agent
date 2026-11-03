@@ -2,7 +2,7 @@
 
 KOS can see and work a computer the owner has paired: the screen, the
 pointer, the keyboard. The KOS core never leaves its jail to do it. A computer
-is reached only through **KOS Device**, an app the owner installs on it, which
+is reached only through **KOS for Mac**, an app the owner installs on it, which
 dials out to KOS, enforces its own rules, and shows the owner every moment it
 is being driven.
 
@@ -10,18 +10,18 @@ Two packages, one protocol:
 
 - `packages/computer` (`@kos/computer`): the KOS side. Pairing, the socket
   devices connect to, sessions, and the `computer.*` tools.
-- `packages/device-macos`: KOS Device for macOS, a menu bar app.
-- `packages/browser-extension`: the KOS extension, a device that offers a
+- `packages/device-macos`: KOS for Mac, a menu bar app.
+- `packages/browser-extension`: KOS for Chrome, a device that offers a
   Chrome's tabs instead of a screen (see [browser-extension.md](browser-extension.md)).
 
 The computer KOS runs on and a laptop across the internet are the same case:
-KOS Device on the host Mac dials `127.0.0.1`, on the laptop it dials the
+KOS for Mac on the host Mac dials `127.0.0.1`, on the laptop it dials the
 server. The device always connects out, so nothing listens on it.
 
 ## Using it
 
 1. Settings, Devices, Add a device. KOS shows a code and a link.
-2. On the computer, open KOS Device and paste the link (or the address and
+2. On the computer, open KOS for Mac and paste the link (or the address and
    code). The link opens it directly when the dashboard is on that computer.
 3. Grant Screen Recording and Accessibility when it asks.
 
@@ -171,7 +171,7 @@ Device: `{ "t": "reply", "id": 7, "ok": true, "result": { ... } }` or
 
 Every method but `session.begin` takes `session`, and the device refuses it
 without that session live. A Chrome takes the side panel's chat calls, and a
-Mac running KOS Device takes the same ones for its chat window; neither
+Mac running KOS for Mac takes the same ones for its chat window; neither
 needs a session ([browser-extension.md](browser-extension.md), and below).
 
 | Method | Params | Result |
@@ -214,7 +214,7 @@ Key names: letters, digits, `return`, `tab`, `space`, `escape`, `backspace`,
 
 ### The chat window
 
-KOS Device floats a chat window over the owner's apps (⌥⌘K, or Chat with KOS
+KOS for Mac floats a chat window over the owner's apps (⌥⌘K, or Chat with KOS
 in its menu): the side panel's chat, on the Mac. It takes the side panel's
 calls but `page.read` (`chat.show`, `chat.status`, `chat.ask`,
 `chat.settled`, `chat.chats`, `chat.models`) and sends its events

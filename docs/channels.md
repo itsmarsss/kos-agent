@@ -224,7 +224,7 @@ KOS_OWNER_IMESSAGE=   your own handle
 
 ## Chrome side panel
 
-A chat beside your tabs, in each Chrome paired through the KOS extension.
+A chat beside your tabs, in each Chrome paired through KOS for Chrome.
 Nothing to configure: it is there whenever a Chrome is paired and computer
 use is on, and every paired Chrome speaks as you, since only you can make a
 pairing code. Its words travel on the pairing's own line, so it reaches KOS

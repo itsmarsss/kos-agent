@@ -1,9 +1,9 @@
 # KOS in your Chrome
 
-KOS has a Chrome of its own (see [browser.md](browser.md)). The **KOS
-extension** lets it work in yours: the one you are signed in to everything
+KOS has a Chrome of its own (see [browser.md](browser.md)). **KOS for
+Chrome**, an extension, lets it work in yours: the one you are signed in to everything
 with, on your laptop, while you watch. It is a device, paired and proved the
-way KOS Device is (see [computer.md](computer.md)), that offers tabs instead
+way KOS for Mac is (see [computer.md](computer.md)), that offers tabs instead
 of a screen.
 
 `packages/browser-extension` is the extension. The KOS side is the device
@@ -72,7 +72,7 @@ line you can open, and an approval the chat asks for is decided in place.
   A KOS that is connected but never shows the chat is one from before the
   side panel, and the panel says to update it.
 
-The popup is laid out as KOS Device's window is, with KOS's face moving as
+The popup is laid out as the KOS for Mac window is, with KOS's face moving as
 it does on the dashboard (the same code, `@kos/shared/blobmotion`):
 
 - **Several KOS.** Add a KOS pairs another, say one at work beside one at
@@ -171,7 +171,7 @@ beside it when the chat asks.
 | `chat.mentions` | `q`, `mentions [{ kind, id, label, hint? }]` | `{}` |
 | `page.read` | `conversation` | `url`, `title`, `selection`, `text` |
 
-KOS Device's chat window on a Mac takes the same calls and sends the same
+The KOS for Mac chat window takes the same calls and sends the same
 events, but reads no page ([computer.md](computer.md), the chat window).
 
 A message's `role` is `you`, `kos`, `note`, or `steps` with `steps [{
@@ -202,4 +202,4 @@ Error codes beyond the device protocol's: `tab` (not a tab of the session),
 `method` (not on the list), `url` (not the web), `hidden_site` (the owner
 hid it). A tab on a hidden site is listed as `{ id, url: "", title: "Hidden
 from KOS", hidden: true }`. Unpairing sends `{ "t": "unpair" }` first, as
-KOS Device does.
+KOS for Mac does.
