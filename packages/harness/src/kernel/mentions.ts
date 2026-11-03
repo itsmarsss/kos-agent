@@ -1,6 +1,8 @@
 import { readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import { MENTION_SOURCE } from "@kos/shared";
+
 import type { Workspace } from "../store/workspace.js";
 
 /**
@@ -304,22 +306,8 @@ export function writeMention(kind: MentionKind, id: string): string {
 /** Ids that need no brackets, matching the unbracketed half of TOKEN. */
 const PLAIN_ID = /^[A-Za-z0-9._/-]*(?::[A-Za-z0-9._/-]+)*[A-Za-z0-9_/-]$/;
 
-/*
- * The id may contain dots but must not end on one, or a mention finishing a
- * sentence eats the full stop: "@schedule:kos.backup." resolved as the job
- * "kos.backup." and was reported as not existing.
- */
-// "agent" is what a blob was called first; it still reads as one.
-const KINDS = "project|page|file|schedule|chat|site|blob|agent|build|tab|approval";
-
-/**
- * Either bracketed, which may hold anything but a bracket, or plain. The
- * bracketed branch is tried first so "[a b]" is not read as the plain id "".
- */
-const TOKEN = new RegExp(
-  `@(${KINDS}):(?:\\[([^\\]]+)\\]|([A-Za-z0-9._/-]*(?::[A-Za-z0-9._/-]+)*[A-Za-z0-9_/-]))`,
-  "g",
-);
+/** A mention as @kos/shared writes one (MENTION_SOURCE says why its id is shaped so, and its groups). */
+const TOKEN = new RegExp(MENTION_SOURCE, "g");
 
 /**
  * Pull the references out of a message.

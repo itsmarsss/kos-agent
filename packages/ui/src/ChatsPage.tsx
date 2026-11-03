@@ -373,7 +373,7 @@ export function ChatsPage({
   );
   const menuRef = useRef<HTMLDivElement>(null);
   const closeMenu = useCallback(() => setMenuFor(null), []);
-  useDismiss(menuRef, menuFor !== null, closeMenu);
+  useDismiss(menuFor !== null, closeMenu, { inside: [menuRef] });
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [rewinding, setRewinding] = useState(false);
   const [archived, setArchived] = useState<Conversation[]>([]);

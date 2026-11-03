@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { useRef, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, m } from "motion/react";
 
 import { ease } from "@kos/kit";
+
+import { useDismiss } from "./useDismiss.js";
 
 /**
  * The small parts every page is built from, so they are built the same way.
@@ -139,32 +141,7 @@ export function useAnchoredPop(
     });
   };
   // It closes on a press outside it, on Escape, or when the page moves under it.
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: PointerEvent): void => {
-      const t = e.target as Node;
-      if (!pop.current?.contains(t) && !wrap.current?.contains(t)) setAt(null);
-    };
-    const key = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        setAt(null);
-      }
-    };
-    const moved = (e: Event): void => {
-      if (!pop.current?.contains(e.target as Node)) setAt(null);
-    };
-    document.addEventListener("pointerdown", away);
-    document.addEventListener("keydown", key, true);
-    window.addEventListener("resize", moved);
-    document.addEventListener("scroll", moved, true);
-    return () => {
-      document.removeEventListener("pointerdown", away);
-      document.removeEventListener("keydown", key, true);
-      window.removeEventListener("resize", moved);
-      document.removeEventListener("scroll", moved, true);
-    };
-  }, [open]);
+  useDismiss(open, close, { inside: [pop, wrap] });
   return { at, open, toggle, close, wrap, pop };
 }
 

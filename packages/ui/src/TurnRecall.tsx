@@ -15,7 +15,7 @@ import { useDismiss } from "./useDismiss.js";
 export function TurnRecall({ recalled }: { recalled: Recall }): ReactElement | null {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  useDismiss(ref, open, () => setOpen(false));
+  useDismiss(open, () => setOpen(false), { inside: [ref] });
 
   const facts = recalled.facts.length;
   const moments = recalled.events.length;

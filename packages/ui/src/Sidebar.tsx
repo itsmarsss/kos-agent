@@ -75,7 +75,7 @@ export function Sidebar({
   }, [railed]);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDetailsElement>(null);
-  useDismiss(moreRef, moreOpen, () => setMoreOpen(false));
+  useDismiss(moreOpen, () => setMoreOpen(false), { inside: [moreRef] });
   // Going somewhere closes the drawer; a route change is the signal.
   useEffect(() => setOpen(false), [route]);
   useEffect(() => {

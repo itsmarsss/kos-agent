@@ -250,7 +250,7 @@ export function EntryMenu({ entry, ops, inView = false }: { entry: Entry; ops: F
    */
   const [place, setPlace] = useState<CSSProperties>({});
   const ref = useRef<HTMLDivElement>(null);
-  useDismiss(ref, open, () => setOpen(false));
+  useDismiss(open, () => setOpen(false), { inside: [ref] });
   const toggle = (button: HTMLElement): void => {
     const r = button.getBoundingClientRect();
     const below = window.innerHeight - r.bottom > 240;

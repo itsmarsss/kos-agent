@@ -1,7 +1,9 @@
-import { useEffect, type ReactElement, type ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { AnimatePresence, m } from "motion/react";
 
 import { ease, spring } from "@kos/kit";
+
+import { useDismiss } from "./useDismiss.js";
 
 /**
  * A panel that slides in from the right.
@@ -34,14 +36,7 @@ export function Drawer({
   /** For content that needs the room, like a form beside its explanation. */
   wide?: boolean;
 }): ReactElement {
-  useEffect(() => {
-    if (!open) return;
-    const key = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", key);
-    return () => document.removeEventListener("keydown", key);
-  }, [open, onClose]);
+  useDismiss(open, onClose, { away: false, scroll: false, resize: false, escape: "dialog" });
 
   return (
     <AnimatePresence>

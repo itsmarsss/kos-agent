@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactElement, type ReactNode } from "react";
 
-import { CHANNEL_TOKEN } from "@kos/shared";
+import { CHANNEL_TOKEN, MENTION_SOURCE } from "@kos/shared";
 
 /**
  * A textarea whose references are coloured as they are typed.
@@ -12,8 +12,7 @@ import { CHANNEL_TOKEN } from "@kos/shared";
  * font, padding and wrapping rather than restating them.
  */
 
-const MENTION =
-  /@(?:project|page|file|schedule|chat|site|blob|agent|build|tab|approval):(?:\[[^\]]+\]|[A-Za-z0-9._/-]*(?::[A-Za-z0-9._/-]+)*[A-Za-z0-9_/-])/g;
+const MENTION = new RegExp(MENTION_SOURCE, "g");
 /*
  * Any word-shaped slash at the very start of the message. Deliberately not a
  * list of the commands: this file kept its own copy, so /compact and /clear

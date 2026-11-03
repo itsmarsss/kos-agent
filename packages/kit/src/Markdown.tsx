@@ -12,16 +12,17 @@ import {
 import {
   CHANNEL_TOKEN,
   COMMAND_NAMES,
-  MATH,
-  TIME_TOKEN,
   displayMathAt,
   formatTime,
   instantOf,
   listAt,
+  MATH,
   mathOf,
+  type MdList,
+  MENTION_SOURCE,
   startsList,
   styleOf,
-  type MdList,
+  TIME_TOKEN,
 } from "@kos/shared";
 
 import { Face } from "./Face.js";
@@ -50,8 +51,7 @@ import { Tex } from "./Tex.js";
 // An id may hold colons after its first segment: a chat is "cmv…:owner" and
 // a blob's job is "blob:briefing", and stopping at the colon made a chip of
 // the first half with the rest left dangling.
-const MENTION =
-  /@(project|page|file|schedule|chat|site|blob|agent|build|tab|approval):(?:\[([^\]]+)\]|([A-Za-z0-9._/-]*(?::[A-Za-z0-9._/-]+)*[A-Za-z0-9_/-]))/;
+const MENTION = new RegExp(MENTION_SOURCE);
 /*
  * Built from the shared list rather than spelled out here. The private copy
  * went stale: /compact, /clear and /tools were added to the harness and the

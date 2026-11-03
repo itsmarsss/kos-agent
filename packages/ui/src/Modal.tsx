@@ -1,7 +1,9 @@
-import { useEffect, type ReactElement, type ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { AnimatePresence, m } from "motion/react";
 
 import { CloseIcon, ease, IconButton, spring } from "@kos/kit";
+
+import { useDismiss } from "./useDismiss.js";
 
 /**
  * A centred dialog. Configuration belongs here rather than expanded inline:
@@ -19,14 +21,7 @@ export function Modal({
   onClose: () => void;
   children: ReactNode;
 }): ReactElement {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  useDismiss(open, onClose, { away: false, scroll: false, resize: false, escape: "dialog" });
 
   return (
     <AnimatePresence>
