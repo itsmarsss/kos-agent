@@ -1,9 +1,9 @@
 // The extension's dist/: the compiled scripts (tsc puts them there), the
-// static files beside them, the popup and the consent window bundled with
-// what they import (React, motion, and from @kos/shared KOS's face and the
-// dashboard's code that moves it) in a chunk the pages share, and the
-// toolbar icons, drawn here in the face's blue with its dark eyes, at each
-// size Chrome asks for.
+// static files beside them with the kit's stylesheet, the popup and the
+// consent window bundled with what they import (React, motion, @kos/kit's
+// pieces and from @kos/shared what moves KOS's face) in a chunk the pages
+// share, and the toolbar icons, drawn here in the face's blue with its dark
+// eyes, at each size Chrome asks for.
 import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,6 +16,8 @@ const root = dirname(fileURLToPath(import.meta.url));
 const dist = join(root, "dist");
 mkdirSync(dist, { recursive: true });
 for (const file of readdirSync(join(root, "static"))) copyFileSync(join(root, "static", file), join(dist, file));
+// The kit's look, which the pages load before their own.
+copyFileSync(join(root, "node_modules", "@kos", "kit", "src", "kit.css"), join(dist, "kit.css"));
 
 // KaTeX's stylesheet and the fonts it names, for the formulas in KOS's replies. Chrome takes the woff2 of each.
 const katex = join(root, "node_modules", "katex", "dist");
