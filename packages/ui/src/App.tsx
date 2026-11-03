@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AgentFaces, AlertIcon, CheckIcon, Chips, ease, faceDataUrl, KOS_SEED, KosLook, lookOf, spring } from "@kos/kit";
+import { AgentFaces, AlertIcon, CheckIcon, Chips, ease, faceDataUrl, KOS_SEED, KosLook, lookOf, spring, StatusDot } from "@kos/kit";
 
 import {
   type FailingJob,
@@ -26,7 +26,6 @@ import { hrefFor, pageKeyOf, parseRoute, type Route } from "./routes.js";
 import { Drawer } from "./Drawer.js";
 import { CronEditor } from "./CronEditor.js";
 import { describeCron } from "./schedule.js";
-import { StatusDot } from "./StatusDot.js";
 import { HistoryPage, type HistoryRow } from "./HistoryPage.js";
 import { HomePage } from "./HomePage.js";
 import { ChatsPage } from "./ChatsPage.js";

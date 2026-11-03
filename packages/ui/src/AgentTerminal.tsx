@@ -2,12 +2,12 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import { m } from "motion/react";
 import { summarizeAction } from "@kos/shared";
 
-import { ChevronDown, ChevronRight, ease, spring, useDismiss } from "@kos/kit";
+import { ChevronDown, ChevronRight, ease, spring, StatusDot, useDismiss } from "@kos/kit";
 
 import { api, type BuildRecord, type PendingAction } from "./api.js";
 import { Decision } from "./Decision.js";
 import { socket } from "./socket.js";
-import { buildDot, StatusDot } from "./StatusDot.js";
+import { buildDot } from "./StatusDot.js";
 
 /**
  * One build, read like a terminal.

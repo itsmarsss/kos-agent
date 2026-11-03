@@ -39,6 +39,14 @@ export function Tag({ mono = false, title, remove, children }: { mono?: boolean;
   );
 }
 
+/** What a dot can say. Blue is working, yellow is waiting on you, red is broken, green has something unread or is on, grey is read, quiet or off. */
+export type DotState = "working" | "needs-you" | "error" | "unread" | "read" | "on" | "off";
+
+/** A state as a dot alone, its word in the tooltip: a thread, a build, a session. */
+export function StatusDot({ state, label }: { state: DotState; label: string }): ReactElement {
+  return <span className={`status-dot status-dot--${state}`} role="img" aria-label={label} title={label} />;
+}
+
 /** How many there are, beside a title or a group's name: a small capsule in the accent (or the card's tint). */
 export function Count({ n }: { n: number }): ReactElement {
   return <span className="count">{n}</span>;

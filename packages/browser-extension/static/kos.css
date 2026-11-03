@@ -123,8 +123,6 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px 
 .card--live { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .card--live[data-paused] { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
 .session-head { display: flex; align-items: center; gap: 10px; }
-.session-head::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: beat 1.8s ease-in-out infinite; }
-.card--live[data-paused] .session-head::before { background: var(--warn); animation: none; }
 .session-head strong { flex: 1; }
 @keyframes beat { 50% { opacity: 0.35; } }
 /* The task in quotes, drawn rather than written, so its text is only the task. */

@@ -1,6 +1,6 @@
 import { KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { ChatIcon, ChevronLeft, Chips, Collapse, DrawerRow, Face, Field, GearIcon, GlobeIcon, HandIcon, HiddenIcon, IconButton, listItem, Pill, Section, ServerIcon, spring, stagger, Switch, Tag, type Tone } from "@kos/kit";
+import { ChatIcon, ChevronLeft, Chips, Collapse, DrawerRow, Face, Field, GearIcon, GlobeIcon, HandIcon, HiddenIcon, IconButton, listItem, Pill, Section, ServerIcon, spring, stagger, StatusDot, Switch, Tag, type Tone } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -156,6 +156,7 @@ function SessionCard({ session, act }: { session: NonNullable<PopupState["sessio
   return (
     <m.section className="card card--live" data-paused={session.paused || undefined} layout variants={listItem} initial="hidden" animate="show" exit="exit">
       <div className="session-head">
+        <StatusDot state={session.paused ? "needs-you" : "working"} label={session.paused ? "Paused" : "Working"} />
         <strong>{session.paused ? "Paused. You have control." : "KOS is using this Chrome"}</strong>
         <span className="hint">{minutesLeft(session.until)}</span>
       </div>

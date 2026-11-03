@@ -2676,21 +2676,6 @@ li:hover .chats-item-when { opacity: 0; }
 /* What a thread is doing, in the place the timestamp would otherwise sit. */
 /* A thread's state as a dot: blue working, yellow waiting on you, red
    broken. The word is in the tooltip. */
-.status-dot {
-  flex: none;
-  align-self: center;
-  width: 0.45rem;
-  height: 0.45rem;
-  border-radius: 50%;
-  background: var(--faint);
-}
-.status-dot--working { background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
-.status-dot--needs-you { background: var(--warn); }
-.status-dot--error { background: var(--danger); }
-.status-dot--unread { background: var(--ok); }
-.status-dot--read { background: var(--line-strong); }
-.status-dot--on { background: var(--ok); }
-.status-dot--off { background: var(--line-strong); }
 
 /* The schedule as a table you can read: the name over what it means, a dot
    for on, off or running, when it fires next, when it last did. The cron

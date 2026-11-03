@@ -1,5 +1,7 @@
 import type { ReactElement } from "react";
 
+import { StatusDot, type DotState } from "@kos/kit";
+
 import type { Conversation } from "./api.js";
 
 /**
@@ -13,11 +15,6 @@ import type { Conversation } from "./api.js";
  * A schedule uses the same dot: green on, grey off, blue while it runs.
  */
 
-export type DotState = "working" | "needs-you" | "error" | "unread" | "read" | "on" | "off";
-
-export function StatusDot({ state, label }: { state: DotState; label: string }): ReactElement {
-  return <span className={`status-dot status-dot--${state}`} role="img" aria-label={label} title={label} />;
-}
 
 /** A build's state as the same dot a thread wears: working in the accent, waiting on you in warn, failed in danger, stopped and done quiet. */
 export function buildDot(status: string): DotState {

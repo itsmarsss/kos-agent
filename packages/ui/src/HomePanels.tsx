@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
 import { summarizeAction } from "@kos/shared";
-import { CloseIcon, Count, Empty, Face, IconButton, moodOf, RefChip, type Tone } from "@kos/kit";
+import { CloseIcon, Count, Empty, Face, IconButton, moodOf, RefChip, StatusDot, type Tone } from "@kos/kit";
 
 import { titleOf } from "./AgentEditor.js";
 import type { AgentInfo, FailingJob, HomeData, ModelSpend, RunRecord } from "./api.js";
@@ -9,7 +9,7 @@ import { clockLabel, dayLabel, hourLabel, padDays, padHours } from "./chartdata.
 import { Bars, DayLine, ProjectMap, Share, Ticks, type Tick } from "./charts.js";
 import { Decision } from "./Decision.js";
 import { hrefFor } from "./routes.js";
-import { ActivityDot, buildDot, fixLabel, StatusDot } from "./StatusDot.js";
+import { ActivityDot, buildDot, fixLabel } from "./StatusDot.js";
 
 /**
  * The panels a home page can be built from.
