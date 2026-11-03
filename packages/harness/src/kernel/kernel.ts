@@ -52,7 +52,7 @@ import { MEMORY_JOB } from "../memory/job.js";
 import type { ReviewQueue } from "../memory/review.js";
 import type { CallerStore } from "../memory/callers.js";
 import type { PageLog } from "../memory/pages.js";
-import type { Route, Task } from "../models/router.js";
+import { DEFAULT_ROUTING, type Route, type Task } from "../models/router.js";
 import type { Effort, Provider } from "../models/provider.js";
 import { CUSTOM_PROVIDER, OpenAICompatibleProvider } from "../models/providers/compat.js";
 import { CLASSIFIER_KEY, CUSTOM_ENDPOINT_KEY, parseClassifierEndpoint, parseCustomEndpoint, type CustomEndpoint } from "../models/settings.js";
@@ -1109,7 +1109,7 @@ export class Kernel {
             tools,
             cwd: this.workspace.root,
             maxTurns: this.behaviour().maxSteps,
-            ...(this.screenRoute()?.provider === "anthropic" ? { screen: this.screenSpec()! } : {}),
+            ...(this.sdkScreen() ? { screen: this.sdkScreen()! } : {}),
             onDelta: (delta) =>
               this.progress.emit({
                 kind: "delta",
@@ -1502,9 +1502,17 @@ export class Kernel {
     return screen.provider === turn.provider && screen.spec.model === turn.spec.model ? undefined : screen;
   }
 
-  private screenSpec(): { model: string; effort?: Effort } | undefined {
+  /**
+   * The screen model on the subscription engine, which runs Claude whatever
+   * the API keys are: the screen route's own when it is a Claude model,
+   * otherwise the default screen model (a workspace with only an OpenAI key
+   * routes screen work to OpenAI, which this engine cannot run).
+   */
+  private sdkScreen(): { model: string; effort?: Effort } | undefined {
     const route = this.screenRoute();
-    return route ? { model: route.spec.model, ...(route.spec.effort ? { effort: route.spec.effort } : {}) } : undefined;
+    if (!route) return undefined;
+    const spec = route.provider === "anthropic" ? route.spec : DEFAULT_ROUTING.screen.spec;
+    return { model: spec.model, ...(spec.effort ? { effort: spec.effort } : {}) };
   }
 
   private projectOf(sessionId: string): string | null {
