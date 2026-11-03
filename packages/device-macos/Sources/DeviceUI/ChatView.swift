@@ -1,28 +1,19 @@
 import SwiftUI
 
 /// KOS for Mac's chat window: the side panel's chat, floating over the
-/// owner's apps (docs/design.md, Chat). KOS's face and the chat's name lead
-/// it, the name opening the window's own chats; the thread, then what waits
-/// on the owner, then the box, with the app in front, the model and Ask or
-/// Auto under it.
-/// The chat's type, as the dashboard sets it (docs/design.md, Chat): the side panel and this window read alike.
-public enum ChatType {
-  /// The words, the owner's and KOS's, and the box they are typed in.
-  public static let body: CGFloat = 15
-  /// A table's cells.
-  public static let table: CGFloat = 14
-  /// Code blocks and table heads.
-  public static let dense: CGFloat = 13
-  /// Chips, the chat's name, notes and asides.
-  public static let detail: CGFloat = 12
-}
-
+/// owner's apps (docs/design.md, Chat), drawn from the kit (Controls.swift)
+/// as the panel is drawn from the extension's. KOS's face and the chat's
+/// name lead it, the name opening the window's own chats; the app in front
+/// on its card, as the panel's tab; the thread, ending in what waits on the
+/// owner; then the box, with the model and Ask or Auto under it.
 public struct ChatView: View {
   @ObservedObject private var model: ChatModel
   @State private var switching = false
   @FocusState private var typing: Bool
 
   public static let size = CGSize(width: 380, height: 560)
+  /// The smallest the window may be: the box and a few lines above it.
+  public static let smallest = CGSize(width: 320, height: 380)
 
   public init(model: ChatModel) {
     self.model = model
@@ -31,35 +22,38 @@ public struct ChatView: View {
   public var body: some View {
     VStack(spacing: 0) {
       header
-      Rectangle().fill(Theme.line).frame(height: 1)
-      thread
-      if !model.asks.isEmpty {
-        VStack(spacing: 8) {
-          ForEach(model.asks) { ask in AskCard(ask: ask, answer: model.answer) }
-        }
-        .padding(.horizontal, 14)
-        .padding(.bottom, 8)
+      Hairline()
+      if model.paired, let app = model.beside {
+        AppCard(name: app, title: model.besideTitle, hidden: model.besideHidden, session: model.session)
+          .padding(.horizontal, 12)
+          .padding(.top, 10)
       }
+      thread
       if let error = model.error {
-        Text(error).font(.system(size: ChatType.detail)).foregroundStyle(Theme.danger)
+        Text(error).font(.kos(.detail)).foregroundStyle(Theme.danger)
           .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.bottom, 6)
       }
-      composer
+      if model.paired && !model.silent { composer }
     }
-    .frame(minWidth: 320, minHeight: 380)
+    .frame(minWidth: Self.smallest.width, minHeight: Self.smallest.height)
     // Up to the window's top edge: its title bar is hidden, and the header is where it is dragged from.
     .ignoresSafeArea(.container, edges: .top)
     .background(Theme.bg)
     .foregroundStyle(Theme.text)
-    .font(.system(size: ChatType.body))
+    .font(.kos(.body))
     .onAppear { typing = true }
   }
 
   // MARK: Header
 
+  private var mood: BlobMood {
+    guard model.online else { return .asleep }
+    return model.asks.isEmpty ? (model.working ? .working : .idle) : .needsYou
+  }
+
   private var header: some View {
     HStack(spacing: 10) {
-      KOSFace(size: 30, mood: model.online ? (model.asks.isEmpty ? (model.working ? .working : .idle) : .needsYou) : .asleep, look: model.face)
+      KOSFace(size: 30, mood: mood, look: model.face)
       VStack(alignment: .leading, spacing: 1) {
         if model.kosChoices.count > 1 {
           Menu {
@@ -71,7 +65,7 @@ public struct ChatView: View {
               Text(model.kosName.map { "KOS · \($0)" } ?? "KOS")
               Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .bold)).foregroundStyle(Theme.muted)
             }
-            .font(.system(size: 15, weight: .semibold))
+            .font(.kos(.body, .semibold))
             .foregroundStyle(Theme.text)
           }
           .menuStyle(.button)
@@ -80,31 +74,26 @@ public struct ChatView: View {
           .fixedSize()
           .help("Which KOS this window talks to")
         } else {
-          Text("KOS").font(.system(size: 15, weight: .semibold))
+          Text("KOS").font(.kos(.body, .semibold))
         }
-        Button {
-          if !switching { model.list() }
-          switching.toggle()
-        } label: {
-          HStack(spacing: 4) {
-            Text(model.online ? model.title : "Not connected").lineLimit(1).truncationMode(.tail)
-            if model.online { Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)) }
+        if model.usable {
+          ChatTitle(text: model.subtitle, open: switching) {
+            if !switching { model.list() }
+            switching.toggle()
           }
-          .font(.system(size: ChatType.detail))
-          .foregroundStyle(Theme.muted)
-        }
-        .buttonStyle(.plain)
-        .disabled(!model.online)
-        .pointingHand(model.online)
-        .popover(isPresented: $switching, arrowEdge: .bottom) {
-          Switcher(chats: model.chats, current: model.conversation) { id in
-            switching = false
-            if let id { model.switchTo(id) } else { model.say("/new") }
+          .popover(isPresented: $switching, arrowEdge: .bottom) {
+            Switcher(chats: model.chats, current: model.conversation) { id in
+              switching = false
+              if let id { model.switchTo(id) } else { model.say("/new") }
+            }
+            .onExitCommand { switching = false }
           }
+        } else {
+          Text(model.subtitle).font(.kos(.detail)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.tail)
         }
       }
       Spacer(minLength: 8)
-      if model.online { IconButton(symbol: "square.and.pencil", label: "New chat") { model.say("/new") } }
+      if model.usable { IconButton(symbol: "square.and.pencil", label: "New chat") { model.say("/new") } }
       IconButton(symbol: "xmark", label: "Close", tint: Theme.danger) { model.close() }
     }
     .padding(.horizontal, 14)
@@ -117,18 +106,22 @@ public struct ChatView: View {
     ScrollViewReader { reader in
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 10) {
-          if model.lines.isEmpty && model.sending.isEmpty {
-            Text(model.online ? "Ask about what is in front of you, or have KOS do something on this Mac. It asks before it works here." : "Connect this Mac to KOS to talk to it here.")
-              .font(.system(size: ChatType.dense)).foregroundStyle(Theme.muted).padding(.top, 40)
-              .frame(maxWidth: .infinity)
-              .multilineTextAlignment(.center)
+          if model.lines.isEmpty && model.sending.isEmpty && model.notices.isEmpty {
+            EmptyChat(paired: model.paired, silent: model.silent, online: model.online, ask: model.say)
           }
           ForEach(model.items) { item in
             ItemView(item: item)
           }
           if model.working {
-            Working(story: model.story)
+            let running = model.running
+            if running.steps.isEmpty && running.words.isEmpty {
+              Thinking()
+            } else {
+              if !running.steps.isEmpty { Steps(steps: running.steps, live: true) }
+              if !running.words.isEmpty { ChatMarkdown(running.words).foregroundStyle(Theme.muted) }
+            }
           }
+          ForEach(model.asks) { ask in AskCard(ask: ask, answer: model.answer) }
           Color.clear.frame(height: 1).id("end")
         }
         .padding(.horizontal, 16)
@@ -138,6 +131,7 @@ public struct ChatView: View {
       }
       .onChange(of: model.items.count) { reader.scrollTo("end", anchor: .bottom) }
       .onChange(of: model.story) { reader.scrollTo("end", anchor: .bottom) }
+      .onChange(of: model.asks.count) { reader.scrollTo("end", anchor: .bottom) }
       .onAppear { reader.scrollTo("end", anchor: .bottom) }
     }
   }
@@ -150,7 +144,7 @@ public struct ChatView: View {
         .textFieldStyle(.plain)
         .lineLimit(1...6)
         .focused($typing)
-        .disabled(!model.online)
+        .disabled(!model.usable)
         .onSubmit(sendDraft)
         // The hint drawn here, not as the field's own: in the faint grey, on one line, cut at its end, as the dashboard's.
         .overlay(alignment: .topLeading) {
@@ -163,22 +157,20 @@ public struct ChatView: View {
           }
         }
       HStack(spacing: 6) {
-        if let app = model.beside {
-          Chip(symbol: model.besideHidden ? "eye.slash" : "macwindow", text: model.besideHidden ? "Hidden from KOS" : app)
-            .help(model.besideHidden ? "The app in front is hidden from KOS" : "What \"this\" means: the app in front")
-            // The app's name is what the row is for: it keeps its room longest when the window is narrow.
-            .layoutPriority(1)
-        }
         if let models = model.models {
           if let fixed = models.fixed {
-            Chip(symbol: nil, text: fixed).help("Answering on your Claude Code subscription; change it in KOS, Settings, Models")
+            Chip(fixed, pressable: false).help("Answering on your Claude Code subscription; change it in KOS, Settings, Models")
           } else {
             Menu {
               ForEach(models.choices, id: \.self) { choice in
                 Button(choice) { model.chooseModel(choice) }
               }
             } label: {
-              Chip(symbol: nil, text: models.current.isEmpty ? "Model" : models.current)
+              HStack(spacing: 4) {
+                Text(models.current.isEmpty ? "Model" : models.current).lineLimit(1).truncationMode(.tail)
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+              }
+              .chip()
             }
             .menuStyle(.button)
             .buttonStyle(.plain)
@@ -188,21 +180,16 @@ public struct ChatView: View {
         Button {
           model.setAuto(!model.auto)
         } label: {
-          Chip(symbol: model.auto ? "bolt.fill" : "hand.raised", text: model.auto ? "Auto" : "Ask", lit: model.auto)
+          Chip(model.auto ? "Auto" : "Ask", symbol: model.auto ? "bolt" : "hand.raised", lit: model.auto)
         }
         .buttonStyle(.plain)
         .fixedSize()
         .help(model.auto ? "KOS works on this Mac without asking each step" : "KOS asks before each step on this Mac")
         Spacer(minLength: 4)
         Button(action: sendDraft) {
-          Image(systemName: "arrow.up")
-            .font(.system(size: 13, weight: .bold))
-            .foregroundStyle(canSend ? Theme.onAccent : Theme.faint)
-            .frame(width: 30, height: 30)
-            // Nothing to send is grey, as the dashboard's is, not a fainter blue that still reads as a button.
-            .background(canSend ? Theme.accent : Theme.line, in: Circle())
+          Image(systemName: "arrow.right").font(.system(size: 13, weight: .bold))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SendStyle(enabled: canSend))
         .disabled(!canSend)
         .keyboardShortcut(.return, modifiers: .command)
         .accessibilityLabel("Send")
@@ -211,12 +198,13 @@ public struct ChatView: View {
     .padding(EdgeInsets(top: 7, leading: 11, bottom: 7, trailing: 7))
     .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.radiusLg, style: .continuous))
     .overlay(RoundedRectangle(cornerRadius: Theme.radiusLg, style: .continuous).strokeBorder(typing ? Theme.accent.opacity(0.6) : Theme.line))
+    .opacity(model.usable ? 1 : 0.6)
     .padding(.horizontal, 12)
     .padding(.bottom, 12)
   }
 
   private var canSend: Bool {
-    model.online && !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    model.usable && !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   private func sendDraft() {
@@ -224,6 +212,107 @@ public struct ChatView: View {
     let words = model.draft
     model.draft = ""
     model.say(words)
+  }
+}
+
+/// The chat's name under KOS, opening its chats: lighter under the pointer, its chevron turned while they are open, as the panel's is.
+private struct ChatTitle: View {
+  let text: String
+  let open: Bool
+  let action: () -> Void
+  @State private var hovering = false
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 4) {
+        Text(text).lineLimit(1).truncationMode(.tail)
+        Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).rotationEffect(.degrees(open ? 180 : 0))
+      }
+      .font(.kos(.detail))
+      .foregroundStyle(hovering || open ? Theme.text : Theme.muted)
+      .padding(.horizontal, 4)
+      .padding(.vertical, 1)
+      .background(hovering || open ? Theme.panel2 : .clear, in: RoundedRectangle(cornerRadius: Theme.radiusXs, style: .continuous))
+      .padding(.horizontal, -4)
+    }
+    .buttonStyle(.plain)
+    .onHover { hovering = $0 }
+    .pointingHand()
+    .animation(Theme.hover, value: hovering)
+    .animation(Theme.spring, value: open)
+    .help("Switch chat")
+  }
+}
+
+/// The app in front, which "this" means: what it is, its window, and what KOS may do in it, as the panel's tab card says of the tab.
+private struct AppCard: View {
+  let name: String
+  let title: String?
+  let hidden: Bool
+  let session: ChatModel.Session?
+
+  var body: some View {
+    let live = session != nil && !hidden
+    Card(tone: live ? Theme.accent : nil, padding: EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12)) {
+      HStack(spacing: 12) {
+        Tile(hidden ? "eye.slash" : "macwindow", tint: Theme.accent, small: true)
+        // A hidden app's window is named nowhere, here included.
+        RowText(name, hidden ? "KOS never sees this app" : title ?? "The app in front", size: .control, titleLines: 1, detailLines: 1)
+        Spacer(minLength: 6)
+        pill
+      }
+    }
+    .animation(Theme.hover, value: live)
+  }
+
+  private var pill: Pill {
+    if hidden { return Pill("Hidden from KOS", tone: .muted) }
+    switch session {
+    case .working: return Pill("KOS is working", tone: .accent)
+    case .paused: return Pill("You have it", tone: .warn)
+    case nil: return Pill("Asks first", tone: .muted)
+    }
+  }
+}
+
+/// Nothing said yet: what this window is for, and a few things to ask; or why it cannot be talked to.
+private struct EmptyChat: View {
+  let paired: Bool
+  let silent: Bool
+  let online: Bool
+  let ask: (String) -> Void
+
+  static let suggestions = ["What am I looking at?", "Summarize this window", "What can you do here?"]
+
+  var body: some View {
+    VStack(spacing: 10) {
+      if !paired {
+        KOSFace(size: 64, mood: .asleep)
+        Text("Pair this Mac with KOS").font(.kos(.dense, .semibold))
+        hint("Open KOS for Mac from the menu bar and paste a pairing link from KOS: Settings, Devices, Add a device.")
+      } else if silent {
+        KOSFace(size: 56, mood: .error)
+        Text("This KOS cannot talk here yet").font(.kos(.dense, .semibold))
+        hint("It is connected, but it does not answer this window. Update KOS, restart it, then open this window again. Its other work on this Mac is not affected.")
+      } else {
+        hint("Ask about the app in front, or have KOS do something in it. It asks before it works here.")
+        if online {
+          VStack(spacing: 6) {
+            ForEach(Self.suggestions, id: \.self) { words in
+              Button(words) { ask(words) }.buttonStyle(KOSButtonStyle(.secondary, small: true))
+            }
+          }
+        }
+      }
+    }
+    .frame(maxWidth: 300)
+    .padding(24)
+    .frame(maxWidth: .infinity)
+    .padding(.top, 16)
+  }
+
+  private func hint(_ words: String) -> some View {
+    Text(words).font(.kos(.detail)).foregroundStyle(Theme.muted).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
   }
 }
 
@@ -236,8 +325,9 @@ private struct ItemView: View {
     case .line(_, let line):
       LineView(line: line)
     case .notice(_, let notice):
-      VStack(alignment: .leading, spacing: 3) {
-        if let from = notice.from { Text(from).font(.system(size: ChatType.detail, weight: .semibold)).foregroundStyle(Theme.muted) }
+      VStack(alignment: .leading, spacing: 2) {
+        // Who answered, when it was not KOS itself, in the violet a passed-on sender is named in.
+        if let from = notice.from { Text(from).font(.kos(.tiny, .semibold)).foregroundStyle(Theme.violet) }
         ChatMarkdown(notice.text)
       }
     case .sending(_, let text):
@@ -256,7 +346,7 @@ private struct LineView: View {
     case .kos(let text):
       ChatMarkdown(text).frame(maxWidth: .infinity, alignment: .leading)
     case .note(let text):
-      Text(text).font(.system(size: ChatType.detail)).foregroundStyle(Theme.faint).frame(maxWidth: .infinity)
+      Text(text).font(.kos(.tiny)).foregroundStyle(Theme.faint).multilineTextAlignment(.center).frame(maxWidth: .infinity)
     case .steps(let steps):
       Steps(steps: steps)
     }
@@ -275,7 +365,7 @@ private struct Bubble: View {
       VStack(alignment: .leading, spacing: 6) {
         if !text.isEmpty { ChatMarkdown(text) }
         ForEach(files, id: \.self) { file in
-          Label(file, systemImage: "doc").font(.system(size: ChatType.detail)).foregroundStyle(Theme.muted)
+          Label(file, systemImage: "doc").font(.kos(.detail)).foregroundStyle(Theme.muted)
         }
       }
       .padding(.horizontal, 12)
@@ -287,138 +377,150 @@ private struct Bubble: View {
   }
 }
 
-/// A turn's tool calls, folded to one chip that opens to them.
+/// A turn's tool calls, folded to one chip that opens to them; live, the step it is on, in the accent.
 private struct Steps: View {
   let steps: [ChatModel.Step]
+  var live = false
   @State private var open = false
+
+  private var label: String {
+    let failed = steps.filter(\.failed).count
+    let said = live
+      ? "\(steps.count > 1 ? "\(steps.count). " : "")\(steps.last?.summary ?? "Working")"
+      : "\(steps.count) step\(steps.count == 1 ? "" : "s")"
+    return failed > 0 ? "\(said) · \(failed) failed" : said
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
       Button {
+        guard !live else { return }
         withAnimation(Theme.spring) { open.toggle() }
       } label: {
-        HStack(spacing: 5) {
-          Image(systemName: "list.bullet").font(.system(size: 10, weight: .semibold))
-          Text("\(steps.count) step\(steps.count == 1 ? "" : "s")")
-          if steps.contains(where: \.failed) { Circle().fill(Theme.danger).frame(width: 5, height: 5) }
-          Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).rotationEffect(.degrees(open ? 180 : 0))
-        }
-        .modifier(ChipLook(lit: false))
-      }
-      .buttonStyle(.plain)
-      .pointingHand()
-      if open {
-        VStack(alignment: .leading, spacing: 3) {
-          ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
-            Text("› \(step.summary)").font(.system(size: ChatType.dense)).foregroundStyle(step.failed ? Theme.danger : Theme.muted)
+        HStack(spacing: 6) {
+          Image(systemName: "checklist").font(.system(size: 11, weight: .semibold))
+          Text(label).lineLimit(1).truncationMode(.tail)
+          if !live {
+            Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).rotationEffect(.degrees(open ? 180 : 0))
           }
         }
-        .padding(.leading, 4)
+        .chip(lit: live, pressable: !live)
+      }
+      .buttonStyle(.plain)
+      if open && !live {
+        VStack(alignment: .leading, spacing: 3) {
+          ForEach(Array(steps.enumerated()), id: \.offset) { i, step in
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+              Text(verbatim: "\(i + 1).").monospacedDigit().frame(minWidth: 14, alignment: .trailing)
+              Text(step.summary)
+            }
+            .font(.kos(.dense))
+            .foregroundStyle(step.failed ? Theme.danger : Theme.muted)
+          }
+        }
+        .padding(.leading, 6)
         .transition(.opacity.combined(with: .move(edge: .top)))
       }
     }
   }
 }
 
-/// The running turn: its steps so far, or that it is thinking.
-private struct Working: View {
-  let story: String?
-
+/// The dashboard's live head while a turn has taken no step: three dots of the accent pulsing in turn, and that it is thinking.
+private struct Thinking: View {
   var body: some View {
-    VStack(alignment: .leading, spacing: 3) {
-      if let story, !story.isEmpty {
-        ForEach(Array(story.components(separatedBy: "\n").suffix(4).enumerated()), id: \.offset) { _, line in
-          Text(line).font(.system(size: ChatType.detail)).foregroundStyle(Theme.muted).lineLimit(1)
+    HStack(spacing: 8) {
+      TimelineView(.animation) { context in
+        let now = context.date.timeIntervalSinceReferenceDate
+        HStack(spacing: 3) {
+          ForEach(0..<3, id: \.self) { i in
+            Dot(Theme.accent, size: 4).opacity(Self.pulse(at: now - Double(i) * 0.15))
+          }
         }
       }
-      HStack(spacing: 6) {
-        ProgressView().controlSize(.mini)
-        Text("Working").font(.system(size: ChatType.detail)).foregroundStyle(Theme.faint)
-      }
+      Text("Thinking").font(.kos(.detail)).foregroundStyle(Theme.muted)
     }
+    .padding(.vertical, 4)
+  }
+
+  /// The dashboard's live-pulse: a quarter lit, up to full at 30% of each 1.1 s, and back by 60%.
+  static func pulse(at time: Double) -> Double {
+    let period = 1.1
+    let at = (time.truncatingRemainder(dividingBy: period) + period).truncatingRemainder(dividingBy: period) / period
+    let rise = at < 0.3 ? at / 0.3 : at < 0.6 ? 1 - (at - 0.3) / 0.3 : 0
+    return 0.25 + 0.75 * rise
   }
 }
 
-/// An approval to decide here: what, why, and the buttons.
+/// An approval to decide in the thread, as the panel's card asks it: what KOS would run, why, with what, and the dashboard's buttons.
 private struct AskCard: View {
   let ask: ChatModel.Ask
   let answer: (String, Bool, Bool) -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      HStack(spacing: 6) {
-        Circle().fill(Theme.warn).frame(width: 6, height: 6)
-        Text("Needs your OK").font(.system(size: ChatType.dense, weight: .semibold))
-        Text(ask.tool).font(.system(size: ChatType.detail, design: .monospaced)).foregroundStyle(Theme.muted)
+    Card(tone: Theme.warn, padding: EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14)) {
+      SectionLabel("KOS asks to run")
+      Text(ask.tool).font(.kos(.dense, .semibold, design: .monospaced))
+      if let why = ask.why ?? ask.reason {
+        Text(why).font(.kos(.detail)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
       }
-      if let why = ask.why ?? ask.reason { Text(why).font(.system(size: ChatType.table)).foregroundStyle(Theme.text) }
       if let args = ask.args {
-        Text(args).font(.system(size: ChatType.detail, design: .monospaced)).foregroundStyle(Theme.faint).lineLimit(3)
+        Text(args)
+          .font(.kos(.small, design: .monospaced))
+          .foregroundStyle(Theme.muted)
+          .lineLimit(8)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(8)
+          .background(Theme.bg, in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
       }
       HStack(spacing: 6) {
         Button("Approve") { answer(ask.id, true, false) }.buttonStyle(KOSButtonStyle(.primary))
-        if let always = ask.always { Button(always) { answer(ask.id, true, true) }.buttonStyle(KOSButtonStyle(.secondary)) }
+        if let always = ask.always { Button(always) { answer(ask.id, true, true) }.buttonStyle(KOSButtonStyle(.secondary)).help("Approve, and stop asking for this") }
         Button("Deny") { answer(ask.id, false, false) }.buttonStyle(KOSButtonStyle(.danger))
       }
     }
-    .padding(12)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous))
-    .overlay(RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous).strokeBorder(Theme.warn.opacity(0.35)))
   }
 }
 
-/// The window's own chats, newest first, with a new one on top.
+/// The window's own chats, newest first, with a new one on top; past eight, a field narrows them.
 private struct Switcher: View {
   let chats: [ChatModel.Pick]
   let current: String?
   let pick: (String?) -> Void
+  @State private var query = ""
+
+  private var shown: [ChatModel.Pick] {
+    let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+    return q.isEmpty ? chats : chats.filter { $0.title.lowercased().contains(q) }
+  }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Row(title: "New chat", symbol: "square.and.pencil", when: nil, on: false) { pick(nil) }
+    VStack(alignment: .leading, spacing: 3) {
+      MenuRow(action: { pick(nil) }) { _ in
+        Label("New chat", systemImage: "square.and.pencil").font(.kos(.control, .semibold)).foregroundStyle(Theme.accent)
+      }
+      Hairline()
+      if chats.count > 8 { KOSField(nil, placeholder: "Find a chat", text: $query) }
       if chats.isEmpty {
-        Text("Loading your chats").font(.system(size: ChatType.detail)).foregroundStyle(Theme.faint).padding(8)
+        Text("Loading your chats").font(.kos(.detail)).foregroundStyle(Theme.faint).padding(8)
       }
       ScrollView {
-        VStack(alignment: .leading, spacing: 2) {
-          ForEach(chats) { chat in
-            Row(title: chat.title, symbol: nil, when: when(chat.updated), on: chat.id == current) { pick(chat.id) }
+        VStack(alignment: .leading, spacing: 1) {
+          ForEach(shown) { chat in
+            MenuRow(on: chat.id == current, action: { pick(chat.id) }) { _ in
+              HStack(spacing: 8) {
+                Text(chat.title).font(.kos(.control)).lineLimit(1).truncationMode(.tail)
+                Spacer(minLength: 6)
+                Text(when(chat.updated)).font(.kos(.tiny)).monospacedDigit().foregroundStyle(Theme.faint)
+              }
+            }
           }
         }
       }
       .frame(maxHeight: 280)
     }
-    .padding(6)
+    .padding(4)
     .frame(width: 260)
     .background(Theme.panel)
-  }
-
-  private struct Row: View {
-    let title: String
-    let symbol: String?
-    let when: String?
-    let on: Bool
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-      Button(action: action) {
-        HStack(spacing: 8) {
-          if let symbol { Image(systemName: symbol).font(.system(size: 11)) }
-          Text(title).lineLimit(1).font(.system(size: ChatType.dense, weight: on ? .semibold : .regular))
-          Spacer()
-          if let when { Text(when).font(.system(size: 11)).foregroundStyle(Theme.faint) }
-        }
-        .foregroundStyle(on ? Theme.accent : Theme.text)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(hovering ? Theme.panel2 : .clear, in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
-        .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .onHover { hovering = $0 }
-    }
   }
 
   private func when(_ at: Date, now: Date = Date()) -> String {
@@ -430,45 +532,31 @@ private struct Switcher: View {
   }
 }
 
-/// A chip under the box: what it is, at a glance, cut at its end when the window is narrow.
-private struct Chip: View {
-  let symbol: String?
-  let text: String
-  var lit = false
+/// The send button: the accent's circle with the right arrow the panel and the dashboard draw, lit under the pointer,
+/// a touch smaller pressed; grey with nothing to send, as the dashboard's is.
+private struct SendStyle: ButtonStyle {
+  let enabled: Bool
 
-  var body: some View {
-    HStack(spacing: 4) {
-      if let symbol { Image(systemName: symbol).font(.system(size: 10, weight: .semibold)) }
-      Text(text).lineLimit(1).truncationMode(.tail)
+  func makeBody(configuration: Configuration) -> some View {
+    SendLook(enabled: enabled, configuration: configuration)
+  }
+
+  private struct SendLook: View {
+    let enabled: Bool
+    let configuration: ButtonStyleConfiguration
+    @State private var hovering = false
+
+    var body: some View {
+      configuration.label
+        .foregroundStyle(enabled ? Theme.onAccent : Theme.faint)
+        .frame(width: 30, height: 30)
+        .background(enabled ? (hovering ? Theme.accentLit : Theme.accent) : Theme.line, in: Circle())
+        .scaleEffect(configuration.isPressed ? 0.97 : 1)
+        .contentShape(Circle())
+        .onHover { hovering = $0 }
+        .pointingHand(enabled)
+        .animation(Theme.hover, value: hovering)
+        .animation(Theme.press, value: configuration.isPressed)
     }
-    .modifier(ChipLook(lit: lit))
-  }
-}
-
-/// The dashboard's chip: 12, a capsule of panel-2 with no edge, 24 high; the accent's tint when it is on.
-private struct ChipLook: ViewModifier {
-  let lit: Bool
-
-  func body(content: Content) -> some View {
-    content
-      .font(.system(size: ChatType.detail))
-      .foregroundStyle(lit ? Theme.accent : Theme.muted)
-      .padding(.horizontal, 10)
-      .frame(minHeight: 24)
-      .background(Capsule().fill(lit ? Theme.accent.opacity(0.14).blended(over: Theme.panel) : Theme.panel2))
-  }
-}
-
-extension Color {
-  /// This colour, at its opacity, laid over a solid one: the tint the dashboard mixes with color-mix.
-  func blended(over base: Color) -> Color {
-    let top = NSColor(self).usingColorSpace(.sRGB) ?? .black
-    let under = NSColor(base).usingColorSpace(.sRGB) ?? .black
-    let a = top.alphaComponent
-    return Color(
-      .sRGB,
-      red: Double(top.redComponent * a + under.redComponent * (1 - a)),
-      green: Double(top.greenComponent * a + under.greenComponent * (1 - a)),
-      blue: Double(top.blueComponent * a + under.blueComponent * (1 - a)))
   }
 }

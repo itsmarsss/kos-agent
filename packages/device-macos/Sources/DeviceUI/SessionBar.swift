@@ -38,15 +38,13 @@ public struct SessionBar: View {
     HStack(spacing: 12) {
       ZStack(alignment: .bottomTrailing) {
         KOSFace(size: 26, mood: model.paused ? .idle : .working, look: model.face)
-        Circle()
-          .fill(tone)
-          .frame(width: 8, height: 8)
+        Dot(tone, size: 8)
           .overlay(Circle().strokeBorder(Theme.panel, lineWidth: 1.5))
           .opacity(model.paused ? 1 : (beat ? 0.35 : 1))
       }
       VStack(alignment: .leading, spacing: 1) {
         Text(model.paused ? "Paused. You have control." : "KOS is using this Mac")
-          .font(.system(size: 12.5, weight: .semibold))
+          .font(.kos(.control, .semibold))
           .foregroundStyle(Theme.text)
         HStack(spacing: 6) {
           Text(model.task)
@@ -59,7 +57,7 @@ public struct SessionBar: View {
             Text("· \(left(at: context.date))").monospacedDigit()
           }
         }
-        .font(.system(size: 11))
+        .font(.kos(.tiny))
         .foregroundStyle(Theme.muted)
       }
       Spacer(minLength: 4)
@@ -76,7 +74,7 @@ public struct SessionBar: View {
     .padding(.trailing, 8)
     .frame(height: Self.height)
     .background(Theme.panel.opacity(0.96), in: Capsule())
-    .overlay(Capsule().strokeBorder(tone.opacity(0.45)))
+    .overlay(Capsule().strokeBorder(tone.opacity(Theme.edge)))
     .shadow(color: tone.opacity(0.35), radius: 12)
     .padding(14)
     .environment(\.colorScheme, .dark)

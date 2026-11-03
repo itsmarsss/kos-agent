@@ -80,6 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     menu.onOpen = { [unowned self] in home.show() }
     menu.onChat = { [unowned self] in chat.open() }
+    model.actions.openChat = { [unowned self] in chat.open() }
     chat.send = { [unowned self] origin, message in lines[origin]?.send(message) }
     chat.target = { [unowned self] in chatTarget() }
     chat.faceOf = { origin in Self.face(of: origin) }
@@ -307,6 +308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // The KOS at work, else the first that is connected, else the first there is: the one the window speaks of.
     let shown = origin ?? pairings.first { lines[$0.deviceId]?.isProven == true } ?? pairings.first
     model.face = shown.map { Self.face(of: $0.deviceId) } ?? .kos
+    chat.model.session = controller.live.map { $0.paused ? .paused : .working }
     model.session = controller.live.map { live in
       SessionSummary(
         task: live.task, requester: live.requester, kos: pairings.count > 1 ? origin.map(Self.name) : nil,

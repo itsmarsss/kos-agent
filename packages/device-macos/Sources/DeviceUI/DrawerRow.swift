@@ -18,19 +18,8 @@ struct DrawerRow<Trailing: View>: View {
   var body: some View {
     Button(action: toggle) {
       HStack(spacing: 12) {
-        Image(systemName: icon)
-          .font(.system(size: 14, weight: .medium))
-          .foregroundStyle(tint)
-          .frame(width: 32, height: 32)
-          .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: Theme.radiusSm, style: .continuous))
-        VStack(alignment: .leading, spacing: 2) {
-          Text(title)
-            .font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
-            .lineLimit(1).truncationMode(.middle)
-          Text(detail)
-            .font(.system(size: 11.5)).foregroundStyle(Theme.muted)
-            .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-        }
+        Tile(icon, tint: tint)
+        RowText(title, detail, titleLines: 1, detailLines: 2, cut: .middle)
         Spacer(minLength: 8)
         trailing()
         Image(systemName: "chevron.down")
@@ -43,7 +32,7 @@ struct DrawerRow<Trailing: View>: View {
     .buttonStyle(.plain)
     .onHover { hovering = $0 }
     .pointingHand()
-    .animation(.easeOut(duration: 0.14), value: hovering)
+    .animation(Theme.hover, value: hovering)
     .animation(HomeView.motion, value: open)
     .accessibilityAddTraits(.isButton)
     .accessibilityValue(open ? "Open" : "Closed")

@@ -4,7 +4,7 @@ import SwiftUI
 /// reads it (packages/browser-extension ui/markdown.tsx). Paragraphs,
 /// headings, lists that nest, quotes, fenced code, tables, the small "-#"
 /// line; inline, bold, italics, code and links, and KOS's references
-/// (@page:[Budget]) as the names they stand for. LaTeX is shown as written.
+/// (@page:[Budget]) as the names they stand for, on the panel's violet chip. LaTeX is shown as written.
 /// Nothing in it is markup: it is drawn, never run.
 public enum ChatBlock: Equatable {
   case paragraph(String)
@@ -205,32 +205,60 @@ public enum ChatBlock: Equatable {
 
 /// One line of inline marks, as styled text: bold, italics, code, links (the web and mail only), references by name.
 /// `size` is the text's own, which a code span sits at nine tenths of, as the dashboard draws one.
-public func chatInline(_ text: String, size: CGFloat = ChatType.body) -> AttributedString {
+public func chatInline(_ text: String, size: CGFloat = KOSType.body.rawValue) -> AttributedString {
   var source = text
-  // KOS's references, @page:[Budget] or @approval:6, as the names they stand for.
-  source = source.replacingOccurrences(of: #"@([a-z]+):\[([^\]\n]+)\]"#, with: "**$2**", options: .regularExpression)
-  source = source.replacingOccurrences(of: #"@([a-z]+):([\w.:/-]*\w)"#, with: "**$1 $2**", options: .regularExpression)
+  // KOS's references, @page:[Budget] or @approval:6, as the names they stand for, marked for the violet chip the panel draws.
+  source = source.replacingOccurrences(of: #"@([a-z]+):\[([^\]\n]+)\]"#, with: "[$2](\(referenceScheme):$1)", options: .regularExpression)
+  source = source.replacingOccurrences(of: #"@([a-z]+):([\w.:/-]*\w)"#, with: "[$1 $2](\(referenceScheme):$1)", options: .regularExpression)
   // A bare address is a link too, as the panel makes it.
   source = source.replacingOccurrences(of: #"(?<![(<\[])\b(https?://[^\s<>)\]]+[^\s<>)\].,;:!?])"#, with: "<$1>", options: .regularExpression)
-  guard var styled = try? AttributedString(markdown: source, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) else {
+  guard let parsed = try? AttributedString(markdown: source, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) else {
     return AttributedString(text)
   }
-  for run in styled.runs {
-    // A code span on panel-2, as the dashboard and the panel draw one.
+  var styled = AttributedString()
+  for run in parsed.runs {
+    var piece = AttributedString(parsed[run.range])
     if run.inlinePresentationIntent?.contains(.code) == true {
-      styled[run.range].swiftUI.backgroundColor = Theme.panel2
-      styled[run.range].swiftUI.font = .system(size: (size * 0.9).rounded(), design: .monospaced)
+      // A code span on panel-2, as the dashboard and the panel draw one, padded at each end as theirs are.
+      piece.swiftUI.backgroundColor = Theme.panel2
+      piece.swiftUI.font = .system(size: (size * 0.9).rounded(), design: .monospaced)
+      styled += pad(Theme.panel2, size: size) + piece + pad(Theme.panel2, size: size)
+      continue
     }
-    guard let link = run.link else { continue }
-    // Nothing but the web and mail opens from KOS's words; what does is underlined, as in the dashboard's prose.
-    if ["http", "https", "mailto"].contains(link.scheme?.lowercased() ?? "") {
-      styled[run.range].swiftUI.foregroundColor = Theme.accent
-      styled[run.range].swiftUI.underlineStyle = .single
+    guard let link = run.link else {
+      styled += piece
+      continue
+    }
+    piece.link = nil
+    if link.scheme == referenceScheme {
+      // A reference: the panel's violet chip, at the chip's 12, not a link.
+      let tint = Theme.violet.opacity(Theme.tint).blended(over: Theme.bg)
+      piece.swiftUI.foregroundColor = Theme.violet
+      piece.swiftUI.backgroundColor = tint
+      piece.swiftUI.font = .system(size: KOSType.detail.rawValue, weight: .medium)
+      styled += pad(tint, size: size) + piece + pad(tint, size: size)
+    } else if ["http", "https", "mailto"].contains(link.scheme?.lowercased() ?? "") {
+      // Nothing but the web and mail opens from KOS's words; what does is underlined, as in the dashboard's prose.
+      piece.link = link
+      piece.swiftUI.foregroundColor = Theme.accent
+      piece.swiftUI.underlineStyle = .single
+      styled += piece
     } else {
-      styled[run.range].link = nil
+      styled += piece
     }
   }
   return styled
+}
+
+/// The scheme a reference is marked with between reading it and drawing it; nothing opens it.
+private let referenceScheme = "kos-ref"
+
+/// A sliver of the tint a span sits on, for its ends: a Text run cannot be padded, so a thin space stands in for the panel's padding.
+private func pad(_ tint: Color, size: CGFloat) -> AttributedString {
+  var space = AttributedString("\u{2009}")
+  space.swiftUI.backgroundColor = tint
+  space.swiftUI.font = .system(size: (size * 0.9).rounded())
+  return space
 }
 
 /// KOS's words, drawn.
@@ -268,7 +296,7 @@ private struct BlockView: View {
   /// numbers, then letters under numbers.
   @ViewBuilder private func mark(ordered: Bool, n: Int) -> some View {
     if ordered {
-      Text(depth == 0 ? "\(n)." : "\(Array("abcdefghijklmnopqrstuvwxyz")[(n - 1) % 26]).").monospacedDigit()
+      Text(verbatim: depth == 0 ? "\(n)." : "\(Array("abcdefghijklmnopqrstuvwxyz")[(n - 1) % 26]).").monospacedDigit()
     } else {
       // A glyph at a small size, so it sits on the line's baseline as text does.
       Text(["●", "○", "■"][min(depth, 2)]).font(.system(size: depth == 2 ? 6 : 7))
@@ -281,9 +309,9 @@ private struct BlockView: View {
       Text(chatInline(text)).fixedSize(horizontal: false, vertical: true)
     case .heading(_, let text):
       // One size for every level, the chat's own, set apart by weight, as the dashboard's are.
-      Text(chatInline(text)).font(.system(size: ChatType.body, weight: .semibold)).padding(.top, 2)
+      Text(chatInline(text)).font(.system(size: KOSType.body.rawValue, weight: .semibold)).padding(.top, 2)
     case .small(let text):
-      Text(chatInline(text, size: ChatType.detail)).font(.system(size: ChatType.detail)).foregroundStyle(Theme.muted)
+      Text(chatInline(text, size: KOSType.detail.rawValue)).font(.system(size: KOSType.detail.rawValue)).foregroundStyle(Theme.muted)
     case .quote(let text):
       Text(chatInline(text))
         .foregroundStyle(Theme.muted)
@@ -291,7 +319,7 @@ private struct BlockView: View {
         .overlay(alignment: .leading) { Rectangle().fill(Theme.lineStrong).frame(width: 2) }
     case .code(let code):
       ScrollView(.horizontal, showsIndicators: false) {
-        Text(code).font(.system(size: ChatType.dense, design: .monospaced)).foregroundStyle(Theme.text)
+        Text(code).font(.system(size: KOSType.dense.rawValue, design: .monospaced)).foregroundStyle(Theme.text)
           .padding(.horizontal, 11).padding(.vertical, 10)
       }
       .background(Theme.panel, in: RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous))
@@ -312,15 +340,15 @@ private struct BlockView: View {
         Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 6) {
           GridRow {
             ForEach(Array(head.enumerated()), id: \.offset) { j, cell in
-              Text(chatInline(cell, size: ChatType.dense)).font(.system(size: ChatType.dense, weight: .semibold)).foregroundStyle(Theme.muted)
+              Text(chatInline(cell, size: KOSType.dense.rawValue)).font(.system(size: KOSType.dense.rawValue, weight: .semibold)).foregroundStyle(Theme.muted)
                 .gridColumnAlignment(j < align.count ? align[j] : .leading)
             }
           }
           ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-            Divider().overlay(Theme.line)
+            Hairline()
             GridRow {
               ForEach(0..<head.count, id: \.self) { j in
-                Text(chatInline(j < row.count ? row[j] : "", size: ChatType.table)).font(.system(size: ChatType.table))
+                Text(chatInline(j < row.count ? row[j] : "", size: KOSType.table.rawValue)).font(.system(size: KOSType.table.rawValue))
               }
             }
           }

@@ -52,6 +52,35 @@ struct ChatModelTests {
     #expect(model.working)
   }
 
+  @Test func theHeaderSaysWhyThereIsNoChatAsThePanelDoes() {
+    let model = ChatModel()
+    #expect(model.subtitle == "Not paired yet")
+    model.paired = true
+    #expect(model.subtitle == "Not connected")
+    #expect(!model.usable)
+    model.online = true
+    model.silent = true
+    #expect(model.subtitle == "This KOS cannot talk here yet")
+    #expect(!model.usable)
+    model.silent = false
+    #expect(model.usable)
+    #expect(model.subtitle == "A chat beside your apps")
+    model.show(conversation: "mac:owner", title: "Q3 deck review", lines: [])
+    #expect(model.subtitle == "Q3 deck review")
+    model.silent = true
+    model.reset()
+    #expect(!model.silent)
+  }
+
+  @Test func readsARunningTurnsStoryIntoItsStepsAndWords() {
+    let model = ChatModel()
+    #expect(model.running.steps.isEmpty && model.running.words.isEmpty)
+    model.say("tidy the deck")
+    model.status(taken: false, story: .some("…half a line\n› Look at the screen\n› Click Format (failed)\n\nTrying the menu instead"), error: nil)
+    #expect(model.running.steps == [.init(summary: "Look at the screen"), .init(summary: "Click Format", failed: true)])
+    #expect(model.running.words == "Trying the menu instead")
+  }
+
   @Test func aFailedTurnGivesTheWordsBack() {
     let model = ChatModel()
     model.say("book it")

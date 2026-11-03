@@ -23,11 +23,15 @@ final class ChatController {
   private var talkingTo: String?
   private var wasOnline = false
   private var taking: Timer?
+  /// Set while the window waits for a KOS that is on to show the chat.
+  private var showing: Timer?
   private var lastFront: NSRunningApplication?
   private var frontWatch: NSObjectProtocol?
 
   /// How long the window waits to hear that KOS has the owner's words before it gives them back.
   private static let takeWithin: TimeInterval = 12
+  /// How long a KOS that is on has to show the chat, as the side panel waits, before the window says it cannot talk here.
+  private static let showWithin: TimeInterval = 6
 
   init() {
     model.send = { [weak self] text in self?.say(text) }
@@ -58,6 +62,7 @@ final class ChatController {
     let other = now?.id != talkingTo
     if other { model.reset() }
     talkingTo = now?.id
+    model.paired = now != nil
     model.kosName = now?.name
     model.online = now?.online ?? false
     if let id = now?.id { model.face = faceOf(id) }
@@ -66,6 +71,18 @@ final class ChatController {
     if isOpen, model.online, asking || cameOn {
       tell(.open)
       tell(.models)
+      waitForShow()
+    }
+  }
+
+  /// A KOS that is on and never shows the chat is one from before this window: said, rather than an empty window.
+  private func waitForShow() {
+    showing?.invalidate()
+    showing = Timer.scheduledTimer(withTimeInterval: Self.showWithin, repeats: false) { [weak self] _ in
+      MainActor.assumeIsolated {
+        guard let self, self.model.online else { return }
+        self.model.silent = true
+      }
     }
   }
 
@@ -77,6 +94,9 @@ final class ChatController {
       case .show:
         let p = try call.params(ChatShow.self)
         heardBack()
+        showing?.invalidate()
+        showing = nil
+        model.silent = false
         model.show(
           conversation: p.conversation, title: p.title, lines: p.messages.compactMap(Self.line),
           notice: p.notice.map { ($0.text, $0.from, $0.waiting ?? false) }, auto: p.auto ?? false)
@@ -171,7 +191,10 @@ final class ChatController {
     let app = frontApp()
     if let app, app.processIdentifier != ProcessInfo.processInfo.processIdentifier { lastFront = app }
     model.beside = app?.localizedName
-    model.besideHidden = app.map { isHidden($0.bundleIdentifier) } ?? false
+    let hidden = app.map { isHidden($0.bundleIdentifier) } ?? false
+    model.besideHidden = hidden
+    // A hidden app's window title stays on the Mac and out of the window both.
+    model.besideTitle = hidden ? nil : app.flatMap { Self.windowTitle(of: $0.processIdentifier) }
   }
 
   /// The front window of an app, by its title, when macOS will say it.
