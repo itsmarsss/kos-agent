@@ -166,11 +166,7 @@ public struct ChatView: View {
                 Button(choice) { model.chooseModel(choice) }
               }
             } label: {
-              HStack(spacing: 4) {
-                Text(models.current.isEmpty ? "Model" : models.current).lineLimit(1).truncationMode(.tail)
-                Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
-              }
-              .chip()
+              Chip(models.current.isEmpty ? "Model" : models.current, opens: false)
             }
             .menuStyle(.button)
             .buttonStyle(.plain)
@@ -187,9 +183,9 @@ public struct ChatView: View {
         .help(model.auto ? "KOS works on this Mac without asking each step" : "KOS asks before each step on this Mac")
         Spacer(minLength: 4)
         Button(action: sendDraft) {
-          Image(systemName: "arrow.right").font(.system(size: 13, weight: .bold))
+          Image(systemName: "arrow.right").font(.kos(.dense, .bold))
         }
-        .buttonStyle(SendStyle(enabled: canSend))
+        .buttonStyle(KOSButtonStyle(.primary, round: 30))
         .disabled(!canSend)
         .keyboardShortcut(.return, modifiers: .command)
         .accessibilityLabel("Send")
@@ -311,9 +307,9 @@ private struct EmptyChat: View {
     .padding(.top, 16)
   }
 
-  /// The kit's .hint: faint at 13, as the dashboard and the side panel draw theirs.
+  /// The kit's .hint: muted at 13, as the dashboard and the side panel draw theirs.
   private func hint(_ words: String) -> some View {
-    Text(words).font(.kos(.dense)).foregroundStyle(Theme.faint).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+    Text(words).font(.kos(.dense)).foregroundStyle(Theme.muted).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
   }
 }
 
@@ -398,14 +394,7 @@ private struct Steps: View {
         guard !live else { return }
         withAnimation(Theme.spring) { open.toggle() }
       } label: {
-        HStack(spacing: 6) {
-          Image(systemName: "checklist").font(.system(size: 11, weight: .semibold))
-          Text(label).lineLimit(1).truncationMode(.tail)
-          if !live {
-            Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).rotationEffect(.degrees(open ? 180 : 0))
-          }
-        }
-        .chip(lit: live, pressable: !live)
+        Chip(label, symbol: "checklist", lit: live, pressable: !live, opens: live ? nil : open)
       }
       .buttonStyle(.plain)
       if open && !live {
@@ -533,31 +522,3 @@ private struct Switcher: View {
   }
 }
 
-/// The send button: the accent's circle with the right arrow the panel and the dashboard draw, lit under the pointer,
-/// a touch smaller pressed; grey with nothing to send, as the dashboard's is.
-private struct SendStyle: ButtonStyle {
-  let enabled: Bool
-
-  func makeBody(configuration: Configuration) -> some View {
-    SendLook(enabled: enabled, configuration: configuration)
-  }
-
-  private struct SendLook: View {
-    let enabled: Bool
-    let configuration: ButtonStyleConfiguration
-    @State private var hovering = false
-
-    var body: some View {
-      configuration.label
-        .foregroundStyle(enabled ? Theme.onAccent : Theme.faint)
-        .frame(width: 30, height: 30)
-        .background(enabled ? (hovering ? Theme.accentLit : Theme.accent) : Theme.line, in: Circle())
-        .scaleEffect(configuration.isPressed ? 0.97 : 1)
-        .contentShape(Circle())
-        .onHover { hovering = $0 }
-        .pointingHand(enabled)
-        .animation(Theme.hover, value: hovering)
-        .animation(Theme.press, value: configuration.isPressed)
-    }
-  }
-}
