@@ -33,6 +33,6 @@ export {
 } from "./Face.js";
 export { KindMark, Markdown, MentionNames, RefLinks } from "./Markdown.js";
 export { Tex } from "./Tex.js";
-export { Card, Chips, Collapse, Empty, type CardProps, type ChipOption, DrawerRow, IconButton, Pill, Section, Switch, Tag, WorkingDots, type IconButtonProps, type Tone } from "./kit.js";
+export { Card, Chips, Collapse, Count, Empty, type CardProps, type ChipOption, DrawerRow, IconButton, Pill, Section, Switch, Tag, WorkingDots, type IconButtonProps, type Tone } from "./kit.js";
 export { useDismiss, type DismissOptions } from "./useDismiss.js";
 export * from "./icons.js";

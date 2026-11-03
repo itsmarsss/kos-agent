@@ -164,7 +164,10 @@
 .card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.35rem 0.5rem; min-height: 1.4rem; }
 .card-acts { display: inline-flex; align-items: center; gap: 0.35rem; flex: none; }
 .card-title { white-space: nowrap; }
-.card-count { margin-left: 0.3rem; color: var(--tint, var(--accent)); }
+.card-title .count { margin-left: 0.3rem; }
+
+/* How many, beside a title: one look for a card's, a panel's, a rail group's. */
+.count { display: inline-block; padding: 0 0.35rem; border-radius: 999px; color: var(--tint, var(--accent)); background: color-mix(in srgb, var(--tint, var(--accent)) 14%, transparent); font-size: var(--text-xs); font-weight: 500; line-height: 1.5; letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
 
 .card-head .pill { padding: 0.1rem 0.45rem; }
 

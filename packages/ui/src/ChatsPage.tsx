@@ -10,7 +10,7 @@ import {
 
 import { AnimatePresence, m } from "motion/react";
 import { summarizeAction } from "@kos/shared";
-import { ArchiveIcon, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, SearchIcon, SendIcon, spring, stagger, StopIcon, useDismiss, useKosLook, WorkingDots, WrenchIcon } from "@kos/kit";
+import { ArchiveIcon, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, SearchIcon, SendIcon, spring, stagger, StopIcon, useDismiss, useKosLook, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { Decision } from "./Decision.js";
 import { VoiceInput } from "./VoiceInput.js";
@@ -1587,7 +1587,7 @@ export function ChatsPage({
                 <div className="rail-group-head">
                   <span className="rail-group-fold">
                     <span className="rail-group-title">Archived</span>
-                    {shownArchived.length > 0 && <span className="rail-group-count">{shownArchived.length}</span>}
+                    {shownArchived.length > 0 && <Count n={shownArchived.length} />}
                   </span>
                 </div>
                 <ul className="chats-flat">

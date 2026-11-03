@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
 import { summarizeAction } from "@kos/shared";
-import { CloseIcon, Empty, Face, IconButton, moodOf, type Tone } from "@kos/kit";
+import { CloseIcon, Count, Empty, Face, IconButton, moodOf, type Tone } from "@kos/kit";
 
 import { titleOf } from "./AgentEditor.js";
 import type { AgentInfo, FailingJob, HomeData, ModelSpend, RunRecord } from "./api.js";
@@ -55,7 +55,7 @@ function Head({
   return (
     <header className="panel-head">
       <h2>{title}</h2>
-      {count !== undefined && count > 0 && <span className="panel-count">{count}</span>}
+      {count !== undefined && count > 0 && <Count n={count} />}
       {onMore && (
         <button type="button" className="link panel-more" onClick={onMore}>
           All →

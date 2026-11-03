@@ -30,6 +30,11 @@ export function Tag({ mono = false, title, children }: { mono?: boolean; title?:
   );
 }
 
+/** How many there are, beside a title or a group's name: a small capsule in the accent (or the card's tint). */
+export function Count({ n }: { n: number }): ReactElement {
+  return <span className="count">{n}</span>;
+}
+
 export interface CardProps {
   /** The small uppercase head. Absent, the card is a plain box. */
   title?: string;
@@ -54,7 +59,7 @@ export function Card({ title, count, pill, action, label, className, children, .
           {title && (
             <h2 className="label card-title">
               {title}
-              {count !== undefined && count > 0 && <span className="card-count">{count}</span>}
+              {count !== undefined && count > 0 && <Count n={count} />}
             </h2>
           )}
           {(pill || action) && (

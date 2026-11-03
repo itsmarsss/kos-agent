@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { m } from "motion/react";
-import { card, Empty, Pill, stagger, WindowIcon } from "@kos/kit";
+import { card, Count, Empty, Pill, stagger, WindowIcon } from "@kos/kit";
 
 import { api, type Conversation, type PageSummary, type Project, type SiteInfo } from "./api.js";
 import { FileIcon } from "./FileIcon.js";
@@ -129,7 +129,7 @@ export function ProjectsPage({
         <section key={status} className="projects-group">
           <h2>
             {status}
-            <span className="projects-count">{items.length}</span>
+            <Count n={items.length} />
           </h2>
           <m.div
             className="card-grid"

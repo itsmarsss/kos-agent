@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactElement } from "react";
 
-import { Chips } from "@kos/kit";
+import { Chips, Count } from "@kos/kit";
 
 import { api, type FactRow } from "./api.js";
 import { Drawer } from "./Drawer.js";
@@ -425,7 +425,7 @@ export function KnowledgePage({
       {pinned.length > 0 && (
         <section className="know-group">
           <h2>
-            Always in context<span className="projects-count">{pinned.length}</span>
+            Always in context<Count n={pinned.length} />
           </h2>
           {pinned.map(entry)}
         </section>
@@ -435,7 +435,7 @@ export function KnowledgePage({
         <section key={name} className="know-group">
           <h2>
             {name}
-            <span className="projects-count">{items.length}</span>
+            <Count n={items.length} />
           </h2>
           {items.map(entry)}
         </section>
