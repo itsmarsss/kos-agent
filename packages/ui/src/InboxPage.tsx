@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { summarizeAction } from "@kos/shared";
 
-import { Count, Empty } from "@kos/kit";
+import { Count, Empty, Tag } from "@kos/kit";
 
 import { api, type DecidedAction, type FailingJob, type InboxData } from "./api.js";
 import { Decision } from "./Decision.js";
@@ -207,7 +207,7 @@ export function InboxPage({
             <div key={s.id} className="inbox-suggestion">
               <div className="inbox-suggestion-main">
                 <span className="panel-row-main">
-                  <span className="mem-kind">{s.kind}</span> {s.title}
+                  <Tag>{s.kind}</Tag> {s.title}
                 </span>
                 <span className="inbox-why">{s.detail}</span>
               </div>

@@ -4159,14 +4159,8 @@ li:hover .chats-item-when { opacity: 0; }
   min-width: 0;
   font-size: var(--text-md);
 }
-.agent-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
-.agent-dot--running { background: var(--ok); animation: pulse 1.6s ease-in-out infinite; }
-.agent-dot--waiting { background: var(--warn); }
-.agent-dot--failed { background: var(--danger); }
-.agent-dot--stopped { background: var(--muted); }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .agent-dir { font-family: var(--mono); font-size: var(--text-base); }
-.agent-state { color: var(--muted); font-size: var(--text-sm); }
 .agent-time { color: var(--faint); font-size: var(--text-sm); font-family: var(--mono); }
 .agent-latest {
   margin: 0;
@@ -5611,8 +5605,6 @@ a.health {
 .mem-lean > .btn { flex: none; }
 .mem-row { padding: 0.35rem 0; border-top: 1px solid var(--line); font-size: var(--text-base); }
 .mem-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
-.mem-kind { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); background: var(--panel-2); border-radius: 999px; padding: 0.1rem 0.45rem; margin-right: 0.3rem; }
-.mem-kind--outside { color: var(--warn); background: var(--warn-dim); }
 .mem-chips { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .mem-page { display: flex; flex-direction: column; gap: 0.4rem; }
 .mem-search { width: 100%; max-width: 32rem; }

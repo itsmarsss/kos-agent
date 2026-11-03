@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { AnimatePresence, m } from "motion/react";
-import { Chips, Empty, listItem } from "@kos/kit";
+import { Chips, Empty, listItem, Pill, type Tone } from "@kos/kit";
 
 import { AgentTerminal } from "./AgentTerminal.js";
 import { Drawer } from "./Drawer.js";
@@ -19,6 +19,9 @@ import { api, type BuildRecord } from "./api.js";
  * Not persisted, and should not be: a build belongs to the process running it,
  * so a list that survived a restart would list agents that no longer exist.
  */
+
+/** How each state reads as a pill: the colour a thread's dot has for the same state. */
+const TONE: Record<string, Tone> = { running: "accent", waiting: "warn", failed: "danger", done: "ok", stopped: "muted" };
 
 const LABEL: Record<string, string> = {
   running: "working",
@@ -71,9 +74,8 @@ function Build({
     >
       <header className="agent-head">
         <span className="agent-toggle">
-          <span className={`agent-dot agent-dot--${build.status}`} />
           <span className="agent-dir">{build.dir}</span>
-          <span className="agent-state">{LABEL[build.status] ?? build.status}</span>
+          <Pill tone={TONE[build.status] ?? "muted"}>{LABEL[build.status] ?? build.status}</Pill>
         </span>
         <span className="agent-time">
           {elapsed(build.startedAt, build.endedAt ?? now)}

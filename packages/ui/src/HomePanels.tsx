@@ -9,7 +9,7 @@ import { clockLabel, dayLabel, hourLabel, padDays, padHours } from "./chartdata.
 import { Bars, DayLine, ProjectMap, Share, Ticks, type Tick } from "./charts.js";
 import { Decision } from "./Decision.js";
 import { hrefFor } from "./routes.js";
-import { ActivityDot, fixLabel } from "./StatusDot.js";
+import { ActivityDot, buildDot, fixLabel, StatusDot } from "./StatusDot.js";
 
 /**
  * The panels a home page can be built from.
@@ -187,7 +187,7 @@ export function Panel({
                     className="panel-row"
                     onClick={() => onGo("builds")}
                   >
-                    <span className={`agent-dot agent-dot--${b.status}`} />
+                    <StatusDot state={buildDot(b.status)} label={b.status} />
                     <span className="panel-row-main">{b.dir}</span>
                     <span className="panel-row-side">
                       {b.quietFor
@@ -609,7 +609,7 @@ export function Panel({
               {mods.slice(0, limit).map((mod) => (
                 <li key={mod.name}>
                   <span className={`panel-row${mod.enabled && mod.error ? " is-error" : ""}`}>
-                    <span className={`agent-dot agent-dot--${mod.blueprint ? "waiting" : !mod.enabled ? "stopped" : mod.error ? "failed" : mod.connected ? "running" : "waiting"}`} />
+                    <StatusDot state={mod.blueprint ? "needs-you" : !mod.enabled ? "off" : mod.error ? "error" : mod.connected ? "on" : "needs-you"} label={mod.blueprint ? "blueprint" : !mod.enabled ? "off" : mod.error ? "failing" : mod.connected ? "connected" : "starting"} />
                     <span className="panel-row-main">{mod.name}</span>
                     <span className="panel-row-side">
                       {mod.blueprint

@@ -19,6 +19,11 @@ export function StatusDot({ state, label }: { state: DotState; label: string }):
   return <span className={`status-dot status-dot--${state}`} role="img" aria-label={label} title={label} />;
 }
 
+/** A build's state as the same dot a thread wears: working in the accent, waiting on you in warn, failed in danger, stopped and done quiet. */
+export function buildDot(status: string): DotState {
+  return status === "running" ? "working" : status === "waiting" ? "needs-you" : status === "failed" ? "error" : status === "stopped" ? "off" : "read";
+}
+
 type Activity = NonNullable<Conversation["activity"]>;
 
 /**

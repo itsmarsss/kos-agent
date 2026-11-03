@@ -7,6 +7,7 @@ import { ChevronDown, ChevronRight, ease, spring, useDismiss } from "@kos/kit";
 import { api, type BuildRecord, type PendingAction } from "./api.js";
 import { Decision } from "./Decision.js";
 import { socket } from "./socket.js";
+import { buildDot, StatusDot } from "./StatusDot.js";
 
 /**
  * One build, read like a terminal.
@@ -244,7 +245,7 @@ export function AgentTerminal({
         transition={spring}
       >
         <header className="term-head">
-          <span className={`agent-dot agent-dot--${build?.status ?? "done"}`} />
+          <StatusDot state={buildDot(build?.status ?? "done")} label={build?.status ?? "done"} />
           <span className="term-dir">{build?.dir ?? "…"}</span>
           <span className="term-status">{build?.status}</span>
           {live && (

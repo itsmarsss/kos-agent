@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 
-import { Chips, Empty, Pill, Switch } from "@kos/kit";
+import { Chips, Empty, Pill, Switch, Tag } from "@kos/kit";
 
 import { api, type CallerInfo, type CronJob, type FactRow, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
 import { KnowledgePage } from "./KnowledgePage.js";
@@ -169,7 +169,7 @@ export function MemoryDecision({ item, onResolved }: { item: ReviewItem; onResol
   return (
     <div className="mem-decision">
       <div className="mem-decision-head">
-        <span className="mem-kind">{item.kind}</span>
+        <Tag>{item.kind}</Tag>
         <strong>{HEADLINE[item.kind]}</strong>
       </div>
       {lean ? (
@@ -261,7 +261,7 @@ function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
         <Group title="Settled">
           {recent.map((item) => (
             <div key={item.id} className="mem-row">
-              <span className="mem-kind">{item.kind}</span> <span className="ops-mono">{item.keys.join(" vs ")}</span>
+              <Tag>{item.kind}</Tag> <span className="ops-mono">{item.keys.join(" vs ")}</span>
               <span className="ops-muted"> · {item.resolution} · {item.resolvedAt ? when(item.resolvedAt) : ""}</span>
             </div>
           ))}
@@ -321,8 +321,8 @@ function LogTab({ titles }: { titles: Map<string, string> }): ReactElement {
       {events.map((e) => (
         <div key={e.id} className={`mem-event ${e.shadowed ? "is-shadowed" : ""}`}>
           <div className="mem-event-meta">
-            <span className="mem-kind">{e.role}</span>
-            {e.trust === "external" && <span className="mem-kind mem-kind--outside">via {e.caller}</span>}
+            <Tag>{e.role}</Tag>
+            {e.trust === "external" && <Pill tone="warn">via {e.caller}</Pill>}
             {e.projectSlug && <span className="ops-mono">{e.projectSlug}</span>}
             {e.conversationId && (
               <a className="ops-muted" href={`#/chats/${encodeURIComponent(e.conversationId)}`}>

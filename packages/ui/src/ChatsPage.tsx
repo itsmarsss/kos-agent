@@ -64,7 +64,7 @@ import {
   type Live,
 } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
-import { ActivityDot, QueuedMark, StatusDot } from "./StatusDot.js";
+import { ActivityDot, buildDot, QueuedMark, StatusDot } from "./StatusDot.js";
 import { ToolCall } from "./ToolCall.js";
 import { ChatConfig } from "./ChatConfig.js";
 import { Modal } from "./Modal.js";
@@ -2236,7 +2236,7 @@ export function ChatsPage({
                   key={b.id}
                   onClick={() => onOpenAgent(b.id)}
                 >
-                  <span className={`agent-dot agent-dot--${b.status}`} />
+                  <StatusDot state={buildDot(b.status)} label={b.status} />
                   <span className="chat-agent-main">
                     <span className="chat-agent-dir">{b.dir}</span>
                     <span className="chat-agent-latest">{b.latest}</span>
