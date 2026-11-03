@@ -402,7 +402,7 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
 .composer[data-off] { opacity: 0.6; }
 .composer textarea { flex: 1; max-height: 140px; padding: 5px 0; resize: none; border: 0; outline: none; background: none; color: var(--text); font: inherit; font-size: 13px; line-height: 1.45; }
-.composer textarea::placeholder { color: var(--faint); }
+.composer textarea::placeholder { color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .send { flex: none; width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--accent); color: var(--on-accent); cursor: pointer; transition: background 140ms ease; }
 .send:hover:not(:disabled) { background: var(--accent-lit); }
 .send:disabled { background: var(--line); color: var(--faint); cursor: default; }
@@ -421,6 +421,10 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .md code { padding: 1px 4px; border-radius: var(--r-xs); background: var(--panel-2); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .md pre { padding: 10px; overflow-x: auto; border-radius: var(--r-md); background: var(--panel); border: 1px solid var(--line); }
 .md pre code { padding: 0; background: none; font-size: 11.5px; }
+.md-table { overflow-x: auto; }
+.md-table table { border-collapse: collapse; min-width: 100%; font-size: 12.5px; }
+.md-table th, .md-table td { padding: 5px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.md-table th { color: var(--muted); font-weight: 600; font-size: 12px; white-space: nowrap; }
 .md blockquote { padding-left: 10px; border-left: 2px solid var(--line-strong); color: var(--muted); }
 .md a { color: var(--accent); }
 .md-h { font-weight: 650; }
