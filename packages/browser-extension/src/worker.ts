@@ -17,7 +17,7 @@ import { DEFAULTS, asksFirst, isHidden, readSettings, siteOf, type ExtensionSett
  * The extension's worker: paired with one KOS or several, it answers each
  * one's calls in the tabs of a session the owner allowed, and nowhere else.
  *
- * Each KOS is its own pairing and its own line, as KOS Device keeps them on a
+ * Each KOS is its own pairing and its own line, as KOS for Mac keeps them on a
  * Mac. There is one session at a time, whichever KOS asks: Chrome has one
  * owner at the keyboard, so another KOS that asks while one works hears this
  * Chrome is busy, and only the KOS whose session it is can act in it, hears

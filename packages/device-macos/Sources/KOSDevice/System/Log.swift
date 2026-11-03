@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-/// What KOS Device writes to the system log, by part, so a line that dropped
+/// What KOS for Mac writes to the system log, by part, so a line that dropped
 /// or a pairing that would not read can be found afterwards:
 ///
 ///     /usr/bin/log show --predicate 'subsystem == "com.itsmarsss.kos-device"' --last 1h

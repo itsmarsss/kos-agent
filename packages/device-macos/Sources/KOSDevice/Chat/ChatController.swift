@@ -2,7 +2,7 @@ import AppKit
 import DeviceCore
 import DeviceUI
 
-/// KOS Device's chat window and the KOS it talks to: the chat that KOS's
+/// KOS for Mac's chat window and the KOS it talks to: the chat that KOS's
 /// calls show, drawn; the owner's words and decisions, sent on; and the app
 /// in front, told with each message as where they spoke.
 ///
@@ -140,7 +140,7 @@ final class ChatController {
 
   // MARK: The app in front
 
-  /// Where the owner was: the app in front of the window, one they hid, or none. KOS Device itself is never it.
+  /// Where the owner was: the app in front of the window, one they hid, or none. KOS for Mac itself is never it.
   private func beside() -> Beside {
     guard let app = frontApp() else { return .none }
     if isHidden(app.bundleIdentifier) { return .hidden }

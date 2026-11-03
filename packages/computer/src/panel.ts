@@ -18,8 +18,8 @@ import type { DeviceEvent, PanelMessage, PanelMethod } from "./protocol.js";
 
 /**
  * A chat drawn on a paired device, as a surface KOS talks on: the side
- * panel the KOS extension opens beside the owner's tabs, and the window
- * KOS Device floats over the owner's apps.
+ * panel KOS for Chrome opens beside the owner's tabs, and the window
+ * KOS for Mac floats over the owner's apps.
  *
  * The owner's words come over the device's own line, as events, and run as
  * turns of the panel's surface ("chrome", "mac"), one stream like
@@ -440,7 +440,7 @@ function said(v: unknown, max: number): string {
 }
 
 /**
- * Where the owner was when they spoke from KOS Device's window: the app in
+ * Where the owner was when they spoke from the KOS for Mac window: the app in
  * front of it, and that app's window. Without it, "what is this" read as a
  * question about KOS. The app chooses its window's title, so the title is
  * marked as its own words; an app the owner hid is named as hidden, and
@@ -465,7 +465,7 @@ export function appNote(beside: unknown, device: string): string {
 /** The side panel beside the owner's tabs in their Chrome. */
 export const CHROME_PANEL: PanelPlace = { name: "chrome", kind: "browser", title: "Chrome", beside: (b) => besideNote(b) };
 
-/** KOS Device's window, floating over the owner's apps on their Mac. */
+/** The KOS for Mac window, floating over the owner's apps on their Mac. */
 export const MAC_PANEL: PanelPlace = { name: "mac", kind: "computer", title: "Mac", beside: appNote };
 
 /** An approval as the panel shows it: the tool, what it would be given, and why. */

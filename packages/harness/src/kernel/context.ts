@@ -204,14 +204,14 @@ const CHROME_PANEL_STYLE = [
 ].join("\n");
 
 /**
- * KOS Device's window on the owner's Mac: a small window floating over the
+ * The KOS for Mac window on the owner's Mac: a small window floating over the
  * app they are in, read at a glance before they go back to it. Which app
  * is in front comes with each message. It draws markdown natively, and
  * LaTeX is not typeset there.
  */
 const MAC_WINDOW_STYLE = [
   "## Replying in the KOS window on the Mac",
-  "The owner is talking to you from KOS Device's small window on their Mac, floating over the app they are using;",
+  "The owner is talking to you from the small KOS for Mac window on their Mac, floating over the app they are using;",
   "each message says which app is in front. Your reply renders there as markdown: lists, bold, links, inline code,",
   "fenced code and tables. LaTeX is shown as written, not typeset, so write a formula plainly when one is needed.",
   "Lead with the answer, keep it to a few short lines, and prefer a short list to a paragraph.",

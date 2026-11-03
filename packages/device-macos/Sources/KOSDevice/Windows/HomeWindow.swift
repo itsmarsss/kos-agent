@@ -4,7 +4,7 @@ import DeviceCore
 import DeviceUI
 import SwiftUI
 
-/// The window KOS Device opens: pairing, permissions and the owner's rules, in one place.
+/// The window KOS for Mac opens: pairing, permissions and the owner's rules, in one place.
 ///
 /// A pairing link fills the form, whether pasted or opened, but never pairs
 /// by itself: any web page can open a link, and pairing with a KOS that is
@@ -190,7 +190,7 @@ final class HomeWindow: NSObject, NSWindowDelegate {
 
   private func grant(_ grant: Grant) {
     let kind: SystemPermissions.Kind = grant == .screen ? .screen : .input
-    // The first press puts KOS Device in the list with macOS's own prompt; after that, straight to the switch.
+    // The first press puts KOS for Mac in the list with macOS's own prompt; after that, straight to the switch.
     if model.asked.insert(grant).inserted {
       SystemPermissions.request(kind)
     } else {
@@ -201,6 +201,7 @@ final class HomeWindow: NSObject, NSWindowDelegate {
 
   // MARK: Window
 
+  // Where the window was left is kept under the app's first name.
   private static let place = "KOS Device"
 
   /// One height for every page, on any screen with room for it; the page scrolls.
@@ -222,7 +223,7 @@ final class HomeWindow: NSObject, NSWindowDelegate {
     for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
       window.standardWindowButton(button)?.isHidden = true
     }
-    window.title = "KOS Device"
+    window.title = "KOS for Mac"
     window.isMovableByWindowBackground = true
     window.appearance = NSAppearance(named: .darkAqua)
     window.backgroundColor = NSColor(srgbRed: 0x0C / 255, green: 0x0E / 255, blue: 0x12 / 255, alpha: 1)

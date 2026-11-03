@@ -31,7 +31,7 @@ export interface TabInfo {
 
 /**
  * A browser other than KOS's own that a conversation may be working in: the
- * owner's Chrome, through the KOS extension. While a conversation is, its
+ * owner's Chrome, through KOS for Chrome. While a conversation is, its
  * browser tools work there, on the tabs that browser gives it.
  */
 export interface BrowserElsewhere {
@@ -75,7 +75,7 @@ export interface BrowserToolsDeps {
  */
 const WHERE =
   "These tools work in KOS's own browser: a Chrome that KOS runs on its own host, which the owner watches in the dashboard's " +
-  "Browser window. It is not the owner's Chrome. While this chat holds the owner's Chrome (chrome.start, the KOS extension), " +
+  "Browser window. It is not the owner's Chrome. While this chat holds the owner's Chrome (chrome.start, KOS for Chrome), " +
   "they work there instead, until chrome.end. Each result says which browser it ran in. When the owner says my Chrome, my " +
   "browser or the browser device, they mean their own Chrome: chrome.start, not these alone.";
 const WHERE_SHORT = "In KOS's own browser, or in the owner's Chrome while chrome.start holds it; the result says which.";

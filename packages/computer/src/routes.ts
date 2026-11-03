@@ -39,7 +39,7 @@ export function deviceRoutes(hubOf: () => DeviceHub | undefined, titleOf: (conve
       const route = `${req.method} ${req.path}`;
       switch (route) {
         case `POST ${PAIR_PATH}`: {
-          // Readable from any origin: the KOS extension pairs from its own, and
+          // Readable from any origin: KOS for Chrome pairs from its own, and
           // the code is the proof, not where the request comes from. The answer
           // is a device id and KOS's public key.
           const anywhere = { "access-control-allow-origin": "*" };

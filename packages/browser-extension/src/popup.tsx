@@ -9,7 +9,7 @@ import { Chips, Collapse, DrawerRow, Face, ICONS, Icon, Pill, Section, Switch, a
 import type { KosState, PopupState } from "./worker.js";
 
 /**
- * The popup under the KOS icon, laid out as KOS Device's window is and
+ * The popup under the KOS icon, laid out as KOS for Mac's window is and
  * moving as the dashboard does: KOS's face and where it stands, with the
  * way to the side panel's chat; the live session; this tab, to give or
  * take back; each KOS folded to a line, opening to its rules and its line;
@@ -312,7 +312,7 @@ function KosCard({ k, open, toggle, act }: { k: KosState; open: boolean; toggle:
 }
 
 /**
- * Pairing, as KOS Device asks for it: the KOS's address and its code, or the
+ * Pairing, as KOS for Mac asks for it: the KOS's address and its code, or the
  * pairing link pasted whole, which fills both in; this Chrome's name beside
  * the code; a line saying how it is going beside the buttons.
  */

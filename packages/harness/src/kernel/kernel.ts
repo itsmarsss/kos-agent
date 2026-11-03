@@ -3200,7 +3200,7 @@ export class Kernel {
   }
 
   /**
-   * The owner's own Chrome, when a package offers it (the KOS extension,
+   * The owner's own Chrome, when a package offers it (KOS for Chrome,
    * through computer use): a conversation working in it browses there.
    */
   setBrowserElsewhere(place: BrowserElsewhere): void {

@@ -64,7 +64,7 @@ describe("the design tokens", () => {
     }
   });
 
-  it("are KOS Device's colours, corners and spring, and its overlay's", () => {
+  it("are KOS for Mac's colours, corners and spring, and its overlay's", () => {
     for (const [token, hex] of Object.entries(COLOURS) as [ColourToken, string][]) {
       const found = new RegExp(`static let ${swiftName(token)} = Color\\(hex: 0x([0-9A-Fa-f]{6})\\)`).exec(SWIFT)?.[1];
       expect(found && `#${found.toLowerCase()}`, `Theme.${swiftName(token)}`).toBe(hex);
@@ -80,7 +80,7 @@ describe("the design tokens", () => {
     }
   });
 
-  it("are KOS Device's default face and gaits: what it draws for a KOS that has sent no face", () => {
+  it("are KOS for Mac's default face and gaits: what it draws for a KOS that has sent no face", () => {
     const kos = drawingOf(lookOf(KOS_SEED));
     const hex = (c: string): string => `0x${c.slice(1).toUpperCase()}`;
     expect(FACE).toContain(`fill: ${hex(kos.fill)}, ink: ${hex(kos.ink)}, eyes: .${kos.eyes}, gait: ${kos.gait}`);

@@ -1,6 +1,6 @@
 /*
  * The extension's look, in KOS's design language (docs/design.md): the
- * shared tokens and KOS Device's pieces, so the popup, the consent window and
+ * shared tokens and KOS for Mac's pieces, so the popup, the consent window and
  * the side panel read as the same KOS as the app on the Mac and the
  * dashboard. Cards on a dark page, small uppercase heads, pills that say a
  * state in a word, buttons that answer the pointer, KOS's own face.
@@ -197,7 +197,7 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px 
 .foot svg { flex: none; margin-top: 1px; color: var(--faint); }
 .error { color: var(--danger); font-size: 12px; }
 
-/* —— pairing, as KOS Device asks for it —— */
+/* —— pairing, as KOS for Mac asks for it —— */
 .hint-row { display: flex; align-items: baseline; gap: 6px; }
 .hint-row .link { flex: none; margin-left: auto; }
 .pair-fields { display: grid; grid-template-columns: 112px 1fr; gap: 10px; }

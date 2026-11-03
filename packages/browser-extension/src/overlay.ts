@@ -1,7 +1,7 @@
 /**
  * What the owner sees on a tab KOS is using: a glowing border, and a small
  * bar saying what KOS is doing, with Take over and Stop. The same pieces as
- * KOS Device puts over a Mac: the border sweeping blue into violet, amber and
+ * KOS for Mac puts over a Mac: the border sweeping blue into violet, amber and
  * still while the owner has it; the bar with KOS's face, two lines and the
  * app's own buttons, capsules inside a capsule. The bar is the owner's to
  * put out of the way: dragged anywhere on the page, or folded to KOS's face

@@ -4,7 +4,7 @@
  * What crosses the connection is what is on the owner's pages, signed in.
  * So it goes encrypted: https anywhere, and plain http only where the
  * network already is private and encrypted, which is this computer itself
- * or a Tailscale tailnet. The same rule KOS Device keeps.
+ * or a Tailscale tailnet. The same rule KOS for Mac keeps.
  */
 
 /** Loopback, a Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48) or a tailnet name. */

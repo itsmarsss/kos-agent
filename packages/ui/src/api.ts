@@ -323,12 +323,12 @@ export interface PermissionRule {
   createdAt: number;
 }
 
-/** A computer paired with KOS Device, as the device routes tell of it. */
+/** A computer paired with KOS for Mac, as the device routes tell of it. */
 export interface PairedDevice {
   id: string;
   name: string;
   platform: string;
-  /** A computer KOS Device runs on, or a Chrome the KOS extension runs in. */
+  /** A computer running KOS for Mac, or a Chrome running KOS for Chrome. */
   kind: "computer" | "browser";
   pairedAt: number;
   lastSeen: number | null;

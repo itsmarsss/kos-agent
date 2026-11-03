@@ -1,4 +1,4 @@
-// Draws KOS Device's icon into an .iconset folder: KOS's cursor, lit, on a deep blue tile.
+// Draws KOS for Mac's icon into an .iconset folder: KOS's cursor, lit, on a deep blue tile.
 // Usage: swift scripts/icon.swift <out.iconset>
 import AppKit
 

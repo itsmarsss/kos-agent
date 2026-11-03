@@ -1680,7 +1680,7 @@ export function SettingsPage({
           </Section>
         )}
         {active === "devices" && (
-          <Section title="Devices" blurb="Computers KOS may see and work. Each runs KOS Device, which asks you on the computer before every session, shows you whenever KOS is in control, and pauses the moment you touch the mouse or keyboard.">
+          <Section title="Devices" blurb="Computers KOS may see and work. Each runs KOS for Mac, which asks you on the computer before every session, shows you whenever KOS is in control, and pauses the moment you touch the mouse or keyboard.">
             <DevicesPanel />
           </Section>
         )}

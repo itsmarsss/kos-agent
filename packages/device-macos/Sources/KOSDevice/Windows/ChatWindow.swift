@@ -5,7 +5,7 @@ import SwiftUI
 /// The chat window: floating over the owner's apps, dragged anywhere by its
 /// background, and never taking the front from the app the owner is in, so
 /// "this" stays that app. A panel that can be typed in without activating
-/// KOS Device; where it was left is where it opens next.
+/// KOS for Mac; where it was left is where it opens next.
 @MainActor
 final class ChatWindow: NSPanel {
   private static let place = "KOSChatWindow"

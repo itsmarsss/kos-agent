@@ -1,7 +1,7 @@
 /**
  * The KOS this Chrome is paired with, in the order they were paired.
  *
- * Several, as KOS Device pairs a Mac with several: one KOS at home and one
+ * Several, as KOS for Mac pairs a Mac with several: one KOS at home and one
  * at work, each its own line, its own trust and its own consent. Pairing
  * again with a KOS already here replaces that pairing rather than adding a
  * second line to the same KOS.

@@ -68,7 +68,7 @@ public struct KeyCombo: Equatable, Sendable {
     if let modifier = modifier(named: last), let code = Modifiers.pressable.first(where: { $0.0 == modifier })?.1 {
       return KeyCombo(code: code, modifiers: modifiers)
     }
-    throw DeviceError.badRequest("\(last) is not a key KOS Device knows.")
+    throw DeviceError.badRequest("\(last) is not a key KOS for Mac knows.")
   }
 
   /// Modifiers held through a click, named the way combinations name them.

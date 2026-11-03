@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// What KOS Device's window shows, filled by the app. The view only reads it
+/// What KOS for Mac's window shows, filled by the app. The view only reads it
 /// and calls the actions; nothing here reaches the system.
 
 /// Where the line to one KOS stands.
@@ -11,7 +11,7 @@ public enum LinkState: Equatable {
   case offline(String)
   /// The far end could not sign with the key pinned at pairing.
   case untrusted
-  /// Another copy of KOS Device took the line.
+  /// Another copy of KOS for Mac took the line.
   case replaced
   case outdated
   /// The owner disconnected on purpose.
@@ -229,7 +229,7 @@ public final class HomeModel: ObservableObject {
 
   public var actions = HomeActions()
 
-  /// How KOS Device keeps the Mac safe, in the repository's own words.
+  /// How KOS for Mac keeps the Mac safe, in the repository's own words.
   public static let safety = URL(string: "https://github.com/itsmarsss/kos-agent/blob/main/docs/computer.md#security-model")!
 
   public init() {}

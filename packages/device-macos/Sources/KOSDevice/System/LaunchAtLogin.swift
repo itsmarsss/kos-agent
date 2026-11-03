@@ -1,6 +1,6 @@
 import ServiceManagement
 
-/// Opening KOS Device when the owner logs in, through macOS's own login items.
+/// Opening KOS for Mac when the owner logs in, through macOS's own login items.
 ///
 /// macOS may want the owner to allow it in System Settings first; then it
 /// says so, and the window links there rather than pretending it is on.

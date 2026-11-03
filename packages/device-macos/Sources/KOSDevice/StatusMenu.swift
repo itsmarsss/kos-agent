@@ -1,7 +1,7 @@
 import AppKit
 import DeviceCore
 
-/// The menu bar item: where KOS Device stands with each KOS, the live session with Pause and Stop, and the window.
+/// The menu bar item: where KOS for Mac stands with each KOS, the live session with Pause and Stop, and the window.
 @MainActor
 final class StatusMenu: NSObject, NSMenuDelegate {
   struct Snapshot {
@@ -52,7 +52,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     } else {
       symbol = "cursorarrow.slash"
     }
-    let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "KOS Device")
+    let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "KOS for Mac")
     image?.isTemplate = tint == nil
     item.button?.image = image
     item.button?.contentTintColor = tint
@@ -97,9 +97,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
       chat.keyEquivalentModifierMask = [.command, .option]
       menu.addItem(chat)
     }
-    menu.addItem(action(now.kos.isEmpty ? "Pair with KOS…" : "Open KOS Device…", #selector(open)))
+    menu.addItem(action(now.kos.isEmpty ? "Pair with KOS…" : "Open KOS for Mac…", #selector(open)))
     menu.addItem(.separator())
-    menu.addItem(NSMenuItem(title: "Quit KOS Device", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+    menu.addItem(NSMenuItem(title: "Quit KOS for Mac", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
   }
 
   /// A line that dropped or was taken, which Reconnect dials again.
@@ -118,8 +118,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     case .connected(let deviceName): words = "Connected as \(deviceName)"
     case .offline(let reason): words = "Offline: \(reason)"
     case .untrusted: words = "Could not prove it is KOS"
-    case .replaced: words = "Connected from another copy of KOS Device"
-    case .outdated: words = "Speaks a newer protocol. Update KOS Device."
+    case .replaced: words = "Connected from another copy of KOS for Mac"
+    case .outdated: words = "Speaks a newer protocol. Update KOS for Mac."
     case .disconnected: words = "Disconnected"
     }
     return "\(name): \(words)"

@@ -8,7 +8,7 @@ import type { Device } from "./store.js";
 /**
  * The owner's own Chrome, as a browser KOS's tools can work in.
  *
- * A conversation that has a session on a paired Chrome (the KOS extension)
+ * A conversation that has a session on a paired Chrome (KOS for Chrome)
  * browses there: its browser.* calls go to a tab of that Chrome, through the
  * extension, driven by the same hands as KOS's own Chrome. The tabs are the
  * session's: the ones KOS opened in its window there, and the ones the owner

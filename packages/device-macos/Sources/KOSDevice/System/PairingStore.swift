@@ -8,6 +8,7 @@ import Security
 /// its one pairing under another account; it is moved into the list the
 /// first time it is read.
 enum PairingStore {
+  // The Keychain item keeps the app's first name, so the pairings made under it are found.
   private static let service = "KOS Device"
   private static let account = "pairings"
   /// Where the one pairing lived before a device could pair with several KOS.
@@ -19,7 +20,7 @@ enum PairingStore {
 
   /// The saved pairings, none when none were saved. A Keychain that will not
   /// give them up throws: read as "not paired", it had the owner pair again
-  /// when allowing KOS Device in the Keychain was all it needed.
+  /// when allowing KOS for Mac in the Keychain was all it needed.
   static func load() throws -> [Pairing] {
     if let data = try read(account) {
       do {
@@ -84,7 +85,7 @@ enum PairingStore {
     if status == errSecItemNotFound { return nil }
     guard status == errSecSuccess, let data = found as? Data else {
       Log.pairing.error("the Keychain refused \(account, privacy: .public): \(status, privacy: .public) \(describe(status), privacy: .public)")
-      throw DeviceError(.internal, "The Keychain would not give KOS Device its pairings (\(describe(status))).")
+      throw DeviceError(.internal, "The Keychain would not give KOS for Mac its pairings (\(describe(status))).")
     }
     return data
   }
