@@ -1,8 +1,8 @@
 import { useState, type ReactElement } from "react";
 
-import { Field } from "./kit.js";
 import { Drawer } from "./Drawer.js";
 import { Select } from "./Select.js";
+import { Field } from "@kos/kit";
 
 /**
  * New project: a name, a kind, and nothing else to decide, in a drawer so

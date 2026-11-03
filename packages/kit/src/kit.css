@@ -178,6 +178,12 @@ button.chip-ref { font-family: inherit; cursor: pointer; }
 .empty-text { margin: 0; color: var(--muted); font-size: var(--text-base); max-width: 48ch; }
 .empty-line { margin: 0; color: var(--muted); font-size: var(--text-base); }
 
+/* —— one labelled control: its label, the control, then a hint or an error —— */
+.kos-field { display: flex; flex-direction: column; gap: 0.2rem; }
+.kos-field-label { display: inline-flex; align-items: baseline; gap: 0.15rem; font-size: var(--text-sm); font-weight: 600; color: var(--muted); }
+.field-req { color: var(--danger); font-weight: 700; line-height: 1; }
+.field-error { color: var(--danger); font-size: var(--text-sm); }
+
 /* A line under a control or a head: what it is for. In the secondary grey, which reads at its size; the faint one did not. */
 .hint { color: var(--muted); font-size: var(--text-base); }
 

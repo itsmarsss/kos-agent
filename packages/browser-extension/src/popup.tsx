@@ -1,6 +1,6 @@
 import { KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { ChatIcon, ChevronLeft, Chips, CloseIcon, Collapse, DrawerRow, Face, GearIcon, GlobeIcon, HandIcon, HiddenIcon, IconButton, listItem, Pill, Section, ServerIcon, spring, stagger, Switch, type Tone } from "@kos/kit";
+import { ChatIcon, ChevronLeft, Chips, CloseIcon, Collapse, DrawerRow, Face, Field, GearIcon, GlobeIcon, HandIcon, HiddenIcon, IconButton, listItem, Pill, Section, ServerIcon, spring, stagger, Switch, type Tone } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -373,19 +373,16 @@ function PairCard({ first, cancel, act }: { first: boolean; cancel: () => void; 
           </a>
         )}
       </div>
-      <label className="field">
-        <span>KOS address or pairing link</span>
+      <Field label="KOS address or pairing link">
         <input className="mono" type="text" placeholder="https://kos.example.ts.net" spellCheck={false} autoComplete="off" value={address} onChange={(e) => read(e.target.value)} autoFocus={!first} />
-      </label>
+      </Field>
       <div className="pair-fields">
-        <label className="field">
-          <span>Code</span>
+        <Field label="Code">
           <input className="mono" type="text" placeholder="K7QX-M2PA" spellCheck={false} autoComplete="off" value={code} onChange={(e) => setCode(e.target.value)} />
-        </label>
-        <label className="field">
-          <span>This Chrome's name in KOS</span>
+        </Field>
+        <Field label="This Chrome's name in KOS">
           <input type="text" placeholder="Chrome on macOS" spellCheck={false} value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
+        </Field>
       </div>
       <div className="row">
         <span className={note?.failed ? "pair-note error" : "pair-note"}>{note?.text}</span>

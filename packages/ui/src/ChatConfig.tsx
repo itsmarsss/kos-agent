@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { api, type Conversation, type ToolInfo } from "./api.js";
-import { Field } from "./kit.js";
 import { ToolPicker } from "./ToolPicker.js";
+import { Field } from "@kos/kit";
 
 /**
  * Owner-editable configuration for one conversation: what it is called, what

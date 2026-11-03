@@ -106,9 +106,7 @@ strong { font-weight: 600; }
 .link:hover { color: var(--accent-lit); text-decoration: underline; }
 .link:hover::after { transform: translate(1.5px, -1.5px); }
 
-/* —— fields: a label over a dark well —— */
-.field { display: flex; flex-direction: column; gap: 5px; }
-.field > span { color: var(--muted); font-size: 11.5px; font-weight: 500; }
+/* —— the well a field's control sits in (the field itself is the kit's) —— */
 input {
   width: 100%;
   padding: 8px 10px;

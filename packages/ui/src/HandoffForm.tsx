@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { api, type Conversation, type Project } from "./api.js";
-import { Field } from "./kit.js";
 import { Select } from "./Select.js";
+import { Field } from "@kos/kit";
 
 /**
  * Handing a chat on by hand.

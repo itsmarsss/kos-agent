@@ -1,5 +1,5 @@
 import { m } from "motion/react";
-import { CloseIcon, ease, Empty, IconButton, KOS_SEED, Pill, RefChip, Switch, Tag } from "@kos/kit";
+import { CloseIcon, ease, Empty, Field, IconButton, KOS_SEED, Pill, RefChip, Switch, Tag } from "@kos/kit";
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import {
@@ -10,7 +10,7 @@ import {
 import type { FaceLook } from "./api.js";
 import { FaceEditor } from "./FaceEditor.js";
 import { ModelSettings } from "./ModelSettings.js";
-import { Field } from "./kit.js";
+import { FieldRow } from "./kit.js";
 import { useOpenTab } from "./opentab.js";
 import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";
@@ -1321,17 +1321,16 @@ export function SettingsPage({
               <Empty inline>Nothing installed yet. Add one below, or ask KOS to make one.</Empty>
             )}
             {skills.skills.length > 0 && (
-              <Field label="Show" hint="All of them, one project's own, a kind, or a state." row>
+              <FieldRow label="Show" hint="All of them, one project's own, a kind, or a state.">
                 <Select className="settings-select" label="Which skills" value={skillView} options={skillViews(skills.skills)} onChange={setSkillView} />
-              </Field>
+              </FieldRow>
             )}
             <div className="set-rows">
             {skills.skills.filter((sk) => matchesSkillView(sk, skillView)).map((sk) => (
-              <Field
+              <FieldRow
                 key={sk.name}
                 label={`${sk.name} (${sk.kind}${sk.kind === "script" ? (sk.promoted ? ", promoted" : ", not promoted") : ""})${sk.projects ? ` · ${sk.projects.join(", ")}` : ""}`}
                 hint={sk.description}
-                row
                 {...(sk.origin ? { meta: <span className="set-origin ops-mono">{sk.origin}</span> } : {})}
               >
                 <Switch label={sk.name} on={sk.enabled} disabled={skillBusy === sk.name} onChange={(on) => {
@@ -1371,7 +1370,7 @@ export function SettingsPage({
                     Remove
                   </button>
                 </span>
-              </Field>
+              </FieldRow>
             ))}
             </div>
             {skills.invalid.length > 0 && (
@@ -1392,10 +1391,9 @@ export function SettingsPage({
             {mcp.length === 0 && <Empty inline>Nothing connected yet. Add one below.</Empty>}
             <div className="set-rows">
             {mcp.map((s) => (
-              <Field
+              <FieldRow
                 key={s.name}
                 label={`${s.name} (${s.transport})${s.projects.length ? ` · ${s.projects.join(", ")}` : ""}`}
-                row
                 meta={
                   <span className="set-origin">
                     {s.risk === "safe" ? "all tools safe" : "risky: each call asks"}
@@ -1430,7 +1428,7 @@ export function SettingsPage({
                     Remove
                   </button>
                 </span>
-              </Field>
+              </FieldRow>
             ))}
             </div>
             <McpAdd onAdded={loadMcp} />
@@ -1444,12 +1442,12 @@ export function SettingsPage({
                 <p className="hint">Features the kernel ships but does not insist on. Off takes their tools away at once; on brings them back.</p>
                 <div className="set-rows">
                 {(modules.builtins ?? []).map((b) => (
-                  <Field key={b.name} label={b.name} hint={b.description} row>
+                  <FieldRow key={b.name} label={b.name} hint={b.description}>
                     <Switch label={b.name} on={b.enabled} onChange={(on) => {
                           const enabled = on;
                           void api.setModuleEnabled(b.name, enabled).then(loadModules, loadModules);
                         }} />
-                  </Field>
+                  </FieldRow>
                 ))}
                 </div>
               </div>

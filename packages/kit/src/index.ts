@@ -32,6 +32,7 @@ export {
   type Mood,
 } from "./Face.js";
 export { KindMark, Markdown, MentionNames, RefChip, RefLinks } from "./Markdown.js";
+export { Field, Req, type FieldProps } from "./Field.js";
 export { Tex } from "./Tex.js";
 export { Card, Chips, Collapse, Count, Empty, type CardProps, type ChipOption, DrawerRow, IconButton, IconLink, Pill, Section, Switch, Tag, WorkingDots, type IconButtonProps, type Tone } from "./kit.js";
 export { useDismiss, type DismissOptions } from "./useDismiss.js";

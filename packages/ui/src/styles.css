@@ -787,21 +787,6 @@ select {
   max-width: 32rem;
 }
 
-.kos-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.kos-field-label {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.15rem;
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--muted);
-}
-.field-req { color: var(--danger); font-weight: 700; line-height: 1; }
 
 .kos-form-bar {
   display: flex;
@@ -6911,7 +6896,6 @@ a.health {
 a.panel-row:hover .panel-row-main { color: var(--accent); }
 
 /* A field that cannot be sent as it is says why, under it, in the danger colour. */
-.field-error { color: var(--danger); font-size: var(--text-sm); }
 .kos-input.is-invalid, .kos-input[aria-invalid="true"] { border-color: var(--danger); }
 
 /* An empty state: a title and a line, so a blank reads as an answer. */
