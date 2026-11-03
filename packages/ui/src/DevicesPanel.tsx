@@ -29,7 +29,7 @@ function SessionRules({ settings, onChange }: { settings: ComputerSettings; onCh
   return (
     <div className="set-group device-rules">
       <h3>Sessions</h3>
-      <Field group label="KOS asks for" hint="How long a session KOS asks for when the chat does not say. Each computer can allow less: its own longest session wins.">
+      <Field group className="set-field" label="KOS asks for" hint="How long a session KOS asks for when the chat does not say. Each computer can allow less: its own longest session wins.">
         <Select
           label="KOS asks for"
           value={String(settings.askMinutes)}
@@ -37,7 +37,7 @@ function SessionRules({ settings, onChange }: { settings: ComputerSettings; onCh
           onChange={(v) => onChange({ askMinutes: Number(v) })}
         />
       </Field>
-      <Field group
+      <Field group className="set-field"
         label="Work you did not start may use a computer"
         hint="Off by default: a schedule, a blob's own timer or a guest in a channel cannot start a session. On, they can ask, and the computer still asks you first, or your approval queue does if you set it to."
       >
