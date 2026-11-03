@@ -205,8 +205,14 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 /* A turn's steps, folded to a line; the running one says what it is doing. */
 .steps { align-self: flex-start; max-width: 100%; }
 /* Folded in a narrow column, the steps are one chip, drawn as the composer's are. */
-.steps-head { appearance: none; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 10px; border: 0; border-radius: 999px; background: var(--panel-2); color: var(--muted); font: inherit; font-size: 12px; line-height: 1.45; cursor: pointer; transition: color 140ms ease, background 140ms ease; }
-.steps-head:hover { color: var(--text); background: var(--line); }
+/* —— a capsule chip: the steps of a turn, the model, the mode; one look for the three, as KOS for Mac's Chip —— */
+.steps-head,
+.model,
+.mode { appearance: none; position: relative; display: inline-flex; align-items: center; gap: 4px; min-width: 0; padding: 3px 10px; border: 0; border-radius: 999px; background: var(--panel-2); color: var(--muted); font: inherit; font-size: 12px; line-height: 1.45; cursor: pointer; transition: color 140ms ease, background 140ms ease; }
+.steps-head:hover,
+.model:hover,
+.mode:hover { color: var(--text); background: var(--line); }
+.steps-head { gap: 6px; max-width: 100%; }
 .steps-head > span:not(.chev) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .steps[data-live] .steps-head { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); cursor: default; }
 .steps[data-live] .steps-head > svg { animation: beat 1.2s ease-in-out infinite; }
@@ -241,14 +247,10 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .msg-quote { margin: 0 0 6px; padding-left: 8px; border-left: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); color: var(--muted); font-size: 11.5px; white-space: normal; }
 .composer-foot .send { margin-left: auto; }
 /* The model, as a quiet chip that opens Chrome's own list. */
-.model { position: relative; display: inline-flex; align-items: center; gap: 4px; min-width: 0; padding: 3px 10px; border-radius: 999px; background: var(--panel-2); color: var(--muted); font-size: 12px; line-height: 1.45; cursor: pointer; transition: color 140ms ease, background 140ms ease; }
-.model:hover { color: var(--text); background: var(--line); }
 .model select { appearance: none; max-width: 180px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; outline: none; text-overflow: ellipsis; }
 .model select option { background: var(--panel); color: var(--text); }
 .model--fixed { cursor: default; }
 /* Ask before each step, or act on its own: quiet when asking, KOS's colour when on its own. */
-.mode { appearance: none; display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border: 0; border-radius: 999px; background: var(--panel-2); color: var(--muted); font: inherit; font-size: 12px; line-height: 1.45; cursor: pointer; transition: color 140ms ease, background 140ms ease; }
-.mode:hover { color: var(--text); background: var(--line); }
 .mode[data-on] { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .mode[data-on]:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
