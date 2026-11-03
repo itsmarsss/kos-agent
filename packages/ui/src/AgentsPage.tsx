@@ -1,6 +1,6 @@
 import { m } from "motion/react";
 import { useCallback, useEffect, useState, type ReactElement } from "react";
-import { card, Face, moodOf, stagger } from "@kos/kit";
+import { card, Face, moodOf, Pill, stagger } from "@kos/kit";
 
 import { AgentEditor, titleOf } from "./AgentEditor.js";
 import { api, type AgentInfo, type InvalidAgent } from "./api.js";
@@ -147,7 +147,7 @@ export function AgentsPage({ open, onOpen, onNotice, onChanged }: AgentsPageProp
                     {a.thread?.unread && <span className="unread-dot" aria-label="unread" />}
                   </span>
                 </span>
-                <span className="chats-badge">{a.job ? (a.job.enabled ? "scheduled" : "paused") : "on request"}</span>
+                <Pill>{a.job ? (a.job.enabled ? "scheduled" : "paused") : "on request"}</Pill>
               </span>
               <span className="agents-row-desc">{a.description}</span>
               <span className={`agents-row-upto is-${a.thread?.activity ?? "idle"}`}>{upTo(a)}</span>

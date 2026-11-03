@@ -21,6 +21,15 @@ export function Pill({ tone = "muted", title, children }: { tone?: Tone; title?:
   );
 }
 
+/** A fact in a word or two: a tool family, a model class, a value. Not a button, and not a state (that is a Pill). */
+export function Tag({ mono = false, title, children }: { mono?: boolean; title?: string; children: ReactNode }): ReactElement {
+  return (
+    <span className={`tag${mono ? " tag--mono" : ""}`} title={title}>
+      {children}
+    </span>
+  );
+}
+
 /** On or off, said by its label and drawn as a knob that slides. */
 export function Switch({ on, onChange, label, disabled }: { on: boolean; onChange: (on: boolean) => void; label: string; disabled?: boolean }): ReactElement {
   return (

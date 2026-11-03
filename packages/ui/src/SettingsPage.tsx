@@ -1,5 +1,5 @@
 import { m } from "motion/react";
-import { CloseIcon, ease, KOS_SEED, Switch } from "@kos/kit";
+import { CloseIcon, ease, KOS_SEED, Pill, Switch, Tag } from "@kos/kit";
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import {
@@ -842,15 +842,15 @@ export function SettingsPage({
                 badge={
                   meta.masked ? (
                     <>
-                      <span className="set-badge is-set">{meta.masked}</span>
+                      <Tag mono>{meta.masked}</Tag>
                       {meta.storedAs && (
-                        <span className="set-badge" title="An older name this host still accepts">
+                        <Tag mono title="An older name this host still accepts">
                           as {meta.storedAs}
-                        </span>
+                        </Tag>
                       )}
                     </>
                   ) : (
-                    <span className="set-badge">not set</span>
+                    <Pill>not set</Pill>
                   )
                 }
               >
@@ -1291,7 +1291,7 @@ export function SettingsPage({
                 label={meta.label}
                 hint={meta.hint}
                 badge={
-                  meta.value ? <span className="set-badge is-set">{meta.value}</span> : null
+                  meta.value ? <Tag mono>{meta.value}</Tag> : null
                 }
               >
                 <input
@@ -1739,11 +1739,7 @@ export function SettingsPage({
               )}
               <dt>KOS</dt>
               <dd>
-                {data.halted ? (
-                  <span className="set-badge is-halted">halted</span>
-                ) : (
-                  <span className="set-badge is-set">running</span>
-                )}
+                {data.halted ? <Pill tone="danger">halted</Pill> : <Pill tone="ok">running</Pill>}
               </dd>
             </dl>
             <div className="set-inline">

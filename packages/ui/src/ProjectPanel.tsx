@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactElement } from "react";
 import { hexOfHsl, hueOfHex } from "@kos/shared";
-import { lookOf, Pill } from "@kos/kit";
+import { lookOf, Pill, Tag } from "@kos/kit";
 
 import { api, type ProjectDetail } from "./api.js";
 import { ColourChoice } from "./ColourPicker.js";
 import { FileIcon } from "./FileIcon.js";
-import { Tag } from "./kit.js";
 import { PanelSection } from "./PanelSection.js";
 import { ProjectExplorer } from "./ProjectExplorer.js";
 import { markInk } from "./ProjectMark.js";

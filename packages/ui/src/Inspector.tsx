@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { m } from "motion/react";
 import { hexOfHsl, hueOfHex, summarizeAction } from "@kos/shared";
-import { ease, lookOf, Pill, spring } from "@kos/kit";
+import { ease, lookOf, Pill, spring, Tag } from "@kos/kit";
 
 import type {
   AuditRecord,
@@ -13,7 +13,7 @@ import type {
 import { api, type ProjectDetail } from "./api.js";
 import { ColourChoice } from "./ColourPicker.js";
 import { FileIcon } from "./FileIcon.js";
-import { Card, ConfirmButton, Field, Tag } from "./kit.js";
+import { Card, ConfirmButton, Field } from "./kit.js";
 import { markInk } from "./ProjectMark.js";
 import { hrefFor } from "./routes.js";
 import { Select } from "./Select.js";
@@ -258,13 +258,7 @@ export function Inspector(props: {
                     <li>
                       <span className="ops-mono">{job.schedule}</span>
                       <span className="insp-meta">{job.type}</span>
-                      <span
-                        className={`ops-tag ${
-                          job.enabled ? "ops-tag--ok" : "ops-tag--muted"
-                        }`}
-                      >
-                        {job.enabled ? "on" : "off"}
-                      </span>
+                      <Pill tone={job.enabled ? "ok" : "muted"}>{job.enabled ? "on" : "off"}</Pill>
                     </li>
                     {(job.actions ?? []).map((a, i) => (
                       <li key={i}>
@@ -570,13 +564,7 @@ export function Inspector(props: {
                       <li key={c.id}>
                         <span>{c.name}</span>
                         <span className="insp-meta ops-mono">{c.schedule}</span>
-                        <span
-                          className={`ops-tag ${
-                            c.enabled ? "ops-tag--ok" : "ops-tag--muted"
-                          }`}
-                        >
-                          {c.enabled ? "on" : "off"}
-                        </span>
+                        <Pill tone={c.enabled ? "ok" : "muted"}>{c.enabled ? "on" : "off"}</Pill>
                       </li>
                     ))}
                   </ul>

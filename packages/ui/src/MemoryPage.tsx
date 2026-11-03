@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 
-import { Switch } from "@kos/kit";
+import { Pill, Switch } from "@kos/kit";
 
 import { api, type CallerInfo, type CronJob, type FactRow, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
 import { KnowledgePage } from "./KnowledgePage.js";
@@ -52,7 +52,7 @@ export function MemoryPage({
         {TABS.map((t) => (
           <button key={t.id} type="button" className={`mem-tab ${tab === t.id ? "is-active" : ""}`} onClick={() => setTab(t.id)} title={t.blurb}>
             {t.label}
-            {t.id === "decisions" && pendingCount > 0 && <span className="mem-badge">{pendingCount}</span>}
+            {t.id === "decisions" && pendingCount > 0 && <Pill tone="warn">{pendingCount}</Pill>}
           </button>
         ))}
       </nav>
@@ -366,7 +366,7 @@ function JobsTab(): ReactElement {
             <div className="mem-job-main">
               <div className="mem-job-title">
                 <strong>{j.label}</strong> <span className="ops-mono ops-muted">{j.name}</span>
-                <span className={`cron-badge ${job.enabled ? "is-on" : "is-off"}`}>{job.enabled ? "On schedule" : "Off"}</span>
+                <Pill tone={job.enabled ? "ok" : "muted"}>{job.enabled ? "On schedule" : "Off"}</Pill>
               </div>
               <div className="hint">{j.what} · {job.schedule} · {job.task ?? "reasoning"} route{job.lastRunAt ? ` · last ran ${when(job.lastRunAt)}` : " · never run"}</div>
               {said[job.id] && <div className="mem-job-said">{said[job.id]}</div>}

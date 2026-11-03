@@ -64,15 +64,6 @@ export function Field({ label, required = false, hint, error, group = false, cla
   );
 }
 
-/** A fact in a word or two: a tool family, a model class, a type. Not a button. */
-export function Tag({ mono = false, title, children }: { mono?: boolean; title?: string; children: ReactNode }): ReactElement {
-  return (
-    <span className={`tag${mono ? " tag--mono" : ""}`} title={title}>
-      {children}
-    </span>
-  );
-}
-
 export interface CardProps {
   /** The small uppercase head. Absent, the card is a plain box. */
   title?: string;

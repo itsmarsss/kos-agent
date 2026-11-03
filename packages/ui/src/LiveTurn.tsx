@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { AnimatePresence, m } from "motion/react";
 
-import { listItem, Markdown, WorkingDots } from "@kos/kit";
+import { listItem, Markdown, Pill, WorkingDots } from "@kos/kit";
 import { hrefFor } from "./routes.js";
 import { Thinking } from "./Thinking.js";
 import { ToolCall } from "./ToolCall.js";
@@ -59,15 +59,7 @@ function Congregation({ members }: { members: CongregationMember[] }): ReactElem
           <a className="congregation-title" href={hrefFor({ name: "chats", id: member.id })}>
             {member.title}
           </a>
-          {member.status === "done" ? (
-            <span className="chats-badge">done</span>
-          ) : (
-            <span
-              className={`chats-flag ${member.status === "failed" ? "chats-flag--needs-you" : "chats-flag--working"}`}
-            >
-              {member.status}
-            </span>
-          )}
+          <Pill tone={member.status === "done" ? "ok" : member.status === "failed" ? "warn" : "accent"}>{member.status}</Pill>
         </div>
       ))}
     </div>

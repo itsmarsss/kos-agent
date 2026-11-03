@@ -2,6 +2,8 @@ import { useMemo, useState, type ReactElement } from "react";
 
 import { summarizeAction } from "@kos/shared";
 
+import { Pill } from "@kos/kit";
+
 import type { AuditRecord, CronJob, RunRecord } from "./api.js";
 import { ListPage } from "./ListPage.js";
 
@@ -199,11 +201,11 @@ export function HistoryPage({
           searchText: (r) => (r.failed ? "error failed" : "ok"),
           render: (r) =>
             r.failed ? (
-              <span className="ops-tag ops-tag--danger">error</span>
+              <Pill tone="danger">error</Pill>
             ) : r.kind === "run" && r.run.status === "skipped" ? (
-              <span className="ops-tag ops-tag--muted">skipped</span>
+              <Pill>skipped</Pill>
             ) : (
-              <span className="ops-tag ops-tag--ok">ok</span>
+              <Pill tone="ok">ok</Pill>
             ),
         },
         {
