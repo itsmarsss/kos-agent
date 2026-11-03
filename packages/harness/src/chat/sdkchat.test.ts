@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { joinSaid, plainName, priorForSdk, sdkName } from "./sdkchat.js";
+import { joinSaid, plainName, priorForSdk, screenSplit, sdkName } from "./sdkchat.js";
 
 /**
  * The names are the containment boundary.
@@ -86,5 +86,23 @@ describe("joining what was said across steps", () => {
     // A side that already ends or starts with whitespace is left exactly as is.
     expect(joinSaid("line one\n", "line two")).toBe("line one\nline two");
     expect(joinSaid("checking the", " plan")).toBe("checking the plan");
+  });
+});
+
+describe("screen work handed to its own model", () => {
+  const names = ["files.read", "computer.devices", "computer.start", "computer.act", "chrome.page", "chrome.start", "browser.act"];
+
+  it("keeps everything with the turn when no screen model is set", () => {
+    expect(screenSplit(names, undefined)).toEqual({ main: names.map(sdkName) });
+  });
+
+  it("gives the screen tools to the screen agent alone, and the reads to both", () => {
+    const split = screenSplit(names, { model: "claude-sonnet-5-5", effort: "low" });
+    expect(split.main).toEqual(["files.read", "computer.devices", "chrome.page"].map(sdkName).concat(["Task", "Agent"]));
+    expect(split.agent).toEqual({ tools: names.filter((n) => n !== "files.read").map(sdkName), model: "claude-sonnet-5-5", effort: "low" });
+  });
+
+  it("hands nothing on in a turn with no screen tools", () => {
+    expect(screenSplit(["files.read"], { model: "claude-sonnet-5-5" })).toEqual({ main: [sdkName("files.read")] });
   });
 });

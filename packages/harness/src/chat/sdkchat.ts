@@ -8,6 +8,8 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 
 import type { ToolBox } from "../agent/loop.js";
+import { SCREEN_HANDOFF, SCREEN_PROMPT, forScreenAgent, isScreenTool } from "../agent/screen.js";
+import type { Effort } from "../models/provider.js";
 import { toolUse } from "../kernel/caller.js";
 import { credentials } from "../builds/runner.js";
 import { toZodShape } from "./schema.js";
@@ -117,6 +119,31 @@ export interface SdkChatOptions {
   env?: NodeJS.ProcessEnv;
   /** Aborts the SDK query when the owner presses Stop. */
   signal?: AbortSignal;
+  /**
+   * The model the screen steps run on, as a subagent the turn hands them to.
+   * Unset, the turn does its screen work itself, as before.
+   */
+  screen?: { model: string; effort?: Effort };
+}
+
+/** The subagent the turn hands screen work to, and the tool it is handed over with. */
+const SCREEN_AGENT = "screen";
+const HANDOFF_TOOLS = ["Task", "Agent"];
+
+/**
+ * How the turn's tools divide when screen work is handed on: the screen tools
+ * go to the subagent alone, so their pictures stay in its context and are gone
+ * when it reports back, and the turn keeps the rest and the means to hand on.
+ */
+export function screenSplit(names: string[], screen: SdkChatOptions["screen"]): {
+  main: string[];
+  agent?: { tools: string[]; model: string; effort?: Effort };
+} {
+  if (!screen || !names.some(isScreenTool)) return { main: names.map(sdkName) };
+  return {
+    main: [...names.filter((n) => !isScreenTool(n)).map(sdkName), ...HANDOFF_TOOLS],
+    agent: { tools: names.filter(forScreenAgent).map(sdkName), model: screen.model, ...(screen.effort ? { effort: screen.effort } : {}) },
+  };
 }
 
 /**
@@ -247,7 +274,8 @@ export async function runSdkChat(
 ): Promise<SdkChatResult> {
   const calls: SdkToolCall[] = [];
   const { server } = serverFor(options.tools, (call) => calls.push(call));
-  const allowed = options.tools.defs().map((d) => sdkName(d.name));
+  const split = screenSplit(options.tools.defs().map((d) => d.name), options.screen);
+  const allowed = split.main;
   const { env, home } = credentials(options.cwd, options.env ?? process.env);
 
   let text = "";
@@ -311,13 +339,27 @@ export async function runSdkChat(
       // as excluded by the allow list, because an allow list that grows a
       // hole is a jail that quietly opens.
       allowedTools: allowed,
-      disallowedTools: BUILTINS,
+      disallowedTools: split.agent ? BUILTINS.filter((b) => !HANDOFF_TOOLS.includes(b)) : BUILTINS,
       mcpServers: { [SERVER]: server },
       maxTurns: options.maxTurns ?? 24,
       includePartialMessages: true,
       ...(options.model ? { model: options.model } : {}),
+      ...(split.agent
+        ? {
+            agents: {
+              [SCREEN_AGENT]: {
+                description: "Does work on a screen or in a browser tab (a computer, the owner's Chrome, KOS's own browser) and reports what it did and saw.",
+                prompt: SCREEN_PROMPT,
+                tools: split.agent.tools,
+                model: split.agent.model,
+                ...(split.agent.effort ? { effort: split.agent.effort } : {}),
+                maxTurns: options.maxTurns ?? 24,
+              },
+            },
+          }
+        : {}),
       env: { ...env, HOME: home },
-      systemPrompt: { type: "preset", preset: "claude_code", append: options.system },
+      systemPrompt: { type: "preset", preset: "claude_code", append: split.agent ? `${options.system}\n\n${SCREEN_HANDOFF}` : options.system },
     },
   });
 
@@ -325,10 +367,14 @@ export async function runSdkChat(
   for await (const message of stream as AsyncIterable<SDKMessage>) {
     const m = message as unknown as Record<string, unknown>;
 
+    // A subagent's frames carry the call that started it. Its words are its
+    // report to the turn, not the turn's reply; its thinking still shows.
+    const inSubagent = typeof m["parent_tool_use_id"] === "string";
+
     if (m["type"] === "stream_event") {
       const event = m["event"] as { delta?: { type?: string; text?: string; thinking?: string } };
       const delta = event?.delta;
-      if (delta?.text) options.onDelta?.({ kind: "text", text: delta.text });
+      if (delta?.text && !inSubagent) options.onDelta?.({ kind: "text", text: delta.text });
       if (delta?.thinking) {
         options.onDelta?.({ kind: "reasoning", text: delta.thinking });
       }
@@ -336,6 +382,7 @@ export async function runSdkChat(
     }
 
     if (m["type"] === "assistant") {
+      if (inSubagent) continue;
       const content = (m["message"] as { content?: unknown[] })?.content ?? [];
       for (const block of content) {
         const b = block as { type?: string; text?: string };
