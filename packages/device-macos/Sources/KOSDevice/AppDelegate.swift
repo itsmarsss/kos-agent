@@ -14,6 +14,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private lazy var controller = DeviceController(settings: settings, overlay: overlay)
   private lazy var menu = StatusMenu { [unowned self] in snapshot() }
   private lazy var home = HomeWindow(settings: settings)
+  private let chat = ChatController()
+  /// The KOS the chat window talks to: chosen once, and kept while it is paired.
+  private var chatKOS: String?
+  private var chatKey: HotKey?
   /// The KOS this Mac is paired with, in the order they were paired.
   private var pairings: [Pairing] = []
   /// The line to each, by its device id.
@@ -75,6 +79,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       for line in lines.values where StatusMenu.redialable(line.status) { line.redialNow() }
     }
     menu.onOpen = { [unowned self] in home.show() }
+    menu.onChat = { [unowned self] in chat.open() }
+    chat.send = { [unowned self] origin, message in lines[origin]?.send(message) }
+    chat.target = { [unowned self] in chatTarget() }
+    chat.faceOf = { origin in Self.face(of: origin) }
+    chat.isHidden = { [unowned self] bundle in settings.isHidden(bundle) }
+    chat.model.chooseKOS = { [unowned self] id in
+      chatKOS = id
+      chat.refresh(asking: true)
+    }
+    chatKey = HotKey(code: HotKey.chat.code, modifiers: HotKey.chat.modifiers) { [unowned self] in chat.toggle() }
+    if chatKey == nil { Log.app.error("⌥⌘K is taken by another app; the chat window opens from the menu") }
     menu.onPause = { [unowned self] in controller.pause() }
     menu.onResume = { [unowned self] in controller.resume() }
     menu.onStop = { [unowned self] in controller.stop() }
@@ -144,7 +159,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let id = paired.deviceId
     let line = Connection()
     line.state = { [unowned self] in currentState(for: id) }
-    line.onCall = { [unowned self] call in await controller.handle(call, from: id) }
+    // The chat's calls carry the chat, not the computer: they go to the window, every other call to the controller.
+    line.onCall = { [unowned self] call in
+      if let method = ChatMethod(rawValue: call.method) { return chat.handle(call, method, from: id) }
+      return await controller.handle(call, from: id)
+    }
     line.onDrop = { [unowned self] in controller.lineDropped(from: id) }
     line.onRemoved = { [unowned self] in forget(id, sayRemoved: true) }
     line.onFace = { [unowned self] face in
@@ -160,6 +179,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func pairing(_ id: String) -> Pairing? {
     pairings.first { $0.deviceId == id }
+  }
+
+  /// The KOS the chat window talks to: the one chosen while it stays paired, else the first connected, else the first paired.
+  private func chatTarget() -> (id: String, name: String?, online: Bool)? {
+    if chatKOS.flatMap(pairing) == nil {
+      chatKOS = (pairings.first { lines[$0.deviceId]?.isProven == true } ?? pairings.first)?.deviceId
+    }
+    guard let id = chatKOS, let paired = pairing(id) else { return nil }
+    return (id, pairings.count > 1 ? Self.name(paired) : nil, lines[id]?.isProven == true)
   }
 
   /// A KOS's face as it last sent it, else KOS's own.
@@ -264,6 +292,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   /// The menu's icon and the window follow every line, the session and the pairings.
   private func changed() {
     menu.refresh()
+    chat.model.kosChoices = pairings.map { .init(id: $0.deviceId, name: Self.name($0)) }
+    chat.refresh()
     let model = home.model
     model.kos = pairings.map { paired in
       let status = lines[paired.deviceId]?.status ?? .disconnected

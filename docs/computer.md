@@ -170,8 +170,9 @@ Device: `{ "t": "reply", "id": 7, "ok": true, "result": { ... } }` or
 `{ "t": "reply", "id": 7, "ok": false, "error": { "code": "paused", "message": "..." } }`
 
 Every method but `session.begin` takes `session`, and the device refuses it
-without that session live. A Chrome also takes the side panel's calls, which
-need no session ([browser-extension.md](browser-extension.md)).
+without that session live. A Chrome takes the side panel's chat calls, and a
+Mac running KOS Device takes the same ones for its chat window; neither
+needs a session ([browser-extension.md](browser-extension.md), and below).
 
 | Method | Params | Result |
 | --- | --- | --- |
@@ -210,6 +211,25 @@ Key names: letters, digits, `return`, `tab`, `space`, `escape`, `backspace`,
 `f1` to `f20`, and punctuation by itself (`-`, `=`, `[`, `/`, ...). Modifiers:
 `cmd`, `shift`, `ctrl`, `alt` (`option`), `fn`. xdotool spellings
 (`Return`, `super+c`, `Page_Down`) are read too.
+
+### The chat window
+
+KOS Device floats a chat window over the owner's apps (⌥⌘K, or Chat with KOS
+in its menu): the side panel's chat, on the Mac. It takes the side panel's
+calls but `page.read` (`chat.show`, `chat.status`, `chat.ask`,
+`chat.settled`, `chat.chats`, `chat.models`) and sends its events
+(`chat.open`, `chat.send`, `chat.decide`, `chat.list`, `chat.switch`,
+`chat.models`, `chat.model`, `chat.auto`). Its chats are the `mac`
+surface's, as the panel's are `chrome`'s, and a Chrome's words never reach
+it nor the other way round.
+
+`chat.send`'s `beside` is where the owner was: `{ "kind": "app", "name",
+"bundle"?, "title"? }`, the app in front of the window and its front
+window's title; `{ "kind": "hidden" }`, an app the owner hid from KOS,
+named no further; or `{ "kind": "none" }`. The turn is told that app is
+what "this" means, and that `computer.start` on that Mac, naming the app,
+asks to see it or work in it. The window never takes the front from that
+app, so it stays what the owner was looking at.
 
 ### Events
 

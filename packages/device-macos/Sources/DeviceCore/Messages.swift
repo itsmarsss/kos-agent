@@ -168,6 +168,11 @@ public enum Outbound {
     try encode(EventBody(name: name.rawValue, data: data))
   }
 
+  /// An event of the chat window's (ChatEvent says which there are).
+  static func chatEvent<D: Encodable>(_ name: String, data: D) throws -> Data {
+    try encode(EventBody(name: name, data: data))
+  }
+
   /// The owner unpaired this device here: the KOS on this line forgets it too.
   public static func unpair() throws -> Data {
     try encode(UnpairBody())

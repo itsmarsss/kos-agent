@@ -39,6 +39,19 @@ screen, so one session runs at a time: while one KOS has it, another that asks
 hears the Mac is busy, and only the KOS that owns a session can act in it or
 end it. Pairing again with a KOS already here replaces that pairing.
 
+## Chat with KOS
+
+⌥⌘K, or Chat with KOS in the menu, opens a small window over whatever app
+you are in: the chat the Chrome side panel has, on the Mac. Drag it anywhere
+by its background; it opens where you left it, stays over your apps and
+never takes the front from them, so the app you were in is what KOS takes
+"this" to mean. Its chip under the box says which app that is (an app you
+hid from KOS is named only as hidden). To look at that app or work in it,
+KOS asks for a session on this Mac as it always does. Your words, KOS's
+answer, the steps a turn took, approvals to decide, your other chats from
+the name at the top, the model and Ask or Auto are all there. With several
+KOS paired, the name at the very top chooses which one you talk to.
+
 ## Permissions
 
 The app asks for two, in System Settings, Privacy & Security:
