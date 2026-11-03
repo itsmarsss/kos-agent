@@ -167,6 +167,7 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .chat-title { appearance: none; align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; max-width: 100%; margin: 0 -4px; padding: 1px 4px; border: 0; border-radius: var(--r-xs); background: none; color: var(--muted); font: inherit; font-size: 12px; text-align: left; cursor: pointer; transition: color 140ms ease, background 140ms ease; }
 .chat-title:hover, .chat-title[aria-expanded="true"] { color: var(--text); background: var(--panel-2); }
 .chat-title > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The kit's chevron is faint; in the chat's name it takes the name's colour, which lights under the pointer. */
 .chat-title .chev { color: inherit; }
 .switcher { position: absolute; z-index: 5; top: calc(100% - 4px); left: 12px; right: 12px; max-height: min(60vh, 420px); display: flex; flex-direction: column; padding: 3px; border-radius: var(--r-md); border: 1px solid var(--line-strong); background: var(--panel); box-shadow: var(--float); transform-origin: top center; }
 .switcher-list { overflow-y: auto; display: flex; flex-direction: column; }
@@ -186,7 +187,7 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .tabbar .line-text strong { font-size: 12.5px; }
 .tile--sm { width: 26px; height: 26px; border-radius: var(--r-sm); }
 .row--between { justify-content: space-between; }
-.row--between .hint { flex: 1; font-size: 11.5px; }
+.row--between .hint { flex: 1; }
 
 .thread { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 16px 8px; display: flex; flex-direction: column; gap: 10px; }
 /* The chat reads as the dashboard's does: its type, its bubble, its spacing (docs/design.md, Chat). */
