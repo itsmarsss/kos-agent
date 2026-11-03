@@ -115,6 +115,11 @@ public struct HomeView: View {
         .keyboardShortcut("m", modifiers: .command)
       Spacer()
       if model.page == .home {
+        // Chat and the gear, as the Chrome popup's header has them: chat only once there is a KOS to talk to.
+        if !model.kos.isEmpty {
+          IconButton(symbol: "bubble.left", label: "Chat with KOS", action: model.actions.openChat)
+            .transition(.opacity)
+        }
         IconButton(symbol: "gearshape", label: "Settings") { model.page = .settings }
           .transition(.opacity)
       }

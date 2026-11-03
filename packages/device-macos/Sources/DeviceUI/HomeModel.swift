@@ -165,6 +165,8 @@ public struct HomeActions {
   public var restart: () -> Void = {}
   public var close: () -> Void = {}
   public var minimize: () -> Void = {}
+  /// The chat window, as the menu's Chat with KOS opens it.
+  public var openChat: () -> Void = {}
   public var setLongest: (Int) -> Void = { _ in }
   public var setPromptWait: (Int) -> Void = { _ in }
   public var setIdle: (Int) -> Void = { _ in }
