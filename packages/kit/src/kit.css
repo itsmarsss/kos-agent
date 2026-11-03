@@ -52,6 +52,7 @@
   max-width: 100%;
 }
 .chip-label { align-self: baseline; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.chip-ref { font-family: inherit; cursor: pointer; }
 .chip-ref > svg,
 .chip-ref > .face { flex: none; }
 .chip-ref--project { color: var(--accent); background: var(--accent-dim); }

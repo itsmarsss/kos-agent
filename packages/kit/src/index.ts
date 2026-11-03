@@ -31,7 +31,7 @@ export {
   type Look,
   type Mood,
 } from "./Face.js";
-export { KindMark, Markdown, MentionNames, RefLinks } from "./Markdown.js";
+export { KindMark, Markdown, MentionNames, RefChip, RefLinks } from "./Markdown.js";
 export { Tex } from "./Tex.js";
 export { Card, Chips, Collapse, Count, Empty, type CardProps, type ChipOption, DrawerRow, IconButton, Pill, Section, Switch, Tag, WorkingDots, type IconButtonProps, type Tone } from "./kit.js";
 export { useDismiss, type DismissOptions } from "./useDismiss.js";

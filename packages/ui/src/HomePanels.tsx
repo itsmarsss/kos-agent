@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
 import { summarizeAction } from "@kos/shared";
-import { CloseIcon, Count, Empty, Face, IconButton, moodOf, type Tone } from "@kos/kit";
+import { CloseIcon, Count, Empty, Face, IconButton, moodOf, RefChip, type Tone } from "@kos/kit";
 
 import { titleOf } from "./AgentEditor.js";
 import type { AgentInfo, FailingJob, HomeData, ModelSpend, RunRecord } from "./api.js";
@@ -417,13 +417,9 @@ export function Panel({
           ) : (
             <div className="panel-chips">
               {rows.slice(0, limit).map((p) => (
-                <a
-                  key={p.slug}
-                  className="panel-chip"
-                  href={hrefFor({ name: "project", slug: p.slug })}
-                >
+                <RefChip key={p.slug} kind="project" href={hrefFor({ name: "project", slug: p.slug })}>
                   {p.name}
-                </a>
+                </RefChip>
               ))}
             </div>
           )}

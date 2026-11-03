@@ -1589,19 +1589,7 @@ select {
   flex-wrap: wrap;
 }
 
-.ops-page-chip {
-  font-size: var(--text-base);
-  border: 1px solid var(--line-strong, var(--line));
-  border-radius: 999px;
-  padding: 0.05rem 0.45rem;
-  color: var(--accent);
-  text-decoration: none;
-  white-space: nowrap;
-}
 
-.ops-page-chip:hover {
-  background: var(--panel-2, rgba(255, 255, 255, 0.04));
-}
 
 /* ==========================================================================
    Shell, home, and chat.
@@ -3775,19 +3763,6 @@ li:hover .chats-item-when { opacity: 0; }
 
 /* A project's sites, on its card. */
 .project-sites { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.4rem; }
-.site-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.2rem 0.5rem;
-  font-size: var(--text-sm);
-  color: var(--ok);
-  background: var(--ok-dim);
-  border: 1px solid transparent;
-  border-radius: 999px;
-  text-decoration: none;
-}
-.site-chip:hover { border-color: var(--ok); }
 
 /* Command palette: one box that gets you anywhere. */
 .pal-wrap {
@@ -4688,14 +4663,6 @@ button.panel-row:hover .panel-row-main { color: var(--accent); }
 .panel-approval-tool { display: block; color: var(--faint); font-size: var(--text-xs); }
 .panel-approval-actions { display: flex; gap: 0.4rem; flex: none; }
 .panel-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-.panel-chip {
-  padding: 0.2rem 0.55rem;
-  font-size: var(--text-base);
-  color: var(--accent);
-  background: var(--accent-dim);
-  border-radius: 999px;
-  text-decoration: none;
-}
 .panel-stats { display: flex; gap: 1.5rem; }
 .panel-stat { display: block; font-family: var(--mono); font-size: var(--text-2xl); }
 .panel-stat-label { color: var(--faint); font-size: var(--text-xs); }
@@ -5907,26 +5874,6 @@ a.health {
   flex-wrap: wrap;
   justify-content: center;
   gap: 0.4rem;
-}
-.chats-welcome-chip {
-  max-width: 15rem;
-  padding: 0.3rem 0.7rem;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--panel);
-  color: var(--muted);
-  font: inherit;
-  font-size: var(--text-sm);
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
-}
-.chats-welcome-chip:hover {
-  border-color: var(--line-strong);
-  color: var(--text);
-  background: var(--panel-2);
 }
 .chats-welcome .hint { margin: 0; }
 

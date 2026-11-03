@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { m } from "motion/react";
-import { card, Count, Empty, Pill, stagger, WindowIcon } from "@kos/kit";
+import { card, Count, Empty, Pill, RefChip, stagger } from "@kos/kit";
 
 import { api, type Conversation, type PageSummary, type Project, type SiteInfo } from "./api.js";
 import { FileIcon } from "./FileIcon.js";
@@ -181,13 +181,9 @@ export function ProjectsPage({
                   {pages.length > 0 ? (
                     <div className="project-pages">
                       {pages.map((pg) => (
-                        <a
-                          key={pg.id}
-                          className="ops-page-chip"
-                          href={hrefFor({ name: "page", id: pg.id })}
-                        >
+                        <RefChip key={pg.id} kind="page" href={hrefFor({ name: "page", id: pg.id })}>
                           {pg.title}
-                        </a>
+                        </RefChip>
                       ))}
                     </div>
                   ) : (
@@ -197,9 +193,9 @@ export function ProjectsPage({
                   {sitesFor(p.slug).length > 0 && (
                     <div className="project-sites">
                       {sitesFor(p.slug).map((site) => (
-                        <a
+                        <RefChip
                           key={site.path}
-                          className="site-chip"
+                          kind="site"
                           // A new tab, and no referrer: the site is served on
                           // its own origin precisely so it has none of this
                           // page's authority, and opening it in place would
@@ -218,9 +214,8 @@ export function ProjectsPage({
                               : `${site.name} has no index.html yet`
                           }
                         >
-                          <WindowIcon size={12} />
                           {site.name}
-                        </a>
+                        </RefChip>
                       ))}
                     </div>
                   )}

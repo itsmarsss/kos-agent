@@ -1,5 +1,5 @@
 import { m } from "motion/react";
-import { CloseIcon, ease, Empty, IconButton, KOS_SEED, Pill, Switch, Tag } from "@kos/kit";
+import { CloseIcon, ease, Empty, IconButton, KOS_SEED, Pill, RefChip, Switch, Tag } from "@kos/kit";
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import {
@@ -1509,9 +1509,9 @@ export function SettingsPage({
                     ) : (
                       <span className="set-instance-list">
                         {m.blueprint.instances.map((p) => (
-                          <a key={p.slug} className="ops-page-chip" href={`#/chats/project%3A${encodeURIComponent(p.slug)}`} title={`Open ${p.name}'s chat`}>
+                          <RefChip key={p.slug} kind="chat" href={`#/chats/project%3A${encodeURIComponent(p.slug)}`} title={`Open ${p.name}'s chat`}>
                             {p.name}
-                          </a>
+                          </RefChip>
                         ))}
                       </span>
                     )}

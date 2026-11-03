@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactElement } from "react";
 import { hexOfHsl, hueOfHex } from "@kos/shared";
-import { Card, Empty, lookOf, Pill, Tag } from "@kos/kit";
+import { Card, Empty, lookOf, Pill, RefChip, Tag } from "@kos/kit";
 
 import { api, type ProjectDetail } from "./api.js";
 import { ColourChoice } from "./ColourPicker.js";
@@ -155,9 +155,9 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError,
         ) : (
           <div className="project-panel-chips">
             {pages.map((pg) => (
-              <a
+              <RefChip
                 key={pg.id}
-                className="ops-page-chip"
+                kind="page"
                 href={hrefFor({ name: "page", id: pg.id })}
                 onClick={(e) => {
                   e.preventDefault();
@@ -165,7 +165,7 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError,
                 }}
               >
                 {pg.title}
-              </a>
+              </RefChip>
             ))}
           </div>
         )}
