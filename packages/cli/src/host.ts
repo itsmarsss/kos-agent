@@ -936,21 +936,15 @@ export async function runHost(options: HostOptions): Promise<void> {
    * The side panel of each paired Chrome and the window of each paired Mac:
    * surfaces of their own, whatever else is wired, and quiet until a device
    * is paired with computer use on. A turn one did not take (one on the
-   * dashboard, one resumed after a decision) shows there too, since a panel
-   * draws the chat as it stands.
+   * dashboard, one from another of the owner's Chromes) is told there as it
+   * goes, as Discord's thread is.
    */
   const panelRuntimes: { stop(): Promise<void> }[] = [];
-  for (const [panel, current] of [
-    [computer.panel, chromeChat],
-    [computer.mac, macChat],
-  ] as const) {
+  for (const panel of [computer.panel, computer.mac]) {
     const runtime = connectChannel(panel, kernel, { ownerRecipientId: "owner", identity: panel.identity(kernel.profile.ownerId) });
     await runtime.start();
     panelRuntimes.push(runtime);
-    kernel.bus.on("turn:said", (said) => {
-      if (said.conversationId !== current()?.id || (said.channel === panel.name && !said.resumed)) return;
-      void panel.refresh();
-    });
+    kernel.progress.subscribe((event) => panel.watch(event));
   }
 
   /*
