@@ -154,18 +154,6 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px 
 .setting--stacked { flex-direction: column; gap: 8px; }
 
 /* —— the hidden sites: chips to remove, a field to add —— */
-.site-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.site-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 4px 3px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: var(--panel-2);
-  font-size: 12px;
-  font-weight: 500;
-}
 .add-site { display: flex; gap: 8px; }
 .add-site input { flex: 1; min-width: 0; }
 

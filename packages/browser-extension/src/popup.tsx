@@ -1,6 +1,6 @@
 import { KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { ChatIcon, ChevronLeft, Chips, CloseIcon, Collapse, DrawerRow, Face, Field, GearIcon, GlobeIcon, HandIcon, HiddenIcon, IconButton, listItem, Pill, Section, ServerIcon, spring, stagger, Switch, type Tone } from "@kos/kit";
+import { ChatIcon, ChevronLeft, Chips, Collapse, DrawerRow, Face, Field, GearIcon, GlobeIcon, HandIcon, HiddenIcon, IconButton, listItem, Pill, Section, ServerIcon, spring, stagger, Switch, Tag, type Tone } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -417,14 +417,11 @@ function HiddenSection({ state, tab, act }: { state: PopupState; tab: chrome.tab
         <DrawerRow icon={<HiddenIcon />} tone="accent" title="Hidden from KOS" detail={summary} open={open} onToggle={() => setOpen(!open)} />
         <Collapse open={open}>
           <hr className="rule" />
-          <m.div className="site-chips" layout>
+          <m.div className="tags" layout>
             <AnimatePresence initial={false}>
               {sites.map((site) => (
-                <m.span key={site} className="site-chip" layout initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.85 }} transition={spring}>
-                  {site}
-                  <IconButton tone="bare" label={`Show ${site} to KOS`} onClick={() => void act({ type: "unhide", site })}>
-                    <CloseIcon size={10} title="" />
-                  </IconButton>
+                <m.span key={site} layout initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.85 }} transition={spring}>
+                  <Tag remove={{ label: `Show ${site} to KOS`, onRemove: () => void act({ type: "unhide", site }) }}>{site}</Tag>
                 </m.span>
               ))}
             </AnimatePresence>
