@@ -1,6 +1,6 @@
 import { KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { ChatIcon, ChevronLeft, Chips, Collapse, DrawerRow, Face, GearIcon, GlobeIcon, HandIcon, HiddenIcon, listItem, Pill, Section, ServerIcon, spring, stagger, Switch, type Tone } from "@kos/kit";
+import { ChatIcon, ChevronLeft, Chips, CloseIcon, Collapse, DrawerRow, Face, GearIcon, GlobeIcon, HandIcon, HiddenIcon, IconButton, listItem, Pill, Section, ServerIcon, spring, stagger, Switch, type Tone } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -90,14 +90,14 @@ function Popup(): ReactElement {
         <span className="head-actions">
           <AnimatePresence initial={false}>
             {page === "home" && state?.kos.length ? (
-              <m.button key="panel" type="button" className="icon-btn" aria-label="Chat with KOS" title="Chat with KOS beside your tabs" onClick={() => void openPanel()} initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }} transition={spring}>
+              <IconButton key="panel" label="Chat with KOS" title="Chat with KOS beside your tabs" onClick={() => void openPanel()} initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }} transition={spring}>
                 <ChatIcon size={14} />
-              </m.button>
+              </IconButton>
             ) : null}
             {page === "home" && (
-              <m.button key="gear" type="button" className="icon-btn" aria-label="Settings" title="Settings" onClick={() => setPage("settings")} initial={{ opacity: 0, rotate: -60 }} animate={{ opacity: 1, rotate: 0 }} exit={{ opacity: 0, rotate: 60 }} transition={spring}>
+              <IconButton key="gear" label="Settings" onClick={() => setPage("settings")} initial={{ opacity: 0, rotate: -60 }} animate={{ opacity: 1, rotate: 0 }} exit={{ opacity: 0, rotate: 60 }} transition={spring}>
                 <GearIcon size={14} title="" />
-              </m.button>
+              </IconButton>
             )}
           </AnimatePresence>
         </span>
@@ -425,9 +425,9 @@ function HiddenSection({ state, tab, act }: { state: PopupState; tab: chrome.tab
               {sites.map((site) => (
                 <m.span key={site} className="site-chip" layout initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.85 }} transition={spring}>
                   {site}
-                  <button type="button" aria-label={`Show ${site} to KOS`} title={`Show ${site} to KOS`} onClick={() => void act({ type: "unhide", site })}>
-                    ×
-                  </button>
+                  <IconButton tone="bare" label={`Show ${site} to KOS`} onClick={() => void act({ type: "unhide", site })}>
+                    <CloseIcon size={10} title="" />
+                  </IconButton>
                 </m.span>
               ))}
             </AnimatePresence>
@@ -469,9 +469,9 @@ function SettingsPage({ state, act, back }: { state: PopupState; act: Act; back:
   return (
     <m.div className="stack" variants={stagger} initial="hidden" animate="show">
       <m.div className="page-head" variants={listItem}>
-        <button type="button" className="icon-btn" aria-label="Back" title="Back" onClick={back}>
+        <IconButton label="Back" onClick={back}>
           <ChevronLeft size={14} title="" />
-        </button>
+        </IconButton>
         <strong>Settings</strong>
       </m.div>
       <Section label="Sessions">

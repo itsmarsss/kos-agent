@@ -132,6 +132,15 @@ export function IconButton({ label, tone, className, title, type = "button", ...
   return <m.button type={type} className={cls} aria-label={label} title={title ?? label} {...rest} />;
 }
 
+/** An IconButton that goes somewhere: the same circle, as a link. */
+export function IconLink({ label, href, title, target, rel, children }: { label: string; href: string; title?: string; target?: string; rel?: string; children: ReactNode }): ReactElement {
+  return (
+    <a className="icon-btn" href={href} aria-label={label} title={title ?? label} target={target} rel={rel}>
+      {children}
+    </a>
+  );
+}
+
 /** KOS at work before it has a step to show: three dots, one after another. */
 export function WorkingDots(): ReactElement {
   return (

@@ -1,6 +1,6 @@
 import { CHAT_COMMANDS, KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { BoltIcon, ChevronDown, Chips, Collapse, ComposeIcon, ease, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, SendIcon, spring, StepsIcon, type Tone, useDismiss, WorkingDots } from "@kos/kit";
+import { BoltIcon, ChevronDown, Chips, CloseIcon, Collapse, ComposeIcon, ease, Face, GlobeIcon, HandIcon, IconButton, Markdown, PageIcon, Pill, SendIcon, spring, StepsIcon, type Tone, useDismiss, WorkingDots } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
@@ -997,9 +997,9 @@ function Composer({
         {quoting && (
           <m.div className="quote-chip" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={ease} title="What you selected on the page goes with your message">
             <span className="quote-chip-text">{quoting.length > 160 ? `${quoting.slice(0, 160)}…` : quoting}</span>
-            <button type="button" aria-label="Leave the selection out" title="Leave it out" onClick={() => setSetAside(quoting)}>
-              ×
-            </button>
+            <IconButton tone="bare" label="Leave the selection out" title="Leave it out" onClick={() => setSetAside(quoting)}>
+              <CloseIcon size={10} title="" />
+            </IconButton>
           </m.div>
         )}
       </AnimatePresence>

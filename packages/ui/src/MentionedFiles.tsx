@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
 
-import { DownloadIcon, ExternalIcon, IconButton } from "@kos/kit";
+import { DownloadIcon, ExternalIcon, IconButton, IconLink } from "@kos/kit";
 
 import { api } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
@@ -133,9 +133,9 @@ export function MentionedFiles({ text }: { text: string }): ReactElement | null 
                     <DownloadIcon size={13} />
                   </IconButton>
                 )}
-                <a className="icon-btn" href={href} aria-label={`Open ${m.name} in Files`} title="Open in Files">
+                <IconLink href={href} label={`Open ${m.name} in Files`} title="Open in Files">
                   <ExternalIcon size={13} />
-                </a>
+                </IconLink>
               </span>
             )}
           </div>

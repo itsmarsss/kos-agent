@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { ChevronLeft, ChevronRight, Face, faceLookOf, KOS_SEED, type Mood, NavIcon, useDismiss, useKosLook } from "@kos/kit";
+import { ChevronLeft, ChevronRight, Face, faceLookOf, IconButton, KOS_SEED, type Mood, NavIcon, useDismiss, useKosLook } from "@kos/kit";
 
 import type { Status } from "./api.js";
 import { hrefFor, NAV, navActive, type Route } from "./routes.js";
@@ -111,16 +111,9 @@ export function Sidebar({
           </a>
           {/* Collapse to a rail. Desktop only; on a phone the sidebar is a
               drawer and this button is hidden. */}
-          <button
-            type="button"
-            className="side-collapse"
-            aria-label={railed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-pressed={railed}
-            title={railed ? "Expand" : "Collapse"}
-            onClick={() => setRailed((v) => !v)}
-          >
+          <IconButton className="side-collapse" label={railed ? "Expand sidebar" : "Collapse sidebar"} aria-pressed={railed} title={railed ? "Expand" : "Collapse"} onClick={() => setRailed((v) => !v)}>
             {railed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-          </button>
+          </IconButton>
         </div>
         <nav className="side-nav">
           {NAV.map((item) => (

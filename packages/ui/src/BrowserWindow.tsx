@@ -467,9 +467,9 @@ export function BrowserWindow({ open, onClose, doing, prefer, pick, titleFor = (
                 {who && <span className="browserwin-tab-who">{who}</span>}
                 <span className="browserwin-tab-what">{what}</span>
               </button>
-              <button type="button" className="browserwin-tab-x" aria-label={`Close ${what}`} title="Close this tab" onClick={() => closeTab(t.id)}>
+              <IconButton tone="bare" className="browserwin-tab-x" label={`Close ${what}`} title="Close this tab" onClick={() => closeTab(t.id)}>
                 <CloseIcon size={10} title="" />
-              </button>
+              </IconButton>
             </span>
           );
         })}
