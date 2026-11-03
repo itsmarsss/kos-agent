@@ -1,11 +1,10 @@
 import { m } from "motion/react";
 import { useCallback, useEffect, useState, type ReactElement } from "react";
+import { card, Face, moodOf, stagger } from "@kos/kit";
 
 import { AgentEditor, titleOf } from "./AgentEditor.js";
 import { api, type AgentInfo, type InvalidAgent } from "./api.js";
-import { Face, moodOf } from "./Face.js";
 import { Drawer } from "./Drawer.js";
-import { card, stagger } from "./motion.js";
 import { hrefFor } from "./routes.js";
 
 /**

@@ -1,11 +1,9 @@
 import { useEffect, useState, type ReactElement } from "react";
 
-import { SHAPE_WORD_MAX, shapeWordOf } from "@kos/shared";
+import { hexOfHsl, SHAPE_WORD_MAX, shapeWordOf } from "@kos/shared";
+import { DiceIcon, EYES, Face, type FaceLook, FILL_SAT, fillOf, type Gait, lightnessOf, lookOf } from "@kos/kit";
 
 import { ColourChoice } from "./ColourPicker.js";
-import { hexOfHsl } from "./colour.js";
-import { EYES, FILL_SAT, Face, fillOf, lightnessOf, lookOf, type FaceLook, type Gait } from "./Face.js";
-import { DiceIcon } from "./icons.js";
 import { Field } from "./kit.js";
 import { Select } from "./Select.js";
 

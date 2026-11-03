@@ -2,9 +2,9 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, ty
 import { createPortal } from "react-dom";
 import { AnimatePresence, m } from "motion/react";
 
-import { hexOfHsv, hsvOfHex, type Hsv } from "./colour.js";
+import { hexOfHsv, hsvOfHex, type Hsv } from "@kos/shared";
+import { ease } from "@kos/kit";
 import { useAnchoredPop } from "./kit.js";
-import { ease } from "./motion.js";
 
 /**
  * A colour picker of KOS's own: a square of saturation and value under a

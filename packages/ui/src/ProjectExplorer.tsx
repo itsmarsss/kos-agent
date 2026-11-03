@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { ChevronRight } from "@kos/kit";
 
 import { api, type Attachment, type DirEntry } from "./api.js";
 import { readFile, useDropZone } from "./Attachments.js";
@@ -6,7 +7,6 @@ import { EntryMenu, dragProps, dropProps, useFileOps } from "./FileActions.js";
 import { FileIcon, previewable } from "./FileIcon.js";
 import { FilePreview, ago, bytes } from "./FilePreview.js";
 import { Thumb } from "./FileThumb.js";
-import { ChevronRight } from "./icons.js";
 import { useHiddenFiles } from "./hiddenfiles.js";
 import { PanelSection } from "./PanelSection.js";
 

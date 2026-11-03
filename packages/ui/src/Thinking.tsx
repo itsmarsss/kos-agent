@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from "react";
 
-import { ChevronDown, ChevronRight } from "./icons.js";
+import { ChevronDown, ChevronRight } from "@kos/kit";
 
 /**
  * What the model worked out before answering, kept in the transcript.

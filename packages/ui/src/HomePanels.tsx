@@ -1,13 +1,13 @@
 import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
 import { summarizeAction } from "@kos/shared";
+import { Face, moodOf } from "@kos/kit";
 
 import { titleOf } from "./AgentEditor.js";
 import type { AgentInfo, FailingJob, HomeData, ModelSpend, RunRecord } from "./api.js";
 import { clockLabel, dayLabel, hourLabel, padDays, padHours } from "./chartdata.js";
 import { Bars, DayLine, ProjectMap, Share, Ticks, type Tick, type Tone } from "./charts.js";
 import { Decision } from "./Decision.js";
-import { Face, moodOf } from "./Face.js";
 import { hrefFor } from "./routes.js";
 import { ActivityDot, fixLabel } from "./StatusDot.js";
 

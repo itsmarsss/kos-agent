@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactElement } from "react";
+import { Face } from "@kos/kit";
 
 import { api, type AgentDraft, type AgentInfo, type FaceLook, type ToolInfo } from "./api.js";
 import { SchedulePicker } from "./SchedulePicker.js";
-import { Face } from "./Face.js";
 import { FaceEditor } from "./FaceEditor.js";
 import { Field, Req } from "./kit.js";
 import { ToolPicker } from "./ToolPicker.js";

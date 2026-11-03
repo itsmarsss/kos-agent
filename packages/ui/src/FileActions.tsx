@@ -1,9 +1,9 @@
 import { useRef, useState, type CSSProperties, type DragEvent, type ReactElement, type ReactNode } from "react";
 
 import { AnimatePresence, m } from "motion/react";
+import { MoreIcon } from "@kos/kit";
 
 import { api } from "./api.js";
-import { MoreIcon } from "./icons.js";
 import { ConfirmButton } from "./kit.js";
 import { Modal } from "./Modal.js";
 import { useDismiss } from "./useDismiss.js";

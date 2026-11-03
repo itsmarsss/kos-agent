@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactElement } from "react";
 
-import { lightnessOfHex } from "./colour.js";
-import { lookOf } from "./Face.js";
+import { lightnessOfHex } from "@kos/shared";
+import { lookOf } from "@kos/kit";
 
 /** Ink for the mark on a picked colour: pale on a dark one, dark on a light one. */
 export function markInk(colour: string): string {

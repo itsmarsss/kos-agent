@@ -2,13 +2,12 @@ import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { AnimatePresence, m } from "motion/react";
+import { ease, Markdown, spring } from "@kos/kit";
 
 import { api, type FileContent, type FileText } from "./api.js";
 import { FileIcon, previewable } from "./FileIcon.js";
 import { ImageView } from "./FileThumb.js";
 import { highlights, tokenize } from "./highlight.js";
-import { Markdown } from "./Markdown.js";
-import { ease, spring } from "./motion.js";
 import { hrefFor } from "./routes.js";
 
 /**

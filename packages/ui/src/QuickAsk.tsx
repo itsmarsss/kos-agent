@@ -7,12 +7,11 @@ import {
   type ReactElement,
 } from "react";
 
+import { Markdown, OpenIcon, PinIcon, SendIcon, UnpinIcon, WorkingDots } from "@kos/kit";
 import { api } from "./api.js";
 import { EDGES, clampBox, cornerBox, readBox as readStoredBox, resizedBox, saveBox as saveStoredBox, type Box, type Edge, type MinSize } from "./floatbox.js";
 import { useProgress } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
-import { Markdown } from "./Markdown.js";
-import { OpenIcon, PinIcon, SendIcon, UnpinIcon } from "./icons.js";
 
 /**
  * A quick question on the side, like Claude Code's /btw.
@@ -381,11 +380,7 @@ export function QuickAsk({
           aria-label={asking ? "Asking" : "Ask"}
         >
           {asking ? (
-            <span className="live-dots" aria-hidden="true">
-              <i />
-              <i />
-              <i />
-            </span>
+            <WorkingDots />
           ) : (
             <SendIcon />
           )}

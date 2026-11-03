@@ -2,10 +2,9 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import { m } from "motion/react";
 import { summarizeAction } from "@kos/shared";
 
-import { ease, spring } from "./motion.js";
+import { ChevronDown, ChevronRight, ease, spring } from "@kos/kit";
 
 import { api, type BuildRecord, type PendingAction } from "./api.js";
-import { ChevronDown, ChevronRight } from "./icons.js";
 import { Decision } from "./Decision.js";
 import { socket } from "./socket.js";
 

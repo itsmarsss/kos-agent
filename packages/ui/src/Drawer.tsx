@@ -1,7 +1,7 @@
 import { useEffect, type ReactElement, type ReactNode } from "react";
 import { AnimatePresence, m } from "motion/react";
 
-import { ease, spring } from "./motion.js";
+import { ease, spring } from "@kos/kit";
 
 /**
  * A panel that slides in from the right.

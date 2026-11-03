@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "
 import { createPortal } from "react-dom";
 import { AnimatePresence, m } from "motion/react";
 
-import { ease } from "./motion.js";
+import { ease } from "@kos/kit";
 
 /**
  * The small parts every page is built from, so they are built the same way.
@@ -61,17 +61,6 @@ export function Field({ label, required = false, hint, error, group = false, cla
     </div>
   ) : (
     <label className={cls}>{body}</label>
-  );
-}
-
-export type Tone = "ok" | "warn" | "danger" | "accent" | "muted";
-
-/** A state in a word: on, paused, failed. Coloured by what it means. */
-export function Pill({ tone = "muted", title, children }: { tone?: Tone; title?: string; children: ReactNode }): ReactElement {
-  return (
-    <span className={`pill pill--${tone}`} title={title}>
-      {children}
-    </span>
   );
 }
 

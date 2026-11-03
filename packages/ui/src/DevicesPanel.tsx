@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
+import { Pill } from "@kos/kit";
 
 import { api, type ComputerSettings, type DeviceCode, type PairedDevice } from "./api.js";
-import { ConfirmButton, Pill } from "./kit.js";
+import { ConfirmButton } from "./kit.js";
 import { agoWords } from "./schedulewords.js";
 import { Select } from "./Select.js";
 import { Field } from "./SettingField.js";

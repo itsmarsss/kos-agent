@@ -1,8 +1,7 @@
 import { useCallback, useState, type ReactElement, type ReactNode } from "react";
 import { AnimatePresence, m } from "motion/react";
 
-import { ChevronRight } from "./icons.js";
-import { ease } from "./motion.js";
+import { ChevronRight, ease } from "@kos/kit";
 
 /**
  * One section of the chats rail: a head that folds it, its count, an action

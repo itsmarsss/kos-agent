@@ -11,9 +11,9 @@ import { createPortal } from "react-dom";
 import type { HomePanel, WidgetSpan } from "@kos/shared";
 
 import { m } from "motion/react";
+import { spring } from "@kos/kit";
 
 import { hitBox, moveTo, spanFor, withSpan, type Box } from "./arrange.js";
-import { spring } from "./motion.js";
 
 /**
  * The home page's grid, arranged by dragging.

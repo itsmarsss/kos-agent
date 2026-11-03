@@ -10,16 +10,15 @@ import {
 
 import { AnimatePresence, m } from "motion/react";
 import { summarizeAction } from "@kos/shared";
+import { ArchiveIcon, card, ChevronLeft, ComposeIcon, CopyIcon, ease, EditIcon, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, SearchIcon, SendIcon, spring, stagger, StopIcon, useKosLook, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { Decision } from "./Decision.js";
 import { VoiceInput } from "./VoiceInput.js";
-import { ease, listItem, spring, stagger, card } from "./motion.js";
 import { useDismiss } from "./useDismiss.js";
 
 import { ContextMeter } from "./ContextMeter.js";
 import { byAttention, groupChats, isBusy, placeOf, projectSummary } from "./chattree.js";
 import { AgentPanel } from "./AgentPanel.js";
-import { Face, KOS_SEED, faceLookOf, moodOf, useKosLook } from "./Face.js";
 import { ConfirmButton } from "./kit.js";
 import { Gutter } from "./Gutter.js";
 import { NewProjectDialog } from "./NewProjectDialog.js";
@@ -55,18 +54,6 @@ import {
 } from "./Autocomplete.js";
 import { Thinking } from "./Thinking.js";
 import { MessageActions, MessageEditor } from "./MessageActions.js";
-import {
-  ComposeIcon,
-  CopyIcon,
-  EditIcon,
-  ForkIcon,
-  HashIcon,
-  MoreIcon,
-  ChevronLeft,
-  PanelIcon,
-  SearchIcon,
-  WrenchIcon,
-} from "./icons.js";
 
 import {
   clearProgress,
@@ -79,10 +66,8 @@ import {
 } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
 import { ActivityDot, QueuedMark, StatusDot } from "./StatusDot.js";
-import { ArchiveIcon, GearIcon, SendIcon, StopIcon } from "./icons.js";
 import { ToolCall } from "./ToolCall.js";
 import { ChatConfig } from "./ChatConfig.js";
-import { Markdown, MentionNames } from "./Markdown.js";
 import { Modal } from "./Modal.js";
 import { HandoffForm } from "./HandoffForm.js";
 import { hrefFor } from "./routes.js";
@@ -2243,11 +2228,7 @@ export function ChatsPage({
                   // colour and read as a different kind of thing.
                   <div className="bubble bubble--kos live">
                     <div className="live-head">
-                      <span className="live-dots" aria-hidden="true">
-                        <i />
-                        <i />
-                        <i />
-                      </span>
+                      <WorkingDots />
                       <span className="live-what">Sending</span>
                     </div>
                   </div>

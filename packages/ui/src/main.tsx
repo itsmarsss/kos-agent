@@ -4,6 +4,9 @@ import { domMax, LazyMotion, MotionConfig } from "motion/react";
 
 import { App } from "./App.js";
 import { applyDensity, applyTheme, readDensity, readTheme } from "./theme.js";
+// The kit's pieces first, so the dashboard's own sheet says where a piece differs in its place; KaTeX's for typeset maths.
+import "@kos/kit/kit.css";
+import "katex/dist/katex.min.css";
 import "./styles.css";
 
 // Before the first paint, so a light-theme owner never sees a dark flash.
