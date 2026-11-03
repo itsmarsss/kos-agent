@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { m } from "motion/react";
-import { card, Pill, stagger, WindowIcon } from "@kos/kit";
+import { card, Empty, Pill, stagger, WindowIcon } from "@kos/kit";
 
 import { api, type Conversation, type PageSummary, type Project, type SiteInfo } from "./api.js";
 import { FileIcon } from "./FileIcon.js";
@@ -122,7 +122,7 @@ export function ProjectsPage({
         </p>
       )}
       {projects.length > 0 && groups.length === 0 && (
-        <p className="hint">Nothing matches.</p>
+        <Empty inline>Nothing matches.</Empty>
       )}
 
       {groups.map(([status, items]) => (
@@ -191,7 +191,7 @@ export function ProjectsPage({
                       ))}
                     </div>
                   ) : (
-                    <span className="project-nopages">No pages yet</span>
+                    <Empty inline className="project-nopages">No pages yet</Empty>
                   )}
 
                   {sitesFor(p.slug).length > 0 && (

@@ -4,6 +4,7 @@ import { useState, type ReactElement } from "react";
 import { editValue, formatCell, humanize, keyColumn } from "./format.js";
 import { allows, type Row, type WidgetProps } from "./types.js";
 import { useMutationRunner } from "./useMutationRunner.js";
+import { Empty } from "@kos/kit";
 
 /**
  * A gallery of cards that edits by tapping a card open into a clean detail view,
@@ -91,7 +92,7 @@ export function CardWidget({ widget, rows, mutate }: WidgetProps): ReactElement 
         ) : null}
       </div>
 
-      {rows.length === 0 ? <div className="kos-empty">nothing here yet</div> : null}
+      {rows.length === 0 ? <Empty inline>nothing here yet</Empty> : null}
       <div className="kos-cards">
         {rows.map((row, i) => {
           const entries = Object.entries(row).filter(([c]) => c !== key);

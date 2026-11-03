@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
-import { Pill, Switch } from "@kos/kit";
+import { Empty, Pill, Switch } from "@kos/kit";
 
 import { api, type ComputerSettings, type DeviceCode, type PairedDevice } from "./api.js";
 import { ConfirmButton, Field } from "./kit.js";
@@ -217,7 +217,7 @@ export function DevicesPanel(): ReactElement {
   return (
     <>
       {devices.length === 0 && !code && (
-        <p className="hint">Nothing paired yet. Install KOS for Mac on a Mac or KOS for Chrome in Chrome, then add it here.</p>
+        <Empty inline>Nothing paired yet. Install KOS for Mac on a Mac or KOS for Chrome in Chrome, then add it here.</Empty>
       )}
       {joined && <p className="hint">Paired {joined}.</p>}
       <div className="set-rows">

@@ -2186,7 +2186,7 @@ export function ChatsPage({
                 read "Lane A" rather than the id it is addressed by. */}
             <MentionNames resolve={nameFor} hrefOf={channelHref}>
             <div className="chats-thread" ref={boxRef}>
-              {visible.length === 0 && <p className="hint">Nothing said yet.</p>}
+              {visible.length === 0 && <Empty inline>Nothing said yet.</Empty>}
               {(() => {
                 // Owner turns are numbered in order, because rewind addresses
                 // them by position rather than by any id a transcript keeps.

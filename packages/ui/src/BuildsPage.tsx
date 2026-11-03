@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { AnimatePresence, m } from "motion/react";
-import { Chips, listItem } from "@kos/kit";
+import { Chips, Empty, listItem } from "@kos/kit";
 
 import { AgentTerminal } from "./AgentTerminal.js";
 import { Drawer } from "./Drawer.js";
@@ -346,7 +346,7 @@ export function BuildsPage({
       )}
 
       {active && active.length === 0 && builds && builds.length > 0 && (
-        <p className="hint">Nothing running now. Recent builds below.</p>
+        <Empty inline>Nothing running now. Recent builds below.</Empty>
       )}
 
       <div className="builds-list">

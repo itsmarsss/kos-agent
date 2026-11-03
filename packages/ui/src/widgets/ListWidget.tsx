@@ -4,6 +4,7 @@ import { useState, type ReactElement } from "react";
 import { formatCell, humanize, keyColumn, toNumber } from "./format.js";
 import { allows, type Row, type WidgetProps } from "./types.js";
 import { useMutationRunner } from "./useMutationRunner.js";
+import { Empty } from "@kos/kit";
 
 /**
  * A list that edits through inline actions - a toggle and a delete button per
@@ -60,7 +61,7 @@ export function ListWidget({ widget, rows, mutate }: WidgetProps): ReactElement 
   return (
     <div className="kos-widget kos-list">
       {w.title ? <div className="kos-widget-title">{w.title}</div> : null}
-      {rows.length === 0 ? <div className="kos-empty">nothing here yet</div> : null}
+      {rows.length === 0 ? <Empty inline>nothing here yet</Empty> : null}
       <ul className="kos-list-items">
         {rows.map((row, i) => {
           const columns = Object.keys(row);

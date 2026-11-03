@@ -1,5 +1,5 @@
 import { m } from "motion/react";
-import { CloseIcon, ease, IconButton, KOS_SEED, Pill, Switch, Tag } from "@kos/kit";
+import { CloseIcon, ease, Empty, IconButton, KOS_SEED, Pill, Switch, Tag } from "@kos/kit";
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import {
@@ -705,7 +705,7 @@ export function SettingsPage({
         </div>
         {query.trim() ? (
           <div className="set-results" role="listbox" aria-label="Settings found">
-            {hits.length === 0 && <p className="hint set-results-none">Nothing called that. Try another word.</p>}
+            {hits.length === 0 && <Empty inline className="set-results-none">Nothing called that. Try another word.</Empty>}
             {hits.map((hit, i) => {
               const sec = SECTIONS.find((s) => s.id === hit.section)!;
               return (
@@ -1318,7 +1318,7 @@ export function SettingsPage({
         {active === "skills" && (
           <Section title="Skills" blurb="What KOS knows how to do. One it wrote is on; one you install is off until you switch it on.">
             {skills.skills.length === 0 && skills.invalid.length === 0 && (
-              <p className="hint">Nothing installed yet. Add one below, or ask KOS to make one.</p>
+              <Empty inline>Nothing installed yet. Add one below, or ask KOS to make one.</Empty>
             )}
             {skills.skills.length > 0 && (
               <Field label="Show" hint="All of them, one project's own, a kind, or a state." row>
@@ -1389,7 +1389,7 @@ export function SettingsPage({
         )}
         {active === "mcp" && (
           <Section title="MCP servers" blurb="Outside tools, declared in mcp.json the way Claude Code does. A server's tools are risky until you floor them safe.">
-            {mcp.length === 0 && <p className="hint">Nothing connected yet. Add one below.</p>}
+            {mcp.length === 0 && <Empty inline>Nothing connected yet. Add one below.</Empty>}
             <div className="set-rows">
             {mcp.map((s) => (
               <Field
@@ -1455,7 +1455,7 @@ export function SettingsPage({
               </div>
             )}
             {modules.modules.length === 0 && modules.invalid.length === 0 && (
-              <p className="hint">No workspace modules yet. Ask KOS to make one with modules.create, install one below, or add a folder under modules/.</p>
+              <Empty inline>No workspace modules yet. Ask KOS to make one with modules.create, install one below, or add a folder under modules/.</Empty>
             )}
             {/* The second rung of the spec's distribution path: a repository
                 per module. Installed is off; nothing runs until switched on. */}
@@ -1598,7 +1598,7 @@ export function SettingsPage({
         {active === "permissions" && (
           <Section title="Permissions" blurb="Each rule is a decision you made at a prompt with Always. The same shape stops asking; a new shape still does. Revoke one and it asks again.">
             {rules.length === 0 && (
-              <p className="hint">Nothing kept yet. When KOS asks before a risky action, Always approves it and keeps the decision for that shape.</p>
+              <Empty inline>Nothing kept yet. When KOS asks before a risky action, Always approves it and keeps the decision for that shape.</Empty>
             )}
             {rules.map((r) => (
               <Field group className="set-field"
