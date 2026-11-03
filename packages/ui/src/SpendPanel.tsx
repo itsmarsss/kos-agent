@@ -18,6 +18,7 @@ import { padDays } from "./chartdata.js";
 import { fitInside, place, type Placement } from "./popover.js";
 import { Drawer } from "./Drawer.js";
 import { Select } from "./Select.js";
+import { Empty } from "@kos/kit";
 
 /**
  * What KOS has spent.
@@ -350,7 +351,7 @@ export function SpendPanel(): ReactElement {
       )}
 
       {data && models.length === 0 && (
-        <p className="hint">Nothing spent in this period.</p>
+        <Empty inline>Nothing spent in this period.</Empty>
       )}
 
       {models.length > 0 && (

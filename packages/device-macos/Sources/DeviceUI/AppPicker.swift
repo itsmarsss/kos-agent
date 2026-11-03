@@ -3,37 +3,15 @@ import SwiftUI
 
 /// Hiding apps from KOS: the chips of those hidden, and a searchable picker for more.
 
-/// A hidden app: lit under the pointer, its cross red, so removing it reads before the click.
+/// A hidden app: a Tag led by its icon, its cross red under the pointer, so removing it reads before the click.
 struct AppChip: View {
   let app: AppEntry
   let remove: () -> Void
-  @State private var hovering = false
-  @State private var onCross = false
 
   var body: some View {
-    HStack(spacing: 5) {
+    Tag(app.name, remove: (label: "Stop hiding \(app.name)", action: remove)) {
       AppIcon(app: app, size: 14)
-      Text(app.name).font(.kos(.small, .medium)).foregroundStyle(Theme.text).lineLimit(1)
-      Button(action: remove) {
-        Image(systemName: "xmark")
-          .font(.system(size: 8.5, weight: .bold))
-          .foregroundStyle(onCross ? Theme.danger : hovering ? Theme.muted : Theme.faint)
-          .frame(width: 14, height: 14)
-          .background(onCross ? Theme.danger.opacity(Theme.tint) : .clear, in: Circle())
-      }
-      .buttonStyle(.plain)
-      .onHover { onCross = $0 }
-      .pointingHand()
-      .accessibilityLabel("Stop hiding \(app.name)")
     }
-    .padding(.leading, 7)
-    .padding(.trailing, 5)
-    .padding(.vertical, 4)
-    .background(hovering ? Theme.line.opacity(0.7) : Theme.panel2, in: Capsule())
-    .overlay(Capsule().strokeBorder(onCross ? Theme.danger.opacity(Theme.edge) : hovering ? Theme.lineStrong : Theme.line))
-    .onHover { hovering = $0 }
-    .animation(Theme.hover, value: hovering)
-    .animation(Theme.hover, value: onCross)
     .help(app.id)
   }
 }

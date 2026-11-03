@@ -3,6 +3,7 @@ import type { ReactElement } from "react";
 
 import { formatCell, formatNumber, humanize, toNumber, truncate } from "./format.js";
 import type { Row, WidgetProps } from "./types.js";
+import { Empty } from "@kos/kit";
 
 /**
  * Charts as inline SVG: no charting library, no runtime dependency, nothing
@@ -406,7 +407,7 @@ export function Chart({ widget, rows }: WidgetProps): ReactElement {
     return (
       <div className="kos-widget kos-chart">
         {w.title ? <div className="kos-widget-title">{w.title}</div> : null}
-        <div className="kos-empty">no chart data</div>
+        <Empty inline>no chart data</Empty>
       </div>
     );
   }

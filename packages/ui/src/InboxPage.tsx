@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { summarizeAction } from "@kos/shared";
 
-import { Empty } from "@kos/kit";
+import { Count, Empty, Tag } from "@kos/kit";
 
 import { api, type DecidedAction, type FailingJob, type InboxData } from "./api.js";
 import { Decision } from "./Decision.js";
@@ -108,7 +108,7 @@ export function InboxPage({
       {approvals.length > 0 && (
         <section className="inbox-group">
           <h2 className="inbox-group-title">
-            Tool approvals <span className="panel-count">{approvals.length}</span>
+            Tool approvals <Count n={approvals.length} />
           </h2>
           <ul className="panel-list">
             {approvals.map((a) => (
@@ -158,7 +158,7 @@ export function InboxPage({
       {decided.length > 0 && (
         <section className="inbox-group">
           <h2 className="inbox-group-title">
-            Decided <span className="panel-count">{decided.length}</span>
+            Decided <Count n={decided.length} />
           </h2>
           <p className="hint">What was approved, denied or lapsed, newest first, so a reference to an old ask still lands here.</p>
           <ul className="inbox-decided">
@@ -188,7 +188,7 @@ export function InboxPage({
       {decisions.length > 0 && (
         <section className="inbox-group">
           <h2 className="inbox-group-title">
-            Memory decisions <span className="panel-count">{decisions.length}</span>
+            Memory decisions <Count n={decisions.length} />
           </h2>
           <p className="hint">Only what KOS was not sure enough to settle itself; each leads with what it leans to. Keeping one side archives the other; promoting writes the claim global. Either is on the record as yours.</p>
           {decisions.map((item) => (
@@ -200,14 +200,14 @@ export function InboxPage({
       {suggestions.length > 0 && (
         <section className="inbox-group">
           <h2 className="inbox-group-title">
-            Suggestions <span className="panel-count">{suggestions.length}</span>
+            Suggestions <Count n={suggestions.length} />
           </h2>
           <p className="hint">Things KOS thinks it could make reusable. Nothing happens until you say so; accepting opens a chat that carries it out, with the usual approvals.</p>
           {suggestions.map((s) => (
             <div key={s.id} className="inbox-suggestion">
               <div className="inbox-suggestion-main">
                 <span className="panel-row-main">
-                  <span className="mem-kind">{s.kind}</span> {s.title}
+                  <Tag>{s.kind}</Tag> {s.title}
                 </span>
                 <span className="inbox-why">{s.detail}</span>
               </div>
@@ -236,7 +236,7 @@ export function InboxPage({
       {failures.length > 0 && (
         <section className="inbox-group">
           <h2 className="inbox-group-title">
-            Failing now <span className="panel-count">{failures.length}</span>
+            Failing now <Count n={failures.length} />
           </h2>
           <ul className="panel-list">
             {failures.map((f) => (

@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import type { HomePanel } from "@kos/shared";
 import { summarizeAction } from "@kos/shared";
-import { CloseIcon, Empty, Face, IconButton, moodOf, type Tone } from "@kos/kit";
+import { CloseIcon, Count, Empty, Face, IconButton, moodOf, RefChip, StatusDot, type Tone } from "@kos/kit";
 
 import { titleOf } from "./AgentEditor.js";
 import type { AgentInfo, FailingJob, HomeData, ModelSpend, RunRecord } from "./api.js";
@@ -9,7 +9,7 @@ import { clockLabel, dayLabel, hourLabel, padDays, padHours } from "./chartdata.
 import { Bars, DayLine, ProjectMap, Share, Ticks, type Tick } from "./charts.js";
 import { Decision } from "./Decision.js";
 import { hrefFor } from "./routes.js";
-import { ActivityDot, fixLabel } from "./StatusDot.js";
+import { ActivityDot, buildDot, fixLabel } from "./StatusDot.js";
 
 /**
  * The panels a home page can be built from.
@@ -55,7 +55,7 @@ function Head({
   return (
     <header className="panel-head">
       <h2>{title}</h2>
-      {count !== undefined && count > 0 && <span className="panel-count">{count}</span>}
+      {count !== undefined && count > 0 && <Count n={count} />}
       {onMore && (
         <button type="button" className="link panel-more" onClick={onMore}>
           All →
@@ -187,7 +187,7 @@ export function Panel({
                     className="panel-row"
                     onClick={() => onGo("builds")}
                   >
-                    <span className={`agent-dot agent-dot--${b.status}`} />
+                    <StatusDot state={buildDot(b.status)} label={b.status} />
                     <span className="panel-row-main">{b.dir}</span>
                     <span className="panel-row-side">
                       {b.quietFor
@@ -417,13 +417,9 @@ export function Panel({
           ) : (
             <div className="panel-chips">
               {rows.slice(0, limit).map((p) => (
-                <a
-                  key={p.slug}
-                  className="panel-chip"
-                  href={hrefFor({ name: "project", slug: p.slug })}
-                >
+                <RefChip key={p.slug} kind="project" href={hrefFor({ name: "project", slug: p.slug })}>
                   {p.name}
-                </a>
+                </RefChip>
               ))}
             </div>
           )}
@@ -609,7 +605,7 @@ export function Panel({
               {mods.slice(0, limit).map((mod) => (
                 <li key={mod.name}>
                   <span className={`panel-row${mod.enabled && mod.error ? " is-error" : ""}`}>
-                    <span className={`agent-dot agent-dot--${mod.blueprint ? "waiting" : !mod.enabled ? "stopped" : mod.error ? "failed" : mod.connected ? "running" : "waiting"}`} />
+                    <StatusDot state={mod.blueprint ? "needs-you" : !mod.enabled ? "off" : mod.error ? "error" : mod.connected ? "on" : "needs-you"} label={mod.blueprint ? "blueprint" : !mod.enabled ? "off" : mod.error ? "failing" : mod.connected ? "connected" : "starting"} />
                     <span className="panel-row-main">{mod.name}</span>
                     <span className="panel-row-side">
                       {mod.blueprint

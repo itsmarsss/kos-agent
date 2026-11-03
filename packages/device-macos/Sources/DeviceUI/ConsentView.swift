@@ -175,7 +175,7 @@ public struct ConsentView: View {
           .frame(maxWidth: .infinity, alignment: .trailing)
       }
     }
-    .padding(22)
+    .padding(Theme.gutter)
     .frame(width: model.targets.count > 1 ? 420 : 380)
     .background(Theme.bg)
     .environment(\.colorScheme, .dark)
@@ -225,7 +225,8 @@ private struct TargetTile: View {
 
   var body: some View {
     Button(action: choose) {
-      VStack(alignment: .leading, spacing: 6) {
+      // A choice drawn as a card: picked on the accent's tint, lit under the pointer.
+      Card(picked: selected, lit: hovering, padding: 6, spacing: 6) {
         ZStack {
           RoundedRectangle(cornerRadius: Theme.radiusXs, style: .continuous).fill(Theme.bg)
           if let picture = choice.thumbnail {
@@ -239,7 +240,7 @@ private struct TargetTile: View {
           if let icon = choice.icon {
             Image(nsImage: icon).resizable().frame(width: 14, height: 14)
           } else if choice.app == nil {
-            Image(systemName: "display").font(.system(size: 11)).foregroundStyle(Theme.muted)
+            Image(systemName: "display").font(.kos(.tiny)).foregroundStyle(Theme.muted)
           }
           Text(choice.app.map { app in choice.title.isEmpty ? app : "\(app): \(choice.title)" } ?? choice.title)
             .font(.kos(.small, selected ? .semibold : .medium))
@@ -248,9 +249,6 @@ private struct TargetTile: View {
             .truncationMode(.tail)
         }
       }
-      .padding(6)
-      .background(selected ? Theme.accent.opacity(Theme.tint) : hovering ? Theme.panel2 : Theme.panel, in: RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous))
-      .overlay(RoundedRectangle(cornerRadius: Theme.radiusMd, style: .continuous).strokeBorder(selected ? Theme.accent.opacity(Theme.edge) : hovering ? Theme.lineStrong : Theme.line, lineWidth: selected ? 1.5 : 1))
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
@@ -282,7 +280,7 @@ struct MinutesStepper: View {
 
   private func step(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
     Button(action: action) {
-      Image(systemName: symbol).font(.system(size: 11, weight: .bold))
+      Image(systemName: symbol).font(.kos(.tiny, .bold))
     }
     .buttonStyle(KOSButtonStyle(.secondary))
     .disabled(!enabled)

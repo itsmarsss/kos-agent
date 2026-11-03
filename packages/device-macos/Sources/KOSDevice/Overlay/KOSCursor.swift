@@ -1,4 +1,5 @@
 import AppKit
+import DeviceUI
 import QuartzCore
 
 /// KOS's cursor: an arrow in KOS's blue, larger than the system's and lit
@@ -52,7 +53,8 @@ final class KOSCursor: CALayer {
     label.string = "KOS"
     label.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
     label.fontSize = 10
-    label.foregroundColor = NSColor.white.cgColor
+    // The accent's own ink, as a primary button's words are.
+    label.foregroundColor = NSColor(Theme.onAccent).cgColor
     label.alignmentMode = .center
     label.contentsScale = contentsScale
     tag.backgroundColor = Palette.accent.cgColor

@@ -1,6 +1,6 @@
 import type { MarkdownWidget, StatWidget } from "@kos/shared";
 import type { ReactElement } from "react";
-import { Markdown as MarkdownText } from "@kos/kit";
+import { Empty, Markdown as MarkdownText } from "@kos/kit";
 
 import { CardWidget } from "./CardWidget.js";
 import { Chart } from "./Chart.js";
@@ -44,7 +44,7 @@ function Table({ widget, rows }: WidgetProps): ReactElement {
     return (
       <div className="kos-widget kos-table-widget">
         {widget.title ? <div className="kos-widget-title">{widget.title}</div> : null}
-        <div className="kos-empty">nothing here yet</div>
+        <Empty inline>nothing here yet</Empty>
       </div>
     );
   }

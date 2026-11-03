@@ -66,7 +66,6 @@ strong { font-weight: 600; }
 /* —— sections and cards —— */
 .stack { display: flex; flex-direction: column; gap: 14px; }
 .rule { height: 1px; background: var(--line); border: 0; margin: 0; }
-.faint { color: var(--faint); }
 .row { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
 .row .grow { flex: 1; }
 .row--start { justify-content: flex-start; }
@@ -106,9 +105,7 @@ strong { font-weight: 600; }
 .link:hover { color: var(--accent-lit); text-decoration: underline; }
 .link:hover::after { transform: translate(1.5px, -1.5px); }
 
-/* —— fields: a label over a dark well —— */
-.field { display: flex; flex-direction: column; gap: 5px; }
-.field > span { color: var(--muted); font-size: 11.5px; font-weight: 500; }
+/* —— the well a field's control sits in (the field itself is the kit's) —— */
 input {
   width: 100%;
   padding: 8px 10px;
@@ -120,14 +117,12 @@ input {
 }
 input::placeholder { color: var(--faint); }
 input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.mono { font-family: var(--mono); font-size: 12px; }
 
 /* —— the live session —— */
 .card--live { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .card--live[data-paused] { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
 .session-head { display: flex; align-items: center; gap: 10px; }
-.session-head::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: beat 1.8s ease-in-out infinite; }
-.card--live[data-paused] .session-head::before { background: var(--warn); animation: none; }
 .session-head strong { flex: 1; }
 @keyframes beat { 50% { opacity: 0.35; } }
 /* The task in quotes, drawn rather than written, so its text is only the task. */
@@ -141,7 +136,7 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px 
 /* —— pairing, as KOS for Mac asks for it —— */
 .hint-row { display: flex; align-items: baseline; gap: 6px; }
 .hint-row .link { flex: none; margin-left: auto; }
-.pair-fields { display: grid; grid-template-columns: 112px 1fr; gap: 10px; }
+.pair-fields { display: grid; grid-template-columns: 112px 1fr; align-items: end; gap: 10px; }
 .pair-note { flex: 1; min-width: 0; color: var(--muted); font-size: 11.5px; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -155,25 +150,8 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px 
 /* —— a setting: what it is, what it does, its control —— */
 .setting { display: flex; align-items: flex-start; gap: 12px; }
 .setting--stacked { flex-direction: column; gap: 8px; }
-.setting-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.setting-text strong { font-size: 12.5px; }
-.setting-text span { color: var(--muted); font-size: 11.5px; }
 
 /* —— the hidden sites: chips to remove, a field to add —— */
-.site-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.site-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 4px 3px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: var(--panel-2);
-  font-size: 12px;
-  font-weight: 500;
-}
-.site-chip button { appearance: none; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--faint); font-size: 14px; line-height: 1; cursor: pointer; }
-.site-chip button:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
 .add-site { display: flex; gap: 8px; }
 .add-site input { flex: 1; min-width: 0; }
 
@@ -189,6 +167,7 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .chat-title { appearance: none; align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; max-width: 100%; margin: 0 -4px; padding: 1px 4px; border: 0; border-radius: var(--r-xs); background: none; color: var(--muted); font: inherit; font-size: 12px; text-align: left; cursor: pointer; transition: color 140ms ease, background 140ms ease; }
 .chat-title:hover, .chat-title[aria-expanded="true"] { color: var(--text); background: var(--panel-2); }
 .chat-title > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The kit's chevron is faint; in the chat's name it takes the name's colour, which lights under the pointer. */
 .chat-title .chev { color: inherit; }
 .switcher { position: absolute; z-index: 5; top: calc(100% - 4px); left: 12px; right: 12px; max-height: min(60vh, 420px); display: flex; flex-direction: column; padding: 3px; border-radius: var(--r-md); border: 1px solid var(--line-strong); background: var(--panel); box-shadow: var(--float); transform-origin: top center; }
 .switcher-list { overflow-y: auto; display: flex; flex-direction: column; }
@@ -203,10 +182,12 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 .kos-picker { max-width: 140px; padding: 4px 8px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font: inherit; font-size: 12px; }
 .tabbar { margin: 10px 12px 0; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; border-radius: var(--r-md); background: var(--panel); border: 1px solid var(--line); transition: border-color 200ms ease; }
 .tabbar[data-live] { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+/* A row's title in the popup and the tab card at the control size, as KOS for Mac sets its rows (KOSType.control). */
+.setting .line-text strong,
 .tabbar .line-text strong { font-size: 12.5px; }
 .tile--sm { width: 26px; height: 26px; border-radius: var(--r-sm); }
 .row--between { justify-content: space-between; }
-.row--between .hint { flex: 1; font-size: 11.5px; }
+.row--between .hint { flex: 1; }
 
 .thread { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 16px 8px; display: flex; flex-direction: column; gap: 10px; }
 /* The chat reads as the dashboard's does: its type, its bubble, its spacing (docs/design.md, Chat). */
@@ -223,8 +204,14 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 /* A turn's steps, folded to a line; the running one says what it is doing. */
 .steps { align-self: flex-start; max-width: 100%; }
 /* Folded in a narrow column, the steps are one chip, drawn as the composer's are. */
-.steps-head { appearance: none; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 10px; border: 0; border-radius: 999px; background: var(--panel-2); color: var(--muted); font: inherit; font-size: 12px; line-height: 1.45; cursor: pointer; transition: color 140ms ease, background 140ms ease; }
-.steps-head:hover { color: var(--text); background: var(--line); }
+/* —— a capsule chip: the steps of a turn, the model, the mode; one look for the three, as KOS for Mac's Chip —— */
+.steps-head,
+.model,
+.mode { appearance: none; position: relative; display: inline-flex; align-items: center; gap: 4px; min-width: 0; padding: 3px 10px; border: 0; border-radius: 999px; background: var(--panel-2); color: var(--muted); font: inherit; font-size: 12px; line-height: 1.45; cursor: pointer; transition: color 140ms ease, background 140ms ease; }
+.steps-head:hover,
+.model:hover,
+.mode:hover { color: var(--text); background: var(--line); }
+.steps-head { gap: 6px; max-width: 100%; }
 .steps-head > span:not(.chev) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .steps[data-live] .steps-head { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); cursor: default; }
 .steps[data-live] .steps-head > svg { animation: beat 1.2s ease-in-out infinite; }
@@ -237,7 +224,7 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 /* What waits on the owner: an approval, an ask to work in this tab. */
 .ask-card { align-self: stretch; border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
 .ask-card--consent, .ask-card--read { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
-.args { margin: 0; padding: 8px; max-height: 140px; overflow: auto; border-radius: var(--r-sm); background: var(--bg); font: 11.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.args { margin: 0; padding: 8px; max-height: 140px; overflow: auto; border-radius: var(--r-sm); background: var(--bg); font: 11.5px/1.4 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .empty-state { margin: auto; padding: 24px; max-width: 300px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
 .suggest { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
@@ -256,19 +243,13 @@ body.side { width: auto; height: 100vh; padding: 0; overflow: hidden; }
 /* What the owner selected on the page, going with their words. */
 .quote-chip { display: flex; align-items: flex-start; gap: 6px; overflow: hidden; padding: 6px 8px; margin: 0 0 2px -4px; border-left: 2px solid var(--accent); border-radius: 0 var(--r-sm) var(--r-sm) 0; background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .quote-chip-text { flex: 1; min-width: 0; color: var(--muted); font-size: 11.5px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.quote-chip button { appearance: none; flex: none; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--faint); font-size: 14px; line-height: 1; cursor: pointer; }
-.quote-chip button:hover { color: var(--text); background: var(--panel-2); }
 .msg-quote { margin: 0 0 6px; padding-left: 8px; border-left: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); color: var(--muted); font-size: 11.5px; white-space: normal; }
 .composer-foot .send { margin-left: auto; }
 /* The model, as a quiet chip that opens Chrome's own list. */
-.model { position: relative; display: inline-flex; align-items: center; gap: 4px; min-width: 0; padding: 3px 10px; border-radius: 999px; background: var(--panel-2); color: var(--muted); font-size: 12px; line-height: 1.45; cursor: pointer; transition: color 140ms ease, background 140ms ease; }
-.model:hover { color: var(--text); background: var(--line); }
 .model select { appearance: none; max-width: 180px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; outline: none; text-overflow: ellipsis; }
 .model select option { background: var(--panel); color: var(--text); }
 .model--fixed { cursor: default; }
 /* Ask before each step, or act on its own: quiet when asking, KOS's colour when on its own. */
-.mode { appearance: none; display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border: 0; border-radius: 999px; background: var(--panel-2); color: var(--muted); font: inherit; font-size: 12px; line-height: 1.45; cursor: pointer; transition: color 140ms ease, background 140ms ease; }
-.mode:hover { color: var(--text); background: var(--line); }
 .mode[data-on] { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .mode[data-on]:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }

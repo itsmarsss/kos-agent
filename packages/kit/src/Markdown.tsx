@@ -168,36 +168,76 @@ export function KindMark({ kind }: { kind: string }): ReactElement | null {
   );
 }
 
+/**
+ * A link to one of the owner's things, drawn as a reference in a message is:
+ * its kind's mark and colour, then its name. A link with an href, a button
+ * when it only opens in place, a plain chip with neither. Every page's link
+ * to a project, a page, a site or a chat is one of these.
+ */
+export function RefChip({
+  kind,
+  mark,
+  href,
+  title,
+  onClick,
+  target,
+  rel,
+  children,
+}: {
+  kind: string;
+  /** In place of the kind's mark: a blob's face. */
+  mark?: ReactNode;
+  href?: string;
+  title?: string;
+  onClick?: (e: MouseEvent<HTMLElement>) => void;
+  target?: string;
+  rel?: string;
+  children: ReactNode;
+}): ReactElement {
+  const cls = `chip-ref chip-ref--${kind}`;
+  const inside = (
+    <>
+      {mark ?? <KindMark kind={kind} />}
+      <span className="chip-label">{children}</span>
+    </>
+  );
+  if (href)
+    return (
+      <a className={cls} href={href} title={title} onClick={onClick} target={target} rel={rel}>
+        {inside}
+      </a>
+    );
+  if (onClick)
+    return (
+      <button type="button" className={cls} title={title} onClick={onClick}>
+        {inside}
+      </button>
+    );
+  return (
+    <span className={cls} title={title}>
+      {inside}
+    </span>
+  );
+}
+
 function MentionChip({ kind, id }: { kind: string; id: string }): ReactElement {
   const names = useContext(Names);
   const links = useContext(RefLinks);
   // An approval's own name is its number.
   const label = names?.resolve(kind, id) ?? (kind === "approval" ? `#${id}` : id);
   const title = `${kind === "agent" ? "blob" : kind}: ${id}`;
-  const inside = (
-    <>
-      {/* A blob is a face, not a mark. */}
-      {kind === "blob" || kind === "agent" ? <Face seed={id} size={12} label={`${id}'s face`} /> : <KindMark kind={kind} />}
-      <span className="chip-label">{label}</span>
-    </>
-  );
-  if (!links) {
-    return (
-      <span className={`chip-ref chip-ref--${kind}`} title={title}>
-        {inside}
-      </span>
-    );
-  }
+  // A blob is a face, not a mark.
+  const mark = kind === "blob" || kind === "agent" ? <Face seed={id} size={12} label={`${id}'s face`} /> : undefined;
   // A kind the surface opens in place (a tab) is opened there; its href is only where it lands without that.
-  const onClick = links.open
+  const onClick = links?.open
     ? (e: MouseEvent): void => {
         if (links.open?.(kind, id)) e.preventDefault();
       }
     : undefined;
   return (
-    <a className={`chip-ref chip-ref--${kind}`} href={links.hrefOf(kind, id)} title={title} onClick={onClick}>
-      {inside}
-    </a>
+    <RefChip kind={kind} mark={mark} title={title} {...(links ? { href: links.hrefOf(kind, id), onClick } : {})}>
+      {label}
+    </RefChip>
   );
 }
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 
-import { Chips, Pill, Switch } from "@kos/kit";
+import { Chips, Empty, Pill, Switch, Tag } from "@kos/kit";
 
 import { api, type CallerInfo, type CronJob, type FactRow, type ReviewClaim, type ReviewItem, type Conversation } from "./api.js";
 import { KnowledgePage } from "./KnowledgePage.js";
@@ -169,7 +169,7 @@ export function MemoryDecision({ item, onResolved }: { item: ReviewItem; onResol
   return (
     <div className="mem-decision">
       <div className="mem-decision-head">
-        <span className="mem-kind">{item.kind}</span>
+        <Tag>{item.kind}</Tag>
         <strong>{HEADLINE[item.kind]}</strong>
       </div>
       {lean ? (
@@ -252,7 +252,7 @@ function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
   return (
     <>
       <Group title="Needs a decision" blurb="Only what KOS was not sure enough to settle itself. Keeping one side archives the other; promoting writes the claim global. Either is on the record as yours.">
-        {pending.length === 0 && <p className="hint">Nothing waiting. The tidy job settles what it is sure of and leaves here only a contradiction or a promotion it was not; how sure it has to be is in Settings, Behaviour.</p>}
+        {pending.length === 0 && <Empty inline>Nothing waiting. The tidy job settles what it is sure of and leaves here only a contradiction or a promotion it was not; how sure it has to be is in Settings, Behaviour.</Empty>}
         {pending.map((item) => (
           <MemoryDecision key={item.id} item={item} onResolved={() => { load(); onChanged(); }} />
         ))}
@@ -261,7 +261,7 @@ function DecisionsTab({ onChanged }: { onChanged: () => void }): ReactElement {
         <Group title="Settled">
           {recent.map((item) => (
             <div key={item.id} className="mem-row">
-              <span className="mem-kind">{item.kind}</span> <span className="ops-mono">{item.keys.join(" vs ")}</span>
+              <Tag>{item.kind}</Tag> <span className="ops-mono">{item.keys.join(" vs ")}</span>
               <span className="ops-muted"> · {item.resolution} · {item.resolvedAt ? when(item.resolvedAt) : ""}</span>
             </div>
           ))}
@@ -281,20 +281,19 @@ function PagesTab(): ReactElement {
   useEffect(load, [load]);
   return (
     <Group title="Pages" blurb={'One for you everywhere, one per project, written by the dream job from current claims. Edit a line in the form "- key: value" and it reads back as your word.'}>
-      {pages.length === 0 && <p className="hint">No pages yet. The dream job writes them; Run now on the Jobs tab if you do not want to wait for 4am.</p>}
+      {pages.length === 0 && <Empty inline>No pages yet. The dream job writes them; Run now on the Jobs tab if you do not want to wait for 4am.</Empty>}
       {edited.length > 0 && (
         <p className="hint">
           Edited since memory wrote them: {edited.join(", ")}.{" "}
           <button type="button" className="btn btn--sm" onClick={() => void api.importMemoryPages().then(load, load)}>Read edits into memory</button>
         </p>
       )}
-      <div className="mem-chips">
-        {pages.map((p) => (
-          <button key={p.name} type="button" className={`btn btn--sm ${open?.name === p.name ? "is-active" : ""}`} onClick={() => void api.memoryPage(p.name).then(setOpen).catch(() => undefined)}>
-            {p.name}{edited.includes(p.name) ? " (edited)" : ""}
-          </button>
-        ))}
-      </div>
+      <Chips
+        label="Memory pages"
+        options={pages.map((p) => [p.name, `${p.name}${edited.includes(p.name) ? " (edited)" : ""}`] as const)}
+        selected={open?.name ?? null}
+        onChoose={(name) => void api.memoryPage(name).then(setOpen).catch(() => undefined)}
+      />
       {open && (
         <div className="mem-page">
           <div className="hint ops-mono">memory/{open.name}.md</div>
@@ -321,8 +320,8 @@ function LogTab({ titles }: { titles: Map<string, string> }): ReactElement {
       {events.map((e) => (
         <div key={e.id} className={`mem-event ${e.shadowed ? "is-shadowed" : ""}`}>
           <div className="mem-event-meta">
-            <span className="mem-kind">{e.role}</span>
-            {e.trust === "external" && <span className="mem-kind mem-kind--outside">via {e.caller}</span>}
+            <Tag>{e.role}</Tag>
+            {e.trust === "external" && <Pill tone="warn">via {e.caller}</Pill>}
             {e.projectSlug && <span className="ops-mono">{e.projectSlug}</span>}
             {e.conversationId && (
               <a className="ops-muted" href={`#/chats/${encodeURIComponent(e.conversationId)}`}>
@@ -405,7 +404,7 @@ function CallersTab(): ReactElement {
           <code className="ops-mono">{issued.token}</code>
         </div>
       )}
-      {callers.length === 0 && <p className="hint">No callers yet. Make one below and give the token to the other program.</p>}
+      {callers.length === 0 && <Empty inline>No callers yet. Make one below and give the token to the other program.</Empty>}
       {callers.map((c) => (
         <div key={c.id} className="mem-row mem-row--split">
           <div>

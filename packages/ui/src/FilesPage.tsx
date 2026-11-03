@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 
 import { m } from "motion/react";
-import { Chips, ease, GridIcon, ListIcon } from "@kos/kit";
+import { Chips, ease, Empty, GridIcon, ListIcon } from "@kos/kit";
 import { api, type DirEntry, type FileContent } from "./api.js";
 import { EntryMenu, dragProps, dropProps, useFileOps, type FileChange } from "./FileActions.js";
 import { FileIcon, previewable } from "./FileIcon.js";
@@ -289,9 +289,9 @@ export function FilesPage({ path = ".", onOpen }: FilesPageProps): ReactElement 
 
       {entries && (
         <>
-          {entries.length === 0 && <p className="hint">This folder is empty.</p>}
+          {entries.length === 0 && <Empty inline>This folder is empty.</Empty>}
           {entries.length > 0 && shown.length === 0 && (
-            <p className="hint">Nothing here matches “{filter}”.</p>
+            <Empty inline>Nothing here matches “{filter}”.</Empty>
           )}
 
           {shown.length > 0 && view === "list" && (

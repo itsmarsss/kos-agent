@@ -1,6 +1,6 @@
 import { KOS_SEED } from "@kos/shared";
 import type { BlobMood } from "@kos/shared/blobmotion";
-import { ChatIcon, ChevronLeft, Chips, Collapse, DrawerRow, Face, GearIcon, GlobeIcon, HandIcon, HiddenIcon, listItem, Pill, Section, ServerIcon, spring, stagger, Switch, type Tone } from "@kos/kit";
+import { ChatIcon, ChevronLeft, Chips, Collapse, DrawerRow, Face, Field, GearIcon, GlobeIcon, HandIcon, HiddenIcon, IconButton, listItem, Pill, Section, ServerIcon, spring, stagger, StatusDot, Switch, Tag, type Tone } from "@kos/kit";
 import { AnimatePresence, LazyMotion, MotionConfig, domMax, m } from "motion/react";
 import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -90,14 +90,14 @@ function Popup(): ReactElement {
         <span className="head-actions">
           <AnimatePresence initial={false}>
             {page === "home" && state?.kos.length ? (
-              <m.button key="panel" type="button" className="icon-btn" aria-label="Chat with KOS" title="Chat with KOS beside your tabs" onClick={() => void openPanel()} initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }} transition={spring}>
+              <IconButton key="panel" label="Chat with KOS" title="Chat with KOS beside your tabs" onClick={() => void openPanel()} initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.6 }} transition={spring}>
                 <ChatIcon size={14} />
-              </m.button>
+              </IconButton>
             ) : null}
             {page === "home" && (
-              <m.button key="gear" type="button" className="icon-btn" aria-label="Settings" title="Settings" onClick={() => setPage("settings")} initial={{ opacity: 0, rotate: -60 }} animate={{ opacity: 1, rotate: 0 }} exit={{ opacity: 0, rotate: 60 }} transition={spring}>
+              <IconButton key="gear" label="Settings" onClick={() => setPage("settings")} initial={{ opacity: 0, rotate: -60 }} animate={{ opacity: 1, rotate: 0 }} exit={{ opacity: 0, rotate: 60 }} transition={spring}>
                 <GearIcon size={14} title="" />
-              </m.button>
+              </IconButton>
             )}
           </AnimatePresence>
         </span>
@@ -156,6 +156,7 @@ function SessionCard({ session, act }: { session: NonNullable<PopupState["sessio
   return (
     <m.section className="card card--live" data-paused={session.paused || undefined} layout variants={listItem} initial="hidden" animate="show" exit="exit">
       <div className="session-head">
+        <StatusDot state={session.paused ? "needs-you" : "working"} label={session.paused ? "Paused" : "Working"} />
         <strong>{session.paused ? "Paused. You have control." : "KOS is using this Chrome"}</strong>
         <span className="hint">{minutesLeft(session.until)}</span>
       </div>
@@ -255,7 +256,7 @@ function KosCard({ k, open, toggle, act }: { k: KosState; open: boolean; toggle:
       <Collapse open={open}>
         <hr className="rule" />
         <div className="setting">
-          <div className="setting-text">
+          <div className="line-text line-text--wrap">
             <strong>Ask before each session</strong>
             <span>{k.askFirst ? "This KOS asks here, with the task and how long, every time." : "Off: this KOS's approval queue decides instead. The border and Stop still show."}</span>
           </div>
@@ -373,19 +374,16 @@ function PairCard({ first, cancel, act }: { first: boolean; cancel: () => void; 
           </a>
         )}
       </div>
-      <label className="field">
-        <span>KOS address or pairing link</span>
+      <Field label="KOS address or pairing link">
         <input className="mono" type="text" placeholder="https://kos.example.ts.net" spellCheck={false} autoComplete="off" value={address} onChange={(e) => read(e.target.value)} autoFocus={!first} />
-      </label>
+      </Field>
       <div className="pair-fields">
-        <label className="field">
-          <span>Code</span>
+        <Field label="Code">
           <input className="mono" type="text" placeholder="K7QX-M2PA" spellCheck={false} autoComplete="off" value={code} onChange={(e) => setCode(e.target.value)} />
-        </label>
-        <label className="field">
-          <span>This Chrome's name in KOS</span>
+        </Field>
+        <Field label="This Chrome's name in KOS">
           <input type="text" placeholder="Chrome on macOS" spellCheck={false} value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
+        </Field>
       </div>
       <div className="row">
         <span className={note?.failed ? "pair-note error" : "pair-note"}>{note?.text}</span>
@@ -420,14 +418,11 @@ function HiddenSection({ state, tab, act }: { state: PopupState; tab: chrome.tab
         <DrawerRow icon={<HiddenIcon />} tone="accent" title="Hidden from KOS" detail={summary} open={open} onToggle={() => setOpen(!open)} />
         <Collapse open={open}>
           <hr className="rule" />
-          <m.div className="site-chips" layout>
+          <m.div className="tags" layout>
             <AnimatePresence initial={false}>
               {sites.map((site) => (
-                <m.span key={site} className="site-chip" layout initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.85 }} transition={spring}>
-                  {site}
-                  <button type="button" aria-label={`Show ${site} to KOS`} title={`Show ${site} to KOS`} onClick={() => void act({ type: "unhide", site })}>
-                    ×
-                  </button>
+                <m.span key={site} layout initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.85 }} transition={spring}>
+                  <Tag remove={{ label: `Show ${site} to KOS`, onRemove: () => void act({ type: "unhide", site }) }}>{site}</Tag>
                 </m.span>
               ))}
             </AnimatePresence>
@@ -469,9 +464,9 @@ function SettingsPage({ state, act, back }: { state: PopupState; act: Act; back:
   return (
     <m.div className="stack" variants={stagger} initial="hidden" animate="show">
       <m.div className="page-head" variants={listItem}>
-        <button type="button" className="icon-btn" aria-label="Back" title="Back" onClick={back}>
+        <IconButton label="Back" onClick={back}>
           <ChevronLeft size={14} title="" />
-        </button>
+        </IconButton>
         <strong>Settings</strong>
       </m.div>
       <Section label="Sessions">
@@ -515,7 +510,7 @@ function SettingsPage({ state, act, back }: { state: PopupState; act: Act; back:
 function Setting({ title, detail, children }: { title: string; detail: string; children: ReactElement }): ReactElement {
   return (
     <div className="setting setting--stacked">
-      <div className="setting-text">
+      <div className="line-text line-text--wrap">
         <strong>{title}</strong>
         <span>{detail}</span>
       </div>
@@ -527,7 +522,7 @@ function Setting({ title, detail, children }: { title: string; detail: string; c
 function Toggle({ title, detail, on, set }: { title: string; detail: string; on: boolean; set: (on: boolean) => void }): ReactElement {
   return (
     <div className="setting">
-      <div className="setting-text">
+      <div className="line-text line-text--wrap">
         <strong>{title}</strong>
         <span>{detail}</span>
       </div>
@@ -540,7 +535,7 @@ function LogRow(): ReactElement {
   const [copied, setCopied] = useState(false);
   return (
     <div className="setting">
-      <div className="setting-text">
+      <div className="line-text line-text--wrap">
         <strong>Log</strong>
         <span>Each KOS's line and every session, since Chrome opened. Tasks are kept out. Copy it to send when something went wrong.</span>
       </div>

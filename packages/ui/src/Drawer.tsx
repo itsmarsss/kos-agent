@@ -1,9 +1,8 @@
 import type { ReactElement, ReactNode } from "react";
 import { AnimatePresence, m } from "motion/react";
 
-import { ease, spring } from "@kos/kit";
+import { ease, spring, useDismiss } from "@kos/kit";
 
-import { useDismiss } from "./useDismiss.js";
 
 /**
  * A panel that slides in from the right.

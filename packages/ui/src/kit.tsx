@@ -2,9 +2,7 @@ import { useRef, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, m } from "motion/react";
 
-import { ease } from "@kos/kit";
-
-import { useDismiss } from "./useDismiss.js";
+import { ease, useDismiss } from "@kos/kit";
 
 /**
  * The small parts every page is built from, so they are built the same way.
@@ -16,78 +14,13 @@ import { useDismiss } from "./useDismiss.js";
  * docs/components.md where each app keeps it.
  */
 
-/** The mark on a required field's label. */
-export function Req(): ReactElement {
-  return (
-    <span className="field-req" title="Required" aria-label="required">
-      *
-    </span>
-  );
-}
-
-export interface FieldProps {
-  label: string;
-  /** Marked on the label; the form's submit stays off until it is filled. */
-  required?: boolean;
-  /** A line under the control: what to put here, or what the choice means. */
-  hint?: ReactNode;
-  /** Shown instead of the hint, in the danger colour, when the value cannot be sent as it is. */
-  error?: ReactNode;
-  /** Several controls under one label, so the label is a heading rather than a <label>. */
-  group?: boolean;
-  /** Beside the label: what it is set to, say, as a Tag. */
-  badge?: ReactNode;
-  /** A line under the hint: where it came from, say. */
-  meta?: ReactNode;
-  /**
-   * The control beside the words rather than under them. For a list of
-   * things with a switch each: stacked, every item was a name, then a
-   * checkbox on a line of its own, then its description, and four of them
-   * read as twelve lines.
-   */
-  row?: boolean;
-  className?: string;
-  children: ReactNode;
-}
-
 /**
- * One labelled control: the label, the control, then a hint or an error.
- * Marked with its label (data-field) so a search can scroll to it.
+ * A setting in a list: its words, which open on a click, and its control at
+ * the right. For a list of things with a switch each: as stacked fields,
+ * every item was a name, then a checkbox on a line of its own, then its
+ * description, and four of them read as twelve lines.
  */
-export function Field({ label, required = false, hint, error, group = false, badge, meta, row = false, className, children }: FieldProps): ReactElement {
-  if (row) return <FieldRow label={label} hint={hint} badge={badge} meta={meta} className={className}>{children}</FieldRow>;
-  const cls = `kos-field${className ? ` ${className}` : ""}`;
-  const body = (
-    <>
-      <span className="kos-field-label">
-        {label}
-        {required && <Req />}
-        {badge}
-      </span>
-      {children}
-      {error ? (
-        <span className="field-error" role="alert">
-          {error}
-        </span>
-      ) : hint ? (
-        <span className="hint">{hint}</span>
-      ) : null}
-      {meta}
-    </>
-  );
-  return group ? (
-    <div className={cls} role="group" aria-label={label} data-field={label}>
-      {body}
-    </div>
-  ) : (
-    <label className={cls} data-field={label}>
-      {body}
-    </label>
-  );
-}
-
-/** A field in a list: its words, which open on a click, and its control at the right. */
-function FieldRow({ label, hint, badge, meta, className, children }: Pick<FieldProps, "label" | "hint" | "badge" | "meta" | "className" | "children">): ReactElement {
+export function FieldRow({ label, hint, badge, meta, className, children }: { label: string; hint?: ReactNode; badge?: ReactNode; meta?: ReactNode; className?: string; children: ReactNode }): ReactElement {
   // A row's words open on click: a skill's description can run to a
   // paragraph of triggers, and fourteen of those is a wall.
   const [open, setOpen] = useState(false);

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
-import { Pill, Switch } from "@kos/kit";
+import { Empty, Field, Pill, Switch } from "@kos/kit";
 
 import { api, type ComputerSettings, type DeviceCode, type PairedDevice } from "./api.js";
-import { ConfirmButton, Field } from "./kit.js";
+import { ConfirmButton, FieldRow } from "./kit.js";
 import { agoWords } from "./schedulewords.js";
 import { Select } from "./Select.js";
 
@@ -94,7 +94,7 @@ function DeviceRow({ device, onChanged }: { device: PairedDevice; onChanged: () 
     <Pill tone={device.online ? "ok" : "muted"}>{device.online ? "online" : "offline"}</Pill>
   );
   return (
-    <Field label={device.name} badge={state} hint={describeDevice(device)} row>
+    <FieldRow label={device.name} badge={state} hint={describeDevice(device)}>
       {name !== null ? (
         <input
           className="kos-input"
@@ -125,7 +125,7 @@ function DeviceRow({ device, onChanged }: { device: PairedDevice; onChanged: () 
           />
         </div>
       )}
-    </Field>
+    </FieldRow>
   );
 }
 
@@ -217,7 +217,7 @@ export function DevicesPanel(): ReactElement {
   return (
     <>
       {devices.length === 0 && !code && (
-        <p className="hint">Nothing paired yet. Install KOS for Mac on a Mac or KOS for Chrome in Chrome, then add it here.</p>
+        <Empty inline>Nothing paired yet. Install KOS for Mac on a Mac or KOS for Chrome in Chrome, then add it here.</Empty>
       )}
       {joined && <p className="hint">Paired {joined}.</p>}
       <div className="set-rows">

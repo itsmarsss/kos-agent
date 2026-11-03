@@ -1,7 +1,7 @@
 import { useCallback, useState, type ReactElement, type ReactNode } from "react";
 import { AnimatePresence, m } from "motion/react";
 
-import { ChevronRight, ease } from "@kos/kit";
+import { ChevronRight, Count, ease } from "@kos/kit";
 
 /**
  * One section of the chats rail: a head that folds it, its count, an action
@@ -42,7 +42,7 @@ export function RailGroup({
           {note ? (
             <span className="rail-group-note">{note}</span>
           ) : (
-            count !== undefined && count > 0 && <span className="rail-group-count">{count}</span>
+            count !== undefined && count > 0 && <Count n={count} />
           )}
         </button>
         {action}

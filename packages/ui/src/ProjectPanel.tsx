@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactElement } from "react";
 import { hexOfHsl, hueOfHex } from "@kos/shared";
-import { Card, lookOf, Pill, Tag } from "@kos/kit";
+import { Card, Empty, lookOf, Pill, RefChip, Tag } from "@kos/kit";
 
 import { api, type ProjectDetail } from "./api.js";
 import { ColourChoice } from "./ColourPicker.js";
@@ -151,13 +151,13 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError,
 
       <Card className="project-panel-section" title="Pages" count={pages.length}>
         {pages.length === 0 ? (
-          <p className="hint">No pages yet.</p>
+          <Empty inline>No pages yet.</Empty>
         ) : (
           <div className="project-panel-chips">
             {pages.map((pg) => (
-              <a
+              <RefChip
                 key={pg.id}
-                className="ops-page-chip"
+                kind="page"
                 href={hrefFor({ name: "page", id: pg.id })}
                 onClick={(e) => {
                   e.preventDefault();
@@ -165,7 +165,7 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError,
                 }}
               >
                 {pg.title}
-              </a>
+              </RefChip>
             ))}
           </div>
         )}
@@ -173,7 +173,7 @@ export function ProjectPanel({ slug, onOpenPage, onOpenFile, onChanged, onError,
 
       <Card className="project-panel-section" title="Tables" count={tables.length}>
         {tables.length === 0 ? (
-          <p className="hint">No tables yet.</p>
+          <Empty inline>No tables yet.</Empty>
         ) : (
           <ul className="insp-rows">
             {tables.map((t) => (

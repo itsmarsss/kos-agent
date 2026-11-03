@@ -2,8 +2,8 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Card, Empty, Pill, Tag } from "@kos/kit";
-import { ConfirmButton, Field } from "./kit.js";
+import { Card, Empty, Field, Pill, Tag } from "@kos/kit";
+import { ConfirmButton } from "./kit.js";
 
 afterEach(cleanup);
 

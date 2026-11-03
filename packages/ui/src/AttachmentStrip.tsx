@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from "react";
 
-import { CloseIcon } from "@kos/kit";
+import { CloseIcon, IconButton } from "@kos/kit";
 
 import { FilePreview, PreviewLinks, type LocalFile } from "./FilePreview.js";
 
@@ -73,14 +73,9 @@ export function AttachmentStrip({
               )}
             </button>
             {onRemove && (
-              <button
-                type="button"
-                className="strip-x"
-                aria-label={`Remove ${item.name}`}
-                onClick={() => onRemove(i)}
-              >
+              <IconButton className="strip-x" label={`Remove ${item.name}`} onClick={() => onRemove(i)}>
                 <CloseIcon size={10} title="" />
-              </button>
+              </IconButton>
             )}
             <span className="strip-name">{item.name}</span>
           </div>

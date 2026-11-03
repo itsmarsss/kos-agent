@@ -1,10 +1,10 @@
 import { useEffect, useState, type ReactElement } from "react";
 
-import { Pill } from "@kos/kit";
+import { Field, Pill } from "@kos/kit";
 
 import { api, type CronJob, type JobSpend, type SkillInfo } from "./api.js";
 import { scriptIn, withScript } from "./cronscript.js";
-import { ConfirmButton, Field } from "./kit.js";
+import { ConfirmButton } from "./kit.js";
 import { describeCron } from "./schedule.js";
 import { SchedulePicker } from "./SchedulePicker.js";
 import { Select } from "./Select.js";

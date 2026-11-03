@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { Card, ChevronRight } from "@kos/kit";
+import { Card, ChevronRight, Empty } from "@kos/kit";
 
 import { api, type Attachment, type DirEntry } from "./api.js";
 import { readFile, useDropZone } from "./Attachments.js";
@@ -222,7 +222,7 @@ export function ProjectExplorer({ label, root, upload: send, onOpenInFiles, onCh
       )}
       {entries === null && !listError && <p className="hint">Loading…</p>}
       {entries !== null && entries.length === 0 && (
-        <p className="hint">Nothing here yet. Drop files here or upload them.</p>
+        <Empty inline>Nothing here yet. Drop files here or upload them.</Empty>
       )}
       {shown.length > 0 && (
         <ul className="explorer-list">

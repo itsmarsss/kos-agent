@@ -52,6 +52,6 @@ describe("RailGroup", () => {
     const fold = container.querySelector<HTMLButtonElement>(".rail-group-fold")!;
     expect(fold.disabled).toBe(true);
     expect(container.querySelector(".rail-group-note")?.textContent).toBe("2 running");
-    expect(container.querySelector(".rail-group-count")).toBeNull();
+    expect(container.querySelector(".count")).toBeNull();
   });
 });

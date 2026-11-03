@@ -11,7 +11,7 @@ import { createPortal } from "react-dom";
 import type { HomePanel, WidgetSpan } from "@kos/shared";
 
 import { m } from "motion/react";
-import { CloseIcon, spring } from "@kos/kit";
+import { CloseIcon, IconButton, spring } from "@kos/kit";
 
 import { hitBox, moveTo, spanFor, withSpan, type Box } from "./arrange.js";
 
@@ -272,15 +272,9 @@ export function HomeGrid({
             {render(panel)}
             {editing && (
               <>
-                <button
-                  type="button"
-                  className="home-remove"
-                  title="Remove"
-                  aria-label={`Remove ${panel.title ?? panel.kind}`}
-                  onClick={() => onRemove(panel.id)}
-                >
+                <IconButton tone="danger" className="home-remove" label={`Remove ${panel.title ?? panel.kind}`} title="Remove" onClick={() => onRemove(panel.id)}>
                   <CloseIcon size={12} title="" />
-                </button>
+                </IconButton>
                 <div
                   className="home-grip"
                   role="slider"

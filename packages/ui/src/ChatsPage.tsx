@@ -10,11 +10,10 @@ import {
 
 import { AnimatePresence, m } from "motion/react";
 import { summarizeAction } from "@kos/shared";
-import { ArchiveIcon, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, SearchIcon, SendIcon, spring, stagger, StopIcon, useKosLook, WorkingDots, WrenchIcon } from "@kos/kit";
+import { ArchiveIcon, card, ChevronLeft, CloseIcon, ComposeIcon, CopyIcon, Count, ease, EditIcon, Empty, Face, faceLookOf, ForkIcon, GearIcon, HashIcon, IconButton, KOS_SEED, listItem, Markdown, MentionNames, moodOf, MoreIcon, PanelIcon, RefChip, SearchIcon, SendIcon, spring, stagger, StatusDot, StopIcon, useDismiss, useKosLook, WorkingDots, WrenchIcon } from "@kos/kit";
 
 import { Decision } from "./Decision.js";
 import { VoiceInput } from "./VoiceInput.js";
-import { useDismiss } from "./useDismiss.js";
 
 import { ContextMeter } from "./ContextMeter.js";
 import { byAttention, groupChats, isBusy, placeOf, projectSummary } from "./chattree.js";
@@ -65,7 +64,7 @@ import {
   type Live,
 } from "./progress.js";
 import { LiveTurn } from "./LiveTurn.js";
-import { ActivityDot, QueuedMark, StatusDot } from "./StatusDot.js";
+import { ActivityDot, buildDot, QueuedMark } from "./StatusDot.js";
 import { ToolCall } from "./ToolCall.js";
 import { ChatConfig } from "./ChatConfig.js";
 import { Modal } from "./Modal.js";
@@ -311,14 +310,7 @@ export function ChatsPage({
   const narrow = useNarrow();
   const [listOpen, setListOpen] = useState(false);
   useEffect(() => setListOpen(false), [activeId]);
-  useEffect(() => {
-    if (!listOpen) return;
-    const key = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") setListOpen(false);
-    };
-    document.addEventListener("keydown", key);
-    return () => document.removeEventListener("keydown", key);
-  }, [listOpen]);
+  useDismiss(listOpen, () => setListOpen(false), { away: false, scroll: false, resize: false, escape: "dialog" });
   const [showArchived, setShowArchived] = useState(false);
   /** The row whose Delete was pressed once; a second press deletes. */
   /** A chat just archived from its header, offered back for a moment. */
@@ -1595,7 +1587,7 @@ export function ChatsPage({
                 <div className="rail-group-head">
                   <span className="rail-group-fold">
                     <span className="rail-group-title">Archived</span>
-                    {shownArchived.length > 0 && <span className="rail-group-count">{shownArchived.length}</span>}
+                    {shownArchived.length > 0 && <Count n={shownArchived.length} />}
                   </span>
                 </div>
                 <ul className="chats-flat">
@@ -1992,13 +1984,9 @@ export function ChatsPage({
                   <ul>
                     {tree.roots.slice(0, 5).map((c) => (
                       <li key={c.id}>
-                        <button
-                          type="button"
-                          className="chats-welcome-chip"
-                          onClick={() => onOpen(c.id)}
-                        >
+                        <RefChip kind="chat" onClick={() => onOpen(c.id)}>
                           {c.title}
-                        </button>
+                        </RefChip>
                       </li>
                     ))}
                   </ul>
@@ -2194,7 +2182,7 @@ export function ChatsPage({
                 read "Lane A" rather than the id it is addressed by. */}
             <MentionNames resolve={nameFor} hrefOf={channelHref}>
             <div className="chats-thread" ref={boxRef}>
-              {visible.length === 0 && <p className="hint">Nothing said yet.</p>}
+              {visible.length === 0 && <Empty inline>Nothing said yet.</Empty>}
               {(() => {
                 // Owner turns are numbered in order, because rewind addresses
                 // them by position rather than by any id a transcript keeps.
@@ -2244,7 +2232,7 @@ export function ChatsPage({
                   key={b.id}
                   onClick={() => onOpenAgent(b.id)}
                 >
-                  <span className={`agent-dot agent-dot--${b.status}`} />
+                  <StatusDot state={buildDot(b.status)} label={b.status} />
                   <span className="chat-agent-main">
                     <span className="chat-agent-dir">{b.dir}</span>
                     <span className="chat-agent-latest">{b.latest}</span>

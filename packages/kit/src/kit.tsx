@@ -1,7 +1,7 @@
 import { AnimatePresence, m, type HTMLMotionProps } from "motion/react";
 import type { HTMLAttributes, ReactElement, ReactNode } from "react";
 
-import { ChevronDown } from "./icons.js";
+import { ChevronDown, CloseIcon } from "./icons.js";
 import { ease, listItem, spring } from "./motion.js";
 
 /**
@@ -21,13 +21,35 @@ export function Pill({ tone = "muted", title, children }: { tone?: Tone; title?:
   );
 }
 
-/** A fact in a word or two: a tool family, a model class, a value. Not a button, and not a state (that is a Pill). */
-export function Tag({ mono = false, title, children }: { mono?: boolean; title?: string; children: ReactNode }): ReactElement {
+/**
+ * A fact in a word or two: a tool family, a model class, a value. Not a
+ * button, and not a state (that is a Pill). With `remove`, it ends in a
+ * small × that takes it away: a hidden site, a hidden app.
+ */
+export function Tag({ mono = false, title, remove, children }: { mono?: boolean; title?: string; remove?: { label: string; onRemove: () => void }; children: ReactNode }): ReactElement {
   return (
-    <span className={`tag${mono ? " tag--mono" : ""}`} title={title}>
+    <span className={`tag${mono ? " tag--mono" : ""}${remove ? " tag--removable" : ""}`} title={title}>
       {children}
+      {remove && (
+        <IconButton tone="bare" label={remove.label} onClick={remove.onRemove}>
+          <CloseIcon size={10} title="" />
+        </IconButton>
+      )}
     </span>
   );
+}
+
+/** What a dot can say. Blue is working, yellow is waiting on you, red is broken, green has something unread or is on, grey is read, quiet or off. */
+export type DotState = "working" | "needs-you" | "error" | "unread" | "read" | "on" | "off";
+
+/** A state as a dot alone, its word in the tooltip: a thread, a build, a session. */
+export function StatusDot({ state, label }: { state: DotState; label: string }): ReactElement {
+  return <span className={`status-dot status-dot--${state}`} role="img" aria-label={label} title={label} />;
+}
+
+/** How many there are, beside a title or a group's name: a small capsule in the accent (or the card's tint). */
+export function Count({ n }: { n: number }): ReactElement {
+  return <span className="count">{n}</span>;
 }
 
 export interface CardProps {
@@ -54,7 +76,7 @@ export function Card({ title, count, pill, action, label, className, children, .
           {title && (
             <h2 className="label card-title">
               {title}
-              {count !== undefined && count > 0 && <span className="card-count">{count}</span>}
+              {count !== undefined && count > 0 && <Count n={count} />}
             </h2>
           )}
           {(pill || action) && (
@@ -125,6 +147,15 @@ export interface IconButtonProps extends HTMLMotionProps<"button"> {
 export function IconButton({ label, tone, className, title, type = "button", ...rest }: IconButtonProps): ReactElement {
   const cls = ["icon-btn", tone ? `icon-btn--${tone}` : "", className ?? ""].filter(Boolean).join(" ");
   return <m.button type={type} className={cls} aria-label={label} title={title ?? label} {...rest} />;
+}
+
+/** An IconButton that goes somewhere: the same circle, as a link. */
+export function IconLink({ label, href, title, target, rel, children }: { label: string; href: string; title?: string; target?: string; rel?: string; children: ReactNode }): ReactElement {
+  return (
+    <a className="icon-btn" href={href} aria-label={label} title={title ?? label} target={target} rel={rel}>
+      {children}
+    </a>
+  );
 }
 
 /** KOS at work before it has a step to show: three dots, one after another. */
