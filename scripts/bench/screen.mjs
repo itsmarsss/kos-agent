@@ -364,14 +364,18 @@ if (TASKS.includes("context")) {
     const run = await turn(chat, text);
     record(name, run, expect.test(run.answer));
   }
-  // Screen work late in a long chat, where the owner's slow steps were.
-  if (TASKS.includes("heavy")) {
-    const mac = await fakeMac();
-    await mac.show(`${SITE}/wizard?n=10`);
-    const run = await turn(chat, "On Bench Mac, the Bench Desk app is in front with a setup wizard. Finish it: each step shows a code; type that code into the box and press Next. When it says All done, end the session and tell me the final code.");
-    record("heavy10", run, (await mac.done()) && run.answer.includes("-10"), { device: mac.calls.splice(0) });
-    await mac.close();
-  }
+}
+
+// Screen work late in a long chat, where the owner's slow steps were: about 70k tokens of history first.
+if (TASKS.includes("heavy")) {
+  const mac = await fakeMac();
+  await mac.show(`${SITE}/wizard?n=10`);
+  const heavy = await newChat("bench heavy");
+  const notes = Array.from({ length: 2400 }, (_, i) => `Note ${i + 1}: met the supplier about the autumn range, agreed the delivery window and the unit price, nothing to act on.`).join("\n");
+  await turn(heavy, `Here are my notes from this month, for later. Just say OK.\n\n${notes}`);
+  const run = await turn(heavy, "On Bench Mac, the Bench Desk app is in front with a setup wizard. Finish it: each step shows a code; type that code into the box and press Next. When it says All done, end the session and tell me the final code.");
+  record("heavy10", run, (await mac.done()) && run.answer.includes("-10"), { device: mac.calls.splice(0) });
+  await mac.close();
 }
 
 writeFileSync(join(OUT, `${LABEL}.md`), table({ label: LABEL, results }));
