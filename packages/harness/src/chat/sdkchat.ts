@@ -322,14 +322,21 @@ export async function runSdkChat(
   /** The newest picture a tool answered with, and how many this query has taken. */
   let lastPicture: { data: string; mediaType: string } | undefined;
   let pictured = 0;
+  const split = screenSplit(options.tools.defs().map((d) => d.name), options.screen);
+  /*
+   * A query ends for its pictures only when the screen work is the turn's
+   * own: handed to a subagent, the pictures are the subagent's, and ending
+   * the turn's query under it would lose the subagent's report.
+   */
+  const cap = split.agent ? undefined : options.picturesPerQuery;
   const { server } = serverFor(options.tools, (call, images) => {
     calls.push(call);
-    if (images.length) {
+    // A screen's picture, not a plot python drew or one an MCP tool returned.
+    if (images.length && isScreenTool(call.name)) {
       lastPicture = images.at(-1);
       pictured += 1;
     }
   });
-  const split = screenSplit(options.tools.defs().map((d) => d.name), options.screen);
   const allowed = split.main;
   const { env, home } = credentials(options.cwd, options.env ?? process.env);
 
@@ -365,6 +372,9 @@ export async function runSdkChat(
     (options.attachments ?? []).filter((a) => a.mediaType.startsWith("image/")),
   );
 
+  /** The turn's model round trips, across every query it runs in. */
+  const budget = options.maxTurns ?? 24;
+  let used = 0;
   for (;;) {
     // The SDK cancels a query through an AbortController, so bridge the caller's
     // signal (from kernel.stop()) to one. An already-aborted signal aborts it at
@@ -400,7 +410,7 @@ export async function runSdkChat(
         // to hand on. Anything else off the list is refused, as before.
         ...(split.agent ? { canUseTool: screenGate(split.agent.tools) } : {}),
         mcpServers: { [SERVER]: server },
-        maxTurns: options.maxTurns ?? 24,
+        maxTurns: budget - used,
         includePartialMessages: true,
         ...(options.model ? { model: options.model } : {}),
         ...(split.agent
@@ -434,9 +444,9 @@ export async function runSdkChat(
 
         // A tool's answer, back with the model: the moment a full query can end
         // without losing the step it just took.
-        if (!full && m["type"] === "user" && !inSubagent && options.picturesPerQuery && pictured >= options.picturesPerQuery) {
+        if (!full && m["type"] === "user" && !inSubagent && cap && pictured >= cap) {
           full = true;
-          void stream.interrupt();
+          void stream.interrupt().catch(() => undefined);
           continue;
         }
 
@@ -464,6 +474,7 @@ export async function runSdkChat(
           // A result with no text of its own is the SDK stopping rather than
           // answering: an error, or the turn limit.
           if (m["subtype"] !== "success" && !full) stopped = true;
+          used += typeof m["num_turns"] === "number" ? m["num_turns"] : 1;
           if (typeof m["result"] === "string" && !text) text = m["result"];
           /*
            * Accounting comes from here, not from adding up the assistant
@@ -496,7 +507,12 @@ export async function runSdkChat(
       else throw err;
     }
 
+    // The steps are the turn's, not each query's: a turn carried on in fresh queries stops where one query would have.
     if (!full || stopped) break;
+    if (used >= budget) {
+      stopped = true;
+      break;
+    }
     prompt = asMessage(carryOn(options.prompt, calls), lastPicture ? [lastPicture] : []);
   }
   /*
