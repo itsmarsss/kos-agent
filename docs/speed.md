@@ -23,6 +23,29 @@ moves a lot with the time of day (the same step took 3 s at one hour and 15 s
 at another), so a change that matters was run against the old build
 alternately, several times, and judged on the median.
 
+## Main against this branch
+
+The whole suite once on each, back to back. A single model call over 60 s is
+the provider stalling (no tool and no KOS work was running in it; both builds
+had them), so it is counted apart, in brackets.
+
+| Task | main | branch |
+| --- | --- | --- |
+| computer10 | 208.2 s, 15 calls, median call 3.4 s, peak 37k | 44.3 s, 14 calls, median call 2.1 s, peak 60k |
+| computer20 | 166.7 s, 18 calls, median call 3.5 s, peak 43k (+506 s in 1 stalled call), WRONG | 108.5 s, 24 calls, median call 3.0 s, peak 62k (+290 s in 1 stalled call) |
+| watch | 26.2 s, 9 calls, median call 3.4 s, peak 48k, WRONG | 13.8 s, 5 calls, median call 4.0 s, peak 54k (+531 s in 1 stalled call) |
+| chrome-price | 9.2 s, 4 calls, median call 1.8 s, peak 48k (+254 s in 1 stalled call) | 7.0 s, 2 calls, median call 1.6 s, peak 52k |
+| chrome-cart | 19.9 s, 8 calls, median call 1.3 s, peak 49k | 13.2 s, 5 calls, median call 3.3 s, peak 54k (+586 s in 1 stalled call) |
+| chrome-steps | 27.9 s, 15 calls, median call 1.6 s, peak 56k | 24.8 s, 9 calls, median call 1.9 s, peak 57k |
+| context-read | 80.7 s, 14 calls, median call 3.4 s, peak 69k | 388.0 s, 2 calls, median call 5.5 s, peak 66k |
+| context-lisbon | 45.1 s, 13 calls, median call 2.3 s, peak 25k | 10.6 s, 2 calls, median call 2.6 s, peak 66k |
+| context-churn | 10.2 s, 1 calls, median call 7.8 s, peak 18k | 5.7 s, 1 calls, median call 4.0 s, peak 52k |
+| context-s12 | 98.3 s, 8 calls, median call 4.5 s, peak 35k | 9.4 s, 2 calls, median call 2.4 s, peak 66k |
+
+The PDF chat once more on the branch, with the hard deadlines: 15.9, 10.2,
+4.9 and 11.5 s, every answer right. The branch's larger peak prompt is the
+tools loaded up front, cached after the first call.
+
 ## What made it slow
 
 1. **Every picture went again with every step.** One SDK query runs a whole
