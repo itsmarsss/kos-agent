@@ -109,10 +109,12 @@ const api = async (path, body) => {
   const r = await fetch(`${KOS}${path}`, { signal: AbortSignal.timeout(path === "/api/message" ? 900_000 : 20_000), ...(body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) });
   return r.json();
 };
+/** The chats this run opened; only theirs are approved, never another chat's on the same host. */
+const benchChats = new Set();
 /** The owner, at the dashboard: approves whatever a bench chat asks. */
 const approveAll = async () => {
   const pending = await api("/api/approvals").catch(() => []);
-  for (const a of Array.isArray(pending) ? pending : []) await api("/api/approve", { id: a.id }).catch(() => undefined);
+  for (const a of Array.isArray(pending) ? pending : []) if (benchChats.has(a.conversationId)) await api("/api/approve", { id: a.id }).catch(() => undefined);
 };
 /** Replies KOS has written in a chat, oldest first. */
 const replies = async (sessionId) => {
@@ -137,7 +139,11 @@ const turn = async (sessionId, text, limitMs = 600_000) => {
   }
   return { t0, t1: Date.now(), wall: (Date.now() - t0) / 1000, answer };
 };
-const newChat = async (title) => (await api("/api/conversations/new", { title })).id;
+const newChat = async (title) => {
+  const { id } = await api("/api/conversations/new", { title });
+  benchChats.add(id);
+  return id;
+};
 
 // ---------------------------------------------------------------- the SDK's own record of each model call
 
