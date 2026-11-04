@@ -34,7 +34,7 @@ export default {
       "Back to the operations review: how many staff did the Lisbon office open with, and what does it handle?",
       "What is the fleet replacement budget, and when was it approved?",
       "When do night shifts end from January?",
-      "How much notice would we have to give to end the agreement with the company that supplies our warehouses?",
+      "Which company supplies our warehouses, and how much notice would we have to give to end our agreement with them?",
     ])
       ctx.answers.push((await ctx.turn(chat, q)).answer);
   },
