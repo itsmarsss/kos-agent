@@ -181,6 +181,8 @@ function sdkCalls(t0, t1) {
 // ---------------------------------------------------------------- a fake KOS for Mac, whose screen is a real page
 
 async function fakeMac() {
+  // One Bench Mac at a time: one left from an earlier run would be offline, and could be the one a chat picks.
+  for (const d of (await api("/api/devices")).devices ?? []) if (d.name === "Bench Mac") await api("/api/devices/remove", { id: d.id }).catch(() => undefined);
   const key = generateKeyPairSync("ed25519").privateKey;
   const { code } = await api("/api/devices/pairings", {});
   const paired = await api("/api/devices/pair", { code, name: "Bench Mac", platform: "macos", publicKey: rawPublicKey(key) });
