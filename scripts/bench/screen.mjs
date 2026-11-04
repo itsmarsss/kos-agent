@@ -105,7 +105,8 @@ const evaluate = async (session, expression) => (await send("Runtime.evaluate", 
 // ---------------------------------------------------------------- KOS
 
 const api = async (path, body) => {
-  const r = await fetch(`${KOS}${path}`, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  // A long turn is waited on by polling, never by one request: each call gives up after 20 seconds.
+  const r = await fetch(`${KOS}${path}`, { signal: AbortSignal.timeout(path === "/api/message" ? 900_000 : 20_000), ...(body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) });
   return r.json();
 };
 /** The owner, at the dashboard: approves whatever a bench chat asks. */
@@ -120,7 +121,7 @@ const turn = async (sessionId, text, limitMs = 600_000) => {
   let worked = false;
   while (Date.now() - t0 < limitMs) {
     await approveAll();
-    const c = (await api("/api/conversations")).find((x) => x.id === sessionId);
+    const c = (await api("/api/conversations").catch(() => [])).find((x) => x.id === sessionId);
     if (c?.activity === "working") worked = true;
     else if (worked) break;
     await sleep(400);
