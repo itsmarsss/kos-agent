@@ -52,7 +52,7 @@ import { MEMORY_JOB } from "../memory/job.js";
 import type { ReviewQueue } from "../memory/review.js";
 import type { CallerStore } from "../memory/callers.js";
 import type { PageLog } from "../memory/pages.js";
-import { DEFAULT_ROUTING, type Route, type Task } from "../models/router.js";
+import { SCREEN_SUGGESTION, type Route, type Task } from "../models/router.js";
 import type { Effort, Provider } from "../models/provider.js";
 import { CUSTOM_PROVIDER, OpenAICompatibleProvider } from "../models/providers/compat.js";
 import { CLASSIFIER_KEY, CUSTOM_ENDPOINT_KEY, parseClassifierEndpoint, parseCustomEndpoint, type CustomEndpoint } from "../models/settings.js";
@@ -1511,7 +1511,7 @@ export class Kernel {
   private sdkScreen(): { model: string; effort?: Effort } | undefined {
     const route = this.screenRoute();
     if (!route) return undefined;
-    const spec = route.provider === "anthropic" ? route.spec : DEFAULT_ROUTING.screen.spec;
+    const spec = route.provider === "anthropic" ? route.spec : SCREEN_SUGGESTION.spec;
     return { model: spec.model, ...(spec.effort ? { effort: spec.effort } : {}) };
   }
 

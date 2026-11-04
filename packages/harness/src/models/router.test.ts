@@ -124,14 +124,19 @@ describe("describeRoutes", () => {
     expect(router.describeRoutes()).toEqual({
       reasoning: { provider: "openai", model: "gpt-5.6-terra", effort: "high" },
       cheap: { provider: "openai", model: "gpt-5.4-mini", effort: "low" },
-      screen: { provider: "openai", model: "gpt-5.6-terra", effort: "low" },
+      screen: { provider: "openai", model: "gpt-5.6-terra", effort: "high" },
     });
   });
 
-  it("routes screen work to a quicker model than the turn's", () => {
+  it("runs screen work on the reasoning route until the owner gives it one of its own", () => {
     const secrets = new SecretsRegistry();
     secrets.set("anthropic", "sk-ant-test");
-    expect(createDefaultRouter(secrets).describeRoutes().screen).toEqual({ provider: "anthropic", model: "claude-sonnet-5-5", effort: "low" });
+    const router = createDefaultRouter(secrets);
+    expect(router.routeFor("screen")).toEqual(router.routeFor("reasoning"));
+    router.setRoute("reasoning", { provider: "anthropic", spec: { model: "claude-opus-5" } });
+    expect(router.routeFor("screen").spec.model).toBe("claude-opus-5");
+    router.setRoute("screen", { provider: "anthropic", spec: { model: "claude-sonnet-5-5", effort: "low" } });
+    expect(router.describeRoutes().screen).toEqual({ provider: "anthropic", model: "claude-sonnet-5-5", effort: "low" });
   });
 
   it("reports the anthropic table when that key is present", () => {
