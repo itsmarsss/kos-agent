@@ -49,15 +49,17 @@ const article = (n) => {
   const filler = (i) => Array.from({ length: 9 }, (_, j) => `Paragraph ${j + 1} of section ${i} reviews routine operating detail: staffing levels, supplier terms, delivery windows and the quarterly targets each team agreed, with no change from the plan.`).join(" ");
   return `<!doctype html><meta charset=utf-8><title>Annual operations review</title><style>body{font:15px Georgia;max-width:680px;margin:40px auto}section{page-break-after:always}</style><h1>Annual operations review</h1>${Array.from({ length: n }, (_, i) => `<section><h2>Section ${i + 1}</h2><p>${facts[i + 1] ?? ""} ${filler(i + 1)}</p></section>`).join("")}`;
 };
-const wizard = (n) => `<!doctype html><meta charset=utf-8><title>Bench Desk</title>
-<style>body{margin:0;width:${W}px;height:${H}px;font:20px -apple-system,Helvetica;background:#eef1f6}main{margin:60px auto;width:620px;background:#fff;border-radius:14px;padding:30px 36px;box-shadow:0 2px 12px #0002}code{font-size:34px;letter-spacing:4px;background:#f3f0e6;padding:4px 12px;border-radius:6px}input{font-size:22px;padding:10px;width:240px}button{font-size:20px;padding:10px 26px;margin-left:12px}#msg{color:#b00;height:26px}</style>
+/** A busy desktop behind the app: a terminal's worth of coloured text, so a picture weighs what a real screen's does. */
+const BUSY = `<pre style="position:fixed;inset:0;margin:0;font:11px Menlo;line-height:13px;color:#9fb;background:#111;overflow:hidden;z-index:-1">${Array.from({ length: 90 }, (_, i) => Array.from({ length: 24 }, (_, j) => `<span style="color:hsl(${(i * 37 + j * 53) % 360} 60% 65%)">${((i * 7919 + j * 104729) % 99991).toString(36)}</span>`).join(" ")).join("\n")}</pre>`;
+const wizard = (n) => `<!doctype html><meta charset=utf-8><title>Bench Desk</title>${BUSY}
+<style>body{margin:0;font:20px -apple-system,Helvetica}main{margin:60px auto;width:620px;background:#fff;border-radius:14px;padding:30px 36px;box-shadow:0 2px 12px #0002}code{font-size:34px;letter-spacing:4px;background:#f3f0e6;padding:4px 12px;border-radius:6px}input{font-size:22px;padding:10px;width:240px}button{font-size:20px;padding:10px 26px;margin-left:12px}#msg{color:#b00;height:26px}</style>
 <main><h2>Setup wizard</h2><p id=step></p><p>Code: <code id=code></code></p><p><input id=box placeholder="Type the code"><button id=next>Next</button></p><p id=msg></p></main>
 <script>const N=${n};let i=1;const words="AMBER,BISON,CEDAR,DELTA,EMBER,FJORD,GLINT,HAZEL,IVORY,JUMBO,KAYAK,LUNAR,MAPLE,NOVA,OPAL,PIXEL,QUILL,RAVEN,SOLAR,TULIP,UMBRA,VIVID".split(",");
 const show=()=>{if(i>N){document.querySelector('main').innerHTML='<h2>All done.</h2><p>Final code: <code>'+words[N%words.length]+'-'+N+'</code></p>';window.benchDone=true;return;}step.textContent='Step '+i+' of '+N;code.textContent=words[(i-1)%words.length];box.value='';msg.textContent='';};
 next.onclick=()=>{if(box.value.trim().toUpperCase()===words[(i-1)%words.length]){i++;show();}else msg.textContent='That is not the code shown.';};
 box.onkeydown=(e)=>{if(e.key==='Enter')next.click();};show();</script>`;
-const watch = (secs) => `<!doctype html><meta charset=utf-8><title>Bench Desk</title>
-<style>body{margin:0;width:${W}px;height:${H}px;font:22px -apple-system,Helvetica;background:#eef1f6}main{margin:120px auto;width:560px;background:#fff;border-radius:14px;padding:34px;box-shadow:0 2px 12px #0002}</style>
+const watch = (secs) => `<!doctype html><meta charset=utf-8><title>Bench Desk</title>${BUSY}
+<style>body{margin:0;font:22px -apple-system,Helvetica}main{margin:120px auto;width:560px;background:#fff;border-radius:14px;padding:34px;box-shadow:0 2px 12px #0002}</style>
 <main><h2>Export</h2><p id=s>Starting…</p></main><script>const t0=Date.now();const tick=()=>{const p=Math.min(100,Math.round((Date.now()-t0)/(${secs}*10)));if(p<100){s.textContent='Export running… '+p+'%';setTimeout(tick,500);}else{s.textContent='Export finished: 1,284 rows written.';window.benchDone=true;}};tick();</script>`;
 const shopPage = `<!doctype html><meta charset=utf-8><title>Field Goods · Stoneware Mug</title><h1>Stoneware Mug, 12 oz</h1><p>Price: <b>$16</b>. Ships in 2 days.</p><button id="add" onclick="this.textContent='Added to cart'" style="padding:14px 22px">Add to cart</button>`;
 const stepsPage = `<!doctype html><meta charset=utf-8><title>Steps</title><h1 id="h">Step 0</h1>${[1, 2, 3, 4, 5].map((n) => `<button onclick="if (document.getElementById('h').textContent === 'Step ${n - 1}') document.getElementById('h').textContent = 'Step ${n}'" style="margin:8px;padding:12px 18px">Next ${n}</button>`).join("")}`;
@@ -186,16 +188,24 @@ async function fakeMac() {
   await send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: 1, mobile: false }, screen.session);
   const mine = nonce();
   const calls = [];
+  const size = { w: 1280, h: 800 };
+  /** How big each picture was, in base64 characters: what every later step sends again. */
+  const bytes = [];
   const ws = new WebSocket(`${KOS.replace(/^http/, "ws")}${SOCKET_PATH}`);
   const mouse = async (type, x, y, extra = {}) => send("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1, ...extra }, screen.session);
   const KEYS = { return: ["Enter", 13], enter: ["Enter", 13], tab: ["Tab", 9], escape: ["Escape", 27], backspace: ["Backspace", 8], space: [" ", 32] };
   const handle = async (method, p) => {
     switch (method) {
-      case "session.begin":
-        return { granted: true, until: Date.now() + 30 * 60_000, space: { width: W, height: H } };
+      case "session.begin": {
+        size.w = typeof p.maxEdge === "number" ? p.maxEdge : 1280;
+        size.h = Math.round(size.w * 0.625);
+        await send("Emulation.setDeviceMetricsOverride", { width: size.w, height: size.h, deviceScaleFactor: 1, mobile: false }, screen.session);
+        return { granted: true, until: Date.now() + 30 * 60_000, space: { width: size.w, height: size.h } };
+      }
       case "screen.capture": {
         const { data } = await send("Page.captureScreenshot", { format: "jpeg", quality: 80 }, screen.session);
-        return { image: data, mediaType: "image/jpeg", width: W, height: H, cursor: { x: 0, y: 0 }, app: { name: "Bench Desk", bundle: "dev.kos.bench" } };
+        bytes.push(data.length);
+        return { image: data, mediaType: "image/jpeg", width: size.w, height: size.h, cursor: { x: 0, y: 0 }, app: { name: "Bench Desk", bundle: "dev.kos.bench" } };
       }
       case "pointer.click":
         for (let n = 1; n <= (p.count ?? 1); n++) {
@@ -244,6 +254,7 @@ async function fakeMac() {
   }
   return {
     calls,
+    bytes,
     show: async (url) => {
       await send("Page.navigate", { url }, screen.session);
       await sleep(600);
@@ -275,13 +286,13 @@ if (TASKS.some((t) => t.startsWith("computer") || t === "watch")) {
     const chat = await newChat(`bench ${name}`);
     const run = await turn(chat, "On Bench Mac, the Bench Desk app is in front with a setup wizard. Finish it: each step shows a code; type that code into the box and press Next. When it says All done, end the session and tell me the final code.");
     const done = await mac.done();
-    record(name, run, done && run.answer.includes(`-${n}`), { device: mac.calls.splice(0) });
+    record(name, run, done && run.answer.includes(`-${n}`), { device: mac.calls.splice(0), pictureBytes: mac.bytes.splice(0) });
   }
   if (TASKS.includes("watch")) {
     await mac.show(`${SITE}/watch?s=45`);
     const chat = await newChat("bench watch");
     const run = await turn(chat, "On Bench Mac, an export is running in the Bench Desk app in front. Watch it until it finishes, then end the session and tell me how many rows it wrote.");
-    record("watch", run, /1,?284/.test(run.answer), { device: mac.calls.splice(0) });
+    record("watch", run, /1,?284/.test(run.answer), { device: mac.calls.splice(0), pictureBytes: mac.bytes.splice(0) });
   }
   await mac.close();
 }
@@ -374,7 +385,7 @@ if (TASKS.includes("heavy")) {
   const notes = Array.from({ length: 2400 }, (_, i) => `Note ${i + 1}: met the supplier about the autumn range, agreed the delivery window and the unit price, nothing to act on.`).join("\n");
   await turn(heavy, `Here are my notes from this month, for later. Just say OK.\n\n${notes}`);
   const run = await turn(heavy, "On Bench Mac, the Bench Desk app is in front with a setup wizard. Finish it: each step shows a code; type that code into the box and press Next. When it says All done, end the session and tell me the final code.");
-  record("heavy10", run, (await mac.done()) && run.answer.includes("-10"), { device: mac.calls.splice(0) });
+  record("heavy10", run, (await mac.done()) && run.answer.includes("-10"), { device: mac.calls.splice(0), pictureBytes: mac.bytes.splice(0) });
   await mac.close();
 }
 
