@@ -649,7 +649,9 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
 
   // Big results set aside once read, outlined once by the cheap model.
   const shelf = new ResultShelf(join(workspace.root, ".kos", "results"), async (text, what) => {
+    // An outline is a help, never a wait: one that is slow to come is left out.
     const res = await inference.generate("cheap", {
+      signal: AbortSignal.timeout(15_000),
       system: "Outline a document for someone who may need to look things up in it later: its sections or parts, and the specific facts, names and numbers each holds. At most 120 words, plain text, no preamble.",
       messages: [{ role: "user", content: [{ type: "text", text: `${what}:\n\n${text.slice(0, 60_000)}` }] }],
     });
