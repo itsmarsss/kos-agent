@@ -1221,6 +1221,50 @@ describe("handleApiRequest", () => {
     });
   });
 
+  describe("an HTML page's bridge", () => {
+    beforeEach(() => {
+      kernel.manifest.createProject({ name: "Shelf", type: "tracker" });
+      kernel.manifest.createProject({ name: "Vault", type: "notes" });
+      kernel.workspace.db.exec(
+        `CREATE TABLE shelf_books (id INTEGER PRIMARY KEY, title TEXT);
+         CREATE TABLE vault_keys (id INTEGER PRIMARY KEY, token TEXT);
+         INSERT INTO shelf_books (title) VALUES ('Dune');
+         INSERT INTO vault_keys (token) VALUES ('keep me');`,
+      );
+      kernel.pages.writeHtml("shelf", {
+        id: "shelf",
+        title: "Shelf",
+        html: "<p>books</p>",
+        capabilities: { writes: [{ table: "shelf_books", columns: ["title"], allow: ["insert"] }] },
+        headline: { label: "Books", query: "SELECT COUNT(*) FROM shelf_books" },
+      });
+    });
+
+    const bridge = (verb: string, body: Record<string, unknown>) => handleApiRequest(kernel, { method: "POST", path: `/api/pages/shelf/${verb}`, body });
+
+    it("serves the page as HTML with its declarations, and its card its headline", async () => {
+      const page = await handleApiRequest(kernel, { method: "GET", path: "/api/pages/shelf", body: {} });
+      expect(page.body).toMatchObject({ kind: "html", page: { html: "<p>books</p>" } });
+      const list = await handleApiRequest(kernel, { method: "GET", path: "/api/pages", body: {} });
+      expect((list.body as { id: string; headline?: unknown }[]).find((p) => p.id === "shelf")?.headline).toEqual({ label: "Books", value: 1 });
+    });
+
+    it("answers the page's own queries and declared writes", async () => {
+      expect((await bridge("write", { table: "shelf_books", op: "insert", values: { title: "Emma" } })).status).toBe(200);
+      const read = await bridge("query", { sql: "SELECT title FROM shelf_books ORDER BY id" });
+      expect((read.body as { rows: unknown[] }).rows).toEqual([{ title: "Dune" }, { title: "Emma" }]);
+    });
+
+    it("refuses another project's table, an undeclared write and the old widget route, and logs the refusal", async () => {
+      const stolen = await bridge("query", { sql: "SELECT token FROM vault_keys" });
+      expect(stolen.status).toBe(403);
+      expect(JSON.stringify(stolen.body)).not.toContain("keep me");
+      expect((await bridge("write", { table: "vault_keys", op: "insert", values: { token: "x" } })).status).toBe(403);
+      expect((await handleApiRequest(kernel, { method: "POST", path: "/api/mutate", body: { pageId: "shelf", widgetIndex: 0, op: "insert", values: {} } })).status).toBe(404);
+      expect(kernel.audit.recent(5).some((r) => r.tool === "page.query" && r.isError)).toBe(true);
+    });
+  });
+
   describe("/api/mutate", () => {
     beforeEach(() => {
       kernel.workspace.db.exec(

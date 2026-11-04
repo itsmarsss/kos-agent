@@ -11,6 +11,7 @@ import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
 import { DREAM_JOB, MEMORY_JOB, OBSERVE_JOB } from "../memory/job.js";
 import { runDisplayQuery } from "../systems/display.js";
+import { BridgeRefusal, pageFile, pageQuery, pageWrite } from "../systems/pagebridge.js";
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
 import { primarySessionId } from "./session.js";
@@ -1404,15 +1405,51 @@ export async function handleApiRequest(
         : undefined;
     // Query string project= is not in body for GET; parse from url if present.
     const qsProject = projectFromUrl(req.url);
-    return ok(kernel.pages.list(qsProject ?? project));
+    return ok(kernel.pages.list(qsProject ?? project).map((record) => ({ ...record, ...headlineOf(kernel, record.id) })));
+  }
+
+  /*
+   * An HTML page's window.kos, relayed by the dashboard. Each call is checked
+   * against the page's own declarations and project (systems/pagebridge.ts);
+   * a refusal is answered plainly and logged.
+   */
+  const bridgeCall = /^\/api\/pages\/([^/]+)\/(query|write|file|history|rollback)$/.exec(path);
+  if (bridgeCall) {
+    const id = decodeURIComponent(bridgeCall[1]!);
+    const verb = bridgeCall[2]!;
+    const got = kernel.pages.get(id);
+    if (!got) return { status: 404, body: { error: "page not found" } };
+    if (verb === "history" && method === "GET") return ok(kernel.pages.history(id));
+    if (verb === "rollback" && method === "POST") {
+      try {
+        return ok(kernel.pages.rollback(id, Number(body.version)));
+      } catch (err) {
+        return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
+      }
+    }
+    if (method !== "POST" || got.kind !== "html") return { status: 404, body: { error: "not found" } };
+    const bridge = { page: got.page, projectSlug: got.record.projectSlug, slugs: kernel.manifest.list().map((p) => p.slug) };
+    try {
+      if (verb === "query") return ok(pageQuery(kernel.workspace.reader, bridge, body.sql, body.params));
+      if (verb === "write") return ok(pageWrite(kernel.workspace.db, bridge, body));
+      return ok(pageFile(kernel.workspace, bridge, body.path));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (err instanceof BridgeRefusal) {
+        kernel.audit.record({ tool: `page.${verb}`, args: { page: id, ...(verb === "query" ? { sql: body.sql } : verb === "write" ? { table: body.table, op: body.op } : { path: body.path }) }, result: message, isError: true });
+        return { status: 403, body: { error: message } };
+      }
+      return { status: 400, body: { error: message } };
+    }
   }
 
   if (method === "GET" && path.startsWith("/api/pages/")) {
     const id = decodeURIComponent(path.slice("/api/pages/".length));
     const got = kernel.pages.get(id);
     if (!got) return { status: 404, body: { error: "page not found" } };
+    if (got.kind === "html") return ok({ record: got.record, kind: "html", page: got.page });
     const { data, errors } = await loadPageData(kernel, got.spec);
-    return ok({ record: got.record, spec: got.spec, data, errors });
+    return ok({ record: got.record, kind: "spec", spec: got.spec, data, errors });
   }
 
   if (method === "POST" && path === "/api/query") {
@@ -1440,7 +1477,7 @@ export async function handleApiRequest(
       };
     }
     const page = kernel.pages.get(pageId);
-    if (!page) return { status: 404, body: { error: "page not found" } };
+    if (!page || page.kind !== "spec") return { status: 404, body: { error: "page not found" } };
     const widget = page.spec.widgets[widgetIndex];
     if (!widget) return { status: 404, body: { error: "widget not found" } };
     if (!WRITE_CAPABLE.has(widget.type)) {
@@ -3018,6 +3055,24 @@ interface PageData {
   data: Record<number, Record<string, unknown>[]>;
   /** Query failure message per widget index, so a broken widget is visible. */
   errors: Record<number, string>;
+}
+
+/**
+ * The figure an HTML page offers its project's card on Home: its headline
+ * query, run through the same checks as any of its queries. A failing one is
+ * left out rather than shown wrong.
+ */
+function headlineOf(kernel: Kernel, id: string): { headline?: { label: string; value: unknown } } {
+  const got = kernel.pages.get(id);
+  if (got?.kind !== "html" || !got.page.headline) return {};
+  try {
+    const bridge = { page: got.page, projectSlug: got.record.projectSlug, slugs: kernel.manifest.list().map((p) => p.slug) };
+    const row = pageQuery(kernel.workspace.reader, bridge, got.page.headline.query, [], { rowCap: 1 }).rows[0];
+    const value = row ? Object.values(row)[0] : undefined;
+    return value === undefined ? {} : { headline: { label: got.page.headline.label, value } };
+  } catch {
+    return {};
+  }
 }
 
 async function loadPageData(kernel: Kernel, spec: PageSpec): Promise<PageData> {

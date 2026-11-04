@@ -26,6 +26,8 @@ export interface DisplayQueryOptions {
   timeoutMs?: number;
   /** Injectable clock for tests. */
   now?: () => number;
+  /** Values bound to the query's ? placeholders. */
+  params?: (string | number | null)[];
 }
 
 export interface DisplayQueryResult {
@@ -60,7 +62,7 @@ export function runDisplayQuery(
   let truncated = false;
   let timedOut = false;
 
-  const cursor = stmt.iterate();
+  const cursor = stmt.iterate(...(options.params ?? []));
   try {
     for (const row of cursor) {
       if (now() > deadline) {
