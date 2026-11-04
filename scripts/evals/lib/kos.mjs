@@ -21,6 +21,8 @@ export class Kos {
      * returning "approve" | "deny" | "leave".
      */
     this.policy = "approve";
+    /** When this run began: approvals filed with no chat after it are this run's. */
+    this.since = Date.now();
   }
 
   async api(path, body, ms = 20_000) {
@@ -57,7 +59,9 @@ export class Kos {
   async decide() {
     const pending = await this.api("/api/approvals").catch(() => []);
     for (const a of Array.isArray(pending) ? pending : []) {
-      if (!this.mine.has(a.conversationId) && !String(a.conversationId ?? "").startsWith("project:")) continue;
+      // This run's chats, a project's chat it handed work to, or an approval filed with no chat while this run was going (the owner sees those in the inbox).
+      const ours = this.mine.has(a.conversationId) || String(a.conversationId ?? "").startsWith("project:") || (!a.conversationId && (a.requestedAt ?? 0) >= (this.since ?? 0));
+      if (!ours) continue;
       if (this.approvals.some((x) => x.id === a.id)) continue;
       const choice = typeof this.policy === "function" ? this.policy(a) : this.policy;
       this.approvals.push({ id: a.id, tool: a.tool, args: a.args, conversationId: a.conversationId, choice, at: Date.now() });
