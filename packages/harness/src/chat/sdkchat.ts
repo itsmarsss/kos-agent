@@ -11,7 +11,8 @@ import {
 
 import type { ToolBox } from "../agent/loop.js";
 import { SCREEN_HANDOFF, SCREEN_PROMPT, forScreenAgent, isScreenTool } from "../agent/screen.js";
-import { isShelved } from "../context/shelf.js";
+import { fenced, isShelved } from "../context/shelf.js";
+import { splitOwnerWords } from "../kernel/transcript.js";
 import type { Effort } from "../models/provider.js";
 import { toolUse } from "../kernel/caller.js";
 import { credentials } from "../builds/runner.js";
@@ -143,7 +144,14 @@ export interface SdkChatOptions {
  * as it is now rides with it as a picture.
  */
 export function carryOn(prompt: string, calls: SdkToolCall[]): string {
-  const steps = calls.map((c, i) => `${i + 1}. ${c.name} ${JSON.stringify(c.input).slice(0, 300)}\n   -> ${c.result.replace(/\s+/g, " ").slice(0, 300)}`);
+  const steps = calls.map((c, i) => {
+    // The owner's words that rode in on a result are theirs, kept whole and outside the result's fence.
+    const { content, said } = splitOwnerWords(c.result);
+    // A screen step's answer is a line about what it did, and the screen is attached; any other result is kept whole (or its stub), since what it said may be what the rest of the turn needs.
+    const answer = isScreenTool(c.name) ? content.replace(/\s+/g, " ").slice(0, 300) : content;
+    const owner = said.map((w) => `\n   The owner said, while you worked: ${w}`).join("");
+    return `${i + 1}. ${c.name} ${JSON.stringify(c.input).slice(0, 300)}\n${fenced(c.name, answer)}${owner}`;
+  });
   return `${prompt}\n\n[You are partway through this turn. These steps are already done, newest last; the screen as it is now is attached. Carry on from here: do not repeat them or start over, and keep any session that is open.]\n${steps.join("\n")}`;
 }
 
@@ -188,6 +196,8 @@ export function screenSplit(names: string[], screen: SdkChatOptions["screen"]): 
 export function priorForSdk(
   history: { role: string; content: unknown }[],
   text: string,
+  /** Big results carried in words, whole or as stubs: only when setting them aside is on. */
+  opts: { kept?: boolean } = {},
 ): string {
   const spoken = history
     .map((m) => {
@@ -213,8 +223,8 @@ export function priorForSdk(
           }
           // A big result is carried in words, whole while it is recent and as its stub after, so a follow-up need not read it again.
           const result = b as { type?: string; content?: unknown };
-          if (result.type === "tool_result" && typeof result.content === "string" && isShelved(result.content)) {
-            return result.content;
+          if (opts.kept && result.type === "tool_result" && typeof result.content === "string" && isShelved(result.content)) {
+            return fenced("result", result.content);
           }
           return "";
         })

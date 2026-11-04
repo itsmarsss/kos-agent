@@ -8,8 +8,8 @@ import type { SecretsRegistry } from "../secrets/secrets.js";
 import { attendance, caller } from "./caller.js";
 
 export interface GuardedToolsDeps {
-  /** A big result set aside as it comes back: whole with its handle, or its start and an outline when huge. */
-  shelve?: (tool: string, input: Record<string, unknown>, content: string) => Promise<string>;
+  /** A big result set aside as it comes back: whole with its handle, or its start and an outline when huge (in an SDK query). */
+  shelve?: (tool: string, input: Record<string, unknown>, content: string, huge: boolean) => Promise<string>;
   registry: ToolRegistry;
   secrets: SecretsRegistry;
   audit: AuditLog;
@@ -122,6 +122,13 @@ export class GuardedTools implements ToolBox {
   /** Identical calls made this turn, keyed by tool name and arguments. */
   private readonly repeats = new Map<string, number>();
 
+  /**
+   * Set by an SDK query: there a result over the SDK's file limit is cut to
+   * its start, an outline and a handle, since the SDK would otherwise write it
+   * to a file the model then reads piecemeal. Elsewhere results come whole.
+   */
+  cutHuge = false;
+
   constructor(private readonly deps: GuardedToolsDeps) {}
 
   /** Does this tool survive the conversation's allow-list? */
@@ -208,7 +215,7 @@ export class GuardedTools implements ToolBox {
    */
   async execute(name: string, input: Record<string, unknown>): Promise<ToolExecution> {
     const called = await this.call(name, input);
-    const result = this.deps.shelve && !called.isError ? { ...called, content: await this.deps.shelve(name, input, called.content) } : called;
+    const result = this.deps.shelve && !called.isError ? { ...called, content: await this.deps.shelve(name, input, called.content, this.cutHuge) } : called;
     const said = this.deps.heard?.();
     return said ? { ...result, content: `${result.content}${said}` } : result;
   }

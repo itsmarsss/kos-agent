@@ -1,4 +1,4 @@
-import type { ResultShelf } from "../context/shelf.js";
+import type { Owner, ResultShelf } from "../context/shelf.js";
 import type { KosModule, ModuleContext } from "../modules/loader.js";
 
 /**
@@ -8,7 +8,7 @@ import type { KosModule, ModuleContext } from "../modules/loader.js";
  * sent with every message; its stub names a handle. This brings back what is
  * needed of it: the passages around a search, or a range of characters.
  */
-export function createRecallModule(shelf: () => ResultShelf | undefined): KosModule {
+export function createRecallModule(shelf: () => ResultShelf | undefined, who: () => Owner): KosModule {
   return {
     manifest: {
       name: "recall",
@@ -38,11 +38,15 @@ export function createRecallModule(shelf: () => ResultShelf | undefined): KosMod
           const s = shelf();
           if (!s) return "set-aside results are switched off in Settings, Behaviour";
           const handle = typeof input.handle === "string" ? input.handle.trim() : "";
-          return s.recall(handle, {
-            ...(typeof input.search === "string" ? { search: input.search } : {}),
-            ...(typeof input.from === "number" ? { from: input.from } : {}),
-            ...(typeof input.to === "number" ? { to: input.to } : {}),
-          });
+          return s.recall(
+            handle,
+            {
+              ...(typeof input.search === "string" ? { search: input.search } : {}),
+              ...(typeof input.from === "number" ? { from: input.from } : {}),
+              ...(typeof input.to === "number" ? { to: input.to } : {}),
+            },
+            who(),
+          );
         },
       );
     },

@@ -58,7 +58,7 @@ import { createShellModule } from "../tools/shell.js";
 import { createTexModule } from "../tools/tex.js";
 import { createRecallModule } from "../tools/recall.js";
 import { ResultShelf } from "../context/shelf.js";
-import { textOf } from "../models/types.js";
+import { outlinerFor } from "../context/outliner.js";
 import { join } from "node:path";
 import { createSkillsModule } from "../tools/skills.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillPromoted } from "../skills/settings.js";
@@ -366,7 +366,14 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     createShellModule(),
     createPythonModule(),
     createTexModule(),
-    createRecallModule(() => (kernelRef?.behaviour().smartContext ? shelf : undefined)),
+    createRecallModule(
+      () => (kernelRef?.behaviour().smartContext ? shelf : undefined),
+      () => {
+        const id = kernelRef?.callerConversationId;
+        const slug = id ? conversations.get(id)?.projectSlug : undefined;
+        return { ...(id ? { conversationId: id } : {}), ...(slug ? { projectSlug: slug } : {}) };
+      },
+    ),
     createModulesModule({
       enabled: () => parseModuleSettings(settings.get(MODULES_KEY)).enabled,
       status: () => mcp.status(),
@@ -648,15 +655,14 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const inference = options.inference ?? router!;
 
   // Big results set aside once read, outlined once by the cheap model.
-  const shelf = new ResultShelf(join(workspace.root, ".kos", "results"), async (text, what) => {
-    // An outline is a help, never a wait: one that is slow to come is left out.
-    const res = await inference.generate("cheap", {
-      signal: AbortSignal.timeout(15_000),
-      system: "Outline a document for someone who may need to look things up in it later: its sections or parts, and the specific facts, names and numbers each holds. At most 120 words, plain text, no preamble.",
-      messages: [{ role: "user", content: [{ type: "text", text: `${what}:\n\n${text.slice(0, 60_000)}` }] }],
-    });
-    return textOf(res.content);
-  });
+  const shelf = new ResultShelf(
+    join(workspace.root, ".kos", "results"),
+    outlinerFor(inference, () => (kernelRef?.behaviour().engine === "sdk" ? "anthropic" : inference.routeFor?.("reasoning").provider)),
+    (text) => secrets.redact(text),
+  );
+  // Kept results age out after KEEP_DAYS: swept now and once a day.
+  shelf.sweep();
+  setInterval(() => shelf.sweep(), 86_400_000).unref();
 
   // Every response's token count, attributed to whatever conversation was
   // being worked on. Providers report this and it was being thrown away, so
@@ -760,6 +766,10 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   // A chat deleted anywhere (the dashboard, chats.delete) is announced, so
   // the thread that stood for it on Discord goes with it.
   const kernel = kernelRef;
-  kernel.conversations.onRemoved((id) => kernel.bus.emit({ kind: "chat:deleted", conversationId: id }));
+  kernel.conversations.onRemoved((id) => {
+    // A chat's kept results go with it.
+    shelf.forget(id);
+    kernel.bus.emit({ kind: "chat:deleted", conversationId: id });
+  });
   return kernelRef;
 }

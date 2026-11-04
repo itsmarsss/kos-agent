@@ -1094,6 +1094,7 @@ export class Kernel {
           // turn. Without it the Stop button was a silent no-op on this engine:
           // abortFor() was only ever called on the non-SDK path.
           const controller = this.abortFor(sessionId);
+          tools.cutHuge = true;
           const sdkRun = runSdkChat({
             signal: controller.signal,
             // An aside reads the context chat's history (plus its own earlier
@@ -1113,6 +1114,7 @@ export class Kernel {
                 text,
                 ...userContent.filter((b): b is Extract<ContentBlock, { type: "file" }> => b.type === "file").map((f) => `[${f.name}]\n${f.text}`),
               ].join("\n\n"),
+              { kept: this.behaviour().smartContext },
             ),
             // The turn's own pictures, which a prompt string cannot carry.
             ...(opts.attachments?.length
@@ -2943,7 +2945,14 @@ export class Kernel {
     const shelf = this.shelf && this.behaviour().smartContext ? this.shelf : undefined;
     return new GuardedTools({
       // In one SDK query a result cannot be set aside later, so a huge one comes as its start, an outline and a handle.
-      ...(shelf ? { shelve: (tool: string, input: Record<string, unknown>, content: string) => shelf.keep(tool, input, content, { huge: this.behaviour().engine === "sdk" }) } : {}),
+      ...(shelf
+        ? {
+            shelve: (tool: string, input: Record<string, unknown>, content: string, huge: boolean) => {
+              const slug = opts.conversationId ? this.conversations.get(opts.conversationId)?.projectSlug : undefined;
+              return shelf.keep(tool, input, content, { huge, owner: { ...(opts.conversationId ? { conversationId: opts.conversationId } : {}), ...(slug ? { projectSlug: slug } : {}) } });
+            },
+          }
+        : {}),
       registry: this.registry,
       secrets: this.secrets,
       audit: this.audit,
