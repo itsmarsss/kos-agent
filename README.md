@@ -48,7 +48,8 @@ command. The full page-by-page guide is in
 [docs/dashboard.md](docs/dashboard.md). The dashboard, the Chrome extension
 and KOS for Mac share one look, written down in
 [docs/design.md](docs/design.md), and one set of components, listed in
-[docs/components.md](docs/components.md).
+[docs/components.md](docs/components.md). How screen work and long documents
+were made fast, and how that was measured, is in [docs/speed.md](docs/speed.md).
 
 ---
 
