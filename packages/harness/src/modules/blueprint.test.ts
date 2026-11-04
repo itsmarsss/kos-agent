@@ -17,6 +17,10 @@ import {
   writeBlueprintModule,
 } from "./blueprint.js";
 import { readWorkspaceModules } from "./workspace.js";
+import type { LoadedPage } from "../systems/pages.js";
+
+/** A spec page as loaded, or nothing when the page is not one. */
+const specOf = (got: LoadedPage | undefined) => (got?.kind === "spec" ? got.spec : undefined);
 
 /**
  * A project, promoted and instantiated again.
@@ -129,7 +133,7 @@ describe("a blueprint", () => {
     expect(migrator.history("side_biz")).toHaveLength(2);
     // Its page reads its own table; its job is there and off.
     const page = pages.get("side_biz_spend");
-    expect(page?.spec.widgets[0]).toMatchObject({ query: "SELECT SUM(amount) AS total FROM side_biz_tx" });
+    expect(specOf(page)?.widgets[0]).toMatchObject({ query: "SELECT SUM(amount) AS total FROM side_biz_tx" });
     const job = crons.list().find((j) => j.projectSlug === "side_biz");
     expect(job).toMatchObject({ enabled: false, prompt: "Summarise side_biz_tx for the week." });
   });
@@ -146,7 +150,7 @@ describe("a blueprint", () => {
     const { blueprint } = extractBlueprint({ db: ws.db, manifest, migrator, pages, crons }, slug);
     const second = instantiateBlueprint({ db: ws.db, manifest, migrator, pages, crons }, "b", blueprint, "Household 2");
     expect(second.slug).toBe("household_2");
-    expect(pages.get("household_2_spend")?.spec.widgets[0]).toMatchObject({ query: "SELECT SUM(amount) AS total FROM household_2_tx" });
+    expect(specOf(pages.get("household_2_spend"))?.widgets[0]).toMatchObject({ query: "SELECT SUM(amount) AS total FROM household_2_tx" });
   });
 
   it("leaves nothing behind when an instance cannot be completed", () => {

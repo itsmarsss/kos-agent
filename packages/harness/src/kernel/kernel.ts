@@ -3848,7 +3848,9 @@ export class Kernel {
         const page = this.pages.get(ref.id);
         parts.push(
           page
-            ? `Page ${ref.id} in project ${page.record.projectSlug}:\n${JSON.stringify(page.spec, null, 2)}`
+            ? page.kind === "html"
+              ? `Page ${ref.id} in project ${page.record.projectSlug}, an HTML page:\n${JSON.stringify({ title: page.page.title, capabilities: page.page.capabilities ?? {} }, null, 2)}\n${page.page.html}`
+              : `Page ${ref.id} in project ${page.record.projectSlug}:\n${JSON.stringify(page.spec, null, 2)}`
             : `Page ${ref.id}: not found.`,
         );
         continue;

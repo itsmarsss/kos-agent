@@ -173,7 +173,11 @@ export function extractBlueprint(src: BlueprintSources, slug: string): Extracted
 
   const pages = src.pages
     .list(slug)
-    .map((r) => src.pages.get(r.id)?.spec)
+    .map((r) => {
+      // An HTML page is not carried by a blueprint yet; its spec pages are.
+      const got = src.pages.get(r.id);
+      return got?.kind === "spec" ? got.spec : undefined;
+    })
     .filter((s): s is PageSpec => s !== undefined)
     .map((s) => tokenize(s, slug));
 

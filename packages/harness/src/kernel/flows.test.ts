@@ -183,7 +183,8 @@ describe("KOS end-to-end flows", () => {
 
     const page = kernel.pages.get("budget");
     expect(page).toBeTruthy();
-    expect(isValidPageSpec(page!.spec as PageSpec)).toBe(true);
+    expect(page?.kind).toBe("spec");
+    expect(page?.kind === "spec" && isValidPageSpec(page.spec as PageSpec)).toBe(true);
   });
 
   it("carries tool results into the next turn", async () => {
