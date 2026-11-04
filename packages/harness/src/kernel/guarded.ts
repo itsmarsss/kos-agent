@@ -8,6 +8,8 @@ import type { SecretsRegistry } from "../secrets/secrets.js";
 import { attendance, caller } from "./caller.js";
 
 export interface GuardedToolsDeps {
+  /** A big result set aside as it comes back: whole with its handle, or its start and an outline when huge. */
+  shelve?: (tool: string, input: Record<string, unknown>, content: string) => Promise<string>;
   registry: ToolRegistry;
   secrets: SecretsRegistry;
   audit: AuditLog;
@@ -205,7 +207,8 @@ export class GuardedTools implements ToolBox {
    * engine, so it is where words said mid-turn are heard.
    */
   async execute(name: string, input: Record<string, unknown>): Promise<ToolExecution> {
-    const result = await this.call(name, input);
+    const called = await this.call(name, input);
+    const result = this.deps.shelve && !called.isError ? { ...called, content: await this.deps.shelve(name, input, called.content) } : called;
     const said = this.deps.heard?.();
     return said ? { ...result, content: `${result.content}${said}` } : result;
   }

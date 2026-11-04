@@ -53,6 +53,7 @@ import type { ReviewQueue } from "../memory/review.js";
 import type { CallerStore } from "../memory/callers.js";
 import type { PageLog } from "../memory/pages.js";
 import { SCREEN_SUGGESTION, type Route, type Task } from "../models/router.js";
+import { shelveHistory, type ResultShelf } from "../context/shelf.js";
 import type { Effort, Provider } from "../models/provider.js";
 import { CUSTOM_PROVIDER, OpenAICompatibleProvider } from "../models/providers/compat.js";
 import { CLASSIFIER_KEY, CUSTOM_ENDPOINT_KEY, parseClassifierEndpoint, parseCustomEndpoint, type CustomEndpoint } from "../models/settings.js";
@@ -357,6 +358,7 @@ export class Kernel {
   readonly memoryRetriever: MemoryRetriever;
 
   private readonly inference: Inference;
+  private readonly shelf: ResultShelf | undefined;
   private readonly system: string;
   private readonly onApprovalRequested?: (action: PendingAction) => void;
   private readonly sessionless: boolean;
@@ -471,6 +473,8 @@ export class Kernel {
     embedder: EmbeddingProvider;
     events: EventLog;
     inference: Inference;
+    /** Where big results are set aside once read; none keeps every result whole, as before. */
+    shelf?: ResultShelf;
     system: string;
     sessionless: boolean;
     features: BuiltinFeature[];
@@ -629,6 +633,7 @@ export class Kernel {
     this.memoryWriter = args.memoryWriter;
     this.memoryRetriever = args.memoryRetriever;
     this.inference = args.inference;
+    this.shelf = args.shelf;
     this.system = args.system;
     this.sessionless = args.sessionless;
     this.features = args.features;
@@ -1037,7 +1042,8 @@ export class Kernel {
         if (useSession) {
           const prior = this.sessions.historyForPrompt(sessionId);
           before = prior.length;
-          input = [...prior, { role: "user", content: sentContent, ...(origin ? { origin } : {}) }];
+          // Sent with big old results set aside; kept as it was.
+          input = [...(await this.shelved(prior)), { role: "user", content: sentContent, ...(origin ? { origin } : {}) }];
           // Written before the model is asked anything.
           //
           // Recorded only at the end, what the owner said existed nowhere but
@@ -1091,10 +1097,10 @@ export class Kernel {
             // them. Sent as the bare text, this engine never saw any of
             // it: no memory, no date, no file.
             prompt: priorForSdk(
-              [
+              await this.shelved([
                 ...this.sessions.historyForPrompt(opts.contextFrom ?? sessionId),
                 ...(opts.priorTurns ?? []),
-              ],
+              ]),
               [
                 ...(turnContext ? [turnContext] : []),
                 text,
@@ -1491,6 +1497,11 @@ export class Kernel {
    * be read: a suspended turn can settle after the store has closed, and an
    * event is not worth a throw.
    */
+  /** The history as it is sent: big results older than the last turn set aside, when that is on. */
+  private async shelved(history: ModelMessage[]): Promise<ModelMessage[]> {
+    return this.shelf && this.behaviour().smartContext ? shelveHistory(history, this.shelf) : history;
+  }
+
   /**
    * Where screen steps go, when the owner has them on a model of their own.
    * The same model as the turn's means no split: everything runs as it did.
@@ -2921,7 +2932,10 @@ export class Kernel {
     /** The owner's words said since the last call, for the model with this call's result. */
     heard?: () => string | undefined;
   } = {}): GuardedTools {
+    const shelf = this.shelf && this.behaviour().smartContext ? this.shelf : undefined;
     return new GuardedTools({
+      // In one SDK query a result cannot be set aside later, so a huge one comes as its start, an outline and a handle.
+      ...(shelf ? { shelve: (tool: string, input: Record<string, unknown>, content: string) => shelf.keep(tool, input, content, { huge: this.behaviour().engine === "sdk" }) } : {}),
       registry: this.registry,
       secrets: this.secrets,
       audit: this.audit,

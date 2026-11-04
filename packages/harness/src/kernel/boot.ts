@@ -56,6 +56,10 @@ import { exportModule } from "../tools/export.js";
 import { createPythonModule } from "../tools/python.js";
 import { createShellModule } from "../tools/shell.js";
 import { createTexModule } from "../tools/tex.js";
+import { createRecallModule } from "../tools/recall.js";
+import { ResultShelf } from "../context/shelf.js";
+import { textOf } from "../models/types.js";
+import { join } from "node:path";
 import { createSkillsModule } from "../tools/skills.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillPromoted } from "../skills/settings.js";
 import { createChatsModule } from "../tools/chats.js";
@@ -362,6 +366,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     createShellModule(),
     createPythonModule(),
     createTexModule(),
+    createRecallModule(() => (kernelRef?.behaviour().smartContext ? shelf : undefined)),
     createModulesModule({
       enabled: () => parseModuleSettings(settings.get(MODULES_KEY)).enabled,
       status: () => mcp.status(),
@@ -642,6 +647,15 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   }
   const inference = options.inference ?? router!;
 
+  // Big results set aside once read, outlined once by the cheap model.
+  const shelf = new ResultShelf(join(workspace.root, ".kos", "results"), async (text, what) => {
+    const res = await inference.generate("cheap", {
+      system: "Outline a document for someone who may need to look things up in it later: its sections or parts, and the specific facts, names and numbers each holds. At most 120 words, plain text, no preamble.",
+      messages: [{ role: "user", content: [{ type: "text", text: `${what}:\n\n${text.slice(0, 60_000)}` }] }],
+    });
+    return textOf(res.content);
+  });
+
   // Every response's token count, attributed to whatever conversation was
   // being worked on. Providers report this and it was being thrown away, so
   // there was no way to answer "what is this costing me" from inside KOS.
@@ -687,6 +701,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   );
 
   kernelRef = new Kernel({
+    shelf,
     loader,
     bus,
     mcp,

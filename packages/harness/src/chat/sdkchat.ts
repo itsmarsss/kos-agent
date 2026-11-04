@@ -10,6 +10,7 @@ import {
 
 import type { ToolBox } from "../agent/loop.js";
 import { SCREEN_HANDOFF, SCREEN_PROMPT, forScreenAgent, isScreenTool } from "../agent/screen.js";
+import { isShelved } from "../context/shelf.js";
 import type { Effort } from "../models/provider.js";
 import { toolUse } from "../kernel/caller.js";
 import { credentials } from "../builds/runner.js";
@@ -191,13 +192,19 @@ export function priorForSdk(
           if (block.type === "file" && typeof block.text === "string") {
             return `[${typeof block.name === "string" ? block.name : "a file"}]\n${block.text}`;
           }
+          // A big result is carried in words, whole while it is recent and as its stub after, so a follow-up need not read it again.
+          const result = b as { type?: string; content?: unknown };
+          if (result.type === "tool_result" && typeof result.content === "string" && isShelved(result.content)) {
+            return result.content;
+          }
           return "";
         })
         .filter(Boolean)
         .join("\n")
         .trim();
       if (!said) return "";
-      return `${m.role === "user" ? "Owner" : "You"}: ${said}`;
+      const fromTool = blocks.length > 0 && blocks.every((b) => (b as { type?: string }).type === "tool_result");
+      return `${fromTool ? "A tool you called" : m.role === "user" ? "Owner" : "You"}: ${said}`;
     })
     .filter(Boolean);
 

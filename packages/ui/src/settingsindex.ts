@@ -57,6 +57,7 @@ export const SETTINGS: SettingEntry[] = [
   { section: "behaviour", label: "When something fails" },
   { section: "behaviour", label: "Extract memory in the background", words: "memory extraction" },
   { section: "behaviour", label: "Try to fix failures on its own", words: "autofix" },
+  { section: "behaviour", label: "Set big results aside once read", words: "context recall pdf page long results tokens" },
   { section: "behaviour", label: "How hard it tries" },
   { section: "behaviour", label: "Steps in a turn", words: "max steps" },
   { section: "behaviour", label: "Steps in a fix attempt" },
