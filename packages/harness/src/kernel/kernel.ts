@@ -52,8 +52,9 @@ import { MEMORY_JOB } from "../memory/job.js";
 import type { ReviewQueue } from "../memory/review.js";
 import type { CallerStore } from "../memory/callers.js";
 import type { PageLog } from "../memory/pages.js";
-import type { Task } from "../models/router.js";
-import type { Provider } from "../models/provider.js";
+import { SCREEN_SUGGESTION, type Route, type Task } from "../models/router.js";
+import { shelveHistory, type ResultShelf } from "../context/shelf.js";
+import type { Effort, Provider } from "../models/provider.js";
 import { CUSTOM_PROVIDER, OpenAICompatibleProvider } from "../models/providers/compat.js";
 import { CLASSIFIER_KEY, CUSTOM_ENDPOINT_KEY, parseClassifierEndpoint, parseCustomEndpoint, type CustomEndpoint } from "../models/settings.js";
 import { HttpClassifier, LlmClassifier, type Classifier } from "../models/classify.js";
@@ -267,6 +268,13 @@ export const HANDOFF_HOPS = 3;
 const GUEST_TOOLS = ["sql", "discord.react", "discord.reactions", "discord.messages", "discord.member", "notify", "chats.handoff"];
 
 /** The same message said twice: the words of two stored copies agree, whatever else rides on them. */
+/**
+ * Pictures one SDK query takes before the turn goes on in a fresh one, which
+ * sends only the newest. KOS_PICTURES_PER_QUERY=0 runs a turn in one query,
+ * as before.
+ */
+const PICTURES_PER_QUERY = Number(process.env["KOS_PICTURES_PER_QUERY"] ?? 8);
+
 function sameWords(a: ModelMessage, b: ModelMessage): boolean {
   const words = (m: ModelMessage): string => JSON.stringify(m.content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text));
   return words(a) === words(b);
@@ -357,6 +365,7 @@ export class Kernel {
   readonly memoryRetriever: MemoryRetriever;
 
   private readonly inference: Inference;
+  private readonly shelf: ResultShelf | undefined;
   private readonly system: string;
   private readonly onApprovalRequested?: (action: PendingAction) => void;
   private readonly sessionless: boolean;
@@ -471,6 +480,8 @@ export class Kernel {
     embedder: EmbeddingProvider;
     events: EventLog;
     inference: Inference;
+    /** Where big results are set aside once read; none keeps every result whole, as before. */
+    shelf?: ResultShelf;
     system: string;
     sessionless: boolean;
     features: BuiltinFeature[];
@@ -629,6 +640,7 @@ export class Kernel {
     this.memoryWriter = args.memoryWriter;
     this.memoryRetriever = args.memoryRetriever;
     this.inference = args.inference;
+    this.shelf = args.shelf;
     this.system = args.system;
     this.sessionless = args.sessionless;
     this.features = args.features;
@@ -1037,7 +1049,8 @@ export class Kernel {
         if (useSession) {
           const prior = this.sessions.historyForPrompt(sessionId);
           before = prior.length;
-          input = [...prior, { role: "user", content: sentContent, ...(origin ? { origin } : {}) }];
+          // Sent with big old results set aside; kept as it was.
+          input = [...(await this.shelved(prior)), { role: "user", content: sentContent, ...(origin ? { origin } : {}) }];
           // Written before the model is asked anything.
           //
           // Recorded only at the end, what the owner said existed nowhere but
@@ -1081,6 +1094,7 @@ export class Kernel {
           // turn. Without it the Stop button was a silent no-op on this engine:
           // abortFor() was only ever called on the non-SDK path.
           const controller = this.abortFor(sessionId);
+          tools.cutHuge = true;
           const sdkRun = runSdkChat({
             signal: controller.signal,
             // An aside reads the context chat's history (plus its own earlier
@@ -1091,15 +1105,16 @@ export class Kernel {
             // them. Sent as the bare text, this engine never saw any of
             // it: no memory, no date, no file.
             prompt: priorForSdk(
-              [
+              await this.shelved([
                 ...this.sessions.historyForPrompt(opts.contextFrom ?? sessionId),
                 ...(opts.priorTurns ?? []),
-              ],
+              ]),
               [
                 ...(turnContext ? [turnContext] : []),
                 text,
                 ...userContent.filter((b): b is Extract<ContentBlock, { type: "file" }> => b.type === "file").map((f) => `[${f.name}]\n${f.text}`),
               ].join("\n\n"),
+              { kept: this.behaviour().smartContext },
             ),
             // The turn's own pictures, which a prompt string cannot carry.
             ...(opts.attachments?.length
@@ -1109,6 +1124,8 @@ export class Kernel {
             tools,
             cwd: this.workspace.root,
             maxTurns: this.behaviour().maxSteps,
+            picturesPerQuery: PICTURES_PER_QUERY,
+            ...(this.sdkScreen() ? { screen: this.sdkScreen()! } : {}),
             onDelta: (delta) =>
               this.progress.emit({
                 kind: "delta",
@@ -1214,6 +1231,7 @@ export class Kernel {
 
         const running = runAgent(this.inference, tools, input, {
           system,
+          ...(this.screenRoute() ? { screen: true } : {}),
           ...(opts.task ? { task: opts.task } : {}),
           maxIterations: opts.maxIterations ?? this.behaviour().maxSteps,
           // Watched turns stream. A reader was shown one static word for the
@@ -1489,6 +1507,35 @@ export class Kernel {
    * be read: a suspended turn can settle after the store has closed, and an
    * event is not worth a throw.
    */
+  /** The history as it is sent: big results older than the last turn set aside, when that is on. */
+  private async shelved(history: ModelMessage[]): Promise<ModelMessage[]> {
+    return this.shelf && this.behaviour().smartContext ? shelveHistory(history, this.shelf) : history;
+  }
+
+  /**
+   * Where screen steps go, when the owner has them on a model of their own.
+   * The same model as the turn's means no split: everything runs as it did.
+   */
+  private screenRoute(): Route | undefined {
+    const screen = this.inference.routeFor?.("screen");
+    const turn = this.inference.routeFor?.("reasoning");
+    if (!screen || !turn) return undefined;
+    return screen.provider === turn.provider && screen.spec.model === turn.spec.model ? undefined : screen;
+  }
+
+  /**
+   * The screen model on the subscription engine, which runs Claude whatever
+   * the API keys are: the screen route's own when it is a Claude model,
+   * otherwise the default screen model (a workspace with only an OpenAI key
+   * routes screen work to OpenAI, which this engine cannot run).
+   */
+  private sdkScreen(): { model: string; effort?: Effort } | undefined {
+    const route = this.screenRoute();
+    if (!route) return undefined;
+    const spec = route.provider === "anthropic" ? route.spec : SCREEN_SUGGESTION.spec;
+    return { model: spec.model, ...(spec.effort ? { effort: spec.effort } : {}) };
+  }
+
   private projectOf(sessionId: string): string | null {
     try {
       return this.conversations.get(sessionId)?.projectSlug ?? null;
@@ -2895,7 +2942,17 @@ export class Kernel {
     /** The owner's words said since the last call, for the model with this call's result. */
     heard?: () => string | undefined;
   } = {}): GuardedTools {
+    const shelf = this.shelf && this.behaviour().smartContext ? this.shelf : undefined;
     return new GuardedTools({
+      // In one SDK query a result cannot be set aside later, so a huge one comes as its start, an outline and a handle.
+      ...(shelf
+        ? {
+            shelve: (tool: string, input: Record<string, unknown>, content: string, huge: boolean) => {
+              const slug = opts.conversationId ? this.conversations.get(opts.conversationId)?.projectSlug : undefined;
+              return shelf.keep(tool, input, content, { huge, owner: { ...(opts.conversationId ? { conversationId: opts.conversationId } : {}), ...(slug ? { projectSlug: slug } : {}) } });
+            },
+          }
+        : {}),
       registry: this.registry,
       secrets: this.secrets,
       audit: this.audit,

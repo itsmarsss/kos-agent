@@ -31,6 +31,9 @@ export function isSemantic(provider: EmbeddingProvider): boolean {
  * into a fixed dimension and L2-normalized. Not semantically rich, but real and
  * offline, useful as a local fallback and for tests.
  */
+/** How long an embedding is waited for. */
+const EMBED_TIMEOUT_MS = 10_000;
+
 export class HashingEmbeddingProvider implements EmbeddingProvider {
   readonly name = "hashing";
 
@@ -84,7 +87,7 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
       model: this.options.model,
       input: texts,
       dimensions: this.options.dimension,
-    });
+    }, { signal: AbortSignal.timeout(EMBED_TIMEOUT_MS), maxRetries: 1 });
     return res.data.map((d) => d.embedding);
   }
 }
@@ -117,6 +120,8 @@ export class CohereEmbeddingProvider implements EmbeddingProvider {
     if (texts.length === 0) return [];
     const doFetch = this.options.fetchImpl ?? fetch;
     const res = await doFetch(COHERE_ENDPOINT, {
+      // Asked before every turn: a slow answer held the turn for minutes with nothing to show for it.
+      signal: AbortSignal.timeout(EMBED_TIMEOUT_MS),
       method: "POST",
       headers: {
         authorization: `Bearer ${this.options.apiKey}`,

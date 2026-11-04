@@ -12,8 +12,18 @@ import type { ContentBlock, ModelMessage } from "../models/types.js";
  * each step's picture is kept apart for the dashboard.
  */
 
-/** How many of the latest pictures the model is sent. */
+/** How many of the latest pictures the model is sent, at least. */
 export const RECENT_PICTURES = 3;
+
+/**
+ * How many old pictures go at once.
+ *
+ * Dropping the oldest on every step changed the front of what was sent each
+ * time, so the provider's prompt cache, which keeps an unchanged front, missed
+ * on every step of a session. Dropped a few at a time, the front stays the
+ * same for that many steps: between three and five pictures are sent.
+ */
+export const PICTURE_BATCH = 3;
 
 const DROPPED = "\n(A picture came with this and was dropped to save room; look again if you need it.)";
 
@@ -23,9 +33,11 @@ function stripped(block: ContentBlock): ContentBlock {
   return { ...rest, content: `${block.content}${DROPPED}` };
 }
 
-/** The messages with only the latest `keep` tool pictures left in; the input is not changed. */
-export function keepRecentPictures(messages: ModelMessage[], keep = RECENT_PICTURES): ModelMessage[] {
-  let left = keep;
+/** The messages with the latest tool pictures left in, dropping older ones `batch` at a time; the input is not changed. */
+export function keepRecentPictures(messages: ModelMessage[], keep = RECENT_PICTURES, batch = PICTURE_BATCH): ModelMessage[] {
+  const total = messages.reduce((n, m) => n + m.content.filter((b) => b.type === "tool_result" && b.images?.length).length, 0);
+  const drop = keep === 0 ? total : Math.max(0, Math.floor((total - keep) / batch) * batch);
+  let left = total - drop;
   const out = [...messages];
   for (let i = out.length - 1; i >= 0; i--) {
     const message = out[i]!;

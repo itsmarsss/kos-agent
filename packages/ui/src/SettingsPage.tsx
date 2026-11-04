@@ -51,6 +51,7 @@ const BEHAVIOUR_FALLBACK: Behaviour = {
   approvalExpiryHours: 24,
   heartbeatMinutes: 0,
   memoryExtraction: false,
+  smartContext: true,
   extractEveryChars: 6000,
   memoryDecideAbove: 80,
 };
@@ -1021,6 +1022,12 @@ export function SettingsPage({
                 hint="On the first failure of a job, KOS opens a chat, works out why, and repairs it if it safely can. Later failures of the same job do not start another attempt. Everything it does there still asks you before anything risky."
               >
                 <Switch label="Try to fix failures on its own" on={how.autoFix} onChange={(on) => setHow({ ...how, autoFix: on })} />
+              </Field>
+              <Field group className="set-field"
+                label="Set big results aside once read"
+                hint="A page, a PDF or a long listing stays whole for the turn it came in and the next; after that the chat keeps a short outline and KOS reads the rest back with context.recall when it needs it, so later messages stay quick. Off, every result is sent whole with every message."
+              >
+                <Switch label="Set big results aside once read" on={how.smartContext} onChange={(on) => setHow({ ...how, smartContext: on })} />
               </Field>
             </div>
 

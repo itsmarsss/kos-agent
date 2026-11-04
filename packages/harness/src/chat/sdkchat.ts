@@ -4,10 +4,16 @@ import {
   createSdkMcpServer,
   query,
   tool,
+  type CanUseTool,
   type SDKMessage,
+  type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 
 import type { ToolBox } from "../agent/loop.js";
+import { SCREEN_HANDOFF, SCREEN_PROMPT, forScreenAgent, isScreenTool } from "../agent/screen.js";
+import { fenced, isShelved } from "../context/shelf.js";
+import { splitOwnerWords } from "../kernel/transcript.js";
+import type { Effort } from "../models/provider.js";
 import { toolUse } from "../kernel/caller.js";
 import { credentials } from "../builds/runner.js";
 import { toZodShape } from "./schema.js";
@@ -117,6 +123,65 @@ export interface SdkChatOptions {
   env?: NodeJS.ProcessEnv;
   /** Aborts the SDK query when the owner presses Stop. */
   signal?: AbortSignal;
+  /**
+   * After this many pictures in one query, the turn carries on in a fresh one.
+   * Every picture a query has taken is sent again with each of its later
+   * steps, and a step slowed from five seconds to seventeen over ten real
+   * screens; a fresh query starts from the task, the steps so far and the
+   * screen as it is now. Unset, one query runs the whole turn.
+   */
+  picturesPerQuery?: number;
+  /**
+   * The model the screen steps run on, as a subagent the turn hands them to.
+   * Unset, the turn does its screen work itself, as before.
+   */
+  screen?: { model: string; effort?: Effort };
+}
+
+/**
+ * Where a turn had got to, for the fresh query that carries it on: what was
+ * asked, and every step so far with what it answered, newest last. The screen
+ * as it is now rides with it as a picture.
+ */
+export function carryOn(prompt: string, calls: SdkToolCall[]): string {
+  const steps = calls.map((c, i) => {
+    // The owner's words that rode in on a result are theirs, kept whole and outside the result's fence.
+    const { content, said } = splitOwnerWords(c.result);
+    // A screen step's answer is a line about what it did, and the screen is attached; any other result is kept whole (or its stub), since what it said may be what the rest of the turn needs.
+    const answer = isScreenTool(c.name) ? content.replace(/\s+/g, " ").slice(0, 300) : content;
+    const owner = said.map((w) => `\n   The owner said, while you worked: ${w}`).join("");
+    return `${i + 1}. ${c.name} ${JSON.stringify(c.input).slice(0, 300)}\n${fenced(c.name, answer)}${owner}`;
+  });
+  return `${prompt}\n\n[You are partway through this turn. These steps are already done, newest last; the screen as it is now is attached. Carry on from here: do not repeat them or start over, and keep any session that is open.]\n${steps.join("\n")}`;
+}
+
+/** Lets a screen tool through for the screen agent, and only for it. */
+function screenGate(screenTools: string[]): CanUseTool {
+  return async (name, input, { agentID }) => {
+    if (screenTools.includes(name) && agentID) return { behavior: "allow", updatedInput: input };
+    if (screenTools.includes(name)) return { behavior: "deny", message: `Screen tools run in the screen agent: hand this to it with the Task tool, subagent_type "${SCREEN_AGENT}".` };
+    return { behavior: "deny", message: `${name} is not one of this chat's tools.` };
+  };
+}
+
+/** The subagent the turn hands screen work to, and the tool it is handed over with. */
+const SCREEN_AGENT = "screen";
+const HANDOFF_TOOLS = ["Task", "Agent"];
+
+/**
+ * How the turn's tools divide when screen work is handed on: the screen tools
+ * go to the subagent alone, so their pictures stay in its context and are gone
+ * when it reports back, and the turn keeps the rest and the means to hand on.
+ */
+export function screenSplit(names: string[], screen: SdkChatOptions["screen"]): {
+  main: string[];
+  agent?: { tools: string[]; model: string; effort?: Effort };
+} {
+  if (!screen || !names.some(isScreenTool)) return { main: names.map(sdkName) };
+  return {
+    main: [...names.filter((n) => !isScreenTool(n)).map(sdkName), ...HANDOFF_TOOLS],
+    agent: { tools: names.filter(forScreenAgent).map(sdkName), model: screen.model, ...(screen.effort ? { effort: screen.effort } : {}) },
+  };
 }
 
 /**
@@ -131,6 +196,8 @@ export interface SdkChatOptions {
 export function priorForSdk(
   history: { role: string; content: unknown }[],
   text: string,
+  /** Big results carried in words, whole or as stubs: only when setting them aside is on. */
+  opts: { kept?: boolean } = {},
 ): string {
   const spoken = history
     .map((m) => {
@@ -154,13 +221,19 @@ export function priorForSdk(
           if (block.type === "file" && typeof block.text === "string") {
             return `[${typeof block.name === "string" ? block.name : "a file"}]\n${block.text}`;
           }
+          // A big result is carried in words, whole while it is recent and as its stub after, so a follow-up need not read it again.
+          const result = b as { type?: string; content?: unknown };
+          if (opts.kept && result.type === "tool_result" && typeof result.content === "string" && isShelved(result.content)) {
+            return fenced("result", result.content);
+          }
           return "";
         })
         .filter(Boolean)
         .join("\n")
         .trim();
       if (!said) return "";
-      return `${m.role === "user" ? "Owner" : "You"}: ${said}`;
+      const fromTool = blocks.length > 0 && blocks.every((b) => (b as { type?: string }).type === "tool_result");
+      return `${fromTool ? "A tool you called" : m.role === "user" ? "Owner" : "You"}: ${said}`;
     })
     .filter(Boolean);
 
@@ -209,7 +282,7 @@ export function sdkName(name: string): string {
  * Names are flattened because MCP tool names may not contain dots, and
  * mapped back before execution so the registry still sees files.read.
  */
-function serverFor(tools: ToolBox, record: (call: SdkToolCall) => void) {
+function serverFor(tools: ToolBox, record: (call: SdkToolCall, images: { data: string; mediaType: string }[]) => void) {
   // An id per call, unique across turns: it is the call's id in the stored
   // history, and what keeps the picture a step took with that step's card.
   const turn = randomUUID().slice(0, 8);
@@ -228,7 +301,7 @@ function serverFor(tools: ToolBox, record: (call: SdkToolCall) => void) {
           input: args ?? {},
           result: result.content,
           isError: result.isError === true,
-        });
+        }, result.images ?? []);
         return {
           content: [
             { type: "text" as const, text: result.content },
@@ -246,8 +319,25 @@ export async function runSdkChat(
   options: SdkChatOptions,
 ): Promise<SdkChatResult> {
   const calls: SdkToolCall[] = [];
-  const { server } = serverFor(options.tools, (call) => calls.push(call));
-  const allowed = options.tools.defs().map((d) => sdkName(d.name));
+  /** The newest picture a tool answered with, and how many this query has taken. */
+  let lastPicture: { data: string; mediaType: string } | undefined;
+  let pictured = 0;
+  const split = screenSplit(options.tools.defs().map((d) => d.name), options.screen);
+  /*
+   * A query ends for its pictures only when the screen work is the turn's
+   * own: handed to a subagent, the pictures are the subagent's, and ending
+   * the turn's query under it would lose the subagent's report.
+   */
+  const cap = split.agent ? undefined : options.picturesPerQuery;
+  const { server } = serverFor(options.tools, (call, images) => {
+    calls.push(call);
+    // A screen's picture, not a plot python drew or one an MCP tool returned.
+    if (images.length && isScreenTool(call.name)) {
+      lastPicture = images.at(-1);
+      pictured += 1;
+    }
+  });
+  const allowed = split.main;
   const { env, home } = credentials(options.cwd, options.env ?? process.env);
 
   let text = "";
@@ -257,129 +347,174 @@ export async function runSdkChat(
   let stopped = false;
 
   /*
-   * A string prompt cannot carry a picture, so a turn with one is sent as a
-   * message instead. One message either way; the shape differs because the
-   * content does.
+   * Sent as a message, which can carry a picture and lets a full query be
+   * interrupted with its accounts still reported.
    */
-  const images = (options.attachments ?? []).filter((a) =>
-    a.mediaType.startsWith("image/"),
+  const asMessage = (words: string, pictures: { mediaType: string; data: string }[]) =>
+    (async function* () {
+          yield {
+            type: "user" as const,
+            parent_tool_use_id: null,
+            message: {
+              role: "user" as const,
+              content: [
+                { type: "text" as const, text: words },
+                ...pictures.map((a) => ({
+                  type: "image" as const,
+                  source: { type: "base64" as const, media_type: a.mediaType as "image/png", data: a.data },
+                })),
+              ],
+            },
+          };
+    })();
+  let prompt: AsyncIterable<SDKUserMessage> = asMessage(
+    options.prompt,
+    (options.attachments ?? []).filter((a) => a.mediaType.startsWith("image/")),
   );
-  const prompt = images.length
-    ? (async function* () {
-        yield {
-          type: "user" as const,
-          parent_tool_use_id: null,
-          message: {
-            role: "user" as const,
-            content: [
-              { type: "text" as const, text: options.prompt },
-              ...images.map((a) => ({
-                type: "image" as const,
-                source: {
-                  type: "base64" as const,
-                  media_type: a.mediaType as "image/png",
-                  data: a.data,
+
+  /** The turn's model round trips, across every query it runs in. */
+  const budget = options.maxTurns ?? 24;
+  let used = 0;
+  for (;;) {
+    // The SDK cancels a query through an AbortController, so bridge the caller's
+    // signal (from kernel.stop()) to one. An already-aborted signal aborts it at
+    // once, so a stop requested before the query starts still takes.
+    const ac = new AbortController();
+    if (options.signal) {
+      if (options.signal.aborted) ac.abort();
+      else options.signal.addEventListener("abort", () => ac.abort(), { once: true });
+    }
+    pictured = 0;
+    /** This query has taken its share of pictures: it ends once the last one is back, and the turn goes on in a new one. */
+    let full = false;
+
+    const stream = query({
+      prompt,
+      options: {
+        abortController: ac,
+        cwd: options.cwd,
+        additionalDirectories: [],
+        permissionMode: "default",
+        // No user, project or local settings: the same isolation a build gets,
+        // for the same reason. A permissions.allow rule written months ago must
+        // not widen what a chat turn can do.
+        settingSources: [],
+        // Only KOS's tools exist. The built-ins are named individually as well
+        // as excluded by the allow list, because an allow list that grows a
+        // hole is a jail that quietly opens.
+        allowedTools: allowed,
+        disallowedTools: split.agent ? BUILTINS.filter((b) => !HANDOFF_TOOLS.includes(b)) : BUILTINS,
+        // The allow list is the session's, so the screen agent's own tools
+        // cannot be on it without the turn having them too. They are let
+        // through here instead, for the screen agent alone; the turn is told
+        // to hand on. Anything else off the list is refused, as before.
+        ...(split.agent ? { canUseTool: screenGate(split.agent.tools) } : {}),
+        mcpServers: { [SERVER]: server },
+        maxTurns: budget - used,
+        includePartialMessages: true,
+        ...(options.model ? { model: options.model } : {}),
+        ...(split.agent
+          ? {
+              agents: {
+                [SCREEN_AGENT]: {
+                  description: "Does work on a screen or in a browser tab (a computer, the owner's Chrome, KOS's own browser) and reports what it did and saw.",
+                  prompt: SCREEN_PROMPT,
+                  tools: split.agent.tools,
+                  model: split.agent.model,
+                  ...(split.agent.effort ? { effort: split.agent.effort } : {}),
+                  maxTurns: options.maxTurns ?? 24,
                 },
-              })),
-            ],
-          },
-        };
-      })()
-    : options.prompt;
+              },
+            }
+          : {}),
+        // Every tool is loaded up front: with tool search on, each turn spent a
+        // model call finding KOS's own tools before it could use one.
+        env: { ...env, HOME: home, ENABLE_TOOL_SEARCH: "false" },
+        systemPrompt: { type: "preset", preset: "claude_code", append: split.agent ? `${options.system}\n\n${SCREEN_HANDOFF}` : options.system },
+      },
+    });
 
-  // The SDK cancels a query through an AbortController, so bridge the caller's
-  // signal (from kernel.stop()) to one. An already-aborted signal aborts it at
-  // once, so a stop requested before the query starts still takes.
-  const ac = new AbortController();
-  if (options.signal) {
-    if (options.signal.aborted) ac.abort();
-    else options.signal.addEventListener("abort", () => ac.abort(), { once: true });
-  }
+    try {
+      for await (const message of stream as AsyncIterable<SDKMessage>) {
+        const m = message as unknown as Record<string, unknown>;
 
-  const stream = query({
-    prompt,
-    options: {
-      abortController: ac,
-      cwd: options.cwd,
-      additionalDirectories: [],
-      permissionMode: "default",
-      // No user, project or local settings: the same isolation a build gets,
-      // for the same reason. A permissions.allow rule written months ago must
-      // not widen what a chat turn can do.
-      settingSources: [],
-      // Only KOS's tools exist. The built-ins are named individually as well
-      // as excluded by the allow list, because an allow list that grows a
-      // hole is a jail that quietly opens.
-      allowedTools: allowed,
-      disallowedTools: BUILTINS,
-      mcpServers: { [SERVER]: server },
-      maxTurns: options.maxTurns ?? 24,
-      includePartialMessages: true,
-      ...(options.model ? { model: options.model } : {}),
-      env: { ...env, HOME: home },
-      systemPrompt: { type: "preset", preset: "claude_code", append: options.system },
-    },
-  });
+        // A subagent's frames carry the call that started it. Its words are its
+        // report to the turn, not the turn's reply; its thinking still shows.
+        const inSubagent = typeof m["parent_tool_use_id"] === "string";
 
-  try {
-  for await (const message of stream as AsyncIterable<SDKMessage>) {
-    const m = message as unknown as Record<string, unknown>;
+        // A tool's answer, back with the model: the moment a full query can end
+        // without losing the step it just took.
+        if (!full && m["type"] === "user" && !inSubagent && cap && pictured >= cap) {
+          full = true;
+          void stream.interrupt().catch(() => undefined);
+          continue;
+        }
 
-    if (m["type"] === "stream_event") {
-      const event = m["event"] as { delta?: { type?: string; text?: string; thinking?: string } };
-      const delta = event?.delta;
-      if (delta?.text) options.onDelta?.({ kind: "text", text: delta.text });
-      if (delta?.thinking) {
-        options.onDelta?.({ kind: "reasoning", text: delta.thinking });
+        if (m["type"] === "stream_event") {
+          const event = m["event"] as { delta?: { type?: string; text?: string; thinking?: string } };
+          const delta = event?.delta;
+          if (delta?.text && !inSubagent) options.onDelta?.({ kind: "text", text: delta.text });
+          if (delta?.thinking) {
+            options.onDelta?.({ kind: "reasoning", text: delta.thinking });
+          }
+          continue;
+        }
+
+        if (m["type"] === "assistant") {
+          if (inSubagent) continue;
+          const content = (m["message"] as { content?: unknown[] })?.content ?? [];
+          for (const block of content) {
+            const b = block as { type?: string; text?: string };
+            if (b.type === "text" && b.text) text = joinSaid(text, b.text);
+          }
+          continue;
+        }
+
+        if (m["type"] === "result") {
+          // A result with no text of its own is the SDK stopping rather than
+          // answering: an error, or the turn limit.
+          if (m["subtype"] !== "success" && !full) stopped = true;
+          used += typeof m["num_turns"] === "number" ? m["num_turns"] : 1;
+          if (typeof m["result"] === "string" && !text) text = m["result"];
+          /*
+           * Accounting comes from here, not from adding up the assistant
+           * messages. The result carries a running total for every model the
+           * call used, and it is cumulative, so this is read rather than summed.
+           */
+          const perModel = m["modelUsage"] as
+            | Record<string, Record<string, number | string>>
+            | undefined;
+          for (const [name, raw] of Object.entries(perModel ?? {})) {
+            const canonical =
+              typeof raw["canonicalModel"] === "string" ? raw["canonicalModel"] : name;
+            models.push({
+              model: canonical,
+              inputTokens: Number(raw["inputTokens"] ?? 0),
+              outputTokens: Number(raw["outputTokens"] ?? 0),
+              cacheReadInputTokens: Number(raw["cacheReadInputTokens"] ?? 0),
+              cacheCreationInputTokens: Number(raw["cacheCreationInputTokens"] ?? 0),
+              costUSD: Number(raw["costUSD"] ?? 0),
+            });
+          }
+          costUSD += Number(m["total_cost_usd"] ?? 0);
+          break;
+        }
       }
-      continue;
+    } catch (err) {
+      // Aborting the SDK query rejects the stream; that is the owner pressing
+      // Stop, a clean stop rather than a failure. Anything else still throws.
+      if (ac.signal.aborted) stopped = true;
+      else throw err;
     }
 
-    if (m["type"] === "assistant") {
-      const content = (m["message"] as { content?: unknown[] })?.content ?? [];
-      for (const block of content) {
-        const b = block as { type?: string; text?: string };
-        if (b.type === "text" && b.text) text = joinSaid(text, b.text);
-      }
-      continue;
-    }
-
-    if (m["type"] === "result") {
-      // A result with no text of its own is the SDK stopping rather than
-      // answering: an error, or the turn limit.
-      if (m["subtype"] !== "success") stopped = true;
-      if (typeof m["result"] === "string" && !text) text = m["result"];
-      /*
-       * Accounting comes from here, not from adding up the assistant
-       * messages. The result carries a running total for every model the
-       * call used, and it is cumulative, so this is read rather than summed.
-       */
-      const perModel = m["modelUsage"] as
-        | Record<string, Record<string, number | string>>
-        | undefined;
-      for (const [name, raw] of Object.entries(perModel ?? {})) {
-        const canonical =
-          typeof raw["canonicalModel"] === "string" ? raw["canonicalModel"] : name;
-        models.push({
-          model: canonical,
-          inputTokens: Number(raw["inputTokens"] ?? 0),
-          outputTokens: Number(raw["outputTokens"] ?? 0),
-          cacheReadInputTokens: Number(raw["cacheReadInputTokens"] ?? 0),
-          cacheCreationInputTokens: Number(raw["cacheCreationInputTokens"] ?? 0),
-          costUSD: Number(raw["costUSD"] ?? 0),
-        });
-      }
-      costUSD = Number(m["total_cost_usd"] ?? 0);
+    // The steps are the turn's, not each query's: a turn carried on in fresh queries stops where one query would have.
+    if (!full || stopped) break;
+    if (used >= budget) {
+      stopped = true;
       break;
     }
+    prompt = asMessage(carryOn(options.prompt, calls), lastPicture ? [lastPicture] : []);
   }
-  } catch (err) {
-    // Aborting the SDK query rejects the stream; that is the owner pressing
-    // Stop, a clean stop rather than a failure. Anything else still throws.
-    if (ac.signal.aborted) stopped = true;
-    else throw err;
-  }
-
   /*
    * The headline pair, for callers that want one number.
    *

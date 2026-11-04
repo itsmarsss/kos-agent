@@ -56,6 +56,10 @@ import { exportModule } from "../tools/export.js";
 import { createPythonModule } from "../tools/python.js";
 import { createShellModule } from "../tools/shell.js";
 import { createTexModule } from "../tools/tex.js";
+import { createRecallModule } from "../tools/recall.js";
+import { ResultShelf } from "../context/shelf.js";
+import { outlinerFor } from "../context/outliner.js";
+import { join } from "node:path";
 import { createSkillsModule } from "../tools/skills.js";
 import { SKILLS_KEY, parseSkillSettings, withSkillPromoted } from "../skills/settings.js";
 import { createChatsModule } from "../tools/chats.js";
@@ -362,6 +366,14 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
     createShellModule(),
     createPythonModule(),
     createTexModule(),
+    createRecallModule(
+      () => (kernelRef?.behaviour().smartContext ? shelf : undefined),
+      () => {
+        const id = kernelRef?.callerConversationId;
+        const slug = id ? conversations.get(id)?.projectSlug : undefined;
+        return { ...(id ? { conversationId: id } : {}), ...(slug ? { projectSlug: slug } : {}) };
+      },
+    ),
     createModulesModule({
       enabled: () => parseModuleSettings(settings.get(MODULES_KEY)).enabled,
       status: () => mcp.status(),
@@ -642,6 +654,16 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   }
   const inference = options.inference ?? router!;
 
+  // Big results set aside once read, outlined once by the cheap model.
+  const shelf = new ResultShelf(
+    join(workspace.root, ".kos", "results"),
+    outlinerFor(inference, () => (kernelRef?.behaviour().engine === "sdk" ? "anthropic" : inference.routeFor?.("reasoning").provider)),
+    (text) => secrets.redact(text),
+  );
+  // Kept results age out after KEEP_DAYS: swept now and once a day.
+  shelf.sweep();
+  setInterval(() => shelf.sweep(), 86_400_000).unref();
+
   // Every response's token count, attributed to whatever conversation was
   // being worked on. Providers report this and it was being thrown away, so
   // there was no way to answer "what is this costing me" from inside KOS.
@@ -687,6 +709,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   );
 
   kernelRef = new Kernel({
+    shelf,
     loader,
     bus,
     mcp,
@@ -743,6 +766,10 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   // A chat deleted anywhere (the dashboard, chats.delete) is announced, so
   // the thread that stood for it on Discord goes with it.
   const kernel = kernelRef;
-  kernel.conversations.onRemoved((id) => kernel.bus.emit({ kind: "chat:deleted", conversationId: id }));
+  kernel.conversations.onRemoved((id) => {
+    // A chat's kept results go with it.
+    shelf.forget(id);
+    kernel.bus.emit({ kind: "chat:deleted", conversationId: id });
+  });
   return kernelRef;
 }

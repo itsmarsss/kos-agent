@@ -60,6 +60,8 @@ export interface Behaviour {
   heartbeatMinutes: number;
   /** Let a cheap model read new conversation and propose claims, in the background. */
   memoryExtraction: boolean;
+  /** Set big results aside once read: a stub and a handle in the chat, the whole on disk for context.recall. */
+  smartContext: boolean;
   /** How much new conversation, in characters, before the extractor reads it. */
   extractEveryChars: number;
   /**
@@ -89,6 +91,7 @@ export const BEHAVIOUR_DEFAULTS: Behaviour = {
   approvalExpiryHours: 24,
   heartbeatMinutes: 0,
   memoryExtraction: true,
+  smartContext: true,
   extractEveryChars: 6000,
   // High enough that a hunch is raised, low enough that the plain cases,
   // which were most of what the Inbox filled with, are not.
@@ -97,7 +100,7 @@ export const BEHAVIOUR_DEFAULTS: Behaviour = {
 
 /** Range for each number, as [min, max]. */
 export const BEHAVIOUR_LIMITS: Record<
-  Exclude<keyof Behaviour, "autoFix" | "engine" | "memoryExtraction">,
+  Exclude<keyof Behaviour, "autoFix" | "engine" | "memoryExtraction" | "smartContext">,
   [number, number]
 > = {
   maxSteps: [1, 100],
@@ -149,6 +152,8 @@ export function parseBehaviour(raw: unknown): Behaviour {
     heartbeatMinutes: clamp(input["heartbeatMinutes"], "heartbeatMinutes"),
     memoryExtraction:
       typeof input["memoryExtraction"] === "boolean" ? input["memoryExtraction"] : BEHAVIOUR_DEFAULTS.memoryExtraction,
+    smartContext:
+      typeof input["smartContext"] === "boolean" ? input["smartContext"] : BEHAVIOUR_DEFAULTS.smartContext,
     extractEveryChars: clamp(input["extractEveryChars"], "extractEveryChars"),
     memoryDecideAbove: clamp(input["memoryDecideAbove"], "memoryDecideAbove"),
   };

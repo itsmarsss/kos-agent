@@ -84,7 +84,7 @@ describe("the computer tools", () => {
     const { call, pair } = setup();
     const fake = pair();
     const result = await call("computer.start", { task: "export the deck" });
-    expect(fake.calls[0]).toMatchObject({ method: "session.begin", params: { task: "export the deck", requester: "Design", minutes: 15 } });
+    expect(fake.calls[0]).toMatchObject({ method: "session.begin", params: { task: "export the deck", requester: "Design", minutes: 15, maxEdge: 1024 } });
     expect(typeof result !== "string" && result.images?.[0]).toEqual({ mediaType: "image/jpeg", data: "SU1H" });
     expect(textOf(result)).toMatch(/Using Studio MacBook for 15 minutes.*1232x800.*Finder is in front/s);
   });

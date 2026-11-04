@@ -54,7 +54,7 @@ export interface TaskModelSetting {
 }
 
 /** Model choices per task class, as edited in Settings. */
-export type ModelSettings = Partial<Record<"reasoning" | "cheap", TaskModelSetting>>;
+export type ModelSettings = Partial<Record<"reasoning" | "cheap" | "screen", TaskModelSetting>>;
 
 export interface PendingAction {
   id: number;
@@ -639,6 +639,7 @@ export interface Behaviour {
   heartbeatMinutes: number;
   /** A cheap model reads new conversation and proposes memory claims, in the background. */
   memoryExtraction: boolean;
+  smartContext: boolean;
   /** How much new conversation, in characters, before it reads. */
   extractEveryChars: number;
   /** Percent sure the tidy job must be to settle a memory question itself rather than ask. */

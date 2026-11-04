@@ -37,6 +37,7 @@ class MockProvider implements Provider {
 const routing: RoutingTable = {
   reasoning: { provider: "anthropic", spec: { model: "claude-opus-4-8" } },
   cheap: { provider: "openai", spec: { model: "gpt-x" } },
+  screen: { provider: "anthropic", spec: { model: "claude-sonnet-5-5" } },
 };
 
 const req: GenerateRequest = {
@@ -123,7 +124,19 @@ describe("describeRoutes", () => {
     expect(router.describeRoutes()).toEqual({
       reasoning: { provider: "openai", model: "gpt-5.6-terra", effort: "high" },
       cheap: { provider: "openai", model: "gpt-5.4-mini", effort: "low" },
+      screen: { provider: "openai", model: "gpt-5.6-terra", effort: "high" },
     });
+  });
+
+  it("runs screen work on the reasoning route until the owner gives it one of its own", () => {
+    const secrets = new SecretsRegistry();
+    secrets.set("anthropic", "sk-ant-test");
+    const router = createDefaultRouter(secrets);
+    expect(router.routeFor("screen")).toEqual(router.routeFor("reasoning"));
+    router.setRoute("reasoning", { provider: "anthropic", spec: { model: "claude-opus-5" } });
+    expect(router.routeFor("screen").spec.model).toBe("claude-opus-5");
+    router.setRoute("screen", { provider: "anthropic", spec: { model: "claude-sonnet-5-5", effort: "low" } });
+    expect(router.describeRoutes().screen).toEqual({ provider: "anthropic", model: "claude-sonnet-5-5", effort: "low" });
   });
 
   it("reports the anthropic table when that key is present", () => {
@@ -155,7 +168,7 @@ class FlakyProvider extends MockProvider {
 
 describe("asking a model again", () => {
   const RATE = "Rate limit reached for gpt-5.5 on tokens per min (TPM): Limit 1000000, Used 951576, Requested 55584. Please try again in 429ms.";
-  const routed: RoutingTable = { reasoning: { provider: "openai", spec: { model: "gpt-x" } }, cheap: { provider: "openai", spec: { model: "gpt-x" } } };
+  const routed: RoutingTable = { reasoning: { provider: "openai", spec: { model: "gpt-x" } }, cheap: { provider: "openai", spec: { model: "gpt-x" } }, screen: { provider: "openai", spec: { model: "gpt-x" } } };
   const secrets = (): SecretsRegistry => {
     const s = new SecretsRegistry();
     s.set("openai", "sk-o");

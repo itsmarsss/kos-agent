@@ -8,7 +8,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, relative, sep } from "node:path";
 
 import { isOffice, officeNote, officeText } from "../files/office.js";
 import { isPdf, pdfText } from "../files/pdftext.js";
@@ -49,6 +49,18 @@ const rmRisk: ToolRisk = {
   escalate: (input) => (outsideScratch(optStr(input, "path") ?? "") ? "outside the scratch folder" : false),
 };
 
+/**
+ * A path the file tools may use: anything in the jail but KOS's own state
+ * under .kos/, which holds results set aside from other chats and other
+ * projects, and is read only through context.recall, which checks whose they are.
+ */
+function usable(ws: Workspace, path: string): string {
+  const abs = ws.resolve(path);
+  const rel = relative(ws.root, abs).split(sep);
+  if (rel[0] === ".kos") throw new Error(".kos is KOS's own state and is not read or changed with files.*; a result set aside in this chat comes back with context.recall");
+  return abs;
+}
+
 function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
   ctx.registerTool(
     {
@@ -61,7 +73,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     async (input) => {
-      const abs = ws.resolve(str(input, "path"));
+      const abs = usable(ws, str(input, "path"));
       const bytes = readFileSync(abs);
       if (isPdf(bytes)) {
         const read = await pdfText(new Uint8Array(bytes));
@@ -130,7 +142,7 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const abs = ws.resolve(optStr(input, "path") ?? ".");
+      const abs = usable(ws, optStr(input, "path") ?? ".");
       return readdirSync(abs)
         .map((name) => {
           const s = statSync(ws.resolve(`${optStr(input, "path") ?? "."}/${name}`));
@@ -169,9 +181,9 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const to = ws.resolve(str(input, "to"));
+      const to = usable(ws, str(input, "to"));
       mkdirSync(dirname(to), { recursive: true });
-      copyFileSync(ws.resolve(str(input, "from")), to);
+      copyFileSync(usable(ws, str(input, "from")), to);
       return "ok";
     },
     SAFE,
@@ -188,9 +200,9 @@ function defineFileTools(ws: Workspace, ctx: ModuleContext): void {
       },
     },
     (input) => {
-      const to = ws.resolve(str(input, "to"));
+      const to = usable(ws, str(input, "to"));
       mkdirSync(dirname(to), { recursive: true });
-      renameSync(ws.resolve(str(input, "from")), to);
+      renameSync(usable(ws, str(input, "from")), to);
       return "ok";
     },
     { floor: "safe", escalate: (input) => (outsideScratch(optStr(input, "from") ?? "") ? "outside the scratch folder" : false) },

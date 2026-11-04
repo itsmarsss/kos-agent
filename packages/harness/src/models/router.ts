@@ -9,9 +9,10 @@ import type { GenerateRequest, ModelResponse } from "./types.js";
  * A task class. The router maps each task to a provider and model so callers
  * ask for capability ("reasoning") rather than naming a model. Cheap tasks
  * (salience, heuristics) route to a small model; reasoning and self_prompt to a
- * stronger one.
+ * stronger one. "screen" is the work on a screen or a tab once a turn has
+ * chosen it: look, click, look again, which wants a quick model, not a deep one.
  */
-export type Task = "reasoning" | "cheap";
+export type Task = "reasoning" | "cheap" | "screen";
 
 /** A route as shown to a reader: what answers, how hard, and how much. */
 export interface RouteSummary {
@@ -26,7 +27,11 @@ export interface Route {
   spec: ModelSpec;
 }
 
-export type RoutingTable = Record<Task, Route>;
+/** A route per task; screen work follows the reasoning route until the owner gives it one of its own. */
+export type RoutingTable = Record<Exclude<Task, "screen">, Route> & { screen?: Route };
+
+/** The screen model the owner may choose: quick, thinking little. Not the default; screen work follows reasoning until chosen. */
+export const SCREEN_SUGGESTION: Route = { provider: "anthropic", spec: { model: "claude-sonnet-5-5", thinking: "adaptive", effort: "low" } };
 
 export const DEFAULT_ROUTING: RoutingTable = {
   reasoning: {
@@ -153,6 +158,12 @@ export class ModelRouter {
     return this.providers.get(name);
   }
 
+  /** Screen work back on the reasoning route, as when nothing was chosen for it. */
+  followReasoning(): void {
+    const { screen: _gone, ...rest } = this.routing;
+    this.routing = rest;
+  }
+
   setRoute(task: Task, route: Route): void {
     if (!this.providers.has(route.provider)) {
       throw new Error(`no provider registered for route: ${route.provider}`);
@@ -162,7 +173,7 @@ export class ModelRouter {
 
   /** The full spec for a task, so a caller can show what is set. */
   routeFor(task: Task): Route {
-    return this.routing[task];
+    return task === "screen" ? (this.routing.screen ?? this.routing.reasoning) : this.routing[task];
   }
 
   /**
@@ -175,8 +186,8 @@ export class ModelRouter {
    */
   describeRoutes(): Record<Task, RouteSummary> {
     const out = {} as Record<Task, RouteSummary>;
-    for (const task of Object.keys(this.routing) as Task[]) {
-      const route = this.routing[task];
+    for (const task of [...Object.keys(this.routing), "screen"].filter((t, i, all) => all.indexOf(t) === i) as Task[]) {
+      const route = this.routeFor(task);
       out[task] = {
         provider: route.provider,
         model: route.spec.model,
@@ -190,7 +201,7 @@ export class ModelRouter {
   }
 
   async generate(task: Task, req: GenerateRequest): Promise<ModelResponse> {
-    const route = this.routing[task];
+    const route = this.routeFor(task);
     const provider = this.providers.get(route.provider);
     if (!provider) {
       throw new Error(`no provider registered for route: ${route.provider}`);
