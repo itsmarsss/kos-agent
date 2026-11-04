@@ -35,6 +35,9 @@ export const FIRST_CHUNK = 40_000;
 /** The most a recall returns at once. */
 const RECALL_MAX = 24_000;
 
+/** The most an outline is waited for; past it the result is kept without one. */
+const OUTLINE_MS = 15_000;
+
 const MARK = "[Kept as ";
 const STUB = "[Set aside: ";
 
@@ -101,7 +104,9 @@ export class ResultShelf {
   private async outline(r: Shelved): Promise<string | undefined> {
     if (!this.outliner) return undefined;
     try {
-      return (await this.outliner(r.text, `${r.tool} result from ${r.from}`))?.trim().slice(0, 1200);
+      // A deadline of its own, whatever the client does with its signal: a turn waited six minutes on one.
+      const said = await Promise.race([this.outliner(r.text, `${r.tool} result from ${r.from}`), deadline(OUTLINE_MS)]);
+      return said?.trim().slice(0, 1200);
     } catch {
       return undefined;
     }
@@ -150,6 +155,13 @@ export class ResultShelf {
     const to = Math.min(r.chars, Math.floor(opts.to ?? from + RECALL_MAX), from + RECALL_MAX);
     return `[characters ${from} to ${to} of ${r.chars}]\n${r.text.slice(from, to)}`;
   }
+}
+
+/** Resolves with nothing after `ms`, without keeping the process alive. */
+export function deadline(ms: number): Promise<undefined> {
+  return new Promise((resolve) => {
+    setTimeout(() => resolve(undefined), ms).unref();
+  });
 }
 
 /** The handle a kept result carries, if it is one. */

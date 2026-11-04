@@ -1,4 +1,5 @@
 import type { EmbeddingProvider } from "./embeddings.js";
+import { deadline } from "../context/shelf.js";
 import type { EventHit, EventLog } from "./events.js";
 import { GLOBAL_SCOPE, projectScope, type Fact, type FactsStore } from "./facts.js";
 
@@ -42,7 +43,7 @@ export class MemoryRetriever {
     let events: EventHit[] = [];
     if (this.events && query.trim()) {
       // Recall goes on by words alone when the embedding cannot be had in time: the turn should not wait on it.
-      const [embedding] = this.embedder ? await this.embedder.embed([query], "query").catch(() => [undefined]) : [undefined];
+      const [embedding] = this.embedder ? ((await Promise.race([this.embedder.embed([query], "query").catch(() => undefined), deadline(10_000)])) ?? [undefined]) : [undefined];
       events = this.events.search({
         userId,
         query,
