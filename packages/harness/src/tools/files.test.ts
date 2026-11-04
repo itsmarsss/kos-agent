@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,6 +41,26 @@ describe("filesModule", () => {
   afterEach(() => {
     ws.close();
     rmSync(root, { recursive: true, force: true });
+  });
+
+  it("leaves .kos alone: results set aside there are read only through context.recall", async () => {
+    mkdirSync(join(root, ".kos", "results"), { recursive: true });
+    writeFileSync(join(root, ".kos", "results", "r_00000000.json"), "{}");
+    writeFileSync(join(root, "notes.txt"), "mine");
+    for (const [tool, input] of [
+      ["files.read", { path: ".kos/results/r_00000000.json" }],
+      ["files.ls", { path: ".kos/results" }],
+      ["files.cp", { from: ".kos/results/r_00000000.json", to: "copy.json" }],
+      ["files.cp", { from: "notes.txt", to: ".kos/results/notes.txt" }],
+      ["files.mv", { from: ".kos/results/r_00000000.json", to: "moved.json" }],
+      ["files.mv", { from: "notes.txt", to: ".kos/notes.txt" }],
+    ] as const) {
+      const res = await registry.execute(tool, input);
+      expect(res.isError, `${tool} ${JSON.stringify(input)}`).toBe(true);
+      expect(res.content).toContain(".kos is KOS's own state");
+    }
+    expect(existsSync(join(root, "copy.json"))).toBe(false);
+    expect(existsSync(join(root, "notes.txt"))).toBe(true);
   });
 
   it("registers all file tools", () => {
