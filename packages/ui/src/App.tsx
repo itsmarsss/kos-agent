@@ -9,7 +9,7 @@ import {
   type BuildRecord,
   type CronJob,
   type FactRow,
-  type PagePayload,
+  type AnyPagePayload,
   type PageSummary,
   type PendingAction,
   type Project,
@@ -46,6 +46,8 @@ import { RunsTabs } from "./RunsTabs.js";
 import { Sidebar } from "./Sidebar.js";
 import { CommandPalette, type PaletteContext } from "./CommandPalette.js";
 import { ErrorBoundary } from "./widgets/ErrorBoundary.js";
+import { PageHistory } from "./PageHistory.js";
+import { ArtifactPage } from "./widgets/ArtifactPage.js";
 import { PageRenderer } from "./widgets/PageRenderer.js";
 
 type Toast = { kind: "ok" | "err"; text: string } | null;
@@ -95,7 +97,7 @@ export function App(): React.ReactElement {
   /** Pending actions being decided right now. */
   const [deciding, setDeciding] = useState<ReadonlySet<number>>(new Set());
   const [toast, setToast] = useState<Toast>(null);
-  const [activePage, setActivePage] = useState<PagePayload | null>(null);
+  const [activePage, setActivePage] = useState<AnyPagePayload | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [cronFilter, setCronFilter] = useState<"all" | "on" | "off">("all");
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
@@ -322,7 +324,7 @@ export function App(): React.ReactElement {
         setPageError(null);
         setActivePage(null);
         void api
-          .page(next.id)
+          .anyPage(next.id)
           .then((payload) => setActivePage(payload))
           .catch((err: unknown) => {
             setPageError(err instanceof Error ? err.message : String(err));
@@ -883,7 +885,9 @@ export function App(): React.ReactElement {
             {pageError}
           </p>
         )}
-        {activePage && (
+        {activePage && <PageHistory record={activePage.record} onRolledBack={() => void api.anyPage(activePage.record.id).then(setActivePage)} />}
+        {activePage?.kind === "html" && <ArtifactPage record={activePage.record} page={activePage.page} />}
+        {activePage && activePage.kind !== "html" && (
           <PageRenderer spec={activePage.spec} data={activePage.data} />
         )}
         {!activePage && !pageError && <p className="ops-muted">Loading…</p>}
