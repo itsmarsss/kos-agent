@@ -43,6 +43,20 @@ describe("parseModelSettings", () => {
 });
 
 describe("applyModelSettings", () => {
+  it("keeps screen work on the reasoning model until the owner names one, and puts it back when they clear it", () => {
+    const r = router();
+    applyModelSettings(r, { reasoning: { model: "gpt-5.5" } });
+    expect(r.routeFor("screen")).toEqual(r.routeFor("reasoning"));
+    // A later change of the reasoning model carries screen work with it: no split nobody chose.
+    applyModelSettings(r, { reasoning: { model: "gpt-5.6-terra" } });
+    expect(r.routeFor("screen").spec.model).toBe("gpt-5.6-terra");
+    applyModelSettings(r, { reasoning: { model: "gpt-5.6-terra" }, screen: { model: "gpt-5.4-mini", effort: "low" } });
+    expect(r.routeFor("screen").spec).toMatchObject({ model: "gpt-5.4-mini", effort: "low" });
+    expect(r.routeFor("reasoning").spec.model).toBe("gpt-5.6-terra");
+    applyModelSettings(r, { reasoning: { model: "gpt-5.6-terra" }, screen: { effort: "low" } });
+    expect(r.routeFor("screen")).toEqual(r.routeFor("reasoning"));
+  });
+
   it("repoints a task without touching its provider", () => {
     const r = router();
     applyModelSettings(r, { reasoning: { model: "gpt-5.5" } });

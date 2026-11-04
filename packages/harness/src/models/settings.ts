@@ -69,8 +69,18 @@ export function applyModelSettings(
   if (!settings) return;
   for (const task of TASKS) {
     const setting = settings[task];
+    /*
+     * Screen work is its own only while the owner names a model for it.
+     * Unnamed, it follows the reasoning route, built fresh from it each time:
+     * left as a copy, a later change of the reasoning model would have split
+     * the two without anyone choosing it.
+     */
+    if (task === "screen" && !setting?.model) {
+      router.followReasoning();
+      continue;
+    }
     if (!setting) continue;
-    const current = router.routeFor(task);
+    const current = task === "screen" ? router.routeFor("reasoning") : router.routeFor(task);
     router.setRoute(task, {
       provider: setting.provider ?? current.provider,
       spec: {

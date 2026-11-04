@@ -158,6 +158,12 @@ export class ModelRouter {
     return this.providers.get(name);
   }
 
+  /** Screen work back on the reasoning route, as when nothing was chosen for it. */
+  followReasoning(): void {
+    const { screen: _gone, ...rest } = this.routing;
+    this.routing = rest;
+  }
+
   setRoute(task: Task, route: Route): void {
     if (!this.providers.has(route.provider)) {
       throw new Error(`no provider registered for route: ${route.provider}`);
