@@ -23,10 +23,15 @@ import type { ContentBlock, ModelMessage } from "../models/types.js";
 
 /** A result this long (about 8k tokens) is kept and later stubbed. */
 export const BIG_CHARS = 32_000;
-/** In one SDK query a result longer than this comes as its start, an outline and a handle. */
-export const HUGE_CHARS = 64_000;
-/** How much of a huge result comes in its first part. */
-export const FIRST_CHUNK = 16_000;
+/**
+ * In one SDK query a result longer than this comes as its start, an outline
+ * and a handle. The SDK writes a tool result over about 50,000 characters to
+ * a file and tells the model to read it there, which a 30-page PDF turned into
+ * a dozen round trips of the model fishing the text out with Python.
+ */
+export const HUGE_CHARS = 48_000;
+/** How much of a huge result comes in its first part: as much as fits under the SDK's limit. */
+export const FIRST_CHUNK = 40_000;
 /** The most a recall returns at once. */
 const RECALL_MAX = 24_000;
 
