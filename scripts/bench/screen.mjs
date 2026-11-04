@@ -114,21 +114,27 @@ const approveAll = async () => {
   const pending = await api("/api/approvals").catch(() => []);
   for (const a of Array.isArray(pending) ? pending : []) await api("/api/approve", { id: a.id }).catch(() => undefined);
 };
-/** Says something in a chat and waits for the turn to finish; the wall time. */
+/** Replies KOS has written in a chat, oldest first. */
+const replies = async (sessionId) => {
+  const got = await api(`/api/conversations/${encodeURIComponent(sessionId)}/messages`).catch(() => ({}));
+  return (got.messages ?? []).filter((m) => m.role === "kos").map((m) => m.text);
+};
+/** Says something in a chat and waits until a new reply is in and the chat is idle; the wall time. */
 const turn = async (sessionId, text, limitMs = 600_000) => {
+  const before = (await replies(sessionId)).length;
   const t0 = Date.now();
   void api("/api/message", { sessionId, text }).catch(() => undefined);
-  let worked = false;
+  let answer = "";
   while (Date.now() - t0 < limitMs) {
     await approveAll();
     const c = (await api("/api/conversations").catch(() => [])).find((x) => x.id === sessionId);
-    if (c?.activity === "working") worked = true;
-    else if (worked) break;
+    const now = await replies(sessionId);
+    if (now.length > before && c?.activity !== "working") {
+      answer = now.at(-1) ?? "";
+      break;
+    }
     await sleep(400);
   }
-  const messages = await api(`/api/conversations/${encodeURIComponent(sessionId)}/messages`).catch(() => []);
-  const said = (Array.isArray(messages) ? messages : messages.messages ?? []).filter((m) => m.role === "assistant" || m.role === "kos").at(-1);
-  const answer = typeof said?.text === "string" ? said.text : JSON.stringify(said?.content ?? "").slice(0, 400);
   return { t0, t1: Date.now(), wall: (Date.now() - t0) / 1000, answer };
 };
 const newChat = async (title) => (await api("/api/conversations/new", { title })).id;
