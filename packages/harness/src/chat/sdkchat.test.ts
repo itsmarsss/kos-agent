@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { joinSaid, plainName, priorForSdk, screenSplit, sdkName } from "./sdkchat.js";
+import { carryOn, joinSaid, plainName, priorForSdk, screenSplit, sdkName } from "./sdkchat.js";
 
 /**
  * The names are the containment boundary.
@@ -104,5 +104,17 @@ describe("screen work handed to its own model", () => {
 
   it("hands nothing on in a turn with no screen tools", () => {
     expect(screenSplit(["files.read"], { model: "claude-sonnet-5-5" })).toEqual({ main: [sdkName("files.read")] });
+  });
+});
+
+describe("a turn carried on in a fresh query", () => {
+  it("keeps the task and every step so far, newest last, and says not to start over", () => {
+    const said = carryOn("Owner: finish the wizard", [
+      { id: "1", name: "computer.start", input: { device: "Bench Mac" }, result: "Using Bench Mac.", isError: false },
+      { id: "2", name: "computer.act", input: { action: "type", text: "AMBER" }, result: "Typed 5 characters.", isError: false },
+    ]);
+    expect(said.startsWith("Owner: finish the wizard")).toBe(true);
+    expect(said).toContain("do not repeat them or start over");
+    expect(said.indexOf("computer.start")).toBeLessThan(said.indexOf("AMBER"));
   });
 });

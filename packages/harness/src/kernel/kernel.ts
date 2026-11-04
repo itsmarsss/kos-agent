@@ -268,6 +268,13 @@ export const HANDOFF_HOPS = 3;
 const GUEST_TOOLS = ["sql", "discord.react", "discord.reactions", "discord.messages", "discord.member", "notify", "chats.handoff"];
 
 /** The same message said twice: the words of two stored copies agree, whatever else rides on them. */
+/**
+ * Pictures one SDK query takes before the turn goes on in a fresh one, which
+ * sends only the newest. KOS_PICTURES_PER_QUERY=0 runs a turn in one query,
+ * as before.
+ */
+const PICTURES_PER_QUERY = Number(process.env["KOS_PICTURES_PER_QUERY"] ?? 8);
+
 function sameWords(a: ModelMessage, b: ModelMessage): boolean {
   const words = (m: ModelMessage): string => JSON.stringify(m.content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text));
   return words(a) === words(b);
@@ -1115,6 +1122,7 @@ export class Kernel {
             tools,
             cwd: this.workspace.root,
             maxTurns: this.behaviour().maxSteps,
+            picturesPerQuery: PICTURES_PER_QUERY,
             ...(this.sdkScreen() ? { screen: this.sdkScreen()! } : {}),
             onDelta: (delta) =>
               this.progress.emit({
