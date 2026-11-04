@@ -380,7 +380,9 @@ export async function runSdkChat(
             },
           }
         : {}),
-      env: { ...env, HOME: home },
+      // Every tool is loaded up front: with tool search on, each turn spent a
+      // model call finding KOS's own tools before it could use one.
+      env: { ...env, HOME: home, ENABLE_TOOL_SEARCH: "false" },
       systemPrompt: { type: "preset", preset: "claude_code", append: split.agent ? `${options.system}\n\n${SCREEN_HANDOFF}` : options.system },
     },
   });
