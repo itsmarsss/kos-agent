@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { Workspace } from "../store/workspace.js";
 import { ProjectManifest } from "./manifest.js";
+import { Migrator } from "./migrate.js";
 import { PageStore } from "./pages.js";
 import { runDisplayQuery } from "./display.js";
 import type { LoadedPage } from "./pages.js";
@@ -246,7 +247,9 @@ describe("PageStore HTML pages", () => {
     const manifest = new ProjectManifest(ws.db);
     manifest.createProject({ name: "Budget", type: "tracker" });
     manifest.createProject({ name: "Diary", type: "notes" });
-    ws.db.exec("CREATE TABLE budget_tx (id INTEGER PRIMARY KEY, amount REAL); CREATE TABLE diary_entries (id INTEGER PRIMARY KEY, body TEXT);");
+    const migrator = new Migrator(ws.db, manifest);
+    migrator.migrate("budget", { op: "create_table", table: "tx", columns: [{ name: "id", type: "INTEGER", primaryKey: true }, { name: "amount", type: "REAL" }] });
+    migrator.migrate("diary", { op: "create_table", table: "entries", columns: [{ name: "id", type: "INTEGER", primaryKey: true }, { name: "body", type: "TEXT" }] });
     t = 1000;
     pages = new PageStore(ws.db, ws, manifest, () => (t += 1000));
   });
@@ -279,7 +282,8 @@ describe("PageStore HTML pages", () => {
     expect(() => pages.writeHtml("budget", { id: "x", title: "X", html: "a".repeat(400_001) })).toThrow(/characters/);
     expect(() => pages.writeHtml("budget", { id: "x", title: "X", html: "<p>", libraries: ["jquery"] })).toThrow(/not one KOS serves/);
     expect(() => pages.writeHtml("budget", { id: "x", title: "X", html: "<p>", capabilities: { writes: [{ table: "budget_tx" }] } })).toThrow(/editable columns/);
-    expect(() => pages.writeHtml("budget", { id: "x", title: "X", html: "<p>", capabilities: { writes: [{ table: "diary_entries", columns: ["body"] }] } })).toThrow(/belongs to project "diary"/);
+    expect(() => pages.writeHtml("budget", { id: "x", title: "X", html: "<p>", capabilities: { writes: [{ table: "diary_entries", columns: ["body"] }] } })).toThrow(/"diary_entries" is not a table of project "budget"/);
+    expect(() => pages.writeHtml("budget", { id: "x", title: "X", html: "<p>", headline: { label: "n", query: "SELECT COUNT(*) FROM diary_entries" } })).toThrow(/headline.query: it reads "diary_entries"/);
     expect(() => pages.writeHtml("budget", { id: "x", title: "X", html: "<p>", capabilities: { writes: [{ table: "tx", columns: ["amount"] }] } })).toThrow(/use "budget_tx"/);
     expect(() => pages.writeHtml("budget", { id: "x", title: "X", html: "<p>", headline: { label: "n", query: "DELETE FROM budget_tx" } })).toThrow(/read-only/);
     expect(() => pages.writeHtml("nope", { id: "x", title: "X", html: "<p>" })).toThrow(/unknown project/);

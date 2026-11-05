@@ -12,7 +12,10 @@ import {
 
 import type { Db } from "../store/db.js";
 import type { Workspace } from "../store/workspace.js";
+import { projectTable } from "./identifiers.js";
 import type { ProjectManifest } from "./manifest.js";
+import { BridgeRefusal, tablesRead } from "./pagebridge.js";
+import { registeredTables } from "./registered.js";
 
 /**
  * Agent-authored pages, stored under the project folder and indexed in SQLite
@@ -111,10 +114,6 @@ export class PageStore {
 
   private row(id: string): Row | undefined {
     return this.db.prepare(`SELECT id, project_slug, title, path, updated_at, kind, meta FROM pages WHERE id = ?`).get(id) as Row | undefined;
-  }
-
-  private filePath(projectSlug: string, pageId: string): string {
-    return join("projects", projectSlug, "pages", `${pageId}.json`);
   }
 
   list(projectSlug?: string): PageRecord[] {
@@ -245,8 +244,9 @@ export class PageStore {
 
   /**
    * Validate and write an HTML page. What it may reach is checked here as well
-   * as on every call: a table it says it writes must exist and be its own
-   * project's, so the mistake is named now rather than on the owner's first save.
+   * as on every call: a table it says it writes, or its headline reads, must be
+   * one its project made (registered.ts), so the mistake is named now rather
+   * than on the owner's first save.
    */
   writeHtml(projectSlug: string, input: unknown): PageRecord {
     if (!this.manifest.get(projectSlug)) {
@@ -255,21 +255,22 @@ export class PageStore {
     const errors = validateHtmlPage(input);
     if (errors.length > 0) throw new Error(`invalid page: ${errors.join("; ")}`);
     const page = input as HtmlPage;
-    const slugs = this.manifest.list().map((p) => p.slug);
+    const tables = registeredTables(this.db, projectSlug);
     for (const [i, target] of (page.capabilities?.writes ?? []).entries()) {
-      const exists = this.db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(target.table) !== undefined;
-      if (!exists) {
-        const namespaced = `${projectSlug}_${target.table}`;
-        const hint = this.db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(namespaced) ? `use "${namespaced}"` : "create it with systems.migrate first";
-        throw new Error(`capabilities.writes[${i}]: table "${target.table}" does not exist; ${hint}`);
-      }
-      const owner = ownerOf(target.table, slugs);
-      if (owner !== projectSlug) {
-        throw new Error(`capabilities.writes[${i}]: table "${target.table}" belongs to ${owner ? `project "${owner}"` : "no project"}, not "${projectSlug}"`);
-      }
+      if (tables.has(target.table)) continue;
+      const namespaced = projectTable(projectSlug, target.table);
+      const hint = tables.has(namespaced) ? `use "${namespaced}"` : "create it with systems.migrate first";
+      throw new Error(`capabilities.writes[${i}]: "${target.table}" is not a table of project "${projectSlug}"; ${hint}`);
     }
-    if (page.headline && !isReadOnlyQuery(page.headline.query)) {
-      throw new Error("headline.query must be a single read-only SELECT");
+    if (page.headline) {
+      if (!isReadOnlyQuery(page.headline.query)) throw new Error("headline.query must be a single read-only SELECT");
+      try {
+        for (const table of tablesRead(this.db, page.headline.query, [])) {
+          if (!tables.has(table)) throw new BridgeRefusal(`it reads "${table}", which is not a table of project "${projectSlug}"`);
+        }
+      } catch (err) {
+        throw new Error(`headline.query: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
     const meta: HtmlMeta = {
       ...(page.capabilities ? { capabilities: page.capabilities } : {}),
