@@ -9,6 +9,7 @@ import {
   SKILL_NAME,
   SKILLS_DIR,
   readSkills,
+  skillHash,
   type SkillKind,
   type SkillRecord,
 } from "../skills/manifest.js";
@@ -34,10 +35,10 @@ export interface SkillsModuleDeps {
   promoter: SkillPromoter;
   /** Names the owner has switched off, read fresh so a toggle takes effect at once. */
   disabled: () => string[];
-  /** Script skills promoted, by the sandbox or an approved commit: these run without asking. */
-  promoted: () => string[];
-  /** A skill just promoted, to be kept as such. */
-  markPromoted: (name: string) => void;
+  /** Script skills promoted, by the sandbox or an approved commit, with their files' hash then: these run without asking while it holds. */
+  promoted: () => Record<string, string>;
+  /** A skill just promoted, kept with the hash of the files that were. */
+  markPromoted: (name: string, hash: string) => void;
 }
 
 function str(input: Record<string, unknown>, key: string): string {
@@ -97,6 +98,14 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
     activate(ctx: ModuleContext) {
       const ws = requireServices(ctx).workspace;
       const off = (): Set<string> => new Set(deps.disabled());
+      /** The script skill a call names, or nothing: for judging a call, which must not throw. */
+      const scriptNamed = (input: Record<string, unknown>): SkillRecord | undefined => {
+        try {
+          return script(find(ws, str(input, "name")));
+        } catch {
+          return undefined;
+        }
+      };
       const assertOn = (skill: SkillRecord): void => {
         if (off().has(skill.manifest.name)) {
           throw new Error(`${skill.manifest.name} is switched off by the owner; it can be turned on in Settings`);
@@ -236,8 +245,10 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
         async (input) => {
           const skill = script(find(ws, str(input, "name")));
           const args = strings(input, "args");
+          // Hashed before the test: an edit while it runs leaves a hash that no longer holds, so the skill asks.
+          const hash = skillHash(ws, skill);
           const outcome = await deps.promoter.promote({ entry: skill.file, ...(args ? { args } : {}) });
-          if (outcome.status === "promoted") deps.markPromoted(skill.manifest.name);
+          if (outcome.status === "promoted") deps.markPromoted(skill.manifest.name, hash);
           // The ask goes through skills.commit, the guarded path, so it carries this chat and the turn waits on the answer.
           if (outcome.status === "needs_approval") return JSON.stringify({ ...outcome, next: `skills.commit with name "${skill.manifest.name}": it asks the owner; once approved, skills.run runs it` });
           return JSON.stringify(outcome);
@@ -253,11 +264,24 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
         },
         async (input) => {
           const skill = script(find(ws, str(input, "name")));
+          // The owner said yes to the files as they were when asked; changed since, that yes is not to them.
+          const hash = skillHash(ws, skill);
+          if (input["hash"] !== hash) {
+            throw new Error(`${skill.manifest.name} changed after the owner was asked, so that yes is not to this code. Run skills.promote again to test it and ask anew.`);
+          }
           const sha = await deps.promoter.commit(skill.file);
-          deps.markPromoted(skill.manifest.name);
+          deps.markPromoted(skill.manifest.name, hash);
           return JSON.stringify({ status: "promoted", name: skill.manifest.name, sha });
         },
-        { floor: "risky", why: "code of KOS's own writing would be kept to run" },
+        {
+          floor: "risky",
+          why: "code of KOS's own writing would be kept to run",
+          // The hash of the files the owner is shown, set by the harness before it asks.
+          stamp: (input) => {
+            const skill = scriptNamed(input);
+            return skill ? { ...input, hash: skillHash(ws, skill) } : input;
+          },
+        },
       );
 
       ctx.registerTool(
@@ -283,7 +307,10 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
         {
           floor: "risky",
           why: "runs a skill that was not promoted",
-          relax: (input) => typeof input["name"] === "string" && deps.promoted().includes(input["name"]) && !off().has(input["name"]),
+          relax: (input) => {
+            const skill = scriptNamed(input);
+            return skill !== undefined && !off().has(skill.manifest.name) && deps.promoted()[skill.manifest.name] === skillHash(ws, skill);
+          },
         },
       );
     },

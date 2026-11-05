@@ -458,7 +458,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       // Read on every call, so a toggle in Settings takes effect at once.
       disabled: () => parseSkillSettings(settings.get(SKILLS_KEY)).disabled,
       promoted: () => parseSkillSettings(settings.get(SKILLS_KEY)).promoted,
-      markPromoted: (name) => settings.set(SKILLS_KEY, withSkillPromoted(parseSkillSettings(settings.get(SKILLS_KEY)), name)),
+      markPromoted: (name, hash) => settings.set(SKILLS_KEY, withSkillPromoted(parseSkillSettings(settings.get(SKILLS_KEY)), name, hash)),
     }),
     createImproveModule({ suggestions }),
     createMemoryModule({

@@ -23,6 +23,12 @@ export interface ToolRisk {
   /** Why a risky floor asks, in words the owner reads on the card: "deletes the chat for good". */
   why?: string;
   /**
+   * Arguments the harness sets on a call before it is judged, so the owner's
+   * yes is to them and the call can check they still hold when it runs: the
+   * hash of a script the owner is asked to keep.
+   */
+  stamp?: (input: Record<string, unknown>) => Record<string, unknown>;
+  /**
    * Arguments the harness refuses outright, with the reason the model
    * reads, or false. Checked before the tier, so a refused call never
    * reaches the owner as an ask: the fence around KOS's own tables, met

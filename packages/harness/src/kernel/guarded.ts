@@ -224,7 +224,7 @@ export class GuardedTools implements ToolBox {
 
   private async call(
     name: string,
-    input: Record<string, unknown>,
+    called: Record<string, unknown>,
   ): Promise<ToolExecution> {
     const { registry, secrets, audit, approvals, userId, conversationId } =
       this.deps;
@@ -238,10 +238,10 @@ export class GuardedTools implements ToolBox {
     const run = (n: string, i: Record<string, unknown>): Promise<ToolExecution> =>
       attendance.run(attended, () => (conversationId ? caller.run(conversationId, () => inTurn(n, i)) : inTurn(n, i)));
 
-    const repeated = this.repeatGuard(name, input);
+    const repeated = this.repeatGuard(name, called);
     if (repeated) return { content: repeated, isError: true };
 
-    this.deps.onStarted?.(name, input);
+    this.deps.onStarted?.(name, called);
 
     // Enforced here too, not only in defs(): a model can name any tool it
     // likes, and an offered-but-not-executable list would be a fiction.
@@ -254,8 +254,12 @@ export class GuardedTools implements ToolBox {
 
     // Refused before it is judged: a rule that refuses is the fence, and an
     // ask would only invite the owner to open a gate the harness keeps shut.
-    const refused = registry.refusal(name, input);
+    const refused = registry.refusal(name, called);
     if (refused) return { content: refused, isError: true };
+
+    // Judged, asked about and run as stamped: what the owner says yes to is
+    // what runs, and the call can check it still holds.
+    const input = registry.stamp(name, called);
 
     const assessment = registry.classify(name, input);
 

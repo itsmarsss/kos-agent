@@ -41,7 +41,7 @@ import { copyEntry, deleteEntry, listDirectory, makeDir, readForText, readForVie
 import { listSites, listSitesFor, sitesBaseUrl, PROJECTS_DIR } from "../sites/server.js";
 import { costOf, parseRates, sumSpend, windowFor, RATES_KEY, type Rates, type SpendSummary } from "../ops/spend.js";
 import type { FailingJob } from "../ops/health.js";
-import { readSkills } from "../skills/manifest.js";
+import { readSkills, skillHash, type SkillRecord } from "../skills/manifest.js";
 import { importPage, listPages, readPage } from "../memory/pages.js";
 import { applyResolution, describeReview } from "../memory/resolve.js";
 import type { ReviewItem } from "../memory/review.js";
@@ -53,7 +53,7 @@ import { GLOBAL_SCOPE, callerScope, type Fact } from "../memory/facts.js";
 import { MODULES_KEY, parseModuleSettings, readWorkspaceModules, withModuleEnabled } from "../modules/workspace.js";
 import { instantiateBlueprint } from "../modules/blueprint.js";
 import { installModule, originOf, removeModule, run, updateModule } from "../modules/install.js";
-import { SKILLS_KEY, parseSkillSettings, withSkillEnabled } from "../skills/settings.js";
+import { SKILLS_KEY, parseSkillSettings, withSkillEnabled, type SkillSettings } from "../skills/settings.js";
 import {
   conversationKind,
   projectConversationId,
@@ -332,6 +332,12 @@ function jobSpend(kernel: Kernel, jobId: number, rates: Rates): JobSpend | undef
   };
 }
 
+/** A script promoted whose files are as they were then: it runs without asking. */
+function promotedAsIs(kernel: Kernel, settings: SkillSettings, skill: SkillRecord): boolean {
+  const hash = settings.promoted[skill.manifest.name];
+  return hash !== undefined && hash === skillHash(kernel.workspace, skill);
+}
+
 /** A project's own skills: the ones made for it by name, each with whether it is on and, for a script, promoted. */
 function skillsFor(kernel: Kernel, slug: string): { name: string; kind: "script" | "prompt"; description: string; file: string; enabled: boolean; promoted: boolean }[] {
   const settings = parseSkillSettings(kernel.settings.get(SKILLS_KEY));
@@ -343,7 +349,7 @@ function skillsFor(kernel: Kernel, slug: string): { name: string; kind: "script"
       description: s.manifest.description,
       file: s.file,
       enabled: !settings.disabled.includes(s.manifest.name),
-      promoted: settings.promoted.includes(s.manifest.name),
+      promoted: promotedAsIs(kernel, settings, s),
     }));
 }
 
@@ -906,7 +912,6 @@ export async function handleApiRequest(
     const { skills, invalid } = readSkills(kernel.workspace);
     const settings = parseSkillSettings(kernel.settings.get(SKILLS_KEY));
     const off = new Set(settings.disabled);
-    const promoted = new Set(settings.promoted);
     // Where each came from, for the ones that came from a repository.
     const listed = await Promise.all(
       skills.map(async (s) => ({
@@ -914,7 +919,7 @@ export async function handleApiRequest(
         file: s.file,
         enabled: !off.has(s.manifest.name),
         // A script that runs without asking, which is what a schedule can run.
-        promoted: promoted.has(s.manifest.name),
+        promoted: promotedAsIs(kernel, settings, s),
         origin: await skillOrigin(kernel.workspace.resolve(s.dir), run),
       })),
     );

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -150,4 +151,18 @@ export function renderSkillsSection(skills: SkillRecord[]): string | undefined {
       "A script skill runs: call skills.run with its name. Make a new one with skills.create.",
   );
   return lines.join("\n");
+}
+
+/**
+ * What a script skill is, as one hash: its entry and its manifest, read now.
+ * An owner's yes is to the code they were shown, so a commit and a run that
+ * skips the ask both check the files still hash to what was approved.
+ */
+export function skillHash(ws: Workspace, skill: SkillRecord): string {
+  const hash = createHash("sha256");
+  for (const file of [skill.file, join(skill.dir, MANIFEST_FILE)]) {
+    const abs = ws.resolve(file);
+    hash.update(file).update("\0").update(existsSync(abs) ? readFileSync(abs) : "").update("\0");
+  }
+  return hash.digest("hex");
 }
