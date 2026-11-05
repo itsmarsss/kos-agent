@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import type { PageSpec } from "@kos/shared";
+
 import { CronStore } from "../cron/store.js";
 import { Workspace } from "../store/workspace.js";
 import { ProjectManifest } from "../systems/manifest.js";
@@ -82,7 +84,7 @@ describe("a blueprint", () => {
     const { blueprint, derived } = extractBlueprint({ db: ws.db, manifest, migrator, pages, crons }, slug);
     expect(blueprint.type).toBe("budget");
     expect(blueprint.schema.map((s) => s.op)).toEqual(["create_table", "add_column"]);
-    expect(blueprint.pages[0]?.widgets[0]).toMatchObject({ query: "SELECT SUM(amount) AS total FROM {{instance}}_tx" });
+    expect((blueprint.pages[0] as PageSpec).widgets[0]).toMatchObject({ query: "SELECT SUM(amount) AS total FROM {{instance}}_tx" });
     expect(blueprint.jobs).toEqual([expect.objectContaining({ name: "weekly digest", prompt: "Summarise {{instance}}_tx for the week." })]);
     expect(derived).toEqual([]);
     expect(JSON.stringify(blueprint)).not.toContain("groceries");
@@ -136,6 +138,28 @@ describe("a blueprint", () => {
     expect(specOf(page)?.widgets[0]).toMatchObject({ query: "SELECT SUM(amount) AS total FROM side_biz_tx" });
     const job = crons.list().find((j) => j.projectSlug === "side_biz");
     expect(job).toMatchObject({ enabled: false, prompt: "Summarise side_biz_tx for the week." });
+  });
+
+  it("carries an HTML page, its declarations and headline following the instance's slug", () => {
+    const slug = budget();
+    pages.writeHtml(slug, {
+      id: "board",
+      title: "Board",
+      html: "<script>kos.query('SELECT note FROM household_tx')</script>",
+      capabilities: { writes: [{ table: "household_tx", columns: ["note"] }] },
+      headline: { label: "Spent", query: "SELECT SUM(amount) FROM household_tx" },
+    });
+    const { blueprint } = extractBlueprint({ db: ws.db, manifest, migrator, pages, crons }, slug);
+    const html = blueprint.pages.find((p) => p.id === "board");
+    expect(html).toMatchObject({ kind: "html", capabilities: { writes: [{ table: "{{instance}}_tx" }] } });
+    expect(checkBlueprint(blueprint)).toEqual([]);
+    instantiateBlueprint({ db: ws.db, manifest, migrator, pages, crons }, "b", blueprint, "Side biz");
+    const got = pages.get("side_biz_board");
+    expect(got?.kind).toBe("html");
+    if (got?.kind !== "html") return;
+    expect(got.page.html).toContain("FROM side_biz_tx");
+    expect(got.page.capabilities?.writes?.[0]?.table).toBe("side_biz_tx");
+    expect(got.page.headline?.query).toBe("SELECT SUM(amount) FROM side_biz_tx");
   });
 
   it("refuses a blueprint that would not apply", () => {

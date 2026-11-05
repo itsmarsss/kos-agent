@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { isValidPageSpec, validatePageSpec, type PageSpec } from "@kos/shared";
+import { isValidPageSpec, validateHtmlPage, validatePageSpec, type HtmlPage, type PageSpec } from "@kos/shared";
 
 import type { CronStore } from "../cron/store.js";
 import type { CreateCronInput, CronCondition, CronType, ToolCall } from "../cron/types.js";
@@ -44,14 +44,22 @@ export interface BlueprintJob {
   task?: "reasoning" | "cheap";
 }
 
+/** A page a blueprint carries: a spec, or an HTML page marked as one. */
+export type BlueprintPage = PageSpec | (HtmlPage & { kind: "html" });
+
+const isHtml = (page: BlueprintPage): page is HtmlPage & { kind: "html" } => (page as { kind?: unknown }).kind === "html";
+
+/** An HTML page as written, without the blueprint's marker. */
+const htmlOf = ({ kind: _kind, ...page }: HtmlPage & { kind: "html" }): HtmlPage => page;
+
 export interface Blueprint {
   /** The project type an instance is made with: tracker, notes, budget. */
   type: string;
   instancing: Instancing;
   /** The migrator's change specs, in order. Table names are logical. */
   schema: ChangeSpec[];
-  /** Page specs with the slug tokenized. */
-  pages: PageSpec[];
+  /** Pages with the slug tokenized. */
+  pages: BlueprintPage[];
   /** Jobs with the slug tokenized, made switched off. */
   jobs: BlueprintJob[];
 }
@@ -88,7 +96,7 @@ export function parseBlueprint(raw: unknown): Blueprint {
   if (!type) throw new Error("blueprint.type is required");
   const instancing: Instancing = b["instancing"] === "single" ? "single" : "multi";
   const schema = Array.isArray(b["schema"]) ? b["schema"].map((s) => parseChangeSpec(s)) : [];
-  const pages = Array.isArray(b["pages"]) ? (b["pages"] as PageSpec[]) : [];
+  const pages = Array.isArray(b["pages"]) ? (b["pages"] as BlueprintPage[]) : [];
   for (const p of pages) {
     if (typeof p !== "object" || p === null || typeof p.id !== "string") throw new Error("blueprint.pages entries need an id");
   }
@@ -173,12 +181,12 @@ export function extractBlueprint(src: BlueprintSources, slug: string): Extracted
 
   const pages = src.pages
     .list(slug)
-    .map((r) => {
-      // An HTML page is not carried by a blueprint yet; its spec pages are.
+    .map((r): BlueprintPage | undefined => {
       const got = src.pages.get(r.id);
-      return got?.kind === "spec" ? got.spec : undefined;
+      if (!got) return undefined;
+      return got.kind === "spec" ? got.spec : { kind: "html", ...got.page };
     })
-    .filter((s): s is PageSpec => s !== undefined)
+    .filter((s): s is BlueprintPage => s !== undefined)
     .map((s) => tokenize(s, slug));
 
   const jobs: BlueprintJob[] = (src.crons?.list() ?? [])
@@ -220,6 +228,11 @@ export function checkBlueprint(bp: Blueprint): string[] {
   }
   for (const page of bp.pages) {
     const concrete = untokenize(page, probe);
+    if (isHtml(concrete)) {
+      const problems = validateHtmlPage(htmlOf(concrete));
+      if (problems.length) errors.push(`page ${page.id}: ${problems.join("; ")}`);
+      continue;
+    }
     const problems = validatePageSpec(concrete);
     if (problems.length || !isValidPageSpec(concrete)) errors.push(`page ${page.id}: ${problems.join("; ") || "failed validation"}`);
   }
@@ -292,7 +305,9 @@ export function instantiateBlueprint(
     for (const page of bp.pages) {
       const concrete = untokenize(page, project.slug);
       // A page id is global, so each instance's pages carry its slug.
-      dst.pages.write(project.slug, { ...concrete, id: `${project.slug}_${page.id}` });
+      const id = `${project.slug}_${page.id}`;
+      if (isHtml(concrete)) dst.pages.writeHtml(project.slug, { ...htmlOf(concrete), id });
+      else dst.pages.write(project.slug, { ...concrete, id });
     }
     if (dst.crons) {
       for (const job of bp.jobs) {
