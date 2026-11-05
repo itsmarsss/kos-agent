@@ -47,20 +47,65 @@ export const PAGE_GUARD_CSP = `${PAGE_CSP}; frame-src 'none'; child-src 'none'; 
 export const WRAPPER_CSP = `${PAGE_CSP}; frame-src about:`;
 
 /**
- * What runs before anything the page wrote. Trusted Types send every string
- * the page turns into HTML through one policy, which refuses the elements no
- * Content Security Policy governs; the element factories refuse them too, and
- * are frozen; XSLT, which can build elements from data, is taken away.
+ * What runs before anything the page wrote.
+ *
+ * The elements no Content Security Policy governs (a <link>, which can
+ * prerender; a <meta>, which can refresh; a frame, a fresh realm; a <form>, a
+ * <base>, a <script>) are kept off the page at every way an element is made
+ * or placed, whatever namespace it claims:
+ *
+ *  - Trusted Types send every string the page turns into HTML through one
+ *    policy, which refuses their markup, prefixed or not;
+ *  - the factories (createElement, createElementNS, createDocument) refuse
+ *    them by name;
+ *  - and since a parser can still make one (an XML document's entities, a
+ *    document made elsewhere), nothing holding one may be adopted, imported
+ *    or put into a document, by any of the methods that place a node.
+ *
+ * A <link> that exists anyway takes no rel or href. WebRTC, which reaches
+ * the network beside the policy, and XSLT, which builds elements from data,
+ * are taken away. Every replacement is fixed in place, and what it checks
+ * with (a node's type and name, querySelector) is held from before the page
+ * could change it.
  */
 export const GUARD_SCRIPT = String.raw`(function(){
-var inMarkup=/<\/?(link|meta|iframe|frame|frameset|object|embed|base|form|portal|fencedframe|script)(?![\w-])/i;
-var isTag=/^(link|meta|iframe|frame|frameset|object|embed|base|form|portal|fencedframe|script)$/i;
+"use strict";
+var R=Reflect.apply,Str=String,exec=RegExp.prototype.exec,lower=String.prototype.toLowerCase,cut=String.prototype.slice,last=String.prototype.lastIndexOf,define=Object.defineProperty;
+var TAGS="link,meta,iframe,frame,frameset,object,embed,base,form,portal,fencedframe,script";
+var BAD=Object.create(null);TAGS.split(",").forEach(function(t){BAD[t]=true});
+var ATTRS=Object.create(null);["rel","href","as","imagesrcset","imagesizes","http-equiv","content","src","action","target"].forEach(function(a){ATTRS[a]=true});
+var inMarkup=new RegExp("<\\/?([\\w-]+:)?("+TAGS.replace(/,/g,"|")+")(?![\\w-])","i"),inXsl=/xsl:/i;
 function refuse(what){throw new TypeError("A KOS page cannot make "+what+": it has no network to use it.")}
-trustedTypes.createPolicy("default",{createHTML:function(s){if(inMarkup.test(s)||/xsl:/i.test(s))refuse("that markup");return s},createScript:function(){refuse("a script")},createScriptURL:function(){refuse("a script URL")}});
-var make=Document.prototype.createElement,makeNS=Document.prototype.createElementNS;
-Object.defineProperty(Document.prototype,"createElement",{value:function(n,o){if(isTag.test(String(n)))refuse("<"+n+">");return make.call(this,n,o)},writable:false,configurable:false});
-Object.defineProperty(Document.prototype,"createElementNS",{value:function(ns,n,o){if(isTag.test(String(n).split(":").pop()))refuse("<"+n+">");return makeNS.call(this,ns,n,o)},writable:false,configurable:false});
-Object.defineProperty(window,"XSLTProcessor",{value:undefined,writable:false,configurable:false});
+function fix(o,k,v){define(o,k,{value:v,writable:false,configurable:false})}
+function getter(o,k){return Object.getOwnPropertyDescriptor(o,k).get}
+function local(n){var i=R(last,n,[":"]);return R(lower,R(cut,n,[i+1]),[])}
+function bad(n){return BAD[local(n)]===true}
+var typeOf=getter(Node.prototype,"nodeType"),nameOf=getter(Element.prototype,"localName");
+var finds={1:Element.prototype.querySelector,9:Document.prototype.querySelector,11:DocumentFragment.prototype.querySelector};
+function holds(n){
+if(n===null||typeof n!=="object")return false;
+var t;try{t=R(typeOf,n,[])}catch(_){return false}
+if(t===1&&bad(R(nameOf,n,[])))return true;
+var find=finds[t];return find!==undefined&&R(find,n,[TAGS])!==null}
+function check(nodes){for(var i=0;i<nodes.length;i++)if(holds(nodes[i]))refuse("that element")}
+trustedTypes.createPolicy("default",{createHTML:function(s){if(R(exec,inMarkup,[s])!==null||R(exec,inXsl,[s])!==null)refuse("that markup");return s},createScript:function(){refuse("a script")},createScriptURL:function(){refuse("a script URL")}});
+var make=Document.prototype.createElement,makeNS=Document.prototype.createElementNS,makeDoc=DOMImplementation.prototype.createDocument;
+fix(Document.prototype,"createElement",function(n,o){n=Str(n);if(bad(n))refuse("<"+n+">");return R(make,this,[n,o])});
+fix(Document.prototype,"createElementNS",function(ns,n,o){n=Str(n);if(bad(n))refuse("<"+n+">");return R(makeNS,this,[ns,n,o])});
+fix(DOMImplementation.prototype,"createDocument",function(ns,n,d){n=n==null?"":Str(n);if(bad(n))refuse("<"+n+">");return R(makeDoc,this,[ns,n,d])});
+function guard(o,k,pick){var f=o[k];if(typeof f!=="function")return;fix(o,k,function(){var a=[];for(var i=0;i<arguments.length;i++)a[i]=arguments[i];check(pick(a));return R(f,this,a)})}
+var first=function(a){return [a[0]]},second=function(a){return [a[1]]},all=function(a){return a};
+[[Document.prototype,"adoptNode",first],[Document.prototype,"importNode",first],
+[Node.prototype,"appendChild",first],[Node.prototype,"insertBefore",first],[Node.prototype,"replaceChild",first],
+[Element.prototype,"insertAdjacentElement",second],[Range.prototype,"insertNode",first],[Range.prototype,"surroundContents",first]].forEach(function(g){guard(g[0],g[1],g[2])});
+[Element.prototype,Document.prototype,DocumentFragment.prototype].forEach(function(p){["append","prepend","replaceChildren"].forEach(function(k){guard(p,k,all)});guard(p,"moveBefore",first)});
+[Element.prototype,CharacterData.prototype,DocumentType.prototype].forEach(function(p){["replaceWith","before","after"].forEach(function(k){guard(p,k,all)})});
+["rel","href","as","imageSrcset","imageSizes"].forEach(function(k){var d=Object.getOwnPropertyDescriptor(HTMLLinkElement.prototype,k);if(d)define(HTMLLinkElement.prototype,k,{get:d.get,set:function(){},configurable:false})});
+var setA=Element.prototype.setAttribute,setANS=Element.prototype.setAttributeNS;
+function inert(el,n){return bad(R(nameOf,el,[]))&&ATTRS[local(n)]===true}
+fix(Element.prototype,"setAttribute",function(n,v){n=Str(n);if(inert(this,n))return;return R(setA,this,[n,v])});
+fix(Element.prototype,"setAttributeNS",function(ns,n,v){n=Str(n);if(inert(this,n))return;return R(setANS,this,[ns,n,v])});
+["RTCPeerConnection","webkitRTCPeerConnection","RTCDataChannel","RTCRtpSender","RTCRtpReceiver","RTCRtpTransceiver","XSLTProcessor"].forEach(function(k){fix(window,k,undefined)});
 })();`;
 
 /** A page's own head and body, from a whole document or a fragment. */
