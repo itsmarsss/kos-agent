@@ -32,6 +32,16 @@ describe("ProjectManifest", () => {
     expect(manifest.get("budget_2026")?.name).toBe("Budget 2026");
   });
 
+  it("remembers the chat that made a project, and adds the column to an older workspace", () => {
+    manifest.createProject({ name: "Garden", type: "tracker", madeIn: "c1" });
+    manifest.createProject({ name: "Pantry", type: "tracker" });
+    expect(manifest.madeIn("c1")).toEqual(["garden"]);
+    expect(manifest.madeIn("c2")).toEqual([]);
+    ws.db.exec(`ALTER TABLE manifest DROP COLUMN made_in`);
+    new ProjectManifest(ws.db);
+    expect((ws.db.prepare(`PRAGMA table_info(manifest)`).all() as { name: string }[]).map((c) => c.name)).toContain("made_in");
+  });
+
   it("disambiguates colliding slugs", () => {
     const a = manifest.createProject({ name: "Budget", type: "budget" });
     const b = manifest.createProject({ name: "budget!", type: "budget" });

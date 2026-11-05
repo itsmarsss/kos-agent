@@ -41,6 +41,8 @@ export interface ModuleServices {
   crons?: CronStore;
   /** The project the calling conversation belongs to, read at call time; undefined at the root. */
   callerProject?: () => string | undefined;
+  /** The calling conversation's id, read at call time. */
+  callerConversation?: () => string | undefined;
 }
 
 /**

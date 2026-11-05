@@ -4,6 +4,8 @@ import { migrationEscalation } from "../risk/rules.js";
 import { parseChangeSpec } from "../systems/migrate.js";
 import { deleteProject } from "../systems/remove.js";
 import type { CreateProjectInput } from "../systems/manifest.js";
+import { MAINTENANCE_SLUG, reachable, type Reach } from "./fence.js";
+import { reachOf } from "./sql.js";
 
 /**
  * Systems tools: project creation, guarded migrate, and page-spec write/list.
@@ -15,6 +17,18 @@ function str(input: Record<string, unknown>, key: string): string {
   const v = input[key];
   if (typeof v !== "string" || v === "") throw new Error(`missing arg: ${key}`);
   return v;
+}
+
+/**
+ * A project's schema is changed by the chats that may fill it, under the
+ * sql fence's rule: its own chats, the chat that made it, and Maintenance.
+ * Anywhere else could make a table it was then refused the rows of.
+ */
+function refuseOutsideReach(project: string, reach: Reach): void {
+  if (reach.project === MAINTENANCE_SLUG || reachable(reach).includes(project)) return;
+  const name = reach.projects.find((p) => p.slug === project)?.name ?? project;
+  const here = reach.project ? `This chat is ${reach.projects.find((p) => p.slug === reach.project)?.name ?? reach.project}'s` : "This chat belongs to no project";
+  throw new Error(`${here}, so ${name}'s tables are not its to change. Hand the work to ${name}'s own chat with chats.handoff to @project:${project}, saying what to build and load.`);
 }
 
 function defineSystemsTools(ctx: ModuleContext): void {
@@ -54,6 +68,9 @@ function defineSystemsTools(ctx: ModuleContext): void {
       if (input.instancing === "single" || input.instancing === "multi") {
         body.instancing = input.instancing;
       }
+      // The chat that makes a project may build it: its tables and its rows.
+      const madeIn = ctx.services?.callerConversation?.();
+      if (madeIn) body.madeIn = madeIn;
       const project = manifest.createProject(body);
       return JSON.stringify(project);
     },
@@ -134,6 +151,7 @@ function defineSystemsTools(ctx: ModuleContext): void {
       // Checked rather than cast: this arrives as free-form model JSON, and a
       // wrong guess has to come back as an instruction, not a TypeError.
       const spec = parseChangeSpec(input.spec);
+      refuseOutsideReach(project, reachOf(ctx));
       const record = migrator.migrate(project, spec);
       return JSON.stringify({
         id: record.id,

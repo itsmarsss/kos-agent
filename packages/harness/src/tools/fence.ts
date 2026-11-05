@@ -117,6 +117,17 @@ export function ownerOf(table: string, projects: readonly Owner[]): Owner | unde
 export interface Reach {
   project: string | undefined;
   projects: readonly Owner[];
+  /**
+   * Projects this chat made, which it may build as their own chats do. A chat
+   * with no project could create a project's table and then not fill it, and
+   * spent its turn finding a way round: a script, a handoff, a new chat.
+   */
+  made?: readonly string[];
+}
+
+/** The projects a chat's statements and schema changes may reach: its own, and those it made. */
+export function reachable(reach: Reach): string[] {
+  return [...new Set([...(reach.project ? [reach.project] : []), ...(reach.made ?? [])])];
 }
 
 export interface FenceVerdict {
@@ -159,13 +170,14 @@ export function fence(sql: string, existing: readonly string[], reach: Reach): F
     const owner = ownerOf(t, reach.projects);
     return owner ? `${t} is the ${owner.name} project's` : `${t} belongs to no project`;
   };
-  if (!reach.project) {
+  const mine = reachable(reach);
+  if (!mine.length) {
     return refuse(`${tables.map(whose).join("; ")}. This chat belongs to no project, so no table is its to read or write: ask KOS at the root, which routes a question to the project that owns the data, or ${HAND_ON}.`);
   }
   const siblings = reach.projects.map((p) => p.slug);
-  const others = tables.filter((t) => !ownedBy(t, reach.project!, siblings));
+  const others = tables.filter((t) => !mine.some((slug) => ownedBy(t, slug, siblings)));
   if (others.length) {
-    const here = reach.projects.find((p) => p.slug === reach.project)?.name ?? reach.project;
+    const here = mine.map((slug) => reach.projects.find((p) => p.slug === slug)?.name ?? slug).join(" and ");
     return refuse(`${others.map(whose).join("; ")}, not this project's. sql here reaches only the tables of ${here}; ${HAND_ON}.`);
   }
   return { ok: true };

@@ -255,6 +255,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       const id = kernelRef?.callerConversationId;
       return (id && conversations.get(id)?.projectSlug) || undefined;
     },
+    callerConversation: () => kernelRef?.callerConversationId ?? undefined,
     // Always wired. Without a channel this used to be absent, so `notify`
     // threw and every unattended job that ended in "tell me" lost its
     // message. The fallback puts it where the owner already looks.
