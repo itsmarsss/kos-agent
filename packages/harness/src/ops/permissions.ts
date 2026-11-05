@@ -143,6 +143,10 @@ export function scopeOf(tool: string, input: Record<string, unknown>, context?: 
       return undefined;
     }
   }
+  // Each commit keeps different code to run: a yes to one is not a yes to
+  // the next, so it is never remembered, and a rule already kept for it
+  // matches nothing.
+  if (tool === "skills.commit") return undefined;
   if (tool === "systems.migrate") {
     const spec = input["spec"];
     const table = typeof spec === "object" && spec !== null ? (spec as { table?: unknown }).table : undefined;
