@@ -403,6 +403,27 @@ export class Kernel {
   }
 
   /**
+   * The owner's words that started the calling conversation's turn, when it
+   * is theirs. Citing logs them as the turn's owner event, once; the turn's
+   * own record of the exchange then reuses it rather than logging it twice.
+   */
+  ownerTurn(): { text: string; cite: () => Promise<number> } | undefined {
+    const conversationId = this.callerConversationId;
+    const said = conversationId ? this.ownerSaid.get(conversationId) : undefined;
+    if (!conversationId || !said) return undefined;
+    return {
+      text: said.text,
+      cite: async () => {
+        if (said.eventId !== undefined) return said.eventId;
+        const [embedding] = await this.embedder.embed([said.text.trim()]);
+        const projectSlug = this.conversations.get(conversationId)?.projectSlug ?? null;
+        said.eventId = this.events.append({ userId: said.userId, role: "owner", text: said.text.trim(), conversationId, projectSlug }, embedding);
+        return said.eventId;
+      },
+    };
+  }
+
+  /**
    * Conversations with a turn in flight right now.
    *
    * A set rather than a single id: a dispatched turn runs inside the
@@ -414,6 +435,11 @@ export class Kernel {
   private readonly heldNotes = new Map<string, string[]>();
   /** What the owner said to a chat while its turn ran, waiting for that turn's next step. */
   private readonly steered = new Map<string, { text: string; taken: (took: boolean) => void }[]>();
+  /**
+   * What the owner said to start each running turn of theirs, and the event
+   * those words were logged as once a claim has cited them.
+   */
+  private readonly ownerSaid = new Map<string, { text: string; userId: string; eventId?: number }>();
   /** Conversations whose last turn threw, with the error, until the next turn. */
   private readonly failed = new Map<string, string>();
 
@@ -872,6 +898,10 @@ export class Kernel {
       // made from inside it extends the trail rather than starting one.
       if (opts.trail?.length) this.trails.set(sessionId, opts.trail);
       else this.trails.delete(sessionId);
+      // The owner's own words, for a claim made this turn to cite. Not a
+      // guest's (run as system), a schedule's or one passed on by a chat.
+      if (opts.origin !== "system" && !opts.from && !opts.contextFrom && text.trim()) this.ownerSaid.set(sessionId, { text, userId });
+      else this.ownerSaid.delete(sessionId);
       // Where the words came from rides on the message, sent and stored
       // alike: the loop hands its own list back to be kept, so a label
       // only on the stored copy was gone by the end of the turn.
@@ -1588,6 +1618,7 @@ export class Kernel {
     this.stopping.delete(sessionId);
     this.aborts.delete(sessionId);
     this.trails.delete(sessionId);
+    this.ownerSaid.delete(sessionId);
     this.progress.emit({ kind: "turn-end", conversationId: sessionId });
     this.bus.emit({ kind: "turn:end", conversationId: sessionId, projectSlug: this.projectOf(sessionId) });
     // News that arrived while the transcript was being written goes in now.
@@ -3161,7 +3192,7 @@ export class Kernel {
     // Awaited so a write cannot be lost when the process exits right after a
     // reply, and so failures surface in the runs log instead of vanishing.
     if (origin !== "system") {
-      await this.afterTurn.remember(userId, text, reply, sessionId);
+      await this.afterTurn.remember(userId, text, reply, sessionId, this.ownerSaid.get(sessionId)?.eventId);
       this.maybeExtract();
     }
 

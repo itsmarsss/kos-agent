@@ -46,7 +46,11 @@ export class AfterTurn {
    * Best effort: a failed write must never fail the owner's turn, but it
    * must not be invisible either, so each failure is logged as its own run.
    */
-  async remember(userId: string, text: string, reply: string, conversationId?: string): Promise<void> {
+  /**
+   * `said` is the owner's words' event when a claim this turn already logged
+   * them, so they are not logged twice.
+   */
+  async remember(userId: string, text: string, reply: string, conversationId?: string, said?: number): Promise<void> {
     const where = conversationId ? this.deps.conversations.get(conversationId) : undefined;
     const record = async (label: string, write: () => Promise<unknown>): Promise<void> => {
       try {
@@ -59,13 +63,13 @@ export class AfterTurn {
     // Both sides of the exchange, each its own event, so what the owner said
     // and what KOS answered are found and trusted separately. The log goes
     // first: a fact drawn from the owner's words points at the event.
-    let saidId: number | undefined;
+    let saidId = said;
     await record("memory.events", async () => {
-      const said = text.trim();
+      const words = text.trim();
       const answered = reply.trim().slice(0, 2000);
-      const [a, b] = await this.deps.embedder.embed([said, answered]);
+      const [a, b] = await this.deps.embedder.embed([words, answered]);
       const place = { conversationId: conversationId ?? null, projectSlug: where?.projectSlug ?? null };
-      saidId = this.deps.events.append({ userId, role: "owner", text: said, ...place }, a);
+      saidId ??= this.deps.events.append({ userId, role: "owner", text: words, ...place }, a);
       if (answered) this.deps.events.append({ userId, role: "agent", text: answered, ...place }, b);
     });
     const scope = conversationId ? this.deps.scopeOf?.(conversationId) : undefined;

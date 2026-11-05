@@ -494,6 +494,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       // Attributed to the conversation that wrote it, so the owner can see
       // which agent believed what.
       currentSource: () => kernelRef?.callerConversationId ?? "agent",
+      ownerTurn: () => kernelRef?.ownerTurn(),
     }),
     createChatsModule({
       conversations,

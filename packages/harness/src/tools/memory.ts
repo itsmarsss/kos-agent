@@ -2,6 +2,7 @@ import type { EmbeddingProvider } from "../memory/embeddings.js";
 import type { EventLog } from "../memory/events.js";
 import { BATCH_CHARS, relatedClaims, takeBatch, trustOf } from "../memory/extractor.js";
 import { GLOBAL_SCOPE, projectScope, type FactsStore } from "../memory/facts.js";
+import { groundedIn } from "../memory/grounded.js";
 import { importPage, listPages, readPage, writePage, type PageLog } from "../memory/pages.js";
 import { applyResolution, parseLean } from "../memory/resolve.js";
 import type { ReviewQueue } from "../memory/review.js";
@@ -64,6 +65,12 @@ export interface MemoryToolDeps {
    * the default; "project" still names the project.
    */
   currentScope?: () => string | undefined;
+  /**
+   * What the owner said to start the running turn, when the turn is theirs:
+   * not a guest's, a schedule's, the harness's or another chat's. `cite`
+   * logs those words as an event, once per turn, and gives its id.
+   */
+  ownerTurn?: () => { text: string; cite: () => Promise<number> } | undefined;
   /** How far the log has been read for memory, shared with the fixed extractor. */
   watermark?: { get: () => number; set: (lastEventId: number) => void };
   /** Where the dream job leaves what it could not settle. */
@@ -152,7 +159,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
             type: "string",
             description: "stable identifier, e.g. deploy_target or coffee_order",
           },
-          value: { type: "string", description: "the thing to remember, self-contained, in a sentence or two (under 600 characters); detail belongs in a page or a file, not in a claim" },
+          value: { type: "string", description: "the thing to remember, self-contained, in a sentence or two (under 600 characters); detail belongs in a page or a file, not in a claim. Something the owner just told you about themselves goes in their words, with nothing added: then it counts as theirs" },
           kind: { type: "string", enum: [...KINDS] },
           tags: {
             type: "array",
@@ -178,7 +185,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
         required: ["key", "value"],
       },
     },
-    (input) => {
+    async (input) => {
       const key = normalizeKey(str(input, "key"));
       const value = str(input, "value").trim();
       // A claim read as a report filled the owner's Inbox with walls of
@@ -195,6 +202,18 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       const unseen = evidence.filter((id) => !seen?.has(id));
       if (unseen.length) {
         throw new Error(`evidence must be event ids you were shown by memory.unread or memory.recall; not shown: ${unseen.join(", ")}`);
+      }
+      /*
+       * A claim in the owner's own words, said this turn, cites them. Told
+       * "I'm vegetarian", the model wrote it down with no evidence, so the
+       * owner's own preference counted as the agent's and never stood.
+       * Only the message the owner typed is matched: never a tool result,
+       * a page or a file, which is where an injection would come from.
+       */
+      const turn = deps.ownerTurn?.();
+      if (turn && deps.events && groundedIn(value, turn.text)) {
+        const said = await turn.cite();
+        if (!evidence.includes(said)) evidence.push(said);
       }
       const cited = evidence.map((id) => deps.events?.get(id)).filter((e): e is NonNullable<typeof e> => e !== undefined);
       // The owner's own words, cited, make an owner-trust claim; a caller's
@@ -214,7 +233,17 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
         },
         source(),
       );
-      return JSON.stringify({ remembered: key, scope: written.scope, trust, ...(written.supersedes ? { replaced: true } : {}) });
+      // Told why, the model can restate it; the check is the same on the retry.
+      const unheard = turn && trust !== "owner" && written.kind === "preference";
+      return JSON.stringify({
+        remembered: key,
+        scope: written.scope,
+        trust,
+        ...(written.supersedes ? { replaced: true } : {}),
+        ...(unheard
+          ? { hint: "kept as your belief, not the owner's: a preference is theirs, and stands in every chat, only when its telling words are ones they used this turn. If they said it, remember it again under this key in their words, adding nothing." }
+          : {}),
+      });
     },
     { floor: "safe" },
     { tags: ["memory"] },
@@ -314,7 +343,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
         required: ["key"],
       },
     },
-    (input) => {
+    async (input) => {
       const key = normalizeKey(str(input, "key"));
       const gone = facts.delete(ownerId, key);
       // Forgotten means gone: the words it was drawn from leave the log too,
@@ -449,7 +478,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
       description: "Put a stale claim away without forgetting it: out of recall, kept in history with the reason.",
       inputSchema: { type: "object", properties: { key: { type: "string" }, scope: { type: "string" }, reason: { type: "string" } }, required: ["key", "reason"] },
     },
-    (input) => {
+    async (input) => {
       const key = normalizeKey(str(input, "key"));
       const scope = scopeArg(input.scope);
       const archived = facts.archive(ownerId, key, scope, source(), str(input, "reason"));
@@ -664,7 +693,7 @@ function defineMemoryTools(deps: MemoryToolDeps, ctx: ModuleContext): void {
         "Where a belief came from: the current claim under a key, what it replaced and when, who wrote each, and the moments in the log it was drawn from. Use it before contradicting the owner about something remembered.",
       inputSchema: { type: "object", properties: { key: { type: "string" } }, required: ["key"] },
     },
-    (input) => {
+    async (input) => {
       const key = normalizeKey(str(input, "key"));
       const claim = facts.get(ownerId, key);
       if (!claim) return JSON.stringify({ key, known: false, history: facts.history(ownerId, key).length });
