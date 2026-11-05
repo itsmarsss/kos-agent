@@ -275,7 +275,13 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
         },
         {
           floor: "risky",
-          why: "code of KOS's own writing would be kept to run",
+          // On the card: what the script does that needs the yes, read from it now.
+          why: (input) => {
+            const skill = scriptNamed(input);
+            const source = skill && existsSync(ws.resolve(skill.file)) ? readFileSync(ws.resolve(skill.file), "utf8") : "";
+            const { reasons } = assessSkillRisk(source);
+            return skill && reasons.length ? `keeps ${skill.manifest.name} to run, which uses ${reasons.join(", ")}` : "code of KOS's own writing would be kept to run";
+          },
           // The hash of the files the owner is shown, set by the harness before it asks.
           stamp: (input) => {
             const skill = scriptNamed(input);

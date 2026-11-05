@@ -20,8 +20,12 @@ export interface ToolRisk {
    * rule can prove harmless.
    */
   relax?: Escalation;
-  /** Why a risky floor asks, in words the owner reads on the card: "deletes the chat for good". */
-  why?: string;
+  /**
+   * Why a risky floor asks, in words the owner reads on the card: "deletes
+   * the chat for good", or read from the call when the reason is in what it
+   * acts on (the capabilities a script uses).
+   */
+  why?: string | ((input: Record<string, unknown>) => string | undefined);
   /**
    * Arguments the harness sets on a call before it is judged, so the owner's
    * yes is to them and the call can check they still hold when it runs: the
@@ -61,7 +65,8 @@ export function classifyRisk(
   const floor = risk?.floor ?? "safe";
   if (floor === "risky") {
     if (risk?.relax?.(input)) return { tier: "safe", escalated: false };
-    return { tier: "risky", escalated: false, ...(risk?.why ? { reason: risk.why } : {}) };
+    const why = typeof risk?.why === "function" ? risk.why(input) : risk?.why;
+    return { tier: "risky", escalated: false, ...(why ? { reason: why } : {}) };
   }
   const fired = risk?.escalate?.(input);
   if (fired) {
