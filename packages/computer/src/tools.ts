@@ -481,10 +481,16 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
     const session = hub.sessionOf(chat);
     if (!session) throw new Error(refusalText(new DeviceError("no_session", "no session"), hub.takeEnding(chat)));
     const done: string[] = [];
+    // A run answers with one picture, taken after its last action. A
+    // screenshot asked for inside it is that picture, so it is taken as a
+    // request to look at the end rather than refused: a model that ended a
+    // run with one got an error and had to send the whole run again.
+    const looks = raw.some((item) => typeof item === "object" && item !== null && (item as Record<string, unknown>).action === "screenshot");
     for (const [i, item] of raw.entries()) {
       const step = (typeof item === "object" && item !== null ? item : {}) as Record<string, unknown>;
       const action = step.action as Action;
-      if (!ACTIONS.includes(action) || action === "screenshot" || action === "zoom") throw new Error(`${done.length ? `Done: ${done.join(" ")} ` : ""}Action ${i + 1}: each is one of ${ACTIONS.filter((a) => a !== "screenshot" && a !== "zoom").join(", ")}`);
+      if (action === "screenshot") continue;
+      if (!ACTIONS.includes(action) || action === "zoom") throw new Error(`${done.length ? `Done: ${done.join(" ")} ` : ""}Action ${i + 1}: each is one of ${ACTIONS.filter((a) => a !== "zoom").join(", ")}`);
       try {
         done.push(await perform(chat, session, action, step));
       } catch (err) {
@@ -494,7 +500,7 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
       if (i < raw.length - 1) await sleep(BETWEEN_MS);
     }
     const said = done.join(" ");
-    if (!lookAfter) return said;
+    if (!lookAfter && !looks) return said;
     await sleep(deps.settleMs ?? SETTLE_MS);
     return look(chat, said);
   };
