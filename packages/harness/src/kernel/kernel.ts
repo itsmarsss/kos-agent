@@ -3478,7 +3478,7 @@ export class Kernel {
     const bridge = this.bridgeFor(id);
     const headline = bridge?.page.headline;
     if (!bridge || !headline) return undefined;
-    const row = (await pageQuery(this.workspace.reader, this.pageQueries, bridge, headline.query, [], { rowCap: 1, timeoutMs: 1000 })).rows[0];
+    const row = (await pageQuery(this.workspace.reader, this.pageQueries, bridge, headline.query, [], { rowCap: 1, timeoutMs: 1000, key: `headline:${id}` })).rows[0];
     const value = row ? Object.values(row)[0] : undefined;
     return value === undefined ? undefined : { label: headline.label, value };
   });

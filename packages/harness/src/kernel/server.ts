@@ -11,6 +11,7 @@ import type { MutationTarget, PageSpec, Widget } from "@kos/shared";
 
 import { DREAM_JOB, MEMORY_JOB, OBSERVE_JOB } from "../memory/job.js";
 import { runDisplayQuery } from "../systems/display.js";
+import type { Headline } from "../systems/headlines.js";
 import { BridgeRefusal, pageFile, pageQuery, pageWrite } from "../systems/pagebridge.js";
 import { executeMutation, type WidgetEdit } from "../widgets/mutation.js";
 import type { Kernel } from "./kernel.js";
@@ -1406,7 +1407,10 @@ export async function handleApiRequest(
     // Query string project= is not in body for GET; parse from url if present.
     const qsProject = projectFromUrl(req.url);
     const records = kernel.pages.list(qsProject ?? project);
-    const headlines = await Promise.all(records.map((record) => (record.kind === "html" ? kernel.headlines.of(record) : undefined)));
+    // The list does not wait on its figures: whatever is not in by then is left off this time.
+    const headlines: (Headline | undefined)[] = [];
+    const all = Promise.all(records.map((record, i) => (record.kind === "html" ? kernel.headlines.of(record).then((h) => (headlines[i] = h)) : undefined)));
+    await Promise.race([all, new Promise((r) => setTimeout(r, HEADLINES_WAIT_MS).unref())]);
     return ok(records.map((record, i) => ({ ...record, ...(headlines[i] ? { headline: headlines[i] } : {}) })));
   }
 
@@ -1432,7 +1436,7 @@ export async function handleApiRequest(
     const bridge = kernel.bridgeFor(id);
     if (method !== "POST" || !bridge) return { status: 404, body: { error: "not found" } };
     try {
-      if (verb === "query") return ok(await pageQuery(kernel.workspace.reader, kernel.pageQueries, bridge, body.sql, body.params));
+      if (verb === "query") return ok(await pageQuery(kernel.workspace.reader, kernel.pageQueries, bridge, body.sql, body.params, { key: id }));
       if (verb === "write") return ok(pageWrite(kernel.workspace.db, bridge, body));
       return ok(pageFile(kernel.workspace, bridge, body.path));
     } catch (err) {
@@ -3288,6 +3292,9 @@ function parseCronInput(body: Record<string, unknown>): CreateCronInput | string
   input.actions = actions;
   return input;
 }
+
+/** Longest the page list waits on its headlines, each of which has its own deadline too. */
+const HEADLINES_WAIT_MS = 1200;
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",

@@ -1285,6 +1285,23 @@ describe("handleApiRequest", () => {
       expect(Date.now() - again).toBeLessThan(200);
     });
 
+    it("keeps one page's pile of slow queries from holding another page or the page list", async () => {
+      const never = "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n) SELECT COUNT(*) FROM n, shelf_books";
+      kernel.pages.writeHtml("shelf", { id: "hog", title: "Hog", html: "<p>hog</p>", headline: { label: "Never", query: never } });
+      const piled = Array.from({ length: 100 }, () => handleApiRequest(kernel, { method: "POST", path: "/api/pages/hog/query", body: { sql: never } }));
+      const started = Date.now();
+      const other = await bridge("query", { sql: "SELECT title FROM shelf_books" });
+      expect(other.status).toBe(200);
+      expect(Date.now() - started).toBeLessThan(800);
+      const listed = Date.now();
+      const list = await handleApiRequest(kernel, { method: "GET", path: "/api/pages", body: {} });
+      expect(Date.now() - listed).toBeLessThan(1600);
+      expect((list.body as { id: string; headline?: unknown }[]).find((p) => p.id === "shelf")?.headline).toEqual({ label: "Books", value: 1 });
+      const answers = await Promise.all(piled);
+      expect(answers.every((a) => a.status === 403)).toBe(true);
+      expect(answers.filter((a) => /too many queries waiting/.test(JSON.stringify(a.body))).length).toBeGreaterThanOrEqual(90);
+    });
+
     it("refuses another project's table, an undeclared write and the old widget route, and logs the refusal", async () => {
       const stolen = await bridge("query", { sql: "SELECT token FROM vault_keys" });
       expect(stolen.status).toBe(403);
