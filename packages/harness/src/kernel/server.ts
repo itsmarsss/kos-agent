@@ -1405,7 +1405,9 @@ export async function handleApiRequest(
         : undefined;
     // Query string project= is not in body for GET; parse from url if present.
     const qsProject = projectFromUrl(req.url);
-    return ok(kernel.pages.list(qsProject ?? project).map((record) => ({ ...record, ...headlineOf(kernel, record.id) })));
+    const records = kernel.pages.list(qsProject ?? project);
+    const headlines = await Promise.all(records.map((record) => (record.kind === "html" ? kernel.headlines.of(record) : undefined)));
+    return ok(records.map((record, i) => ({ ...record, ...(headlines[i] ? { headline: headlines[i] } : {}) })));
   }
 
   /*
@@ -1427,10 +1429,10 @@ export async function handleApiRequest(
         return { status: 400, body: { error: err instanceof Error ? err.message : String(err) } };
       }
     }
-    if (method !== "POST" || got.kind !== "html") return { status: 404, body: { error: "not found" } };
-    const bridge = { page: got.page, projectSlug: got.record.projectSlug, slugs: kernel.manifest.list().map((p) => p.slug) };
+    const bridge = kernel.bridgeFor(id);
+    if (method !== "POST" || !bridge) return { status: 404, body: { error: "not found" } };
     try {
-      if (verb === "query") return ok(pageQuery(kernel.workspace.reader, bridge, body.sql, body.params));
+      if (verb === "query") return ok(await pageQuery(kernel.workspace.reader, kernel.pageQueries, bridge, body.sql, body.params));
       if (verb === "write") return ok(pageWrite(kernel.workspace.db, bridge, body));
       return ok(pageFile(kernel.workspace, bridge, body.path));
     } catch (err) {
@@ -3057,24 +3059,6 @@ interface PageData {
   errors: Record<number, string>;
 }
 
-/**
- * The figure an HTML page offers its project's card on Home: its headline
- * query, run through the same checks as any of its queries. A failing one is
- * left out rather than shown wrong.
- */
-function headlineOf(kernel: Kernel, id: string): { headline?: { label: string; value: unknown } } {
-  const got = kernel.pages.get(id);
-  if (got?.kind !== "html" || !got.page.headline) return {};
-  try {
-    const bridge = { page: got.page, projectSlug: got.record.projectSlug, slugs: kernel.manifest.list().map((p) => p.slug) };
-    const row = pageQuery(kernel.workspace.reader, bridge, got.page.headline.query, [], { rowCap: 1 }).rows[0];
-    const value = row ? Object.values(row)[0] : undefined;
-    return value === undefined ? {} : { headline: { label: got.page.headline.label, value } };
-  } catch {
-    return {};
-  }
-}
-
 async function loadPageData(kernel: Kernel, spec: PageSpec): Promise<PageData> {
   const data: PageData["data"] = {};
   const errors: PageData["errors"] = {};
@@ -3332,6 +3316,13 @@ function tryStatic(
     return false;
   }
   if (!existsSync(file) || statSync(file).isDirectory()) {
+    // A page library is a script a page's frame runs; the app in its place
+    // would run as one, so a missing one is missing.
+    if (rel.split(/[/\\]/)[0] === "page-lib") {
+      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      res.end("not found");
+      return true;
+    }
     file = join(root, "index.html");
     if (!existsSync(file)) return false;
   }

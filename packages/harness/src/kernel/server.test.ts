@@ -1225,10 +1225,10 @@ describe("handleApiRequest", () => {
     beforeEach(() => {
       kernel.manifest.createProject({ name: "Shelf", type: "tracker" });
       kernel.manifest.createProject({ name: "Vault", type: "notes" });
+      kernel.migrator.migrate("shelf", { op: "create_table", table: "books", columns: [{ name: "id", type: "INTEGER", primaryKey: true }, { name: "title", type: "TEXT" }] });
+      kernel.migrator.migrate("vault", { op: "create_table", table: "keys", columns: [{ name: "id", type: "INTEGER", primaryKey: true }, { name: "token", type: "TEXT" }] });
       kernel.workspace.db.exec(
-        `CREATE TABLE shelf_books (id INTEGER PRIMARY KEY, title TEXT);
-         CREATE TABLE vault_keys (id INTEGER PRIMARY KEY, token TEXT);
-         INSERT INTO shelf_books (title) VALUES ('Dune');
+        `INSERT INTO shelf_books (title) VALUES ('Dune');
          INSERT INTO vault_keys (token) VALUES ('keep me');`,
       );
       kernel.pages.writeHtml("shelf", {
@@ -1253,6 +1253,36 @@ describe("handleApiRequest", () => {
       expect((await bridge("write", { table: "shelf_books", op: "insert", values: { title: "Emma" } })).status).toBe(200);
       const read = await bridge("query", { sql: "SELECT title FROM shelf_books ORDER BY id" });
       expect((read.body as { rows: unknown[] }).rows).toEqual([{ title: "Dune" }, { title: "Emma" }]);
+    });
+
+    /*
+     * A page query and a headline are the agent's SQL, run whenever the owner
+     * looks. One that never ends held the server's only thread, and with it
+     * every request, until it did.
+     */
+    it("stops a query or a headline that never ends, and answers everything else meanwhile", async () => {
+      const never = "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n) SELECT COUNT(*) FROM n, shelf_books";
+      kernel.pages.writeHtml("shelf", { id: "slow", title: "Slow", html: "<p>slow</p>", headline: { label: "Never", query: never } });
+      let ticks = 0;
+      const tick = setInterval(() => (ticks += 1), 20);
+      const pending = handleApiRequest(kernel, { method: "POST", path: "/api/pages/slow/query", body: { sql: never } });
+      const other = await handleApiRequest(kernel, { method: "GET", path: "/api/pages/shelf", body: {} });
+      expect(other.status).toBe(200);
+      const res = await pending;
+      expect(res.status).toBe(403);
+      expect(JSON.stringify(res.body)).toMatch(/ran past/);
+      const started = Date.now();
+      const list = await handleApiRequest(kernel, { method: "GET", path: "/api/pages", body: {} });
+      expect(Date.now() - started).toBeLessThan(2000);
+      clearInterval(tick);
+      expect(ticks).toBeGreaterThan(20);
+      const cards = list.body as { id: string; headline?: unknown }[];
+      expect(cards.find((p) => p.id === "slow")?.headline).toBeUndefined();
+      expect(cards.find((p) => p.id === "shelf")?.headline).toEqual({ label: "Books", value: 1 });
+      // Kept, not run again on every list.
+      const again = Date.now();
+      await handleApiRequest(kernel, { method: "GET", path: "/api/pages", body: {} });
+      expect(Date.now() - again).toBeLessThan(200);
     });
 
     it("refuses another project's table, an undeclared write and the old widget route, and logs the refusal", async () => {
