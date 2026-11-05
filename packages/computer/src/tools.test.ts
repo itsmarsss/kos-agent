@@ -15,7 +15,7 @@ type Result = string | { text: string; images?: { mediaType: string; data: strin
 
 const hostPrivate = generateKeyPairSync("ed25519").privateKey;
 
-function setup() {
+function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void> } = {}) {
   const hub = new DeviceHub({
     store: new DeviceStore(openDatabase(":memory:")),
     hostKey: { privateKey: hostPrivate, publicKey: rawPublicKey(hostPrivate) },
@@ -40,8 +40,8 @@ function setup() {
       halts.push(handler);
       return () => undefined;
     },
-    settleMs: 0,
-    sleep: async () => undefined,
+    settleMs: opts.settleMs ?? 0,
+    sleep: opts.sleep ?? (async () => undefined),
   });
   void mod.activate(ctx);
   const call = async (name: string, input: Record<string, unknown> = {}): Promise<Result> => {
@@ -152,6 +152,29 @@ describe("the computer tools", () => {
     const looked = await call("computer.act", { then: "none", actions: [{ action: "key", text: "Tab" }, { action: "screenshot" }] });
     expect(fake.calls.slice(shown).map((c) => c.method)).toEqual(["keys.press", "screen.capture"]);
     expect(textOf(looked)).toMatch(/^Pressed Tab\. The screen/);
+  });
+
+  it("let a computer that settles its own pictures do so, and keep the fixed wait for one that does not", async () => {
+    const slept: number[] = [];
+    const { call, pair } = setup({ settleMs: 450, sleep: async (ms) => void slept.push(ms) });
+    const fake = pair();
+    let settles = false;
+    let n = 0;
+    fake.answers.set("screen.capture", (params) => ({
+      ok: true,
+      result: { image: `SU1H${n++}`, mediaType: "image/jpeg", width: 1232, height: 800, cursor: { x: 0, y: 0 }, ...(settles && params.settle ? { settled: true } : {}) },
+    }));
+    await call("computer.start", { task: "t" });
+    // An older computer: the fixed wait, and asked to settle in case it can.
+    await call("computer.act", { action: "left_click", coordinate: [10, 10] });
+    expect(slept).toEqual([450]);
+    expect(fake.calls.at(-1)).toMatchObject({ method: "screen.capture", params: { settle: 450 } });
+    settles = true;
+    await call("computer.act", { action: "left_click", coordinate: [10, 10] });
+    // It said it settles: no more waiting on this side.
+    await call("computer.act", { actions: [{ action: "key", text: "Tab" }, { action: "key", text: "Tab" }] });
+    expect(slept.filter((ms) => ms === 450)).toHaveLength(2);
+    expect(fake.calls.filter((c) => c.method === "screen.capture").at(-1)?.params).toMatchObject({ settle: 450 });
   });
 
   it("say in words that a screen has not changed rather than send the same picture again, and wait up to a minute", async () => {

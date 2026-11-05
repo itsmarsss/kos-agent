@@ -11,7 +11,7 @@ import UniformTypeIdentifiers
 /// list: their windows are simply not in the picture.
 @MainActor
 final class ScreenCapturer {
-  struct Shot {
+  struct Shot: Sendable {
     let jpeg: Data
     let width: Int
     let height: Int
@@ -20,6 +20,8 @@ final class ScreenCapturer {
   static let quality = 0.8
 
   /// `region` is in global points; `pixels` is the size of the picture KOS gets.
+  /// The displays and apps are listed afresh for every picture: a list kept
+  /// even a moment could miss a hidden app whose window has just opened.
   func capture(display id: CGDirectDisplayID, region: CGRect?, pixels: Size, hiding hidden: [String]) async throws -> Shot {
     let content: SCShareableContent
     do {

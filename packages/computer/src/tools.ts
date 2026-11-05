@@ -190,14 +190,31 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
   const shown = new Map<string, string>();
 
   /** A picture of the session's screen, or a part of it, as a tool result. */
-  const look = async (chat: string, prefix: string, region?: { x: number; y: number; width: number; height: number }) => {
-    const capture = readCapture(await hub.act(chat, "screen.capture", region ? { region } : {}));
+  /**
+   * Chats whose computer settles its own pictures. After an action KOS used
+   * to wait a fixed 450 ms before asking for the picture; a computer that
+   * says it waited for the screen to stop changing is asked to do so, and
+   * answers as soon as the screen is still. One that does not say so (an
+   * older KOS for Mac) keeps the fixed wait.
+   */
+  const settling = new Set<string>();
+
+  const look = async (chat: string, prefix: string, region?: { x: number; y: number; width: number; height: number }, settle = false) => {
+    const result = await hub.act(chat, "screen.capture", { ...(region ? { region } : {}), ...(settle && !region ? { settle: deps.settleMs ?? SETTLE_MS } : {}) });
+    if (result.settled === true) settling.add(chat);
+    const capture = readCapture(result);
     const text = `${prefix}${prefix ? " " : ""}${describe(capture, region !== undefined)}`.trim();
     if (region) return { text, images: [{ mediaType: capture.mediaType, data: capture.image }] };
     const digest = createHash("sha1").update(capture.image).digest("hex");
     if (shown.get(chat) === digest) return `${prefix}${prefix ? " " : ""}The screen has not changed since your last picture.`.trim();
     shown.set(chat, digest);
     return { text, images: [{ mediaType: capture.mediaType, data: capture.image }] };
+  };
+
+  /** The picture once an action has landed: settled by the computer where it can, after the fixed wait where it cannot. */
+  const afterAction = async (chat: string, said: string) => {
+    if (!settling.has(chat)) await sleep(deps.settleMs ?? SETTLE_MS);
+    return look(chat, said, undefined, true);
   };
 
   const inSpace = (session: Session, p: Point, name: string): Point => {
@@ -302,8 +319,9 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         let session: Session;
         try {
           const app = str(input.app);
-          // A new session's first picture is always sent.
+          // A new session's first picture is always sent, and its computer says again whether it settles.
           shown.delete(chat);
+          settling.delete(chat);
           session = await hub.begin({ conversation: chat, device, task, requester: deps.titleOf(chat), minutes, maxEdge: SCREEN_EDGE, ...(app ? { app } : {}) });
         } catch (err) {
           throw new Error(refusalText(err));
@@ -368,8 +386,7 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
           }
           const said = await perform(chat, session, action, input);
           if (!lookAfter) return said;
-          await sleep(deps.settleMs ?? SETTLE_MS);
-          return await look(chat, said);
+          return await afterAction(chat, said);
         } catch (err) {
           if (err instanceof DeviceError) throw new Error(refusalText(err, hub.takeEnding(chat)));
           throw err;
@@ -387,6 +404,7 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
       () => {
         const chat = conversation();
         shown.delete(chat);
+        settling.delete(chat);
         return hub.end(chat) ? "Ended. The owner has the computer back." : "There was no session to end.";
       },
       { floor: "safe" },
@@ -519,8 +537,7 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
     }
     const said = done.join(" ");
     if (!lookAfter && !looks) return said;
-    await sleep(deps.settleMs ?? SETTLE_MS);
-    return look(chat, said);
+    return afterAction(chat, said);
   };
 
   /** One action that is not a look, done; what was done, in words. */

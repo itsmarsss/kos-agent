@@ -317,7 +317,7 @@ final class DeviceController {
     case .screenCapture:
       let p = try call.params(CaptureParams.self)
       let session = try authorize(p.session, from: origin, needs: .screen)
-      return try await capture(session, region: p.region)
+      return try await capture(session, region: p.region, settle: p.settle)
 
     case .pointerMove:
       let p = try call.params(MoveParams.self)
@@ -391,7 +391,10 @@ final class DeviceController {
     }
   }
 
-  private func capture(_ authorized: LiveSession, region: Rect?) async throws -> CaptureResult {
+  /// Longest wait a caller may ask for, for the screen to settle before a picture.
+  private static let settleLimit = 1_000
+
+  private func capture(_ authorized: LiveSession, region: Rect?, settle: Int? = nil) async throws -> CaptureResult {
     guard let display else { throw DeviceError(.noSession, "The session has no display.") }
     // A window is pictured where it is now, whatever covers it; it need not be in front to be seen.
     var session = authorized
@@ -411,18 +414,25 @@ final class DeviceController {
       let scale = Displays.screen(for: display)?.backingScaleFactor ?? 2
       pixels = Space.captureSize(of: part, backingScale: scale, maxEdge: maxEdge)
     }
-    let shot: ScreenCapturer.Shot
+    let take: () async throws -> ScreenCapturer.Shot
     if case .window(let id, _, _, _) = session.target {
-      shot = try await capturer.capture(window: id, frame: session.space.display.cg, region: source, pixels: pixels)
+      let frame = session.space.display.cg
+      take = { [capturer] in try await capturer.capture(window: id, frame: frame, region: source, pixels: pixels) }
     } else {
-      shot = try await capturer.capture(display: display, region: source, pixels: pixels, hiding: settings.hiddenApps)
+      let hidden = settings.hiddenApps
+      take = { [capturer] in try await capturer.capture(display: display, region: source, pixels: pixels, hiding: hidden) }
     }
+    // Asked after an action: the picture once two looks a beat apart agree, up to the limit asked.
+    let wait = min(max(settle ?? 0, 0), Self.settleLimit)
+    let shot = wait > 0
+      ? try await Settle.picture(limit: .milliseconds(wait), take: take, same: { $0.jpeg == $1.jpeg })
+      : try await take()
     let front = Targets.frontmost()
     // A hidden app is not named either: KOS learns nothing of it.
     let app = settings.isHidden(front?.bundleIdentifier) ? nil : Targets.describe(front)
     return CaptureResult(
       image: shot.jpeg.base64EncodedString(), mediaType: "image/jpeg", width: shot.width, height: shot.height,
-      cursor: session.space.fromGlobal(Point(Displays.cursor())), app: app)
+      cursor: session.space.fromGlobal(Point(Displays.cursor())), app: app, settled: wait > 0 ? true : nil)
   }
 
   // MARK: Checks

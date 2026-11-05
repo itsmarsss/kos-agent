@@ -178,7 +178,7 @@ needs a session ([browser-extension.md](browser-extension.md), and below).
 | --- | --- | --- |
 | `session.begin` | `session`, `task`, `requester`, `conversation?`, `target? {app}`, `minutes`, `maxEdge?` | `granted`, `until`, `space {width,height}`, `target {kind, app?, title?}` |
 | `session.end` | `session` | `{}` |
-| `screen.capture` | `session`, `region? {x,y,width,height}` | `image` (base64), `mediaType`, `width`, `height`, `cursor {x,y}`, `app?` |
+| `screen.capture` | `session`, `region? {x,y,width,height}`, `settle?` (ms, at most 1000: after an action, look until two pictures 50 ms apart agree or the time is up) | `image` (base64), `mediaType`, `width`, `height`, `cursor {x,y}`, `app?`, `settled?` (true when it waited as asked; KOS then stops waiting on its side) |
 | `pointer.move` | `session`, `x`, `y` | `cursor` |
 | `pointer.click` | `session`, `x`, `y`, `button?` (left, right, middle), `count?` (1 to 3), `modifiers?` | `cursor` |
 | `pointer.drag` | `session`, `from {x,y}`, `to {x,y}` | `cursor` |
