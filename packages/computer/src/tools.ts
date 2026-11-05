@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { isAttended, type KosModule, type ModuleContext, type ToolRisk } from "@kos/harness";
 
 import type { OwnerChrome } from "./chrome.js";
@@ -75,7 +77,7 @@ const SCREEN_EDGE = 1024;
 /** The most actions one call does, and the pause that lets each land before the next. */
 const RUN_MAX = 10;
 const BETWEEN_MS = 120;
-const MAX_WAIT_S = 10;
+const MAX_WAIT_S = 60;
 
 const COMPUTER_TOOLS = ["computer.devices", "computer.start", "computer.act", "computer.end"];
 const CHROME_TOOLS = ["chrome.start", "chrome.end", "chrome.page"];
@@ -180,13 +182,22 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
     return id;
   };
 
+  /**
+   * The last whole screen each chat was shown, by its digest. Watching a slow
+   * job sent the same picture again and again, each one read whole by the
+   * model; a screen that has not changed is said in words instead.
+   */
+  const shown = new Map<string, string>();
+
   /** A picture of the session's screen, or a part of it, as a tool result. */
   const look = async (chat: string, prefix: string, region?: { x: number; y: number; width: number; height: number }) => {
     const capture = readCapture(await hub.act(chat, "screen.capture", region ? { region } : {}));
-    return {
-      text: `${prefix}${prefix ? " " : ""}${describe(capture, region !== undefined)}`.trim(),
-      images: [{ mediaType: capture.mediaType, data: capture.image }],
-    };
+    const text = `${prefix}${prefix ? " " : ""}${describe(capture, region !== undefined)}`.trim();
+    if (region) return { text, images: [{ mediaType: capture.mediaType, data: capture.image }] };
+    const digest = createHash("sha1").update(capture.image).digest("hex");
+    if (shown.get(chat) === digest) return `${prefix}${prefix ? " " : ""}The screen has not changed since your last picture.`.trim();
+    shown.set(chat, digest);
+    return { text, images: [{ mediaType: capture.mediaType, data: capture.image }] };
   };
 
   const inSpace = (session: Session, p: Point, name: string): Point => {
@@ -291,6 +302,8 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         let session: Session;
         try {
           const app = str(input.app);
+          // A new session's first picture is always sent.
+          shown.delete(chat);
           session = await hub.begin({ conversation: chat, device, task, requester: deps.titleOf(chat), minutes, maxEdge: SCREEN_EDGE, ...(app ? { app } : {}) });
         } catch (err) {
           throw new Error(refusalText(err));
@@ -312,7 +325,8 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
           "Actions: screenshot; zoom (a closer look at region [x1, y1, x2, y2]); left_click, right_click, middle_click, double_click, triple_click " +
           "(at coordinate; `text` may name keys to hold, like \"cmd\"); mouse_move; left_click_drag (start_coordinate to coordinate); " +
           "scroll (scroll_direction up, down, left or right, scroll_amount in lines, at coordinate); type (text); key (one combination in text, like \"cmd+s\" or \"Return\"); " +
-          "wait (duration in seconds, at most 10). `then` \"none\" skips the picture. The picture after an action is taken once the screen " +
+          "wait (duration in seconds, at most 60): for something slow, such as a build or a test run, wait once for about as long as it " +
+          "should take, not a few seconds at a time; a screen that has not changed since your last picture is said in words instead. `then` \"none\" skips the picture. The picture after an action is taken once the screen " +
           "settles, so do not add waits after clicks; wait only for something you know is slow. `actions` does several in one call, in " +
           `order, each {action, coordinate, text, ...}, with one picture at the end (at most ${RUN_MAX}): click a field, type, press Return. ` +
           "Their coordinates are in the picture you last saw, so chain only what you can already see. " +
@@ -370,7 +384,11 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         description: "Give the computer back: end this chat's session. Do it as soon as the work on it is done.",
         inputSchema: { type: "object", properties: {} },
       },
-      () => (hub.end(conversation()) ? "Ended. The owner has the computer back." : "There was no session to end."),
+      () => {
+        const chat = conversation();
+        shown.delete(chat);
+        return hub.end(chat) ? "Ended. The owner has the computer back." : "There was no session to end.";
+      },
       { floor: "safe" },
     );
   };

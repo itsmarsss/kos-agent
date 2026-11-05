@@ -154,6 +154,21 @@ describe("the computer tools", () => {
     expect(textOf(looked)).toMatch(/^Pressed Tab\. The screen/);
   });
 
+  it("say in words that a screen has not changed rather than send the same picture again, and wait up to a minute", async () => {
+    const { call, pair } = setup();
+    const fake = pair();
+    const first = await call("computer.start", { task: "watch the build" });
+    expect(typeof first).not.toBe("string");
+    const same = await call("computer.act", { action: "wait", duration: 90 });
+    expect(same).toBe("Waited 60s. The screen has not changed since your last picture.");
+    fake.answers.set("screen.capture", () => ({ ok: true, result: { image: "Q0hBTkdFRA", mediaType: "image/jpeg", width: 1232, height: 800, cursor: { x: 10, y: 20 }, app: { name: "Terminal", bundle: "com.apple.Terminal" } } }));
+    const changed = await call("computer.act", { action: "screenshot" });
+    expect(typeof changed === "string" ? [] : changed.images).toHaveLength(1);
+    // A zoom is always a picture, and a session started again starts with one.
+    await call("computer.end");
+    expect(typeof (await call("computer.start", { task: "again" }))).not.toBe("string");
+  });
+
   it("refuse what is off the screen, and say what to do when there is no session or the owner took over", async () => {
     const { call, pair } = setup();
     const fake = pair();
