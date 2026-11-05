@@ -83,6 +83,7 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
         ...(events
           ? {
               onHalt: (handler: () => void) => events.on("halt:changed", (e) => (e.halted ? handler() : undefined)),
+              onStop: (handler: (conversation: string) => void) => events.on("turn:stop", (e) => handler(e.conversationId)),
               onFresh: (handler: (conversation: string) => void) => {
                 const offs = [events.on("turn:start", (e) => handler(e.conversationId)), events.on("query:fresh", (e) => handler(e.conversationId))];
                 return () => offs.forEach((off) => off());

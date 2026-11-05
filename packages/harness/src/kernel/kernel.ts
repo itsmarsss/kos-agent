@@ -3849,6 +3849,8 @@ export class Kernel {
     // Marked first, so the loop reads the flag rather than the abort and
     // reports a stop instead of a broken turn.
     this.aborts.get(sessionId)?.abort();
+    // A tool mid-call (a long wait on a computer) hears it too, and ends now.
+    this.bus.emit({ kind: "turn:stop", conversationId: sessionId });
     return true;
   }
 

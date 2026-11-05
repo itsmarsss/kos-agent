@@ -25,6 +25,7 @@ function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void> 
   });
   const tools = new Map<string, { handler: Handler; risk: ToolRisk | undefined }>();
   const halts: (() => void)[] = [];
+  const stops: ((chat: string) => void)[] = [];
   const freshes: ((chat: string) => void)[] = [];
   const ctx: ModuleContext = {
     registerTool: (def, handler, risk) => {
@@ -39,6 +40,10 @@ function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void> 
     titleOf: (id) => (id === "c1" ? "Design" : id),
     onHalt: (handler) => {
       halts.push(handler);
+      return () => undefined;
+    },
+    onStop: (handler) => {
+      stops.push(handler);
       return () => undefined;
     },
     onFresh: (handler) => {
@@ -61,7 +66,7 @@ function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void> 
     fake.hello();
     return fake;
   };
-  return { hub, tools, call, pair, halts, fresh: (chat: string) => freshes.forEach((f) => f(chat)) };
+  return { hub, tools, call, pair, halts, stop: (chat: string) => stops.forEach((s) => s(chat)), fresh: (chat: string) => freshes.forEach((f) => f(chat)) };
 }
 
 const textOf = (r: Result): string => (typeof r === "string" ? r : r.text);
@@ -188,7 +193,7 @@ describe("the computer tools", () => {
     const first = await call("computer.start", { task: "watch the build" });
     expect(typeof first).not.toBe("string");
     const same = await call("computer.act", { action: "wait", duration: 90 });
-    expect(same).toBe("Waited 60s. The screen has not changed since your last picture.");
+    expect(same).toBe("Waited 60s (one call waits at most 60s in all). The screen has not changed since your last picture.");
     fake.answers.set("screen.capture", () => ({ ok: true, result: { image: "Q0hBTkdFRA", mediaType: "image/jpeg", width: 1232, height: 800, cursor: { x: 10, y: 20 }, app: { name: "Terminal", bundle: "com.apple.Terminal" } } }));
     const changed = await call("computer.act", { action: "screenshot" });
     expect(typeof changed === "string" ? [] : changed.images).toHaveLength(1);
@@ -213,6 +218,46 @@ describe("the computer tools", () => {
     expect(textOf(await call("computer.act", { action: "key", text: "Tab" }))).toMatch(/has not changed/);
     fresh("c1");
     expect(pictured(await call("computer.act", { action: "key", text: "Tab" }))).toBe(true);
+  });
+
+  it("wait at most a minute a call, keeping the session alive meanwhile", async () => {
+    const slept: number[] = [];
+    const { call, pair } = setup({ sleep: async (ms) => void slept.push(ms) });
+    const fake = pair();
+    await call("computer.start", { task: "watch the build" });
+    const before = fake.calls.length;
+    const said = textOf(await call("computer.act", { then: "none", actions: [{ action: "wait", duration: 50 }, { action: "wait", duration: 50 }, { action: "wait", duration: 50 }] }));
+    expect(said).toBe("Waited 50s. Waited 10s (one call waits at most 60s in all). Waited 0s (one call waits at most 60s in all).");
+    expect(slept.filter((ms) => ms !== 120).reduce((a, b) => a + b, 0)).toBe(60_000);
+    // A look at one pixel between the slices of a long wait: the device counts it as use.
+    const touches = fake.calls.slice(before).filter((c) => c.method === "screen.capture");
+    expect(touches.length).toBeGreaterThan(0);
+    expect(touches.every((c) => (c.params.region as { width: number }).width === 1)).toBe(true);
+  });
+
+  it("end a wait at once on Stop, the kill switch or the session ending", async () => {
+    // A sleep that never ends on its own: only an interruption ends the wait.
+    const { call, pair, stop, halts, hub } = setup({ sleep: () => new Promise<void>(() => undefined) });
+    const fake = pair();
+    await call("computer.start", { task: "t" });
+    const stopped = call("computer.act", { action: "wait", duration: 60 });
+    await Promise.resolve();
+    stop("other");
+    stop("c1");
+    await expect(stopped).rejects.toThrow(/pressed Stop/);
+
+    const halted = call("computer.act", { action: "wait", duration: 60 });
+    await Promise.resolve();
+    for (const h of halts) h();
+    await expect(halted).rejects.toThrow(/No session.*computer\.start first/);
+
+    await call("computer.start", { task: "again" });
+    const ended = call("computer.act", { action: "wait", duration: 60 });
+    await Promise.resolve();
+    const session = fake.calls.filter((c) => c.method === "session.begin").at(-1)!.params.session as string;
+    fake.event("session.ended", { session, reason: "idle" });
+    await expect(ended).rejects.toThrow(/it sat idle/);
+    expect(hub.sessionOf("c1")).toBeUndefined();
   });
 
   it("refuse what is off the screen, and say what to do when there is no session or the owner took over", async () => {

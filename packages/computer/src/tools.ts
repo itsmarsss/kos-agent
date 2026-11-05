@@ -37,6 +37,8 @@ export interface ComputerToolsDeps {
   panelChrome?(conversation: string): string | undefined;
   /** Subscribe to the kill switch; the handler is told when it is thrown. */
   onHalt?(handler: () => void): () => void;
+  /** Subscribe to the owner pressing Stop in a chat; the handler is told which. */
+  onStop?(handler: (conversation: string) => void): () => void;
   /** Subscribe to a chat starting afresh (a turn, or a fresh query of one), which has not seen the last picture. */
   onFresh?(handler: (conversation: string) => void): () => void;
   /** How long the screen is given to settle after an action before the picture. */
@@ -79,7 +81,16 @@ const SCREEN_EDGE = 1024;
 /** The most actions one call does, and the pause that lets each land before the next. */
 const RUN_MAX = 10;
 const BETWEEN_MS = 120;
+/** The most one computer.act call waits, in all its waits together. */
 const MAX_WAIT_S = 60;
+/**
+ * How often a wait shows the computer it is still in use. The device ends a
+ * session idle for three minutes; a wait of a minute, or a few in a row,
+ * would otherwise run into that.
+ */
+const KEEPALIVE_MS = 30_000;
+/** A look at one pixel: the cheapest call the device counts as activity. */
+const TOUCH = { region: { x: 0, y: 0, width: 1, height: 1 } };
 
 const COMPUTER_TOOLS = ["computer.devices", "computer.start", "computer.act", "computer.end"];
 const CHROME_TOOLS = ["chrome.start", "chrome.end", "chrome.page"];
@@ -190,6 +201,9 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
    * model; a screen that has not changed is said in words instead.
    */
   const shown = new Map<string, string>();
+
+  /** Waits in progress, each told when the owner presses Stop in a chat. */
+  const stops = new Set<(conversation: string) => void>();
 
   /** A picture of the session's screen, or a part of it, as a tool result. */
   /**
@@ -387,7 +401,7 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
             inSpace(session, { x: x2 - 1, y: y2 - 1 }, "region");
             return await look(chat, "", { x: x1, y: y1, width: x2 - x1, height: y2 - y1 });
           }
-          const said = await perform(chat, session, action, input);
+          const said = await perform(chat, session, action, input, { waitLeftS: MAX_WAIT_S });
           if (!lookAfter) return said;
           return await afterAction(chat, said);
         } catch (err) {
@@ -520,6 +534,7 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
     const session = hub.sessionOf(chat);
     if (!session) throw new Error(refusalText(new DeviceError("no_session", "no session"), hub.takeEnding(chat)));
     const done: string[] = [];
+    const budget = { waitLeftS: MAX_WAIT_S };
     // A run answers with one picture, taken after its last action. A
     // screenshot asked for inside it is that picture, so it is taken as a
     // request to look at the end rather than refused: a model that ended a
@@ -531,7 +546,7 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
       if (action === "screenshot") continue;
       if (!ACTIONS.includes(action) || action === "zoom") throw new Error(`${done.length ? `Done: ${done.join(" ")} ` : ""}Action ${i + 1}: each is one of ${ACTIONS.filter((a) => a !== "zoom").join(", ")}`);
       try {
-        done.push(await perform(chat, session, action, step));
+        done.push(await perform(chat, session, action, step, budget));
       } catch (err) {
         const why = err instanceof DeviceError ? refusalText(err, hub.takeEnding(chat)) : err instanceof Error ? err.message : String(err);
         throw new Error(`${done.length ? `Done: ${done.join(" ")} ` : ""}Action ${i + 1} (${action}) failed: ${why}`);
@@ -543,8 +558,40 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
     return afterAction(chat, said);
   };
 
-  /** One action that is not a look, done; what was done, in words. */
-  const perform = async (chat: string, session: Session, action: Action, input: Record<string, unknown>): Promise<string> => {
+  /**
+   * Hold for `seconds`, showing the computer it is still in use, and end at
+   * once when the owner presses Stop, KOS halts or the session ends.
+   */
+  const hold = async (chat: string, session: Session, seconds: number): Promise<void> => {
+    let wake: (why: Error) => void = () => undefined;
+    const woken = new Promise<Error>((resolve) => (wake = resolve));
+    const ended = (): boolean => hub.sessionOf(chat)?.id !== session.id;
+    const onStop = (conversation: string): void => {
+      if (conversation === chat) wake(new Error(`The owner pressed Stop; the wait ended.`));
+    };
+    // The kill switch ends every session, so it is heard here too.
+    const offChange = hub.onChange(() => {
+      if (ended()) wake(new DeviceError("no_session", "the session ended"));
+    });
+    stops.add(onStop);
+    try {
+      let left = seconds * 1000;
+      while (left > 0) {
+        if (ended()) throw new DeviceError("no_session", "the session ended");
+        const slice = Math.min(left, KEEPALIVE_MS);
+        const why = await Promise.race([sleep(slice).then(() => undefined), woken]);
+        if (why) throw why;
+        left -= slice;
+        if (left > 0) await hub.act(chat, "screen.capture", TOUCH);
+      }
+    } finally {
+      offChange();
+      stops.delete(onStop);
+    }
+  };
+
+  /** One action that is not a look, done; what was done, in words. A run's waits share one budget. */
+  const perform = async (chat: string, session: Session, action: Action, input: Record<string, unknown>, budget: { waitLeftS: number }): Promise<string> => {
     const at = pair(input.coordinate, "coordinate");
     const click = CLICKS[action];
     if (click) {
@@ -589,9 +636,11 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         return `Pressed ${keys}.`;
       }
       case "wait": {
-        const seconds = Math.max(0, Math.min(MAX_WAIT_S, typeof input.duration === "number" ? input.duration : 1));
-        await sleep(seconds * 1000);
-        return `Waited ${seconds}s.`;
+        const asked = Math.max(0, typeof input.duration === "number" ? input.duration : 1);
+        const seconds = Math.min(asked, budget.waitLeftS);
+        budget.waitLeftS -= seconds;
+        await hold(chat, session, seconds);
+        return asked > seconds ? `Waited ${seconds}s (one call waits at most ${MAX_WAIT_S}s in all).` : `Waited ${seconds}s.`;
       }
       default:
         throw new Error(`action is one of: ${ACTIONS.join(", ")}`);
@@ -619,6 +668,7 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
       unsubscribe = [
         hub.onChange(sync),
         ...(deps.onHalt ? [deps.onHalt(() => hub.endAll("host"))] : []),
+        ...(deps.onStop ? [deps.onStop((chat) => { for (const stop of [...stops]) stop(chat); })] : []),
         // A new turn or query has not seen the last picture, so the next one is sent whole.
         ...(deps.onFresh ? [deps.onFresh((chat) => shown.delete(chat))] : []),
       ];

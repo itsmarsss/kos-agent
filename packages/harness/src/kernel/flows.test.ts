@@ -250,6 +250,20 @@ describe("KOS end-to-end flows", () => {
     }
   });
 
+  it("tells modules when the owner presses Stop, so a tool mid-wait can end", async () => {
+    const heard: string[] = [];
+    const inference: Inference = {
+      async generate(task: Task): Promise<ModelResponse> {
+        if (task !== "cheap") kernel.stop("chat:owner");
+        return text(task === "cheap" ? '{"facts":[]}' : "ok");
+      },
+    };
+    kernel = await boot(inference);
+    kernel.bus.on("turn:stop", (e) => void heard.push(e.conversationId));
+    await kernel.handleMessage("go");
+    expect(heard).toEqual(["chat:owner"]);
+  });
+
   it("carries tool results into the next turn", async () => {
     const model = scripted([
       toolCall("c1", "systems.project_create", {
