@@ -167,7 +167,9 @@ export function pageFile(workspace: Workspace, bridge: BridgePage, path: unknown
   const parts = rel.split(sep);
   if (rel === "" || parts[0] === ".." || parts.includes("..")) throw new BridgeRefusal("a page reads files only inside its own project");
   // Pages and their history are KOS's record of the pages, not the project's files.
-  if (parts[0] === "pages" || parts.includes(".history")) throw new BridgeRefusal("a page cannot read the project's pages or their history");
+  // Compared lowercased: the disk may not care about case (APFS), so PAGES/ is pages/.
+  const folded = parts.map((p) => p.toLowerCase());
+  if (folded[0] === "pages" || folded.includes(".history")) throw new BridgeRefusal("a page cannot read the project's pages or their history");
   if (!existsSync(abs) || !statSync(abs).isFile()) throw new BridgeRefusal(`no file at ${path}`);
   // Only as much as a page may have, read from the start; a large file is not read whole first.
   const size = statSync(abs).size;

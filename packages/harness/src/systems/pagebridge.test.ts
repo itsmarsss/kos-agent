@@ -196,7 +196,7 @@ describe("the page bridge", () => {
     const page = bridge({ capabilities: { files: true } });
     expect(pageFile(ws, page, "notes/plan.md")).toEqual({ path: "notes/plan.md", text: "save more", truncated: false });
     expect(() => pageFile(ws, page, "../diary/secret.md")).toThrow(/inside its own project/);
-    for (const path of ["pages/.history/p/1.json", "pages/other.html", "./pages/other.html", "notes/.history/old.md"]) {
+    for (const path of ["pages/.history/p/1.json", "pages/other.html", "./pages/other.html", "notes/.history/old.md", "Pages/.HISTORY/p/1.json", "PAGES/other.html", "notes/.History/old.md"]) {
       expect(() => pageFile(ws, page, path), path).toThrow(/pages or their history/);
     }
     expect(() => pageFile(ws, bridge(), "notes/plan.md")).toThrow(/does not declare file reads/);
