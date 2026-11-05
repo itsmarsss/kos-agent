@@ -47,7 +47,7 @@ describe("skills tools", () => {
     root = mkdtempSync(join(tmpdir(), "kos-skills-"));
     ws = Workspace.open(root);
     approvals = new ApprovalQueue(ws.db, new SecretsRegistry());
-    const promoter = new SkillPromoter({ workspaceRoot: ws.root, backup: new WorkspaceBackup(ws.root), approvals });
+    const promoter = new SkillPromoter({ workspaceRoot: ws.root, backup: new WorkspaceBackup(ws.root) });
     registry = new ToolRegistry();
     disabled = [];
     promoted = [];
@@ -149,11 +149,15 @@ describe("skills tools", () => {
     expect(json!["status"]).toBe("promoted");
   });
 
-  it("queues a risky script for approval even though the sandbox passed", async () => {
+  it("asks through skills.commit for a risky script even though the sandbox passed", async () => {
     skill("danger", "script", "import fs from 'node:fs'; fs.rmSync('x', { force: true })");
     const { json } = await call("skills.promote", { name: "danger" });
-    expect(json!["status"]).toBe("pending_approval");
-    expect(approvals.pending()).toHaveLength(1);
+    expect(json!["status"]).toBe("needs_approval");
+    expect(String(json!["next"])).toContain('skills.commit with name "danger"');
+    // Nothing queued outside the guarded path, where an ask has no chat and approving it could not run.
+    expect(approvals.pending()).toHaveLength(0);
+    const { json: committed } = await call("skills.commit", { name: "danger" });
+    expect(committed).toMatchObject({ status: "promoted", name: "danger" });
   });
 
   it("classifies create, use, test, promote and list as safe; run and commit as risky", () => {

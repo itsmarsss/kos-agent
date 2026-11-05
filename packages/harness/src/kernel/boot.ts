@@ -224,7 +224,6 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const promoter = new SkillPromoter({
     workspaceRoot: workspace.root,
     backup,
-    approvals,
   });
   const sessions = new SessionStore(workspace.db);
   const conversations = new ConversationStore(workspace.db);

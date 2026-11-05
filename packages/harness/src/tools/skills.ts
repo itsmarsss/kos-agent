@@ -226,7 +226,7 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
         {
           name: "skills.promote",
           description:
-            "Test a script skill in the sandbox and, if it passes, promote it: a safe one is committed at once, a risky one goes to the owner for approval.",
+            "Test a script skill in the sandbox and, if it passes, promote it: a safe one is committed at once; a risky one returns needs_approval, and skills.commit with its name then asks the owner.",
           inputSchema: {
             type: "object",
             properties: { name: { type: "string" }, args: { type: "array", items: { type: "string" } } },
@@ -238,6 +238,8 @@ export function createSkillsModule(deps: SkillsModuleDeps): KosModule {
           const args = strings(input, "args");
           const outcome = await deps.promoter.promote({ entry: skill.file, ...(args ? { args } : {}) });
           if (outcome.status === "promoted") deps.markPromoted(skill.manifest.name);
+          // The ask goes through skills.commit, the guarded path, so it carries this chat and the turn waits on the answer.
+          if (outcome.status === "needs_approval") return JSON.stringify({ ...outcome, next: `skills.commit with name "${skill.manifest.name}": it asks the owner; once approved, skills.run runs it` });
           return JSON.stringify(outcome);
         },
         { floor: "safe" },
