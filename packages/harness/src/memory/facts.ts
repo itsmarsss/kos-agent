@@ -335,6 +335,23 @@ export class FactsStore {
     return this.all(userId, scopes).filter((f) => f.pinned);
   }
 
+  /**
+   * What every conversation should know before the owner says a word that
+   * matches it: the pinned entries, and the owner's standing preferences in
+   * the scopes in play, the most recently stated first. A preference only
+   * found when the message happened to name it was no preference at all: told
+   * "I'm vegetarian" in one chat, a new one asked to plan dinner matched none
+   * of its words and planned chicken. A preference from outside is not the
+   * owner's, so it waits to be matched like any other claim.
+   */
+  standing(userId: string, scopes: ClaimScope[], preferences = 8): Fact[] {
+    const pinned = this.pinned(userId);
+    const prefs = this.all(userId, scopes)
+      .filter((f) => f.kind === "preference" && !f.pinned && f.trust !== "external")
+      .slice(0, preferences);
+    return [...pinned, ...prefs];
+  }
+
   setPinned(userId: string, key: string, pinned: boolean, scope?: ClaimScope): Fact | undefined {
     const claim = this.get(userId, key, scope);
     if (!claim) return undefined;

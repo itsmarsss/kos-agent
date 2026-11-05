@@ -52,6 +52,7 @@ import { MEMORY_JOB } from "../memory/job.js";
 import type { ReviewQueue } from "../memory/review.js";
 import type { CallerStore } from "../memory/callers.js";
 import type { PageLog } from "../memory/pages.js";
+import { GLOBAL_SCOPE, projectScope } from "../memory/facts.js";
 import { SCREEN_SUGGESTION, type Route, type Task } from "../models/router.js";
 import { shelveHistory, type ResultShelf } from "../context/shelf.js";
 import type { Effort, Provider } from "../models/provider.js";
@@ -931,12 +932,13 @@ export class Kernel {
           // a phrase, or two words in the value before a claim is injected.
           minScore: 2,
         });
-        // Pinned entries are the handful of things every conversation should
-        // know without having to match them, so they bypass retrieval.
-        const pinnedFacts = this.facts.pinned(userId);
+        // Pinned entries and the owner's standing preferences are what every
+        // conversation should know without having to match them, so they
+        // bypass retrieval.
+        const standing = this.facts.standing(userId, [GLOBAL_SCOPE, ...(conversation?.projectSlug ? [projectScope(conversation.projectSlug)] : []), ...(own ? [own] : [])]);
         recall.facts = [
-          ...pinnedFacts,
-          ...recall.facts.filter((f) => !pinnedFacts.some((p) => p.key === f.key)),
+          ...standing,
+          ...recall.facts.filter((f) => !standing.some((p) => p.key === f.key && p.scope === f.scope)),
         ];
         this.noteRecall(sessionId, conversation?.projectSlug ?? null, recall);
         // A mention is a promise that the thing named is to hand. Resolved
