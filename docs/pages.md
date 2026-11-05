@@ -96,15 +96,19 @@ declarations:
   project's. The schema, KOS's own tables, other databases and virtual
   tables (pragmas, full-text indexes) are refused.
 - A query runs in a child process with its own read-only connection, capped
-  at 500 rows, and is killed at 2 s: SQLite cannot be interrupted from Node,
-  so a recursive CTE that never ends would otherwise hold the server.
-  Headlines run the same way, with 1 s, and are kept for 30 s or until the
-  page changes, so listing pages never waits on one.
+  at 500 rows and about 2 MB of values, and is killed 2 s after it was asked,
+  time waiting for a turn included: SQLite cannot be interrupted from Node,
+  so a recursive CTE that never ends would otherwise hold the server. A page
+  has one query running and four waiting at most; more are refused, so one
+  page cannot starve the rest. Headlines run the same way, with 1 s, and are
+  kept for 30 s or until the page changes; the page list waits on them for
+  1.2 s at most. Closing KOS kills every child, and a child whose server
+  goes exits by itself.
 - A write must name a table the page declared, with only its declared
   columns and operations, and that table must be the project's. Values are
   text, numbers, null, or true and false (as 1 and 0).
 - A file must be inside the project's folder, and not in `pages/` (the
-  project's pages and their history) or any `.history` folder. Only its first
+  project's pages and their history) or any `.history` folder, in any case. Only its first
   256 KB are read.
 
 A refusal is answered with a sentence the page can show, and recorded in the
