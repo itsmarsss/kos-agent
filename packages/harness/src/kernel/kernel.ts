@@ -53,6 +53,7 @@ import type { ReviewQueue } from "../memory/review.js";
 import type { CallerStore } from "../memory/callers.js";
 import type { PageLog } from "../memory/pages.js";
 import { GLOBAL_SCOPE, projectScope } from "../memory/facts.js";
+import { MATCHED_LIMIT, STANDING_LIMIT, withStanding } from "../memory/retriever.js";
 import { SCREEN_SUGGESTION, type Route, type Task } from "../models/router.js";
 import { shelveHistory, type ResultShelf } from "../context/shelf.js";
 import type { Effort, Provider } from "../models/provider.js";
@@ -928,7 +929,7 @@ export class Kernel {
         // An agent with memory of its own reads that beside the global claims.
         const own = this.roleScope(conversation);
         const recall = await this.memoryRetriever.recall(userId, text, {
-          factLimit: 10,
+          factLimit: MATCHED_LIMIT,
           eventLimit: 4,
           projectSlug: conversation?.projectSlug ?? null,
           ...(own ? { scopes: [own] } : {}),
@@ -939,11 +940,8 @@ export class Kernel {
         // Pinned entries and the owner's standing preferences are what every
         // conversation should know without having to match them, so they
         // bypass retrieval.
-        const standing = this.facts.standing(userId, [GLOBAL_SCOPE, ...(conversation?.projectSlug ? [projectScope(conversation.projectSlug)] : []), ...(own ? [own] : [])]);
-        recall.facts = [
-          ...standing,
-          ...recall.facts.filter((f) => !standing.some((p) => p.key === f.key && p.scope === f.scope)),
-        ];
+        const standing = this.facts.standing(userId, [GLOBAL_SCOPE, ...(conversation?.projectSlug ? [projectScope(conversation.projectSlug)] : []), ...(own ? [own] : [])], STANDING_LIMIT);
+        recall.facts = withStanding(standing, recall.facts);
         this.noteRecall(sessionId, conversation?.projectSlug ?? null, recall);
         // A mention is a promise that the thing named is to hand. Resolved
         // here so the agent gets the file's contents or the page's spec

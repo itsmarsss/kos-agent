@@ -6,8 +6,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Workspace } from "../store/workspace.js";
 import { HashingEmbeddingProvider } from "./embeddings.js";
 import { EventLog } from "./events.js";
-import { FactsStore } from "./facts.js";
-import { MemoryRetriever } from "./retriever.js";
+import { assembleSystemPrompt } from "../kernel/context.js";
+import { DEFAULT_PROFILE } from "../kernel/profile.js";
+import { FactsStore, type Fact } from "./facts.js";
+import { MemoryRetriever, STANDING_LIMIT, withStanding } from "./retriever.js";
 
 describe("MemoryRetriever", () => {
   const embedder = new HashingEmbeddingProvider(128);
@@ -48,5 +50,42 @@ describe("MemoryRetriever", () => {
     facts.upsert("owner", { key: "name", value: "Ada", kind: "fact" });
     expect((await new MemoryRetriever(facts).recall("owner", "name")).events).toEqual([]);
     expect((await new MemoryRetriever(facts, events, embedder).recall("owner", "   ")).events).toEqual([]);
+  });
+});
+
+describe("what a turn remembers", () => {
+  const fact = (key: string, over: Partial<Fact> = {}): Fact => ({
+    id: key.length,
+    userId: "u1",
+    key,
+    value: `${key} value`,
+    kind: "fact",
+    scope: "global",
+    source: null,
+    tags: [],
+    pinned: false,
+    trust: "owner",
+    confidence: 1,
+    createdAt: 0,
+    updatedAt: 0,
+    supersededAt: null,
+    supersedes: null,
+    lastUsedAt: null,
+    useCount: 0,
+    ...over,
+  });
+
+  it("keeps room for what the words matched, however much stands", () => {
+    const pinned = ["p1", "p2", "p3", "p4"].map((k) => fact(k, { pinned: true }));
+    const prefs = ["a", "b", "c", "d", "e", "f", "g", "h"].map((k) => fact(`pref_${k}`, { kind: "preference" }));
+    const matched = ["m1", "m2", "m3", "m4", "m5", "m6", "m7", "m8", "m9"].map((k) => fact(k));
+    const kept = withStanding([...pinned, ...prefs].slice(0, STANDING_LIMIT), matched);
+    expect(kept.filter((f) => f.key.startsWith("m"))).toHaveLength(9);
+    expect(kept.slice(0, 4).map((f) => f.key)).toEqual(["p1", "p2", "p3", "p4"]);
+    // The prompt shows every one of them, matched claims included.
+    const { turnContext } = assembleSystemPrompt({ baseSystem: "You are KOS.", profile: DEFAULT_PROFILE, projects: [], recall: { facts: kept, events: [] } });
+    for (const m of matched) expect(turnContext).toContain(`${m.key}: ${m.value}`);
+    // A matched claim that also stands is said once.
+    expect(withStanding([fact("p1", { pinned: true })], [fact("p1"), fact("m1")]).map((f) => f.key)).toEqual(["p1", "m1"]);
   });
 });

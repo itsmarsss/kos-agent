@@ -3,6 +3,22 @@ import { deadline } from "../context/shelf.js";
 import type { EventHit, EventLog } from "./events.js";
 import { GLOBAL_SCOPE, projectScope, type Fact, type FactsStore } from "./facts.js";
 
+/** The things every turn knows unmatched (pinned, the owner's preferences), at most. */
+export const STANDING_LIMIT = 8;
+/** The claims a turn's words matched, at most: their own room, which standing ones never take. */
+export const MATCHED_LIMIT = 10;
+
+/**
+ * A turn's claims: what stands, then what the words matched, each within its
+ * own budget. They shared one slice of twelve, and four pinned entries and
+ * eight preferences left no room for a single claim the message was about.
+ */
+export function withStanding(standing: Fact[], matched: Fact[]): Fact[] {
+  const kept = standing.slice(0, STANDING_LIMIT);
+  const rest = matched.filter((f) => !kept.some((s) => s.key === f.key && s.scope === f.scope)).slice(0, MATCHED_LIMIT);
+  return [...kept, ...rest];
+}
+
 export interface Recall {
   facts: Fact[];
   /** Moments from the log that read like the query, newest and nearest first. */
