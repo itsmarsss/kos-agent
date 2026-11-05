@@ -4,7 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { api, type PageSummary } from "../api.js";
 import { ArtifactPage } from "./ArtifactPage.js";
-import { PAGE_CSP, pageDocument, splitHtml } from "./artifactdoc.js";
+import { GUARD_SCRIPT, PAGE_CSP, PAGE_GUARD_CSP, WRAPPER_CSP, pageDocument, splitHtml, wrapperDocument } from "./artifactdoc.js";
 
 beforeAll(() => {
   // jsdom has no media queries; the frame only listens for the theme changing.
@@ -30,6 +30,23 @@ describe("an HTML page's document", () => {
     expect(PAGE_CSP).not.toMatch(/https?:/);
   });
 
+  it("guards the page before its own script runs: no frames, and HTML only through the guard", () => {
+    const doc = pageDocument({ html: "<script>mine()</script>", tokens: {}, mode: "dark", css: "", libraries: [] });
+    expect(doc).toContain(PAGE_GUARD_CSP);
+    expect(PAGE_GUARD_CSP).toContain("frame-src 'none'");
+    expect(PAGE_GUARD_CSP).toContain("require-trusted-types-for 'script'");
+    expect(doc.indexOf(GUARD_SCRIPT)).toBeLessThan(doc.indexOf("mine()"));
+    expect(GUARD_SCRIPT).toContain('createPolicy("default"');
+  });
+
+  it("holds the page in a wrapper whose frame may hold about: documents and nothing else", () => {
+    const wrapped = wrapperDocument("<p>page & \"quotes\"</p>");
+    expect(wrapped).toContain(WRAPPER_CSP);
+    expect(WRAPPER_CSP).toMatch(/frame-src about:$/);
+    expect(wrapped).toContain('sandbox="allow-scripts"');
+    expect(wrapped).toContain('srcdoc="<p>page &amp; &quot;quotes&quot;</p>"');
+  });
+
   it("takes a whole document or a fragment", () => {
     expect(splitHtml("<!doctype html><html><head><style>a{}</style></head><body class=x><p>b</p></body></html>")).toEqual({ head: "<style>a{}</style>", body: "<p>b</p>" });
     expect(splitHtml("<p>just this</p>")).toEqual({ head: "", body: "<p>just this</p>" });
@@ -44,35 +61,43 @@ describe("an HTML page's document", () => {
 describe("the page's frame", () => {
   const page = { id: "budget", title: "Budget", html: "<p>hi</p>", capabilities: { ask: true } };
 
-  async function frame(): Promise<HTMLIFrameElement> {
+  /** The wrapper, and the page's own window inside it, which jsdom does not load from srcdoc: a real window stands in. */
+  async function frame(): Promise<{ el: HTMLIFrameElement; pageWin: Window }> {
     render(<ArtifactPage record={record} page={page} />);
-    return (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
+    const el = (await waitFor(() => screen.getByTitle("Budget"))) as HTMLIFrameElement;
+    const stand = document.body.appendChild(document.createElement("iframe"));
+    const pageWin = stand.contentWindow!;
+    Object.defineProperty(el.contentWindow!, "frames", { value: [pageWin], configurable: true });
+    return { el, pageWin };
   }
 
   it("runs scripts on an opaque origin: sandboxed without allow-same-origin", async () => {
-    const el = await frame();
+    const { el } = await frame();
     expect(el.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(el.getAttribute("srcdoc")).toContain(WRAPPER_CSP);
     expect(el.getAttribute("srcdoc")).toContain("<p>hi</p>");
   });
 
   it("relays its own frame's calls to the server and ignores anyone else's", async () => {
     const call = vi.spyOn(api, "pageCall").mockResolvedValue({ rows: [] });
-    const el = await frame();
+    const { el, pageWin } = await frame();
     act(() => {
       window.dispatchEvent(new MessageEvent("message", { source: window, data: { __kos: "call", id: 1, method: "query", args: { sql: "SELECT 1" } } }));
+      // The wrapper is not the page: it may only say the page left.
+      window.dispatchEvent(new MessageEvent("message", { source: el.contentWindow, data: { __kos: "call", id: 2, method: "query", args: { sql: "SELECT 1" } } }));
     });
     expect(call).not.toHaveBeenCalled();
     act(() => {
-      window.dispatchEvent(new MessageEvent("message", { source: el.contentWindow, data: { __kos: "call", id: 2, method: "query", args: { sql: "SELECT 1" } } }));
+      window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "call", id: 3, method: "query", args: { sql: "SELECT 1" } } }));
     });
     expect(call).toHaveBeenCalledWith("budget", "query", { sql: "SELECT 1" });
   });
 
   it("asks the owner before a page sends anything to the chat", async () => {
     const sent = vi.spyOn(api, "message").mockResolvedValue({ reply: "" } as never);
-    const el = await frame();
+    const { pageWin } = await frame();
     act(() => {
-      window.dispatchEvent(new MessageEvent("message", { source: el.contentWindow, data: { __kos: "call", id: 3, method: "ask", args: { text: "add a column" } } }));
+      window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "call", id: 3, method: "ask", args: { text: "add a column" } } }));
     });
     expect(sent).not.toHaveBeenCalled();
     expect(screen.getByText("add a column")).toBeTruthy();
@@ -82,9 +107,9 @@ describe("the page's frame", () => {
 
   it("shows a page's error with a way to ask KOS to fix it", async () => {
     const sent = vi.spyOn(api, "message").mockResolvedValue({ reply: "" } as never);
-    const el = await frame();
+    const { pageWin } = await frame();
     act(() => {
-      window.dispatchEvent(new MessageEvent("message", { source: el.contentWindow, data: { __kos: "error", message: "x is not defined" } }));
+      window.dispatchEvent(new MessageEvent("message", { source: pageWin, data: { __kos: "error", message: "x is not defined" } }));
     });
     expect(screen.getByRole("alert").textContent).toContain("x is not defined");
     fireEvent.click(screen.getByRole("button", { name: "Fix with KOS" }));
@@ -92,11 +117,19 @@ describe("the page's frame", () => {
     expect(sent.mock.calls[0]?.[1]).toBe("project:budget");
   });
 
-  it("stops a page that sends its frame somewhere else", async () => {
-    const el = await frame();
-    fireEvent.load(el);
-    fireEvent.load(el);
+  it("removes a page whose frame tried to load anything else, as the wrapper tells it", async () => {
+    const { el } = await frame();
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", { source: el.contentWindow, data: { __kos: "left" } }));
+    });
     expect(screen.getByRole("alert").textContent).toMatch(/tried to leave KOS/);
+    expect(screen.queryByTitle("Budget")).toBeNull();
+  });
+
+  it("removes the page if the wrapper itself loads again", async () => {
+    const { el } = await frame();
+    fireEvent.load(el);
+    fireEvent.load(el);
     expect(screen.queryByTitle("Budget")).toBeNull();
   });
 });

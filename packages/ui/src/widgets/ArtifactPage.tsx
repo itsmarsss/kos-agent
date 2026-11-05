@@ -4,17 +4,17 @@ import pageCss from "@kos/kit/page.css?raw";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 
 import { api, type PageSummary } from "../api.js";
-import { pageDocument, tokenRule } from "./artifactdoc.js";
+import { pageDocument, tokenRule, wrapperDocument } from "./artifactdoc.js";
 
 /**
  * An HTML page, the way a Claude artifact is shown: the agent's document in a
- * frame of its own, sandboxed to scripts only. Without allow-same-origin the
- * frame is an opaque origin, so it cannot reach the dashboard's DOM, storage,
- * cookies or token; its policy allows no network. Its one way out is
- * window.kos, which this relays to the server, where each call is checked
- * against what the page declared. This side only answers its own frame, asks
- * the owner before a page speaks to the chat, and stops a page that navigates
- * away.
+ * frame of its own, held in a wrapper frame (artifactdoc.ts says what each
+ * layer stops). Both are sandboxed to scripts only, on opaque origins, so the
+ * page cannot reach the dashboard's DOM, storage, cookies or token, and has no
+ * network. Its one way out is window.kos, which this relays to the server,
+ * where each call is checked against what the page declared. This side only
+ * answers the page's own frame, asks the owner before a page speaks to the
+ * chat, and removes a page that tried to leave.
  */
 
 const CSS = `${kitCss}\n${pageCss}`;
@@ -81,7 +81,7 @@ export function ArtifactPage({ record, page }: ArtifactPageProps): ReactElement 
     setDoc(undefined);
     void Promise.all((page.libraries ?? []).map(library))
       .then((libraries) => {
-        if (!stale) setDoc(pageDocument({ html: page.html, css: CSS, libraries, ...currentTokens() }));
+        if (!stale) setDoc(wrapperDocument(pageDocument({ html: page.html, css: CSS, libraries, ...currentTokens() })));
       })
       .catch((err: unknown) => !stale && setError(err instanceof Error ? err.message : String(err)));
     return () => {
@@ -89,15 +89,26 @@ export function ArtifactPage({ record, page }: ArtifactPageProps): ReactElement 
     };
   }, [page, record.updatedAt]);
 
-  const reply = useCallback((id: unknown, body: { result?: unknown; error?: string }) => {
-    frame.current?.contentWindow?.postMessage({ __kos: "reply", id, ...body }, "*");
-  }, []);
+  // The page's own window: the frame inside the wrapper. A cross-origin frame's frames can be named, not read.
+  const pageWindow = useCallback((): Window | undefined => frame.current?.contentWindow?.frames[0] ?? undefined, []);
+  const reply = useCallback(
+    (id: unknown, body: { result?: unknown; error?: string }) => {
+      pageWindow()?.postMessage({ __kos: "reply", id, ...body }, "*");
+    },
+    [pageWindow],
+  );
 
   useEffect(() => {
     const heard = (e: MessageEvent): void => {
-      // Its own frame only, and only while it is still the page KOS gave it.
-      if (!frame.current || e.source !== frame.current.contentWindow || left) return;
+      if (!frame.current || left) return;
       const m = (e.data ?? {}) as { __kos?: string; id?: unknown; method?: string; args?: Record<string, unknown>; message?: string };
+      // The wrapper says only one thing: the page's frame loaded again, so the page tried to leave.
+      if (e.source === frame.current.contentWindow) {
+        if (m.__kos === "left") setLeft(true);
+        return;
+      }
+      // Otherwise the page's own frame only, while it is still the page KOS gave it.
+      if (!e.source || e.source !== pageWindow()) return;
       if (m.__kos === "error") {
         setError((current) => current ?? String(m.message ?? "The page hit an error"));
         return;
@@ -119,13 +130,13 @@ export function ArtifactPage({ record, page }: ArtifactPageProps): ReactElement 
     };
     window.addEventListener("message", heard);
     return () => window.removeEventListener("message", heard);
-  }, [left, page.capabilities?.ask, record.id, reply]);
+  }, [left, page.capabilities?.ask, pageWindow, record.id, reply]);
 
   // The dashboard's theme, followed: the page is told, and its tokens change with it.
   useEffect(() => {
     const tell = (): void => {
       const { tokens, mode } = currentTokens();
-      frame.current?.contentWindow?.postMessage({ __kos: "theme", mode, rule: tokenRule(tokens, mode) }, "*");
+      pageWindow()?.postMessage({ __kos: "theme", mode, rule: tokenRule(tokens, mode) }, "*");
     };
     const watch = new MutationObserver(tell);
     watch.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class", "style"] });
@@ -135,7 +146,7 @@ export function ArtifactPage({ record, page }: ArtifactPageProps): ReactElement 
       watch.disconnect();
       media.removeEventListener("change", tell);
     };
-  }, []);
+  }, [pageWindow]);
 
   const send = useCallback(
     (text: string) => {
@@ -206,7 +217,7 @@ export function ArtifactPage({ record, page }: ArtifactPageProps): ReactElement 
           referrerPolicy="no-referrer"
           srcDoc={doc}
           onLoad={() => {
-            // The first load is the page; any after it is the frame being sent elsewhere.
+            // The first load is the wrapper; any after it is the wrapper being sent elsewhere, which its sandbox should never allow.
             loads.current += 1;
             if (loads.current > 1) setLeft(true);
           }}
