@@ -54,7 +54,7 @@ const ID_RE = /^[a-z][a-z0-9_-]*$/i;
  * names before the frame's policy refuses it.
  */
 const MARKUP_EXITS: [RegExp, string][] = [
-  [/<link\b/i, "a <link> (a page loads nothing; prefetch and prerender links reach the network)"],
+  [/<([\w-]+:)?link\b/i, "a <link> (a page loads nothing; prefetch and prerender links reach the network)"],
   [/<meta\b[^>]*http-equiv/i, "a <meta http-equiv> (a refresh would navigate)"],
   [/<(i?frame|frameset|object|embed|portal|fencedframe)\b/i, "a frame, object or embed"],
   [/<base\b/i, "a <base>"],
@@ -62,28 +62,145 @@ const MARKUP_EXITS: [RegExp, string][] = [
   [/<script\b[^>]*speculationrules/i, "speculation rules"],
   [/<(a|area|form|button|input)\b[^>]*\s(target|formaction|ping)\s*=/i, "a link or form target"],
   [/<a\b[^>]*\bdownload\b/i, "a download link"],
+  [/<(a|area)\b[^>]*\shref\s*=\s*["']?\s*(?!javascript:)([a-z][a-z0-9+.-]*:|\/\/)/i, "a link off the page (link within it with #id)"],
 ];
 
-/** The same in the page's code: its scripts, its inline handlers and javascript: links. */
+/**
+ * The same in the page's code: its scripts, its inline handlers and
+ * javascript: links, read with its strings and comments blanked, so words
+ * in them ("Pick a location") are not taken for what the code does.
+ */
 const CODE_EXITS: [RegExp, string][] = [
-  [/\blocation\s*(\.|\[|=(?!=))/, "a use of location (a page stays where it is)"],
+  [/\b(window|document|self|top|parent|globalThis|frames)\s*\.\s*location\b/, "a use of location (a page stays where it is)"],
+  [/(?<![.\w$])(?<!\b(?:const|let|var)\s+)location\s*(=(?!=)|\[|\.\s*(href|assign|replace|reload|search|hash|pathname|host|hostname|protocol|port)\b)/, "a use of location (a page stays where it is)"],
   [/\b(window|self|top|parent|globalThis)\s*\.\s*open\s*\(/, "window.open"],
+  [/(?<![.\w$])(?<!\bfunction\s+)open\s*\((?![^)]*\)\s*\{)/, "window.open"],
   [/\.\s*(submit|requestSubmit)\s*\(/, "a form submit"],
   [/\bnavigation\s*\.\s*navigate\b/, "navigation.navigate"],
+  [/\.\s*(href|target|action|formAction|ping|download)\s*=(?!=)/, "setting a link's href or target (a page stays where it is)"],
+  [/\b(webkit)?RTC(PeerConnection|DataChannel|RtpSender)\b/, "WebRTC (a page has no network)"],
 ];
+
+/** Checks that need the strings: what they name is the point. */
+const RAW_CODE_EXITS: [RegExp, string][] = [
+  [/\[\s*["'`]location["'`]\s*\]/, "a use of location (a page stays where it is)"],
+  [/setAttribute(NS)?\s*\(\s*([^,()]*,\s*)?["'`](href|xlink:href|target|action|formaction|ping|download|http-equiv)["'`]/i, "setting a link's href or target (a page stays where it is)"],
+];
+
+/**
+ * Code with the insides of its strings, template text, regex literals and
+ * comments blanked to spaces, the code around them and in `${}` kept. A
+ * best reading, not a parser: it is what lets the checks above tell code
+ * from words.
+ */
+function withoutLiterals(code: string): string {
+  let out = "";
+  let i = 0;
+  // Whether a `/` here starts a regex: after an operator or at the start, not after a value.
+  const regexMayStart = (): boolean => {
+    const before = out.trimEnd();
+    return before === "" || /[(,=:[!&|?{};+\-*%<>~^]$/.test(before) || /\b(return|typeof|case|do|else|in|of|void|yield|await)$/.test(before);
+  };
+  const blank = (text: string): string => text.replace(/[^\n]/g, " ");
+  const template = (): void => {
+    out += "`";
+    i += 1;
+    while (i < code.length && code[i] !== "`") {
+      if (code[i] === "\\") {
+        out += "  ";
+        i += 2;
+      } else if (code[i] === "$" && code[i + 1] === "{") {
+        out += "${";
+        i += 2;
+        let depth = 1;
+        while (i < code.length && depth > 0) {
+          if (code[i] === "{") depth += 1;
+          if (code[i] === "}") depth -= 1;
+          if (depth === 0) break;
+          if (code[i] === "`") template();
+          else if (code[i] === "'" || code[i] === '"') quoted(code[i]!);
+          else out += code[i++];
+        }
+        out += "}";
+        i += 1;
+      } else {
+        out += code[i] === "\n" ? "\n" : " ";
+        i += 1;
+      }
+    }
+    out += "`";
+    i += 1;
+  };
+  const quoted = (q: string): void => {
+    let j = i + 1;
+    while (j < code.length && code[j] !== q && code[j] !== "\n") j += code[j] === "\\" ? 2 : 1;
+    out += q + blank(code.slice(i + 1, j)) + q;
+    i = j + 1;
+  };
+  while (i < code.length) {
+    const c = code[i]!;
+    const next = code[i + 1];
+    if (c === "/" && next === "/") {
+      const end = code.indexOf("\n", i);
+      const stop = end === -1 ? code.length : end;
+      out += blank(code.slice(i, stop));
+      i = stop;
+    } else if (c === "/" && next === "*") {
+      const end = code.indexOf("*/", i + 2);
+      const stop = end === -1 ? code.length : end + 2;
+      out += blank(code.slice(i, stop));
+      i = stop;
+    } else if (c === "'" || c === '"') {
+      quoted(c);
+    } else if (c === "`") {
+      template();
+    } else if (c === "/" && regexMayStart()) {
+      let j = i + 1;
+      let inClass = false;
+      while (j < code.length && code[j] !== "\n" && (inClass || code[j] !== "/")) {
+        if (code[j] === "\\") j += 1;
+        else if (code[j] === "[") inClass = true;
+        else if (code[j] === "]") inClass = false;
+        j += 1;
+      }
+      out += "/" + blank(code.slice(i + 1, j)) + "/";
+      i = j + 1;
+    } else {
+      out += c;
+      i += 1;
+    }
+  }
+  return out;
+}
 
 /** A page's code, apart from its words: what a check of what it does should read. */
 function codeOf(html: string): string {
   const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);
-  const handlers = [...html.matchAll(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi)].map((m) => m[1]);
-  const urls = [...html.matchAll(/javascript:[^"'>\s]*/gi)].map((m) => m[0]);
+  const handlers = [...html.matchAll(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi)].map((m) => {
+    const v = m[1]!;
+    return /^["']/.test(v) ? v.slice(1, -1) : v;
+  });
+  const urls = [...html.matchAll(/javascript:[^"'>\s]*/gi)].map((m) => m[0].slice("javascript:".length));
   return [...scripts, ...handlers, ...urls].join("\n");
 }
 
-/** What in a page's HTML would try to leave its frame, each named once. */
+/**
+ * What in a page's HTML would try to leave its frame, each named once.
+ *
+ * Best effort, and not what keeps a page in: the frame does that at run time
+ * (artifactdoc.ts). This names the attempt to the agent, and closes what the
+ * frame cannot, a navigation's lookup of its host, for every way of writing
+ * one this can see.
+ */
 export function exitsIn(html: string): string[] {
-  const code = codeOf(html);
-  return [...MARKUP_EXITS.filter(([re]) => re.test(html)), ...CODE_EXITS.filter(([re]) => re.test(code))].map(([, what]) => what);
+  const raw = codeOf(html);
+  const code = withoutLiterals(raw);
+  const found = [
+    ...MARKUP_EXITS.filter(([re]) => re.test(html)),
+    ...CODE_EXITS.filter(([re]) => re.test(code)),
+    ...RAW_CODE_EXITS.filter(([re]) => re.test(raw)),
+  ].map(([, what]) => what);
+  return [...new Set(found)];
 }
 const OPS = ["insert", "update", "delete"];
 
