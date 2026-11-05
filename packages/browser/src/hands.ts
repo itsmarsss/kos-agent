@@ -20,6 +20,8 @@ export type Then = "look" | "snapshot" | "read" | "none";
 export interface Seen {
   text: string;
   images: { mediaType: "image/jpeg"; data: string }[];
+  /** Where the tab was when it was seen, when the look asked. */
+  url?: string;
 }
 
 /** A tab as the hands use it: its page, and a picture of it. */
@@ -76,21 +78,28 @@ export function fenced(text: string): string {
 export async function seeAfter(tab: Tab, then: Then, scope?: string): Promise<Seen> {
   const page = tab.page;
   if (then === "none") return { text: lines(page.takeNotes().join("\n")).trim(), images: [] };
-  const where = await page.whereAmI();
-  const head = `${where.title ? `Title: ${where.title}\n` : ""}${where.url ? `URL: ${where.url}\n` : ""}`;
-  if (then === "read") return { text: `${head}${lines(page.takeNotes().join("\n"))}${fenced(await page.read(scope))}`, images: [] };
-  if (then === "snapshot") {
-    const tree = await page.tree(scope);
-    const cut = tree.cut ? "\n(cut; `scope` narrows it to one part)" : "";
-    return { text: `${head}${lines(page.takeNotes().join("\n"))}${tree.text ? fenced(tree.text) : "(nothing on the page)"}${cut}${unreadNote(tree.unread)}`, images: [] };
+  // Where the tab is, asked beside the look rather than before it: each is a round trip to the tab.
+  const heading = async (): Promise<{ head: string; url: string }> => {
+    const where = await page.whereAmI();
+    return { head: `${where.title ? `Title: ${where.title}\n` : ""}${where.url ? `URL: ${where.url}\n` : ""}`, url: where.url };
+  };
+  if (then === "read") {
+    const [{ head, url }, text] = await Promise.all([heading(), page.read(scope)]);
+    return { text: `${head}${lines(page.takeNotes().join("\n"))}${fenced(text)}`, images: [], url };
   }
-  const [look, shot] = await Promise.all([page.index(scope), tab.capture(PICTURE_WIDTH).catch(() => undefined)]);
+  if (then === "snapshot") {
+    const [{ head, url }, tree] = await Promise.all([heading(), page.tree(scope)]);
+    const cut = tree.cut ? "\n(cut; `scope` narrows it to one part)" : "";
+    return { text: `${head}${lines(page.takeNotes().join("\n"))}${tree.text ? fenced(tree.text) : "(nothing on the page)"}${cut}${unreadNote(tree.unread)}`, images: [], url };
+  }
+  const [{ head, url }, look, shot] = await Promise.all([heading(), page.index(scope), tab.capture(PICTURE_WIDTH).catch(() => undefined)]);
   const { index } = look;
   const more = index.total > index.lines.filter((l) => l.includes("@")).length ? ` (some of ${index.total}; then: "snapshot" lists all, scope narrows)` : "";
   const list = index.lines.length ? `Can be acted on${more}:\n${fenced(index.lines.join("\n"))}` : `Nothing to act on was found; then: "snapshot" or "read" may show more.`;
   return {
     text: `${head}${lines(page.takeNotes().join("\n"))}${shot ? "" : "(no picture of the tab was available)\n"}${list}${unreadNote(look.unread)}`,
     images: shot ? [{ mediaType: "image/jpeg", data: shot }] : [],
+    url,
   };
 }
 
@@ -154,8 +163,9 @@ export async function act(tab: Tab, steps: Step[], then: Then): Promise<Seen> {
           );
         }
       }
-      const to = (await page.whereAmI()).url;
+      // The look says where the tab ended up; asked separately only when the run does not look.
       const seen = await seeAfter(tab, then);
+      const to = seen.url ?? (await page.whereAmI()).url;
       const moved = to && to !== from ? ` Now at ${to}.` : "";
       return { text: `Done: ${done.join("; ")}.${moved}\n${seen.text}`.trim(), images: seen.images };
     } finally {

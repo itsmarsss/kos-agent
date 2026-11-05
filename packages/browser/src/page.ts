@@ -624,7 +624,13 @@ export class Page {
       .catch(() => undefined);
     const top = hit?.["backendNodeId"] as number | undefined;
     if (top === undefined || top === node) return undefined;
-    const reached = await this.call<boolean>(node, inpage.reaches, [{ objectId: await this.objectOf(top) }]).catch(() => true);
+    // Both looked up at once, then asked in one call: most hits are the element's own text or icon.
+    const reached = await Promise.all([this.objectOf(node), this.objectOf(top)])
+      .then(([self, other]) =>
+        this.session.send("Runtime.callFunctionOn", { objectId: self, functionDeclaration: inpage.reaches.toString(), arguments: [{ objectId: other }], returnByValue: true }, EVAL_MS),
+      )
+      .then((answer) => (answer["exceptionDetails"] ? true : (answer["result"] as { value?: boolean } | undefined)?.value !== false))
+      .catch(() => true);
     return reached ? undefined : top;
   }
 
