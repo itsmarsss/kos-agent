@@ -70,19 +70,46 @@ const MARKUP_EXITS: [RegExp, string][] = [
  * javascript: links, read with its strings and comments blanked, so words
  * in them ("Pick a location") are not taken for what the code does.
  */
-const CODE_EXITS: [RegExp, string][] = [
+/** A check, and when it applies, given the code (literals blanked), the page and the code as written. */
+type CodeExit = [RegExp, string, ((code: string, html: string, raw: string) => boolean)?];
+
+/**
+ * Whether the code makes a name its own: declares it, destructures it (a row's
+ * `location` column) or takes it as a parameter. A bare use of it is then the
+ * page's variable, not the window's.
+ */
+const declares = (name: string) => (code: string): boolean =>
+  new RegExp(
+    [
+      `\\b(const|let|var|function|class)\\s+${name}\\b`,
+      `[{,]\\s*(\\w+\\s*:\\s*)?${name}\\s*(=[^=>]|[,}])`,
+      `\\(\\s*([\\w$]+\\s*,\\s*)*${name}\\s*[,)=]`,
+      `(?<![.\\w$])${name}\\s*=>`,
+    ].join("|"),
+  ).test(code);
+
+/** Whether the page has links of its own to aim: an <a> or <area> in its markup or made by its code. */
+const hasLinks = (raw: string, html: string): boolean =>
+  /<(a|area)\b/i.test(html) || /createElement(NS)?\s*\(\s*([^,()]*,\s*)?["'`](a|area)["'`]|querySelector(All)?\s*\(\s*["'`][^"'`]*\ba\b|getElementsByTagName\s*\(\s*["'`]a["'`]|\.links\b/.test(raw);
+
+const CODE_EXITS: CodeExit[] = [
   [/\b(window|document|self|top|parent|globalThis|frames)\s*\.\s*location\b/, "a use of location (a page stays where it is)"],
-  [/(?<![.\w$])(?<!\b(?:const|let|var)\s+)location\s*(=(?!=)|\[|\.\s*(href|assign|replace|reload|search|hash|pathname|host|hostname|protocol|port)\b)/, "a use of location (a page stays where it is)"],
+  [
+    /(?<![.\w$])location\s*(=(?![=>])|\[|\.\s*(href|assign|replace|reload|search|hash|pathname|host|hostname|protocol|port)\b)/,
+    "a use of location (a page stays where it is)",
+    (code) => !declares("location")(code),
+  ],
   [/\b(window|self|top|parent|globalThis)\s*\.\s*open\s*\(/, "window.open"],
-  [/(?<![.\w$])(?<!\bfunction\s+)open\s*\((?![^)]*\)\s*\{)/, "window.open"],
+  [/(?<![.\w$])open\s*\((?![^)]*\)\s*\{)/, "window.open", (code) => !declares("open")(code)],
   [/\.\s*(submit|requestSubmit)\s*\(/, "a form submit"],
   [/\bnavigation\s*\.\s*navigate\b/, "navigation.navigate"],
-  [/\.\s*(href|target|action|formAction|ping|download)\s*=(?!=)/, "setting a link's href or target (a page stays where it is)"],
+  // A field called href or target is ordinary; it is a link's only when the page has links to aim.
+  [/\.\s*(href|target|ping|download)\s*=(?![=>])/, "setting a link's href or target (a page stays where it is)", (_code, html, raw) => hasLinks(raw, html)],
   [/\b(webkit)?RTC(PeerConnection|DataChannel|RtpSender)\b/, "WebRTC (a page has no network)"],
 ];
 
 /** Checks that need the strings: what they name is the point. */
-const RAW_CODE_EXITS: [RegExp, string][] = [
+const RAW_CODE_EXITS: CodeExit[] = [
   [/\[\s*["'`]location["'`]\s*\]/, "a use of location (a page stays where it is)"],
   [/setAttribute(NS)?\s*\(\s*([^,()]*,\s*)?["'`](href|xlink:href|target|action|formaction|ping|download|http-equiv)["'`]/i, "setting a link's href or target (a page stays where it is)"],
 ];
@@ -197,7 +224,7 @@ export function exitsIn(html: string): string[] {
   const code = withoutLiterals(raw);
   const found = [
     ...MARKUP_EXITS.filter(([re]) => re.test(html)),
-    ...CODE_EXITS.filter(([re]) => re.test(code)),
+    ...CODE_EXITS.filter(([re, , applies]) => re.test(code) && (applies?.(code, html, raw) ?? true)),
     ...RAW_CODE_EXITS.filter(([re]) => re.test(raw)),
   ].map(([, what]) => what);
   return [...new Set(found)];

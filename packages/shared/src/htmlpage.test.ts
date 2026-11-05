@@ -63,4 +63,47 @@ describe("a page's ways out", () => {
       expect(exitsIn(html), html).toEqual([]);
     }
   });
+
+  /* Pages as KOS writes them, over tables with location columns. */
+  it("lets realistic React and chart pages through", () => {
+    const react = script(`
+      const { useState, useEffect } = React;
+      function Row({ row }) {
+        let { location, amount } = row;
+        location = location.trim() || "Unknown";
+        return h("tr", null, h("td", null, location), h("td", null, amount));
+      }
+      function open(id) { setSelected(id); }
+      function App() {
+        const [rows, setRows] = useState([]);
+        useEffect(() => { kos.query("SELECT location, amount FROM trips_legs").then((r) => setRows(r.rows)); }, []);
+        return h("table", { onClick: () => open(rows[0].id) }, rows.map((row) => h(Row, { row })));
+      }
+      ReactDOM.createRoot(document.getElementById("root")).render(h(App));`);
+    const chart = script(`
+      const goal = { target: 0, action: "none" };
+      goal.target = 500;
+      const config = {};
+      config.action = "zoom";
+      config.href = undefined;
+      kos.query("SELECT location, COUNT(*) AS n FROM trips_legs GROUP BY 1").then(({ rows }) => {
+        KosCharts.bar(document.getElementById("c"), rows.map(({ location, n }) => ({ label: location, value: n })));
+      });
+      const open = (panel) => panel.classList.add("open");
+      open(document.querySelector(".panel"));`);
+    for (const html of [`<div id="root"></div>${react}`, `<div id="c" class="kos-chart"></div><div class="panel"></div>${chart}`]) {
+      expect(exitsIn(html), html).toEqual([]);
+    }
+  });
+
+  it("still refuses the same names when they are the window's and the link's", () => {
+    for (const html of [
+      script("const a = document.createElement('a'); a.href = u; a.click()"),
+      `<a id="x">x</a>${script("document.getElementById('x').target = '_blank'")}`,
+      script("const row = rows[0]; location = row.url"),
+      script("open(row.url)"),
+    ]) {
+      expect(exitsIn(html), html).not.toEqual([]);
+    }
+  });
 });
