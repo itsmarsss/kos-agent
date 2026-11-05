@@ -80,7 +80,15 @@ export function createComputerUse(options: ComputerUseOptions): ComputerUse {
         caller: options.caller,
         titleOf: options.titleOf,
         panelChrome: (conversation) => panel.deviceOf(conversation),
-        ...(events ? { onHalt: (handler: () => void) => events.on("halt:changed", (e) => (e.halted ? handler() : undefined)) } : {}),
+        ...(events
+          ? {
+              onHalt: (handler: () => void) => events.on("halt:changed", (e) => (e.halted ? handler() : undefined)),
+              onFresh: (handler: (conversation: string) => void) => {
+                const offs = [events.on("turn:start", (e) => handler(e.conversationId)), events.on("query:fresh", (e) => handler(e.conversationId))];
+                return () => offs.forEach((off) => off());
+              },
+            }
+          : {}),
       });
       await active.activate(ctx);
     },

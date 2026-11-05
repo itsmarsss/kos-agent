@@ -1137,6 +1137,7 @@ export class Kernel {
             cwd: this.workspace.root,
             maxTurns: this.behaviour().maxSteps,
             picturesPerQuery: PICTURES_PER_QUERY,
+            onFreshQuery: () => this.bus.emit({ kind: "query:fresh", conversationId: sessionId }),
             ...(this.sdkScreen() ? { screen: this.sdkScreen()! } : {}),
             onDelta: (delta) =>
               this.progress.emit({

@@ -37,6 +37,8 @@ export interface ComputerToolsDeps {
   panelChrome?(conversation: string): string | undefined;
   /** Subscribe to the kill switch; the handler is told when it is thrown. */
   onHalt?(handler: () => void): () => void;
+  /** Subscribe to a chat starting afresh (a turn, or a fresh query of one), which has not seen the last picture. */
+  onFresh?(handler: (conversation: string) => void): () => void;
   /** How long the screen is given to settle after an action before the picture. */
   settleMs?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -199,14 +201,14 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
    */
   const settling = new Set<string>();
 
-  const look = async (chat: string, prefix: string, region?: { x: number; y: number; width: number; height: number }, settle = false) => {
+  const look = async (chat: string, prefix: string, region?: { x: number; y: number; width: number; height: number }, settle = false, always = false) => {
     const result = await hub.act(chat, "screen.capture", { ...(region ? { region } : {}), ...(settle && !region ? { settle: deps.settleMs ?? SETTLE_MS } : {}) });
     if (result.settled === true) settling.add(chat);
     const capture = readCapture(result);
     const text = `${prefix}${prefix ? " " : ""}${describe(capture, region !== undefined)}`.trim();
     if (region) return { text, images: [{ mediaType: capture.mediaType, data: capture.image }] };
     const digest = createHash("sha1").update(capture.image).digest("hex");
-    if (shown.get(chat) === digest) return `${prefix}${prefix ? " " : ""}The screen has not changed since your last picture.`.trim();
+    if (!always && shown.get(chat) === digest) return `${prefix}${prefix ? " " : ""}The screen has not changed since your last picture.`.trim();
     shown.set(chat, digest);
     return { text, images: [{ mediaType: capture.mediaType, data: capture.image }] };
   };
@@ -374,7 +376,8 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         if (!session) throw new Error(refusalText(new DeviceError("no_session", "no session"), hub.takeEnding(chat)));
         const lookAfter = input.then !== "none";
         try {
-          if (action === "screenshot") return await look(chat, "");
+          // Asked for outright, the picture is sent: the model may not have the last one any more.
+          if (action === "screenshot") return await look(chat, "", undefined, false, true);
           if (action === "zoom") {
             const r = input.region;
             if (!Array.isArray(r) || r.length !== 4 || !r.every((n) => typeof n === "number")) throw new Error("zoom needs region [x1, y1, x2, y2]");
@@ -613,7 +616,12 @@ export function computerModule(deps: ComputerToolsDeps): KosModule {
         }
       };
       sync();
-      unsubscribe = [hub.onChange(sync), ...(deps.onHalt ? [deps.onHalt(() => hub.endAll("host"))] : [])];
+      unsubscribe = [
+        hub.onChange(sync),
+        ...(deps.onHalt ? [deps.onHalt(() => hub.endAll("host"))] : []),
+        // A new turn or query has not seen the last picture, so the next one is sent whole.
+        ...(deps.onFresh ? [deps.onFresh((chat) => shown.delete(chat))] : []),
+      ];
     },
     deactivate() {
       for (const off of unsubscribe) off();

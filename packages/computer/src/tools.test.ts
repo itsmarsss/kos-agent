@@ -25,6 +25,7 @@ function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void> 
   });
   const tools = new Map<string, { handler: Handler; risk: ToolRisk | undefined }>();
   const halts: (() => void)[] = [];
+  const freshes: ((chat: string) => void)[] = [];
   const ctx: ModuleContext = {
     registerTool: (def, handler, risk) => {
       tools.set(def.name, { handler: handler as Handler, risk });
@@ -38,6 +39,10 @@ function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void> 
     titleOf: (id) => (id === "c1" ? "Design" : id),
     onHalt: (handler) => {
       halts.push(handler);
+      return () => undefined;
+    },
+    onFresh: (handler) => {
+      freshes.push(handler);
       return () => undefined;
     },
     settleMs: opts.settleMs ?? 0,
@@ -56,7 +61,7 @@ function setup(opts: { settleMs?: number; sleep?: (ms: number) => Promise<void> 
     fake.hello();
     return fake;
   };
-  return { hub, tools, call, pair, halts };
+  return { hub, tools, call, pair, halts, fresh: (chat: string) => freshes.forEach((f) => f(chat)) };
 }
 
 const textOf = (r: Result): string => (typeof r === "string" ? r : r.text);
@@ -190,6 +195,24 @@ describe("the computer tools", () => {
     // A zoom is always a picture, and a session started again starts with one.
     await call("computer.end");
     expect(typeof (await call("computer.start", { task: "again" }))).not.toBe("string");
+  });
+
+  it("send the picture whenever a screenshot is asked for, and after a new turn or query", async () => {
+    const { call, pair, fresh } = setup();
+    pair();
+    await call("computer.start", { task: "watch" });
+    const pictured = (r: Result): boolean => typeof r !== "string" && (r.images?.length ?? 0) === 1;
+    // Asked for outright: the picture, though nothing changed.
+    expect(pictured(await call("computer.act", { action: "screenshot" }))).toBe(true);
+    expect(await call("computer.act", { action: "key", text: "Tab" })).toBe("Pressed Tab. The screen has not changed since your last picture.");
+    // A new turn, or a turn carried on in a fresh query, has not seen it: sent whole.
+    fresh("c1");
+    expect(pictured(await call("computer.act", { action: "key", text: "Tab" }))).toBe(true);
+    expect(textOf(await call("computer.act", { action: "key", text: "Tab" }))).toMatch(/has not changed/);
+    fresh("other");
+    expect(textOf(await call("computer.act", { action: "key", text: "Tab" }))).toMatch(/has not changed/);
+    fresh("c1");
+    expect(pictured(await call("computer.act", { action: "key", text: "Tab" }))).toBe(true);
   });
 
   it("refuse what is off the screen, and say what to do when there is no session or the owner took over", async () => {
