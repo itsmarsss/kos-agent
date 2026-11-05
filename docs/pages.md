@@ -35,12 +35,31 @@ a rollback is a version too, so it can be undone.
 
 ## What the page runs in
 
-The dashboard puts the page in an iframe with `sandbox="allow-scripts"` and
-no `allow-same-origin`, so the frame is an opaque origin: it cannot read the
-dashboard's DOM, cookies, storage or token, and cannot submit forms, open
-windows or navigate the dashboard. Its document begins with a Content
-Security Policy that allows no network at all: `connect-src 'none'`, no
-external script, style, image or font, inline code and `data:` URLs only.
+The dashboard frames a small wrapper document, and the wrapper frames the
+page. Both are `srcdoc` iframes with `sandbox="allow-scripts"` and no
+`allow-same-origin`, so both are opaque origins: the page cannot read the
+dashboard's DOM, cookies, storage or token.
+
+Each layer stops something the others do not. All of it was tried in a real
+Chrome by a page attempting every way out (`artifact.chrome.test.ts`, which
+also runs the old flat frame as a control and sees it leak):
+
+| Layer | What it stops |
+| --- | --- |
+| The sandbox: scripts only | `window.open` and `target=_blank` (no popups), forms (no `allow-forms`), navigating the dashboard or any frame but the page's own (`top.location`, `parent.location`, `target=_top`) |
+| The page's policy, first in its head: no network | fetch, beacons, sockets, event streams, workers' fetches, external images, fonts, styles, scripts, objects and frames |
+| The wrapper's policy: its frame may hold `about:` documents and nothing else | the page sending itself anywhere: `location.href`, `assign`, `replace`, a meta refresh, a link it clicks, a download link, `data:` and `blob:` documents. A frame's navigation is checked against its parent's policy, and a `srcdoc` frame inherits its parent's policy, so the page can narrow it but never widen it |
+| Trusted Types and the guard script, run before the page's own | the elements no policy governs: `<link rel=prerender>` (which sends a real request whatever the policy says), other prefetch links, speculation rules, `<meta>`, `<iframe>` (a fresh realm), `<form>`, `<object>`, `<base>`, `<script>`. Every string the page turns into HTML (`innerHTML`, `insertAdjacentHTML`, `document.write`, `DOMParser`, ranges, shadow roots, templates) goes through one policy that refuses them; `createElement` and `createElementNS` refuse them and are frozen; XSLT is taken away |
+| `pages.write` | the same constructs in the page as written: `<link>`, `<meta http-equiv>`, frames, objects, `<base>`, `<form>`, speculation rules, link or form targets, download links, and in its code `location`, `window.open`, `submit()`, `navigation.navigate`. The page is refused with what it held, because a page that tries one only breaks (it has no network to reach), and because of the one leak below |
+
+**What still leaves.** When a page starts a navigation, Chrome opens a
+connection to the host it names (a DNS lookup and a TCP connect) before the
+wrapper's policy refuses it. No request is sent, so no path, query or body
+leaves, but the host name itself does, and a name can carry a little data.
+An opaque frame has no Navigation API, which is the one way to cancel a
+navigation before it starts, so this is held at write time only: a page that
+names `location` or a link target plainly is refused, and one that hides it
+behind computed names is not caught.
 
 Before the page's own markup the frame gets:
 
@@ -48,7 +67,7 @@ Before the page's own markup the frame gets:
   and again whenever the owner switches theme;
 - `kit.css` and `page.css` from `@kos/kit`, so plain markup and the kit's
   classes read as KOS;
-- the `window.kos` bridge;
+- the `window.kos` bridge, which talks to the dashboard as `top`;
 - the libraries the page named, inlined from the dashboard's own build
   (`dist/page-lib/`).
 
@@ -83,14 +102,10 @@ audit log as `page.query`, `page.write` or `page.file`.
 
 - A page is checked when it is written: its size (400,000 characters at
   most), its libraries, its declarations, that its write targets exist and are
-  its own project's, and that its headline is read-only. A bad page is
-  refused with the reason, before anyone sees it.
+  its own project's, that its headline is read-only, and that it holds
+  nothing that would try to leave its frame. A bad page is refused with the
+  reason, before anyone sees it.
 - An error the page throws is shown above it with **Fix with KOS**, which
   sends the error to the project's chat.
-- A page that sends its frame to another address is stopped and its frame
-  removed.
-
-**A known limit.** A sandboxed frame may still navigate itself, and the shell
-can only see that it did after the fact, so a page could carry what it read
-into the address it navigates to before it is stopped. What it could have read
-is only its own project's data, and only a page the agent wrote can try.
+- A page whose frame loads anything a second time (it tried to leave and was
+  refused) is removed, with the same button.
