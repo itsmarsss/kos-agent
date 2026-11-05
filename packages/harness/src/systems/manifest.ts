@@ -225,10 +225,18 @@ export class ProjectManifest {
     return toProject(row);
   }
 
+  /**
+   * A slug no project has, and that no table already answers to. A project's
+   * tables are named <slug>_<table>, so a slug that is, or prefixes, a table
+   * that exists (KOS's own permission_rules, memory_claims, audit_log, or
+   * another project's) would make that table look like the new project's.
+   */
   private uniqueSlug(base: string): string {
+    const tables = (this.db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[]).map((r) => r.name);
+    const clashes = (slug: string): boolean => this.get(slug) !== undefined || tables.some((t) => t === slug || t.startsWith(`${slug}_`));
     let slug = base;
     let n = 2;
-    while (this.get(slug)) {
+    while (clashes(slug)) {
       slug = `${base}_${n}`;
       n += 1;
     }

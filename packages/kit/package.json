@@ -10,7 +10,8 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./kit.css": "./src/kit.css"
+    "./kit.css": "./src/kit.css",
+    "./page.css": "./src/page.css"
   },
   "scripts": {
     "build": "tsc -b"

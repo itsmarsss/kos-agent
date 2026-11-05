@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import type { PageSpec } from "@kos/shared";
+
 import { CronStore } from "../cron/store.js";
 import { Workspace } from "../store/workspace.js";
 import { ProjectManifest } from "../systems/manifest.js";
@@ -17,6 +19,10 @@ import {
   writeBlueprintModule,
 } from "./blueprint.js";
 import { readWorkspaceModules } from "./workspace.js";
+import type { LoadedPage } from "../systems/pages.js";
+
+/** A spec page as loaded, or nothing when the page is not one. */
+const specOf = (got: LoadedPage | undefined) => (got?.kind === "spec" ? got.spec : undefined);
 
 /**
  * A project, promoted and instantiated again.
@@ -78,7 +84,7 @@ describe("a blueprint", () => {
     const { blueprint, derived } = extractBlueprint({ db: ws.db, manifest, migrator, pages, crons }, slug);
     expect(blueprint.type).toBe("budget");
     expect(blueprint.schema.map((s) => s.op)).toEqual(["create_table", "add_column"]);
-    expect(blueprint.pages[0]?.widgets[0]).toMatchObject({ query: "SELECT SUM(amount) AS total FROM {{instance}}_tx" });
+    expect((blueprint.pages[0] as PageSpec).widgets[0]).toMatchObject({ query: "SELECT SUM(amount) AS total FROM {{instance}}_tx" });
     expect(blueprint.jobs).toEqual([expect.objectContaining({ name: "weekly digest", prompt: "Summarise {{instance}}_tx for the week." })]);
     expect(derived).toEqual([]);
     expect(JSON.stringify(blueprint)).not.toContain("groceries");
@@ -129,9 +135,56 @@ describe("a blueprint", () => {
     expect(migrator.history("side_biz")).toHaveLength(2);
     // Its page reads its own table; its job is there and off.
     const page = pages.get("side_biz_spend");
-    expect(page?.spec.widgets[0]).toMatchObject({ query: "SELECT SUM(amount) AS total FROM side_biz_tx" });
+    expect(specOf(page)?.widgets[0]).toMatchObject({ query: "SELECT SUM(amount) AS total FROM side_biz_tx" });
     const job = crons.list().find((j) => j.projectSlug === "side_biz");
     expect(job).toMatchObject({ enabled: false, prompt: "Summarise side_biz_tx for the week." });
+  });
+
+  it("carries an HTML page, its declarations and headline following the instance's slug", () => {
+    const slug = budget();
+    pages.writeHtml(slug, {
+      id: "board",
+      title: "Board",
+      html: "<script>kos.query('SELECT note FROM household_tx')</script>",
+      capabilities: { writes: [{ table: "household_tx", columns: ["note"] }] },
+      headline: { label: "Spent", query: "SELECT SUM(amount) FROM household_tx" },
+    });
+    const { blueprint } = extractBlueprint({ db: ws.db, manifest, migrator, pages, crons }, slug);
+    const html = blueprint.pages.find((p) => p.id === "board");
+    expect(html).toMatchObject({ kind: "html", capabilities: { writes: [{ table: "{{instance}}_tx" }] } });
+    expect(checkBlueprint(blueprint)).toEqual([]);
+    instantiateBlueprint({ db: ws.db, manifest, migrator, pages, crons }, "b", blueprint, "Side biz");
+    const got = pages.get("side_biz_board");
+    expect(got?.kind).toBe("html");
+    if (got?.kind !== "html") return;
+    expect(got.page.html).toContain("FROM side_biz_tx");
+    expect(got.page.capabilities?.writes?.[0]?.table).toBe("side_biz_tx");
+    expect(got.page.headline?.query).toBe("SELECT SUM(amount) FROM side_biz_tx");
+  });
+
+  /*
+   * The slug swap ran on every string a page holds, its code and its words
+   * among them, and the instance's page ids were built from the token.
+   */
+  it("swaps only table names, leaving a page's code and words, and keeps ids valid", () => {
+    for (const [name, table, id] of [
+      ["School", "grades", "school_dashboard"],
+      ["Tasks bu354", "items", "tasks_bu354_midterm_checklist"],
+      ["Resume", "jobs", "resume_board"],
+    ] as const) {
+      const p = manifest.createProject({ name, type: "notes" });
+      migrator.migrate(p.slug, { op: "create_table", table, columns: [{ name: "id", type: "INTEGER", primaryKey: true }] });
+      const html = `<p>For high school and preschool_x.</p><script>audioCtx.resume(); kos.query('SELECT id FROM ${p.slug}_${table}'); const ${p.slug}Total = 1;</script>`;
+      pages.writeHtml(p.slug, { id, title: "T", html });
+      const { blueprint } = extractBlueprint({ db: ws.db, manifest, migrator, pages, crons }, p.slug);
+      expect(checkBlueprint(blueprint)).toEqual([]);
+      const made = instantiateBlueprint({ db: ws.db, manifest, migrator, pages, crons }, "b", blueprint, `${name} copy`);
+      const got = pages.list(made.slug)[0];
+      expect(got?.id).toMatch(/^[a-z][a-z0-9_-]*$/);
+      expect(got?.id).toBe(id.replace(p.slug, made.slug));
+      const page = pages.get(got!.id);
+      expect(page?.kind === "html" && page.page.html).toBe(html.replace(`${p.slug}_${table}`, `${made.slug}_${table}`));
+    }
   });
 
   it("refuses a blueprint that would not apply", () => {
@@ -146,7 +199,7 @@ describe("a blueprint", () => {
     const { blueprint } = extractBlueprint({ db: ws.db, manifest, migrator, pages, crons }, slug);
     const second = instantiateBlueprint({ db: ws.db, manifest, migrator, pages, crons }, "b", blueprint, "Household 2");
     expect(second.slug).toBe("household_2");
-    expect(pages.get("household_2_spend")?.spec.widgets[0]).toMatchObject({ query: "SELECT SUM(amount) AS total FROM household_2_tx" });
+    expect(specOf(pages.get("household_2_spend"))?.widgets[0]).toMatchObject({ query: "SELECT SUM(amount) AS total FROM household_2_tx" });
   });
 
   it("leaves nothing behind when an instance cannot be completed", () => {

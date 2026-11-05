@@ -1,19 +1,28 @@
-import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, rmSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import {
+  isReadOnlyQuery,
   isValidPageSpec,
+  validateHtmlPage,
   validatePageSpec,
+  type HtmlPage,
   type PageSpec,
 } from "@kos/shared";
 
 import type { Db } from "../store/db.js";
 import type { Workspace } from "../store/workspace.js";
+import { projectTable } from "./identifiers.js";
 import type { ProjectManifest } from "./manifest.js";
+import { BridgeRefusal, tablesRead } from "./pagebridge.js";
+import { registeredTables } from "./registered.js";
 
 /**
- * Agent-authored page specs: validated JSON stored under the project folder
- * and indexed in SQLite so the dashboard can list and render them.
+ * Agent-authored pages, stored under the project folder and indexed in SQLite
+ * so the dashboard can list and render them. A page is an HTML document the
+ * agent writes, the way a Claude artifact is (`writeHtml`), or, from before
+ * that, a JSON spec over the widget library (`write`), which still renders.
+ * Every write is kept as a version, so the owner can go back to one.
  */
 
 const SCHEMA = `
@@ -26,13 +35,59 @@ CREATE TABLE IF NOT EXISTS pages (
 );
 `;
 
+/** How many versions of one page are kept; older ones go. */
+const VERSIONS_KEPT = 30;
+
+export type PageKind = "spec" | "html";
+
 export interface PageRecord {
   id: string;
   projectSlug: string;
   title: string;
   path: string;
   updatedAt: number;
+  kind: PageKind;
 }
+
+/** A page as stored: a spec for the widget library, or an HTML page. */
+export type LoadedPage = { record: PageRecord; kind: "spec"; spec: PageSpec } | { record: PageRecord; kind: "html"; page: HtmlPage };
+
+/** One kept write of a page, newest last. */
+export interface PageVersion {
+  version: number;
+  at: number;
+  title: string;
+  kind: PageKind;
+}
+
+interface Row {
+  id: string;
+  project_slug: string;
+  title: string;
+  path: string;
+  updated_at: number;
+  kind: string | null;
+  meta: string | null;
+}
+
+/** What an HTML page declares besides its markup, kept on its row. */
+type HtmlMeta = Omit<HtmlPage, "id" | "title" | "html">;
+
+const recordOf = (r: Row): PageRecord => ({
+  id: r.id,
+  projectSlug: r.project_slug,
+  title: r.title,
+  path: r.path,
+  updatedAt: r.updated_at,
+  kind: r.kind === "html" ? "html" : "spec",
+});
+
+/**
+ * Models write `<\/script>` because that is how a closing tag is escaped inside
+ * a JavaScript string; in HTML it closes nothing and the page silently does
+ * nothing. It has no meaning in HTML, so it is repaired on the way in.
+ */
+const repairClosingTags = (html: string): string => html.replace(/<\\\//g, "</");
 
 /** The project a physical table belongs to: the longest slug that prefixes it. */
 export function ownerOf(table: string, slugs: string[]): string | undefined {
@@ -51,75 +106,37 @@ export class PageStore {
     private readonly now: () => number = Date.now,
   ) {
     this.db.exec(SCHEMA);
+    // An HTML page's kind and declarations, added to a table that predates them.
+    const cols = new Set((this.db.prepare(`PRAGMA table_info(pages)`).all() as { name: string }[]).map((c) => c.name));
+    if (!cols.has("kind")) this.db.exec(`ALTER TABLE pages ADD COLUMN kind TEXT NOT NULL DEFAULT 'spec'`);
+    if (!cols.has("meta")) this.db.exec(`ALTER TABLE pages ADD COLUMN meta TEXT`);
   }
 
-  private filePath(projectSlug: string, pageId: string): string {
-    return join("projects", projectSlug, "pages", `${pageId}.json`);
+  private row(id: string): Row | undefined {
+    return this.db.prepare(`SELECT id, project_slug, title, path, updated_at, kind, meta FROM pages WHERE id = ?`).get(id) as Row | undefined;
   }
 
   list(projectSlug?: string): PageRecord[] {
-    const rows = projectSlug
-      ? (this.db
-          .prepare(
-            `SELECT id, project_slug, title, path, updated_at FROM pages
-             WHERE project_slug = ? ORDER BY title`,
-          )
-          .all(projectSlug) as Array<{
-          id: string;
-          project_slug: string;
-          title: string;
-          path: string;
-          updated_at: number;
-        }>)
-      : (this.db
-          .prepare(
-            `SELECT id, project_slug, title, path, updated_at FROM pages
-             ORDER BY project_slug, title`,
-          )
-          .all() as Array<{
-          id: string;
-          project_slug: string;
-          title: string;
-          path: string;
-          updated_at: number;
-        }>);
-    return rows.map((r) => ({
-      id: r.id,
-      projectSlug: r.project_slug,
-      title: r.title,
-      path: r.path,
-      updatedAt: r.updated_at,
-    }));
+    const cols = `id, project_slug, title, path, updated_at, kind, meta`;
+    const rows = (
+      projectSlug
+        ? this.db.prepare(`SELECT ${cols} FROM pages WHERE project_slug = ? ORDER BY title`).all(projectSlug)
+        : this.db.prepare(`SELECT ${cols} FROM pages ORDER BY project_slug, title`).all()
+    ) as Row[];
+    return rows.map(recordOf);
   }
 
-  get(id: string): { record: PageRecord; spec: PageSpec } | undefined {
-    const row = this.db
-      .prepare(
-        `SELECT id, project_slug, title, path, updated_at FROM pages WHERE id = ?`,
-      )
-      .get(id) as
-      | {
-          id: string;
-          project_slug: string;
-          title: string;
-          path: string;
-          updated_at: number;
-        }
-      | undefined;
+  get(id: string): LoadedPage | undefined {
+    const row = this.row(id);
     if (!row) return undefined;
     const abs = this.workspace.resolve(row.path);
     if (!existsSync(abs)) return undefined;
-    const spec = JSON.parse(readFileSync(abs, "utf8")) as PageSpec;
-    return {
-      record: {
-        id: row.id,
-        projectSlug: row.project_slug,
-        title: row.title,
-        path: row.path,
-        updatedAt: row.updated_at,
-      },
-      spec,
-    };
+    const record = recordOf(row);
+    if (record.kind === "html") {
+      const meta = (row.meta ? JSON.parse(row.meta) : {}) as HtmlMeta;
+      return { record, kind: "html", page: { id: row.id, title: row.title, html: readFileSync(abs, "utf8"), ...meta } };
+    }
+    return { record, kind: "spec", spec: JSON.parse(readFileSync(abs, "utf8")) as PageSpec };
   }
 
   /**
@@ -222,36 +239,125 @@ export class PageStore {
     const page = spec as PageSpec;
     this.assertMutationTablesExist(projectSlug, page);
     this.assertQueriesStayInProject(projectSlug, page);
-    const rel = this.filePath(projectSlug, page.id);
+    return this.save(projectSlug, page.id, page.title, "spec", JSON.stringify(page, null, 2), null);
+  }
+
+  /**
+   * Validate and write an HTML page. What it may reach is checked here as well
+   * as on every call: a table it says it writes, or its headline reads, must be
+   * one its project made (registered.ts), so the mistake is named now rather
+   * than on the owner's first save.
+   */
+  writeHtml(projectSlug: string, input: unknown): PageRecord {
+    if (!this.manifest.get(projectSlug)) {
+      throw new Error(`unknown project: ${projectSlug}`);
+    }
+    const errors = validateHtmlPage(input);
+    if (errors.length > 0) throw new Error(`invalid page: ${errors.join("; ")}`);
+    const page = input as HtmlPage;
+    const tables = registeredTables(this.db, projectSlug);
+    for (const [i, target] of (page.capabilities?.writes ?? []).entries()) {
+      if (tables.has(target.table)) continue;
+      const namespaced = projectTable(projectSlug, target.table);
+      const hint = tables.has(namespaced) ? `use "${namespaced}"` : "create it with systems.migrate first";
+      throw new Error(`capabilities.writes[${i}]: "${target.table}" is not a table of project "${projectSlug}"; ${hint}`);
+    }
+    if (page.headline) {
+      if (!isReadOnlyQuery(page.headline.query)) throw new Error("headline.query must be a single read-only SELECT");
+      try {
+        for (const table of tablesRead(this.db, page.headline.query, [])) {
+          if (!tables.has(table)) throw new BridgeRefusal(`it reads "${table}", which is not a table of project "${projectSlug}"`);
+        }
+      } catch (err) {
+        throw new Error(`headline.query: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    const meta: HtmlMeta = {
+      ...(page.capabilities ? { capabilities: page.capabilities } : {}),
+      ...(page.libraries ? { libraries: page.libraries } : {}),
+      ...(page.headline ? { headline: page.headline } : {}),
+    };
+    return this.save(projectSlug, page.id, page.title, "html", repairClosingTags(page.html), meta);
+  }
+
+  /** Write a page's file and row, and keep the write as a version. */
+  private save(projectSlug: string, id: string, title: string, kind: PageKind, body: string, meta: HtmlMeta | null): PageRecord {
+    const previous = this.row(id);
+    const rel = join("projects", projectSlug, "pages", `${id}.${kind === "html" ? "html" : "json"}`);
     const abs = this.workspace.resolve(rel);
     mkdirSync(dirname(abs), { recursive: true });
-    writeFileSync(abs, JSON.stringify(page, null, 2));
+    writeFileSync(abs, body);
+    // A page that changed kind leaves its old file behind otherwise.
+    if (previous && previous.path !== rel) {
+      const old = this.workspace.resolve(previous.path);
+      if (existsSync(old)) unlinkSync(old);
+    }
     const ts = this.now();
+    const metaText = meta ? JSON.stringify(meta) : null;
     this.db
       .prepare(
-        `INSERT INTO pages (id, project_slug, title, path, updated_at)
-         VALUES (@id, @projectSlug, @title, @path, @ts)
+        `INSERT INTO pages (id, project_slug, title, path, updated_at, kind, meta)
+         VALUES (@id, @projectSlug, @title, @path, @ts, @kind, @meta)
          ON CONFLICT(id) DO UPDATE SET
            project_slug = excluded.project_slug,
            title = excluded.title,
            path = excluded.path,
-           updated_at = excluded.updated_at`,
+           updated_at = excluded.updated_at,
+           kind = excluded.kind,
+           meta = excluded.meta`,
       )
-      .run({
-        id: page.id,
-        projectSlug,
-        title: page.title,
-        path: rel,
-        ts,
-      });
+      .run({ id, projectSlug, title, path: rel, ts, kind, meta: metaText });
+    this.keepVersion(projectSlug, id, { at: ts, title, kind, body, meta });
     this.manifest.touchProject(projectSlug);
-    return {
-      id: page.id,
-      projectSlug,
-      title: page.title,
-      path: rel,
-      updatedAt: ts,
-    };
+    return { id, projectSlug, title, path: rel, updatedAt: ts, kind };
+  }
+
+  private historyDir(projectSlug: string, id: string): string {
+    return this.workspace.resolve(join("projects", projectSlug, "pages", ".history", id));
+  }
+
+  private keepVersion(projectSlug: string, id: string, snapshot: { at: number; title: string; kind: PageKind; body: string; meta: HtmlMeta | null }): void {
+    const dir = this.historyDir(projectSlug, id);
+    mkdirSync(dir, { recursive: true });
+    const numbers = this.versionNumbers(dir);
+    const next = (numbers.at(-1) ?? 0) + 1;
+    writeFileSync(join(dir, `${next}.json`), JSON.stringify(snapshot));
+    for (const old of numbers.slice(0, Math.max(0, numbers.length + 1 - VERSIONS_KEPT))) unlinkSync(join(dir, `${old}.json`));
+  }
+
+  private versionNumbers(dir: string): number[] {
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir)
+      .map((f) => /^(\d+)\.json$/.exec(f)?.[1])
+      .filter((n): n is string => n !== undefined)
+      .map(Number)
+      .sort((a, b) => a - b);
+  }
+
+  /** Every kept write of a page, oldest first; the last is what shows now. */
+  history(id: string): PageVersion[] {
+    const row = this.row(id);
+    if (!row) return [];
+    const dir = this.historyDir(row.project_slug, id);
+    return this.versionNumbers(dir).map((version) => {
+      const v = JSON.parse(readFileSync(join(dir, `${version}.json`), "utf8")) as { at: number; title: string; kind: PageKind };
+      return { version, at: v.at, title: v.title, kind: v.kind };
+    });
+  }
+
+  /**
+   * Put a page back as it was at a version. It goes through the same checks as
+   * any write, against the tables as they are now, and is itself kept as a
+   * version, so a rollback can be undone.
+   */
+  rollback(id: string, version: number): PageRecord {
+    const row = this.row(id);
+    if (!row) throw new Error(`page not found: ${id}`);
+    const file = join(this.historyDir(row.project_slug, id), `${version}.json`);
+    if (!Number.isInteger(version) || !existsSync(file)) throw new Error(`page ${id} has no version ${version}`);
+    const v = JSON.parse(readFileSync(file, "utf8")) as { title: string; kind: PageKind; body: string; meta: HtmlMeta | null };
+    if (v.kind === "html") return this.writeHtml(row.project_slug, { id, title: v.title, html: v.body, ...(v.meta ?? {}) });
+    return this.write(row.project_slug, JSON.parse(v.body));
   }
 
   remove(id: string): boolean {
@@ -259,6 +365,7 @@ export class PageStore {
     if (!got) return false;
     const abs = this.workspace.resolve(got.record.path);
     if (existsSync(abs)) unlinkSync(abs);
+    rmSync(this.historyDir(got.record.projectSlug, id), { recursive: true, force: true });
     this.db.prepare(`DELETE FROM pages WHERE id = ?`).run(id);
     return true;
   }

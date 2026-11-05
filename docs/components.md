@@ -59,6 +59,7 @@ those to this table by hand.
 | `useDismiss` | Closes what floats on a press away, a scroll, a resize or Escape; a menu hears Escape first, a dialog last | kit; `useAnchoredPop` (`ui/src/kit.tsx`) for small popovers | kit (the side panel's chat switcher) | |
 | `StatusDot` | A state as a dot alone: working, needs you, error, unread, read, on, off | kit; `ActivityDot` and `buildDot` (`ui/src/StatusDot.tsx`) choose it for a thread and a build | kit (the session's head) | `Dot` (Controls) |
 | Page head | A page's title, its line, search and actions | `PageHead.tsx` | | |
+| HTML page | A page the agent wrote, in its sandboxed frame, with `window.kos` and the page history | `widgets/ArtifactPage.tsx`, `widgets/artifactdoc.ts`, `PageHistory.tsx`; its look is `@kos/kit/page.css` with `kit.css` ([pages.md](pages.md)) | | |
 | Link | Words in the accent that go somewhere | `a` in `styles.css` | `a` | `KOSLink` (Controls); `.pointingHand()` for the cursor |
 | Time words | Minutes as a person says them | `SchedulePicker.tsx` and `schedulewords.ts` for schedules | `minutesWords` (`pages.ts`) | `minutesWords` (Controls) |
 | Buttons | primary, ghost, danger, small | `.btn` classes | `.btn` classes | `KOSButtonStyle` (Controls); `round: 30` is the round send |
