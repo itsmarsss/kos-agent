@@ -100,7 +100,7 @@ export function reachOf(ctx: ModuleContext): Reach {
   return {
     project: ctx.services?.callerProject?.(),
     projects: (ctx.services?.manifest?.list() ?? []).map((p) => ({ slug: p.slug, name: p.name })),
-    made: ((id) => (id ? (ctx.services?.manifest?.madeIn(id) ?? []) : []))(ctx.services?.callerConversation?.()),
+    made: ctx.services?.turnMade?.made() ?? [],
   };
 }
 

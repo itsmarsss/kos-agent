@@ -61,9 +61,15 @@ tools for the job, `cron.list`, `chats.list` and `chats.read`,
 `tasks.list`, `blobs.list`, `memory.recall`, `discord.threads`), and not
 the schema itself (`sqlite_master`, `PRAGMA`). A chat with no project has
 no tables; it asks KOS at the root, which routes the question to the
-project that owns the data. The chat that made a project is the
+project that owns the data. The turn that made a project is the
 exception: it may build what it made, its tables (`systems.migrate`) and
-its rows, as the project's own chats may. `systems.migrate` keeps to the
+its rows, as the project's own chats may, until that turn ends. The reach
+is held in memory for the running turn and never stored; the next turn in
+that chat is refused and told to hand the work to the project
+(`chats.handoff` to `@project:<slug>`). A guest's turn, the Main chat, an
+orchestrator and a schedule's thread never get it. The manifest's
+`made_in` keeps where a project was made, as history; it gives no reach.
+`systems.migrate` keeps to the
 same reach as `sql`, so a chat can no longer make a table it is then
 refused the rows of. Each turn's prompt lists its own project's
 tables with their columns, so the model types names it has seen and

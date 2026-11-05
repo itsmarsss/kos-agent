@@ -44,7 +44,7 @@ function str(input: Record<string, unknown>, key: string): string {
 
 /**
  * A project's schema is changed by the chats that may fill it, under the
- * sql fence's rule: its own chats, the chat that made it, and Maintenance.
+ * sql fence's rule: its own chats, the turn that made it, and Maintenance.
  * Anywhere else could make a table it was then refused the rows of.
  */
 function refuseOutsideReach(project: string, reach: Reach): void {
@@ -91,10 +91,12 @@ function defineSystemsTools(ctx: ModuleContext): void {
       if (input.instancing === "single" || input.instancing === "multi") {
         body.instancing = input.instancing;
       }
-      // The chat that makes a project may build it: its tables and its rows.
       const madeIn = ctx.services?.callerConversation?.();
       if (madeIn) body.madeIn = madeIn;
       const project = manifest.createProject(body);
+      // The turn that makes a project may build it, its tables and its rows,
+      // until the turn ends; made_in is only the record of where.
+      ctx.services?.turnMade?.note(project.slug);
       return JSON.stringify(project);
     },
     { floor: "safe" },

@@ -43,6 +43,8 @@ export interface ModuleServices {
   callerProject?: () => string | undefined;
   /** The calling conversation's id, read at call time. */
   callerConversation?: () => string | undefined;
+  /** Projects the calling turn made, which it alone may build; dropped when the turn ends. */
+  turnMade?: { note(slug: string): void; made(): string[] };
 }
 
 /**

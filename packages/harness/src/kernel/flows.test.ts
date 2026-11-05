@@ -187,6 +187,69 @@ describe("KOS end-to-end flows", () => {
     expect(page?.kind === "spec" && isValidPageSpec(page.spec as PageSpec)).toBe(true);
   });
 
+  /** What a tool call came back with, by its id, from everything the model was sent. */
+  function resultFor(model: Scripted, id: string): { content: string; isError?: boolean } {
+    const found = model.calls
+      .flatMap((c) => c.request.messages.flatMap((m) => (typeof m.content === "string" ? [] : m.content)))
+      .find((b) => b.type === "tool_result" && b.toolUseId === id);
+    if (!found) throw new Error(`no result for ${id}`);
+    return found as { content: string; isError?: boolean };
+  }
+
+  const garden = (prefix: string, slug = "garden"): ModelResponse[] => [
+    toolCall(`${prefix}1`, "systems.project_create", { name: slug, type: "tracker" }),
+    toolCall(`${prefix}2`, "systems.migrate", {
+      project: slug,
+      spec: { op: "create_table", table: "beds", columns: [{ name: "id", type: "INTEGER", primaryKey: true }, { name: "name", type: "TEXT" }] },
+    }),
+    toolCall(`${prefix}3`, "sql", { sql: `INSERT INTO ${slug}_beds (name) VALUES (?)`, params: ["north"] }),
+    text("Made it."),
+  ];
+
+  it("lets the turn that made a project build and fill it, and only that turn", async () => {
+    const model = scripted([
+      ...garden("a"),
+      toolCall("b1", "sql", { sql: "INSERT INTO garden_beds (name) VALUES (?)", params: ["south"] }),
+      toolCall("b2", "systems.migrate", { project: "garden", spec: { op: "add_column", table: "beds", column: { name: "note", type: "TEXT" } } }),
+      text("Handed on."),
+      toolCall("g1", "sql", { sql: "SELECT * FROM garden_beds" }),
+      text("Cannot."),
+    ]);
+    kernel = await boot(model.inference);
+    const chat = kernel.conversations.create({ userId: kernel.profile.ownerId, title: "Planning" });
+
+    await kernel.handleMessage("make me a garden tracker with a bed", { sessionId: chat.id });
+    expect(resultFor(model, "a2").isError).toBeFalsy();
+    expect(resultFor(model, "a3").isError).toBeFalsy();
+    expect(kernel.workspace.db.prepare("SELECT name FROM garden_beds").all()).toEqual([{ name: "north" }]);
+
+    // The next turn in the same chat is not the project's: it is told whose it is and where to hand it.
+    await kernel.handleMessage("add the south bed", { sessionId: chat.id });
+    expect(resultFor(model, "b1")).toMatchObject({ isError: true });
+    expect(resultFor(model, "b1").content).toMatch(/chats\.handoff to @project:garden/);
+    expect(resultFor(model, "b2")).toMatchObject({ isError: true });
+    expect(resultFor(model, "b2").content).toMatch(/chats\.handoff to @project:garden/);
+
+    // Nor does a guest speaking in that chat.
+    await kernel.handleMessage("what beds are there?", { sessionId: chat.id, guest: { id: "u2", name: "Ana" } });
+    expect(resultFor(model, "g1")).toMatchObject({ isError: true });
+    expect(kernel.workspace.db.prepare("SELECT name FROM garden_beds").all()).toEqual([{ name: "north" }]);
+  });
+
+  it("gives no build reach to a schedule's, the Main chat's or an orchestrator's turn", async () => {
+    const threads = ["cron:7", primarySessionId("owner"), "orchestrator:owner"];
+    const model = scripted(threads.flatMap((_, i) => garden(`t${i}`, `garden_${i}`)));
+    kernel = await boot(model.inference);
+    expect(kernel.profile.ownerId).toBe("owner");
+    for (const [i, sessionId] of threads.entries()) {
+      // Each made its own project, and may not build it.
+      await kernel.handleMessage("make me a garden tracker", { sessionId, origin: "system" });
+      expect(resultFor(model, `t${i}1`).isError).toBeFalsy();
+      expect(resultFor(model, `t${i}2`)).toMatchObject({ isError: true });
+      expect(resultFor(model, `t${i}3`)).toMatchObject({ isError: true });
+    }
+  });
+
   it("carries tool results into the next turn", async () => {
     const model = scripted([
       toolCall("c1", "systems.project_create", {

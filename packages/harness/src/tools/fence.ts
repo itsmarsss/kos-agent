@@ -118,14 +118,15 @@ export interface Reach {
   project: string | undefined;
   projects: readonly Owner[];
   /**
-   * Projects this chat made, which it may build as their own chats do. A chat
+   * Projects this turn made, which it may build as their own chats do. A chat
    * with no project could create a project's table and then not fill it, and
-   * spent its turn finding a way round: a script, a handoff, a new chat.
+   * spent its turn finding a way round: a script, a handoff, a new chat. The
+   * reach ends with the turn; a later one hands the work to the project.
    */
   made?: readonly string[];
 }
 
-/** The projects a chat's statements and schema changes may reach: its own, and those it made. */
+/** The projects a chat's statements and schema changes may reach: its own, and those this turn made. */
 export function reachable(reach: Reach): string[] {
   return [...new Set([...(reach.project ? [reach.project] : []), ...(reach.made ?? [])])];
 }
@@ -172,7 +173,13 @@ export function fence(sql: string, existing: readonly string[], reach: Reach): F
   };
   const mine = reachable(reach);
   if (!mine.length) {
-    return refuse(`${tables.map(whose).join("; ")}. This chat belongs to no project, so no table is its to read or write: ask KOS at the root, which routes a question to the project that owns the data, or ${HAND_ON}.`);
+    // Named outright: a chat that made a project in an earlier turn is
+    // looking for that project's own chat, not a lecture on the root.
+    const owners = [...new Set(tables.flatMap((t) => ownerOf(t, reach.projects)?.slug ?? []))];
+    const next = owners.length
+      ? `hand the work to the project that owns it (${owners.map((slug) => `chats.handoff to @project:${slug}`).join(", ")}), or ask KOS at the root`
+      : `ask KOS at the root, which routes a question to the project that owns the data, or ${HAND_ON}`;
+    return refuse(`${tables.map(whose).join("; ")}. This chat belongs to no project, so no table is its to read or write: ${next}.`);
   }
   const siblings = reach.projects.map((p) => p.slug);
   const others = tables.filter((t) => !mine.some((slug) => ownedBy(t, slug, siblings)));

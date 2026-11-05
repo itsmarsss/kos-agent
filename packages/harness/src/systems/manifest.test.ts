@@ -32,11 +32,9 @@ describe("ProjectManifest", () => {
     expect(manifest.get("budget_2026")?.name).toBe("Budget 2026");
   });
 
-  it("remembers the chat that made a project, and adds the column to an older workspace", () => {
+  it("records the chat that made a project, and adds the column to an older workspace", () => {
     manifest.createProject({ name: "Garden", type: "tracker", madeIn: "c1" });
-    manifest.createProject({ name: "Pantry", type: "tracker" });
-    expect(manifest.madeIn("c1")).toEqual(["garden"]);
-    expect(manifest.madeIn("c2")).toEqual([]);
+    expect(ws.db.prepare(`SELECT made_in FROM manifest WHERE slug = 'garden'`).get()).toEqual({ made_in: "c1" });
     ws.db.exec(`ALTER TABLE manifest DROP COLUMN made_in`);
     new ProjectManifest(ws.db);
     expect((ws.db.prepare(`PRAGMA table_info(manifest)`).all() as { name: string }[]).map((c) => c.name)).toContain("made_in");

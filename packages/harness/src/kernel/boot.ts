@@ -88,6 +88,7 @@ import { systemsModule } from "../tools/systems.js";
 import { tasksModule } from "../tools/tasks.js";
 import { ensureProfile } from "./profile.js";
 import { RETENTION_KEY, SessionStore, primarySessionId, type Retention } from "./session.js";
+import { TurnMade } from "./turnmade.js";
 import { ConversationStore } from "./conversations.js";
 import { BUILD_SETTINGS_KEY, Kernel, orchestratorId, type KernelOptions } from "./kernel.js";
 import { ORCHESTRATOR_BRIEF } from "./orchestration.js";
@@ -241,6 +242,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   const events = new EventLog(workspace.db, embedder.dimension, Date.now, embedder.name);
   const memoryRetriever = new MemoryRetriever(facts, events, embedder);
 
+  const turnMade = new TurnMade();
   const services: ModuleServices = {
     workspace,
     db: workspace.db,
@@ -256,6 +258,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
       return (id && conversations.get(id)?.projectSlug) || undefined;
     },
     callerConversation: () => kernelRef?.callerConversationId ?? undefined,
+    turnMade,
     // Always wired. Without a channel this used to be absent, so `notify`
     // threw and every unattended job that ended in "tell me" lost its
     // message. The fallback puts it where the owner already looks.
@@ -709,6 +712,7 @@ export async function bootKernel(options: KernelOptions): Promise<Kernel> {
   );
 
   kernelRef = new Kernel({
+    turnMade,
     shelf,
     loader,
     bus,

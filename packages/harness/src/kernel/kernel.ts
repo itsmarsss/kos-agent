@@ -132,8 +132,9 @@ import { bodyHexOf, channelNamesIn, drawingOf, faceSvg, KOS_SEED, lookOf, summar
 import { facePng } from "../files/facepng.js";
 import { attachmentBlocks, isDocument, readAttachments, type Attachment, type KeptFile } from "./attachments.js";
 import { type Profile } from "./profile.js";
-import { SessionStore, cronSessionId } from "./session.js";
-import { ConversationStore, type Conversation, projectConversationId } from "./conversations.js";
+import { SessionStore, cronSessionId, primarySessionId } from "./session.js";
+import type { TurnMade } from "./turnmade.js";
+import { ConversationStore, type Conversation, conversationKind, projectConversationId } from "./conversations.js";
 import {
   needsKernel,
   parseChatCommand,
@@ -372,6 +373,8 @@ export class Kernel {
 
   private readonly inference: Inference;
   private readonly shelf: ResultShelf | undefined;
+  /** Projects a running turn made, which that turn alone may build. */
+  private readonly turnMade: TurnMade;
   private readonly system: string;
   private readonly onApprovalRequested?: (action: PendingAction) => void;
   private readonly sessionless: boolean;
@@ -444,6 +447,7 @@ export class Kernel {
 
   /** Called by bootKernel, which assembles the args; not meant for anyone else. */
   constructor(args: {
+    turnMade: TurnMade;
     workspace: Workspace;
     secrets: SecretsRegistry;
     registry: ToolRegistry;
@@ -647,6 +651,7 @@ export class Kernel {
     this.memoryRetriever = args.memoryRetriever;
     this.inference = args.inference;
     this.shelf = args.shelf;
+    this.turnMade = args.turnMade;
     this.system = args.system;
     this.sessionless = args.sessionless;
     this.features = args.features;
@@ -857,9 +862,11 @@ export class Kernel {
   ): Promise<HandleResult> {
     {
       const runId = this.runs.start("chat");
+      const turnId = String(runId);
       const previousConversation = this.currentConversationId;
       this.currentConversationId = sessionId;
       this.working.add(sessionId);
+      if (this.buildsWhatItMakes(sessionId, opts.guest !== undefined)) this.turnMade.begin(sessionId, turnId);
       this.failed.delete(sessionId);
       // Where this work has been, for as long as the turn runs: a handoff
       // made from inside it extends the trail rather than starting one.
@@ -910,6 +917,7 @@ export class Kernel {
         const tools = this.guardedTools({
           userId,
           conversationId: sessionId,
+          turnId,
           // A schedule's prompt, a blob's own timer, a guest: the owner did not start this one.
           attended: opts.origin !== "system",
           heard: () => this.hear(sessionId, mark),
@@ -1304,7 +1312,7 @@ export class Kernel {
          * settle above ends the turn instead, once the decision has actually
          * been made and the rest of it has run.
          */
-        if (!suspended) this.endTurn(sessionId);
+        if (!suspended) this.endTurn(sessionId, turnId);
       }
     }
   }
@@ -1360,7 +1368,7 @@ export class Kernel {
           this.runs.finish(ctx.runId, "error", why);
           if (!this.stopping.has(ctx.sessionId)) this.failed.set(ctx.sessionId, why);
         })
-        .finally(() => this.endTurn(ctx.sessionId));
+        .finally(() => this.endTurn(ctx.sessionId, String(ctx.runId)));
       return {
         reply: `Waiting on you: ${first.action.tool} needs approval (@approval:${first.action.id}). I will carry on as soon as you decide.`,
         suspended: true,
@@ -1557,7 +1565,21 @@ export class Kernel {
     return ownerWords(mark, waiting.map((w) => w.text));
   }
 
-  private endTurn(sessionId: string): void {
+  /**
+   * Whether a turn here may build the projects it makes, for that turn. Not
+   * a guest's, not the Main chat's, not an orchestrator's (KOS's or a
+   * project's) and not a schedule's: each of those hands a new project's
+   * building to that project's own chat.
+   */
+  private buildsWhatItMakes(sessionId: string, guest: boolean): boolean {
+    if (guest || sessionId === primarySessionId(this.profile.ownerId)) return false;
+    const channel = this.conversations.get(sessionId)?.channel ?? null;
+    const kind = conversationKind({ id: sessionId, channel }, this.profile.ownerId);
+    return kind !== "orchestrator" && kind !== "project" && kind !== "schedule";
+  }
+
+  private endTurn(sessionId: string, turnId?: string): void {
+    if (turnId) this.turnMade.end(sessionId, turnId);
     this.working.delete(sessionId);
     // Words the turn never reached a step to hear run as a turn of their own.
     for (const w of this.steered.get(sessionId) ?? []) w.taken(false);
@@ -2933,6 +2955,8 @@ export class Kernel {
     userId?: string;
     /** The conversation this turn belongs to, for approval routing. */
     conversationId?: string;
+    /** The turn making the calls. */
+    turnId?: string;
     /** Hard allow-list from the conversation, when it is a scoped agent. */
     allow?: string[];
     /** Restricted tools granted for this turn. */
@@ -2967,6 +2991,7 @@ export class Kernel {
       // set changed shape with the wording of each message and nothing said
       // so. Scoping is for the many-modules case it was written for.
       ...(opts.conversationId ? { conversationId: opts.conversationId } : {}),
+      ...(opts.turnId ? { turnId: opts.turnId } : {}),
       permissions: this.permissions,
       permissionContext: (tool) => this.browserContext(tool, opts.conversationId),
       ...(opts.heard ? { heard: opts.heard } : {}),

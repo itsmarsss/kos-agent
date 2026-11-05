@@ -34,7 +34,7 @@ export interface CreateProjectInput {
   module?: string;
   /** Enforced when `module` is set; defaults to "multi". */
   instancing?: Instancing;
-  /** The chat that made it, which may build it too: its tables, its rows. */
+  /** The chat that made it, kept as history only: it gives no reach. */
   madeIn?: string;
 }
 
@@ -136,11 +136,6 @@ export class ProjectManifest {
       )
       .all(module) as Row[];
     return rows.map(toProject);
-  }
-
-  /** The projects a chat made: it may build them, as their own chats may. */
-  madeIn(conversationId: string): string[] {
-    return (this.db.prepare(`SELECT slug FROM manifest WHERE made_in = ?`).all(conversationId) as { slug: string }[]).map((r) => r.slug);
   }
 
   get(slug: string): Project | undefined {
